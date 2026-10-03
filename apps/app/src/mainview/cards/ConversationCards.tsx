@@ -1,9 +1,9 @@
 import { ViewSkeleton } from "../ViewSkeleton"
 import { MarkdownEditorSurface } from "../ViewModules"
 import { flowArgs } from "../flows/FlowArgs"
-import { flowAction, flowProps } from "../flows/FlowAction"
-import { Badge, Button, FileTree } from "@smthrs/ui"
-import { ExternalLink, GitPullRequest, Server } from "lucide-react"
+import { flowAction } from "../flows/FlowAction"
+import {  Button, FileTree } from "@smthrs/ui"
+import { ExternalLink } from "lucide-react"
 import { Suspense, useId, useContext, useSyncExternalStore, type ReactNode } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
@@ -22,53 +22,6 @@ import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { refusalFromStored } from "@smthrs/rpc/Refusal"
 import { refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
-
-
-
-/*
- * The connect surface as an embedded card (§2c″ — the agent's connect form):
- * the same extension-store grammar as the pane, derived from the session the
- * card was rendered with. Sign-in and the GitHub connector are one act
- * (§2a′): a signed-in session reads Connected, never "connect again".
- */
-export const ConnectCardBody = ({
-  card,
-  onConnectGitHub,
-  onRunCommand
-}: {
-  readonly card: Extract<Card, { kind: "connect" }>
-  readonly onConnectGitHub: () => void
-  readonly onRunCommand: RunCommand
-}) => (
-  <ul className="connect-store-list">
-    {card.payload.provider === "github" ? <li className="connect-store-row">
-      <span className="connect-store-icon">
-        <GitPullRequest size={16} aria-hidden="true" />
-      </span>
-      <span className="connect-store-text">
-        <strong>GitHub</strong>
-      </span>
-      {card.payload.github.connected ?
-        <Badge variant="success">Connected ✓ as {card.payload.github.login ?? "you"}</Badge> :
-        (
-          <Button size="sm" {...flowProps("auth.sign-in")} onClick={() => onConnectGitHub()}>
-            Connect
-          </Button>
-        )}
-    </li> : null}
-    <li className="connect-store-row">
-      <span className="connect-store-icon">
-        <Server size={16} aria-hidden="true" />
-      </span>
-      <span className="connect-store-text">
-        <strong>Smithers Cloud repository</strong>
-      </span>
-      <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "repos.import")}>
-        Import
-      </Button>
-    </li>
-  </ul>
-)
 
 /** Untyped browser failures retain safe infrastructure copy; raw words are only Details. */
 export const BROWSER_READ_FAILURE: UserFailureCopy = { fault: "infra", sentence: "That page couldn't be read. Not your fault.", actions: [] }
@@ -290,17 +243,7 @@ export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind:
 
 
 /* These cards exist once their read has settled, so they wear "done" (§28.3). */
-export const conversationCardFamily: CardFamily<"connect" | "world" | "browser"> = {
-  connect: {
-    render: (card, actions) => (
-      <ConnectCardBody
-        card={card}
-        onConnectGitHub={actions.onConnectGitHub}
-        onRunCommand={actions.onRunCommand}
-      />
-    ),
-    pill: settledPill
-  },
+export const conversationCardFamily: CardFamily<"world" | "browser"> = {
   world: {
     render: (card, actions) => (
       <WorldCardBody

@@ -13,7 +13,7 @@ const command = {
   type: "tool_call" as const,
   call_id: "note-1",
   name: "commands",
-  arguments: JSON.stringify({ action: "execute", name: "world.new-note" })
+  arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" })
 }
 const createdNotes = (store: Awaited<ReturnType<typeof createAppStore>>) =>
   [...store.collections.worldDocuments.values()].filter(note => note.path.startsWith("Untitled"))
@@ -86,7 +86,7 @@ test("an ordinary tool-call terminal frame executes and continues", async () => 
   await waitFor(() => f.launches.length === 2)
   expect(createdNotes(f.store)).toHaveLength(1)
   expect([...f.store.collections.toolCalls.values()]).toHaveLength(1)
-  expect(f.launches[1]?.messages).toContainEqual({ type: "function_call_output", call_id: command.call_id, output: "executed /world.new-note" })
+  expect(f.launches[1]?.messages).toContainEqual({ type: "function_call_output", call_id: command.call_id, output: "executed /wiki.new-note" })
   f.emit({ runId: f.launches[0]!.runId, type: "done", reason: "stop" })
   await waitFor(() => f.store.session().phase === "idle")
 })

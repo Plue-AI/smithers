@@ -22,17 +22,12 @@ const inertActions = new Proxy({}, {
 
 /** baseFlows at the split, in registration order. */
 const PRE_SPLIT_BASE: ReadonlyArray<string> = [
-  "connect",
-  "world",
-  "flows",
   "appearance.dark-mode",
   "debug.verbose",
-  "system.recommend",
   "chat",
   "chat.retry",
   "chat.stop",
   "chat.send",
-  "chat.clear",
   "browser.open",
   "flow.create",
   "flow.repo.choose",
@@ -64,11 +59,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "chat.copy-message",
   "approval.approve",
   "approval.deny",
-  "world.new-note",
-  "world.select",
-  "world.delete",
-  "world.delete.confirm",
-  "world.delete.cancel",
   "auth.sign-in",
   "auth.prompt",
   "auth.sign-out",
@@ -92,12 +82,8 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "prs.list",
   "prs.view",
   "prs.tab",
-  "prs.create",
   "prs.land",
   "prs.review",
-  "feature.prototype",
-  "notifications.list",
-  "notifications.read",
   "env.view",
   "env.set",
   "branches.list",
@@ -129,13 +115,10 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "box.egress",
   "box.images",
   "egress.session",
-  "change.request",
   "change.view",
   "change.diff",
   "change.land",
-  "change.split",
   "change.resolve",
-  "change.revert",
   "change.facet",
   "change.pins",
   "change.checks",
@@ -152,14 +135,8 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "agent.list",
   "form.set",
   "form.submit",
-  "tab.card",
-  "tab.select",
-  "tab.close",
   "repo.select",
   "repo.tree",
-  "workspace.rename",
-  "workspace.rename.edit",
-  "files.add"
 ]
 
 /** adminFlows at the split, in registration order. */
@@ -173,10 +150,6 @@ const PRE_SPLIT_ADMIN: ReadonlyArray<string> = [
   "debug.events",
   "debug.net",
   "debug.seams",
-  "admin.grant",
-  "admin.grant.confirm",
-  "admin.grant.cancel",
-  "admin.health"
 ]
 
 describe("Flows.ts aggregator order", () => {

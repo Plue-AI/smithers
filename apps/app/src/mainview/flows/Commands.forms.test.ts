@@ -129,9 +129,9 @@ describe("THE FORM LAW — the agent door", () => {
 
   test("the user-only refusal and the W0 door are untouched: a user-only flow without args is refused by name, never formed", async () => {
     const { store, controller } = await boot()
-    const result = await execute(controller, "tab.select")
-    expect(result).toStartWith("failed: /tab.select is user-only")
-    expect(formOf(store, "tab.select")).toBeUndefined()
+    const result = await execute(controller, "card.maximize")
+    expect(result).toStartWith("failed: /card.maximize is user-only")
+    expect(formOf(store, "card.maximize")).toBeUndefined()
   })
 })
 
@@ -207,8 +207,6 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     expect(formOf(store, "issue.implement")?.payload.error).toBe("An issue number is required")
     expect((await controller.commands.run("issues.list", "one")).status).toBe("form")
     expect(formOf(store, "issues.list")?.payload.error).toBe("issues.list takes open, closed, or all")
-    expect((await controller.commands.run("setup.run", "7 8 9")).status).toBe("form")
-    expect(formOf(store, "setup.run")?.payload.error).toBe("Setup input must be a JSON object")
     await controller.dispose()
   })
 
@@ -294,7 +292,6 @@ describe("THE FORM LAW — every flow's form round-trips through its own grammar
         else if (field.kind === "select") sample[field.name] = field.options?.[0]?.value ?? "x1"
         // A repository target is only ever read in its owner/repo shape (RepoContext.splitTrailingRepo).
         else if (field.name === "repo") sample[field.name] = "o/r"
-        else if (name === "setup.run" && field.name === "manual") sample[field.name] = { stepId: "fix", prompt: "Keep  spaces" }
         else if ((name === "flow.run" || name === "flow.plan") && field.name === "input") sample[field.name] = { message: "Keep  spaces" }
         else sample[field.name] = "x1"
       }
@@ -335,8 +332,7 @@ const propertyShapes = (input: Schema.Top): ReadonlyMap<string, { readonly tag: 
 }
 
 /** A distinct value per field, so a value that shifts onto another field is visible in the comparison. */
-const sampleFor = (tag: string | undefined, field: FormField, index: number, name: string): unknown => {
-  if (name === "setup.run" && field.name === "manual") return { stepId: "fix", prompt: `Keep  spaces ${index}` }
+const sampleFor = (tag: string | undefined, field: FormField, index: number, _name: string): unknown => {
   if (field.kind === "number") return index + 1
   if (field.kind === "boolean") return true
   if (field.kind === "select") return field.options?.[0]?.value ?? `${field.name}-${index}`

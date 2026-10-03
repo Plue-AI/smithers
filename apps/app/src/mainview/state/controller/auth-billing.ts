@@ -1,10 +1,9 @@
-import { AdminGrantRequestSchema, adminGrantReceipt } from "../AdminGrant"
-import type { AdminGrantRequest } from "../AdminGrant"
+
 import { accountProviderChanged } from "../AccountOwner"
 import { identityProviderFor, signInByHandoff } from "../IdentityProvider"
 import {
-ADMIN_GRANT_PATH,
-ADMIN_HEALTH_PATH,
+
+
 AUTH_LOGOUT_PATH,
 AUTH_NATIVE_CLAIM_PATH,
 AUTH_NATIVE_START_PATH,
@@ -22,7 +21,6 @@ import { TOAST_SUPERSEDED } from "./failures"
 import type { ApplicationIdentityClient } from "../../runtime/ApplicationClient"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { presentAppFailure } from "./AppFailure"
-import { AdminSystemHealthSchema } from "@smthrs/rpc/Health"
 
 /* Sign-out failures with no tagged cause. Reloading cannot finish either, so neither says to. */
 const SIGN_OUT_UNCONFIRMED: UserFailureCopy = {
@@ -44,10 +42,6 @@ export interface AuthBillingController {
   readonly signOut: () => Promise<string | void>
   readonly refreshBalance: () => Promise<void>
   readonly showBalance: () => Promise<string | { readonly value: string }>
-  readonly adminGrant: (amountUsd: number, login: string) => string | void
-  readonly adminGrantConfirm: (cardId: string) => Promise<string | void>
-  readonly adminGrantCancel: (cardId: string) => string | void
-  readonly adminHealth: () => Promise<string | void>
   readonly settleTurnBilling: () => void
   readonly watchIdentityAcrossTabs: () => void
 }
@@ -73,11 +67,6 @@ export const createAuthBillingController = (
   openLocalAuth?: () => boolean
 ): AuthBillingController => {
   const { store, services, baseUrl, boundedFetch: http, errorMessageOf, unref } = ctx
-  // Only already-approved writes reconnect, after a fresh same-account admin answer.
-  const hydratedGrantOwner = store.collections.identitySessions.get("identity")
-  const approvedOnReload = new Set([...store.collections.cards.values()]
-    .filter(card => card.kind === "grant-confirm" && card.payload.phase === "sending").map(card => card.id))
-  const activeGrantKeys = new Set<string>()
   const balanceAvailable = services.bootstrap?.capabilities.includes("billing.balance") ?? true
   // Only a session validated during this controller lifetime can complete login.
   // A hydrated identity row, local capability or cloud PAT is not proof.
@@ -95,12 +84,6 @@ export const createAuthBillingController = (
   const admitAccount = (): (() => boolean) => {
     const epoch = ctx.accountEpoch
     return () => !ctx.disposed && ctx.accountEpoch === epoch
-  }
-  /** An admin refusal goes to the transcript of the account that asked, or nowhere. */
-  const adminRefusal = (current: () => boolean, message: string): string | typeof TOAST_SUPERSEDED => {
-    if (!current()) return TOAST_SUPERSEDED
-    store.dispatch({ type: "message.appended", actor: "system", text: message })
-    return message
   }
   const resumeWorkflowRuns = (): void => ctx.resumeWorkflowRuns()
   const resumeDeferredCommand = (): void => ctx.resumeDeferredCommand()
@@ -248,7 +231,6 @@ export const createAuthBillingController = (
     // logged by the browser as a console error anyway.
     void refreshBalanceSilently()
     if (disposed || probe !== mine) return
-    resumeApprovedGrants()
     // Wave 11: a live run card's event pump resumes from its lastSeq.
     resumeWorkflowRuns()
     // The signed-in answer can satisfy a parked command's requirement — the
@@ -751,164 +733,6 @@ export const createAuthBillingController = (
   }
 
   /*
-   * The admin plugin's controller half. Every read and write goes through the
-   * shared backend's /api/admin/* routes, which enforce the authenticated
-   * administrator role and token scope. An optional route that is not mounted
-   * is unavailable; an ordinary account's refusal never counts as a read.
-   */
-  const adminGrant = (amountUsd: number, login: string): string | void => {
-    const identity = store.collections.identitySessions.get("identity")
-    if (identity?.state !== "signed-in" || !identity.admin) return "Admin access required."
-    const id = `grant-${crypto.randomUUID()}`
-    const parsed = AdminGrantRequestSchema.safeParse({ login, amountUsd, operationKey: id })
-    if (!parsed.success) return "Enter a valid amount and login."
-    const request = parsed.data
-    const card: Card = {
-      id,
-      kind: "grant-confirm",
-      title: `Grant $${request.amountUsd} to ${request.login}?`,
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: nextTranscriptOrdinal(),
-      payload: { login: request.login, amountUsd: request.amountUsd, phase: "confirm" }
-    }
-    store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card })
-    return undefined
-  }
-
-  const postApprovedGrant = async (cardId: string, request: AdminGrantRequest): Promise<void> => {
-    if (activeGrantKeys.has(cardId)) return
-    activeGrantKeys.add(cardId)
-    const current = admitAccount()
-    try {
-      // Persist the human's approval before launching. Reload reuses this key.
-      await store.dispatch({
-        type: "card.updated",
-        actor: ctx.commandActor,
-        id: cardId,
-        patch: { status: "active", payload: { login: request.login, amountUsd: request.amountUsd, phase: "sending" } }
-      }).isPersisted.promise
-      if (!current()) return
-      void withToast(
-        "admin.grant",
-        `Granting $${request.amountUsd} to ${request.login}…`,
-        `Granted $${request.amountUsd} to ${request.login}`,
-        async () => {
-          const fail = (message: string): string | typeof TOAST_SUPERSEDED => {
-            if (!current()) return TOAST_SUPERSEDED
-            store.dispatch({ type: "card.updated", actor: "system", id: cardId,
-              patch: { status: "error", payload: { login: request.login, amountUsd: request.amountUsd, phase: "failed", error: message } } })
-            return message
-          }
-          try {
-            const response = await http(`${baseUrl}${ADMIN_GRANT_PATH}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(request)
-            })
-            if (!response.ok) return fail(await errorMessageOf(response, "The grant didn't go through."))
-            const receipt = adminGrantReceipt(request, await response.json().catch(() => undefined), response.status)
-            if (!current()) return TOAST_SUPERSEDED
-            if (receipt === undefined) return fail("The grant receipt didn't match.")
-            store.dispatch({ type: "card.updated", actor: "system", id: cardId,
-              patch: { status: "acted", payload: { login: request.login, amountUsd: request.amountUsd, phase: "granted", grantId: receipt.grantId } } })
-            return true
-          } catch {
-            return fail("The grant didn't go through — the admin route didn't answer.")
-          }
-        },
-        false,
-        current
-      ).finally(() => { activeGrantKeys.delete(cardId) })
-    } catch (error) {
-      activeGrantKeys.delete(cardId)
-      throw error
-    } finally {
-      if (!current()) activeGrantKeys.delete(cardId)
-    }
-  }
-
-  const adminGrantConfirm = async (cardId: string): Promise<string | void> => {
-    const identity = store.collections.identitySessions.get("identity")
-    if (identity?.state !== "signed-in" || !identity.admin) return "Admin access required."
-    const card = store.collections.cards.get(cardId)
-    if (card === undefined || card.kind !== "grant-confirm") return "That grant confirmation is gone."
-    if (card.payload.phase === "granted") return "That grant was already posted."
-    if (card.payload.phase === "sending" || activeGrantKeys.has(cardId)) return undefined
-    const parsed = AdminGrantRequestSchema.safeParse({ login: card.payload.login, amountUsd: card.payload.amountUsd, operationKey: card.id })
-    if (!parsed.success) return "Enter a valid amount and login."
-    // Acknowledgment waits for local persistence, never for the remote grant.
-    await postApprovedGrant(card.id, parsed.data)
-    return undefined
-  }
-
-  const resumeApprovedGrants = (): void => {
-    const identity = store.collections.identitySessions.get("identity")
-    if (identity?.state !== "signed-in" || !identity.admin || hydratedGrantOwner?.state !== "signed-in" ||
-      identity.login !== hydratedGrantOwner.login || accountProviderChanged(hydratedGrantOwner.provider, identity.provider)) return
-    for (const id of approvedOnReload) {
-      approvedOnReload.delete(id)
-      const card = store.collections.cards.get(id)
-      if (card?.kind !== "grant-confirm" || card.payload.phase !== "sending") continue
-      const parsed = AdminGrantRequestSchema.safeParse({ login: card.payload.login, amountUsd: card.payload.amountUsd, operationKey: id })
-      if (parsed.success) {
-        const current = admitAccount()
-        void postApprovedGrant(id, parsed.data).catch(error => {
-          if (current()) ctx.failures.report("command.boundary", error, "admin.grant")
-        })
-      }
-    }
-  }
-
-  const adminGrantCancel = (cardId: string): string | void => {
-    const card = store.collections.cards.get(cardId)
-    if (card === undefined || card.kind !== "grant-confirm") return "That grant confirmation is gone."
-    if (card.payload.phase === "sending") return "That grant is already being posted — a moment."
-    store.dispatch({ type: "card.removed", actor: ctx.commandActor, id: card.id })
-    return undefined
-  }
-
-  const adminHealthImpl = async (current: () => boolean): Promise<true | typeof TOAST_SUPERSEDED | string> => {
-    try {
-      const response = await http(`${baseUrl}${ADMIN_HEALTH_PATH}`)
-      if (response.status !== 200 && response.status !== 503) return adminRefusal(current, await errorMessageOf(response, "The health read didn't answer."))
-      const parsed = AdminSystemHealthSchema.safeParse(await response.json().catch(() => undefined))
-      if (!current()) return TOAST_SUPERSEDED
-      if (!parsed.success || parsed.data.status !== (response.status === 200 ? "ok" : "degraded")) {
-        return adminRefusal(current, "The health read answered in a shape I didn't understand.")
-      }
-      const body = parsed.data
-      const services = [{ name: "database", ...body.database },
-        ...Object.entries(body.components ?? {}).map(([name, component]) => ({ name, ...component }))
-      ].map(component => ({
-        name: component.name,
-        status: component.status === "ok" ? "ok" as const : "failed" as const,
-        detail: component.status === "error" ? component.error ?? "" : component.latency ?? ""
-      }))
-      const existing = store.collections.cards.get("admin-health")
-      const card: Card = {
-        id: "admin-health",
-        kind: "admin-health",
-        title: "Health",
-        status: body.status === "degraded" || services.some((service) => service.status === "failed") ? "error" : "active",
-        createdAt: existing?.createdAt ?? Date.now(),
-        ordinal: nextTranscriptOrdinal(),
-        payload: { services }
-      }
-      store.dispatch({ type: "card.upsert", actor: "system", card })
-    } catch {
-      return adminRefusal(current, "The health read didn't answer — the admin route is unreachable.")
-    }
-    return true
-  }
-
-  const adminHealth = (): Promise<string | void> => {
-    const current = admitAccount()
-    return withToast("admin.health", "Reading service health…", "Service health read", () => adminHealthImpl(current), false, current)
-      .then(() => undefined)
-  }
-
-  /*
    * Chat is complimentary during the alpha: the billing seam records each
    * turn's true cost and debits zero, so the UI carries NO per-turn dollar
    * line. The balance chip still refreshes from the real answer after a turn.
@@ -976,10 +800,6 @@ export const createAuthBillingController = (
     signOut,
     refreshBalance,
     showBalance,
-    adminGrant,
-    adminGrantConfirm,
-    adminGrantCancel,
-    adminHealth,
     settleTurnBilling,
     watchIdentityAcrossTabs
   }

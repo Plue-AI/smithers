@@ -21,11 +21,11 @@ export default showcase({
   id: "review",
   order: 112,
   title: "Pull requests",
-  summary: "Open a PR from a branch, read its files, approve and land it.",
-  flows: ["prs.create", "prs.tab", "prs.review", "prs.land", "prs.list", "prs.view"],
+  summary: "Read a PR, approve and land it.",
+  flows: [ "prs.tab", "prs.review", "prs.land", "prs.list", "prs.view"],
   run: async ({ page, app, backend }) => {
     let state = "open"
-    let opened = false
+    const opened = true
     const reviews: Array<unknown> = []
     const writes: Array<string> = []
     await backend.cloud()
@@ -47,7 +47,6 @@ export default showcase({
     await backend.route(url => url.pathname === `${API}/landings`, route => {
       if (route.request().method() === "POST") {
         writes.push("create")
-        opened = true
         return route.fulfill({ status: 201, json: detail() })
       }
       return route.fulfill({ json: opened ? [detail(), OLDER] : [OLDER] })
@@ -80,11 +79,11 @@ export default showcase({
     ])
 
     await app.open("/")
-    await app.slash(`/prs.create The split flow from:split-flow ${REPO}`)
+    await app.slash(`/prs.view 12 ${REPO}`)
     const card = page.locator('[data-kind="pr"]').last()
     await expect(card).toContainText("The split flow", { timeout: 15_000 })
     await expect(card).toContainText("browser e2e")
-    expect(writes).toEqual(["create"])
+    expect(writes).toEqual([])
     await app.closeComposer()
     await app.show(card)
     await app.beat(1500)
@@ -98,7 +97,7 @@ export default showcase({
     await expect(card).toContainText("approved", { timeout: 15_000 })
     await app.beat(1200)
     await app.click(card.getByRole("button", { name: /Land \(queue merge\)/ }))
-    await expect.poll(() => writes).toEqual(["create", "land"])
+    await expect.poll(() => writes).toEqual(["land"])
     await expect(card).toContainText(/queued/i, { timeout: 15_000 })
     await app.beat(1500)
 

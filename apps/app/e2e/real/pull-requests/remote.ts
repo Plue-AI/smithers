@@ -332,28 +332,20 @@ const requireTip = (owned: OwnedPullRequestRepo): string => {
   return owned.tipChangeId
 }
 
-export const createPullRequestThroughUI = async (
+export const createPullRequestFixture = async (
   page: Page,
   request: APIRequestContext,
   owned: OwnedPullRequestRepo,
   title: string
 ): Promise<{ readonly number: number }> => {
-  const creating = page.waitForResponse((response) => response.request().method() === "POST"
-    && new URL(response.url()).pathname === repositoryApiPath(owned.fullName, "/landings"))
-  await command(page, `/prs.create ${title} from:${owned.branch} ${owned.fullName}`)
-  const response = await creating
-  expect(response.status()).toBe(201)
-  expect(response.request().postDataJSON()).toEqual({
-    title,
-    body: "",
-    source_bookmark: owned.branch,
-    target_bookmark: "main",
-    change_ids: expect.arrayContaining([requireTip(owned)])
+  const response = await realApi(page, request, "POST", repositoryApiPath(owned.fullName, "/landings"), {
+    title, body: "", source_bookmark: owned.branch, target_bookmark: "main", change_ids: [requireTip(owned)]
   })
-  await expectFlowOutcome(page, "prs.create", `${title} from:${owned.branch} ${owned.fullName}`, "executed")
+  expect(response.status()).toBe(201)
   const list = await readJson<readonly Landing[]>(page, request, `${repositoryApiPath(owned.fullName, "/landings")}?limit=100`)
   const matches = list.filter((landing) => landing.title === title)
   expect(matches).toHaveLength(1)
+  await command(page, `/prs.view ${matches[0]!.number} ${owned.fullName}`)
   await expect(landingDetail(page, matches[0]!.number)).toBeVisible()
   return { number: matches[0]!.number }
 }

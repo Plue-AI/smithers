@@ -1,12 +1,5 @@
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
-/*
- * The branches (bookmarks) card: bookmark name plus the short head commit.
- * A row opens that branch's commits (commits.list <branch> <owner/repo>);
- * arrow keys, j and k move between rows. Opening a pull request needs a
- * title the row cannot supply, so its button opens the form.
- */
-import { Button } from "@smthrs/ui"
 import { GitBranch } from "lucide-react"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
@@ -42,11 +35,6 @@ export const BranchesCardBody = ({
           ))
         )}
     </ul>
-    {card.payload.bookmarks.length > 0 ?
-      (
-        <Button size="sm" {...flowAction(onRunCommand, "prs.create")}>Open pull request</Button>
-      ) :
-      null}
   </div>
 )
 

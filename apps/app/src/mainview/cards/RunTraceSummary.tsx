@@ -1,5 +1,4 @@
 import { flowArgs } from "../flows/FlowArgs"
-import { takeoverAct } from "./RunTakeover"
 import { canDecide } from "../state/ApprovalDeciders"
 import type { Card } from "../state/AppState"
 import type { RunCommand } from "./CardFamily"
@@ -46,10 +45,6 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
   const source = launchSourceOf(card)
   const shown = source === undefined ? facts : [`from ${source}`, ...facts]
   const meter = runMeterOf(card.payload.events ?? [])
-  const takeover = takeoverAct(card)
-  const takeoverDoor = takeover === "release"
-    ? { flow: "runs.release" as const, args: flowArgs("runs.release", { runId }) }
-    : { flow: "runs.takeover" as const, args: flowArgs("runs.takeover", { runId }) }
   const parts = meter === undefined ? undefined : runMeterParts(meter)
   return <header className="run-outcome" data-phase={status} data-testid={`run-outcome-${runId}`} aria-label="Current run status">
     <span className="run-outcome-dot" data-status={status} aria-hidden />
@@ -73,12 +68,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
     </>
       : action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Answer</button>
       : action === "resume" ? <button type="button" className="run-trace-filter" data-testid={`flow-run-resume-${runId}`} {...flowAction(onRunCommand, "runs.resume", runId)}>Resume</button> : null}
-    {takeover === undefined ? null : (
-      <button type="button" className="run-trace-filter" data-testid={takeover === "release" ? `flow-run-release-${runId}` : `flow-run-takeover-${runId}`}
-        {...flowAction(onRunCommand, takeoverDoor.flow, takeoverDoor.args)}>
-        {takeover === "release" ? "Release" : "Take over"}
-      </button>
-    )}
+    
     {shown.length === 0 ? null : <span className="run-outcome-facts">{shown.join(" · ")}</span>}
     {parts === undefined ? null : (
       // role="img" so the label, which says the arrows and levels in words, is what a screen reader reads.

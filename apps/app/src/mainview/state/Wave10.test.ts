@@ -62,7 +62,7 @@ describe("wave 10 — the embed law's in-app half (§2c″)", () => {
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "world" })
+          arguments: JSON.stringify({ action: "execute", name: "wiki" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -87,37 +87,8 @@ describe("wave 10 — the embed law's in-app half (§2c″)", () => {
     // The answer text arrived beside it, and the act line is one compact line.
     const texts = [...store.collections.messages.values()].map((message) => message.text)
     expect(texts.some((text) => text.includes("World holds 1 note"))).toBe(true)
-    expect(texts).toContain("Smithers ran /world")
+    expect(texts).toContain("Smithers ran /wiki")
   })
-
-  test("the agent's connect invocation renders the embedded connect card, not the pane", async () => {
-    const store = await webStore()
-    const controller = createAppController(store, silentAgent)
-    await signIn(store)
-    const result = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "connect" })
-    })
-    expect(result).toBe("executed /connect")
-    expect(store.session().surface).toBe("chat")
-    const card = store.collections.cards.get("connect-embedded")
-    expect(card?.kind).toBe("connect")
-    if (card?.kind === "connect") {
-      // Sign-in IS the connector (§2a′): the signed-in session reads Connected.
-      expect(card.payload.github).toEqual({ connected: true, login: "will" })
-    }
-  })
-})
-
-test("the human connect door embeds the same repository controls without opening a pane", async () => {
-  const store = await webStore()
-  const controller = createAppController(store, silentAgent)
-  await signIn(store)
-  expect((await controller.commands.run("connect")).status).toBe("executed")
-  expect(store.session().surface).toBe("chat")
-  expect(store.collections.cards.get("connect-embedded")?.kind).toBe("connect")
-  await controller.dispose()
-  await store.dispose?.()
 })
 
 describe("wave 10 — transcript hygiene (§2b)", () => {
@@ -156,113 +127,6 @@ describe("wave 10 — transcript hygiene (§2b)", () => {
     const records = [...store.collections.toolCalls.values()]
     expect(records).toHaveLength(1)
     expect(records[0]?.result).toContain("\"state\"")
-  })
-})
-
-describe("/chat.clear — optional summaries and atomic local archives", () => {
-  test("an explicit summary commits new world notes and the archive together", async () => {
-    const store = await webStore()
-    const calls: Array<{ path: string; method: string; body: unknown }> = []
-    const controller = createAppController(store, silentAgent, {
-      ...backend(
-        {
-          "/api/model/stream": () =>
-            new Response(
-              `${
-                JSON.stringify({
-                  runId: "sweep",
-                  type: "delta",
-                  kind: "text",
-                  text:
-                    "{\"notes\":[{\"title\":\"Prefers dark mode\",\"body\":\"The user keeps the app in dark mode.\",\"confidence\":0.9}]}"
-                })
-              }\n${JSON.stringify({ runId: "sweep", type: "done", reason: "stop" })}\n`,
-              { status: 200, headers: { "content-type": "application/x-ndjson" } }
-            )
-        },
-        calls
-      )
-    })
-    await signIn(store)
-    controller.send("remember that I prefer dark mode")
-    await settled()
-    // There is a real transcript to sweep. Wave 14 §1 removed the seeded
-    // welcome, so this is the user's own turn and nothing else.
-    const beforeClear = [...store.collections.messages.values()]
-    expect(beforeClear.length).toBeGreaterThan(0)
-    expect(beforeClear.some((message) => message.text === "remember that I prefer dark mode")).toBe(true)
-
-    const outcome = await controller.commands.run("chat.clear", "--summarize")
-    expect(outcome.status).toBe("executed")
-    await settled()
-
-    // The sweep is a model call, so it rode the one metered model route.
-    expect(calls.some((call) => call.path === "/api/model/stream" && call.method === "POST")).toBe(true)
-    // Notes and clear share one commit, with distinct model provenance.
-    const notes = [...store.collections.worldDocuments.values()].filter((document) =>
-      document.sources.includes("chat-sweep")
-    )
-    expect(notes).toHaveLength(1)
-    expect(notes[0]?.title).toBe("Prefers dark mode")
-    expect(notes[0]?.updatedBy).toBe("smithers")
-    expect(notes[0]?.confidence).toBe(0.9)
-    const journal = [...store.collections.transitions.values()].sort((a, b) => a.revision - b.revision)
-    const clearedRevision = journal.find((record) => record.type === "conversation.cleared")?.revision ?? 0
-    expect(notes[0]?.revision).toBe(clearedRevision)
-    // The chat is cleared and the one line states what was kept.
-    const messages = [...store.collections.messages.values()]
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.text).toContain("Saved 1 new note to Wiki")
-    expect(messages[0]?.text).toContain("Open the archived conversation")
-  })
-
-  test("a failed sweep leaves the chat UNcleared with an honest line", async () => {
-    const store = await webStore()
-    const reports: string[] = []
-    const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/model/stream": json(500, { status: "error", message: "chat upstream down" })
-      }),
-      clientErrors: { report: (_kind, error) => { reports.push(String(error)) }, reported: () => reports.length }
-    })
-    await signIn(store)
-    controller.send("some conversation worth keeping")
-    await settled()
-    const before = [...store.collections.messages.values()].length
-
-    const outcome = await controller.commands.run("chat.clear", "--summarize")
-    await settled()
-
-    const messages = [...store.collections.messages.values()]
-    expect(messages.length).toBe(before)
-    expect(outcome).toMatchObject({ status: "failed", error: expect.stringContaining("nothing was cleared or saved") })
-    // The raw cause reaches diagnostics, never the line the person reads.
-    expect(reports.some(report => report.includes("\"subject\":\"chat.clear\""))).toBe(true)
-    expect([...store.collections.transitions.values()].some((record) => record.type === "conversation.cleared")).toBe(
-      false
-    )
-  })
-
-  test("a transcript with nothing worth keeping clears with the zero-kept line", async () => {
-    const store = await webStore()
-    const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/model/stream": () =>
-          new Response(
-            `${JSON.stringify({ runId: "sweep", type: "delta", kind: "text", text: "{\"notes\":[]}" })}\n${
-              JSON.stringify({ runId: "sweep", type: "done", reason: "stop" })
-            }\n`,
-            { status: 200, headers: { "content-type": "application/x-ndjson" } }
-          )
-      })
-    })
-    await signIn(store)
-    controller.send("hi")
-    await settled()
-    await controller.commands.run("chat.clear", "--summarize")
-    const messages = [...store.collections.messages.values()]
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.text).toContain("Started a new conversation.")
   })
 })
 

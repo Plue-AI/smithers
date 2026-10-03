@@ -19,7 +19,7 @@ const home = {
     { type: "prompt", title: "What should we work on?", placeholder: "Ask Smithers…" },
     { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
     { type: "app", flow: "prs.triage", title: "Review a PR", picture: "review" },
-    { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+    { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
     { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
   ]
 }
@@ -93,7 +93,7 @@ test("the home is the question, the composer and the apps; opening one gives one
   expect(new Set(await tiles.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)))).size).toBe(1)
   await expect(page.getByPlaceholder("Ask Smithers…")).toBeVisible()
   // The home replaces the setup checklist (with its job tiles) and the host diagnostic.
-  await expect(page.getByTestId("setup-checklist")).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await expect(page.getByText("Smithers initialized successfully")).toHaveCount(0)
   // The home alone carries no chat controls strip: no Chat button, no Filter, no Mode, and no tip over them. ⌘K still summons Chat.
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)

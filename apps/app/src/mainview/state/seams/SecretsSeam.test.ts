@@ -6,8 +6,7 @@ import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
-import { SIGNUP_PROFILE_PATH } from "../Signup"
-import { signupProfileFetch, waitFor } from "../TestFixtures"
+import { signupProfileFetch } from "../TestFixtures"
 
 /*
  * The secrets seam (SecretsSeam.ts) through the real command path:
@@ -367,7 +366,7 @@ const discoveryRoutes = new Set([
   "/api/repos/will/flows/contents/.smithers/factory.json", "/api/repos/will/flows/home",
   ...["issues", "review", "ci", "feature", "chores"].map(job => `/api/repository-setup/state?repo=will%2Fflows&job=${job}`)
 ])
-// A sign-in reads the saved signup profile; the backend answers an account with none saved.
+// Keep a signup-profile response available to detect unintended onboarding reads.
 const heldController = async (services: AppServices) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const profile = signupProfileFetch((input, init) => {
@@ -378,12 +377,11 @@ const heldController = async (services: AppServices) => {
   const routed: AppServices = { ...services, fetchImpl: profile.fetchImpl }
   return { store, controller: createAppController(store, unavailableAgent, routed), signupReads: profile.reads }
 }
-/** Sign in and choose the repository, then let the sign-in's one signup-profile read settle. */
+/** Sign in and choose the repository without starting onboarding. */
 const heldReady = async (store: AppStore, signupReads: readonly string[]): Promise<void> => {
   await ready(store)
-  await waitFor(() => signupReads.length === 1)
   await checkpoint()
-  expect(signupReads).toEqual([SIGNUP_PROFILE_PATH])
+  expect(signupReads).toEqual([])
 }
 
 const metadataAnswer = (name = "CURRENT_SECRET") => [{ name, main_only: false, hosts: [], match_headers: [], updated_at: null, value: "PRIVATE_BYTES" }]
@@ -409,9 +407,8 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
     await bounded(Promise.allSettled([...pending]))
     await checkpoint()
     expect(hits).toEqual(["/api/repos/will/flows/secrets"])
-    // The second account restores its own signup profile; a sign-out or disposal reads nothing more.
-    if (retirement === "account") await bounded(waitFor(() => signupReads.length === 2))
-    expect(signupReads).toEqual(retirement === "account" ? [SIGNUP_PROFILE_PATH, SIGNUP_PROFILE_PATH] : [SIGNUP_PROFILE_PATH])
+    // Account changes, sign-out and disposal must not start onboarding reads.
+    expect(signupReads).toEqual([])
     expect(secretsCard(store)).toBeUndefined()
     expect(outcome).toEqual(retirement === "dispose"
       ? { status: "failed", error: "The command's outcome could not be saved. Check its result before trying again.", persistenceFailed: true }

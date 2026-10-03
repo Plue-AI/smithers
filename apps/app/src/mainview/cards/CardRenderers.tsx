@@ -1,6 +1,4 @@
-import { registrationCardFamily } from "./RegistrationCard"
 import { repositoryUpdateCardFamily } from "./RepositoryUpdateCard"
-import { repositorySetupCardFamily } from "./RepositorySetupCard"
 import { repositoryHomeCardFamily } from "./RepositoryHomeCard"
 import { useLiveQuery } from "@tanstack/react-db"
 import { projectRepositoryUpdate } from "../state/CardProjection"
@@ -15,7 +13,6 @@ import { projectRepositoryUpdate } from "../state/CardProjection"
  */
 import type { Card } from "../state/AppState"
 import { accountCardFamily } from "./AccountCard"
-import { adminCardFamily } from "./AdminCards"
 import { agentCardFamily } from "./AgentCards"
 import { anonymousCeilingCardFamily } from "./AnonymousCeilingCard"
 import { approvalCardFamily } from "./ApprovalCard"
@@ -32,7 +29,6 @@ import { flowPlanCardFamily } from "./FlowPlanCard"
 import { stackCardFamily } from "./StackCard"
 import { issueCardFamily } from "./IssueCards"
 import { landingCardFamily } from "./LandingCards"
-import { notificationsCardFamily } from "./NotificationsCard"
 import { RepositoryChoiceCard } from "./RepositoryChoiceCard"
 import { repoImportCardFamily } from "./RepoImportCard"
 import { runsCardFamily } from "./RunsCards"
@@ -69,11 +65,9 @@ export const isRetiredCard = (card: Card): card is Extract<Card, { kind: Retired
 /** The families in registration order; the test reads this list to prove the slices are disjoint. */
 export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   repositoryHomeCardFamily,
-  repositorySetupCardFamily,
   turnCardFamily,
   approvalCardFamily,
   billingCardFamily,
-  adminCardFamily,
   conversationCardFamily,
   workflowCardFamily,
   flowPlanCardFamily,
@@ -82,14 +76,12 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   issueCardFamily,
   landingCardFamily,
   changeCardFamily,
-  notificationsCardFamily,
   repositoryUpdateCardFamily,
   envCardFamily,
   secretsCardFamily,
   accountCardFamily,
   stackCardFamily,
   repoImportCardFamily,
-  registrationCardFamily,
   syncCardFamily,
   branchesCardFamily,
   fileCardFamily,
@@ -106,11 +98,9 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
 /** One entry per card kind. Written as a literal so a missing kind fails to compile. */
 export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...repositoryHomeCardFamily,
-  ...repositorySetupCardFamily,
   ...turnCardFamily,
   ...approvalCardFamily,
   ...billingCardFamily,
-  ...adminCardFamily,
   ...conversationCardFamily,
   ...workflowCardFamily,
   ...flowPlanCardFamily,
@@ -120,14 +110,12 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...landingCardFamily,
   ...changeCardFamily,
   ...commitCardFamily,
-  ...notificationsCardFamily,
   ...repositoryUpdateCardFamily,
   ...envCardFamily,
   ...secretsCardFamily,
   ...accountCardFamily,
   ...stackCardFamily,
   ...repoImportCardFamily,
-  ...registrationCardFamily,
   ...syncCardFamily,
   ...branchesCardFamily,
   ...fileCardFamily,

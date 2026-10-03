@@ -1,24 +1,8 @@
-/*
- * The composer boundary: slash argument text in, a flow's typed payload out.
- *
- * Under the old `Command` interface every handler re-parsed its own `args?:
- * string` — the same trailing-`owner/repo` split written out dozens of times,
- * each free to drift. Flows take DECODED payloads, so the text-shaped step
- * happens exactly once: here, at the edge where a human's `/name <text>` (or
- * an agent's single argument string) becomes the record the flow's input
- * schema validates.
- *
- * A parse either produces the payload or an honest error naming what is
- * missing. The error never reaches the flow: an invocation that cannot be
- * parsed is refused before the handler runs, which is why no handler below the
- * boundary contains an argument check.
- */
-import { BURNDOWN_STATES, isBurndownState } from "../cards/Burndown"
+
 import { isTraceFilter,TRACE_FILTER_IDS } from "../cards/RunTrace"
 import { isGraphDrawerTab, unknownTabRefusal } from "../state/controller/graph"
 import type { KnownRepositories } from "../state/RepoContext"
 import { REPO_TOKEN,splitTrailingRepo } from "../state/RepoContext"
-import { isAgentProvider } from "../state/seams/AgentSessionSeam"
 import { parseFileArgs } from "./FileArgs"
 import { splitRunSource,takesRunSource } from "@smthrs/ui/run-command"
 
@@ -46,16 +30,6 @@ export const carriedPayload = (name: string): Grammar => Object.assign((args: st
 const ok = (payload: Record<string, unknown>): Parsed => ({ payload })
 const no = (error: string): Parsed => ({ error })
 
-/** Structured setup edits preserve prompt whitespace and typed setting values. */
-const setupObject = (args: string | undefined): Parsed => {
-  if (!(args ?? "").trim()) return ok({})
-  try {
-    const value: unknown = JSON.parse(args!)
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? ok(value as Record<string, unknown>) : no("Setup input must be a JSON object")
-  } catch { return no("Setup input must be a JSON object") }
-}
-
 /** Structured graph doors preserve engine IDs verbatim, including whitespace. */
 const graphObject = (args: string | undefined, target: "runId" | "cardId", value: "nodeId" | "tab"): Parsed | undefined => {
   if (!args?.trim().startsWith("{")) return undefined
@@ -71,8 +45,6 @@ const graphObject = (args: string | undefined, target: "runId" | "cardId", value
 
 /** The empty payload every no-argument flow takes. */
 const NONE: Parsed = { payload: {} }
-/** A name under refs/smithers/users/<id>/ (packages/backend repohost.UserIDFromRef). */
-const PUSHED_REF_NAME = /^(?!.*\.\.)(?!.*(?:^|\/)\.)(?!.*\.(?:\/|$))(?!.*\.lock(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/
 
 const trimmed = (args: string | undefined): string => (args ?? "").trim()
 
@@ -80,18 +52,6 @@ const trimmed = (args: string | undefined): string => (args ?? "").trim()
 const required = (field: string, args: string | undefined, reason: string): Parsed => {
   const value = trimmed(args)
   return value === "" ? no(reason) : ok({ [field]: value })
-}
-
-/** Preserve the existing card-ID door and decode the structured form used by
- * the conversation agent without treating JSON text as a different card ID. */
-const setupGuideTarget = (args: string | undefined): Parsed => {
-  const value = trimmed(args)
-  if (!value.startsWith("{") && !value.startsWith("[")) return required("cardId", args, "Choose the setup to configure")
-  const parsed = setupObject(value)
-  if ("error" in parsed) return parsed
-  const { cardId } = parsed.payload
-  return Object.keys(parsed.payload).length === 1 && typeof cardId === "string" && cardId.trim() !== ""
-    ? ok({ cardId: cardId.trim() }) : no("Choose the setup to configure")
 }
 
 /** An optional single-value payload: blank text means the field is absent. */
@@ -346,16 +306,6 @@ const restAfter = (args: string | undefined, count: number): string => {
   }
   return rest.trim()
 }
-
-/** `<number> [owner/repo]`: a positive integer, then an optional repository. */
-const numberedTarget = (name: string, args: string | undefined): Parsed => {
-  const [first, repo, ...rest] = tokensOf(args)
-  if (first === undefined) return NONE
-  const number = Number(first)
-  if (!Number.isInteger(number) || number <= 0) return no(`${name} needs an issue number`)
-  if (rest.length > 0) return no(`${name} takes a number and one owner/repo`)
-  return ok(repo === undefined ? { number } : { number, repo })
-}
 const tokensOf = (args: string | undefined): Array<string> =>
   trimmed(args)
     .split(/\s+/)
@@ -400,58 +350,7 @@ const numberedChangeRef = (name: string, field: string, what: string, args: stri
   return ok({ changeId, [field]: id })
 }
 
-/** `issue-sweep`: `[agents] [local|vm] [attempt=<n>] [landers=<n>] [cloudAgents=<n>] [owner/repo]`, or the JSON object its button and form carry. */
-const issueSweep = (args: string | undefined): Parsed => {
-  const text = trimmed(args)
-  if (text.startsWith("{")) return jsonObject("issue-sweep")(text)
-  const payload: Record<string, unknown> = {}
-  for (const token of tokensOf(text)) {
-    if (/^\d+$/.test(token) && payload.maxAgents === undefined) payload.maxAgents = Number(token)
-    else if (token === "local" || token === "vm") payload.placement = token
-    else if (/^attempt=\d+$/.test(token)) payload.attempt = Number(token.slice("attempt=".length))
-    else if (/^landers=\d+$/.test(token)) payload.landers = Number(token.slice("landers=".length))
-    else if (/^cloudAgents=\d+$/.test(token)) payload.cloudAgents = Number(token.slice("cloudAgents=".length))
-    else if (REPO_TOKEN.test(token) && payload.repo === undefined) payload.repo = token
-    else return no(`issue-sweep takes [agents] [local|vm] [attempt=<n>] [landers=<n>] [cloudAgents=<n>] [owner/repo], not ${token}`)
-  }
-  return ok(payload)
-}
-
 const GRAMMAR: Readonly<Record<string, Grammar>> = {
-  "issue-sweep": issueSweep,
-  "runs.burndown.filter": (args) => {
-    const [runId, filter, ...rest] = tokensOf(args)
-    if (runId === undefined || filter === undefined || rest.length > 0 || !isBurndownState(filter)) {
-      return no(`runs.burndown.filter takes a run id and one of ${BURNDOWN_STATES.join(", ")}`)
-    }
-    return ok({ runId, filter })
-  },
-  "runs.burndown.select": (args) => {
-    const [runId, raw, ...rest] = tokensOf(args)
-    const item = Number(raw)
-    if (runId === undefined || raw === undefined || rest.length > 0 || !Number.isInteger(item) || item < 0) return no("runs.burndown.select takes a run id and an issue number")
-    return ok({ runId, item })
-  },
-  "issues.fix": (args) => numberedTarget("issues.fix", args),
-  "issues.verify": (args) => numberedTarget("issues.verify", args),
-  "issues.comment.react": jsonObject("issues.comment.react"),
-  "issues.comment.retry": jsonObject("issues.comment.retry"),
-  "issues.set": jsonObject("issues.set"),
-  /* `<connection_id> <scope_id> <conversation_id> [external_user_id] [owner/repo]`, or the form's `{ connection_id, scope_id, conversation_id, external_user_id, repo }`. */
-  "issues.setup": args => repoOnly("issues.setup", args),
-  "review.setup": args => repoOnly("review.setup", args),
-  "ci.setup": args => repoOnly("ci.setup", args),
-  "feature.setup": args => repoOnly("feature.setup", args),
-  "chores.setup": args => repoOnly("chores.setup", args),
-  "setup.ask": args => setupObject(args),
-  "setup.configure": args => setupObject(args),
-  "setup.guide": setupGuideTarget,
-  "setup.view": args => setupObject(args),
-  "setup.work": args => setupObject(args),
-  "setup.run": args => setupObject(args),
-  "setup.retry": args => required("cardId", args, "Choose the setup to retry"),
-  "setup.discard": args => required("cardId", args, "Choose the setup whose draft to discard"),
-  "setup.discard.confirm": args => required("cardId", args, "Choose the setup whose draft to discard"),
   "appearance.dark-mode": (args) => {
     const mode = trimmed(args).toLowerCase()
     return mode === "" ? NONE : mode === "light" || mode === "dark" ? ok({ mode }) : no("dark-mode takes light or dark")
@@ -462,9 +361,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "chat.send": (args) => required("text", args, "send needs the text to submit"),
   "chat.filter.toggle": (args) => required("target", args, "Choose a filter target"),
   "chat.filter.grep": (args) => ok({ text: args ?? "" }),
-  "chat.clear": (args) => trimmed(args) === "" ? NONE : trimmed(args) === "--summarize"
-    ? ok({ summarize: true })
-    : no("chat.clear accepts only --summarize; omit it to archive locally"),
   "browser.open": (args) => required("url", args, "browser needs a URL: /browser.open https://example.com"),
   /*
    * The description keeps the trailing `owner/repo` token: createWorkflow
@@ -487,7 +383,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * workspace, and the remaining positionals are [status] [flow].
    */
   "runs.attention": (args) => repoOnly("runs.attention", args),
-  "runs.handoff": (args) => required("runId", args, "Choose a run to prepare its handoff"),
   "runs.list": (args, known) => {
     const structured = structuredFields("runs.list", args, ["status", "flow", "by", "lineage", "sourceCard", "repo"])
     if (structured !== undefined) return structured
@@ -590,18 +485,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (rest.length > 0) return no("runs.graph.follow takes a run id and on or off")
     return ok({ runId, follow })
   },
-  "runs.takeover": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.takeover needs a run id")
-    if (rest.length > 0) return no("runs.takeover takes one run id")
-    return ok({ runId })
-  },
-  "runs.release": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.release needs a run id")
-    if (rest.length > 0) return no("runs.release takes one run id")
-    return ok({ runId })
-  },
   "runs.graph.execution": (args) => {
     const [runId, executionId, ...rest] = tokensOf(args)
     if (runId === undefined) return no("runs.graph.execution needs a run id")
@@ -668,11 +551,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "card.history.back": (args) => required("cardId", args, "Choose a frame to go back"),
   "card.history.forward": (args) => required("cardId", args, "Choose a frame to go forward"),
-  "notifications.read-update": (args) => required("cardId", args, "Choose an update to mark read"),
-  "notifications.tag": (args) => {
-    const [id, ...rest] = tokensOf(args)
-    return ok({ ...(id ? { id } : {}), ...(rest.length ? { tag: rest.join(" ") } : {}) })
-  },
   "repo.overview": (args) => repoOnly("repo.overview", args),
   "repo.update": (args) => repoOnly("repo.update", args),
   "card.maximize": (args) => required("cardId", args, "card.maximize needs the card id"),
@@ -761,17 +639,10 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const [line, cardId] = (args ?? "").trim().split(/\s+/)
     return line ? ok({ line, ...(cardId ? { cardId } : {}) }) : no("wiki.heading needs the heading's source line")
   },
-  /* Hidden aliases of the two above (entries/world.ts). */
-  "world.select": (args) => required("documentId", args, "world.select needs the document id"),
-  "world.delete": (args) => required("documentId", args, "world.delete needs the document id"),
   "toast.dismiss": (args) => required("toastId", args, "toast.dismiss needs the toast id"),
   /* The Library's two acts: one plugin id, the one the shelf lists. */
   /* The flow the card names as absent; blank renders the generic "That is not in the web app". */
   "repos.import": (args) => repoOnly("repos.import", args),
-  /* One freeform repository link; without it the form asks for one. */
-  "repository.register": (args) => ok((args ?? "").trim() === "" ? {} : { link: (args ?? "").trim() }),
-  /* Tutorial stage 3's bare doors: the same read as their .list flows. */
-  "issues": (args, known) => GRAMMAR["issues.list"]!(args, known),
   "prs": (args, known) => GRAMMAR["prs.list"]!(args, known),
   "issues.list": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
@@ -795,7 +666,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "issue.poc": (args, known) => numbered(args, "An issue number is required", known),
   "issue.implement": (args, known) => numbered(args, "An issue number is required", known),
   "prs.triage": (args, known) => numbered(args, "A pull request number is required", known),
-  "wiki.ask": (args) => required("question", args, "wiki.ask needs the question"),
   "issue.add-flow": (args) => {
     try {
       const value: unknown = JSON.parse(trimmed(args))
@@ -818,31 +688,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (rest === "") return no("issues.create needs a title")
     return ok({ title: rest, ...(repo === undefined ? {} : { repo }), ...(kind === undefined ? {} : { kind }) })
   },
-  /*
-   * The repository welcome and its three answers (controller/onboarding.ts):
-   * each takes only its optional target. `feature.prototype` reads like
-   * issues.create: the request is the line, a trailing owner/repo the target.
-   */
-  "change.request": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
-    // Only a trailing `from:<name>` names the pushed ref; "from:" inside the
-    // request is prose.
-    const from = /(?:^|\s)from:(\S*)$/.exec(rest)
-    const prompt = from === null ? rest : rest.slice(0, from.index).trim()
-    if (from !== null && !PUSHED_REF_NAME.test(from[1]!)) return no("change.request's from: names a ref pushed with `smithers repo push --name <name>`")
-    const payload: Record<string, unknown> = {}
-    if (prompt !== "") payload["prompt"] = prompt
-    if (from !== null) payload["from"] = from[1]
-    if (repo !== undefined) payload["repo"] = repo
-    return ok(payload)
-  },
-  "feature.prototype": (args, known) => {
-    const structured = structuredFields("feature.prototype", args, ["request", "repo"])
-    if (structured !== undefined) return structured
-    const { rest, repo } = splitTrailingRepo(args, known)
-    if (rest === "") return no("feature.prototype needs what the feature should do")
-    return ok(repo === undefined ? { request: rest } : { request: rest, repo })
-  },
   "issues.close": (args, known) => numbered(args, "issues.close needs an issue number", known),
   "issues.reopen": (args, known) => numbered(args, "issues.reopen needs an issue number", known),
   "issues.comment": (args, known) => issueComment(args, known),
@@ -852,24 +697,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const [cardId, tab, ...rest] = tokensOf(args)
     return cardId && tab && rest.length === 0 && ["conversation", "commits", "checks", "files"].includes(tab)
       ? ok({ cardId, tab }) : no("Choose a pull request card and tab")
-  },
-  "prs.create": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
-    // The source bookmark rides as a `from:<name>` token anywhere in the text;
-    // /branches.list shows the choices.
-    const tokens = rest.split(/\s+/).filter((token) => token !== "")
-    const fromToken = tokens.find((token) => token.startsWith("from:"))
-    const from = fromToken?.slice("from:".length)
-    const title = tokens.filter((token) => !token.startsWith("from:")).join(" ")
-    if (title === "") return no("prs.create needs a title")
-    if (fromToken !== undefined && (from === undefined || from === "")) {
-      return no("prs.create's from: token needs a bookmark name — see /branches.list")
-    }
-    return ok({
-      title,
-      ...(from === undefined || from === "" ? {} : { from }),
-      ...(repo === undefined ? {} : { repo })
-    })
   },
   "prs.land": (args, known) => numbered(args, "prs.land needs a pull request number", known),
   "prs.review": (args, known) => {
@@ -941,17 +768,14 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "search.files": (args) => required("query", args, "search.files needs a query"),
   "search.flows": (args) => required("query", args, "search.flows needs a query"),
-  "search.targets": (args) => required("query", args, "search.targets needs a query"),
   "search.wiki": (args) => required("query", args, "search.wiki needs a query"),
   "search.history": (args) => required("query", args, "search.history needs a query"),
   "search.runs": (args) => required("query", args, "search.runs needs a query"),
   "search.changes": (args) => required("query", args, "search.changes needs a query"),
   "search.issues": (args) => required("query", args, "search.issues needs a query"),
-  "search.boxes": (args) => required("query", args, "search.boxes needs a query"),
   "search.secrets": (args) => required("query", args, "search.secrets needs a query"),
   "tutorial.live.inspect": (args) => { const [cardId, eventId] = tokensOf(args); return ok({ ...(cardId ? { cardId } : {}), ...(eventId ? { eventId } : {}) }) },
   "tutorial.live.retry": (args) => required("cardId", args, "Choose a live tutorial run"),
-  "app.first-run.dismiss": () => NONE,
   "app.hint.dismiss": args => required("id", args, "Choose a hint"),
   "input.mode": (args) => required("mode", args, "Choose an input mode."),
   "palette.open": (args) => optional("prefix", args),
@@ -1045,7 +869,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     })
   },
   "box.view": (args) => required("workspaceId", args, "box.view needs a workspace id"),
-  "box.select": (args) => structuredFields("box.select", args, ["workspaceId", "repo", "flow", "args"]) ?? required("workspaceId", args, "box.select needs a workspace id"),
   "box.terminal": (args) => optional("workspaceId", args),
   "box.suspend": (args) => optional("workspaceId", args),
   "box.resume": (args) => optional("workspaceId", args),
@@ -1144,16 +967,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     })
   },
   "change.land": (args) => required("changeId", args, "change.land needs a change id"),
-  /* plue#489 splits by PATH, and refuses an empty list — so at least one path is the grammar. */
-  "change.split": (args) => {
-    const parsed = parseFileArgs(args)
-    if ("error" in parsed) return parsed
-    const [changeId, ...paths] = parsed.tokens
-    if (changeId === undefined || paths.length === 0) {
-      return no("change.split takes a change id and at least one path to move")
-    }
-    return ok({ changeId, paths })
-  },
   "change.resolve": (args) => {
     const [changeId] = tokensOf(args)
     /* The conflicted file's path is the rest of the line, so a path with a space resolves too. */
@@ -1163,7 +976,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     }
     return ok({ changeId, path })
   },
-  "change.revert": (args) => required("changeId", args, "change.revert needs a change id"),
   "change.facet": (args) => {
     const [changeId, facet, ...rest] = tokensOf(args)
     if (changeId === undefined || facet === undefined || rest.length > 0) {
@@ -1284,24 +1096,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "sync.ops.show-more": (args) => required("cardId", args, "sync.ops.show-more needs the card id"),
   "debug.backend": (args) => ok({ backend: args ?? "" }),
   "debug.errors": (args) => optional("query", args),
-  "admin.grant": (args) => {
-    const tokens = tokensOf(args)
-    if (tokens.length > 2) return no("admin.grant takes an amount in dollars and a login")
-    const [amountRaw, login] = tokens
-    const amountUsd = Number(amountRaw)
-    if (
-      amountRaw === undefined ||
-      !Number.isFinite(amountUsd) ||
-      amountUsd <= 0 ||
-      login === undefined ||
-      login === ""
-    ) {
-      return no("admin.grant needs an amount in dollars and a login: /admin.grant 25 octocat")
-    }
-    return ok({ amountUsd, login })
-  },
-  "admin.grant.confirm": (args) => required("cardId", args, "admin.grant.confirm needs the card id"),
-  "admin.grant.cancel": (args) => required("cardId", args, "admin.grant.cancel needs the card id"),
   /* `[cwd]`: an OPEN working copy by path, id, name, or key; blank means the active one (the server never takes a bare path). */
   /* THE FORM LAW: the generic form card's acts. `form.set`'s value is the rest of the line (blank clears). */
   "form.set": (args) => {
@@ -1312,64 +1106,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok({ cardId, field, value: rest.length === 0 ? "" : value })
   },
   "form.submit": (args) => required("cardId", args, "form.submit needs the card id"),
-  /* The signup onboarding (entries/signup.ts): `set`'s value is the rest of the line (blank clears). */
-  "signup.set": (args) => {
-    const match = /^\s*(\S+)(?:[ \t]([\s\S]*))?$/.exec(args ?? "")
-    if (match === null) return no("signup.set needs the field name")
-    return ok({ field: match[1]!, value: match[2] ?? "" })
-  },
-  "signup.repo": (args) => required("repo", args, "Choose a repository, or new"),
-  /*
-   * The cloud agent sessions (entries/agentSession.ts). `new` reads its line
-   * as [owner/repo] [provider] [task…], each position OPTIONAL: a token that
-   * is not repo-shaped stays in the task's text, a second token that names no
-   * provider is not consumed as one — what the line could not give, the form
-   * asks for (THE FORM LAW). The task keeps its spacing (it is the session's
-   * first message).
-   */
-  "agent.session.new": (args) => {
-    let rest = trimmed(args)
-    const payload: Record<string, unknown> = {}
-    const head = /^\S+/.exec(rest)?.[0]
-    if (head === undefined) return ok({})
-    if (REPO_TOKEN.test(head)) {
-      payload["repo"] = head
-      rest = rest.slice(head.length).trim()
-    }
-    const next = /^\S+/.exec(rest)?.[0]
-    if (next !== undefined && isAgentProvider(next)) {
-      payload["provider"] = next
-      rest = rest.slice(next.length).trim()
-    }
-    if (rest !== "") payload["task"] = rest
-    return ok(payload)
-  },
-  "agent.session.list": (args) => repoOnly("agent.session.list", args),
-  // Session ids have no trailing free text: the explicit repo is unambiguous
-  // even when repository inventory is unavailable or has not refreshed yet.
-  "agent.session.view": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    const sessionId = rest.trim()
-    if (sessionId === "" || /\s/.test(sessionId)) return no("agent.session.view needs a session id: /agent.session.view <id> [owner/repo]")
-    return ok(repo === undefined ? { sessionId } : { sessionId, repo })
-  },
-  /* `<id> <text…>`: the text is the rest of the line, spacing intact — no trailing repo is split off a message. */
-  "agent.session.say": (args) => {
-    const [sessionId] = tokensOf(args)
-    if (sessionId === undefined) return no("agent.session.say needs a session id")
-    const text = restAfter(args, 1)
-    if (text === "") return no("agent.session.say needs the message text")
-    return ok({ sessionId, text })
-  },
-  "agent.session.stop": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    const sessionId = rest.trim()
-    if (sessionId === "" || /\s/.test(sessionId)) return no("agent.session.stop needs a session id: /agent.session.stop <id> [owner/repo]")
-    return ok(repo === undefined ? { sessionId } : { sessionId, repo })
-  },
-  "tab.card": (args) => required("cardId", args, "tab.card needs the card id"),
-  "tab.select": (args) => required("tab", args, "tab.select needs a tab id or a position 1-9"),
-  "tab.close": (args) => optional("tabId", args),
   "repo.select": (args) => required("repo", args, "repo.select needs a pinned repository key"),
   /* `<copyId>[#path]`: the tree row's own id, split at the first `#` (a copy id never carries one; a path may have spaces). */
   "repo.tree": (args) => {
@@ -1382,7 +1118,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (copy === "") return no("repo.tree needs a working copy id: /repo.tree <copyId>[#path]")
     return ok(path === "" ? { copy } : { copy, path })
   },
-  "workspace.rename": (args) => required("name", args, "workspace.rename needs a name: /workspace.rename <name>"),
   /* `[path]`: a typed path opens directly (where the host allows one); blank is the folder dialog, the human's door alone. */
   /* Tutorial stage 2: blank choose opens the ranked card; blank create asks for the name. */
   "repo.choose": (args) => optional("repo", args),

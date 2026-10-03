@@ -34,7 +34,7 @@ const editEnvelope = (storage: StorageApi, edit: (entries: Record<string, string
 const rows = (entries: Record<string, string>, id: string): Record<string, { versionKey: string; data: Record<string, unknown> }> =>
   JSON.parse(entries[`smithers-mvp.${id}`] ?? "{}")
 
-test("a store saved with terminal and harness tabs opens on its card tabs, active tab main, no menu or close question", async () => {
+test("a store saved with terminal and harness tabs retires all saved tabs, active tab main, no menu or close question", async () => {
   const storage = memoryStorage()
   const store = await open(storage)
   await store.dispatch({ type: "card.upsert", actor: "user", card: {
@@ -69,8 +69,8 @@ test("a store saved with terminal and harness tabs opens on its card tabs, activ
   })
 
   const upgraded = await open(storage)
-  expect([...upgraded.collections.tabs.values()].sort((left, right) => left.ordinal - right.ordinal).map(tab => tab.id)).toEqual(["main", "card-balance"])
-  expect(upgraded.collections.tabs.get("card-balance")).toMatchObject({ kind: "card", cardId: "balance" })
+  expect([...upgraded.collections.tabs.values()].sort((left, right) => left.ordinal - right.ordinal).map(tab => tab.id)).toEqual(["main"])
+  expect(upgraded.collections.cards.get("balance")).toMatchObject({ kind: "theme-picker", payload: { selected: "night-owl" } })
   expect(upgraded.session().activeTabId).toBe("main")
   expect(upgraded.session()).not.toHaveProperty("tabMenuOpen")
   expect(upgraded.session()).not.toHaveProperty("pendingTabCloseId")
@@ -78,9 +78,9 @@ test("a store saved with terminal and harness tabs opens on its card tabs, activ
   expect((await upgraded.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
   expect((await upgraded.verifyState()).valid).toBe(true)
   // The reselection is journaled like every reconciliation, and a reopen keeps the result.
-  expect([...upgraded.collections.transitions.values()].some(record => record.type === "tab.selected" && record.actor === "system")).toBe(true)
+  expect([...upgraded.collections.transitions.values()].some(record => record.type === "tab.closed" && record.actor === "system")).toBe(true)
   await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
   const reopened = await open(storage)
-  expect([...reopened.collections.tabs.keys()].sort()).toEqual(["card-balance", "main"])
+  expect([...reopened.collections.tabs.keys()].sort()).toEqual(["main"])
   expect(reopened.session().activeTabId).toBe("main")
 })

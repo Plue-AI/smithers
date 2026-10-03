@@ -3,19 +3,16 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { CardView } from "../ChatCards"
 import { cardActions } from "../cards/CardActions"
-import { agentVisibleCatalog } from "../flows/agentTools"
 import { namespace as searchNamespace } from "../flows/entries/search"
 import { recommendedNames } from "../flows/registry"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { smithersInstructions } from "./Instructions"
 import { cardAvailable } from "./CardAvailability"
-import { parseRecommendation } from "./Recommend"
-import { json, memoryStorage, silentAgent } from "./TestFixtures"
+import { memoryStorage, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 /* The Wiki (D-09b) and the mythical history (D-09 superseded) are core: no flag and no build variable hides them. */
-const wiki = ["wiki", "wiki.create", "wiki.open", "wiki.graph", "world", "world.new-note", "search.wiki"]
+const wiki = ["wiki", "wiki.create", "wiki.open", "wiki.graph", "wiki.new-note", "search.wiki"]
 const core = ["history.show", "history.bootstrap", "history.backfill", "history.parallel", "history.retry", "search.history"]
 
 describe("the Wiki is core", () => {
@@ -60,7 +57,7 @@ describe("the Wiki is core", () => {
     expect(store.session().surface).toBe("world")
     expect(store.session().maximizedCardId).toBe(card.id)
     expect(cardAvailable("world")).toBe(true)
-    expect((await controller.commands.run("tab.card", card.id)).status).toBe("executed")
+    expect((await controller.commands.run("card.maximize", card.id)).status).toBe("executed")
   })
 
   test("a journal holding a retired Librarian launch replays without changing the session", async () => {
@@ -93,9 +90,6 @@ const repositoryDeclaringWikiFlows = async () => {
   return store
 }
 
-const suggestedFlows = (controller: ReturnType<typeof createAppController>, commands: ReadonlyArray<string>) =>
-  parseRecommendation({ id: "reco", commands }, controller.commands.all(), "chat")?.suggestions.map(row => row.flow) ?? []
-
 describe("a repository that declares a knowledge flow", () => {
   test("keeps every door", async () => {
     const store = await repositoryDeclaringWikiFlows()
@@ -104,7 +98,6 @@ describe("a repository that declares a knowledge flow", () => {
     // The declared `wiki` surface flow still takes the name from the leaf: one entry, not two.
     expect(controller.commands.all().filter(item => item.name === "wiki")).toHaveLength(1)
     expect(controller.commands.callable().map(entry => entry.binding.descriptor.name)).toContain("checks.wiki")
-    expect(suggestedFlows(controller, ["checks.wiki", "review"])).toEqual(["checks.wiki", "review"])
   })
 })
 
@@ -121,7 +114,7 @@ describe("the retired Plugin Library", () => {
     expect(store.session().maximizedCardId).toBeNull()
     expect(store.collections.cards.has(libraryCard.id)).toBe(true)
     expect((await controller.commands.run("card.maximize", libraryCard.id)).status).toBe("failed")
-    expect((await controller.commands.run("tab.card", libraryCard.id)).status).toBe("failed")
+    expect(controller.commands.find("tab.card")).toBeUndefined()
     expect(renderToStaticMarkup(createElement(CardView, { card: libraryCard, maximized: false, worldDocuments: [], ...cardActions(controller) }))).toBe("")
   })
 
@@ -139,55 +132,3 @@ describe("the copy the slash menu and the prompt carry", () => {
   })
 })
 
-/* `/chat.clear --summarize`: the archive is always local, the summary writes Wiki notes. */
-const SWEEP_NOTE = { title: "Prefers dark mode", body: "The user keeps the app in dark mode.", confidence: 0.9 }
-const sweepStream = () =>
-  new Response(
-    [{ type: "delta", kind: "text", text: JSON.stringify({ notes: [SWEEP_NOTE] }) }, { type: "done", reason: "stop" }]
-      .map((frame) => JSON.stringify(frame)).join("\n") + "\n",
-    { status: 200, headers: { "content-type": "application/x-ndjson" } }
-  )
-
-const readyToArchive = async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const sweeps: string[] = []
-  const controller = createAppController(store, silentAgent, {
-    fetchImpl: async (input) => {
-      const path = new URL(String(input), "https://app.test").pathname
-      if (path !== "/api/model/stream") return json(404, { status: "error" })
-      sweeps.push(path)
-      return sweepStream()
-    }
-  })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    admin: false, scopesPlain: null }).isPersisted.promise
-  await store.dispatch({ type: "message.appended", actor: "user", text: "remember that I prefer dark mode" }).isPersisted.promise
-  return { store, controller, sweeps }
-}
-
-const clearEntry = (controller: ReturnType<typeof createAppController>) =>
-  controller.commands.all().find((item) => item.name === "chat.clear")
-
-describe("the optional Wiki summary on chat.clear", () => {
-  test("every door offers the option, and it writes the note", async () => {
-    const { store, controller, sweeps } = await readyToArchive()
-    expect(clearEntry(controller)?.summary).toBe("Archive this conversation and start fresh; optionally summarize into Wiki notes")
-    expect(clearEntry(controller)?.args).toBe("[--summarize]")
-    const catalog = agentVisibleCatalog(controller.commands.callable())
-    expect(JSON.stringify(catalog.find((row) => row.name === "chat.clear"))).toMatch(/summarize/i)
-    const honesty = {
-      host: "web" as const, github: { connected: false, login: null, repositories: null },
-      localRepositories: [], localRepositoriesAvailable: false
-    }
-    // Disclosed for the conversation, the prompt lists chat.clear with its option; undisclosed, the list action's query finds it.
-    expect(smithersInstructions(catalog, honesty, { disclosed: ["chat.clear"] }))
-      .toContain("- /chat.clear [--summarize] — Archive this conversation and start fresh; optionally summarize into Wiki notes")
-    expect(smithersInstructions(catalog, honesty)).not.toContain("- /chat.clear")
-
-    const outcome = await controller.commands.run("chat.clear", "--summarize")
-    expect(outcome.status).toBe("executed")
-    expect(sweeps).toEqual(["/api/model/stream"])
-    expect([...store.collections.worldDocuments.values()].filter((row) => row.sources.includes("chat-sweep")).map((row) => row.title))
-      .toEqual([SWEEP_NOTE.title])
-  })
-})

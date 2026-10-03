@@ -7,8 +7,7 @@ import { createAppController } from "../AppController"
 import type { AppController, AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
-import { SIGNUP_PROFILE_PATH } from "../Signup"
-import { signupProfileFetch, waitFor } from "../TestFixtures"
+import { signupProfileFetch } from "../TestFixtures"
 import { createBillingSeam } from "./BillingSeam"
 import type { BillingSeam } from "./BillingSeam"
 import type { SeamContext } from "./SeamContext"
@@ -139,8 +138,8 @@ interface BillingCall {
 
 /**
  * Only declared billing routes are admitted; swallowed unexpected HTTP still
- * fails teardown. The one other request is the sign-in's signup-profile read,
- * answered as the backend answers an account with none saved.
+ * fails teardown. A signup-profile response remains available to detect
+ * unintended onboarding reads.
  */
 const billingBackend = (
   routes: Partial<Record<"/api/billing/checkout" | "/api/billing/portal", () => Response>>,
@@ -177,10 +176,9 @@ const freshController = async ({ services, signupReads }: ReturnType<typeof bill
     admin: true,
     scopesPlain: null
   }).isPersisted.promise)
-  // The sign-in reads the saved signup profile once; nothing billing-shaped happens before the command.
-  await waitFor(() => signupReads.length === 1)
+  // Signing in starts no onboarding or billing request.
   await drain()
-  expect(signupReads).toEqual([SIGNUP_PROFILE_PATH])
+  expect(signupReads).toEqual([])
   return { store, controller }
 }
 

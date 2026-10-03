@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { issueFlows } from "./issue"
-import { issueViewParts, payloadFor } from "../SlashPayload"
+import { issueViewParts } from "../SlashPayload"
 import { flag, line, text } from "@smthrs/ui/flow-form"
 import { flow, NumberedTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -17,21 +17,6 @@ export const namespace: Namespace = { id: "issues", label: "Issues", summary: "G
 /** The `issues.*` flows: GitHub issues. */
 export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...issueFlows(actions),
-  flow({
-    name: "issues",
-    hidden: true,
-    grammar: args => payloadFor("issues.list", args),
-    summary: "List a repository's issues",
-    runtimeAny: ["cloud"],
-    args: "[open|closed|all] [owner/repo]",
-    requires: ["first-run-target", "repo-source"],
-    input: Schema.Struct({
-      filter: Schema.optional(Schema.Literals(["open", "closed", "all"])),
-      repo: Schema.optional(Schema.String)
-    }),
-    prepare: ({ filter, repo }) => actions.listIssues.preload?.(filter ?? "open", repo),
-    handler: ({ filter, repo }) => actions.listIssues(filter ?? "open", repo)
-  }),
   flow({
     name: "issues.list",
     summary: "List a repository's issues and conversations, only one kind, or a saved view",
@@ -89,60 +74,6 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     requires: ["repo-read"],
     input: NumberedTarget,
     handler: ({ number, repo }) => actions.setIssueState(number, "open", repo)
-  }),
-  flow({
-    name: "issues.fix",
-    summary: "Mark an issue fixed; you become its fixer",
-    runtimeAny: ["cloud"],
-    args: "<number> [owner/repo]",
-    requires: ["repo-read"],
-    input: NumberedTarget,
-    handler: ({ number, repo }) => actions.setIssueState(number, "fixed", repo)
-  }),
-  flow({
-    name: "issues.verify",
-    summary: "Verify a fixed issue; the verifier must differ from the fixer",
-    runtimeAny: ["cloud"],
-    args: "<number> [owner/repo]",
-    requires: ["repo-read"],
-    input: NumberedTarget,
-    handler: ({ number, repo }) => actions.setIssueState(number, "verified", repo)
-  }),
-  flow({
-    name: "issues.comment.react",
-    form: { args: payload => JSON.stringify(payload) },
-    summary: "Add or remove a reaction on a message",
-    runtimeAny: ["cloud"],
-    args: "<json {number, commentId, name, active, repo}>",
-    requires: ["repo-read"],
-    input: Schema.Struct({ number: Schema.Number, commentId: Schema.Number, name: Schema.String, active: Schema.Boolean, repo: Schema.optional(Schema.String) }),
-    handler: ({ number, commentId, name, active, repo }) => actions.reactToIssueComment(number, commentId, name, active, repo)
-  }),
-  flow({
-    name: "issues.comment.retry",
-    form: { args: payload => JSON.stringify(payload) },
-    hidden: true,
-    summary: "Send a message again after it was not delivered",
-    runtimeAny: ["cloud"],
-    args: "<json {cardId, requestId}>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ cardId: Schema.String, requestId: Schema.String }),
-    handler: ({ cardId, requestId }) => actions.retryIssueComment(cardId, requestId)
-  }),
-  flow({
-    name: "issues.set",
-    form: { args: payload => JSON.stringify(payload) },
-    summary: "Set an issue's owner, due date, priority or parent",
-    runtimeAny: ["cloud"],
-    args: "<json {number, field, value, repo}>",
-    requires: ["repo-read"],
-    input: Schema.Struct({
-      number: Schema.Number,
-      field: Schema.Literals(["owner", "due", "priority", "parent"]),
-      value: Schema.String,
-      repo: Schema.optional(Schema.String)
-    }),
-    handler: ({ number, field, value, repo }) => actions.setIssueTask(number, field, value, repo)
   }),
   flow({
     name: "issues.comment",

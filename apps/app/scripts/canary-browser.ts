@@ -100,10 +100,10 @@ try {
   await chatUsable(active)
   record("rendered Files browse and editable Chat")
 
-  await slash(active, `/issues.setup ${repo}`)
-  await active.locator('.smithers-card[data-kind="repository-setup"]').first().waitFor({ timeout: 120_000 })
+  await slash(active, `/flow.list ${repo}`)
+  await active.locator('.smithers-card[data-kind="workflow-list"]').first().waitFor({ timeout: 120_000 })
   await chatUsable(active)
-  record("setup card and editable Chat")
+  record("flow list and editable Chat")
 
   // Hold the actual launch response: the UI must remain usable while the server
   // request is unresolved, then a real remote run must reach terminal state.

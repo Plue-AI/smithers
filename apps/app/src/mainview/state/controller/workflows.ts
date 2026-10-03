@@ -62,8 +62,6 @@ export interface WorkflowController {
   readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** A flow on one named box: a first import's box runs before the box list has caught up with it. */
   readonly runWorkflowOnBox: (name: string, repo: string, workspaceId: string, input: Record<string, unknown>) => Promise<string | { readonly value: string }>
-  /** `change.request`: coding/request on the prompt, continuing into coding/vibe once it validates. */
-  readonly requestChange: (prompt: string, repo?: string, from?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** What a flow WOULD run: the plan card, filled in the background. */
   readonly planFlow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, against?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly chooseWorkflowRepo: (fullName: string) => Promise<string | void | { readonly value: string }>
@@ -969,31 +967,6 @@ export const createWorkflowController = (
     return requests.start({ repo, binding: { workspaceId }, workflow: name, input, actor: ctx.commandActor })
   }
 
-  /*
-   * A change typed in chat is a coding/request whose validated result lands
-   * through coding/vibe. The request is durable before this returns; the
-   * workspace's preparation, the run and the hand-over to vibe continue in
-   * the background under the shared toast, and each stage has its own card.
-   */
-  const requestChange = async (prompt: string, repoArg?: string, from?: string, humanDoor = false): Promise<string | void | { readonly value: string }> => {
-    const what = prompt.trim()
-    if (what === "") return "change.request needs what to change"
-    if (what.length > 32_768) return "The change request exceeds the coding request limit of 32,768 characters."
-    const guard = workflowIdentityGuard()
-    if (guard !== undefined) return guard
-    if (humanDoor) {
-      const selected = workflowTargetRepo(repoArg)
-      if ("error" in selected) return selected.error
-      const prerequisite = requireBox(selected.repo, { flow: "change.request", args: flowArgs("change.request", { prompt: what, repo: selected.repo, from }) }, `Open a box to change ${selected.repo}`)
-      if (prerequisite !== undefined) return prerequisite
-    }
-    const target = workflowScope(repoArg)
-    if ("error" in target) return target.error
-    const { repo, binding } = target
-    return requests.start({ repo, binding, workflow: "coding/request", input: { prompt: what }, actor: ctx.commandActor, then: "coding/vibe",
-      source: { name: from ?? "head", explicit: from !== undefined } })
-  }
-
   /**
    * Plan a flow: what it WOULD run, before anything runs.
    *
@@ -1309,7 +1282,6 @@ export const createWorkflowController = (
     requireJobBox,
     runWorkflow,
     runWorkflowOnBox,
-    requestChange,
     planFlow,
     chooseWorkflowRepo,
     forwardApprovalDecision,

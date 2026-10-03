@@ -371,39 +371,6 @@ test("attention retains pending approvals when the run inventory cannot be read"
   expect([...store.collections.cards.values()].some(card => card.kind === "approval" && card.payload.runId === "uncarded")).toBe(true)
 })
 
-test("handoff drafts preserve edits across reopening and reload, without copying launch secrets", async () => {
-  const storage = memoryStorage()
-  const store = await createAppStore({ kind: "localStorage", storage })
-  const double = relay({ runs: [{ runId: "run-handoff", flowId: "review-pr", status: "completed" }] })
-  const controller = createAppController(store, silentAgent, double.services)
-  await signIn(store)
-  await openMonitor(controller, store, "run-handoff")
-  const run = [...store.collections.cards.values()].find(card => card.kind === "run-trace")!
-  store.dispatch({ type: "card.updated", actor: "system", id: run.id, patch: { payload: {
-    ...run.payload, input: { prompt: "Fix retries", apiKey: "secret-that-must-not-be-copied" }
-  } } })
-  await controller.commands.run("runs.handoff", `sourceCard=${run.id} run-handoff`)
-  const id = `handoff-${run.id}`
-  const draft = store.collections.cards.get(id)
-  expect(draft?.kind).toBe("flow-form")
-  if (draft?.kind !== "flow-form") throw new Error("handoff missing")
-  expect(draft.payload.draft.text).toContain("Fix retries")
-  expect(draft.payload.draft.text).not.toContain("secret-that-must-not-be-copied")
-  expect(draft.payload.draft.text).toContain("does not establish human acceptance")
-  const copyByAgent = await controller.commands.runForAgent("form.submit", id)
-  expect(said(copyByAgent)).toContain("user")
-  expect(store.collections.cards.get(id)?.status).not.toBe("acted")
-  await controller.commands.run("form.set", `${id} text Remaining: verify retries\nNext: run the integration suite`)
-  await controller.commands.run("runs.handoff", `sourceCard=${run.id} run-handoff`)
-  await settle()
-  controller.dispose()
-  await store.dispose?.()
-  const restored = await createAppStore({ kind: "localStorage", storage })
-  const saved = restored.collections.cards.get(id)
-  expect(saved?.kind === "flow-form" && saved.payload.draft.text).toBe("Remaining: verify retries\nNext: run the integration suite")
-  await restored.dispose?.()
-})
-
 test("declared flow inputs reuse persisted forms and the existing named launch path", async () => {
   const store = await webStore()
   const double = relay()

@@ -4,8 +4,7 @@ import { readRepositoryListError,repositoryListRead,type RepositoryForm } from "
 
 import type { Card } from "../AppState"
 import type { FieldOption } from "@smthrs/ui/flow-form"
-import { repositoryCiConfigured } from "../RepositoryJobs"
-import { resolveTargetRepo, selectedBoxBinding } from "../RepoContext"
+import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { captureCloudOwner,refusalWords,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 import { refusalOf } from "@smthrs/rpc/Refusal"
@@ -19,13 +18,9 @@ export type IssueKindFilter = "all" | "conversation" | "issue"
 export type IssueState = "open" | "fixed" | "verified" | "closed"
 
 export interface IssuesSeam {
-  /** Intent metadata (smithers-ui-DESIGN.md §3.2): PATCH one field on the issue. */
-  readonly setIssueTask: (number: number, field: "owner" | "due" | "priority" | "parent", value: string, repo?: string) => Promise<string | void>
   readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
 
   readonly draftIssueComment: (cardId: string, text: string) => Promise<string | void>
-  readonly retryIssueComment: (cardId: string, requestId: string) => Promise<string | void>
-  readonly reactToIssueComment: (number: number, commentId: number, name: string, active: boolean, repo?: string) => Promise<string | void>
 
   readonly subscribe: (onDispose: (release: () => void) => void) => void
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
@@ -915,40 +910,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     },
     subscribe,
     draftIssueComment: async (cardId, text) => { await updateLocalIssue(cardId, payload => ({ ...payload, commentDraft: text })) },
-    retryIssueComment: async (cardId, requestId) => {
-      await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.map(row => row.id === requestId ? { ...row, status: "requested", error: undefined } : row) }))
-      drainComments(cardId)
-    },
-    reactToIssueComment: async (number, commentId, name, active, explicitRepo) => {
-      const target = resolveTargetRepo(ctx.store, explicitRepo)
-      if ("error" in target) return target.error
-      let response: Response
-      try {
-        response = await ctx.http(`${issuesPath(target.repo)}/${number}/comments/${commentId}/reactions`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, active }) })
-      } catch { return "Reaction status unknown: nothing answered. Refresh to check." }
-      if (!response.ok) return readErrorMessage(response, `Saving the reaction failed (${response.status})`)
-      await response.body?.cancel().catch(() => {})
-      return refreshDetail("Reaction saved", target.repo, number)
-    },
     listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
       [filter, kind === undefined || kind === "all" ? undefined : `--kind ${kind}`, view === undefined || view === "" ? undefined : `--view ${view}`].filter((part) => part !== undefined).join(" ")), { preload: listView.preload }),
-    setIssueTask: async (number, field, value, explicitRepo) => {
-      const target = resolveTargetRepo(ctx.store, explicitRepo)
-      if ("error" in target) return target.error
-      const { repo } = target
-      const stored = taskFieldValue(field, value)
-      if (stored === undefined) return field === "priority" ? "Priority is 0 to 3" : "Parent is an issue number"
-      let response: Response
-      try {
-        response = await ctx.http(`${issuesPath(repo)}/${number}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ [field]: stored }) })
-      } catch (error) { return unreachable(`set ${field} on issue #${number} in ${repo}`, error) }
-      if (!response.ok) {
-        if (response.status === 404) return issue404(response, `Setting ${field} on issue #${number} failed (404)`, `Issue #${number} in ${repo} was not found`)
-        return readErrorMessage(response, `Setting ${field} on issue #${number} failed (${response.status})`)
-      }
-      await response.body?.cancel().catch(() => {})
-      return refreshDetail(`Issue #${number} ${field} set`, repo, number)
-    },
 
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)
@@ -963,7 +926,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error
       const { repo } = target
-      const owner = ctx.store.collections.identitySessions.get("identity")?.login ?? null
       let response: Response
       try {
         response = await ctx.http(issuesPath(repo), {
@@ -983,17 +945,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       const created = isRecord(body) ? asInt(body.number) : null
       if (created === null) {
         return `The issue was created in ${repo}, but the backend answered with an unreadable payload`
-      }
-      const key = `setup-ci:${owner}:${repo}`
-      const binding = selectedBoxBinding(ctx.store, repo)
-      if (kind !== "chat" && owner === (ctx.store.collections.identitySessions.get("identity")?.login ?? null)
-        && !(binding !== undefined && "error" in binding)
-        && repositoryCiConfigured(ctx.store.collections.repositoryJobObservations.values(), repo, owner, binding !== undefined && "workspaceId" in binding ? binding.workspaceId : null) === false
-        && ![...ctx.store.collections.toasts.values()].some(toast => toast.key === key)) {
-        const action = { label: "Set up CI", flow: "ci.setup" as const, args: repo }
-        ctx.dispatch({ type: "toast.shown", actor: "system", key, title: "Improve issue checks", action })
-        if (ctx.resolveToast) ctx.resolveToast(key, { status: "ok", detail: "", action })
-        else ctx.dispatch({ type: "toast.resolved", actor: "system", key, status: "ok", detail: "", action })
       }
       return refreshDetail(`Issue #${created} was created in ${repo}`, repo, created)
     },

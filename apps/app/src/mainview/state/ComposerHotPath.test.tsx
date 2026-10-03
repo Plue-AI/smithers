@@ -9,7 +9,6 @@ import * as VaultAdapter from "../wiki/VaultAdapter"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppController as AppControllerType } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { isMaterialTransition } from "./Recommend"
 import { addWorldNote, memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
 
 /*
@@ -63,14 +62,7 @@ interface Counted {
 const mountCounted = async (): Promise<Counted> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await addWorldNote(store)
-  const real = createAppController(store, unavailableAgent, { recommender: { debounceMs: 0 } })
-  // Initial onboarding now crosses a durable command receipt. Finish that
-  // material update before measuring renders caused by later keystrokes.
-  await real.recommend()
-  // That startup observation also schedules the rule recommendation. Its
-  // first row belongs to boot, so do not count it as a keystroke render.
-  const bootRevision = Math.max(0, ...[...store.collections.transitions.values()].filter(row => isMaterialTransition(row.type)).map(row => row.revision))
-  await waitFor(() => [...store.collections.recommendations.values()].some(row => row.revision >= bootRevision))
+  const real = createAppController(store, unavailableAgent)
   await store.settled?.()
   let count = 0
   const controller: AppControllerType = {
@@ -170,21 +162,9 @@ describe("the composer hot path: typing never re-renders the transcript", () => 
     const view = await mountCounted()
     await view.act(async () => {
       await view.controller.commands.run("chat.send", "a message worth keeping")
-      // Sending also schedules a recommendation row. Settle that material
-      // update before attributing subsequent shell renders to keystrokes.
-      const settledRecommendation = () => {
-        const store = view.controller.store
-        const failureRevision = Math.max(0, ...[...store.collections.transitions.values()]
-          .filter(record => record.type === "message.response.failed").map(record => record.revision))
-        return failureRevision > 0 && [...store.collections.recommendations.values()]
-          .some(row => row.revision >= failureRevision)
-      }
-      // Boot already writes a recommendation. Wait for this turn's row,
-      // otherwise its pending update gets mistaken for a keystroke render.
-      for (let tick = 0; tick < 100 && !settledRecommendation(); tick += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
-      expect(settledRecommendation()).toBe(true)
+      await waitFor(() => [...view.controller.store.collections.transitions.values()]
+        .some(record => record.type === "message.response.failed"))
+      await view.controller.store.settled?.()
     })
     const before = view.host.querySelector(".smithers-transcript")?.innerHTML
     const renders = view.renders()

@@ -1,10 +1,5 @@
-/*
- * The `admin` flows. One module per namespace: a lane that adds or edits a
- * flow here touches no other flow module, and Flows.ts registers each block in
- * the aggregator order.
- */
-import { Schema } from "effect"
-import { flow, NoPayload, CardTarget } from "./Declare"
+
+import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -46,7 +41,6 @@ export const adminToolFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   return [
   /*
    * The bare reset is admin-only dev tooling (§2): no sweep, nothing kept.
-   * Users get /chat.clear instead.
    */
   flow(RESET),
   flow({
@@ -61,43 +55,3 @@ export const adminToolFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   ]
 }
 
-/** The operator flows: grants and health. */
-export const adminOperatorFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "admin.grant",
-    summary: "Grant balance to a login (asks for confirmation first)",
-    runtime: ["identity"],
-    args: "<amountUsd> <login>",
-    input: Schema.Struct({ amountUsd: Schema.Number, login: Schema.String }),
-    handler: ({ amountUsd, login }) => actions.adminGrant(amountUsd, login)
-  }),
-  flow({
-    name: "admin.grant.confirm",
-    summary: "Confirm a pending balance grant",
-    runtime: ["identity"],
-    hidden: true,
-    args: "<cardId>",
-    userOnly: true,
-    userOnlyReason: "a grant confirmation is the operator's own answer",
-    input: CardTarget,
-    handler: ({ cardId }) => actions.adminGrantConfirm(cardId)
-  }),
-  flow({
-    name: "admin.grant.cancel",
-    summary: "Cancel a pending balance grant",
-    runtime: ["identity"],
-    hidden: true,
-    args: "<cardId>",
-    userOnly: true,
-    userOnlyReason: "a confirm-dialog answer is the human's",
-    input: CardTarget,
-    handler: ({ cardId }) => actions.adminGrantCancel(cardId)
-  }),
-  flow({
-    name: "admin.health",
-    summary: "Service health",
-    runtime: ["identity"],
-    input: NoPayload,
-    handler: () => actions.adminHealth()
-  })
-]

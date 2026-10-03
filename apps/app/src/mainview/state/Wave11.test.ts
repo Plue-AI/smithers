@@ -19,7 +19,6 @@ import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
 import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
-import { SIGNUP_PROFILE_PATH } from "./Signup"
 
 const createAppController = scopedControllers()
 
@@ -169,7 +168,7 @@ const relay = (options: {
     }
   }
 
-  // The sign-in's signup-profile read answers as the backend does for a new account; every other request is recorded.
+  // Keep a signup-profile response available to detect unintended onboarding reads; record all other requests.
   const profile = signupProfileFetch(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const absolute = new URL(url, "https://app.test")
@@ -324,7 +323,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
     // The gateway was provisioned BEFORE anything was launched, and the
     // launch is the stock create-flow with the description as its input.
     const order = double.calls.filter(call => call.path.startsWith("/api/workflow/")).map((call) => call.path)
-    expect(double.profileReads).toEqual([SIGNUP_PROFILE_PATH])
+    expect(double.profileReads).toEqual([])
     expect(order[0]).toBe("/api/workflow/provision")
     expect(double.state.launched).toEqual([
       { workflow: "create-flow", input: { args: "a workflow that summarizes my open issues" } }

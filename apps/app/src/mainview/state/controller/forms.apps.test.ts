@@ -117,16 +117,6 @@ describe("the Review a PR app", () => {
   })
 })
 
-describe("the Ask the codebase app", () => {
-  test("wiki.ask opened bare is a question box and Ask", () => {
-    const app = fixture()
-    const { cardId, missing } = app.ask("wiki.ask")
-    expect(missing).toEqual(["question"])
-    expect(app.card(cardId).payload.submitLabel).toBe("Ask")
-    expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind])).toEqual([["question", "Question", "text"]])
-  })
-})
-
 describe("the Run it every night app", () => {
   test("triggers.register is one input, the flow, and one button, Schedule; it offers the repository's declared flows and still takes one it does not list", () => {
     const app = fixture()

@@ -7,30 +7,11 @@ import { flowArgs } from "./FlowArgs"
 
 /*
  * The composer boundary refuses what it cannot parse exactly. `files.list`
- * and `files.read` already reject extra tokens; `flow.run` and `admin.grant`
- * silently dropped every token after the second, so `/admin.grant 25 octocat
- * 1000` granted 25 with the typo invisible. Extra tokens are now refused.
+ * and `files.read` already reject extra tokens; `flow.run` also refuses
+ * malformed payloads instead of silently dropping tokens.
  */
 
 describe("slash payload argument counts", () => {
-  test("issue actions accept an issue number and use product words for invalid numbers", () => {
-    for (const name of ["issues.fix", "issues.verify"] as const) {
-      expect(payloadFor(name, "42")).toEqual({ payload: { number: 42 } })
-      expect(payloadFor(name, "42 will/flows")).toEqual({ payload: { number: 42, repo: "will/flows" } })
-      for (const input of ["zero", "0", "-1", "1.5"]) {
-        expect(payloadFor(name, input)).toEqual({ error: `${name} needs an issue number` })
-      }
-    }
-  })
-
-  test("chat.clear is local by default and summarization requires its exact flag", () => {
-    expect(payloadFor("chat.clear", "")).toEqual({ payload: {} })
-    expect(payloadFor("chat.clear", "--summarize")).toEqual({ payload: { summarize: true } })
-    for (const input of ["true", "--sumarize", "--summarize extra", "--summarize --summarize"]) {
-      expect(payloadFor("chat.clear", input)).toHaveProperty("error")
-    }
-  })
-
   test("flow.run refuses extra text that is not a JSON input object", () => {
     const parsed = payloadFor("flow.run", "create-flow will/flows extra")
     expect(parsed).toEqual({ error: "Flow input is not valid JSON. Fix the JSON object before running it." })
@@ -72,18 +53,6 @@ describe("slash payload argument counts", () => {
       against: "run-9"
     })
     expect(flowPlanParts("review")).toEqual({ name: "review" })
-  })
-
-  test("admin.grant refuses a third token instead of dropping it", () => {
-    const parsed = payloadFor("admin.grant", "25 octocat 1000")
-    expect(parsed).toEqual({ error: "admin.grant takes an amount in dollars and a login" })
-  })
-
-  test("admin.grant still takes its amount and login", () => {
-    expect(payloadFor("admin.grant", "25 octocat")).toEqual({ payload: { amountUsd: 25, login: "octocat" } })
-    expect(payloadFor("admin.grant", "octocat")).toEqual({
-      error: "admin.grant needs an amount in dollars and a login: /admin.grant 25 octocat"
-    })
   })
 
   test("the files.* boundary the others now match", () => {

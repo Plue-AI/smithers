@@ -10,7 +10,6 @@
  * `apps/server/src/index.test.ts`.
  */
 import { expect, test } from "bun:test"
-import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
@@ -70,12 +69,11 @@ const signedInStore = async () => {
   store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{
     id: REPO, org: REPO.split("/")[0] ?? "", ownerKind: "user", name: REPO.split("/")[1] ?? "", head: null
   }] })
-  /* The job workspace as the repository's own setups recorded it — the register door's only source. */
-  await store.dispatch({ type: "card.upsert", actor: "system", card: {
-    id: `setup:codeplanesmithers:${encodeURIComponent(REPO)}:feature`, kind: "repository-setup", title: "Build a feature",
-    status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
-    payload: { ...initialSetup(REPO, "feature", "codeplanesmithers"), workspaceId: JOB_WORKSPACE }
-  } }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{
+    id: JOB_WORKSPACE, repoId: REPO, name: "Branch", targetBookmark: null, status: "running",
+    provisioningStage: null, suspendedAt: null, createdAt: null
+  }] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: `${REPO}#workspace:${JOB_WORKSPACE}` }).isPersisted.promise
   await settle(2)
   return store
 }

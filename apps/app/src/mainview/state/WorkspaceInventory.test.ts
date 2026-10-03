@@ -85,12 +85,12 @@ describe("box inventory admission", () => {
         held[0]!(json(200, []))
         expect(await first).toBe("A newer box list was requested. Try again.")
         expect(defaultBoxBinding(store, REPO)).toEqual(before)
-        await controller.commands.run("approvals.list", REPO)
+        const inbox = await controller.commands.run("approvals.list", REPO)
         expect(openForms(store)).toEqual([])
         if (outcome === "ready") {
           expect([...store.collections.cloudWorkspaces.keys()]).toEqual([BOX_A, BOX_B])
-          const form = store.collections.cards.get("form-box.select")
-          expect(form?.kind === "flow-form" && form.payload.fields[0]?.options?.map(option => option.value)).toEqual([BOX_A, BOX_B])
+          expect(inbox).toMatchObject({ status: "failed", error: `Select a box of ${REPO} first.` })
+          expect(store.collections.cards.get("form-box.select")).toBeUndefined()
         } else expect(store.collections.cards.get("form-box.select")).toBeUndefined()
         expect(requests).toHaveLength(2)
         if (outcome === "loading") { held[1]!(json(200, [])); await second }
@@ -176,7 +176,7 @@ describe("box inventory admission", () => {
     expect(restored.session().draft).toBe("Keep chat")
   })
 
-  test("Inbox acknowledges while the actual box-list request is held, then offers both observed boxes on retry", async () => {
+  test("Inbox responds while its box list is held and refuses an ambiguous inventory on retry", async () => {
     const store = await signedIn()
     let release!: (response: Response) => void
     let listing = false
@@ -200,9 +200,9 @@ describe("box inventory admission", () => {
     expect(store.session().draft).toBe("Still here")
     release(json(200, [wire(BOX_A), wire(BOX_B)]))
     await list
-    await controller.commands.run("approvals.list", REPO)
-    const form = store.collections.cards.get("form-box.select")
-    expect(form?.kind === "flow-form" && form.payload.fields[0]?.options?.map(option => option.value)).toEqual([BOX_A, BOX_B])
+    expect(await controller.commands.run("approvals.list", REPO)).toMatchObject({ status: "failed", error: `Select a box of ${REPO} first.` })
+    expect([...store.collections.cloudWorkspaces.keys()]).toEqual([BOX_A, BOX_B])
+    expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(openForms(store)).toEqual([])
     expect(store.session().approvalsInboxRequests ?? []).toEqual([])
   })

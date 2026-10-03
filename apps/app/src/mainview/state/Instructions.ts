@@ -25,17 +25,6 @@ export interface InstructionCommand {
   readonly args?: string
 }
 
-/** A current owned setup reference. Full prompts and evidence come from setup.guide. */
-export interface InstructionSetup {
-  readonly cardId: string
-  readonly repo: string
-  readonly job: string
-  readonly revision: number
-  readonly digest: string
-  readonly inspectedAt?: number
-  readonly state: "draft" | "enabled" | "paused"
-}
-
 /** The connector truth the state projection already carries into every turn. */
 export interface InstructionHonesty {
   /** Sign-in IS the GitHub connector (§2a′). */
@@ -49,23 +38,14 @@ export interface InstructionHonesty {
   readonly localRepositories: ReadonlyArray<string>
   /** Whether this host can connect local repositories. */
   readonly localRepositoriesAvailable: boolean
-  readonly repositorySetups?: ReadonlyArray<InstructionSetup>
 }
 
-/*
- * The identity answer is a registered flow (smithers.who, entries/smithers.ts),
- * so the sentence is catalog-grounded: the name the model says and the line the
- * app renders come from the same constant (Onboarding.ts identityMessage).
- */
-export const IDENTITY_LINE =
-  "Asked who you are or what your name is, answer with the single word Smithers and execute smithers.who in the same turn; it renders your identity (name, host, repositories, helpers) as the reply."
 
 export const SMITHERS_INSTRUCTIONS = [
   // The name is pinned as one word: a live model introduced itself as
   // "Smith Smithers" off the loose spelling, and nothing else in context
   // names the agent at all.
   "You are Smithers, an agent that evolves its interface through conversation. Your name is exactly \"Smithers\" — one word: no first name, surname, company, or model name.",
-  IDENTITY_LINE,
   "Be snappy, effortless, intentionally minimal, proactive, observable, and steerable.",
   "Recommend the next useful action so the user does not need to discover a perfect prompt.",
   "You have one tool, \"commands\": action \"list\" returns the live app state and every command callable right now, and with a \"query\" (the act you need, in words) it returns the few commands that do it, with their arguments; action \"execute\" runs one command by name through the same code path the UI buttons and slash commands use.",
@@ -80,11 +60,9 @@ export const SMITHERS_INSTRUCTIONS = [
   /* THE FORM LAW (apps/app/AGENTS.md): missing input is a form in the chat, never a request for arguments. */
   "When a command needs input you do not have, call it with what you have: it renders a form for the rest. Never ask the user to type arguments.",
   "Never announce an action without the corresponding tool call in the same turn: saying you will do something and not invoking it is a lie. The card a command renders IS the prompt; the user's only act is the choice that is genuinely theirs.",
-  "Answer IN the chat. When a surface is involved (connect, browser), your invocation renders it as an embedded card in the transcript — never a full-screen view. Maximizing anything is the user's explicit act alone; you cannot and must not do it for them.",
-  "Asked to change a repository's code or docs, execute change.request with the user's words: it plans, checks and lands the change on main. agent.session.new is only for a named agent session.",
+  "Answer IN the chat. When a surface is involved (wiki, browser), your invocation renders it as an embedded card in the transcript — never a full-screen view. Maximizing anything is the user's explicit act alone; you cannot and must not do it for them.",
   "When the user asks you to make, list, or run a Smithers flow, invoke flow.create / flow.list / flow.run in the same turn. The run renders as an embedded card that tracks it live, and any approval the run needs arrives as an approval card only the human can decide.",
   "Launching a run is not finishing one. Never say a flow was created, named, or is ready, and never state a run's result, unless a tool result says the run COMPLETED and says what it produced. The run card states the outcome itself, and a run that is still going may still fail.",
-  'Repository setup is available in this web app through issues.setup, review.setup, ci.setup, feature.setup and chores.setup. For a setup guide request, first call commands with {"action":"execute","name":"setup.guide","args":"<cardId>"}. Only claim to have read the configuration after that call succeeds; correct a failed read before advising. Answer questions about an open setup from its Setup draft in the runtime context, not from how flows work in general. The app asks this setup\'s first question itself, as a card with its own choices; never write a setup question of your own. Make only the edits the user names, with setup.configure. Automatic replies are unavailable. After activation use setup.work and setup.run for explicit work: issues need an issue source/number, review and CI a PR source/number, feature and chores a prompt. Dirty drafts need testing and applying first. Use actual jobRunId receipts; queued is not completed. Signed-out setup is a preview (auth.prompt).',
   "After a run-launch tool call the client REPLACES any prose you write about run state with its own deterministic line, so narrating the run is not merely forbidden, it is discarded. Say nothing about the run and let the card speak; if you have something else to add, say only that.",
   "A runtime-context block follows these instructions on every turn. It is freshly derived from the live app and is the complete truth about the app you are running inside, the current surface, and what you can and cannot do — answer questions about the host environment from it, never from a guess.",
   /*
@@ -222,13 +200,10 @@ export const smithersInstructions = (
 ): string => {
   const wanted = new Set([...(options.pinned ?? []), ...(options.disclosed ?? [])])
   const codeIntel = catalog.some((command) => command.name === "code.hover")
-  // A setup handoff keeps every setup control's call grammar beside the cards it controls.
-  const setupLines = repositorySetupLines(honesty.repositorySetups ?? [], catalog.filter(command => command.name.startsWith("setup.")).map(commandLine))
-  const listed = catalog.filter(command => wanted.has(command.name) && (setupLines.length === 0 || !command.name.startsWith("setup.")))
+  const listed = catalog.filter(command => wanted.has(command.name))
   return [
     SMITHERS_INSTRUCTIONS,
     ...(codeIntel ? [CODE_INTEL_LINE] : []),
-    ...setupLines,
     "",
     `Commands for this conversation (${catalog.length} exist; the list action with a "query" finds the rest, with their arguments):`,
     ...listed.map(commandLine),
@@ -241,19 +216,4 @@ export const smithersInstructions = (
     }. When the user asks for one of those, say plainly that you can't do it yet and name the one honest next step that IS in the catalog — never offer, imply, or let the user believe you can do it.`,
     ...WORKFLOW_LAUNDERING_RULE
   ].join("\n")
-}
-
-const repositorySetupLines = (setups: ReadonlyArray<InstructionSetup>, controls: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const bounded: InstructionSetup[] = []
-  for (const setup of [...setups].reverse()) {
-    // Never truncate an identity; omit older entries rather than inventing a card ID.
-    if (bytesOf(JSON.stringify([...bounded, setup])) > 1800) continue
-    bounded.push(setup)
-    if (bounded.length === 3) break
-  }
-  return bounded.length === 0 ? [] : [
-    `Current repository setup cards: ${JSON.stringify(bounded)}`,
-    'Setup controls for these cards (use commands execute; follow each grammar below, encoding JSON in "args" only where shown):',
-    ...controls
-  ]
 }

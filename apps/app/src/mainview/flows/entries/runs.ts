@@ -4,7 +4,6 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { BURNDOWN_STATES } from "../../cards/Burndown"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
 import { flow } from "./Declare"
@@ -19,13 +18,6 @@ export const namespace: Namespace = {
 
 /** The `runs` flows registered as one aggregator block. */
 export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "runs.handoff",
-    summary: "Prepare an editable handoff brief from a recorded run or plan; the human copies it",
-    args: "[sourceCard=id] <runId>",
-    input: Schema.Struct({ runId: Schema.String, sourceCard: Schema.optional(Schema.String) }),
-    handler: ({ runId, sourceCard }) => actions.prepareRunHandoff(runId, sourceCard)
-  }),
   flow({
     name: "runs.attention",
     summary: "Show pending approvals and parked or failed runs on this repository",
@@ -203,28 +195,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, changeId, sourceCard }) => actions.selectCodingChange(runId, changeId, sourceCard)
   }),
   flow({
-    /* The issue-sweep board's own reader state (cards/BurndownCard.tsx): the same state again shows every state. */
-    name: "runs.burndown.filter",
-    summary: "Show one state of an issue-sweep run's board, or every state",
-    runtimeAny: ["cloud"],
-    hidden: true,
-    args: "[sourceCard=id] <runId> <skip|ours|claimed|working|adopting|landing|landed|held|failed>",
-    input: Schema.Struct({
-      sourceCard: Schema.optional(Schema.String), runId: Schema.String,
-      filter: Schema.Literals(BURNDOWN_STATES)
-    }),
-    handler: ({ runId, filter, sourceCard }) => actions.burndownFilter(runId, filter, sourceCard)
-  }),
-  flow({
-    name: "runs.burndown.select",
-    summary: "Open or close one issue's detail on an issue-sweep run's board",
-    runtimeAny: ["cloud"],
-    hidden: true,
-    args: "[sourceCard=id] <runId> <issue>",
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, item: Schema.Number }),
-    handler: ({ runId, item, sourceCard }) => actions.burndownSelect(runId, item, sourceCard)
-  }),
-  flow({
     name: "runs.trace.view",
     summary: "Show a run's turn explanations, full execution timeline, graph, step list or DevTools in its embedded card",
     runtimeAny: ["cloud"],
@@ -252,27 +222,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "[sourceCard=id] <runId> [executionId]",
     input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, executionId: Schema.optional(Schema.String) }),
     handler: ({ runId, executionId, sourceCard }) => actions.graphExecution(runId, executionId, sourceCard)
-  }),
-  flow({
-    /* Launching a person into a run's harness is consequential: the agent's door confirms (THE THREE-DOOR LAW). */
-    name: "runs.takeover",
-    summary: "Take over a run from its box's terminal, on its harness session when it has one",
-    runtime: ["cloud", "cloud.terminal"],
-    confirm: "take over the run in its box's terminal",
-    args: "[sourceCard=id] <runId>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String }),
-    handler: ({ runId, sourceCard }) => actions.takeOverRun(runId, sourceCard)
-  }),
-  flow({
-    name: "runs.release",
-    summary: "Hand a taken-over run back; it carries on by itself",
-    runtime: ["cloud", "cloud.terminal"],
-    confirm: "exit the harness a person is driving in the box's terminal",
-    args: "[sourceCard=id] <runId>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String }),
-    handler: ({ runId, sourceCard }) => actions.releaseRun(runId, sourceCard)
   }),
   flow({
     name: "runs.trace.live",

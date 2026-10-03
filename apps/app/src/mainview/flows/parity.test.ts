@@ -163,7 +163,7 @@ const PRESENTATION_ONLY = [
   "onRunCommand(", // delegated: App.tsx binds it to the registry's runCommand
   "onChoose(", // delegated: Composer.tsx routes a palette row through runCommand, or edits the draft (a namespace, a prefix)
   // Card maximize/minimize: each calls the delegated onMaximize/onMinimize (bound to card.maximize /
-  // card.minimize at the App.tsx and CardTabBody binding sites) and then hands focus to the button
+  // card.minimize at the App.tsx binding site) and then hands focus to the button
   // that replaces the one pressed, so Escape keeps a shell to land on.
   "maximizeThenFocus",
   "minimizeThenFocus",
@@ -179,7 +179,6 @@ const PRESENTATION_ONLY = [
   "onMinimize(", // delegated: App.tsx binds it to card.minimize
   "onFrameBack", // delegated: App.tsx binds it to frame.back
   "onFrameForward", // delegated: App.tsx binds it to frame.forward
-  "onOpenInTab(", // delegated: App.tsx and tabs/CardTabBody.tsx bind it to runCommand("tab.card", ...)
   "onOpen(", // delegated: WikiPageView's card and WorldSurface bindings dispatch wiki navigation commands
   "onConnectGitHub(", // delegated: App.tsx binds it to auth.sign-in
   "onRunWorkflow(", // delegated: App.tsx binds it to runCommand("flow.run", ...)
@@ -219,7 +218,6 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../cards/WorkflowCards.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
   "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
-  "../SubagentGrid.tsx": ["setFilesOpen(", "onClick={onOpen}"], // files and earlier-batch rows are local disclosures
   "../ToastStack.tsx": ["setExpanded("] // the "+N more" row is a local disclosure of the capped stack
 }
 
@@ -933,7 +931,6 @@ describe("launch-law parity: every affordance is a command", () => {
         "../App.tsx",
         "../TranscriptMessage.tsx",
         "../ChatCards.tsx",
-        "../ConnectorsSurface.tsx",
         "../SurfaceChrome.tsx"
       ])
     )
@@ -973,14 +970,8 @@ describe("launch-law parity: every affordance is a command", () => {
     }
     expect(files["../cards/WorkflowCards.tsx"]).toContain("onRunCommand: sendRunCommand")
     const form = files["../cards/FlowFormCards.tsx"]!
-    expect(form).toContain("onRunCommand(\"form.submit\", card.id)")
-    expect(form).toContain("const cancel = flowAction(onRunCommand, \"card.dismiss\", card.id)")
-    const setup = files["../cards/RepositorySetupCard.tsx"]!
-    expect(setup).toContain(
-      "=> onRunCommand(\"setup.configure\", flowArgs(\"setup.configure\", { cardId: card.id, field, value }))"
-    )
-    expect(setup).toContain("data-flow=\"setup.run\"")
-    expect(setup).toContain("=> onRunCommand(\"setup.view\", flowArgs(\"setup.view\", { cardId: card.id, view: next,")
+    expect(form).toContain('onRunCommand("form.submit", card.id)')
+    expect(form).toContain('const cancel = flowAction(onRunCommand, "card.dismiss", card.id)')
     // Visibility is a host lifecycle observation, not a button or a command.
   })
 
@@ -1016,20 +1007,15 @@ describe("launch-law parity: every affordance is a command", () => {
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 3,
       "../LocalAuthPanel.tsx": 4, // Includes the failed read's Retry, a FailureNotice action.
-      "../RegistrationStatus.tsx": 1,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
       "../StorageRecoveryButton.tsx": 1,
-      "../SubagentGrid.tsx": 7, // + the ctrl+s overview (#2190), plus earlier-batch disclosure
-      "../FlowsSurface.tsx": 2,
       "../WorldSurface.tsx": 15, // The wiki spaces (#1922): the switch, New page, Graph, Edit (wiki.view), History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
       "../HelpBubble.tsx": 1,
       "../InputModeMenu.tsx": 2,
       "../SessionNavigation.tsx": 1, // -1: the wordmark is a static mark; the sidebar it toggled is gone.
-      "../cards/SetupChecklist.tsx": 3, // The shared step button (Talk to Smithers included), the shared job tile, and the dismiss; each one's flow is data, not a handler.
-      "../cards/SignupCards.tsx": 5, // The signup onboarding: the GitHub door, the account submit, the repository question's repo/skip, finish. -1 (Will, 2026-10-01): the new-repo tile did what Skip does.
       "../cards/CodingVibeCard.tsx": 1,
-      "../cards/RepositoryUpdateCard.tsx": 3,
+      "../cards/RepositoryUpdateCard.tsx": 2,
       /*
        * The Library (the `plugins` surface and the guided introduction share
        * it): Install and Remove on a row, and the rail button each installed
@@ -1045,14 +1031,13 @@ describe("launch-law parity: every affordance is a command", () => {
        * The local-repository row and the disconnect dialog went with the
        * local backend (docs/LOCAL-BACKEND-RETIREMENT.md).
        */
-      "../ConnectorsSurface.tsx": 3,
       /*
        * The card shell: the maximize backdrop, the frame back / forward /
        * fork, the maximized card's "Open in tab" (docs/LOCAL-APP.md "Cards"),
        * Restore and Maximize. Every card body lives in its family file under
        * cards/ and is pinned there.
        */
-      "../ChatCards.tsx": 9, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
+      "../ChatCards.tsx": 8, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
       "../ChatRunTimeline.tsx": 1,
       /* The turn's approval card: approve and deny. */
       "../cards/ApprovalCard.tsx": 2,
@@ -1082,13 +1067,11 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
 
       "../cards/IssueCards.tsx": 11, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips and the saved view toggles
-      "../cards/IssueThread.tsx": 5, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
+      "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 3,
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
-      "../cards/NotificationsCard.tsx": 1,
-      "../cards/RegistrationCard.tsx": 3, // Failure Retry, completed Open, and cached Analyze again; each uses the canonical flow binding.
       "../cards/EnvCard.tsx": 3,
       /* The account card's Sign out door (auth.sign-out through onRunCommand). */
       "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
@@ -1097,7 +1080,6 @@ describe("launch-law parity: every affordance is a command", () => {
       // The tutorial's ranked chooser: one row button plus Skip.
       "../cards/RepositoryChoiceCard.tsx": 2,
       "../cards/RepositoryHomeCard.tsx": 3,
-      "../cards/RepositorySetupCard.tsx": 19,
 
       "../cards/SyncCards.tsx": 5,
       /* The /theme picker: nine swatches, one shared handler through onRunCommand. */
@@ -1115,10 +1097,10 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
-      "../cards/RunTraceCard.tsx": 15, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
+      "../cards/RunTraceCard.tsx": 14, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
-      "../cards/RunTraceSummary.tsx": 5, // + Take over / Release (runs.takeover, runs.release); a guard's park adds Continue and Stop (runs.continue, flow.run.stop).
+      "../cards/RunTraceSummary.tsx": 4, // A parked run offers Continue and Stop.
       "../cards/RunTraceGoals.tsx": 1,
       /*
        * Lane runs: the run inbox's Open per row, its All/status filter chips,
@@ -1132,7 +1114,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* Includes TODO filing, check-receipt run opening, and the failure/Wiki Retry actions. */
       "../cards/StackCard.tsx": 10, // + Land (history.land).
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
-      "../cards/AgentCards.tsx": 5, // + each profile row's Runs door (runs.list flow=<profile>).
+      "../cards/AgentCards.tsx": 1, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
       // THE FORM LAW (.specs/engineering/spec.md §6.1): Cancel (card.dismiss), Submit (form.submit), and the retained PR Review (form.submit); fields commit on blur/change.
       "../cards/FlowFormCards.tsx": 3,
@@ -1178,7 +1160,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * review again after requested changes (ad40a699e) — all through
        * onRunCommand with data-flow set.
        */
-      "../cards/ChangeCards.tsx": 23,
+      "../cards/ChangeCards.tsx": 21,
       /*
        * The plan inside a run card: Inspect review feedback and Inspect failed
        * execution (runs.trace.select), Vibe this change (flow.run), Check
@@ -1189,15 +1171,14 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/CodingPocCard.tsx": 2, // Native execution inspection and existing steering form.
       /* The commits cards: a row's and a parent's commits.read, and the sha chip's chat.copy-message — all through onRunCommand. */
       "../cards/CommitCards.tsx": 3,
-      "../cards/BranchesCard.tsx": 2, // a row opens that branch's commits (commits.list)
-      "../cards/BurndownCard.tsx": 7, // the state filter and row (runs.burndown.*), Check again (flow.run.retry), the stop/resume confirmation (flow.run.stop, runs.signal, issue-sweep), and a group's "more" (local chrome)
+      "../cards/BranchesCard.tsx": 1, // a row opens that branch's commits (commits.list)
       /*
        * Connection, world and browser card interactions, plus the embedded
        * wiki collaboration cards (ad438463a6): page Previous/Next and the
        * pager's onSelect, the view-mode pickers (wiki.card.view), cloud
        * Open page, and Refresh (wiki.sync) — all through onRunCommand.
        */
-      "../cards/ConversationCards.tsx": 13, // Wiki actions and the GitHub connection card.
+      "../cards/ConversationCards.tsx": 11, // Wiki actions; the retired connection card has no doors.
       /* The factory card: one Open per present infra file, one shared handler through onRunCommand (files.read). */
       /*
        * The dispatcher card's Register door, the button door of
@@ -1224,30 +1205,22 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(app).toContain("runCommand(\"toast.dismiss\"")
   })
 
-  /*
-   * A card's acts are bound in ONE place (cards/CardActions.ts) that the
-   * transcript and a card tab both spread, so the two copies cannot drift —
-   * the tab used to keep its own and had no frame controls at all. Both call
-   * sites are pinned here, so deleting the shared binding fails loudly.
-   */
-  test("every card act is bound once, and both card surfaces use that binding", () => {
+  /* A card's acts bind once, and the live transcript uses that binding. */
+  test("the transcript uses the shared card action binding", () => {
     const actions = read("../cards/CardActions.ts")
     expect(actions).toContain("\"approval.approve\"")
     expect(actions).toContain("\"approval.deny\"")
-    expect(actions).toContain("runCommand(\"admin.grant.confirm\"")
-    expect(actions).toContain("runCommand(\"admin.grant.cancel\"")
     expect(actions).toContain("runCommand(\"card.maximize\"")
     expect(actions).toContain("runCommand(\"card.minimize\"")
     expect(actions).toContain("runCommand(\"frame.back\"")
     expect(actions).toContain("runCommand(\"frame.forward\"")
-    expect(actions).toContain("runCommand(\"tab.card\"")
     expect(actions).toContain("runCommand(\"auth.sign-in\"")
     expect(actions).toContain("runCommand(\"flow.run\"")
     expect(actions).toContain("runCommand(\"flow.run.stop\"")
     expect(actions).toContain("runCommand(\"flow.run.retry\"")
     expect(actions).toContain("runCommand(\"flow.repo.choose\"")
     expect(actions).toContain("runCommand(\"wiki.edit\"")
-    for (const surface of ["../App.tsx", "../tabs/CardTabBody.tsx"] as const) {
+    for (const surface of ["../App.tsx"] as const) {
       expect(files[surface]).toContain("cardActions(controller,")
     }
   })
@@ -1402,7 +1375,7 @@ describe("launch-law parity: every affordance is a command", () => {
     // The chat-first contract: a pane's only exit is /chat. A pane wired to
     // close into another takeover would pass the registry gate above and still
     // break the contract, so the target itself is pinned.
-    const panes = ["../WorldSurface.tsx", "../FlowsSurface.tsx", "../ConnectorsSurface.tsx"] as const
+    const panes = ["../WorldSurface.tsx"] as const
     for (const pane of panes) {
       const source = files[pane] ?? ""
       expect(source).toContain("closeCommand=\"chat\"")

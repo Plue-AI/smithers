@@ -104,18 +104,9 @@ describe("a self-host bootstrap never enables native-shell UI", () => {
     expect(markup()).not.toContain("Sign in with GitHub")
     expect(host.querySelector('[data-testid="signup"]')).toBeNull()
   })
-
-  test("the identity names the web app, never the native one", async () => {
-    const controller = await openSignedOut(SELF_HOST)
-    await controller.commands.run("smithers.who")
-    await settled()
-    const said = [...controller.store.collections.messages.values()].map((message) => message.text).join("\n")
-    expect(said).toContain("the Smithers web app")
-    expect(said).not.toContain("native Smithers app")
-  })
 })
 
-for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`the GitHub ${authFlow} cookie session reads the selected backend identity and opens signup`, async () => {
+for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`the GitHub ${authFlow} cookie session reads the selected backend identity without opening retired signup`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let identityReads = 0
   const requests: string[] = []
@@ -135,7 +126,6 @@ for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`th
   expect(controller.identityProvider).toBe("github")
   expect(store.collections.identitySessions.get("identity")).toMatchObject({ state: "signed-in", login: "github-owner", provider: "github" })
   const { host } = mount(controller)
-  expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
-  expect((host.querySelector('[data-testid="signup-account"]') as HTMLInputElement | null)?.value).toBe("github-owner")
-  expect((host.querySelector('[data-testid="signup-name"]') as HTMLInputElement | null)?.value).toBe("Grace Owner")
+  expect(host.querySelector('[data-testid="signup"]')).toBeNull()
+  expect(store.session().signup).toBeUndefined()
 })

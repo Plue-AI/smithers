@@ -23,7 +23,6 @@ import { StepList, stepFacts } from "./RunTraceSteps"
 import { DevToolsPane } from "./RunDevTools"
 import { traceSteps } from "./TraceSteps"
 import { CodingPocBody } from "./CodingPocCard"
-import { BurndownBody } from "./BurndownCard"
 import { CodingVibeBody } from "./CodingVibeCard"
 import type { Card, FlowDurationsRow } from "../state/AppState"
 import { timeLabel } from "../Timestamps"
@@ -182,8 +181,6 @@ export const RunTraceBody = ({
   fileCards,
   childCards,
   admin = false,
-  presentation,
-  notices
 }: {
   readonly card: RunTraceCard
   /** The shell's failure notices, for a summary that draws them under its own status (the burndown board). */
@@ -223,13 +220,7 @@ export const RunTraceBody = ({
     span.kind === "run" || spanMatches(span, filter)
   )
   const turns = turnNarratives(model)
-  /*
-   * An issue-sweep's board is its summary: one row per child execution would
-   * repeat the board as ids, so the sweep keeps them behind Details, Steps and
-   * DevTools until a row there is selected.
-   */
-  const sweep = card.payload.workflow === "issue-sweep"
-  const native = sweep && card.payload.selection === undefined ? [] : model.root.children.filter((span) =>
+  const native = model.root.children.filter((span) =>
     span.kind === "execution" || span.id.startsWith("engine-gap:") || span.id.startsWith("engine-invalid:")
   )
   // Following a run is cheap. The debugger appears only after an explicit selection or timeline request.
@@ -274,10 +265,7 @@ export const RunTraceBody = ({
           </p>
         ) :
         null}
-      {/* An issue-sweep run's summary is its burndown board, which carries the run's status and controls. */}
-      {card.payload.workflow === "issue-sweep"
-        ? <BurndownBody card={card} onRunCommand={sendRunCommand} presentation={presentation} notices={notices} />
-        : <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />}
+      {<RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />}
       {result !== null ? <RunResult result={result} technical={repositoryRun} /> : null}
       <CodingPlanBody model={whole} card={card} onRunCommand={onRunCommand} workflowCatalogs={workflowCatalogs} />
       <CodingPocBody card={card} onRunCommand={onRunCommand} />
@@ -324,10 +312,7 @@ export const RunTraceBody = ({
                     <>
                       <AgentMark persona={{ id: trigger.author, name: trigger.author }} size={16} onRunCommand={onRunCommand} />{" "}
                       <q className="run-trigger-quote" data-testid={`run-trigger-quote-${runId}`}>{trigger.text}</q>{" "}
-                      <button type="button" className="run-trace-filter"
-                        {...flowAction(onRunCommand, "agent.session.view", flowArgs("agent.session.view", { sessionId: trigger.conversationId, repo: card.payload.repo }))}>
-                        Open
-                      </button>
+                      
                     </>
                   ) : runTriggerWords(trigger, card.payload.workflow)}
                   {trigger.kind === "approval" && trigger.principal !== undefined
@@ -379,7 +364,7 @@ export const RunTraceBody = ({
         />
       ) : view === "turns" || view === "graph" ? (
         <>
-          {turns.length > 0 || native.length > 0 || scrub !== null || runGraph !== undefined || (sweep && model.counts.spans > 0) ? (
+          {turns.length > 0 || native.length > 0 || scrub !== null || runGraph !== undefined ? (
             <div className="run-trace-bar" data-view="turns" role="group" aria-label="Trace presentation">
               <span className="run-trace-bar-title">Timeline</span>
               {scrub}
@@ -420,7 +405,7 @@ export const RunTraceBody = ({
             </div>
           ) : null}
           <PhaseStrip model={whole} records={card.payload.events ?? []} runId={runId} cursorSeq={card.payload.cursorSeq} onRunCommand={onRunCommand} />
-          {sweep && !inspecting ? null : (
+          {(
             <FrameLines model={model} selected={selected} runId={runId} onRunCommand={onRunCommand}
               openFrame={inspecting ? frame?.id : undefined} detail={detail} cardId={card.id} />
           )}
@@ -452,7 +437,7 @@ export const RunTraceBody = ({
               })}
             </ol>
           ) : null}
-          {model.counts.spans === 0 && !inspecting && !repositoryRun && !sweep ? (
+          {model.counts.spans === 0 && !inspecting && !repositoryRun ? (
             <p className="run-trace-empty" data-testid={`run-trace-empty-${runId}`}>
               {settled ? "No turns were recorded." : "No turns yet."}
             </p>

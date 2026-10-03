@@ -9,34 +9,9 @@ import { createFailureController } from "./failures"
 import { settle, waitFor } from "../TestFixtures"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLead } from "@smthrs/rpc/RefusalCopy"
-import { ADMIN_GRANT_PATH, ADMIN_HEALTH_PATH } from "@smthrs/rpc/AgentApiRoutes"
 
 /** The lead an uncoded HTTP refusal of `status` carries once its raw body is withheld. */
 const uncodedLead = (status: number) => refusalLead(refusalOf({ body: null, status, message: "" }))
-
-test.each([
-  { status: 200, body: { status: "ok", database: { status: "ok", latency: "8ms" } },
-    services: [{ name: "database", status: "ok", detail: "8ms" }], cardStatus: "active" },
-  { status: 503, body: { status: "degraded", database: { status: "error", error: "database offline" },
-    components: { queue: { status: "error", error: "queue offline" } } },
-    services: [{ name: "database", status: "failed", detail: "database offline" }, { name: "queue", status: "failed", detail: "queue offline" }], cardStatus: "error" }
-])("canonical backend health $status preserves the actual component evidence", async ({ status, body, services, cardStatus }) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null }).isPersisted.promise
-  const requests: string[] = []
-  const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
-    const path = new URL(String(input), "https://app.test").pathname
-    requests.push(path)
-    return path === "/api/admin/system/health" ? Response.json(body, { status }) : Response.json({}, { status: 404 })
-  } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    await controller.adminHealth()
-    expect(requests).toEqual(["/api/admin/system/health"])
-    expect(store.collections.cards.get("admin-health")).toMatchObject({ kind: "admin-health", status: cardStatus, payload: { services } })
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
 
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
@@ -138,7 +113,7 @@ const runSignedInEntry = async (entry: "load" | "adopt", sessionAnswer: Record<s
 
   return {
     calls,
-    transitions: [...store.collections.transitions.values()].map(({ actor, type, payload }) => ({
+    transitions: [...store.collections.transitions.values()].filter(row => row.type !== "palette.changed").map(({ actor, type, payload }) => ({
       actor,
       type,
       payload: JSON.parse(payload) as unknown
@@ -888,87 +863,6 @@ describe("identity re-probes", () => {
   })
 })
 
-/*
- * An account answer lands only on the account that asked. A reply that
- * arrives after sign-out or another login describes an account this page no
- * longer holds: it writes no card, no transcript line, no access state and
- * no toast.
- */
-describe("account answers that outlive their account", () => {
-  const setup = async (identity: { login: string; admin: boolean }) => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", ...identity, scopesPlain: null })
-      .isPersisted.promise
-    const held: Array<{ path: string; answer: (response: Response) => void }> = []
-    const ctx = createControllerContext(store, agent, {
-      fetchImpl: (input, init) => {
-        const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "https://app.test").pathname
-        if (path.endsWith("/auth/logout") && init?.method === "POST") return Promise.resolve(Response.json({}))
-        return new Promise<Response>(answer => { held.push({ path, answer }) })
-      },
-      toastDebounceMs: 0,
-      toastAutoDismissMs: 10_000
-    })
-    ctx.withToast = createFailureController(ctx).withToast
-    const until = async (ready: () => boolean) => {
-      for (let attempt = 0; attempt < 100 && !ready(); attempt += 1) await new Promise(resolve => setTimeout(resolve, 0))
-      expect(ready()).toBe(true)
-    }
-    const written = () => ({
-      cards: [...store.collections.cards.keys()],
-      messages: [...store.collections.messages.values()].map(message => message.text),
-      toasts: [...store.collections.toasts.values()].map(toast => `${toast.status}:${toast.detail ?? toast.title}`)
-    })
-    return {
-      store, ctx, until, written,
-      controller: createAuthBillingController(ctx, () => 0),
-      answer: async (path: string, response: Response) => {
-        await until(() => held.some(request => request.path === path))
-        held.find(request => request.path === path)!.answer(response)
-      },
-      dispose: async () => { await ctx.dispose(); await store.dispose?.() }
-    }
-  }
-  const admin = { login: "will", admin: true }
-  const health = { status: "degraded", database: { status: "error", error: "down" } }
-  const cases: ReadonlyArray<readonly [string, (controller: ReturnType<typeof createAuthBillingController>) => Promise<unknown>, string, () => Response]> = [
-    ["service health", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => Response.json(health, { status: 503 })],
-    ["a refused service health read", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => new Response("down", { status: 500 })]
-  ]
-  for (const [name, act, path, response] of cases) {
-    test(`${name} answered after sign-out writes nothing`, async () => {
-      const h = await setup(admin)
-      try {
-        const acting = act(h.controller)
-        await h.until(() => h.store.collections.toasts.size > 0)
-        expect(await h.controller.signOut()).toBeUndefined()
-        const cleared = h.written()
-        await h.answer(path, response())
-        await acting
-        await new Promise(resolve => setTimeout(resolve, 0))
-        expect(h.written()).toEqual(cleared)
-      } finally { await h.dispose() }
-    })
-  }
-
-  test("a grant answered after sign-out writes nothing", async () => {
-    const h = await setup(admin)
-    try {
-      h.controller.adminGrant(10, "stranger")
-      const card = [...h.store.collections.cards.values()].find(row => row.kind === "grant-confirm")!
-      const granting = h.controller.adminGrantConfirm(card.id)
-      await h.until(() => h.store.collections.toasts.size > 0)
-      expect(await h.controller.signOut()).toBeUndefined()
-      const cleared = h.written()
-      await h.answer(ADMIN_GRANT_PATH, new Response("down", { status: 500 }))
-      await granting
-      await new Promise(resolve => setTimeout(resolve, 0))
-      expect(h.written()).toEqual(cleared)
-    } finally { await h.dispose() }
-  })
-
-})
-
 test.each([
   { body: { state: "mystery", allowedToStartWork: true, balance: { totalUsd: "20" } }, name: "unknown state" },
   { body: { state: "ok", allowedToStartWork: "yes", balance: { totalUsd: "20" } }, name: "non-boolean permission" },
@@ -989,107 +883,6 @@ test.each([
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
-test("a grant whose route fails remains retryable with one stable operation key", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    admin: true, scopesPlain: null }).isPersisted.promise
-  let networkFails = true
-  const posted: Array<{ login: string; amountUsd: number; operationKey: string }> = []
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async (input, init) => {
-      if (!String(input).endsWith(ADMIN_GRANT_PATH)) throw Error("Unexpected route")
-      posted.push(JSON.parse(String(init?.body)))
-      if (networkFails) throw Error("offline")
-      return Response.json({ ...posted.at(-1), granted: true, grantId: "credit-grant:1", duplicate: true })
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    controller.adminGrant(25, "recipient")
-    const card = [...store.collections.cards.values()].find(row => row.kind === "grant-confirm")!
-    expect(card).toMatchObject({ title: "Grant $25 to recipient?", payload: { login: "recipient", amountUsd: 25, phase: "confirm" } })
-    expect(posted).toEqual([])
-    expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
-    await waitFor(() => store.collections.cards.get(card.id)?.status === "error")
-    expect(store.collections.cards.get(card.id)).toMatchObject({ status: "error",
-      payload: { phase: "failed", error: "The grant didn't go through — the admin route didn't answer." } })
-    networkFails = false
-    expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
-    await waitFor(() => store.collections.cards.get(card.id)?.status === "acted")
-    expect(store.collections.cards.get(card.id)).toMatchObject({ status: "acted",
-      payload: { phase: "granted", grantId: "credit-grant:1" } })
-    expect(posted).toEqual([{ login: "recipient", amountUsd: 25, operationKey: card.id },
-      { login: "recipient", amountUsd: 25, operationKey: card.id }])
-    expect(await controller.adminGrantConfirm(card.id)).toBe("That grant was already posted.")
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test("a refused grant keeps its exact confirmation card and does not claim credit", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    admin: true, scopesPlain: null }).isPersisted.promise
-  const posted: unknown[] = []
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async (input, init) => {
-      if (!String(input).endsWith(ADMIN_GRANT_PATH)) throw Error("Unexpected route")
-      posted.push(JSON.parse(String(init?.body)))
-      return new Response("Host denied", { status: 503 })
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    controller.adminGrant(25, "recipient")
-    const card = [...store.collections.cards.values()].find(row => row.kind === "grant-confirm")!
-    expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
-    await waitFor(() => store.collections.cards.get(card.id)?.status === "error")
-    expect(store.collections.cards.get(card.id)).toMatchObject({ status: "error",
-      payload: { login: "recipient", amountUsd: 25, phase: "failed",
-        error: `The grant didn't go through. ${uncodedLead(503)}` } })
-    expect(JSON.stringify(store.collections.cards.get(card.id))).not.toContain("Host denied")
-    expect(posted).toEqual([{ login: "recipient", amountUsd: 25, operationKey: card.id }])
-    expect(store.collections.toasts.get("toast-admin.grant")).toMatchObject({ status: "failed",
-      detail: `The grant didn't go through. ${uncodedLead(503)}` })
-    expect(store.collections.toasts.get("toast-admin.grant")?.detail).not.toContain("Host denied")
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test("grant cancellation removes an unposted card but cannot interrupt a posted operation", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    admin: true, scopesPlain: null }).isPersisted.promise
-  const remote = Promise.withResolvers<Response>()
-  const posted: unknown[] = []
-  const ctx = createControllerContext(store, agent, { fetchImpl: async (input, init) => {
-    if (!String(input).endsWith(ADMIN_GRANT_PATH)) throw Error("Unexpected route")
-    posted.push(JSON.parse(String(init?.body)))
-    return remote.promise
-  } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    controller.adminGrant(5, "first")
-    const first = [...store.collections.cards.values()].find(row => row.kind === "grant-confirm")!
-    expect(controller.adminGrantCancel(first.id)).toBeUndefined()
-    expect(store.collections.cards.has(first.id)).toBe(false)
-    expect(await controller.adminGrantConfirm(first.id)).toBe("That grant confirmation is gone.")
-    expect(posted).toEqual([])
-
-    controller.adminGrant(7, "second")
-    const second = [...store.collections.cards.values()].find(row => row.kind === "grant-confirm")!
-    const posting = controller.adminGrantConfirm(second.id)
-    await waitFor(() => posted.length === 1)
-    expect(store.collections.cards.get(second.id)).toMatchObject({ payload: { phase: "sending" } })
-    expect(controller.adminGrantCancel(second.id)).toBe("That grant is already being posted — a moment.")
-    expect(store.collections.cards.has(second.id)).toBe(true)
-    remote.resolve(Response.json({ ...(posted[0] as object), granted: true, grantId: "credit-grant:7", duplicate: false }, { status: 200 }))
-    await posting
-    await waitFor(() => store.collections.cards.get(second.id)?.status === "acted")
-    expect(store.collections.cards.get(second.id)).toMatchObject({ status: "acted",
-      payload: { phase: "granted", grantId: "credit-grant:7" } })
-    expect(posted).toEqual([{ login: "second", amountUsd: 7, operationKey: second.id }])
-  } finally { remote.resolve(Response.json({})); await ctx.dispose(); await store.dispose?.() }
-})
-
 test.each([
   { state: "unavailable" as const, key: "auth.sign-in.unavailable", status: "failed", detail: "No identity service is configured here — use the deployed app to sign in." },
   { state: "unknown" as const, key: "auth.sign-in.pending", status: "failed", detail: "The identity service hasn't answered yet — try again in a moment." },
@@ -1108,93 +901,6 @@ test.each([
     expect([...store.collections.toasts.values()]).toHaveLength(1)
     expect(fetches).toBe(0)
   } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test.each([
-  { name: "malformed", answer: () => Response.json({ services: "not-a-list" }), message: "The health read answered in a shape I didn't understand." },
-  { name: "legacy", answer: () => Response.json({ services: [], charges: null, checkedAt: "2026-09-30" }), message: "The health read answered in a shape I didn't understand." },
-  { name: "malformed component", answer: () => Response.json({ status: "ok", database: { status: "ok" }, components: { queue: { status: "mystery" } } }), message: "The health read answered in a shape I didn't understand." },
-  { name: "unreadable JSON", answer: () => new Response("not JSON"), message: "The health read answered in a shape I didn't understand." },
-  { name: "200 degraded contradiction", answer: () => Response.json({ status: "degraded", database: { status: "error" } }), message: "The health read answered in a shape I didn't understand." },
-  { name: "503 healthy contradiction", answer: () => Response.json({ status: "ok", database: { status: "ok" } }, { status: 503 }), message: "The health read answered in a shape I didn't understand." },
-  { name: "unreachable", answer: () => { throw Error("offline") }, message: "The health read didn't answer — the admin route is unreachable." }
-])("$name health answer reports one refusal without inventing a service card", async ({ answer, message }) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    admin: true, scopesPlain: null }).isPersisted.promise
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async input => {
-      if (!String(input).endsWith(ADMIN_HEALTH_PATH)) throw Error("Unexpected route")
-      return answer()
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    expect(await controller.adminHealth()).toBeUndefined()
-    expect(store.collections.cards.has("admin-health")).toBe(false)
-    expect([...store.collections.messages.values()].map(row => row.text)).toEqual([message])
-    expect(store.collections.toasts.get("toast-admin.health")).toMatchObject({ status: "failed", detail: message })
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test("health reread replaces degraded database evidence with the backend's recovery", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    admin: true, scopesPlain: null }).isPersisted.promise
-  let recovered = false
-  const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
-    if (!String(input).endsWith(ADMIN_HEALTH_PATH)) throw Error("Unexpected route")
-    return Response.json(recovered
-      ? { status: "ok", database: { status: "ok", latency: "2ms" } }
-      : { status: "degraded", database: { status: "error", error: "Unavailable" } },
-      { status: recovered ? 200 : 503 })
-  } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    await controller.adminHealth()
-    const first = store.collections.cards.get("admin-health")!
-    expect(first).toMatchObject({ kind: "admin-health", status: "error", payload: {
-      services: [{ name: "database", status: "failed", detail: "Unavailable" }] } })
-    recovered = true
-    await controller.adminHealth()
-    expect(store.collections.cards.get("admin-health")).toMatchObject({ status: "active", createdAt: first.createdAt,
-      payload: { services: [{ name: "database", status: "ok", detail: "2ms" }] } })
-    expect([...store.collections.cards.values()].filter(card => card.kind === "admin-health")).toHaveLength(1)
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test("the health reader uses real HTTP, retains degraded evidence, and never treats a permission refusal as a health read", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null }).isPersisted.promise
-  const requests: Array<{ path: string; method: string }> = []
-  let reply: () => Response = () => Response.json({ status: "ok", database: { status: "ok", latency: "1ms" } })
-  // The local HTTP fixture supplies the owning Go handler's wire shapes. It
-  // does not authenticate an administrator; Go router gates qualify roles
-  // separately, and deployed administrator execution remains unavailable.
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
-    requests.push({ path: new URL(request.url).pathname, method: request.method })
-    return reply()
-  } })
-  const ctx = createControllerContext(store, agent, { baseUrl: server.url.origin, fetchImpl: fetch, toastDebounceMs: 0, toastAutoDismissMs: 10_000 })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    await controller.adminHealth()
-    expect(store.collections.cards.get("admin-health")).toMatchObject({ status: "active", payload: { services: [{ name: "database", status: "ok", detail: "1ms" }] } })
-    reply = () => Response.json({ status: "degraded", database: { status: "error" }, components: { queue: { status: "ok" } } }, { status: 503 })
-    await controller.adminHealth()
-    const degraded = store.collections.cards.get("admin-health")!
-    expect(degraded).toMatchObject({ status: "error", payload: { services: [{ name: "database", status: "failed", detail: "" }, { name: "queue", status: "ok", detail: "" }] } })
-    for (const status of [401, 403, 404]) {
-      // Even an otherwise valid-looking body cannot bypass the HTTP gate.
-      reply = () => Response.json({ status: "ok", database: { status: "ok" } }, { status })
-      await controller.adminHealth()
-      expect(store.collections.cards.get("admin-health")).toEqual(degraded)
-      expect(store.collections.toasts.get("toast-admin.health")).toHaveProperty("status", "failed")
-    }
-    expect(requests).toEqual(Array.from({ length: 5 }, () => ({ path: "/api/admin/system/health", method: "GET" })))
-  } finally { await ctx.dispose(); await store.dispose?.(); server.stop(true) }
 })
 
 test.each([

@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { expect, test } from "bun:test"
 import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { createControllerContext } from "./controller/context"
@@ -30,14 +31,10 @@ for (const mode of ["owner", "bearer", "github"] as const) {
       await controller.adoptSession(signedOut)
       controller.promptSignIn()
       const prompt = [...store.collections.messages.values()].at(-1)!
-      controller.showConnectors()
       await settle()
       await controller.adoptSession(signedIn)
       expect(store.collections.identitySessions.get("identity")).toMatchObject({ provider })
       expect(store.collections.messages.get(prompt.id)?.answeredAction?.answer).toBe(`Signed in${provider === "github" ? " with GitHub" : ""} as @owner.`)
-      expect(store.collections.cards.get("connect-embedded")).toMatchObject({ payload: { provider, github: { connected: provider === "github", login: provider === "github" ? "owner" : null } } })
-      // A newly requested card must agree with one reconciled during sign-in.
-      controller.showConnectors()
       await settle()
       controller.send("Describe the connected identity")
       await settle(80)
@@ -50,7 +47,6 @@ for (const mode of ["owner", "bearer", "github"] as const) {
       const reopened = await createAppStore({ kind: "localStorage", storage })
       try {
         expect((await reopened.verifyState()).valid).toBe(true)
-        expect(reopened.collections.cards.get("connect-embedded")).toMatchObject({ payload: { provider, github: { connected: provider === "github" } } })
         expect(reopened.collections.messages.get(prompt.id)?.answeredAction?.answer).toBe(`Signed in${provider === "github" ? " with GitHub" : ""} as @owner.`)
       } finally { await reopened.dispose?.() }
     } finally { await controller.dispose(); await store.dispose?.() }
@@ -97,10 +93,10 @@ test("the same login on another provider clears private state and advances the a
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
-test("a legacy connector replays unchanged, then a local session corrects its unsupported claim", async () => {
+test("a legacy connector retires on read and never supplies an identity claim", async () => {
   const storage = memoryStorage(), store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "legacy-connect", kind: "connect", title: "Connect", status: "active", createdAt: 1, ordinal: 1,
-    payload: { github: { connected: false, login: null }, nativeAvailable: false } } }).isPersisted.promise
+  await store.dispatch({ type: "card.upsert", actor: "system", card: CardSchema.parse({ id: "legacy-connect", kind: "connect", title: "Connect", status: "active", createdAt: 1, ordinal: 1,
+    payload: { github: { connected: false, login: null }, nativeAvailable: false } }) }).isPersisted.promise
   await store.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn, scopesPlain: null }).isPersisted.promise
   const hash = (await store.verifyState()).actualHash
   await store.dispose?.()
@@ -108,9 +104,9 @@ test("a legacy connector replays unchanged, then a local session corrects its un
   try {
     expect((await reopened.verifyState()).valid).toBe(true)
     expect((await reopened.verifyState()).actualHash).toBe(hash)
-    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ payload: { github: { connected: true, login: "owner" } } })
+    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ kind: "retired", title: "", status: "acted", payload: {} })
     await reopened.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn, scopesPlain: null, provider: "local" }).isPersisted.promise
-    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ payload: { provider: "local", github: { connected: false, login: null } } })
+    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ kind: "retired", payload: {} })
     expect((await reopened.verifyState()).valid).toBe(true)
   } finally { await reopened.dispose?.() }
 })

@@ -18,15 +18,12 @@
  */
 import { Data } from "effect"
 import { guardIncidentOf, questionOf } from "../../cards/ApprovalQuestion"
-import { burndownOf, type BurndownState } from "../../cards/Burndown"
 import { codingPlanOf } from "../../cards/CodingPlan"
 import { drawableExecution } from "../../cards/RunForest"
-import { runHandoff } from "../../cards/RunHandoff"
 import type { TraceFilter } from "../../cards/RunTrace"
 import { traceFromJournal } from "../../cards/RunTrace"
 import type { CommandResult } from "../../flows/Flows"
 import { flowArgs } from "../../flows/FlowArgs"
-import { framePath } from "../../runtime/FrameHistory"
 import { lostActRefusal, spokenLostAct } from "../BrowserWriteFailure"
 import { actorSharedState } from "../ActorBindings"
 import type { ApprovalsInboxRequest, Card, RunOpenRequest } from "../AppState"
@@ -55,7 +52,6 @@ import { failureDetail } from "@smthrs/rpc/UserFailure"
 export type TraceView = NonNullable<Extract<Card, { kind: "run-trace" }>["payload"]["traceView"]>
 
 export interface RunsController {
-  readonly prepareRunHandoff: (runId: string, sourceCard?: string) => CommandResult
   readonly listRuns: (args: {
     readonly status?: string
     readonly flow?: string
@@ -91,10 +87,6 @@ export interface RunsController {
   readonly graphExecution: (runId: string, executionId?: string, sourceCard?: string) => Promise<CommandResult>
   readonly traceLive: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly selectCodingChange: (runId: string, changeId: string, sourceCard?: string) => Promise<CommandResult>
-  /** An issue-sweep board's state filter; the same state again clears it. */
-  readonly burndownFilter: (runId: string, filter: BurndownState, sourceCard?: string) => Promise<CommandResult>
-  /** Open one issue's detail on an issue-sweep board; the same issue again closes it. */
-  readonly burndownSelect: (runId: string, item: number, sourceCard?: string) => Promise<CommandResult>
   readonly stopAllRuns: (repo?: string, sourceCard?: string) => Promise<CommandResult>
   /**
    * `approvals.list [owner/repo]`: persist the read request for the target
@@ -145,24 +137,6 @@ export const createRunsController = (
     const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
     if (source?.kind === "run-trace") return sameRunScope(source.payload, scope) ? source : undefined
     return runCardInScope(store, scope)
-  }
-  const prepareRunHandoff: RunsController["prepareRunHandoff"] = (runId, sourceCard) => {
-    const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
-    const target = resolveRun(runId, sourceCard)
-    if ("error" in target) return target.error
-    const card = source?.kind === "run-trace" ? source : runCardFor(target)
-    if (card === undefined) return "Open this run's card before preparing its handoff."
-    const cardId = `handoff-${card.id}`
-    const existing = store.collections.cards.get(cardId)
-    if (existing?.kind === "flow-form" && existing.status !== "acted") return { value: "The editable handoff is already open; your draft is preserved." }
-    const frame = [...store.collections.frames.values()].find(frame => frame.cardId === card.id)
-    const origin = ctx.baseUrl || (typeof location === "undefined" ? "" : location.origin)
-    const sourceHref = frame === undefined ? undefined : `${origin}${framePath({ workspaceId: frame.workspaceId, branchId: frame.branchId, frameId: frame.id })}`
-    const rendered = renderFlowForm?.({
-      name: "chat.copy-message", args: runHandoff(card, sourceHref), via: "user", cardId, title: `Handoff — ${card.title}`,
-      hints: { fields: { text: { kind: "textarea", label: "Handoff brief" } }, submitLabel: "Copy brief" }
-    })
-    return rendered === undefined ? "The handoff form could not be rendered." : { value: "Prepared an editable handoff brief. Review the recorded evidence, fill in remaining work, then copy it." }
   }
   const patchRunCard = (scope: RunScope, patch: Partial<Extract<Card, { kind: "run-trace" }>["payload"]>): void => {
     const card = runCardFor(scope)
@@ -895,35 +869,6 @@ export const createRunsController = (
     return { value: `coding-plan-selection run=${runId} change=${previous === changeId ? "none" : changeId}` }
   }
 
-  /*
-   * The issue-sweep board's reader state (cards/BurndownCard.tsx) lives on the
-   * run card like the trace's, so a reload keeps the filter and the open issue.
-   */
-  const burndownFilter = async (runId: string, filter: BurndownState, sourceCard?: string): Promise<CommandResult> => {
-    const target = resolveRun(runId, sourceCard)
-    if ("error" in target) return target.error
-    const card = runCardFor(target, sourceCard)
-    if (card === undefined) return `Open the run first (runs.open ${runId}): the board lives on its card.`
-    const { filter: previous, ...rest } = card.payload.burndown ?? {}
-    const burndown = previous === filter ? rest : { ...rest, filter }
-    await store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: card.id,
-      patch: { payload: { ...card.payload, burndown } } }).isPersisted.promise
-    return { value: `burndown-filter run=${runId} filter=${previous === filter ? "all" : filter}` }
-  }
-
-  const burndownSelect = async (runId: string, item: number, sourceCard?: string): Promise<CommandResult> => {
-    const target = resolveRun(runId, sourceCard)
-    if ("error" in target) return target.error
-    const card = runCardFor(target, sourceCard)
-    if (card === undefined) return `Open the run first (runs.open ${runId}): the board lives on its card.`
-    if (!burndownOf(card.payload.events ?? [], card.payload).items.some((each) => each.number === item)) return `Run ${runId} has no issue #${item}.`
-    const { item: previous, ...rest } = card.payload.burndown ?? {}
-    const burndown = previous === item ? rest : { ...rest, item }
-    await store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: card.id,
-      patch: { payload: { ...card.payload, burndown } } }).isPersisted.promise
-    return { value: `burndown-select run=${runId} issue=${previous === item ? "none" : item}` }
-  }
-
   const traceView = async (runId: string, view: TraceView, sourceCard?: string): Promise<CommandResult> => {
     const target = resolveRun(runId, sourceCard)
     if ("error" in target) return target.error
@@ -1372,7 +1317,6 @@ export const createRunsController = (
   }
 
   return {
-    prepareRunHandoff,
     listRuns,
     openRun,
     resumeRun,
@@ -1386,8 +1330,6 @@ export const createRunsController = (
     traceFilter,
     traceSelect,
     selectCodingChange,
-    burndownFilter,
-    burndownSelect,
     traceView,
     graphFollow,
     graphExecution,

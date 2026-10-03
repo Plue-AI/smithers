@@ -12,7 +12,7 @@ import type { SeamContext } from "./SeamContext"
  * their lifecycle, findings with analyzer runs, checks with their work,
  * owners, landed provenance, the walkthrough — and the acts ride the live
  * routes (interdiff pins, thread transitions, land with commit_id, snapshot
- * fork) or refuse where none exists (finding feedback / fix, split, revert).
+ * fork) or refuse where none exists (finding feedback / fix).
  *
  * Fixtures are shaped from plue's response structs at the deployed commit
  * (internal/services/change.go, landing.go, ownership.go,
@@ -1354,61 +1354,6 @@ describe("createChangeSeam", () => {
     expect(thread?.anchor).toBe("current")
   })
 
-  test("change.split moves the named paths and renders both returned changes (plue#489)", async () => {
-    const splitChangeId = "wqnrtmzx"
-    const { store, seam, requests, bodies } = await harness({
-      ...viewRoutes,
-      [`POST ${CHANGE_ROUTE}/split`]: json(200, {
-        original: { change_id: "qupxosqw", commit_id: "a03f5f", description: "Add the split flow", parent_change_ids: [] },
-        split: { change_id: splitChangeId, commit_id: "77aa22", description: "docs/guide.md", parent_change_ids: ["qupxosqw"] }
-      }),
-      [`${REPO}/changes/${splitChangeId}`]: json(200, { ...CHANGE, change_id: splitChangeId, commit_id: "77aa22" }),
-      [`${REPO}/changes/${splitChangeId}/diff`]: json(200, DIFF),
-      [`${REPO}/changes/${splitChangeId}/findings`]: json(200, FINDINGS),
-      [`${REPO}/changes/${splitChangeId}/walkthrough?rev=2`]: json(404, { message: "walkthrough not found" })
-    })
-
-    const result = await seam.splitChange("qupxosqw", ["docs/guide.md"])
-
-    expect(requests).toContain(`POST ${CHANGE_ROUTE}/split`)
-    expect(JSON.parse(bodies[`POST ${CHANGE_ROUTE}/split`] ?? "null")).toEqual({ paths: ["docs/guide.md"] })
-    expect(textOf(result)).toBe(
-      `docs/guide.md moved out of qupxosqw into the new change ${splitChangeId} — both cards track them.`
-    )
-    /* Both returned changes render: the original that kept the rest, and the new one that took the paths. */
-    expect(store.collections.cards.get("change-will/smithers-qupxosqw")).toBeDefined()
-    expect(store.collections.cards.get(`change-will/smithers-${splitChangeId}`)).toBeDefined()
-  })
-
-  test("change.split with no path calls nothing — plue refuses an empty paths list", async () => {
-    const { seam, requests } = await harness(viewRoutes)
-    expect(textOf(await seam.splitChange("qupxosqw", ["   "]))).toBe(
-      "change.split needs at least one path to move: /change.split <changeId> <path> [path…]"
-    )
-    expect(requests).toEqual([])
-  })
-
-  test("a split plue refuses reads its own sentence and renders no new change", async () => {
-    const { store, seam } = await harness({
-      ...viewRoutes,
-      [`POST ${CHANGE_ROUTE}/split`]: json(409, { message: "landed changes cannot be split" })
-    })
-
-    expect(textOf(await seam.splitChange("qupxosqw", ["docs/guide.md"]))).toBe("landed changes cannot be split")
-    expect(store.collections.cards.size).toBe(0)
-  })
-
-  test("a split answer that names no changes says so rather than claiming one", async () => {
-    const { seam } = await harness({
-      ...viewRoutes,
-      [`POST ${CHANGE_ROUTE}/split`]: json(200, { original: {}, split: {} })
-    })
-
-    expect(textOf(await seam.splitChange("qupxosqw", ["docs/guide.md"]))).toBe(
-      "Smithers Cloud's answer for the split of qupxosqw named no changes."
-    )
-  })
-
   test("change.resolve refuses a degraded sign-in with the enable wording", async () => {
     const { seam, requests } = await harness({}, { degraded: true })
     expect(textOf(await seam.resolveConflict("qupxosqw", "src/app.ts"))).toBe(DEGRADED_CHANGE_REFUSAL)
@@ -1425,57 +1370,6 @@ describe("createChangeSeam", () => {
     )
     expect(requests).toContain(`POST ${CHANGE_ROUTE}/conflicts/resolve`)
     expect(JSON.parse(bodies[`POST ${CHANGE_ROUTE}/conflicts/resolve`] ?? "null")).toEqual({ path: "src/app.ts" })
-  })
-
-  test("change.revert POSTs the revert and renders the reverting change (plue#456)", async () => {
-    const revertId = "rvtxnkpo"
-    const { store, seam, requests } = await harness({
-      ...viewRoutes,
-      [`POST ${CHANGE_ROUTE}/revert`]: json(201, { change_id: revertId, landing_request_id: 9, landing_request_number: 43 }),
-      [`${REPO}/changes/${revertId}`]: json(200, { ...CHANGE, change_id: revertId, commit_id: "5eed01" }),
-      [`${REPO}/changes/${revertId}/diff`]: json(200, DIFF),
-      [`${REPO}/changes/${revertId}/findings`]: json(200, FINDINGS),
-      [`${REPO}/changes/${revertId}/walkthrough?rev=2`]: json(404, { message: "walkthrough not found" })
-    })
-
-    const result = await seam.revertChange("qupxosqw")
-
-    expect(requests[0]).toBe(`POST ${CHANGE_ROUTE}/revert`)
-    expect(textOf(result)).toBe(`${revertId} reverts qupxosqw — landing request #43 carries it.`)
-    expect(store.collections.cards.get(`change-will/smithers-${revertId}`)).toBeDefined()
-  })
-
-  test("a changeset revert names the new changeset", async () => {
-    const { store, seam, requests } = await harness({
-      [`POST ${CHANGE_ROUTE}/revert`]: json(201, { change_id: "csrvtabc", changeset_id: 12 })
-    })
-
-    expect(textOf(await seam.revertChange("qupxosqw"))).toBe("csrvtabc reverts qupxosqw — changeset 12 carries it.")
-    expect(requests).toEqual([`POST ${CHANGE_ROUTE}/revert`])
-    expect(store.collections.cards.size).toBe(0)
-  })
-
-  test("a revert Smithers Cloud refuses reads its own sentence and renders no change", async () => {
-    const { store, seam } = await harness({
-      [`POST ${CHANGE_ROUTE}/revert`]: json(409, { message: "change is not landed" })
-    })
-
-    expect(textOf(await seam.revertChange("qupxosqw"))).toBe("change is not landed")
-    expect(store.collections.cards.size).toBe(0)
-  })
-
-  test("a revert answer that names no change says so rather than claiming one", async () => {
-    const { seam } = await harness({ [`POST ${CHANGE_ROUTE}/revert`]: json(201, {}) })
-
-    expect(textOf(await seam.revertChange("qupxosqw"))).toBe(
-      "Smithers Cloud's answer for the revert of qupxosqw named no change."
-    )
-  })
-
-  test("change.revert signed out calls nothing", async () => {
-    const { seam, requests } = await harness({}, { signedIn: false })
-    await seam.revertChange("qupxosqw")
-    expect(requests).toEqual([])
   })
 
   test("change.facet switches the card's tab without re-reading", async () => {
@@ -1610,25 +1504,6 @@ describe("committed change mutations", () => {
     expectRefreshWarning(textOf(result))
   })
 
-  for (const failed of ["original", "created", "both"]) {
-    test(`split retains both change identities when ${failed} refresh fails and attempts both cards`, async () => {
-      const createdRoute = `${REPO}/changes/new-change`
-      const { seam, requests } = await harness({
-        ...viewRoutes,
-        [CHANGE_ROUTE]: failed === "created" ? json(200, CHANGE) : refreshFailure,
-        [createdRoute]: failed === "original" ? json(200, { ...CHANGE, change_id: "new-change" }) : refreshFailure,
-        [`POST ${CHANGE_ROUTE}/split`]: json(201, { original: CHANGE, split: { change_id: "new-change" } })
-      })
-      const result = await seam.splitChange("qupxosqw", ["docs/guide.md"])
-      expect(result).toEqual({ value: expect.stringContaining("new-change") })
-      expect(textOf(result)).toContain("docs/guide.md moved out of qupxosqw")
-      expectRefreshWarning(textOf(result), failed === "both" ? ["qupxosqw", "new-change"] : [failed === "created" ? "new-change" : "qupxosqw"])
-      expect(requests).toContain(`GET ${CHANGE_ROUTE}`)
-      expect(requests).toContain(`GET ${createdRoute}`)
-      expect(requests.filter((request) => request.startsWith("POST "))).toHaveLength(1)
-    })
-  }
-
   test("land retains the queued request and scope after a failed change refresh", async () => {
     let committed = false
     const { seam, requests } = await harness({
@@ -1732,7 +1607,6 @@ describe("change repository resolution", () => {
     requests.length = 0
     const refusal = "Change qupxosqw is loaded in several repositories (ana/other, will/smithers) — name one as owner/repo"
     expect(await seam.landChange("qupxosqw")).toBe(refusal)
-    expect(await seam.splitChange("qupxosqw", ["docs/guide.md"])).toBe(refusal)
     expect(requests).toEqual([])
     expect(textOf(await seam.resolveConflict("qupxosqw", "src/app.ts", "ana/other"))).toContain("explicit-session")
     expect(requests.filter((request) => request.startsWith("POST "))).toEqual([`POST ${otherRoute}/conflicts/resolve`])

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 import { signedOutVisitor } from "../playwright/identity"
 
-test("opening Get started in a new tab opens the same signup as an ordinary click", async ({ page, context }, testInfo) => {
+test("opening Get started in a new tab opens the same app as an ordinary click", async ({ page, context }, testInfo) => {
   await signedOutVisitor(page)
   await page.goto("/")
   const start = page.getByRole("link", { name: "Get started for free", exact: true })
@@ -18,15 +18,13 @@ test("opening Get started in a new tab opens the same signup as an ordinary clic
     return route.fulfill({ status: 503, json: { message: "Catalog unavailable" } })
   })
   await tab.goto(await start.getAttribute("href") ?? "")
-  await expect(tab.getByTestId("signup")).toBeVisible()
-  await expect(tab.getByTestId("signup-github")).toHaveText("Continue with GitHub")
+  await expect(tab.getByTestId("composer-input")).toBeAttached()
   await expect(tab.getByText(/isn't on Smithers yet/)).toHaveCount(0)
   expect(catalogs).toBe(0)
-  await tab.screenshot({ path: testInfo.outputPath("new-tab-signup.png"), fullPage: true })
+  await tab.screenshot({ path: testInfo.outputPath("new-tab-app.png"), fullPage: true })
   await tab.close()
 
   await start.click()
-  await expect(page.getByTestId("signup")).toBeVisible()
-  await expect(page.getByTestId("signup-github")).toHaveText("Continue with GitHub")
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await expect(page).toHaveURL("/")
 })

@@ -105,7 +105,7 @@ describe("a flow typed into the composer states its refusal", () => {
     controller.send("hello")
     await settled()
     const before = store.collections.messages.size
-    controller.send("/chat.clear --forever")
+    controller.send("/issues.view 3 --forever codeplanesmithers/canary-sandbox")
     await settled()
     await settled()
     /* Nothing was archived: the earlier turn is still the conversation. */
@@ -140,7 +140,7 @@ describe("a flow typed into the composer states its refusal", () => {
     controller.send("remember that I prefer dark mode")
     await settled()
     const before = [...store.collections.messages.values()].map((message) => message.text)
-    controller.send("/chat.clear --forever")
+    controller.send("/issues.view 3 --forever codeplanesmithers/canary-sandbox")
     await settled()
     await settled()
     const after = [...store.collections.messages.values()].map((message) => message.text)
@@ -149,7 +149,7 @@ describe("a flow typed into the composer states its refusal", () => {
     for (const text of before) expect(after).toContain(text)
     const refusal = after.find((text) => text.includes("--forever")) ?? ""
     expect(refusal).toContain("--forever")
-    expect(refusal).toContain("/chat.clear")
+    expect(refusal).toContain("/issues.view")
     /* A refusal is not a decode dump: no schema path, no internal id. */
     expect(refusal).not.toMatch(/Missing key|\[".*"\]|_tag/)
   })

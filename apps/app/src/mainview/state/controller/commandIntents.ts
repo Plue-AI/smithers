@@ -125,8 +125,6 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
           const answer = decideApprovalAnswerInput(ctx.store, cardId, field, value)
           if (!("error" in answer)) pendingInput = ctx.store.stagePendingApprovalAnswer(answer, id)
         }
-      } else if (request.actor === "user" && request.name === "signup.set" && pendingFieldInput !== undefined) {
-        pendingInput = ctx.store.stagePendingSignupInput(pendingFieldInput.field, pendingFieldInput.value, id)
       }
     } catch (error) {
       pendingInput?.clear()

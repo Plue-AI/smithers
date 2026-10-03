@@ -56,7 +56,7 @@ describe("showcase coverage", () => {
     // Observed but not asserted is not proof.
     expect(result.rows.find(row => row.name === "palette.open")?.bucket).toBe("unrecorded")
     expect(result.rows.find(row => row.name === "wiki")?.bucket).toBe("unavailable")
-    expect(result.rows.find(row => row.name === "admin.health")?.unavailable).toBe("not registered on the test host")
+    expect(result.rows.find(row => row.name === "admin.devtools")?.unavailable).toBe("not registered on the test host")
     expect(result.unknown).toEqual(["missing-flow"])
     expect(result.counts.recorded + result.counts.unrecorded + result.counts.unavailable).toBe(result.rows.length)
   })

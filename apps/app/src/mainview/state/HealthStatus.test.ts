@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
 import * as Health from "@smthrs/control/Health"
@@ -84,15 +85,15 @@ test("one controller deadline expires offline cards durably", async () => {
   } finally { await reopened.dispose?.() }
 })
 
-test("cloud agent status does not arm a timer the local status projector cannot expire", async () => {
+test("a retired cloud agent does not arm a timer the local status projector cannot expire", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const finalizers: Array<() => void> = []
   try {
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+    await store.dispatch({ type: "card.upsert", actor: "system", card: CardSchema.parse({
       id: "cloud", kind: "agent", title: "Cloud", status: "active", createdAt: 1, ordinal: 1,
       payload: { cloud: true, displayName: "Cloud", sessionId: "cloud", repo: "o/r", provider: null, workspaceId: null,
         state: "active", transcript: [], statusRollup: reading() }
-    } }).isPersisted.promise
+    }) }).isPersisted.promise
     let timers = 0
     createHealthStatusController({ store, unref: () => { timers++ }, onDispose: fn => { finalizers.push(fn) } })
     expect(timers).toBe(0)

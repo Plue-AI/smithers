@@ -116,7 +116,7 @@ describe("the tabs collection", () => {
     expect(store.collections.tabs.get("t2")?.repoKey).toBeUndefined()
   })
 
-  test("boot keeps card tabs whose card exists, drops orphaned card tabs, and reselects", async () => {
+  test("boot drops retired card tabs, keeps their cards, and selects main", async () => {
     const storage = memoryStorage()
     const first = await boot(storage)
     await persisted(first, { type: "card.upsert", actor: "user", card: themeCard })
@@ -125,11 +125,12 @@ describe("the tabs collection", () => {
     expect(first.session().activeTabId).toBe("tab-card-gone")
 
     const second = await boot(storage)
-    expect(tabIds(second)).toEqual(["main", "tab-card-agents"])
-    // The dead active tab closed like any other: the tab to its left takes over.
-    expect(second.session().activeTabId).toBe("tab-card-agents")
+    expect(tabIds(second)).toEqual(["main"])
+    // T-CUT-01 / Appendix B retires all card-tab doors, including retained cards.
+    expect(second.session().activeTabId).toBe("main")
+    expect(second.collections.cards.get("agents")).toMatchObject(themeCard)
     // Every reconciliation is journaled with the system actor.
     const journal = [...second.collections.transitions.values()]
-    expect(journal.filter((record) => record.type === "tab.closed" && record.actor === "system")).toHaveLength(1)
+    expect(journal.filter((record) => record.type === "tab.closed" && record.actor === "system")).toHaveLength(2)
   })
 })

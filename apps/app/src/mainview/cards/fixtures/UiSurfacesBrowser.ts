@@ -7,8 +7,7 @@ import { createAppStore } from "../../state/AppStore"
 import { createAppController } from "../../state/AppController"
 import { applicationIdentityFromFetch, silentAgent } from "../../state/TestFixtures"
 import type { FlowName } from "../../flows/FlowName"
-import { SubagentBatch, SubagentFinished, SubagentOverview } from "../../SubagentGrid"
-import { fixtureCards, fixtureOverviewCards, fixtureSubagents } from "./UiSurfaces"
+import { fixtureCards } from "./UiSurfaces"
 
 /*
  * The surfaces smithers-ui-DESIGN.md extends, mounted as the real card shell
@@ -51,22 +50,14 @@ const run = (name: FlowName, args?: string) => {
   })
 }
 const noop = () => {}
-// The subagent grid (#2162) as the chat draws it: header, cards, and the finished row.
-const subagents = fixtureSubagents(Date.now())
-// The ctrl+s overview (#2190); `?card=subagent-overview` mounts it alone.
-const overviewCards = fixtureOverviewCards(Date.now())
 const root = createRoot(document.getElementById("fixture")!)
 const render = () => {
   const cards = fixtureCards().map((seed) => store.collections.cards.get(seed.id) ?? seed).filter((card) => only === null || card.id === only)
   root.render(createElement("div", { className: "transcript", style: { display: "flex", flexDirection: "column", gap: "16px" } },
     ...cards.map((card) => createElement(CardView, {
-      key: card.id, card, maximized: false, onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
+      key: card.id, card, maximized: false, onMaximize: noop, onMinimize: noop,
       onDecideApproval: (id: string, decision: string) => commands.push({ name: "approval.approve" as FlowName, args: `${id} ${decision}` }),
       onRunCommand: run, onConnectGitHub: noop, worldDocuments: [], signedOut: false, projectionStore: store
-    } as unknown as CardViewProps)),
-    ...(only === null || only === "subagents" ? [createElement("div", { key: "subagents", "data-testid": "subagents" },
-      createElement(SubagentBatch, { items: subagents, onRunCommand: run }),
-      createElement(SubagentFinished, { subagent: subagents[2]!.subagent, color: subagents[2]!.color }))] : []),
-    ...(only === null || only === "subagent-overview" ? [createElement(SubagentOverview, { key: "overview", cards: overviewCards, onRunCommand: run })] : [])))
+    } as unknown as CardViewProps))))
 }
 render()

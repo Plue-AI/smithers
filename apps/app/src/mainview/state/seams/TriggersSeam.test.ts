@@ -10,7 +10,6 @@ import { workflowLaunchOf } from "../WorkflowLaunch"
 import { loadBox, waitFor } from "../TestFixtures"
 import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import { Schema } from "effect"
-import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { readFile } from "node:fs/promises"
 import { flowArgs } from "../../flows/FlowArgs"
 import { CRON_REFUSAL, LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
@@ -426,16 +425,13 @@ const lastAction = (store: AppStore) =>
 
 const REQUEST = { operation: "register" as const, repo: "will/flows", flow: "nightly-lint", slug: "nightly", schedule: "0 9 * * 1-5", input: '{"label":"nightly"}' }
 
-/** One reviewed job already set up on `repo`, as its own card records the workspace it ran on. */
+/** The registrar runs on the explicitly selected branch computer. */
 const jobSetUp = async (store: AppStore, repo = "will/flows", workspaceId = JOB_WORKSPACE): Promise<void> => {
-  await store.dispatch({
-    type: "card.upsert",
-    actor: "system",
-    card: {
-      id: `setup-${repo}-issues`, kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1,
-      payload: { ...initialSetup(repo, "issues", "will"), workspaceId }
-    }
-  }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{
+    id: workspaceId, repoId: repo, name: "Branch", targetBookmark: null, status: "running",
+    provisioningStage: null, suspendedAt: null, createdAt: null
+  }] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: `${repo}#workspace:${workspaceId}` }).isPersisted.promise
 }
 
 /** A signed-in controller on a repository whose reviewed jobs already run on JOB_WORKSPACE. */

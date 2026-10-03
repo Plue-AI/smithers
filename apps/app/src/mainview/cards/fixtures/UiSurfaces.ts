@@ -7,8 +7,6 @@
  * production path.
  */
 import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
-import type * as SubagentCard from "@smthrs/rpc/SubagentCard"
-import type { SubagentItem } from "../../SubagentGrid"
 import type { Card } from "../../state/AppState"
 
 const REPO = "example/app"
@@ -109,62 +107,4 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
       ]
     }
   },
-  {
-    id: "connect-embedded", kind: "connect", title: "Connect work to Smithers", status: "active", createdAt: T0, ordinal: 6,
-    payload: {
-      provider: "github", github: { connected: true, login: "owner" }, nativeAvailable: false,
-    }
-  }
-]
-
-const tool = (name: string, target: string, state: "pending" | "done" | "error" = "done", extra: { readonly added?: number; readonly removed?: number; readonly verb?: SubagentCard.Verb } = {}): SubagentCard.Entry =>
-  ({ kind: "tool", tool: name, target, state, ...extra })
-
-/** The approved mock's three subagents (#2162): running with changed files, waiting on a child, and done. */
-export const fixtureSubagents = (now: number): ReadonlyArray<SubagentItem> => [
-  {
-    id: "auth-audit", color: 1, open: { flow: "tab.select", args: "tab-auth-audit" }, stop: { flow: "tab.close", args: "tab-auth-audit" },
-    subagent: { title: "auth-audit: rate-limit login", status: "running", model: "sol", startedAt: now - 42_000, entries: [
-      ...["auth/session.ts", "auth/tokens.ts", "auth/limits.ts", "auth/index.ts", "auth/errors.ts", "auth/store.ts", "auth/types.ts"].map(path => tool("read", path)),
-      tool("read", "auth/login.ts"), tool("grep", "\"attempts\""), tool("edit", "login.ts", "done", { added: 18, removed: 4 }),
-      tool("bash", "bun test auth", "error"), tool("edit", "login.ts", "pending")
-    ], files: [{ path: "auth/login.ts", added: 18, removed: 4 }, { path: "auth/login.test.ts", added: 13, removed: 2 }] }
-  },
-  {
-    id: "db-migrate", color: 2, open: { flow: "runs.open", args: "run-db-migrate example/app" }, stop: { flow: "flow.run.stop", args: "flow-run-db-migrate" },
-    subagent: { title: "db-migrate: sessions → v2", status: "waiting", model: "sol", startedAt: now - 38_000, entries: [
-      tool("read", "db/schema.ts"), tool("read", "db/sessions.ts"), tool("grep", "session_v1"),
-      tool("write", "migrations/0042.sql"), tool("bash", "bun test db"), tool("agent.delegate", "backfill"),
-      tool("wait", "backfill", "pending", { verb: { pending: "Waiting on", done: "Waited on" } })
-    ], files: [{ path: "migrations/0042.sql", added: 44, removed: 0 }] }
-  },
-  {
-    id: "docs", color: 3, open: { flow: "tab.card", args: "agent-session-docs" },
-    subagent: { title: "docs: update login guide", status: "done", model: "luna", startedAt: now - 120_000, endedAt: now - 56_000, entries: [
-      tool("read", "docs/auth.md"), tool("edit", "docs/auth.md", "done", { added: 12, removed: 2 })
-    ], files: [{ path: "docs/auth.md", added: 12, removed: 2 }] }
-  }
-]
-
-/** A successful agent/spawn of `child` at the absolute time `at`. */
-const spawn = (sequence: number, child: string, flow: string, at: number) => [
-  { sequence, kind: "control.agent.cell-call-started", occurredAt: at, payload: { flowName: "agent/spawn", input: { flow }, at } },
-  { sequence: sequence + 1, kind: "control.agent.cell-call-settled", occurredAt: at + 1, payload: { flowName: "agent/spawn", outcome: "success", value: { child }, at: at + 1 } }
-]
-
-/** The ctrl+s overview's workers (#2190): a local agent, and a run with two child runs, one of them opened. */
-export const fixtureOverviewCards = (now: number): ReadonlyArray<Card> => [
-  {
-    id: "agent-auth-audit", kind: "agent", title: "auth-audit", status: "active", createdAt: now - 42_000, ordinal: 1,
-    payload: { harnessId: "claude", displayName: "auth-audit: rate-limit login", tabId: "tab-auth-audit", sessionId: "tab-auth-audit", cwd: "/repo", phase: "running", exitCode: null }
-  },
-  {
-    id: "flow-run-run-release", kind: "run-trace", title: "release", status: "active", createdAt: now - 40_000, ordinal: 2,
-    payload: { repo: REPO, runId: "run-release", workflow: "release", phase: "running", steps: [], result: null, lastSeq: 4,
-      events: [...spawn(1, "run-db-migrate", "db-migrate", now - 38_000), ...spawn(3, "run-docs", "docs", now - 30_000)] }
-  },
-  {
-    id: "flow-run-run-db-migrate", kind: "run-trace", title: "db-migrate", status: "active", createdAt: now - 38_000, ordinal: 3,
-    payload: { repo: REPO, runId: "run-db-migrate", workflow: "db-migrate", phase: "completed", steps: [], result: null, lastSeq: 0 }
-  }
 ]

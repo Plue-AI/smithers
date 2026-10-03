@@ -431,24 +431,3 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
   })
 
 })
-
-describe("the workspace name", () => {
-  test("/workspace.rename writes the heading's name; a blank name renders the form; the pencil toggles the inline editor", async () => {
-    const { store, controller } = await treeController()
-    expect(store.session().workspaceName).toBeUndefined()
-    expect((await controller.commands.run("workspace.rename", "  Force  ")).status).toBe("executed")
-    expect(store.session().workspaceName).toBe("Force")
-    expect(store.session().workspaceRenameOpen).toBe(false)
-    const blank = await controller.commands.run("workspace.rename", "   ")
-    expect(blank).toEqual({ status: "form", flow: "workspace.rename", cardId: "form-workspace.rename", fields: ["name"] })
-    expect(store.session().workspaceName).toBe("Force")
-    expect((await controller.commands.run("workspace.rename.edit")).status).toBe("executed")
-    expect(store.session().workspaceRenameOpen).toBe(true)
-    expect((await controller.commands.run("workspace.rename.edit")).status).toBe("executed")
-    expect(store.session().workspaceRenameOpen).toBe(false)
-    // A rename while the editor is open closes it.
-    await controller.commands.run("workspace.rename.edit")
-    expect((await controller.commands.run("workspace.rename", "Plue")).status).toBe("executed")
-    expect(store.session()).toMatchObject({ workspaceName: "Plue", workspaceRenameOpen: false })
-  })
-})

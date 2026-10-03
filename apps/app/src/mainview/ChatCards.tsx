@@ -8,7 +8,7 @@ import { flowAction, flowProps } from "./flows/FlowAction"
  * cards/CardRenderers.tsx; this file never names a card kind except for narrow presentation adaptations in the shared shell.
  */
 import { Button, StatusPill } from "@smthrs/ui"
-import { ArrowLeft, ArrowRight, Maximize2, Minimize2, PanelTop } from "lucide-react"
+import { ArrowLeft, ArrowRight, Maximize2, Minimize2 } from "lucide-react"
 import { memo, useCallback, useRef } from "react"
 import type { CardActions } from "./cards/CardFamily"
 import { isRetiredCard, pillStatus, renderCardBody } from "./cards/CardRenderers"
@@ -70,7 +70,8 @@ export interface CardViewProps extends CardActions {
   readonly onFrameBack?: () => void
   readonly onFrameForward?: () => void
   /* A maximized card's "Open in tab" (docs/LOCAL-APP.md "Cards"): user-triggered only. */
-  readonly onOpenInTab: (id: string) => void
+  readonly onGrantConfirm: (id: string) => void
+  readonly onGrantCancel: (id: string) => void
 }
 
 /*
@@ -90,7 +91,6 @@ export const CardView = memo(function CardView({
   onMinimize,
   onFrameBack,
   onFrameForward,
-  onOpenInTab,
   onConnectGitHub,
   onRunWorkflow,
   onStopRun,
@@ -120,14 +120,13 @@ export const CardView = memo(function CardView({
     card.kind === "issue-list" ? (card.payload.kind === "conversation" ? "Conversations" : "Issues") : card.kind === "issue" ? (card.payload.kind === "chat" ? "Conversation" : "Issue") :
     card.kind === "pr-list" ? "Pull requests" : card.kind === "pr" ? "Pull request" : card.title
   const fallback = pillStatus(card)
-  const health = card.kind === "agent" || card.kind === "run-trace" ? card.payload.statusRollup : undefined
+  const health = card.kind === "run-trace" ? card.payload.statusRollup : undefined
   const status = statusPresentation(health, fallback).status
   const quietStatus = ["done", "completed", "succeeded", "success"].includes(status)
-  /* An issue-sweep card's burndown board states the run's status beside its own controls (BurndownCard.tsx); the header says only the title. */
-  const bodyStatus = card.kind === "run-trace" && card.payload.workflow === "issue-sweep"
+
   const hasLocalHistory = card.navigation !== undefined && card.navigation.length > 1
-  const hasRunDetails = card.kind === "agent" || card.kind === "run-trace"
-  const statusNode = card.kind === "agent" || card.kind === "run-trace" ?
+  const hasRunDetails = card.kind === "run-trace"
+  const statusNode = card.kind === "run-trace" ?
     <StatusDetails status={health} fallback={fallback} /> :
     fallback === "" ? null : <StatusPill status={fallback} />
   const pendingFocus = useRef<"maximize" | "minimize" | null>(null)
@@ -191,7 +190,7 @@ export const CardView = memo(function CardView({
           </nav>}
           <span className="smithers-card-title">{title}</span>
           {/* A family that has no status word for a card (a picker awaiting its human) renders no pill: "" is not a status. */}
-          {!quietStatus && !bodyStatus && statusNode}
+          {!quietStatus && statusNode}
           {maximized ?
             (
               <>
@@ -222,18 +221,7 @@ export const CardView = memo(function CardView({
                   </>
                 )}
                 {/* Open in tab exists only on the maximized card: a user's explicit act (THE EMBED LAW). */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="card-maximize-btn"
-                  {...flowProps("tab.card")}
-                  data-testid={`card-open-in-tab-${card.id}`}
-                  aria-label="Open in tab"
-                  title="Open in tab"
-                  onClick={() => onOpenInTab(card.id)}
-                >
-                  <PanelTop size={13} />
-                </Button>
+              
                 {
                   /*
                    * Ask 8 (will, 2026-09-02): "when I maximize a file I have no

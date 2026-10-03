@@ -55,23 +55,6 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ cardId, tab }) => actions.setLandingTab(cardId, tab)
   }),
   flow({
-    name: "prs.create",
-    form: {
-      fields: { from: { optionsFrom: "bookmarks", kind: "text", label: "From bookmark" }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
-      args: (payload) => line(text(payload, "title"), text(payload, "from") === undefined ? undefined : `from:${text(payload, "from")}`, text(payload, "repo"))
-    },
-    summary: "Open a pull request",
-    runtime: ["cloud"],
-    args: "<title> [from:<bookmark>] [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({
-      title: Schema.String,
-      from: Schema.optional(Schema.String),
-      repo: Schema.optional(Schema.String)
-    }),
-    handler: ({ title, from, repo }) => actions.createLanding(title, repo, from)
-  }),
-  flow({
     /*
      * Landing is consequential (it queues a merge), so the model may ASK for
      * it but never perform it: `confirm` turns an agent invocation into a

@@ -38,14 +38,12 @@ describe("§1 prefixes: the first token decides the mode", () => {
     expect(parseQuery(":120:8")).toMatchObject({ mode: "line", line: { line: 120, column: 8 } })
     expect(parseQuery("text:useEffect")).toMatchObject({ mode: "all", prefix: "", query: "text:useEffect" })
     expect(parseQuery("/flows")).toMatchObject({ mode: "flows", prefix: "/", query: "flows" })
-    expect(parseQuery("//apps/app:test")).toMatchObject({ mode: "targets", prefix: "//", query: "apps/app:test" })
     expect(parseQuery("wiki: redaction")).toMatchObject({ mode: "wiki", prefix: "wiki:", query: "redaction" })
     expect(parseQuery("history: retry")).toMatchObject({ mode: "history", query: "retry" })
     expect(parseQuery("ask:where is it")).toMatchObject({ mode: "ask", query: "where is it" })
     expect(parseQuery("run:run-9")).toMatchObject({ mode: "runs", query: "run-9" })
     expect(parseQuery("change:")).toMatchObject({ mode: "changes", query: "" })
     expect(parseQuery("#412")).toMatchObject({ mode: "issues", prefix: "#", query: "412" })
-    expect(parseQuery("box:main")).toMatchObject({ mode: "boxes", query: "main" })
     expect(parseQuery("secret:NPM")).toMatchObject({ mode: "secrets", query: "NPM" })
     expect(parseQuery("user:will")).toMatchObject({ mode: "all", query: "user:will" })
     expect(parseQuery("?")).toMatchObject({ mode: "help", prefix: "?" })
@@ -69,9 +67,9 @@ describe("§1 prefixes: the first token decides the mode", () => {
 
   test("the prefix table lists every §1 row once, with the signed-in ones marked", () => {
     expect(PREFIXES.map((row) => row.label)).toEqual([
-      "(none)", "path", ":", "/", "//", "wiki:", "history:", "ask:", "run:", "change:", "#", "box:", "secret:", "?"
+      "(none)", "path", ":", "/", "wiki:", "history:", "ask:", "run:", "change:", "#", "secret:", "?"
     ])
-    expect(PREFIXES.filter((row) => row.signedIn).map((row) => row.mode)).toEqual(["history", "boxes", "secrets"])
+    expect(PREFIXES.filter((row) => row.signedIn).map((row) => row.mode)).toEqual(["history", "secrets"])
   })
 })
 

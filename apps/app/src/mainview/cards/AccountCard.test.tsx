@@ -5,8 +5,7 @@ import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { createAppStore } from "../state/AppStore"
 import { scopedControllers } from "../state/ControllerTestScope"
-import { memoryStorage, settled, signupProfileFetch, unavailableAgent, waitFor } from "../state/TestFixtures"
-import { SIGNUP_PROFILE_PATH } from "../state/Signup"
+import { memoryStorage, settled, signupProfileFetch, unavailableAgent } from "../state/TestFixtures"
 import { AccountCardBody } from "./AccountCard"
 
 GlobalRegistrator.register()
@@ -37,12 +36,11 @@ for (const provider of ["local", "github"] as const) {
       fetchImpl: profile.fetchImpl
     })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
-    await waitFor(() => profile.reads.length === 1)
     await settled()
     const result = await controller.showAccount()
     await store.settled?.()
     expect(paths).toEqual([])
-    expect(profile.reads).toEqual([SIGNUP_PROFILE_PATH])
+    expect(profile.reads).toEqual([])
     expect(result).toEqual({ value: "account: @owner; 0 box(es) listed" })
     const restored = await createAppStore({ kind: "localStorage", storage })
     try {

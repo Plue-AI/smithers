@@ -24,9 +24,7 @@ export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
 
 /** The `wiki.*` flows: the shared wiki operations bound to the controller. */
 export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
-  [...bind(wikiOperations, {
-    /* The answer is the conversation's next turn, the same turn the composer sends. */
-    "wiki.ask": ({ question }) => { actions.send(question) },
+  [...bind(wikiOperations.filter(operation => operation.name !== "wiki.ask"), {
     /* StackSeam.refreshWiki refreshes on stack changes; this is the manual door and the Retry. */
     "wiki.create": ({ repo }) => actions.refreshWiki(repo),
     "wiki.cloud": ({ repo, page, space }) => actions.listCloudWiki(repo, page, space),

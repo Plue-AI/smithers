@@ -5,7 +5,8 @@ import { closeComposer, command, expect, reloadApp, test } from "./support"
 import { openApp, awaitBoot } from "./support"
 const boot = async (page: Page) => { const at = performance.now(); await openApp(page); await awaitBoot(page, "navigate", at) }
 
-const BUILTIN_ROLE_IDS = AGENT_ROLES.map((role) => role.id)
+const FACTORY_ROLES = AGENT_ROLES.filter(role => role.id !== "explainer")
+const BUILTIN_ROLE_IDS = FACTORY_ROLES.map((role) => role.id)
 
 const agentsCard = (page: Page) => page.getByTestId("card-agents")
 const cards = (page: Page) => page.locator(".smithers-card")
@@ -16,7 +17,7 @@ const expectBuiltinRoles = async (page: Page): Promise<void> => {
   await expect(agentsCard(page)).toHaveAttribute("data-kind", "agents")
   await expect.poll(() => agentRows(page).evaluateAll((rows, ids) => rows.map((row) => row.getAttribute("data-agent")).slice(0, ids.length), BUILTIN_ROLE_IDS))
     .toEqual(BUILTIN_ROLE_IDS)
-  for (const role of AGENT_ROLES) {
+  for (const role of FACTORY_ROLES) {
     const row = agentRows(page).and(page.locator(`[data-agent="${role.id}"]`))
     await expect(row.locator("strong")).toHaveText(role.label)
     await expect(row).toContainText(role.model.label)

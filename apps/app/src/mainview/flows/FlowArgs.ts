@@ -1,46 +1,19 @@
 import { fileArgs } from "./FileArgs"
-/*
- * The button door's one serialisation: a flow's typed input as the single
- * slash line its grammar parses.
- *
- * Every card used to hand-serialise its own act — `${repoId} ${workspace}
- * ${label}`, `${changeId} ${from} ${to} ${file.path}`, `${snapshot.id}
- * ${workspaceId} --name ${snapshot.name}` — so each card carried a private
- * copy of one grammar from SlashPayload.ts, and a value holding a space was
- * parsed by whatever that copy happened to do. The encoders live here instead:
- * one per flow, beside the grammar they invert, with FlowArgs.test.ts holding
- * the two to each other. A card names its flow and hands over the values.
- *
- * Only the flows whose acts carry STRUCTURE are here. A flow whose whole
- * argument is one id stays `onRunCommand(name, id)`, and the slash door still
- * hands the line a human typed straight through.
- */
-
-import type { SetupManualRequest } from "@smthrs/rpc/RepositorySetup"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
   readonly "flow.create": { readonly description: string; readonly repo: string }
-  readonly "feature.prototype": { readonly request: string; readonly repo: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
-  readonly "agent.session.view": { readonly sessionId: string; readonly repo: string }
-  readonly "agent.session.stop": { readonly sessionId: string; readonly repo: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
   readonly "commits.read": { readonly ref: string; readonly repo: string }
   readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools" }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
-  readonly "runs.burndown.filter": { readonly runId: string; readonly filter: string }
-  readonly "runs.burndown.select": { readonly runId: string; readonly item: number }
   readonly "runs.signal": { readonly runId: string; readonly name: string; readonly payload?: string }
-  readonly "issue-sweep": { readonly maxAgents?: number; readonly placement?: "local" | "vm"; readonly attempt?: number; readonly landers?: number; readonly cloudAgents?: number; readonly repo?: string }
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
   readonly "runs.graph.execution": { readonly runId: string; readonly executionId?: string }
-  readonly "runs.takeover": { readonly runId: string }
   readonly "runs.continue": { readonly runId: string; readonly requestId: string }
-  readonly "runs.release": { readonly runId: string }
   readonly "runs.coding.select": { readonly runId: string; readonly changeId: string }
-  readonly "signup.set": { readonly field: string; readonly value: string }
   readonly "wiki.cloud": { readonly repo: string; readonly page: number; readonly space?: "public" | "private" }
   readonly "wiki.cloud.open": { readonly slug: string; readonly repo: string; readonly space?: "public" | "private" }
   readonly "wiki.space": { readonly space: "public" | "private"; readonly repo?: string }
@@ -58,9 +31,6 @@ export interface FlowInput {
   readonly "egress.allow": { readonly host: string; readonly repo: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
-  readonly "box.select": { readonly workspaceId?: string; readonly repo: string; readonly flow: string; readonly args?: string }
-
-  readonly "change.split": { readonly changeId: string; readonly paths: ReadonlyArray<string> }
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "commits.list": { readonly branch: string; readonly repo: string }
@@ -78,13 +48,6 @@ export interface FlowInput {
   readonly "history.todo": { readonly title?: string; readonly body?: string; readonly repo: string }
   readonly "history.view": { readonly view: "issues" | "metrics"; readonly repo: string }
   readonly "issues.close": { readonly number: number; readonly repo: string }
-  readonly "issues.fix": { readonly number: number; readonly repo: string }
-  readonly "change.request": { readonly prompt: string; readonly repo: string; readonly from?: string }
-  readonly "repository.register": { readonly link: string }
-  readonly "issues.verify": { readonly number: number; readonly repo: string }
-  readonly "issues.comment.react": { readonly number: number; readonly repo?: string; readonly commentId: number; readonly name: string; readonly active: boolean }
-  readonly "issues.comment.retry": { readonly cardId: string; readonly requestId: string }
-  readonly "issues.set": { readonly number: number; readonly repo: string; readonly field: "owner" | "due" | "priority" | "parent"; readonly value: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
   readonly "findings.please-fix": { readonly changeId: string; readonly findingId: number }
   readonly "findings.not-useful": { readonly changeId: string; readonly findingId: number }
@@ -99,10 +62,6 @@ export interface FlowInput {
   readonly "runs.graph.tab": { readonly runId: string; readonly tab: "in" | "declaration" | "code" | "output" | "events" | "attempts" }
   readonly "flow.plan.tab": { readonly cardId: string; readonly tab: "in" | "declaration" | "code" | "output" | "events" | "attempts" }
   readonly "issues.list": { readonly filter?: "open" | "closed" | "all"; readonly repo?: string; readonly kind?: "all" | "conversation" | "issue"; readonly view?: string }
-  readonly "setup.configure": { readonly cardId: string; readonly field: string; readonly value: unknown }
-  readonly "setup.view": { readonly cardId: string; readonly view: "flows" | "prompts" | "checks" | "evals" | "test" | "work"; readonly step?: string }
-  readonly "setup.work": { readonly cardId: string; readonly stepId: string; readonly field?: "prompt" | "source" | "number"; readonly value?: unknown }
-  readonly "setup.run": { readonly cardId: string; readonly operation: "inspect" | "evaluate" | "trial" | "apply" | "pause" | "run"; readonly manual?: SetupManualRequest }
   /** A saved registration draft; JSON input must survive the retry door verbatim. */
   readonly "triggers.register": { readonly repo: string; readonly flow: string; readonly slug?: string; readonly schedule?: string; readonly input?: string; readonly tokens?: number; readonly minutes?: number }
   /** `<name> [owner/repo]` — a schedule's name holds no whitespace, so the repository trails it. */
@@ -207,21 +166,14 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
   "flow.create": payload => JSON.stringify(payload),
-  "feature.prototype": payload => JSON.stringify(payload),
   "commits.read": payload => line(token(payload, "ref"), token(payload, "repo")),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
-  "runs.burndown.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
-  "runs.burndown.select": payload => line(token(payload, "runId"), String(payload.item)),
   "runs.signal": payload => line(token(payload, "runId"), token(payload, "name"), typeof payload.payload === "string" ? payload.payload : undefined),
-  "issue-sweep": payload => JSON.stringify(payload),
   "runs.graph.follow": payload => line(token(payload, "runId"), payload.follow ? "on" : "off"),
   "runs.graph.execution": payload => line(token(payload, "runId"), token(payload, "executionId")),
-  "runs.takeover": payload => line(token(payload, "runId")),
   "runs.continue": payload => line(token(payload, "runId"), token(payload, "requestId")),
-  "runs.release": payload => line(token(payload, "runId")),
   "runs.coding.select": payload => line(token(payload, "runId"), token(payload, "changeId")),
-  "signup.set": payload => `${payload.field} ${payload.value}`,
   "wiki.cloud": payload => line(token(payload, "repo"), token(payload, "page"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.cloud.open": payload => line(token(payload, "slug"), token(payload, "repo"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.space": payload => line(token(payload, "space"), token(payload, "repo")),
@@ -241,12 +193,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "egress.allow": payload => line(token(payload, "host"), token(payload, "repo")),
   "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
-  "box.select": payload => JSON.stringify(payload),
-
-  "change.split": payload => fileArgs(String(payload.changeId), ...(payload.paths as ReadonlyArray<string>)),
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
-  "agent.session.view": payload => line(token(payload, "sessionId"), token(payload, "repo")),
-  "agent.session.stop": payload => line(token(payload, "sessionId"), token(payload, "repo")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "history.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
   "history.retry": payload => line(token(payload, "id"), token(payload, "repo")),
@@ -261,14 +208,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "secrets.scope": payload => line(token(payload, "name"), token(payload, "scope"), token(payload, "repo")),
   "secrets.bind": payload => JSON.stringify(payload),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
-  "issues.fix": payload => line(token(payload, "number"), token(payload, "repo")),
-  // The prompt is free text; the grammar reads the repository off the end.
-  "change.request": payload => line(String(payload.prompt).replace(/\s+/g, " ").trim(), payload.from === undefined ? undefined : `from:${payload.from}`, token(payload, "repo")),
-  "repository.register": payload => String(payload.link).trim(),
-  "issues.verify": payload => line(token(payload, "number"), token(payload, "repo")),
-  "issues.comment.react": payload => JSON.stringify(payload),
-  "issues.comment.retry": payload => JSON.stringify(payload),
-  "issues.set": payload => JSON.stringify(payload),
   "issues.reopen": payload => line(token(payload, "number"), token(payload, "repo")),
   "findings.please-fix": payload => line(token(payload, "changeId"), token(payload, "findingId")),
   "findings.not-useful": payload => line(token(payload, "changeId"), token(payload, "findingId")),
@@ -283,10 +222,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.graph.tab": payload => graphLine(payload, "runId", "tab"),
   "flow.plan.tab": payload => graphLine(payload, "cardId", "tab"),
   "issues.list": (payload) => line(token(payload, "filter") ?? "open", payload.kind === undefined || payload.kind === "all" ? undefined : `--kind ${payload.kind}`, token(payload, "view") === undefined ? undefined : `--view ${token(payload, "view")}`, token(payload, "repo")),
-  "setup.configure": payload => JSON.stringify(payload),
-  "setup.view": payload => JSON.stringify(payload),
-  "setup.run": payload => JSON.stringify(payload),
-  "setup.work": payload => JSON.stringify(payload),
   "billing.upgrade": (payload) => line(token(payload, "plan")),
   "runs.list": (payload) => JSON.stringify(payload),
   "runs.attention": (payload) => line(keyed(payload, "sourceCard"), token(payload, "repo")),

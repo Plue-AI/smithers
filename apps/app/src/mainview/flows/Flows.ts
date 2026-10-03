@@ -25,11 +25,9 @@
 import type { FlowEntry } from "./registry"
 import type { CommandActions } from "./entries/Declare"
 import { accountFlows } from "./entries/account"
-import { adminOperatorFlows, adminResetFlows, adminToolFlows } from "./entries/admin"
-import { agentFlows, SUBAGENTS_USER_ONLY_REASON, subagentsSurfaceFlows } from "./entries/agent"
-import { agentSessionFlows } from "./entries/agentSession"
+import {  adminResetFlows, adminToolFlows } from "./entries/admin"
+import { agentFlows } from "./entries/agent"
 import { appFlows } from "./entries/app"
-import { signupFlows } from "./entries/signup"
 import { appearanceFlows } from "./entries/appearance"
 import { approvalFlows } from "./entries/approval"
 import { approvalsFlows } from "./entries/approvals"
@@ -42,16 +40,14 @@ import { cardFlows } from "./entries/card"
 import { changeFlows } from "./entries/change"
 import { chatCopyFlows, chatFlows, chatReloadFlows } from "./entries/chat"
 import { cloudFlows } from "./entries/cloud"
-import { connectSurfaceFlows } from "./entries/connector"
 import { debugFlows, debugVerboseFlows } from "./entries/debug"
 import { egressFlows } from "./entries/egress"
 export { guideFlows } from "./entries/guide"
 import { envFlows } from "./entries/env"
-import { featureFlows } from "./entries/feature"
 import { codeFlows } from "./entries/code"
-import { filesAddFlows, filesFlows } from "./entries/files"
+import {  filesFlows } from "./entries/files"
 import { findingsFlows } from "./entries/findings"
-import { flowFlows, flowRunStopAllFlows, flowsSurfaceFlows } from "./entries/flow"
+import { flowFlows, flowRunStopAllFlows } from "./entries/flow"
 import { todoFlows } from "./entries/todo"
 import { formFlows } from "./entries/form"
 import { graphFlows } from "./entries/graph"
@@ -59,29 +55,21 @@ import { frameFlows } from "./entries/frame"
 import { githubFlows } from "./entries/github"
 import { issuesFlows } from "./entries/issues"
 import { settingsFlows } from "./entries/settings"
-import { setupFlows } from "./entries/setup"
-import { notificationsFlows } from "./entries/notifications"
 import { paletteFlows } from "./entries/palette"
 import { prsFlows } from "./entries/prs"
 import { repoFlows, tutorialRepositoryFlows } from "./entries/repo"
 import { reposImportFlows, reposImportRetryFlows } from "./entries/repos"
-import { repositoryFlows } from "./entries/repository"
 import { reviewFlows } from "./entries/review"
 import { runsFlows } from "./entries/runs"
 import { searchFlows } from "./entries/search"
-import { smithersFlows } from "./entries/smithers"
 import { secretsFlows } from "./entries/secrets"
 import { HISTORY_LAND_USER_ONLY_REASON, HISTORY_RETRY_USER_ONLY_REASON, historyFlows } from "./entries/history"
 import { storageFlows } from "./entries/storage"
 import { syncFlows } from "./entries/sync"
-import { systemFlows } from "./entries/system"
-import { tabFlows } from "./entries/tab"
 import { toastFlows } from "./entries/toast"
 import { triggersFlows } from "./entries/triggers"
 import { wikiFlows, wikiSurfaceFlows } from "./entries/wiki"
 import { workspaceFlows } from "./entries/box"
-import { workspaceRenameFlows } from "./entries/workspace"
-import { worldFlows, worldSurfaceFlows } from "./entries/world"
 
 export type { CommandActions, CommandResult } from "./entries/Declare"
 export { Ack } from "./entries/Declare"
@@ -102,7 +90,6 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "chat.dictate", why: "microphone capture is the human's explicit gesture" },
   { name: "chat.queue", why: "the prompt queue is the human's composer" },
   { name: "chat.send", why: "turn mechanics: the model is already the turn; sending would nest one" },
-  { name: "wiki.ask", why: "turn mechanics: the question is the human's turn; the model reads a page with wiki.open" },
   { name: "chat.stop", why: "turn mechanics: stopping the model's own turn from inside it" },
   { name: "admin.reset", why: "destroys the whole store with no undo; the confirm dialog is the only door" },
   { name: "billing.upgrade", why: "external checkout with real money; the human clicks" },
@@ -113,24 +100,17 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "cloud.sign-out", why: "drops the human's cloud credential; the human clicks" },
   { name: "auth.sign-in", why: "the GitHub OAuth redirect yanks the page; the human clicks (auth.prompt is the agent's door)" },
   { name: "auth.sign-out", why: "drops the human's session; the human clicks" },
-  { name: "flows", why: "surface switch: the model lists flows with flow.list, which answers as an embedded card" },
   { name: "wiki.pane", why: "surface switch: the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards" },
   { name: "wiki.attach", why: "the file comes from the human's own file dialog; a model has no file to give" },
-  { name: "subagents", why: SUBAGENTS_USER_ONLY_REASON },
   { name: "history.retry", why: HISTORY_RETRY_USER_ONLY_REASON },
   { name: "history.land", why: HISTORY_LAND_USER_ONLY_REASON },
   { name: "palette.open", why: "focus and an overlay are the human's gesture; the model searches with the search.* flows, which answer the same rows as data" }
 ]
 
 export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  ...connectSurfaceFlows(actions),
   ...wikiSurfaceFlows(actions),
-  ...worldSurfaceFlows(actions),
-  ...flowsSurfaceFlows(actions),
-  ...subagentsSurfaceFlows(actions),
   ...appearanceFlows(actions),
   ...debugVerboseFlows(actions),
-  ...systemFlows(actions),
   ...chatFlows(actions),
   ...browserFlows(actions),
   ...flowFlows(actions),
@@ -144,24 +124,18 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...chatCopyFlows(actions),
   ...approvalFlows(actions),
   ...wikiFlows(actions),
-  ...worldFlows(actions),
   ...authFlows(actions),
   ...accountFlows(actions),
   ...appFlows(actions),
-  ...signupFlows(actions),
   ...storageFlows(actions),
   ...cloudFlows(actions),
   ...toastFlows(actions),
   ...billingBalanceFlows(actions),
   ...billingPlanFlows(actions),
   ...reposImportFlows(actions),
-  ...repositoryFlows(actions),
   ...issuesFlows(actions),
-  ...setupFlows(actions),
   ...settingsFlows(actions),
   ...prsFlows(actions),
-  ...featureFlows(actions),
-  ...notificationsFlows(actions),
   ...envFlows(actions),
   ...secretsFlows(actions),
   ...historyFlows(actions),
@@ -180,15 +154,9 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...findingsFlows(actions),
   ...chatReloadFlows(actions),
   ...agentFlows(actions),
-  /* The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent sessions"), in the agent namespace. */
-  ...agentSessionFlows(actions),
   ...formFlows(actions),
-  ...tabFlows(actions),
   ...repoFlows(actions),
   ...tutorialRepositoryFlows(actions),
-  ...workspaceRenameFlows(actions),
-  ...filesAddFlows(actions),
-  ...smithersFlows(actions),
   ...searchFlows(actions),
   ...paletteFlows(actions),
 ]
@@ -205,5 +173,4 @@ export const adminFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   ...adminResetFlows(actions),
   ...adminToolFlows(actions),
   ...debugFlows(actions),
-  ...adminOperatorFlows(actions)
 ]

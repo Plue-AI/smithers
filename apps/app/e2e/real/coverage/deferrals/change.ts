@@ -1,3 +1,3 @@
 export const change = [
-  "change.request", "change.resolve",
+  "change.resolve",
 ] as const

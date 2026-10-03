@@ -237,7 +237,6 @@ test("a pre-backend-stamp localStorage conversation survives boot without creati
     }
   })
   await page.goto("/")
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click()
   await page.getByRole("button", { name: "Chat", exact: true }).click()
   await page.getByTestId("composer-input").fill("/agent.list")
   await page.getByTestId("composer-send").click()
@@ -294,7 +293,6 @@ test("the running app offers the same private download through an embedded slash
   await page.evaluate(() =>
     localStorage.setItem("smithers-mvp-quarantine.private-test", "older quarantined private fixture")
   )
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click()
   await page.getByRole("button", { name: "Chat", exact: true }).click()
   await page.getByTestId("composer-input").fill("/storage.recovery")
   await page.getByTestId("composer-send").click()

@@ -45,7 +45,9 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 31: Jev command selection adds `message.commands.disclosed`; the front door's `answersTurn` and `front-door`
 // seat retire (#3313).
 // 32: account-scoped committed conversation replay adds conversation.restored (#3197).
-export const APP_PROJECTOR_VERSION = 32
+// 33: MVP Cut retires card kinds/forms and chrome transitions; rotate pre-Cut streams
+// from decoded materialized rows instead of replaying old sealed bytes with new semantics.
+export const APP_PROJECTOR_VERSION = 33
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

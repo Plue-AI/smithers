@@ -4,30 +4,18 @@ test("Get started for free mounts the real island in place when it loads", async
   const errors: string[] = []
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()) })
-  await page.route("**/api/recommend", route => route.fulfill({ json: { suggestions: [] } }))
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: [], authFlow: "none", sandbox: null,
   } }))
   await page.goto("/")
   await page.getByRole("link", { name: "Get started for free", exact: true }).click()
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await expect(page).toHaveURL("/")
   await expect(page.locator("#start-error")).toHaveCount(0)
-  const actions = page.getByTestId("setup-checklist")
-  expect(await actions.locator("button:not([data-flow])").count()).toBe(0)
-  await actions.getByRole("button", { name: "Dismiss", exact: true }).click()
-  // Dismissed, the card collapses to its job tiles (apps/app/AGENTS.md First-run): no steps, no Dismiss.
-  const collapsed = async () => {
-    await expect(actions).toHaveAttribute("data-complete", "true")
-    await expect(actions.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0)
-    await expect(actions.locator("ol")).toHaveCount(0)
-    await expect(actions.locator(".setup-checklist-tiles button").first()).toBeVisible()
-  }
-  await collapsed()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await page.reload()
   await page.getByRole("link", { name: "Get started for free", exact: true }).click()
   await expect(page.locator(".app-shell")).toBeVisible()
-  await collapsed()
   expect(errors).toEqual([])
 })
 
@@ -43,7 +31,7 @@ test("Get started for free swaps to the app before the boot answers", async ({ p
   await page.keyboard.press("s")
   await expect(page.locator(".session-shell")).toBeVisible({ timeout: 1000 })
   await expect(page.locator("#start")).toHaveCount(0)
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
 })
 
 for (const failure of ["chunk", "page"] as const) {
@@ -60,7 +48,7 @@ for (const failure of ["chunk", "page"] as const) {
     expect(aborted).toBeGreaterThan(0)
     await expect(start).toBeHidden()
     await expect(page.locator("#start")).not.toHaveAttribute("aria-busy")
-    await expect(page.getByTestId("setup-checklist")).toHaveCount(0)
+    await expect(page.locator(".app-shell")).toHaveCount(0)
     await expect(page).toHaveURL("/")
     const reload = page.getByRole("button", { name: "Reload", exact: true })
     await expect(reload).toBeFocused()
@@ -114,7 +102,7 @@ for (const holdCommit of [false, true]) test(`tutorial query opens the plain app
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: [], authFlow: "none", sandbox: null,
   } }))
   await page.goto("/?tutorial")
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await expect(page.locator(".help-bubble")).toHaveCount(1)
   const hint = page.locator('[data-first-sight-hint="chat"] .help-bubble')
   await expect(hint).toBeVisible()
@@ -124,7 +112,7 @@ for (const holdCommit of [false, true]) test(`tutorial query opens the plain app
   if (holdCommit) await expect.poll(() => page.evaluate(() => (window as any).hintCommitProbe.held)).toBe(true)
   await page.reload()
   await page.getByRole("link", { name: "Get started for free", exact: true }).click()
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await expect(hint).toHaveCount(0)
   await expect(page.locator(".help-bubble")).toHaveCount(0)
 })

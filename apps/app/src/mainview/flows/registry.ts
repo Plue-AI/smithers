@@ -25,7 +25,6 @@ import * as account from "./entries/account"
 import * as admin from "./entries/admin"
 import * as agent from "./entries/agent"
 import * as app from "./entries/app"
-import * as signup from "./entries/signup"
 import * as appearance from "./entries/appearance"
 import * as approval from "./entries/approval"
 import * as approvals from "./entries/approvals"
@@ -38,11 +37,9 @@ import * as card from "./entries/card"
 import * as change from "./entries/change"
 import * as chat from "./entries/chat"
 import * as cloud from "./entries/cloud"
-import * as connector from "./entries/connector"
 import * as debug from "./entries/debug"
 import * as egress from "./entries/egress"
 import * as env from "./entries/env"
-import * as feature from "./entries/feature"
 import * as files from "./entries/files"
 import * as findings from "./entries/findings"
 import * as flow from "./entries/flow"
@@ -52,25 +49,18 @@ import * as history from "./entries/history"
 import * as todo from "./entries/todo"
 import * as issue from "./entries/issue"
 import * as issues from "./entries/issues"
-import * as notifications from "./entries/notifications"
 import * as palette from "./entries/palette"
 import * as prs from "./entries/prs"
 import * as repo from "./entries/repo"
 import * as repos from "./entries/repos"
-import * as repository from "./entries/repository"
 import * as review from "./entries/review"
 import * as runs from "./entries/runs"
 import * as search from "./entries/search"
-import * as setup from "./entries/setup"
-import * as smithers from "./entries/smithers"
 import * as secrets from "./entries/secrets"
 import * as sync from "./entries/sync"
-import * as system from "./entries/system"
-import * as tab from "./entries/tab"
 import * as toast from "./entries/toast"
 import * as wiki from "./entries/wiki"
 import * as box from "./entries/box"
-import * as workspace from "./entries/workspace"
 import type { OperationMetadata } from "@smthrs/ui/app-operations"
 
 /**
@@ -322,7 +312,6 @@ export const recommendations: ReadonlyArray<Recommendation> = [
   ...chat.recommendations,
   ...auth.recommendations,
   ...wiki.recommendations,
-  ...connector.recommendations,
 ]
 
 /**
@@ -350,7 +339,7 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
  */
 
 /** The surface switches: the one legitimate top-level leaves. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "connect", "flows", "subagents"]
+export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki"]
 
 export interface Namespace {
   readonly id: string
@@ -361,18 +350,11 @@ export interface Namespace {
 /** The namespaces in display order; one the table lacks lists last, by id. */
 export const NAMESPACES: ReadonlyArray<Namespace> = [
   todo.namespace,
-  setup.namespace,
-  setup.ciNamespace,
-  setup.choresNamespace,
   chat.namespace,
   appearance.namespace,
   repo.namespace,
   repos.namespace,
-  repository.namespace,
-  feature.namespace,
-  connector.namespace,
   wiki.namespace,
-  tab.namespace,
   flow.namespace,
   runs.namespace,
   approvals.namespace,
@@ -384,7 +366,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   review.namespace,
   findings.namespace,
   box.namespace,
-  workspace.namespace,
   egress.namespace,
   agent.namespace,
   files.namespace,
@@ -396,7 +377,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   env.namespace,
   secrets.namespace,
   history.namespace,
-  notifications.namespace,
   browser.namespace,
   auth.namespace,
   account.namespace,
@@ -407,10 +387,7 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   approval.namespace,
   debug.namespace,
   app.namespace,
-  signup.namespace,
-  smithers.namespace,
   admin.namespace,
-  system.namespace,
   toast.namespace
 ]
 

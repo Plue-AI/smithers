@@ -32,7 +32,7 @@ test("signed-out approvals park behind the real sign-in door and survive reload 
 
   await command(page, `/approvals.list ${PRODUCTION_REPO}`)
   await expect(page.locator('[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
-  await expect(transcript(page)).toContainText(/Sign in(?: with GitHub)? to list the workspace's pending approvals/i)
+  await expect(transcript(page)).toContainText(/Sign in with GitHub to continue\./)
   expect(workflowPaths(requests)).toEqual([])
 
   await reloadApp(page)

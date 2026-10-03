@@ -43,8 +43,7 @@ export default showcase({
     })
 
     await app.open("/")
-    await expect(page.getByTestId("setup-checklist")).toBeVisible()
-    await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
+    await expect(page.getByTestId("composer-input")).toBeAttached()
     await app.slash(`/flow.run review-pr ${REPO} {"args":"PR #70"}`)
     const card = page.locator('[data-kind="run-trace"]')
     await expect(card).toContainText("Requested")

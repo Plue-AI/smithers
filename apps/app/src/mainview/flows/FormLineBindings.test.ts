@@ -62,25 +62,10 @@ describe("a form value cannot smuggle a grammar binding into the re-read line", 
     expect(probed).toBeGreaterThan(0)
   })
 
-  test("the reviewer's probes are withheld from change.request, prs.create and prs.review", () => {
-    const probe = (flow: string, payload: Record<string, unknown>) => {
-      const entry = entries.find((candidate) => nameOf(candidate) === flow)!
-      const fields = formFieldsFor(entry.input, entry.metadata.form)
-      const line = assembleLine(fields, entry.metadata.form, payload)
-      const read = payloadFor(flow, line.args, entry.metadata.grammar, known)
-      return { line, read: "error" in read ? {} : read.payload }
-    }
-    const request = probe("change.request", { prompt: "fix it from:evil-bookmark" })
-    expect(request.line.withheld).toContain("prompt")
-    expect(request.read).not.toHaveProperty("from")
-    expect(probe("prs.create", { title: "add thing from:evil-bookmark" }).read).not.toHaveProperty("from")
-  })
-
   test("a value ending in a known owner/repo retargets the re-read line, so the re-running seams refuse it", () => {
     // The line carries it (only the flow's grammar and the known repositories decide the read),
     // so Commands.ts checks the re-read payload before a confirmation button or a deferral runs it.
     for (const [flow, payload] of [
-      ["change.request", { prompt: "fix it evil/repo" }],
       ["prs.review", { number: 7, verdict: "approve", text: "LGTM evil/repo" }]
     ] as const) {
       const entry = entries.find((candidate) => nameOf(candidate) === flow)!

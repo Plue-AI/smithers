@@ -18,7 +18,6 @@ import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { claimsRunState, renderedRunTurnText, runLaunchCommandOf, toolResultLaunchedRun } from "./RunClaims"
-import { SIGNUP_PROFILE_PATH } from "./Signup"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
 import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
 
@@ -577,7 +576,7 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
       arguments: JSON.stringify({ action: "execute", name: "flow.run.stop", args: "flow-run-run-1" })
     })
     expect(asked).toContain("confirm")
-    expect(double.profileReads).toEqual([SIGNUP_PROFILE_PATH])
+    expect(double.profileReads).toEqual([])
     expect(double.calls.some((call) => JSON.stringify(call.body).includes("\"Cancel\""))).toBe(false)
     // The question is still open and nothing was provisioned on the model's say-so.
     const card = store.collections.cards.get("workflow-repo")

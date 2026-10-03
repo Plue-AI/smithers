@@ -13,11 +13,6 @@ export const claimWorkToast = (store: ControllerContext["store"], cardId: string
 }
 
 const phaseOf = (card: Card): "running" | "ok" | "failed" | "cancelled" | undefined => {
-  if (card.kind === "agent") {
-    const p = card.payload
-    if ("cloud" in p) return p.state === "completed" ? "ok" : p.state === "cancelled" ? "cancelled" : p.state === "failed" ? "failed" : "running"
-    return p.phase === "running" ? "running" : p.exitCode === 0 ? "ok" : "failed"
-  }
   if (card.kind === "run-trace") {
     return card.payload.phase === "completed" ? "ok"
       : card.payload.phase === "cancelled" ? "cancelled"
@@ -45,11 +40,6 @@ export const observeBackgroundWork = (ctx: ControllerContext): void => {
     for (const card of store.collections.cards.values()) {
       const phase = phaseOf(card)
       if (!phase || claims?.has(card.id)) continue
-      // A setup request already owns the job toast through real completion.
-      const setup = card.kind === "run-trace" && [...store.collections.cards.values()].find(other => other.kind === "repository-setup"
-        && other.payload.repo === card.payload.repo && other.payload.workspaceId === card.payload.workspaceId
-        && [other.payload.receipt?.runId, other.payload.receipt?.jobRunId].includes(card.payload.runId) && claims?.has(other.id))
-      if (setup) continue
       const key = `worker.${card.id}`, toast = store.collections.toasts.get(`toast-${key}`)
       if (phase === "running") {
         const previous = seen.get(card.id)
@@ -70,7 +60,7 @@ export const observeBackgroundWork = (ctx: ControllerContext): void => {
         seen.set(card.id, phase)
         const detail = phase === "ok" ? "" : phase === "cancelled" ? "Cancelled" : card.kind === "run-trace"
           ? runFailureOf(card.payload).message
-          : card.kind === "agent" && "cloud" in card.payload ? card.payload.error ?? card.payload.state : "Stopped"
+          : "Stopped"
         if (toast && (toast.status !== phase || toast.title !== card.title || toast.detail !== detail)) {
           ctx.resolveToast(key, { status: phase, title: card.title, detail })
         }

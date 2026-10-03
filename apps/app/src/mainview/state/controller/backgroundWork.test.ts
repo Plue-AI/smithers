@@ -24,23 +24,19 @@ const fixture = async (storage = memoryStorage()) => {
   return { store, ctx }
 }
 
-for (const kind of ["run-trace", "agent"] as const) test(`a recovered ${kind} failure toast follows corrected details without repeating unchanged observations`, async () => {
+for (const kind of ["run-trace"] as const) test(`a recovered ${kind} failure toast follows corrected details without repeating unchanged observations`, async () => {
   const { store, ctx } = await fixture()
   const base = { id: "corrected-worker", title: "Review", status: "active" as const, ordinal: 1, createdAt: Date.now() - 1000 }
-  const card: Card = kind === "run-trace"
-    ? { ...base, kind, payload: { repo: "owner/repo", workflow: "review", runId: "run-1", phase: "running", steps: [], result: null, lastSeq: 0 } }
-    : { ...base, kind, payload: { cloud: true, displayName: "Review", sessionId: "session-1", repo: "owner/repo", provider: null, workspaceId: null, state: "active", transcript: [] } }
+  const card = { ...base, kind, payload: { repo: "owner/repo", workflow: "review", runId: "run-1", phase: "running" as const, steps: [], result: null, lastSeq: 0 } }
   const resolutions: unknown[] = [], resolve = ctx.resolveToast
   ctx.resolveToast = (key, outcome) => { resolutions.push(outcome); resolve(key, outcome) }
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
   observeBackgroundWork(ctx)
   await waitFor(() => store.collections.toasts.size === 1)
   // A run-trace toast says the run's stamped fault in words; its verdict prose never reaches it.
-  const initial = kind === "run-trace" ? runCause("flows/model/ModelError/transport")! : "Initial failure"
-  const permission = kind === "run-trace" ? runCause("flows/model/ModelError/authentication")! : "Permission denied"
-  const failure: Card = card.kind === "run-trace"
-    ? { ...card, payload: { ...card.payload, phase: "failed", error: "failed — transport: raw verdict", failure: { class: "dependency", tag: "flows/model/ModelError/transport" } } }
-    : { ...card, payload: { ...card.payload, state: "failed", error: "Initial failure" } }
+  const initial = runCause("flows/model/ModelError/transport")!
+  const permission = runCause("flows/model/ModelError/authentication")!
+  const failure = { ...card, payload: { ...card.payload, phase: "failed" as const, error: "failed — transport: raw verdict", failure: { class: "dependency" as const, tag: "flows/model/ModelError/transport" } } }
   await store.dispatch({ type: "card.upsert", actor: "system", card: failure }).isPersisted.promise
   const toast = () => store.collections.toasts.get(`toast-worker.${card.id}`)
   await waitFor(() => toast()?.status === "failed")
@@ -51,9 +47,7 @@ for (const kind of ["run-trace", "agent"] as const) test(`a recovered ${kind} fa
   expect(toast()?.title).toBe("Reviewed changes")
   expect(toast()?.detail).toBe(initial)
   expect(resolutions).toHaveLength(2)
-  const corrected = (renamed.kind === "run-trace"
-    ? { ...renamed, payload: { ...renamed.payload, failure: { class: "user", tag: "flows/model/ModelError/authentication" } } }
-    : { ...renamed, payload: { ...renamed.payload, error: "Permission denied" } }) as Card
+  const corrected = { ...renamed, payload: { ...renamed.payload, failure: { class: "user" as const, tag: "flows/model/ModelError/authentication" } } }
   await store.dispatch({ type: "card.upsert", actor: "system", card: corrected }).isPersisted.promise
   await settle()
   expect(toast()?.title).toBe("Reviewed changes")
@@ -88,7 +82,7 @@ for (const status of ["failed", "cancelled"] as const) test(`one debounced toast
   await waitFor(() => store.collections.toasts.size === 1)
   const toast = [...store.collections.toasts.values()][0]!
   expect(toast.status).toBe("running")
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toEqual(["Open tab"])
+  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toEqual([])
   remote.resolve({ status: "ok", value: { runId: "run-1", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" } })
   await waitFor(() => [...store.collections.cards.values()].some(c => c.kind === "run-trace" && c.payload.runId === "run-1"))
   await settle()
@@ -101,7 +95,7 @@ for (const status of ["failed", "cancelled"] as const) test(`one debounced toast
       inputTokens: 0, outputTokens: 0, verdict: "offline", diagnosis: "offline" }
   } }).isPersisted.promise
   await waitFor(() => store.collections.toasts.get(toast.id)?.status === status)
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toEqual(["Open tab", "Run again"])
+  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toEqual(["Run again"])
   expect(launches).toBe(1)
 })
 
@@ -125,18 +119,14 @@ test("recovered workers get controls, failures stay visible, and quick work stay
   expect(store.collections.toasts.get(toast.id)?.detail).toBe(REFUSAL_COPY.infra.lead)
 })
 
-for (const kind of ["run-trace", "agent"] as const) test(`a recovered ${kind} cancellation settles neutrally`, async () => {
+for (const kind of ["run-trace"] as const) test(`a recovered ${kind} cancellation settles neutrally`, async () => {
   const { store, ctx } = await fixture()
   const base = { id: "cancelled-worker", title: "Review", status: "active" as const, ordinal: 1, createdAt: Date.now() - 1000 }
-  const card: Card = kind === "run-trace"
-    ? { ...base, kind, payload: { repo: "owner/repo", workflow: "review", runId: "run-1", phase: "running", steps: [], result: null, lastSeq: 0 } }
-    : { ...base, kind, payload: { cloud: true, displayName: "Review", sessionId: "session-1", repo: "owner/repo", provider: null, workspaceId: null, state: "active", transcript: [] } }
+  const card = { ...base, kind, payload: { repo: "owner/repo", workflow: "review", runId: "run-1", phase: "running" as const, steps: [], result: null, lastSeq: 0 } }
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
   observeBackgroundWork(ctx)
   await waitFor(() => store.collections.toasts.size === 1)
-  const stopped: Card = card.kind === "run-trace"
-    ? { ...card, payload: { ...card.payload, phase: "cancelled" } }
-    : { ...card, payload: { ...card.payload, state: "cancelled" } }
+  const stopped = { ...card, payload: { ...card.payload, phase: "cancelled" as const } }
   await store.dispatch({ type: "card.upsert", actor: "system", card: stopped }).isPersisted.promise
   await waitFor(() => [...store.collections.toasts.values()][0]?.status !== "running")
   expect([...store.collections.toasts.values()][0]).toMatchObject({ status: "cancelled", detail: "Cancelled" })

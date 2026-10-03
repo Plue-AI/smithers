@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flow, NoPayload, CardTarget } from "./Declare"
+import { flow,  CardTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import { flowPlanParts, flowRunParts, payloadFor } from "../SlashPayload"
 import { line, text } from "@smthrs/ui/flow-form"
@@ -13,25 +13,6 @@ import type { CommandActions } from "./Declare"
 
 /** The `flow` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "flow", label: "Flows", summary: "Create, list, and run flows" }
-
-/** The bare `flows` surface switch, registered first with the other top-level surfaces. */
-export const flowsSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    /*
-     * Ask 5 (will, 2026-09-02): the fourth surface — the workspace's flows,
-     * beside chat, connect and world. User-only: the model lists flows with
-     * flow.list, whose answer is an embedded card (THE EMBED LAW), so opening
-     * a pane stays the human's own act.
-     */
-    name: "flows",
-    summary: "See the flows on your workspace",
-    userOnly: true,
-    userOnlyReason: "a surface switch; the model lists flows with flow.list, which answers as an embedded card",
-    requires: ["signed-in"],
-    input: NoPayload,
-    handler: () => actions.showFlows()
-  })
-]
 
 /** The `flow.*` flows: create, choose a repository, list, run, and the run controls. */
 export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [

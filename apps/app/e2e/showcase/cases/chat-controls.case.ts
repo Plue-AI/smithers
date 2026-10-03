@@ -4,9 +4,9 @@ import { showcase } from "../showcase"
 export default showcase({
   id: "chat-controls",
   order: 35,
-  title: "Filter and clear",
-  summary: "Filter the transcript by kind or text; clear it and reopen the archive.",
-  flows: ["chat.filter", "chat.filter.toggle", "chat.filter.grep", "chat.filter.reset", "chat.clear"],
+  title: "Filter chat",
+  summary: "Filter the transcript by kind or text.",
+  flows: ["chat.filter", "chat.filter.toggle", "chat.filter.grep", "chat.filter.reset"],
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     // The cloud double answers every /api route; the chat turn goes to the stub model.
@@ -34,14 +34,5 @@ export default showcase({
     await app.press("Escape")
     await expect(menu).toBeHidden()
 
-    await app.slash("/chat.clear")
-    const archive = page.getByRole("link", { name: "Open the archived conversation" })
-    await expect(archive).toBeVisible()
-    await expect(theme).toHaveCount(0)
-    await app.closeComposer()
-    await app.beat(900)
-    await app.click(archive)
-    await expect(assistant).toBeVisible()
-    await expect(theme).toBeVisible()
   }
 })

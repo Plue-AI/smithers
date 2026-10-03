@@ -7,7 +7,6 @@ import {
   enterUrlApp,
   expectSameElement,
   frameLocation,
-  openPracticeIssues,
   openVehicleForm,
   FORM_VEHICLE_CARD_ID,
   FORM_VEHICLE_FIELD_TESTID
@@ -19,7 +18,7 @@ const matrixTest = process.env.SMITHERS_REAL_E2E_MODE === undefined ? test : aut
 test("a portable form card keeps its component and unfinished value through keyboard maximize/minimize, then Cancel dismisses durably", scenario("navigation.card.identity-dismiss", {
   capabilities: [],
   coverage: [
-    "action:tab.card",
+    "action:card.maximize",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -70,7 +69,7 @@ test("a portable form card keeps its component and unfinished value through keyb
 test("URL-pointer mode traverses browser history and restores its maximized form pointer on reload", scenario("navigation.frame.url-history-reload", {
   capabilities: [],
   coverage: [
-    "action:tab.card",
+    "action:card.maximize",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -92,6 +91,7 @@ test("URL-pointer mode traverses browser history and restores its maximized form
   expect(decodedFramePath(page)).toMatch(/^\/w\/workspace-main\/b\/branch-main\/f\/frame-root:branch-main$/)
 
   await card.getByRole("button", { name: "Maximize card", exact: true }).click()
+  await expect(page).not.toHaveURL(rootUrl)
   const maximizedUrl = page.url()
   expect(maximizedUrl).not.toBe(rootUrl)
   expect(decodedFramePath(page)).toBe(`/w/workspace-main/b/branch-main/f/frame-card:branch-main:${FORM_VEHICLE_CARD_ID.replace(/^card-/, "")}`)
@@ -120,7 +120,7 @@ test("URL-pointer mode traverses browser history and restores its maximized form
 test("canonical slashless repository navigation keeps the URL fixed and persists frame pointers in history.state", scenario("navigation.frame.repo-history-state", {
   capabilities: [],
   coverage: [
-    "action:tab.card",
+    "action:card.maximize",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -174,7 +174,7 @@ test("canonical slashless repository navigation keeps the URL fixed and persists
 test("direct Previous frame button and frame.forward slash command traverse one real frame history", scenario("navigation.frame.direct-controls", {
   capabilities: [],
   coverage: [
-    "action:tab.card",
+    "action:card.maximize",
     "action:form.set",
     "action:card.maximize",
     "action:frame.back",
@@ -211,146 +211,12 @@ test("direct Previous frame button and frame.forward slash command traverse one 
   await expect(input).toHaveValue(marker)
 })
 
-test("open in tab shares unfinished form state and persists both the session and embedded projection", scenario("navigation.card.open-in-tab", {
-  capabilities: [],
-  coverage: [
-    "action:tab.card",
-    "action:form.set",
-    "action:card.maximize",
-    "action:tab.card",
-    "action:tab.select",
-    "host:local",
-    "host:production",
-    "path:success",
-    "path:persistence",
-    "door:slash",
-    "door:button",
-    "dimension:shared-card-record",
-    "dimension:tab-session",
-    "evidence:cross-projection-reload"
-  ],
-  description: "Open in tab uses the same durable provider-free form record: edits in the tab survive reload and appear in the embedded transcript projection."
-}), async ({ page }) => {
-  const first = "tab-shared-before.md"
-  const second = "tab-shared-after.md"
-  const { card } = await openVehicleForm(page, first, enterCanonicalRepositoryApp)
-  const repositoryUrl = page.url()
-  await card.getByRole("button", { name: "Maximize card", exact: true }).click()
-  const openInTab = card.getByRole("button", { name: "Open in tab", exact: true })
-  await expect(openInTab).toHaveAttribute("data-flow", "tab.card")
-  await openInTab.click()
 
-  const body = page.getByTestId(`tab-body-${FORM_VEHICLE_CARD_ID}`)
-  const tabCard = page.locator(".card-tab").getByTestId(FORM_VEHICLE_CARD_ID)
-  await expect(body).toBeVisible()
-  await expect(tabCard).toHaveAttribute("data-maximized", "false")
-  await expect(tabCard.getByTestId(FORM_VEHICLE_FIELD_TESTID)).toHaveValue(first)
-  await expect(page).toHaveURL(repositoryUrl)
-
-  await tabCard.getByTestId(FORM_VEHICLE_FIELD_TESTID).fill(second)
-  await reloadApp(page)
-  // The durable tab restores active; the shared form record keeps the edit.
-  await expect(page.getByTestId(`tab-body-${FORM_VEHICLE_CARD_ID}`)).toBeVisible()
-  await expect(tabCard.getByTestId(FORM_VEHICLE_FIELD_TESTID)).toHaveValue(second)
-
-  await page.keyboard.press("Meta+1")
-  const transcriptCard = page.getByTestId("transcript").getByTestId(FORM_VEHICLE_CARD_ID)
-  await expect(transcriptCard).toBeVisible()
-  await expect(transcriptCard.getByTestId(FORM_VEHICLE_FIELD_TESTID)).toHaveValue(second)
-  await expect(transcriptCard).toHaveAttribute("data-maximized", "false")
-  await expect(page.getByTestId(`tab-body-${FORM_VEHICLE_CARD_ID}`)).toHaveCount(1)
-})
-
-test("the shipped practice issue card keeps local history, reloads it, and discards forward state after new navigation", scenario("navigation.card.local-history", {
-  capabilities: [],
-  coverage: [
-    "action:issues.view",
-    "action:card.history.back",
-    "action:card.history.forward",
-    "host:local",
-    "host:production",
-    "path:success",
-    "path:persistence",
-    "door:button",
-    "dimension:card-local-history",
-    "dimension:shipped-practice-capture",
-    "evidence:sqlite-reload-and-card-history"
-  ],
-  description: "The shipped practice capture exercises only local issue-card history: one durable card retains its recorded stack through back, forward, divergent navigation, and reload."
-}), async ({ page }) => {
-  const card = await openPracticeIssues(page)
-
-  await card.locator('[data-issue="3"] button[data-flow="issues.view"]').click()
-  await expect(card).toHaveAttribute("data-kind", "issue")
-  await expect(card.locator('article[data-issue="3"]')).toBeVisible()
-  await expect(card.getByRole("button", { name: "Back in frame", exact: true })).toBeEnabled()
-  await expect(card.getByRole("button", { name: "Forward in frame", exact: true })).toBeDisabled()
-
-  await card.getByRole("button", { name: "Back in frame", exact: true }).click()
-  await expect(card).toHaveAttribute("data-kind", "issue-list")
-  await reloadApp(page)
-  await expect(card).toHaveAttribute("data-kind", "issue-list")
-  await expect(card.getByRole("button", { name: "Forward in frame", exact: true })).toBeEnabled()
-
-  await card.getByRole("button", { name: "Forward in frame", exact: true }).click()
-  await expect(card.locator('article[data-issue="3"]')).toBeVisible()
-  await card.getByRole("button", { name: "Back in frame", exact: true }).click()
-  await card.locator('[data-issue="2"] button[data-flow="issues.view"]').click()
-  await expect(card.locator('article[data-issue="2"]')).toBeVisible()
-  await expect(card.getByRole("button", { name: "Forward in frame", exact: true })).toBeDisabled()
-  await reloadApp(page)
-  await expect(card.locator('article[data-issue="2"]')).toBeVisible()
-})
-
-test("archive creates a durable new conversation whose recovery link restores the exact prior practice issue state", scenario("navigation.chat.archive-restore", {
-  capabilities: [],
-  coverage: [
-    "action:issues.view",
-    "action:chat.clear",
-    "host:local",
-    "path:success",
-    "path:persistence",
-    "door:slash",
-    "door:button",
-    "dimension:archive-restore",
-    "dimension:conversation-isolation",
-    "evidence:archive-link-and-sqlite-reload"
-  ],
-  description: "The local archive transaction starts a separate branch and its persisted link restores the exact prior shipped practice issue stack after reload."
-}), async ({ page }) => {
-  const card = await openPracticeIssues(page)
-  await card.locator('[data-issue="3"] button[data-flow="issues.view"]').click()
-  await expect(card.locator('article[data-issue="3"]')).toBeVisible()
-  const archivedUrl = page.url()
-
-  await command(page, "/chat.clear")
-  const recoveryLink = page.getByRole("link", { name: "Open the archived conversation" })
-  await expect(recoveryLink).toBeVisible()
-  await expect(card).toHaveCount(0)
-  await expect.poll(() => page.url()).not.toBe(archivedUrl)
-  const freshUrl = page.url()
-  await closeComposer(page)
-
-  await reloadApp(page)
-  await expect(page).toHaveURL(freshUrl)
-  await expect(recoveryLink).toBeVisible()
-  await recoveryLink.click()
-  await expect(page).toHaveURL(archivedUrl)
-  await expect(card).toBeVisible()
-  await expect(card.locator('article[data-issue="3"]')).toBeVisible()
-  await reloadApp(page)
-  await expect(card.locator('article[data-issue="3"]')).toBeVisible()
-
-  await page.goBack()
-  await expect(page).toHaveURL(freshUrl)
-  await expect(recoveryLink).toBeVisible()
-  await expect(card).toHaveCount(0)
-})
 
 test("an older physical OPFS schema stamp upgrades while preserving the current durable form row", scenario("navigation.storage.opfs-schema-stamp-upgrade", {
   capabilities: [],
   coverage: [
-    "action:tab.card",
+    "action:card.maximize",
     "action:form.set",
     "host:local",
     "host:production",
@@ -398,7 +264,7 @@ test("an older physical OPFS schema stamp upgrades while preserving the current 
 matrixTest("a future-schema physical OPFS database fails closed, exports exact rows, and boots after its real bytes are restored", scenario("navigation.storage.opfs-failure-recovery", {
   capabilities: [],
   coverage: [
-    "action:tab.card",
+    "action:card.maximize",
     "action:form.set",
     "action:storage.recovery",
     "host:local",

@@ -7,9 +7,9 @@ test("a queued flow's act line says requested, never started", () => {
   expect(toolActLine(call, "run-started workflow=review run=remote repo=o/r")).toBe("Smithers started a review run on o/r")
 })
 test("a padded slash command name renders the canonical receipt", () => {
-  const call = { callId: "call", name: "commands", args: JSON.stringify({ action: "execute", name: "  //world.new-note  " }) }
-  expect(toolActLine(call, "executed /world.new-note")).toBe("Smithers ran /world.new-note")
-  expect(toolActLine({ ...call, args: JSON.stringify({ action: "execute", name: "world.new-note" }) }, "executed /world.new-note")).toBe("Smithers ran /world.new-note")
+  const call = { callId: "call", name: "commands", args: JSON.stringify({ action: "execute", name: "  //wiki.new-note  " }) }
+  expect(toolActLine(call, "executed /wiki.new-note")).toBe("Smithers ran /wiki.new-note")
+  expect(toolActLine({ ...call, args: JSON.stringify({ action: "execute", name: "wiki.new-note" }) }, "executed /wiki.new-note")).toBe("Smithers ran /wiki.new-note")
 })
 
 test("a padded browser name renders the host receipt", () => {

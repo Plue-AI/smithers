@@ -125,7 +125,7 @@ describe("command selection before the first leg", () => {
     expect(requests[0]!.instructions).toContain(DARK_LINE)
   })
 
-  test("a later turn keeps earlier disclosures, and chat.clear drops them with the messages", async () => {
+  test("later turns keep earlier disclosures in the shared permanent conversation", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const { selector } = fakeSelector(request => request.message.includes("dark") ? [{ name: "appearance.dark-mode", probability: 0.9 }] : [])
     const { agent, requests } = scriptedAgent([() => say("ok")])
@@ -136,11 +136,10 @@ describe("command selection before the first leg", () => {
     await until(() => requests.length === 2 && store.session().phase === "idle")
     expect(requests[1]!.instructions).toContain(DARK_LINE)
 
-    await controller.commands.run("chat.clear")
-    await settled()
+    expect(controller.commands.find("chat.clear")).toBeUndefined()
     controller.send("thanks again")
     await until(() => requests.length >= 3)
-    expect(requests.at(-1)!.instructions).not.toContain("/appearance.dark-mode")
+    expect(requests.at(-1)!.instructions).toContain("/appearance.dark-mode")
   })
 })
 

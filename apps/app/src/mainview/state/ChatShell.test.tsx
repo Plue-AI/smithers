@@ -8,7 +8,7 @@ import type { AppController as AppControllerType } from "./AppController"
 import type { AppStore } from "./AppStore"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { addWorldNote, memoryStorage, settled, settle, unavailableAgent } from "./TestFixtures"
+import { addWorldNote, memoryStorage, settled, unavailableAgent } from "./TestFixtures"
 
 
 /*
@@ -95,22 +95,18 @@ const harness = async (): Promise<{ store: AppStore; controller: AppControllerTy
 }
 
 describe("chat-first shell: panes never replace the conversation", () => {
-  test("opening World or Connectors changes only the pane, never the messages or draft", async () => {
+  test("opening Wiki changes only the card, never the messages or draft", async () => {
     const { store, controller } = await harness()
     const before = [...store.collections.messages.values()].map((message) => message.id)
     controller.changeDraft("a draft that must survive")
 
-    expect((await controller.commands.run("world")).status).toBe("executed")
+    expect((await controller.commands.run("wiki")).status).toBe("executed")
     expect(store.session().surface).toBe("chat")
     expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
     expect([...store.collections.messages.values()].map((message) => message.id)).toEqual(before)
     expect(store.session().draft).toBe("a draft that must survive")
 
-    expect((await controller.commands.run("connect")).status).toBe("executed")
-    expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("connect-embedded")?.kind).toBe("connect")
-    expect([...store.collections.messages.values()].map((message) => message.id)).toEqual(before)
-    expect(store.session().draft).toBe("a draft that must survive")
+
   })
 
   test("the back-to-conversation affordance is the registered `chat` command", async () => {
@@ -146,12 +142,12 @@ describe("chat-first shell: panes never replace the conversation", () => {
     expect(store.session().surface).toBe("world")
   })
 
-  test("with the embedded Connect card open the transcript and composer still render", async () => {
+  test("with the embedded Wiki card open the transcript and composer still render", async () => {
     const { controller } = await harness()
-    await controller.commands.run("connect")
+    await controller.commands.run("wiki")
 
     const markup = renderApp(controller)
-    expect(markup).toContain("connect-store-list")
+    expect(markup).toContain("world-card-workspace")
     expect(markup).toContain("smithers-transcript")
     expect(markup).toContain("smithers-composer")
   })
@@ -159,7 +155,7 @@ describe("chat-first shell: panes never replace the conversation", () => {
   test("closing the pane returns to the conversation with nothing lost", async () => {
     const { store, controller } = await harness()
     controller.changeDraft("still here")
-    await controller.commands.run("connect")
+    await controller.commands.run("wiki")
     await controller.commands.run("chat")
 
     const markup = renderApp(controller)
@@ -175,7 +171,7 @@ describe("chat-first shell: panes never replace the conversation", () => {
     controller.send("remember this message")
     await settled()
 
-    await controller.commands.run("world")
+    await controller.commands.run("wiki")
     const openMarkup = renderApp(controller)
     expect(openMarkup).toContain("remember this message")
     expect(openMarkup).toContain("world-card-workspace")
@@ -204,13 +200,12 @@ describe("chat-first shell: panes never replace the conversation", () => {
     expect(transcript).not.toBeNull()
     expect(composer).not.toBeNull()
 
-    for (const pane of ["connect", "world"] as const) {
+    for (const pane of ["world"] as const) {
       await view.act(() => {
-        if (pane === "world") store.dispatch({ type: "surface.changed", actor: "user", surface: "world" })
-        else store.dispatch({ type: "surface.changed", actor: "user", surface: "connectors" })
+        store.dispatch({ type: "surface.changed", actor: "user", surface: pane })
       })
-      expect(store.session().surface).toBe(pane === "connect" ? "connectors" : "world")
-      expect(view.host.querySelector(".embedded-pane")).not.toBeNull()
+      expect(store.session().surface).toBe(pane)
+      expect(view.host.querySelector(".world-surface")).not.toBeNull()
       // The very same nodes, not equivalent replacements.
       expect(view.host.querySelector(".smithers-transcript")).toBe(transcript)
       expect(view.host.querySelector<HTMLTextAreaElement>(".composer-wrap textarea")).toBe(composer)
@@ -233,7 +228,7 @@ describe("chat-first shell: panes never replace the conversation", () => {
     const composer = view.host.querySelector<HTMLTextAreaElement>(".composer-wrap textarea")
     expect(composer?.value).toBe("half-written thought")
 
-    await view.act(() => void controller.commands.run("world"))
+    await view.act(() => void controller.commands.run("wiki"))
     expect(view.host.querySelector<HTMLTextAreaElement>(".composer-wrap textarea")).toBe(composer)
     expect(composer?.value).toBe("half-written thought")
     expect(store.session().draft).toBe("half-written thought")
@@ -246,10 +241,10 @@ describe("chat-first shell: panes never replace the conversation", () => {
   test("the pane's close affordance is a real, registered, back-to-conversation button", async () => {
     const { store, controller } = await harness()
     const view = mount(controller)
-    await view.act(() => { store.dispatch({ type: "surface.changed", actor: "user", surface: "connectors" }) })
+    await view.act(() => { store.dispatch({ type: "surface.changed", actor: "user", surface: "world" }) })
 
     const close = view.host.querySelector<HTMLButtonElement>(
-      ".embedded-pane [data-flow=\"chat\"]"
+      ".world-surface [data-flow=\"chat\"]"
     )
     expect(close).not.toBeNull()
     expect(controller.commands.find(close?.dataset.flow ?? "")).toBeDefined()
@@ -268,7 +263,7 @@ describe("chat-first shell: panes never replace the conversation", () => {
     expect(view.host.querySelector<HTMLElement>(".composer-wrap")?.hidden).toBe(false)
     expect(view.host.querySelector(".composer-menu-trigger")).toBeNull()
     const before = [...store.collections.messages.values()]
-    for (const [command, paneClass] of [["connect", "connect-store-list"], ["wiki", "world-card-workspace"]] as const) {
+    for (const [command, paneClass] of [["wiki", "world-card-workspace"]] as const) {
       await view.act(() => controller.send(`/${command}`))
       expect(store.session().surface).toBe("chat")
       expect(view.host.querySelector(`.${paneClass}`)).not.toBeNull()
@@ -280,110 +275,3 @@ describe("chat-first shell: panes never replace the conversation", () => {
       expect(view.host.querySelector(".smithers-transcript")).not.toBeNull()
     }
   })})
-
-test("subagents are one card grid in the transcript, opened, filtered and left by keyboard", async () => {
-  const { store, controller } = await harness()
-  const agent = (id: string, title: string, state: string, createdAt: number) => ({
-    id, kind: "agent" as const, title, status: "active" as const, createdAt, ordinal: createdAt,
-    payload: { cloud: true as const, displayName: title, sessionId: id, repo: "owner/repo", provider: "codex" as const,
-      workspaceId: null, state, transcript: [
-        { id: 1, role: "user", sequence: 1, createdAt: "2026-09-14T09:00:01Z", parts: [{ type: "text", text: "the request" }] },
-        { id: 2, role: "assistant", sequence: 2, createdAt: "2026-09-14T09:00:02Z", parts: [
-          { type: "tool_call", text: `{"name":"Read","arguments":{"path":"auth/login.ts"}}` },
-          { type: "tool_result", text: "ok" },
-          { type: "text", text: "second row" }
-        ] }
-      ] }
-  })
-  await store.dispatch({ type: "card.upsert", actor: "system", card: agent("agent-session-one", "Delegate", "active", 10) }).isPersisted.promise
-  await store.dispatch({ type: "card.upsert", actor: "system", card: agent("agent-session-two", "Docs", "completed", 11) }).isPersisted.promise
-  const view = mount(controller)
-  // One header and grid; the agent card bodies are the agents' own tabs, never a second copy in chat.
-  expect(view.host.querySelectorAll(".subagent-batch")).toHaveLength(1)
-  expect(view.host.querySelector(".subagent-header")?.textContent).toMatch(/^[◐◓◑◒] Running 2 subagents\(1\/2\)/)
-  expect(view.host.querySelector("[data-testid=agent-session-transcript]")).toBeNull()
-  expect(view.host.querySelector("[data-testid=card-agent-session-one]")).toBeNull()
-  const one = view.host.querySelector<HTMLElement>("[data-testid=subagent-agent-session-one]")!
-  expect([...one.querySelectorAll(".subagent-activity-row")].map(row => row.textContent)).toEqual(["├ Read auth/login.ts✓", "└ second row"])
-  expect(one.querySelector(".subagent-stop")?.getAttribute("data-flow")).toBe("agent.session.stop")
-  expect(view.host.querySelector("[data-testid=subagent-agent-session-two] .subagent-stop")).toBeNull()
-  expect(view.host.querySelector(".subagent-finished")?.textContent).toBe("◉ Docs done")
-  const key = (name: string, init: KeyboardEventInit = {}) =>
-    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, ...init }))
-  // Arrows move between cards; Enter opens the cloud session's own tab, which wears the breadcrumb.
-  await view.act(() => one.focus())
-  await view.act(() => key("ArrowRight"))
-  expect(document.activeElement?.getAttribute("data-testid")).toBe("subagent-agent-session-two")
-  await view.act(() => key("ArrowLeft"))
-  await view.act(() => key("Enter"))
-  await settle(3)
-  await view.act(() => {})
-  const tab = [...store.collections.tabs.values()].find(each => each.kind === "card" && each.cardId === "agent-session-one")
-  expect(tab).toBeDefined()
-  expect(store.session().activeTabId).toBe(tab?.id)
-  const crumb = view.host.querySelector<HTMLElement>(`[data-testid="tab-body-${tab?.id}"] [data-testid=subagent-crumb]`)!
-  expect(crumb.textContent).toBe("▌ Subagent · DelegateBack (ctrl+y)")
-  expect(crumb.dataset.laneColor).toBe("0")
-  await view.act(() => crumb.querySelector<HTMLButtonElement>("button")!.focus())
-  await view.act(() => key("y", { ctrlKey: true }))
-  await settle(3)
-  expect(store.session().activeTabId).toBe("main")
-  // The filter hides a subagent's card by its source.
-  await view.act(() => view.host.querySelector<HTMLButtonElement>(".chat-filter-trigger")?.click())
-  await settle(3)
-  expect(view.host.querySelector(".chat-filter-menu")).not.toBeNull()
-  await view.act(() => view.host.querySelector<HTMLButtonElement>(".chat-filter-menu button")?.focus())
-  await view.act(() => key("ArrowDown"))
-  await view.act(() => key("ArrowDown"))
-  expect(document.activeElement?.textContent).toContain("Delegate")
-  await view.act(() => key(" "))
-  await settle(3)
-  await view.act(() => {})
-  expect(store.session().chatFilter?.sources).toContain("agent-session-one")
-  expect(view.host.querySelector("[data-testid=subagent-agent-session-one]")).toBeNull()
-  expect(view.host.querySelector("[data-testid=subagent-agent-session-two]")).not.toBeNull()
-  await view.act(() => key("Escape"))
-  await settle(3)
-  expect(store.session().chatFilterMenuOpen).toBe(false)
-})
-
-test("subagent batches beyond the newest ten fold into one native button row that opens on activation (#3033)", async () => {
-  const batches = async (count: number) => {
-    const { store, controller } = await harness()
-    for (let index = 0; index < count; index++) {
-      await store.dispatch({ type: "message.appended", actor: "user", text: `ask ${index}` }).isPersisted.promise
-      const ordinal = Math.max(...[...store.collections.messages.values()].map(message => message.ordinal)) + 1
-      await store.dispatch({ type: "card.upsert", actor: "system", card: {
-        id: `agent-batch-${index}`, kind: "agent", title: `Batch ${index}`, status: "active", createdAt: 1000 + index, ordinal,
-        payload: { cloud: true, displayName: `Batch ${index}`, sessionId: `agent-batch-${index}`, repo: "owner/repo",
-          provider: "codex", workspaceId: null, state: "completed", transcript: [] }
-      } }).isPersisted.promise
-    }
-    return mount(controller)
-  }
-  const ids = (view: Mount) => [...view.host.querySelectorAll("[data-testid^=subagent-agent-batch-]")]
-    .map(card => card.getAttribute("data-testid"))
-
-  const ten = await batches(10)
-  expect(ten.host.querySelectorAll(".subagent-batch")).toHaveLength(10)
-  expect(ten.host.querySelector(".subagent-earlier-batches")).toBeNull()
-  mounted.pop()?.()
-
-  const view = await batches(11)
-  expect(view.host.querySelectorAll(".subagent-batch")).toHaveLength(10)
-  expect(ids(view)[0]).toBe("subagent-agent-batch-1")
-  expect(view.host.querySelectorAll(".subagent-finished")).toHaveLength(10)
-  const row = view.host.querySelector<HTMLButtonElement>(".subagent-earlier-batches")!
-  expect(row.textContent).toBe("1 earlier subagent batch")
-  expect(row.getAttribute("aria-expanded")).toBe("false")
-  // Messages between batches never fold.
-  expect(view.host.textContent).toContain("ask 0")
-  expect(row.tagName).toBe("BUTTON")
-  await view.act(() => row.focus())
-  expect(document.activeElement).toBe(row)
-  await view.act(() => row.click())
-  expect(view.host.querySelector(".subagent-earlier-batches")).toBeNull()
-  expect(view.host.querySelectorAll(".subagent-batch")).toHaveLength(11)
-  expect(ids(view)[0]).toBe("subagent-agent-batch-0")
-  expect(view.host.querySelectorAll(".subagent-finished")).toHaveLength(11)
-})

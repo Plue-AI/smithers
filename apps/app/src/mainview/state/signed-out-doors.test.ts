@@ -118,7 +118,7 @@ test("signed-out chrome doors share one short GitHub sign-in step", async () => 
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await settle()
-  const doors = ["triggers.list", "flows", "secrets.list", "history.show"]
+  const doors = ["triggers.list", "flow.list", "secrets.list", "history.show"]
   for (const door of doors) expect(controller.commands.find(door)).toBeDefined()
   for (const door of doors) {
     controller.runCommand(door)

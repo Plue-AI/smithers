@@ -36,7 +36,7 @@ test("repository chrome sign-in is keyboard reachable and carries return_to", as
   expect(new URL((await request).url()).searchParams.get("return_to")).toBe("/smithersai/smithers/")
 })
 
-for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", "/account.show", "/issues smithersai/smithers", "/prs smithersai/smithers"]) {
+for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", "/account.show", "/prs smithersai/smithers"]) {
   test(`${command} stays in the repository transcript with a sign-in prompt`, async ({ page }) => {
     await signedOutVisitor(page)
     // Repository arguments are resolved against the loaded public catalog.
@@ -51,7 +51,6 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
     const prompt = page.getByRole("article").filter({ has: page.getByRole("button", { name: "Sign in with GitHub", exact: true }) }).last()
     await expect(prompt).toContainText(command === "/flow.run review smithersai/smithers" ? "Sign in with GitHub to run review on smithersai/smithers."
       : command === "/secrets.list" || command === "/account.show" ? "Sign in with GitHub to continue."
-      : command.startsWith("/issues") ? "Sign in with GitHub to read issues on smithersai/smithers."
       : "Sign in with GitHub to read pull requests on smithersai/smithers.")
     await expect(prompt.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible()
     await expect(page.getByText(/0 Open|No open issues in/)).toHaveCount(0)
@@ -124,7 +123,6 @@ test("a bare issues.list during first-run identity resumes into one sign-in prom
 
   await page.goto("/")
   await skipSignup(page)
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click()
   // /verbose states every flow outcome, so the deferral's own trace line is the
   // event that says the command has parked — no wall clock to wait out.
   await slash(page, "/debug.verbose")
@@ -180,7 +178,6 @@ test("a bare issues.list offers sign-in when identity answers immediately", asyn
   const release = await heldIdentity(page)
   await page.goto("/")
   await skipSignup(page)
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click()
   await slash(page, "/issues.list")
   release()
   const signIn = page.getByRole("article").filter({ has: page.locator('[data-flow="auth.sign-in"]') })

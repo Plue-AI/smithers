@@ -49,19 +49,17 @@ const acknowledged = async (promise: Promise<unknown>) => {
     .toMatchObject({ status: "executed", value: "Flows requested." })
 }
 
-test("Flows asks to open a box without entering an empty pane when the selected repository has none", async () => {
+test("flow listing refuses a missing branch without opening a retired pane", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
-    const outcome = await controller.commands.run("flows")
-    expect(outcome.status).toBe("executed")
+    const outcome = await controller.commands.run("flow.list")
+    expect(outcome.status).toBe("failed")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: {
-      flow: "box.open", via: "user", draft: { repo }
-    } })
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect([...store.collections.cards.values()].filter(card => card.kind === "workflow-list")).toEqual([])
     expect(calls).toEqual([])
-    await controller.commands.run("flows")
+    await controller.commands.run("flow.list")
     expect(store.session().surface).toBe("chat")
   } finally { await controller.dispose() }
 })
@@ -93,16 +91,6 @@ test("an explicit unlisted repository stays the box form's repository, not its b
   } finally { await controller.dispose() }
 })
 
-test("background registration launch keeps its refusal and never creates a human box form", async () => {
-  const { controller, store, calls } = await fixture({ boxStatus: "none" })
-  try {
-    expect(await controller.runWorkflow("register-repository", repo, { link: "https://github.com/example/repo" }))
-      .toContain("Open a box")
-    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
-    expect(calls).toEqual([])
-  } finally { await controller.dispose() }
-})
-
 test("an agent flow.run with no box keeps the refusal and cannot render a human form", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
@@ -114,30 +102,24 @@ test("an agent flow.run with no box keeps the refusal and cannot render a human 
   } finally { await controller.dispose() }
 })
 
-test("explicit plan and change doors offer a box form while direct background calls keep refusals", async () => {
+test("explicit plan offers a box form while direct background planning keeps its refusal", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     expect((await controller.commands.run("flow.plan", `checks/fast ${repo}`)).status).toBe("executed")
     expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user", draft: { repo } } })
     await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
-    expect((await controller.commands.run("change.request", `Fix the flaky check ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user", draft: { repo } } })
-    await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
     expect(await controller.planFlow("checks/fast", repo)).toContain("Open a box")
-    expect(await controller.requestChange("Fix the flaky check", repo)).toContain("Open a box")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })
 
-test("agent planning refuses a missing box and change.request waits for human confirmation without a form", async () => {
+test("agent planning refuses a missing box without a human form", async () => {
   const { controller, store } = await fixture({ boxStatus: "none" })
   try {
     const plan = await controller.commands.runForAgent("flow.plan", `checks/fast ${repo}`)
     expect(plan.status).toBe("failed")
     if (plan.status === "failed") expect(plan.error).toContain("Open a box")
-    const change = await controller.commands.runForAgent("change.request", `Fix the flaky check ${repo}`)
-    expect(change).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
   } finally { await controller.dispose() }
 })
@@ -157,12 +139,12 @@ test("Review a PR asks for a box before reading its context, and its agent reque
   } finally { await controller.dispose() }
 })
 
-test("Review a PR carries its act through the several-box chooser without reading the PR", async () => {
+test("Review a PR refuses an ambiguous branch before reading the PR", async () => {
   const { controller, store, calls } = await fixture()
   try {
     await loadBox(store, repo, "0b0c0d0e-0000-4000-8000-000000000002")
-    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "prs.triage", args: `4 ${repo}` } } })
+    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("failed")
+    expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })
@@ -208,7 +190,7 @@ test("Fix an issue app asks for a box before fetching an issue when no issue car
   } finally { await controller.dispose() }
 })
 
-test("issue flow chooser retains the issue command, while an agent gets no human form", async () => {
+test("issue flows refuse an ambiguous branch without rendering a retired picker", async () => {
   const { controller, store, calls } = await fixture()
   const second = "0b0c0d0e-0000-4000-8000-000000000002"
   try {
@@ -216,9 +198,8 @@ test("issue flow chooser retains the issue command, while an agent gets no human
     await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud-issue", kind: "issue", title: "A bug", status: "active", createdAt: 1, ordinal: 1,
       payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
     for (const name of ["issue.flows", "issue.repro", "issue.poc", "issue.implement"] as const) {
-      expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("executed")
-      expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: name, args: `9 ${repo}` } } })
-      await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.select" }).isPersisted.promise
+      expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("failed")
+      expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     }
     for (const name of ["issue.flows", "issue.repro"] as const) {
       const agent = await controller.commands.runForAgent(name, `9 ${repo}`)
@@ -230,42 +211,21 @@ test("issue flow chooser retains the issue command, while an agent gets no human
   } finally { await controller.dispose() }
 })
 
-test("plan and change keep their original act in the several-box chooser", async () => {
+test("planning refuses an ambiguous branch without rendering a retired picker", async () => {
   const { controller, store, calls } = await fixture()
   const second = "0b0c0d0e-0000-4000-8000-000000000002"
   try {
     await loadBox(store, repo, second)
-    expect((await controller.commands.run("flow.plan", `checks/fast ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "flow.plan", args: `checks/fast ${repo}` } } })
-    expect((await controller.commands.run("change.request", `Fix the flaky check from:topic ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.select")).toMatchObject({ kind: "flow-form", payload: { given: { repo, flow: "change.request", args: `Fix the flaky check from:topic ${repo}` } } })
+    expect((await controller.commands.run("flow.plan", `checks/fast ${repo}`)).status).toBe("failed")
+    expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(calls).toEqual([])
-  } finally { await controller.dispose() }
-})
-
-test("Flows offers the existing box chooser when several boxes could answer", async () => {
-  const { controller, store, calls } = await fixture()
-  const second = "0b0c0d0e-0000-4000-8000-000000000002"
-  try {
-    await loadBox(store, repo, second)
-    const outcome = await controller.commands.run("flows")
-    expect(outcome.status).toBe("executed")
-    expect(store.session().surface).toBe("chat")
-    const form = store.collections.cards.get("form-box.select")
-    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.select", given: { repo, flow: "flows" } } })
-    if (form?.kind !== "flow-form") throw new Error("Box chooser was not rendered")
-    expect(form.payload.fields.find(field => field.name === "workspaceId")?.options?.map(option => option.value)).toEqual([TEST_BOX, second])
-    expect(calls).toEqual([])
-    await controller.commands.run("box.select", JSON.stringify({ workspaceId: TEST_BOX, repo, flow: "flows" }))
-    expect(store.session().surface).toBe("flows")
-    await waitFor(() => calls.length === 2)
   } finally { await controller.dispose() }
 })
 
 test("Flows keeps Chat visible while a box is starting", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "pending" })
   try {
-    const outcome = await controller.commands.run("flows")
+    const outcome = await controller.commands.run("flow.list")
     expect(outcome.status).toBe("failed")
     expect(store.session().surface).toBe("chat")
     expect([...store.collections.cards.values()].filter(card => card.kind === "workflow-list" || card.kind === "flow-form")).toEqual([])
@@ -273,33 +233,23 @@ test("Flows keeps Chat visible while a box is starting", async () => {
   } finally { await controller.dispose() }
 })
 
-test("Flows offers a fresh box when the only recorded box failed", async () => {
+test("flow listing refuses a failed branch without offering removed setup", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "failed" })
   try {
-    expect((await controller.commands.run("flows")).status).toBe("executed")
+    expect((await controller.commands.run("flow.list")).status).toBe("failed")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo } } })
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
-  } finally { await controller.dispose() }
-})
-
-test("rapid repeated Flows activation returns to Chat instead of reopening the pane", async () => {
-  const { controller, store } = await fixture()
-  try {
-    const first = controller.commands.run("flows")
-    const second = controller.commands.run("flows")
-    await Promise.all([first, second])
-    expect(store.session().surface).toBe("chat")
   } finally { await controller.dispose() }
 })
 
 test("CAP-001: no hover provisioning; activation returns before preparation and catalog, deduplicates, and keeps Chat usable", async () => {
   const provision = deferred(), list = deferred()
   const { controller, store, calls } = await fixture({ provision: () => provision.promise, list: () => list.promise })
-  await controller.commands.preload!("flows")
+  await controller.commands.preload!("flow.list")
   await controller.commands.preload!("flow.list")
   expect(calls).toHaveLength(0)
-  await acknowledged(controller.commands.run("flows"))
+  await acknowledged(controller.commands.run("flow.list"))
   await waitFor(() => calls.length === 1)
   expect(store.collections.cards.get(id)?.loading).toBe(true)
   expect(store.collections.toasts.has(toast)).toBe(false)

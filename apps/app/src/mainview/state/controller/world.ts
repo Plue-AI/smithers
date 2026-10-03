@@ -1,16 +1,13 @@
 import { projectWikiCardRows } from "../WikiProjection"
 import { accountOwnerOf } from "../AccountOwner"
-import { MODEL_STREAM_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { parseWikilinks, restoreWikilinks } from "@smthrs/ui/vault"
-import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, rootFrameId, WIKI_DISPLAY_NAME } from "../AppState"
+import {    WIKI_DISPLAY_NAME } from "../AppState"
 import type { Card, WorldDocument } from "../AppState"
 import type { AppStore } from "../AppStore"
 import type { PreparedWikiEdit } from "../../flows/CommandGesture"
 import { linkGraphOf, linksOf, neighbourhoodOf, notesOf, resolveLink } from "../../wiki/VaultAdapter"
 import { actorSharedState } from "../ActorBindings"
 import type { ControllerContext } from "./context"
-import { sweepConversation, SweepRequestTooLargeError } from "./ConversationSweep"
-import type { SweepNote } from "./ConversationSweep"
 
 const documentPath = (store: AppStore): string => {
   const paths = new Set([...store.collections.worldDocuments.values()].map((document) => document.path))
@@ -34,7 +31,6 @@ const updateDocumentBody = (document: WorldDocument, body: string) => {
 }
 
 export interface WorldController {
-  readonly clearConversation: (options?: { readonly summarize?: boolean }) => Promise<string | void>
   readonly selectWorldDocument: (id: string) => string | void
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
   readonly prepareWorldDocument: (id: string, body: string) => PreparedWikiEdit | undefined
@@ -71,139 +67,6 @@ export const createWorldController = (
     disposed = true
     pendingClear?.abort()
   })
-
-  // Toasts, unrelated Wiki edits and a re-probe of the same owner must not
-  // invalidate a summary. Changes to the conversation or its owner do: never
-  // clear unseen input.
-  const conversationVersion = (): string =>
-    JSON.stringify({
-      branch: ctx.store.session().activeBranchId,
-      workspace: ctx.store.session().activeWorkspaceId,
-      draft: ctx.store.session().draft,
-      messages: [...ctx.store.collections.messages.values()],
-      cards: [...ctx.store.collections.cards.values()],
-      owner: ctx.accountOwner(),
-      turn: ctx.activeTurn?.id,
-      accountEpoch: ctx.accountEpoch
-    })
-
-  const clearConversation: WorldController["clearConversation"] = async (options = {}) => {
-    if (disposed) return "This conversation is closed."
-    pendingClear?.abort()
-    const operation = new AbortController()
-    pendingClear = operation
-    const summarize = options.summarize === true
-    try {
-      const outcome = await ctx.withToast(
-        "chat.clear",
-        summarize ? "Summarizing the conversation…" : "Archiving the conversation…",
-        "Conversation archived",
-        async () => {
-          const version = conversationVersion()
-          let notes: SweepNote[] = []
-          if (summarize) {
-            const identity = ctx.store.collections.identitySessions.get("identity")
-            if (identity?.state !== "signed-in") {
-              return "Sign in to summarize, or run /chat.clear without arguments to archive locally."
-            }
-            const transcript = ctx.contextMessages()
-            if (transcript.length > 0) {
-              try {
-                notes = await sweepConversation(
-                  ctx.http,
-                  `${ctx.baseUrl}${MODEL_STREAM_PATH}`,
-                  transcript,
-                  operation.signal
-                )
-              } catch (error) {
-                if (error instanceof SweepRequestTooLargeError) {
-                  return "This conversation is too large for a summary (768 KiB request limit). Nothing was cleared or saved; run /chat.clear without arguments to archive it locally."
-                }
-                ctx.failures.report("command.boundary", error, "chat.clear")
-                return "The summary did not finish; nothing was cleared or saved. Run /chat.clear without arguments to archive locally, or try summarizing again."
-              }
-            }
-          }
-          if (operation.signal.aborted || version !== conversationVersion()) {
-            return "The conversation changed while I was reviewing it. Nothing was cleared or saved; try again."
-          }
-          const branchId = `branch-${crypto.randomUUID()}`
-          const workspaceId = ctx.store.session().activeWorkspaceId ?? DEFAULT_WORKSPACE_ID
-          const previousBranchId = ctx.store.session().activeBranchId ?? DEFAULT_BRANCH_ID
-          const accountEpoch = ctx.accountEpoch
-          const turn = ctx.activeTurn
-          const pumps = [...ctx.runPumps.entries()]
-          // Fence the old stream before publishing the optimistic new branch.
-          // Do not detach a newer turn that starts while this commit is pending.
-          ctx.activeTurn = undefined
-          if (turn !== undefined) {
-            void Promise.resolve().then(() => ctx.agent.cancelTurn(turn.id)).catch(() => {
-              if (
-                disposed || ctx.accountEpoch !== accountEpoch || ctx.store.session().activeBranchId !== branchId
-              ) return
-              void ctx.store.dispatch({
-                type: "message.appended",
-                actor: "system",
-                text: "Stopping the archived turn could not be confirmed by the remote agent."
-              }).isPersisted.promise.catch(error => ctx.failures.report("archive.notice", error, branchId))
-            })
-          }
-          try {
-            await ctx.store.dispatch({
-              type: "conversation.cleared",
-              actor: "user",
-              branchId,
-              notes,
-              ...(turn === undefined ? {} : { interruptedTurnId: turn.id })
-            }).isPersisted.promise
-          } catch {
-            if (
-              turn !== undefined && ctx.activeTurn === undefined && !disposed &&
-              ctx.accountEpoch === accountEpoch && ctx.store.session().activeBranchId === previousBranchId
-            ) {
-              // The transcript survived, but a stopped live stream cannot be
-              // resumed. Mark that distinction if storage can accept a retry.
-              await ctx.store.dispatch({
-                type: "message.response.cancelled",
-                actor: "system",
-                turnId: turn.id,
-                detail: "This turn stopped while trying to archive the conversation; the archive was not saved."
-              }).isPersisted.promise.catch(error => ctx.failures.report("archive.notice", error, branchId))
-            }
-            return "The archive could not be saved. Your conversation and Wiki notes were not cleared; check local storage and reload before retrying."
-          }
-          for (const [cardId, pump] of pumps) {
-            pump.stopped = true
-            if (ctx.runPumps.get(cardId) === pump) ctx.runPumps.delete(cardId)
-          }
-          if (!disposed && ctx.accountEpoch === accountEpoch && ctx.store.session().activeBranchId === branchId) {
-            // The old branch's root is a stable recovery URL, including after reload.
-            try {
-              ctx.services.frameHistory?.replace({
-                workspaceId,
-                branchId: previousBranchId,
-                frameId: rootFrameId(previousBranchId)
-              })
-              ctx.services.frameHistory?.push({ workspaceId, branchId, frameId: rootFrameId(branchId) })
-            } catch {
-              // History is presentation, not the commit point. Its failure
-              // must not tell the user that a saved archive failed to save.
-              void ctx.store.dispatch({
-                type: "message.appended",
-                actor: "system",
-                text:
-                  "The archive was saved, but browser history could not be updated. Use the archive link above to open it."
-              }).isPersisted.promise.catch(error => ctx.failures.report("archive.notice", error, branchId))
-            }
-          }
-          return true
-        }
-      )
-      return outcome === true ? undefined : outcome
-    } finally {
-      if (pendingClear === operation) pendingClear = undefined
-    }
-  }
 
   /*
    * A.34: an id-scoped act used to dispatch blindly, so a note id that does
@@ -442,7 +305,6 @@ export const createWorldController = (
   }
 
   return {
-    clearConversation,
     selectWorldDocument,
     changeWorldDocument,
     prepareWorldDocument,

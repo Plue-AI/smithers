@@ -59,18 +59,4 @@ test("the Library is absent while its feature flag is off", scenario("plugins.li
   await expect(page.getByRole("region", { name: "Plugins on your workspace" })).toHaveCount(0)
 })
 
-test("signed-out notifications commands fail closed through the real requirement door", scenario("cloud-required-notifications-refusal-real", {
-  capabilities: [],
-  coverage: ["action:notifications.list", "action:notifications.read", "host:local", "host:production", "path:permission", "door:slash", "dimension:signed-out-cloud-requirement", "dimension:no-side-effect", "evidence:sign-in-step-and-no-cloud-card"],
-  description: "Without a session, cloud notification actions expose the real sign-in requirement and do not create success cards or issue cloud mutations."
-}), async ({ page }) => {
-  await boot(page)
-  await command(page, "/notifications.list")
-  await closeComposer(page)
-  await expect(page.getByText("Sign in with GitHub to continue.").last()).toBeVisible()
-  await expect(page.locator('.smithers-card[data-kind="notifications"]')).toHaveCount(0)
-  await command(page, "/notifications.read")
-  await closeComposer(page)
-  await expect(page.getByText("Sign in with GitHub to continue.").last()).toBeVisible()
 
-})

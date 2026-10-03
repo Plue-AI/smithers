@@ -35,7 +35,6 @@ const undeclared = (css: string, palette: ReadonlySet<string>): Array<string> =>
  */
 const WRITTEN_ELSEWHERE: Readonly<Record<string, { readonly by: string; readonly why: string }>> = {
   "--flow-run-fill": { by: "cards/FlowRunGraphSurface.tsx", why: "the node's run progress, set inline on its bar" },
-  "--i": { by: "cards/SignupCards.tsx", why: "a headline word's index, set inline for its stagger" },
   "--toast-height": {
     by: "ModalPopover.tsx",
     why: "the free modal region, set with data-modal-placement; with no region the stack hides instead"
@@ -62,7 +61,7 @@ describe("every custom property a stylesheet reads is declared somewhere it can 
     const palette = declared(code("styles/tokens.css"))
     expect(palette.has("--surface-2")).toBe(true)
     const found = sheets()
-    expect(found).toEqual(expect.arrayContaining(["styles/cards.css", "HelpBubble.css", "cards/SignupCards.css"]))
+    expect(found).toEqual(expect.arrayContaining(["styles/cards.css", "HelpBubble.css"]))
     const missing = found.flatMap((sheet) =>
       undeclared(code(sheet), palette).filter((name) => !(name in WRITTEN_ELSEWHERE)).map((name) => `${sheet}: ${name}`))
     // Reported all at once, so one sweep fixes every miss.

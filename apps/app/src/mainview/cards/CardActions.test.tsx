@@ -148,13 +148,10 @@ describe("card bindings are stable for their controller and origin", () => {
     for (
       const act of [
         "onDecideApproval",
-        "onGrantConfirm",
-        "onGrantCancel",
         "onMaximize",
         "onMinimize",
         "onFrameBack",
         "onFrameForward",
-        "onOpenInTab",
         "onConnectGitHub",
         "onRunWorkflow",
         "onStopRun",
@@ -209,7 +206,7 @@ describe("an unchanged card does not re-render when the transcript around it doe
     render(true)
 
     expect(renders()).toBe(2)
-    // Open in tab exists only on a maximized card: the new prop reached the shell.
-    expect(host.querySelector(`[data-testid="card-open-in-tab-${card.id}"]`)).not.toBeNull()
+    expect(host.querySelector(`[data-testid="card-minimize-${card.id}"]`)).not.toBeNull()
+    expect(host.querySelector(`[data-testid="card-${card.id}"]`)?.getAttribute("data-maximized")).toBe("true")
   })
 })

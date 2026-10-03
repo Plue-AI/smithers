@@ -1,12 +1,13 @@
+import { openRequestedRepo } from "../RepoLink"
+import { createRepositoryReadiness } from "./controller/repositoryReadiness"
+
 import { createConversationHistoryController } from "./controller/conversationHistory"
 import { createWikiAttachmentStore, type WikiAttachmentStore } from "../wiki/WikiAttachmentStore"
 import { identityProviderFor, ownerCredentials, signInByHandoff } from "./IdentityProvider"
 import type { IdentityProvider } from "./IdentityProvider"
 import type { ClientErrorReporter } from "./ClientErrors"
 import type { FlowSubmission } from "../flows/Commands"
-import { createRepositoryReadiness } from "./controller/repositoryReadiness"
 import { lostActRefusal } from "./BrowserWriteFailure"
-import { openRequestedRepo } from "../RepoLink"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import type { ApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
@@ -44,11 +45,8 @@ import { createLocalAuthController } from "./LocalAuth"
 import type { LocalAuthController } from "./LocalAuth"
 import type { AccountController } from "./controller/account"
 import { createAccountController } from "./controller/account"
-import { createSignupController, type SignupController } from "./controller/signup"
 import type { AgentsController } from "./controller/agents"
 import { createAgentsController } from "./controller/agents"
-import type { AppShellController } from "./controller/app"
-import { createAppShellController } from "./controller/app"
 import { createAuthBillingController } from "./controller/auth-billing"
 import { createCloudWikiController } from "./controller/cloud-wiki"
 import type { CommandGesture } from "../flows/CommandGesture"
@@ -69,16 +67,9 @@ import { createFramesController } from "./controller/frames"
 import { createHealthStatusController } from "./controller/health-status"
 import { createInputModeController } from "./controller/inputMode"
 import { createIssueFlowsController,type IssueFlowsController } from "./controller/issueFlows"
-import { createRepositorySetupController, type RepositorySetupController } from "./controller/repositorySetup"
-import type { OnboardingController } from "./controller/onboarding"
-import { createOnboardingController } from "./controller/onboarding"
-import { createRegistrationController, type RegistrationController } from "./controller/registration"
 import { createPresentationController } from "./controller/presentation"
-import type { RecommenderConfig } from "./controller/recommend"
 import type { CommandSelector } from "./CommandSelection"
-import { createRecommendController } from "./controller/recommend"
 import { createRepositoryUpdate } from "./controller/repositoryUpdate"
-import { createTakeoverController, type TakeoverController } from "./controller/takeover"
 import { createGraphController,type GraphController } from "./controller/graph"
 import { createRunsController,type RunsController } from "./controller/runs"
 import type { SidebarController } from "./controller/sidebar"
@@ -96,8 +87,6 @@ import { createWorkflowPumpController } from "./controller/workflow-pump"
 import { createWorkflowController,type WorkflowController } from "./controller/workflows"
 import type { WikiEditorHandle } from "./controller/world"
 import { createWorldController } from "./controller/world"
-import type { AgentSessionSeam } from "./seams/AgentSessionSeam"
-import { createAgentSessionSeam } from "./seams/AgentSessionSeam"
 import type { BillingSeam } from "./seams/BillingSeam"
 import { createBillingSeam } from "./seams/BillingSeam"
 import type { BookmarksSeam } from "./seams/BookmarksSeam"
@@ -123,8 +112,6 @@ import type { IssuesSeam } from "./seams/IssuesSeam"
 import { createIssuesSeam } from "./seams/IssuesSeam"
 import type { LandingsSeam } from "./seams/LandingsSeam"
 import { createLandingsSeam } from "./seams/LandingsSeam"
-import type { NotificationsSeam } from "./seams/NotificationsSeam"
-import { createNotificationsSeam } from "./seams/NotificationsSeam"
 import type { RepoImportSeam } from "./seams/RepoImportSeam"
 import { createRepoImportSeam } from "./seams/RepoImportSeam"
 import { createRepoTreeSeam } from "./seams/RepoTreeSeam"
@@ -145,7 +132,7 @@ import { createTriggersSeam } from "./seams/TriggersSeam"
 import type { WorkspaceSeam } from "./seams/WorkspaceSeam"
 import { createWorkspaceSeam } from "./seams/WorkspaceSeam"
 
-export interface AppController extends IssueFlowsController, RepositorySetupController {
+export interface AppController extends IssueFlowsController {
   readonly storageRecoveryState: StorageRecoveryAction["state"]
   readonly promptStorageRecovery: () => Promise<void>
   readonly exportStorageRecovery: () => Promise<string | void>
@@ -165,16 +152,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   /** The resolved feature flags (every flag defaults off). */
   readonly features: Required<AppFeatures>
   readonly nativeAgentAvailable: boolean
-  /** The command registry: every interactive affordance routes through it. */
-  readonly dismissFirstRun: () => void
   readonly dismissHint: (id: string) => void
-  /** The signup onboarding's doors (controller/signup.ts). */
-  readonly signupChange: SignupController["signupChange"]
-  readonly signupSet: SignupController["signupSet"]
-  readonly signupAccount: SignupController["signupAccount"]
-  readonly signupNext: SignupController["signupNext"]
-  readonly signupRepo: SignupController["signupRepo"]
-  readonly signupFinish: SignupController["signupFinish"]
   readonly commands: CommandRegistry
   readonly privacyNotices: ReturnType<typeof createPrivacyActions>["notices"]
   /**
@@ -205,9 +183,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly showWorld: () => void
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
   readonly showWikiPane: () => void
-  readonly showConnectors: () => void
-  /** The ctrl+s overview of every subagent beside the chat (#2190). */
-  readonly showSubagents: () => void
   /** The Library: the plugin shelf this workspace browses and installs from. */
   readonly askReset: () => void
   readonly cancelReset: () => void
@@ -266,8 +241,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly retryLastTurn: () => string | void
   /** Light or dark mode (/appearance.dark-mode): the named one, or the other one when none is named. */
   readonly setTheme: (theme?: "light" | "dark") => void
-  /** Archive locally and start fresh; model-generated notes are opt-in. */
-  readonly clearConversation: (options?: { readonly summarize?: boolean }) => Promise<string | void>
   /* The browser tool + surface (§2d/§2d′). */
   readonly openBrowser: (url: string) => Promise<string | void | { readonly value: string }>
   /*
@@ -288,8 +261,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** What a flow WOULD run (flow.plan). */
   readonly planFlow: WorkflowController["planFlow"]
-  /** change.request: a coding/request that lands through coding/vibe once validated. */
-  readonly requestChange: WorkflowController["requestChange"]
   /* Wave 12 §2 — the answer to "which loaded repository?" (one act). */
   readonly chooseWorkflowRepo: (fullName: string) => Promise<string | void | { readonly value: string }>
   /* Wave 12 §3 — the two acts a run that has gone quiet offers. */
@@ -299,7 +270,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly resumeWorkflowRuns: () => void
   /* Lane runs — the run lifecycle beyond launch (see controller/runs.ts). */
   readonly listRuns: RunsController["listRuns"]
-  readonly prepareRunHandoff: RunsController["prepareRunHandoff"]
   readonly openRun: RunsController["openRun"]
   readonly resumeRun: RunsController["resumeRun"]
   readonly continueRun: RunsController["continueRun"]
@@ -312,13 +282,9 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly traceFilter: RunsController["traceFilter"]
   readonly traceSelect: RunsController["traceSelect"]
   readonly selectCodingChange: RunsController["selectCodingChange"]
-  readonly burndownFilter: RunsController["burndownFilter"]
-  readonly burndownSelect: RunsController["burndownSelect"]
   readonly traceView: RunsController["traceView"]
   readonly graphFollow: RunsController["graphFollow"]
   readonly graphExecution: RunsController["graphExecution"]
-  readonly takeOverRun: TakeoverController["takeOver"]
-  readonly releaseRun: TakeoverController["release"]
   /* The node drawer both graph cards open (see controller/graph.ts). */
   readonly selectGraphNode: GraphController["selectGraphNode"]
   readonly graphNodeTab: GraphController["graphNodeTab"]
@@ -333,19 +299,12 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly minimizeCard: () => void
   readonly frameBack: () => void
   readonly frameForward: () => void
-  /* The card tabs (docs/LOCAL-APP.md "Cards"); see controller/tabs.ts. */
-  readonly openCardTab: TabsController["openCardTab"]
-  readonly selectTab: TabsController["selectTab"]
-  readonly closeTab: TabsController["closeTab"]
   /* Tutorial stage 2: the ranked chooser and the local Skip. */
   readonly chooseTutorialRepository: TutorialRepositoryActions["chooseTutorialRepository"]
   readonly createTutorialRepository: TutorialRepositoryActions["createTutorialRepository"]
   readonly selectRepo: TabsController["selectRepo"]
-  readonly selectBox: TabsController["selectBox"]
   /* The sidebar's file tree and workspace heading; see controller/sidebar.ts. */
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
-  readonly renameWorkspace: SidebarController["renameWorkspace"]
-  readonly toggleWorkspaceRename: SidebarController["toggleWorkspaceRename"]
   /* Agents as data; see controller/agents.ts. */
   readonly listAgents: AgentsController["listAgents"]
   /* THE FORM LAW (apps/app/AGENTS.md): the flow-form card's render, field commits, submit, and dismiss; see controller/forms.ts. */
@@ -386,13 +345,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly togglePaletteActions: (ref: string) => void
   readonly notePaletteItemOpened: (item: { readonly kind: string; readonly ref: string }) => void
   readonly paletteRecent: () => { readonly value: string }
-  /*
-   * The composer connect menu's open state. Not a command — the chip is a
-   * pointer affordance, not a registry entry — but the state is still the
-   * store's, reached through the dispatcher with the actor recorded.
-   */
-  /** /files.add — attachments, or the honest answer that this host has none. */
-  readonly addFiles: () => void
   readonly debugSnapshot: () => { readonly value: string }
   readonly debugEvents: () => { readonly value: string }
   readonly debugErrors: (query?: string) => string | { readonly value: string }
@@ -462,8 +414,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
    * the model's sentence when the act's own door did the asking.
    */
   readonly requestFlowConfirmation: (name: string, args: string | null, label: string, question?: string) => void
-  /** The `recommend` flow: regenerate the next-step pills for the current state (Recommend.ts). */
-  readonly recommend: () => Promise<void>
   /** Render the full visible-flow catalog into the chat (the /chat.commands answer). */
   readonly showCommandCatalog: () => void
   /** Render the sign-in step into the chat (auth.prompt — the agent's door to login). */
@@ -472,13 +422,8 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly promptCloudSignIn: () => void
   /** Reload the app window — the /reload affordance (dev loop, stuck states). */
   readonly reloadApp: () => void
-  /** Render and return the identity line (smithers.who). */
-  readonly introduce: AppShellController["introduce"]
   /** Render the account card, or the sign-in step signed out (account.show). */
   readonly showAccount: AccountController["showAccount"]
-  readonly prototypeFeature: OnboardingController["prototypeFeature"]
-  /** Register a repository (repository.register); a registered one replays its recorded run. */
-  readonly registerRepository: RegistrationController["registerRepository"]
   /*
    * The multi-parity domain seams (MULTI-ACTIONS-GAP.md Tier 1/2): issues,
    * PRs/landings, billing checkout, notifications, the agent
@@ -490,23 +435,17 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly createIssue: IssuesSeam["createIssue"]
   readonly setIssueState: IssuesSeam["setIssueState"]
   readonly draftIssueComment: IssuesSeam["draftIssueComment"]
-  readonly retryIssueComment: IssuesSeam["retryIssueComment"]
-  readonly reactToIssueComment: IssuesSeam["reactToIssueComment"]
   readonly editIssueComment: IssuesSeam["editIssueComment"]
   readonly deleteIssueComment: IssuesSeam["deleteIssueComment"]
   readonly commentOnIssue: IssuesSeam["commentOnIssue"]
-  readonly setIssueTask: IssuesSeam["setIssueTask"]
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
   readonly setLandingTab: LandingsSeam["setTab"]
-  readonly createLanding: LandingsSeam["createLanding"]
   readonly landLanding: LandingsSeam["landLanding"]
   readonly reviewLanding: LandingsSeam["reviewLanding"]
   readonly showBillingPlans: BillingSeam["showBillingPlans"]
   readonly startCheckout: BillingSeam["startCheckout"]
   readonly openBillingPortal: BillingSeam["openBillingPortal"]
-  readonly listNotifications: NotificationsSeam["listNotifications"]
-  readonly markNotificationsRead: NotificationsSeam["markNotificationsRead"]
   readonly viewEnvironment: EnvironmentSeam["viewEnvironment"]
   readonly setEnvironmentVar: EnvironmentSeam["setEnvironmentVar"]
   readonly removeSubscriptionToken: EnvironmentSeam["removeSubscriptionToken"]
@@ -602,25 +541,13 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   /** `egress.allow`: add a host to the repository's egress allowlist (#2653). */
   readonly allowEgressHost: EgressSeam["allowEgressHost"]
   /*
-   * The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent
-   * sessions"): a Codex/Claude/Smithers agent run by Smithers Cloud in a
-   * sandbox, on a repository — the web app's answer to a local harness tab.
-   */
-  readonly newAgentSession: AgentSessionSeam["newSession"]
-  readonly listAgentSessions: AgentSessionSeam["listSessions"]
-  readonly viewAgentSession: AgentSessionSeam["viewSession"]
-  readonly sayToAgentSession: AgentSessionSeam["sayToSession"]
-  readonly stopAgentSession: AgentSessionSeam["stopSession"]
-  /*
    * Lane change (ADR 0003): the change is the unit — the change and diff
    * cards behind the `/api/cloud/*` proxy (state/seams/ChangeSeam.ts).
    */
   readonly viewChange: ChangeSeam["viewChange"]
   readonly diffChange: ChangeSeam["diffChange"]
   readonly landChange: ChangeSeam["landChange"]
-  readonly splitChange: ChangeSeam["splitChange"]
   readonly resolveChangeConflict: ChangeSeam["resolveConflict"]
-  readonly revertChange: ChangeSeam["revertChange"]
   readonly setChangeFacet: ChangeSeam["setFacet"]
   /* Lane L1: the live plue routes — pins, checks per revision, threads, findings, the snapshot fork. */
   readonly setChangePins: ChangeSeam["setPins"]
@@ -639,11 +566,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly refreshBalance: () => Promise<void>
   /** Refresh the balance and surface it as a card in the transcript. */
   readonly showBalance: () => Promise<string | { readonly value: string }>
-  /* The admin plugin's controller half — registered as commands only for admin sessions. */
-  readonly adminGrant: (amountUsd: number, login: string) => string | void
-  readonly adminGrantConfirm: (cardId: string) => Promise<string | void>
-  readonly adminGrantCancel: (cardId: string) => string | void
-  readonly adminHealth: () => Promise<string | void>
   /**
    * Close the controller's scope: stop the workflow pumps and release
    * everything the controllers opened (the agent subscription, the
@@ -734,11 +656,6 @@ export interface AppServices {
    * (§22.6). Streaming paths carry no deadline; tests shorten this one.
    */
   readonly seamTimeoutMs?: number
-  /**
-   * The next-step recommender (Recommend.ts): whether it asks the server's
-   * POST /api/recommend at all (off by default) and its debounce.
-   */
-  readonly recommender?: RecommenderConfig
   /**
    * Feature flags. `suggestionPills`: the next-action pills under the
    * composer and the recommender's POST /api/recommend requests behind them.
@@ -898,7 +815,6 @@ export const createAppController = (
     portal: services.bootstrap?.capabilities.includes("billing.portal") ?? true
   }, () => ctx.disposed))
   const repositoryUpdate = actors.pair(seamCtx, context => createRepositoryUpdate(context, () => ctx.disposed))
-  const notificationsSeam = actors.pair(seamCtx, (context) => createNotificationsSeam(context))
   const environmentSeam = actors.pair(seamCtx, (context) => createEnvironmentSeam(context))
   const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast))
   /* A registration is a launched flow run: it rides the app's own run watch and the shared toast stack. */
@@ -929,19 +845,16 @@ export const createAppController = (
   }))
   /* Lane citc: the cloud workspaces; its settle watches die with the controller. */
   const workspaceSeam = actors.pair(seamCtx, (context) => createWorkspaceSeam(context))
-  /* The cloud agent sessions; their transcript streams die with the controller. */
-  const agentSessionSeam = actors.pair(seamCtx, (context) => createAgentSessionSeam(context))
   /*
    * The palette's seam reads the registry it is registered in: the thunk
    * resolves once `commands` exists below, and nothing calls it during
    * construction.
    */
   const searchSeam = actors.pair(seamCtx, (context, select) =>
-    createSearchSeam(context, { registry: () => commands, refreshWorkspaces: select(workspaceSeam.refreshWorkspaces), readStack: select(stackSeam).readStack,
+    createSearchSeam(context, { registry: () => commands, readStack: select(stackSeam).readStack,
       heldStack: select(stackSeam).heldStack }))
   const egressSeam = actors.pair(seamCtx, (context) => createEgressSeam(context, withToast))
   ctx.onDispose(workspaceSeam.dispose)
-  ctx.onDispose(agentSessionSeam.dispose)
   /* Lane change: the change/diff cards and their acts. */
   /* Lane L1: a revision's snapshot forks into a computer whose card the workspace seam renders. */
   const changeSeam = actors.pair(seamCtx, (context, select) => createChangeSeam(context, { viewWorkspace: select(workspaceSeam.viewWorkspace) }))
@@ -974,10 +887,6 @@ export const createAppController = (
     signOut,
     refreshBalance,
     showBalance,
-    adminGrant,
-    adminGrantConfirm,
-    adminGrantCancel,
-    adminHealth,
     settleTurnBilling,
     watchIdentityAcrossTabs
   } = actors.pair(ctx, (context) => createAuthBillingController(
@@ -1000,21 +909,17 @@ export const createAppController = (
     localAuth = createLocalAuthController(services.localIdentity, loadSession, services.localBootstrapToken)
     ctx.onDispose(localAuth.dispose)
   }
-  const { introduce } = actors.pair(ctx, (context) => createAppShellController(context))
-  const { storageRecoveryState, promptStorageRecovery, exportStorageRecovery, resetStorageRecovery } = actors.pair(ctx, createStorageRecoveryController)
+    const { storageRecoveryState, promptStorageRecovery, exportStorageRecovery, resetStorageRecovery } = actors.pair(ctx, createStorageRecoveryController)
 
   const {
     showChat,
     showWorld,
     showWikiPane: togglePane,
-    showConnectors,
-    showSubagents,
     toggleDevtools,
     toggleChatFilterMenu,
     toggleChatFilter,
     grepChatFilter,
     resetChatFilter,
-    addFiles,
     askReset,
     cancelReset,
     describeAgentBackend,
@@ -1027,7 +932,7 @@ export const createAppController = (
     debugSeams,
     openBrowser,
     setTheme,
-  } = actors.pair(ctx, (context, select) => createPresentationController(context, select(adminHealth)))
+  } = actors.pair(ctx, createPresentationController)
 
   const conversationHistory = createConversationHistoryController(ctx)
   const {
@@ -1038,12 +943,7 @@ export const createAppController = (
   } = createFramesController(ctx, services.frameHistory)
 
   const {
-    openCardTab: openCardTabOnly,
-    selectTab,
-    closeTab,
     selectRepo: selectRepoOnly,
-    selectBox,
-    installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
   const { renderFlowForm, setFormField, submitForm, dismissCard, focusHandoff: formFocus } = actors.pair(ctx, (context) => createFormsController(context, { nextOrdinal: store.nextOrdinal }))
   const todoForms = actors.pair(ctx, (context, select) => ({
@@ -1053,20 +953,7 @@ export const createAppController = (
   const {
     listAgents,
   } = actors.pair(ctx, (context) => createAgentsController(context, { nextOrdinal: store.nextOrdinal }))
-  const { toggleRepoTree, renameWorkspace, toggleWorkspaceRename } = actors.pair(ctx, (context, select) => createSidebarController(context, select(repoTreeSeam)))
-  /*
-   * "Open in tab" is offered on the maximized card, so opening the tab also
-   * returns the transcript's copy to its embedded form — through the frames
-   * controller, which moves the address bar back to the root frame. A bare
-   * `card.minimized` dispatch left the URL at the maximized frame and a
-   * reload restored the card maximized twice over.
-   */
-  const openCardTab: TabsController["openCardTab"] = (cardId) => {
-    const wasMaximized = store.session().maximizedCardId === cardId
-    const refusal = openCardTabOnly(cardId)
-    if (refusal !== undefined) return refusal
-    if (wasMaximized) minimizeCard()
-  }
+  const { toggleRepoTree,} = actors.pair(ctx, (context, select) => createSidebarController(context, select(repoTreeSeam)))
   const socketProtocols = services.socketProtocols ?? localSocketProtocols
   createHealthStatusController(ctx)
   /* Lane citc: the cloud-workspace terminal transport, one socket per session. */
@@ -1122,18 +1009,6 @@ export const createAppController = (
   const retryRunWatch = (cardId: string): string | void => {
     if (!workflowController.retryWorkflowRequest(cardId)) return retryObservedRun(cardId)
   }
-  const repositorySetup = actors.pair(ctx, (context, select) => createRepositorySetupController(context, {
-    promptSignIn: () => promptSignIn(),
-    chooseRepository: () => select(tutorialRepository).chooseTutorialRepository(),
-    openRun: (runId, repo, sourceCard) => select(runs).openRun(runId, repo, sourceCard),
-    send: (text, admission) => send(text, admission),
-    guidanceFailed: (error, admitted) => {
-      if (!admitted) { surfaceCommandFailure("setup.guide", { status: "failed", error }); return }
-      const key = "command.failed.setup.guide"
-      store.dispatch({ type: "toast.shown", actor: "system", key, title: "Configure in Chat" })
-      resolveToast(key, { status: "failed", detail: error, autoDismissMs: ctx.toastAutoDismissMs })
-    }
-  }))
   const issueFlows = actors.pair(seamCtx, (context, select) =>
     createIssueFlowsController(context, select(workflowController), select(landingsSeam)))
   const {
@@ -1141,7 +1016,6 @@ export const createAppController = (
     listWorkspaceWorkflows,
     showFlows,
     runWorkflow,
-    requestChange,
     planFlow,
     chooseWorkflowRepo,
     forwardApprovalDecision,
@@ -1150,8 +1024,6 @@ export const createAppController = (
   const { listTriggers, registerTrigger } = triggersSeam
   const runs = actors.pair(ctx, (context, select) => createRunsController(context, store.nextOrdinal, select(workflowController), select(renderFlowForm)))
   const graph = actors.pair(ctx, (context, select) => createGraphController(context, select(filesSeam.readFile)))
-  const takeover = actors.pair(ctx, (context, select) =>
-    createTakeoverController(context, { openTerminal: select(workspaceSeam.openTerminal), input: cloudTerminal.input }))
   const {
     subscribeToAgent,
     send,
@@ -1177,7 +1049,6 @@ export const createAppController = (
     return result
   }
   const {
-    clearConversation,
     selectWorldDocument,
     changeWorldDocument,
     prepareWorldDocument,
@@ -1205,14 +1076,6 @@ export const createAppController = (
     if (ctx.disposed || privacyActions.refuse("user") !== undefined) return
     store.dispatch({ type: "composer.changed", actor: "user", draft })
   }
-
-  /*
-   * The requirement axis (registry.ts commandRequirements): the registry's
-   * run path parks a user-invoked command here when a requirement is unmet,
-   * and the seams that can satisfy one (identity load) resume it. Durable in
-   * the session row because sign-in is a
-   * full OAuth redirect. One parking spot, latest wins.
-   */
   const repositoryReadiness = createRepositoryReadiness(ctx, surfaceCommandFailure, (repo, requestId, isCurrent, scope) =>
     openRequestedRepo({ store, selectRepo, loadRepositories: repositoriesSeam.loadRepositories, runCommand: (name, args) => runCommand(name, args) },
       ctx.http, repo, requestId, 0, { activate: false, isCurrent, scope }))
@@ -1284,8 +1147,7 @@ export const createAppController = (
    * credential, discard a draft), so the invocation never runs the handler —
    * it posts this message, and the button runs the flow as the user. The
    * honest middle between "user-only" (the agent cannot even ask, the refusal
-   * Will read as a bug) and silent execution. An act whose own door asks
-   * (setup.discard) names the question the human answers.
+   * Will read as a bug) and silent execution.
    */
   const requestFlowConfirmation = (name: string, args: string | null, label: string, question?: string): void => {
     store.dispatch({
@@ -1299,19 +1161,6 @@ export const createAppController = (
       }
     })
   }
-
-  /*
-   * The next-step recommender: the registry does not exist yet at this point,
-   * so every dependency is a closure read at regeneration time.
-   */
-  const recommender = createRecommendController(ctx, {
-    catalog: () => ctx.commands.all(),
-    state: () => ctx.commands.state(),
-    repo: () => activeRepositoryId(store),
-    // Without the pills there is nowhere for the server's answer to show, so no request leaves.
-    config: { ...services.recommender, enabled: (services.recommender?.enabled ?? false) && features.suggestionPills }
-  })
-  const recommend = recommender.recommend
 
   /*
    * auth.prompt: the agent cannot navigate the user to OAuth (auth.sign-in
@@ -1401,40 +1250,7 @@ export const createAppController = (
       action: { flow: "cloud.sign-in", label: "Sign in to Smithers Cloud" }
     })
   }
-
-  /*
-   * The feature prototype rides flow.run's launch path as a run of kind prototype.
-   */
-  const onboarding = actors.pair(ctx, (context, select) =>
-    createOnboardingController(context, {
-      deferCommand,
-      promptSignIn,
-      workflows: select(workflowController)
-    }))
-
-  /*
-   * Registration: the existing import, then register-repository on the
-   * imported repository's workspace through flow.run's launch path.
-   */
-  const registration = actors.pair(ctx, (context, select) => {
-    const workflows = select(workflowController)
-    return createRegistrationController(context, {
-      guard: () => workflows.workflowIdentityGuard(),
-      importRepository: (repo) => select(repoImportSeam).importRepository(repo, { registration: true }),
-      startRegistration: async (cloudRepo, link, box) => {
-        const started = box === null
-          ? await workflows.runWorkflow("register-repository", cloudRepo, { link })
-          : await workflows.runWorkflowOnBox("register-repository", cloudRepo, box, { link })
-        return started === undefined ? { value: "run-requested" } : started
-      }
-    })
-  })
   // A registration still importing or launching reconnects with the runs, after boot and sign-in.
-  const resumeRuns = ctx.resumeWorkflowRuns
-  ctx.resumeWorkflowRuns = () => {
-    resumeRuns()
-    registration.resumeRegistrations()
-  }
 
   /*
    * The account card (mock 21): seam facts about the signed-in person, or the
@@ -1446,7 +1262,6 @@ export const createAppController = (
       provider: identityProviderFor(services),
       readsScopes: services.applicationIdentity === undefined
     }))
-  const signup = actors.pair(ctx, (context) => createSignupController(context))
 
   /*
    * The /chat.commands answer: the LIVE visible catalog as one chat message —
@@ -1613,8 +1428,6 @@ export const createAppController = (
       const repo = activeRepositoryId(store)
       if (repo !== null) stackSeam.watchHomeStack(repo)
     },
-    showConnectors,
-    showSubagents,
     makeConnectorReadOnly,
     askConnectorRemoval,
     cancelConnectorRemoval,
@@ -1647,23 +1460,19 @@ export const createAppController = (
     decideApproval,
     answerApproval: (id: string, answer: unknown, question?: string) => decideApproval(id, "approved", answer, question),
     retryLastTurn,
-    clearConversation,
     openBrowser,
     ...issueFlows,
-    ...repositorySetup,
     createWorkflow,
     listWorkspaceWorkflows,
     listTriggers,
     showFlows,
     runWorkflow,
-    requestChange,
     planFlow,
     chooseWorkflowRepo,
     stopWatchingRun,
     retryRunWatch,
     resumeWorkflowRuns: () => ctx.resumeWorkflowRuns(),
     listRuns: runs.listRuns,
-    prepareRunHandoff: runs.prepareRunHandoff,
     openRun: runs.openRun,
     resumeRun: runs.resumeRun,
     continueRun: runs.continueRun,
@@ -1676,13 +1485,9 @@ export const createAppController = (
     traceFilter: runs.traceFilter,
     traceSelect: runs.traceSelect,
     selectCodingChange: runs.selectCodingChange,
-    burndownFilter: runs.burndownFilter,
-    burndownSelect: runs.burndownSelect,
     traceView: runs.traceView,
     graphFollow: runs.graphFollow,
     graphExecution: runs.graphExecution,
-    takeOverRun: takeover.takeOver,
-    releaseRun: takeover.release,
     selectGraphNode: graph.selectGraphNode,
     graphNodeTab: graph.graphNodeTab,
     selectPlanNode: graph.selectPlanNode,
@@ -1695,15 +1500,9 @@ export const createAppController = (
     minimizeCard,
     frameBack,
     frameForward,
-    openCardTab,
-    selectTab,
-    closeTab,
     ...tutorialRepository,
     selectRepo,
-    selectBox,
     toggleRepoTree,
-    renameWorkspace,
-    toggleWorkspaceRename,
     listAgents,
     renderFlowForm,
     setFormField: todoForms.setFormField,
@@ -1727,7 +1526,6 @@ export const createAppController = (
     togglePaletteActions,
     notePaletteItemOpened,
     paletteRecent,
-    addFiles,
     describeAgentBackend,
     debugSnapshot,
     debugEvents,
@@ -1744,51 +1542,39 @@ export const createAppController = (
     handleAuthReturn,
     handleInstallReturn: gitHubSeam.handleInstallReturn,
     deferCommand,
+    deferRepositoryCommand: repositoryReadiness.defer,
     resumeDeferredCommand,
     settleFirstRunTarget,
-    deferRepositoryCommand: repositoryReadiness.defer,
     noteCommandRun,
     toggleVerbose,
     traceFlow,
     requestFlowConfirmation,
-    recommend,
     showCommandCatalog,
     promptSignIn,
     promptCloudSignIn,
     reloadApp,
-    dismissFirstRun: () => { store.dispatch({ type: "first-run.dismissed", actor: ctx.commandActor }) },
     dismissHint: (id: string) => {
       if (ctx.disposed || privacyActions.refuse(ctx.commandActor) !== undefined) return
       store.dispatch({ type: "hint.dismissed", actor: ctx.commandActor, id })
     },
-    ...signup,
-    introduce,
     showAccount: account.showAccount,
-    prototypeFeature: onboarding.prototypeFeature,
-    registerRepository: registration.registerRepository,
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
     createIssue: issuesSeam.createIssue,
     setIssueState: issuesSeam.setIssueState,
     commentOnIssue: issuesSeam.commentOnIssue,
     draftIssueComment: issuesSeam.draftIssueComment,
-    retryIssueComment: issuesSeam.retryIssueComment,
-    reactToIssueComment: issuesSeam.reactToIssueComment,
     editIssueComment: issuesSeam.editIssueComment,
     deleteIssueComment: issuesSeam.deleteIssueComment,
-    setIssueTask: issuesSeam.setIssueTask,
     listLandings: landingsSeam.listLandings,
     viewLanding: landingsSeam.viewLanding,
     setLandingTab: landingsSeam.setTab,
-    createLanding: landingsSeam.createLanding,
     landLanding: landingsSeam.landLanding,
     reviewLanding: landingsSeam.reviewLanding,
     showBillingPlans: billingSeam.showBillingPlans,
     startCheckout: billingSeam.startCheckout,
     openBillingPortal: billingSeam.openBillingPortal,
     ...repositoryUpdate,
-    listNotifications: notificationsSeam.listNotifications,
-    markNotificationsRead: notificationsSeam.markNotificationsRead,
     viewEnvironment: environmentSeam.viewEnvironment,
     setEnvironmentVar: environmentSeam.setEnvironmentVar,
     removeSubscriptionToken: environmentSeam.removeSubscriptionToken,
@@ -1863,18 +1649,10 @@ export const createAppController = (
     listEnvironmentImages: workspaceSeam.listEnvironmentImages,
     listSessionEgress: egressSeam.listSessionEgress,
     allowEgressHost: egressSeam.allowEgressHost,
-    /* The cloud agent sessions (the `agent.session.*` flows' seam). */
-    newAgentSession: agentSessionSeam.newSession,
-    listAgentSessions: agentSessionSeam.listSessions,
-    viewAgentSession: agentSessionSeam.viewSession,
-    sayToAgentSession: agentSessionSeam.sayToSession,
-    stopAgentSession: agentSessionSeam.stopSession,
     viewChange: changeSeam.viewChange,
     diffChange: changeSeam.diffChange,
     landChange: changeSeam.landChange,
-    splitChange: changeSeam.splitChange,
     resolveChangeConflict: changeSeam.resolveConflict,
-    revertChange: changeSeam.revertChange,
     setChangeFacet: changeSeam.setFacet,
     setChangePins: changeSeam.setPins,
     checksOfChangeAt: changeSeam.checksAt,
@@ -1889,10 +1667,6 @@ export const createAppController = (
     dismissToast,
     refreshBalance,
     showBalance,
-    adminGrant,
-    adminGrantConfirm,
-    adminGrantCancel,
-    adminHealth,
     snapshot: (repo, path) => {
       const identity = store.collections.identitySessions.get("identity")
       const signedIn = identity?.state === "signed-in"
@@ -1955,8 +1729,7 @@ export const createAppController = (
       }
     }
   }
-  const registry = createCommandRegistry(commandActions, actors.select(commandActions), createCommandIntentLifecycle(ctx, request => {
-    if (request.actor === "user" && request.source === "command") recommender.noteDispatch(request.name)
+  const registry = createCommandRegistry(commandActions, actors.select(commandActions), createCommandIntentLifecycle(ctx, () => {
   }, inputMode.setInputMode, prepareWorldDocument))
   /*
    * The user's one door (slash, button, pill, form submit) also answers the
@@ -2005,8 +1778,6 @@ export const createAppController = (
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
-  repositorySetup.resumeRepositorySetups()
-  repositorySetup.subscribeRepositoryJobs()
   /*
    * Persisted model, repository and approval reads reconnect from the identity answer,
    * never from construction: every boot adopts or probes the session, and a read started
@@ -2019,7 +1790,6 @@ export const createAppController = (
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
     queueMicrotask(() => { if (!ctx.disposed) { account.resumeAccount() } })
     repositoryReadiness.resume()
-    repositorySetup.resumeRepositorySetups()
     repoImportSeam.resume()
     runs.resumeApprovalRequests()
     runs.resumeRunFacetRequests()
@@ -2038,13 +1808,11 @@ export const createAppController = (
   promptQueue.subscribe()
   observeBackgroundWork(ctx)
   // Material transitions regenerate the next-step pills through the `recommend` flow.
-  recommender.subscribe()
   // The active repository's flow catalog, read now and on every change of target, so its leaves are in the registry.
   issuesSeam.subscribe(ctx.onDispose)
   repositoryFlowsSeam.subscribe(ctx.onDispose)
   watchIdentityAcrossTabs()
   // Cmd+T / Cmd+W / Cmd+1..9 on the document, released with the controller.
-  if (typeof document !== "undefined") ctx.onDispose(installKeyboard(document))
   /* Control focus: surface detection and the dismissal swallow ride window capture. */
   const controlFocus = createControlFocus(typeof document === "undefined" ? undefined : document)
   ctx.onDispose(controlFocus.dispose)
@@ -2065,7 +1833,12 @@ export const createAppController = (
     if (ctx.disposed) return { accepted: false, result: Promise.resolve({ status: "failed", error: "The controller is closed." }) }
     const early = privacyActions.before({ name, actor: "user", source: "command" }, args)
     if (early !== undefined) return { accepted: true, result: Promise.resolve(early) }
-    if (commands.find(name) === undefined) return { accepted: false, result: Promise.resolve({ status: "unknown-command" }) }
+    if (commands.find(name) === undefined) {
+      const key = `command.unavailable.${name}`
+      store.dispatch({ type: "toast.shown", actor: "system", key, title: "This action is no longer available" })
+      resolveToast(key, { status: "failed", detail: "This action is no longer available" })
+      return { accepted: false, result: Promise.resolve({ status: "unknown-command" }) }
+    }
     /* Everything the door says from here on belongs to this press (controller/spokenLines.ts). */
     const saidBefore = latestOrdinal(store.collections)
     const result = commands.run(name, args, undefined, originCardId).then((outcome) => {

@@ -54,8 +54,8 @@ const chatState: CommandState = {
 }
 
 describe("command registry pure model", () => {
-  test("connect leads the recommendations until work is connected", () => {
-    expect(recommendedNames(chatState)[0]).toBe("connect")
+  test("Wiki leads the recommendations on the conversation", () => {
+    expect(recommendedNames(chatState)[0]).toBe("wiki")
     expect(recommendedNames({ ...chatState, hasConnectors: true })[0]).toBe("wiki")
     expect(recommendedNames({ ...chatState, surface: "world" })[0]).toBe("chat")
     expect(recommendedNames({ ...chatState, typing: true })).toEqual(["chat.stop"])
@@ -68,8 +68,8 @@ describe("command registry pure model", () => {
   })
 
   test("slash filtering matches name and summary, case-insensitively", () => {
-    const command = { name: "connect", summary: "Connect work to Smithers" }
-    expect(matches(command, "con")).toBe(true)
+    const command = { name: "wiki", summary: "Connect work to Smithers" }
+    expect(matches(command, "wi")).toBe(true)
     expect(matches(command, "WORK")).toBe(true)
     expect(matches(command, "zzz")).toBe(false)
     expect(matches(command, "")).toBe(true)
@@ -91,29 +91,29 @@ describe("command registry pure model", () => {
     const commands = [
       // `connect` is chatState's leading recommendation, and its summary
       // happens to carry the needle. A name match still leads.
-      { name: "connect", summary: "Connect the repos you work in" },
+      { name: "wiki", summary: "Connect the repos you work in" },
       { name: "repos.import", summary: "Import one to the cloud" },
       { name: "repos.list", summary: "Show them" }
     ]
     expect(slashItems(chatState, "repos", commands).map((item) => item.flow.name)).toEqual([
       "repos.import",
       "repos.list",
-      "connect"
+      "wiki"
     ])
   })
 
   test("an exact name outranks the recommendation, which still leads a bare /", () => {
     const commands = [
-      { name: "connect", summary: "Connect work to Smithers" },
+      { name: "wiki", summary: "Connect work to Smithers" },
       { name: "keys", summary: "Your connected keys" }
     ]
     // connect is chatState's recommendation; naming keys beats it.
-    expect(slashItems(chatState, "", commands)[0]?.flow.name).toBe("connect")
+    expect(slashItems(chatState, "", commands)[0]?.flow.name).toBe("wiki")
     const named = slashItems(chatState, "keys", commands)
     expect(named[0]?.flow.name).toBe("keys")
     expect(named[0]?.recommended).toBe(false)
     // Naming the recommendation itself keeps it flagged as one.
-    expect(slashItems(chatState, "connect", commands)[0]).toEqual({
+    expect(slashItems(chatState, "wiki", commands)[0]).toEqual({
       flow: commands[0],
       recommended: true
     })
@@ -121,22 +121,22 @@ describe("command registry pure model", () => {
 
   test("the exact match is never listed twice", () => {
     const commands = [
-      { name: "connect", summary: "Connect work to Smithers" },
+      { name: "wiki", summary: "Connect work to Smithers" },
       { name: "connectors", summary: "Manage connectors" }
     ]
-    const items = slashItems(chatState, "connect", commands)
-    expect(items.map((item) => item.flow.name)).toEqual(["connect", "connectors"])
+    const items = slashItems(chatState, "wiki", commands)
+    expect(items.map((item) => item.flow.name)).toEqual(["wiki"])
   })
 
   test("the slash listing puts the recommended command first", () => {
     const commands = [
-      { name: "wiki", summary: "w" },
-      { name: "connect", summary: "c" }
+      { name: "runs.list", summary: "Runs" },
+      { name: "wiki", summary: "Wiki" }
     ]
     const items = slashItems(chatState, "", commands)
-    expect(items[0]?.flow.name).toBe("connect")
+    expect(items[0]?.flow.name).toBe("wiki")
     expect(items[0]?.recommended).toBe(true)
-    expect(items.filter((item) => item.recommended)).toHaveLength(2)
+    expect(items.filter((item) => item.recommended)).toHaveLength(1)
   })
 
   /*
@@ -180,10 +180,10 @@ describe("command registry pure model", () => {
     })
 
     test("a recommendation survives the cap and still leads a bare /", () => {
-      const withRecommendation = [{ name: "connect", summary: "Connect work to Smithers" }, ...many]
+      const withRecommendation = [{ name: "wiki", summary: "Connect work to Smithers" }, ...many]
       const items = slashItems(chatState, "", withRecommendation)
       expect(items.length).toBe(SLASH_MENU_CAP)
-      expect(items[0]?.flow.name).toBe("connect")
+      expect(items[0]?.flow.name).toBe("wiki")
       expect(items[0]?.recommended).toBe(true)
     })
 
@@ -195,7 +195,7 @@ describe("command registry pure model", () => {
     })
   })
 
-  test("/wiki is the visible surface switch and /world its hidden alias", async () => {
+  test("/wiki remains visible and the old world aliases are absent", async () => {
     const { controller } = await freshController()
     const visibleNames = visibleItems(controller.commands).map((command) => command.name)
     expect(visibleNames).toContain("wiki")
@@ -203,15 +203,14 @@ describe("command registry pure model", () => {
     expect(visibleNames.filter((name) => name === "world" || name.startsWith("world."))).toEqual([])
     for (const name of ["world", "world.new-note", "world.select", "world.delete", "world.delete.confirm", "world.delete.cancel"]) {
       const alias = controller.commands.find(name)
-      expect(alias).toBeDefined()
-      expect(alias?.metadata.hidden).toBe(true)
+      expect(alias).toBeUndefined()
     }
     const rows = controller.slashTree("wi").map((row) => (row.kind === "flow" ? row.flow.name : row.kind === "namespace" ? `${row.namespace.id}/` : row.text))
     expect(rows).toContain("wiki")
     expect(rows).toContain("wiki.new-note")
     expect(rows.some((row) => row === "world" || row.startsWith("world"))).toBe(false)
     expect(controller.slashTree("world").filter((row) => row.kind === "flow").map((row) => row.kind === "flow" ? row.flow.name : "")).toEqual([])
-    expect(parseSubmit("/world", controller.commands.all())).toEqual({ kind: "command", name: "world" })
+    expect(parseSubmit("/world", controller.commands.all())).toEqual({ kind: "unknown-command", name: "world" })
   })
 
   test("every visible flow lives in a namespace, except the surface switches and a repository leaf the app types", async () => {
@@ -243,17 +242,15 @@ describe("command registry pure model", () => {
 
   test("a bare / is the tree's top level: recommendations, surfaces, then namespace rows", () => {
     const commands = [
-      { name: "connect", summary: "Connect" },
       { name: "wiki", summary: "Wiki" },
       { name: "chat", summary: "Chat" },
       { name: "appearance.dark-mode", summary: "Toggle" },
       { name: "appearance.dark-mode", summary: "Theme" },
       { name: "tab.terminal", summary: "Terminal" },
-      { name: "chat.clear", summary: "Clear" }
+      { name: "chat.filter", summary: "Filter" }
     ]
     const rows = slashTree(chatState, "", commands)
     expect(rows.map((row) => (row.kind === "flow" ? row.flow.name : row.kind === "namespace" ? `${row.namespace.id}/` : row.text))).toEqual([
-      "connect",
       "wiki",
       "chat",
       "chat/",
@@ -352,7 +349,7 @@ describe("command registry pure model", () => {
       kind: "command", name: "files.read", args: "README.md"
     })
     expect(parseSubmit("/world trailing text", commands)).toEqual({
-      kind: "prompt", text: "/world trailing text"
+      kind: "unknown-command", name: "world"
     })
   })
 
@@ -556,12 +553,12 @@ describe("command registry bindings", () => {
       scopesPlain: null
     })
     const adminNames = controller.commands.all().map((command) => command.name)
-    expect(adminNames).toContain("admin.grant")
+    expect(adminNames).not.toContain("admin.grant")
     // The closed-alpha gate retired with its operator doors (#2145).
     for (const retired of ["admin.allowlist.add", "admin.allowlist.remove", "admin.requests", "admin.queue.approve", "auth.request-access"]) {
       expect(adminNames).not.toContain(retired)
     }
-    expect(adminNames).toContain("admin.health")
+    expect(adminNames).not.toContain("admin.health")
     expect(adminNames).toContain("admin.reset")
     expect(adminNames).toContain("admin.reset.ask")
     expect(adminNames).toContain("admin.reset.cancel")
@@ -594,7 +591,7 @@ describe("command registry bindings", () => {
     ) {
       expect(agentNames).not.toContain(userOnly)
     }
-    expect(agentNames).toContain("connect")
+    expect(agentNames).toContain("wiki")
     expect(agentNames).toContain("browser.open")
 
     // Asking for one anyway gets an honest tool-result error naming the
@@ -620,20 +617,20 @@ describe("command registry bindings", () => {
 
   test("a bare /name typed into the composer runs the command, not a prompt", async () => {
     const { store, controller } = await freshController()
-    controller.changeDraft("/world")
+    controller.changeDraft("/wiki")
     controller.send(store.session().draft)
     const deadline = Date.now() + 2_000
     while (!store.collections.cards.has("world-embedded") && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 1))
     expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
     expect(store.session().surface).toBe("chat")
     expect(store.session().draft).toBe("")
-    expect([...store.collections.messages.values()].some((m) => m.text === "/world")).toBe(false)
+    expect([...store.collections.messages.values()].some((m) => m.text === "/wiki")).toBe(false)
   })
 
   test("slashItems surfaces the recommended command first for a bare /", async () => {
     const { controller } = await freshController()
     const items = controller.slashItems("")
-    expect(items[0]?.flow.name).toBe("connect")
+    expect(items[0]?.flow.name).toBe("wiki")
     expect(items[0]?.recommended).toBe(true)
   })
 
@@ -666,14 +663,14 @@ describe("command registry bindings", () => {
       commands: Array<{ name: string }>
     }
     expect(parsed.state.surface).toBe("chat")
-    expect(parsed.commands.some((command) => command.name === "connect")).toBe(true)
+    expect(parsed.commands.some((command) => command.name === "wiki")).toBe(true)
     expect(parsed.commands.some((command) => command.name === "connector.remove")).toBe(false)
 
     const executed = await executeAgentToolCall(controller.commands, {
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "connect" })
+      arguments: JSON.stringify({ action: "execute", name: "wiki" })
     })
-    expect(executed).toBe("executed /connect")
+    expect(executed).toBe("executed /wiki")
 
     // The recovery is in the error: the dead-end "unknown-command: nope"
     // left the live model telling the USER to run the command instead of
@@ -700,11 +697,11 @@ describe("command registry bindings", () => {
     const { store, controller } = await freshController()
     const executed = await executeAgentToolCall(controller.commands, {
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "/connect" })
+      arguments: JSON.stringify({ action: "execute", name: "/wiki" })
     })
-    expect(executed).toBe("executed /connect")
+    expect(executed).toBe("executed /wiki")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("connect-embedded")?.kind).toBe("connect")
+    expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
 
     // The slash spelling resolves through the alias and executes now that the
     // look-and-feel flows are model-invocable (flows/invocable.test.ts).

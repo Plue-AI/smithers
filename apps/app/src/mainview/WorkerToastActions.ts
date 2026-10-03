@@ -8,27 +8,10 @@ import { runStatus } from "./state/Subagents"
 import { adminDecided } from "./state/ApprovalDeciders"
 
 /** A toast carries a card identity; controls always read that card's latest state. */
-export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<Card> = []): ReadonlyArray<ToastAction> => {
+export const workerToastActions = (card: Card | undefined, _cards: ReadonlyArray<Card> = []): ReadonlyArray<ToastAction> => {
   if (!card) return []
-  const actions: ToastAction[] = [{ label: "Open tab", flow: "tab.card", args: card.id }]
-  if (card.kind === "repository-setup") {
-    const id = card.payload.receipt?.jobRunId ?? card.payload.receipt?.runId
-    const run = cards.find(other => other.kind === "run-trace" && other.payload.runId === id
-      && other.payload.repo === card.payload.repo && other.payload.workspaceId === card.payload.workspaceId)
-    if (run) actions.push(...workerToastActions(run).slice(1))
-    else if (card.payload.request?.state === "failed") actions.push({ label: "Retry", flow: "setup.retry", args: card.id })
-    return actions
-  }
-  if (card.kind === "agent") {
-    const payload = card.payload
-    if ("cloud" in payload) {
-      if (payload.state === "active") actions.push({ label: "Stop", flow: "agent.session.stop", args: flowArgs("agent.session.stop", { sessionId: payload.sessionId, repo: payload.repo }) })
-    } else if (payload.phase === "running") actions.push({ label: "Stop", flow: "tab.close", args: payload.tabId })
-    return actions
-  }
+  const actions: ToastAction[] = []
   if (card.kind !== "run-trace") return actions
-  // A registration's one action is its card: the review belongs to the Smithers admin, not the registrant.
-  if (card.payload.workflow === "register-repository") return actions
   const { phase, runId } = card.payload
   const request = workflowLaunchOf(card)
   if (request && request.runId === undefined) {

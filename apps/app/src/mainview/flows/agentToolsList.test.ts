@@ -17,8 +17,7 @@ import { boundToolResult, MAX_TOOL_RESULT_BYTES, utf8Bytes } from "../state/Agen
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"
-import { memoryStorage, settled, signupProfileFetch, waitFor } from "../state/TestFixtures"
-import { SIGNUP_PROFILE_PATH } from "../state/Signup"
+import { memoryStorage, settled, signupProfileFetch } from "../state/TestFixtures"
 
 const createAppController = scopedControllers()
 const externalWork: Array<{
@@ -37,7 +36,7 @@ afterEach(async () => {
     for (const work of [fixture.requests, fixture.starts, fixture.cancellations]) {
       try { expect(work).toEqual([]) } catch (error) { failures.push(error) }
     }
-    try { expect(fixture.profileReads).toEqual([SIGNUP_PROFILE_PATH]) } catch (error) { failures.push(error) }
+    try { expect(fixture.profileReads).toEqual([]) } catch (error) { failures.push(error) }
   }
   if (failures.length > 0) throw new AggregateError(failures, "Discovery fixture cleanup failed")
 })
@@ -108,7 +107,6 @@ const harness = async (bootstrap: AppBootstrap = bootstraps[0]!) => {
   externalWork.push({ controller, requests, profileReads: profile.reads, starts, cancellations })
   // Once constructed, the scoped controller owns store disposal too.
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
-  await waitFor(() => profile.reads.length === 1)
   await settled()
   const read = async (call: AgentToolCall): Promise<string> => {
     await settleStore()
@@ -119,7 +117,7 @@ const harness = async (bootstrap: AppBootstrap = bootstraps[0]!) => {
     expect(starts).toEqual([])
     expect(cancellations).toEqual([])
     expect(requests).toEqual([])
-    expect(profile.reads).toEqual([SIGNUP_PROFILE_PATH])
+    expect(profile.reads).toEqual([])
     return result
   }
   const list = async (namespace?: unknown): Promise<ListResult> => {
@@ -143,7 +141,7 @@ describe("the commands list action", () => {
     expect(expected.length).toBeGreaterThan(100)
     expect(names).toEqual(expected)
     expect(new Set(names).size).toBe(names.length)
-    for (const name of ["auth.prompt", "search.open", "repo.overview", "repo.update", "chat.clear"]) expect(names).toContain(name)
+    for (const name of ["auth.prompt", "search.open", "repo.overview", "repo.update", "runs.list"]) expect(names).toContain(name)
     for (const name of ["auth.sign-in", "palette.open", "chat.send", "repo.select"]) {
       expect(controller.commands.find(name)).toBeDefined()
       expect(names).not.toContain(name)
@@ -214,8 +212,8 @@ describe("the commands list action", () => {
     { label: "malformed JSON", arguments: "{", expected: "failed: the commands tool arguments were not valid JSON" },
     ...["null", "[]", '"list"', "0", "true"].map(argumentsText => ({ label: `non-object ${argumentsText}`, arguments: argumentsText, expected: "failed: the commands tool arguments must be an object" })),
     { label: "missing action", arguments: "{}", expected: 'failed: the commands tool action must be "list" or "execute"' },
-    { label: "wrong action", arguments: '{"action":"LIST","name":"chat.clear"}', expected: 'failed: the commands tool action must be "list" or "execute"' },
-    { label: "non-string action", arguments: '{"action":[],"name":"chat.clear"}', expected: 'failed: the commands tool action must be "list" or "execute"' }
+    { label: "wrong action", arguments: '{"action":"LIST","name":"runs.list"}', expected: 'failed: the commands tool action must be "list" or "execute"' },
+    { label: "non-string action", arguments: '{"action":[],"name":"runs.list"}', expected: 'failed: the commands tool action must be "list" or "execute"' }
   ])("rejects $label without executing a command", async ({ name, arguments: argumentsText, expected }: { name?: string; arguments: string; expected: string }) => {
     const { read } = await harness()
     expect(await read({ name: name ?? "commands", arguments: argumentsText })).toBe(expected)

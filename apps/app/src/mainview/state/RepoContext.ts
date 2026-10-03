@@ -10,11 +10,11 @@ import { parseRepoSelection } from "./AppState"
 import type { CloudRepository, CloudWorkspaceRow } from "./AppState"
 import type { AppStore } from "./AppStore"
 import { accountOwnerOf } from "./AccountOwner"
-import { recordedSetupWorkspace, repositoryJobWorkspace } from "./RepositoryJobs"
+import { repositoryJobWorkspace } from "./RepositoryJobs"
 import { cardContainsRun, runCardInScope, runScopeFromCard, sameRunScope, type RunScope } from "./RunReference"
 import type { Card } from "./AppState"
 
-/** The `owner/repo` shape; exported for the grammars that take a LEADING repo token (agent.session.new). */
+/** The `owner/repo` shape, shared by repository-scoped grammars. */
 export { REPO_TOKEN } from "@smthrs/ui/command-line"
 import { REPO_TOKEN } from "@smthrs/ui/command-line"
 
@@ -150,9 +150,7 @@ export const repositorySource = (
 
 /**
  * The box a flow call runs on, or the sentence saying which box to open or
- * pick. A refusal that asks for a pick carries the boxes to pick from, so a
- * human's act can render the box.select form instead of the sentence
- * (controller/boxChoice.ts). UI frame IDs are unrelated.
+ * pick. UI frame IDs are unrelated.
  */
 export type GatewayBinding =
   | { readonly workspaceId: string }
@@ -300,7 +298,7 @@ export const repositoryJobBinding = (store: AppStore, repo: string): GatewayBind
   const selected = selectedBoxBinding(store, repo)
   if (selected !== undefined && "error" in selected) return selected
   const recorded = repositoryJobWorkspace(store.collections.repositoryJobObservations.values(), repo, accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null, selected?.workspaceId ?? null)
-  return recorded ?? recordedSetupWorkspace(store.collections.cards.values(), repo, accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null)
+  return recorded
     ?? selected ?? defaultBoxBinding(store, repo)
 }
 

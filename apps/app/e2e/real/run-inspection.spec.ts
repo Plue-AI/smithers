@@ -152,16 +152,16 @@ authenticatedTest("the canary GitHub App is installed before an owned workflow f
   expect(typeof inventory.repos?.find(repo => repo.fullName === PRODUCTION_REPO)?.installationId).toBe("number")
 })
 
-workflowTest("a completed provider run exposes its real trace, transcript, events, handoff, and durable selection", scenario("runs.inspect-completed-trace-durable", {
+workflowTest("a completed provider run exposes its real trace, transcript, events, and durable selection", scenario("runs.inspect-completed-trace-durable", {
   capabilities: ["identity", "cloud"],
   coverage: [
     "action:flow.create", "action:runs.steps", "action:runs.logs", "action:runs.events",
-    "action:runs.trace.view", "action:runs.trace.filter", "action:runs.trace.select", "action:runs.trace.live", "action:runs.handoff",
+    "action:runs.trace.view", "action:runs.trace.filter", "action:runs.trace.select", "action:runs.trace.live",
     "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:real-provider", "dimension:completed-run", "dimension:keyboard", "dimension:timeline", "dimension:transcript",
-    "dimension:raw-events", "dimension:handoff", "dimension:live-tail", "dimension:reload", "evidence:gateway-projections-and-durable-card"
+    "dimension:raw-events", "dimension:live-tail", "dimension:reload", "evidence:gateway-projections-and-durable-card"
   ],
-  description: "Run the real create-flow provider to completion, compare the embedded inspection facets with gateway projections, then reload its persisted trace selection and editable handoff."
+  description: "Run the real create-flow provider to completion, compare the embedded inspection facets with gateway projections, then reload its persisted trace selection ."
 }), async ({ page, request, workflowRepo }, testInfo) => {
   const repo = workflowRepo.repo
   await bootOwnedWorkflow(page, repo, workflowRepo.workspaceId)
@@ -221,14 +221,6 @@ workflowTest("a completed provider run exposes its real trace, transcript, event
   await expect(eventList).toContainText(firstEventKind!)
 
   await card.getByTestId(`flow-run-facet-steps-${launched.runId}`).click()
-  await card.getByRole("button", { name: "Prepare handoff", exact: true }).click()
-  const handoff = page.locator('form[data-flow-name="chat.copy-message"]').last()
-  await expect(handoff).toBeVisible()
-  const handoffText = handoff.locator("textarea")
-  await expect(handoffText).toHaveValue(new RegExp(`Repository: ${repo.replace("/", "\\/")}`))
-  await expect(handoffText).toHaveValue(new RegExp(`Run: ${launched.runId}`))
-  await expect(handoffText).toHaveValue(/Run phase: completed/)
-
   await reloadApp(page)
   const restored = runCard(page, launched.runId)
   await expect(restored).toBeVisible()

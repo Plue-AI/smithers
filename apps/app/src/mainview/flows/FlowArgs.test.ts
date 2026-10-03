@@ -23,35 +23,15 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
-  test("a box chooser keeps authoring and prototype prose distinct from the selected repository", () => {
+  test("flow authoring keeps prose distinct from the selected repository", () => {
     roundTrip("flow.create", { description: "Compare owner/other with today", repo: "will/flows" },
       '{"description":"Compare owner/other with today","repo":"will/flows"}',
       { description: "Compare owner/other with today", repo: "will/flows" })
-    roundTrip("feature.prototype", { request: "Inspect owner/other first", repo: "will/flows" },
-      '{"request":"Inspect owner/other first","repo":"will/flows"}',
-      { request: "Inspect owner/other first", repo: "will/flows" })
-  })
-  test("change.request carries its pushed source ref through a box chooser continuation", () => {
-    roundTrip("change.request", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" },
-      "Fix the flaky check from:topic owner/repo", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" })
   })
   test("flow.plan keeps input and comparison target through a box chooser continuation", () => {
     roundTrip("flow.plan", { name: "checks/fast", repo: "owner/repo", input: { branch: "topic" }, against: "older-plan" },
       'against=older-plan checks/fast owner/repo {"branch":"topic"}',
       { name: "checks/fast", repo: "owner/repo", input: { branch: "topic" }, against: "older-plan" })
-  })
-  test("cloud session controls carry the session and its repository", () => {
-    for (const name of ["agent.session.view", "agent.session.stop"] as const) {
-      roundTrip(name, { sessionId: "session-1", repo: "will/other" }, "session-1 will/other", { sessionId: "session-1", repo: "will/other" })
-      for (const known of [new Set<string>(), new Set(["will/flows"])]) {
-        expect(payloadFor(name, flowArgs(name, { sessionId: "session-1", repo: "will/other" }), undefined, known))
-          .toEqual({ payload: { sessionId: "session-1", repo: "will/other" } })
-        expect(payloadFor(name, "session-1", undefined, known)).toEqual({ payload: { sessionId: "session-1" } })
-        for (const args of ["", "will/other", "session-1 extra will/other", "session-1 invalid-repo"]) {
-          expect(payloadFor(name, args, undefined, known)).toHaveProperty("error")
-        }
-      }
-    }
   })
 
   test("runs.trace.select preserves the source, node and optional recorded sequence", () => {
@@ -223,13 +203,6 @@ test("import issue action keeps the repository after the default filter", () => 
  expect(payloadFor("issues.list", args)).toMatchObject({payload: {filter:"open",repo:"acme/web"}})
 })
 
-test("manual setup work preserves source identity and multiline instructions across all command doors", () => {
-  const work = { cardId: "setup:repo:issues", operation: "run", manual: { stepId: "fix", prompt: "Preserve old APIs.\nAdd a regression test.", subject: { source: "smithers-cloud", kind: "issue", number: 42 } } } as const
-  roundTrip("setup.run", work, JSON.stringify(work), work)
-  const edit = { cardId: work.cardId, stepId: "fix", field: "prompt", value: work.manual.prompt } as const
-  roundTrip("setup.work", edit, JSON.stringify(edit), edit)
-})
-
 /*
  * The Pause door (CHAT.md B1). `triggers.pause` declares `grammar: carried(...)`,
  * which reads ONE JSON object and refuses a positional line — the canary
@@ -246,10 +219,7 @@ test("the Pause button's values are what triggers.pause's own grammar reads back
   expect(payloadFor("triggers.pause", "nightly will/flows", entry?.metadata.grammar)).toHaveProperty("error")
 })
 
-test("split preserves each file path through the real slash parser", () => {
-  const input = { changeId: "change-1", paths: ["docs/My Notes.md", 'src/a "quote".ts', "src/back\\slash.ts"] }
-  expect(payloadFor("change.split", flowArgs("change.split", input))).toEqual({ payload: input })
-})
+
 
 test("card configuration args round-trip through their production grammars", () => {
   const cases = [
@@ -284,11 +254,9 @@ test("egress.allow takes a host and an optional repository, and nothing more", (
   expect(payloadFor("egress.allow", "a.example.com owner/repo extra")).toEqual({ error: "egress.allow takes a host and optionally an owner/repo" })
 })
 
-test("wiki selection preserves paths with spaces and signup preserves typed whitespace", () => {
+test("wiki selection preserves paths with spaces", () => {
   const selection = { cardId: "wiki-1", documentId: 'docs/My "Notes".md' }
   expect(payloadFor("wiki.card.select", flowArgs("wiki.card.select", selection))).toEqual({ payload: selection })
-  const signup = { field: "account", value: "  Ada Lovelace \n" }
-  expect(payloadFor("signup.set", flowArgs("signup.set", signup))).toEqual({ payload: signup })
 })
 
 test("structured commit, trace, wiki and landing actions match their grammars", () => {

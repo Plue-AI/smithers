@@ -229,22 +229,26 @@ describe("an atomic commit point per logical transition", () => {
   test("a later successful dispatch cannot persist a failed transition from live state or an adapter cache", async () => {
     const host = crashableStorage()
     const store = await createAppStore({ kind: "localStorage", storage: host })
+    const initialRevision = store.session().revision
+    const initialTransitions = store.collections.transitions.size
     host.crashCommit()
     await expect(store.dispatch({ type: "composer.changed", actor: "user", draft: "failed draft" }).isPersisted.promise).rejects.toThrow()
     expect(store.session().draft).toBe("")
-    expect(store.session().revision).toBe(0)
-    expect(store.collections.transitions.size).toBe(0)
+    expect(store.session().revision).toBe(initialRevision)
+    expect(store.collections.transitions.size).toBe(initialTransitions)
     host.heal()
     await store.dispatch({ type: "theme.changed", actor: "user", theme: "dark" }).isPersisted.promise
     const reopened = await createAppStore({ kind: "localStorage", storage: host })
     expect(reopened.session().draft).toBe("")
     expect(reopened.session().theme).toBe("dark")
-    expect([...reopened.collections.transitions.values()].map((row) => row.type)).toEqual(["theme.changed"])
+    expect([...reopened.collections.transitions.values()].slice(initialTransitions).map((row) => row.type)).toEqual(["theme.changed"])
   })
 
   test("a dispatch inside a failure handler cannot adopt a queued transaction still rolling back", async () => {
     const host = crashableStorage()
     const store = await createAppStore({ kind: "localStorage", storage: host })
+    const initialRevision = store.session().revision
+    const initialTransitions = store.collections.transitions.size
     host.crashCommit()
     const first = store.dispatch({ type: "composer.changed", actor: "user", draft: "failed first" }).isPersisted.promise
     // A second keystroke would join the first draft's commit; a different transition queues its own.
@@ -259,11 +263,11 @@ describe("an atomic commit point per logical transition", () => {
     await expect(reentrant).rejects.toThrow("state that did not persist")
     await secondResult
     expect(store.session().draft).toBe("")
-    expect(store.session().revision).toBe(0)
+    expect(store.session().revision).toBe(initialRevision)
     await store.dispatch({ type: "theme.changed", actor: "user", theme: "dark" }).isPersisted.promise
     const reopened = await createAppStore({ kind: "localStorage", storage: host })
     expect(reopened.session().draft).toBe("")
-    expect([...reopened.collections.transitions.values()].map((row) => row.type)).toEqual(["theme.changed"])
+    expect([...reopened.collections.transitions.values()].slice(initialTransitions).map((row) => row.type)).toEqual(["theme.changed"])
   })
 
   test("a dispatch whose commit lands persists every projection", async () => {
@@ -397,12 +401,13 @@ describe("composer drafts", () => {
   test("the next dispatch commits a pending draft first", async () => {
     const host = memoryStorage()
     const store = await createAppStore({ kind: "localStorage", storage: host })
+    const initialTransitions = store.collections.transitions.size
     store.dispatch({ type: "composer.changed", actor: "user", draft: "typed before the next act" })
     await store.dispatch({ type: "theme.changed", actor: "user", theme: "dark" }).isPersisted.promise
     const reopened = await createAppStore({ kind: "localStorage", storage: host })
     expect(reopened.session().draft).toBe("typed before the next act")
     expect(reopened.session().theme).toBe("dark")
-    expect([...reopened.collections.transitions.values()].map((record) => record.type)).toEqual(["composer.changed", "theme.changed"])
+    expect([...reopened.collections.transitions.values()].slice(initialTransitions).map((record) => record.type)).toEqual(["composer.changed", "theme.changed"])
   })
 
   test("dispose commits a pending draft before releasing the store", async () => {
@@ -445,6 +450,7 @@ describe("overlapping OPFS dispatches", () => {
         close: () => sqlite.close()
       }, { collections: specs, schemaVersion: APP_SCHEMA_VERSION })
       const store = await createAppStore({ kind: "opfs", ...adapter, storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } })
+      const initialRevision = durableSession().revision
       committedRevisions.length = 0
       pause = true
       let first = "pending", second = "pending"
@@ -453,14 +459,14 @@ describe("overlapping OPFS dispatches", () => {
       await blocked
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect([first, second]).toEqual(["pending", "pending"])
-      expect(durableSession().revision).toBe(0)
+      expect(durableSession().revision).toBe(initialRevision)
       release()
       await Promise.all([firstPromise, secondPromise])
       expect([first, second]).toEqual(fails ? ["rejected", "rejected"] : ["resolved", "resolved"])
-      expect(committedRevisions).toEqual(fails ? [] : [1, 2])
-      expect(store.session().revision).toBe(fails ? 0 : 2)
+      expect(committedRevisions).toEqual(fails ? [] : [initialRevision + 1, initialRevision + 2])
+      expect(store.session().revision).toBe(fails ? initialRevision : initialRevision + 2)
       expect(store.session().draft).toBe(fails ? "" : "overlap")
-      expect(durableSession().revision).toBe(fails ? 0 : 2)
+      expect(durableSession().revision).toBe(fails ? initialRevision : initialRevision + 2)
       await adapter.close().catch(() => {})
     })
   }

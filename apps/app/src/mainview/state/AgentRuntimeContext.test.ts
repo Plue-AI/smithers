@@ -64,7 +64,7 @@ describe("per-turn runtime context", () => {
                 type: "tool_call",
                 call_id: "call_1",
                 name: "commands",
-                arguments: JSON.stringify({ action: "execute", name: "world.new-note" })
+                arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" })
               },
               { runId: request.runId, type: "done", reason: "tool_call" }
             ]

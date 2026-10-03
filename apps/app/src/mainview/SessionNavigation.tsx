@@ -3,7 +3,6 @@ import { useCallback,type CSSProperties } from "react"
 import { useController } from "./ControllerContext"
 import { KeyboardNavigation } from "./KeyboardNavigation"
 import { LocalAuthPanel } from "./LocalAuthPanel"
-import { RegistrationStatus } from "./RegistrationStatus"
 import { WORDMARK } from "./Wordmark"
 import { flowAction, flowSelector } from "./flows/FlowAction"
 import { GUIDE_KEYS } from "./onboarding/GuideButton"
@@ -65,7 +64,6 @@ export function SessionNavigation() {
         </button>
       </div>}
       {controller.localAuth !== undefined && <LocalAuthPanel auth={controller.localAuth} />}
-      <RegistrationStatus />
     </header>
   </>
 }

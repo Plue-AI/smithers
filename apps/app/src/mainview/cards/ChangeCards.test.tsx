@@ -371,27 +371,6 @@ describe("the change card", () => {
     host.remove()
   })
 
-  test("the diff facet offers Split per file while the landable prefix is shorter than the stack (plue#489)", () => {
-    const { host, commands } = renderChange(liveCard({ facet: "diff" }))
-    /* plue#489 splits by PATH, so the act names the file it moves. */
-    expect(host.querySelectorAll('button[data-flow="change.split"]')).toHaveLength(2)
-    click(host, "Split docs/guide.md into a new change")
-    expect(commands[0]).toEqual({ name: "change.split", args: "qupxosqw docs/guide.md" })
-    host.remove()
-  })
-
-  test("a stack whose whole prefix can land offers no Split, and neither does one that states no prefix", () => {
-    const whole = renderChange(
-      liveCard({ facet: "diff", stack: { ...stackOf(), positionFrom: "server", landablePrefix: 2, blockedBy: [] } })
-    )
-    expect(whole.host.querySelectorAll('button[data-flow="change.split"]')).toHaveLength(0)
-    whole.host.remove()
-
-    const silent = renderChange(liveCard({ facet: "diff", stack: { ...stackOf(), positionFrom: "server" } }))
-    expect(silent.host.querySelectorAll('button[data-flow="change.split"]')).toHaveLength(0)
-    silent.host.remove()
-  })
-
   test("the history facet renders each revision's provenance, Diff to current, Open the computer iff a snapshot exists, and the landed row (plue#450, #464)", () => {
     const { host, commands } = renderChange(
       liveCard({
@@ -748,21 +727,6 @@ describe("the change card", () => {
     expect(commands).toEqual([{ name: "change.resolve", args: "qupxosqw src/app.ts" }])
     host.remove()
   })
-
-  test("an unlanded change never offers Revert; a landed one does", () => {
-    const open = renderChange(changeCard())
-    expect(open.host.textContent ?? "").not.toContain("Revert")
-    open.host.remove()
-
-    const landed = renderChange(changeCard({ stack: { ...stackOf(), state: "merged" } }))
-    click(landed.host, "Revert the landed change")
-    expect(landed.commands).toEqual([{ name: "change.revert", args: "qupxosqw" }])
-    landed.host.remove()
-  })
-
-
-
-
 
   test("the Land and Full diff acts carry complete invocations", () => {
     const { host, commands } = renderChange(changeCard())

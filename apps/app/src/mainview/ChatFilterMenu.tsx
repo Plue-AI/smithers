@@ -3,16 +3,15 @@ import type { KeyboardEvent } from "react"
 import { flowAction, flowProps } from "./flows/FlowAction"
 import type { FlowName } from "./flows/FlowName"
 import { rovingKeyDown } from "./RovingKeyDown"
-import { active, CHAT_KINDS, type ChatFilter, type ChatSubagent } from "./state/ChatTimeline"
+import { active, CHAT_KINDS, type ChatFilter } from "./state/ChatTimeline"
 
 interface Props {
   readonly open: boolean
   readonly filter: ChatFilter
-  readonly subagents: ReadonlyArray<ChatSubagent>
   readonly onRunCommand: (name: FlowName, args?: string) => void
 }
 
-export const ChatFilterMenu = ({ open, filter, subagents, onRunCommand }: Props) => {
+export const ChatFilterMenu = ({ open, filter, onRunCommand }: Props) => {
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const mountMenu = useCallback((node: HTMLDivElement | null): void => {
@@ -20,8 +19,8 @@ export const ChatFilterMenu = ({ open, filter, subagents, onRunCommand }: Props)
     if (node !== null) requestAnimationFrame(() => node.querySelector<HTMLButtonElement>("[role^=menuitem]")?.focus())
   }, [])
   const [highlighted, setHighlighted] = useState(0)
-  const items = ["Show all", "Chat", ...subagents.map(each => each.subagent.title), ...CHAT_KINDS]
-  const targets = ["", "chat", ...subagents.map(each => each.id), ...CHAT_KINDS]
+  const items = ["Show all", "Chat", ...CHAT_KINDS]
+  const targets = ["", "chat", ...CHAT_KINDS]
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.target instanceof HTMLInputElement && event.key !== "Escape") return
     if ((event.key === "Enter" || event.key === " ") && event.target instanceof HTMLButtonElement) {
@@ -55,7 +54,6 @@ export const ChatFilterMenu = ({ open, filter, subagents, onRunCommand }: Props)
           aria-checked={index === 0 ? undefined : !hidden} tabIndex={highlighted === index ? 0 : -1}
           onFocus={() => setHighlighted(index)}
           {...flowAction(onRunCommand, index === 0 ? "chat.filter.reset" : "chat.filter.toggle", target)}>
-          {index > 1 && index < subagents.length + 2 && <span className="chat-filter-swatch" data-lane-color={subagents[index - 2]!.color} />}
           {label}
         </button>
       })}

@@ -14,9 +14,9 @@ test("malformed or non-object arguments retain the actual tool name", () => {
 })
 
 test("catalog slash spelling is normalized in ordinary and refused acts", () => {
-  for (const name of ["world.new-note", "/world.new-note", "///world.new-note"]) {
-    expect(toolActLine(command(name), "executed /world.new-note")).toBe("Smithers ran /world.new-note")
-    expect(toolActLine(command(name), "unknown-command: absent")).toBe("Smithers tried /world.new-note — unknown-command: absent")
+  for (const name of ["wiki.new-note", "/wiki.new-note", "///wiki.new-note"]) {
+    expect(toolActLine(command(name), "executed /wiki.new-note")).toBe("Smithers ran /wiki.new-note")
+    expect(toolActLine(command(name), "unknown-command: absent")).toBe("Smithers tried /wiki.new-note — unknown-command: absent")
   }
 })
 
@@ -48,7 +48,7 @@ test("launch acknowledgments use machine workflow and repo fields rather than in
   expect(toolActLine(command("flow.run", "invented other/repo"), "run-requested workflow=review request=saved repo=owner/repo")).toBe("Smithers requested a review run on owner/repo")
   expect(toolActLine(command("flow.run", "invented other/repo"), "run-started workflow=build run=live")).toBe("Smithers started a build run")
   expect(toolActLine(command("flow.create", "invented workflow"), "flow-requested request=saved")).toBe("Smithers requested a create-flow run")
-  expect(toolActLine({ callId: "direct", name: "feature.prototype", args: "{}" }, "run-started run=live")).toBe("Smithers started a feature.prototype run")
+  expect(toolActLine({ callId: "direct", name: "flow.run", args: "{}" }, "run-started run=live")).toBe("Smithers started a flow.run run")
 })
 
 test("unconfirmed or refused launches retain their actual result instead of claiming a run", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
+import { createAppStore } from "../state/AppStore"
 import { fixtureCards } from "./fixtures/UiSurfaces"
 import { IssueCardBody, IssueListCardBody } from "./IssueCards"
 import { dueWords, reactionChips, stateActions } from "./IssueThread"
@@ -18,7 +19,7 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
     expect(html.match(/data-continued="true"/g)?.length).toBe(1)
     expect(html).toContain("👀 1")
     expect(html).toContain("✅ 1")
-    // Without a signed-in viewer no chip is "mine"; with one, the chip the viewer set toggles off.
+    // Historical ownership remains readable without a reaction mutation control.
     expect(html).not.toContain("Remove your")
     expect(reactionChips([{ name: "👀", actor: "owner", active: true }, { name: "👀", actor: "U1", active: true }, { name: "✅", actor: "U1", active: false }], "owner")).toEqual([{ name: "👀", count: 2, mine: true }])
     expect(html).toContain('data-state="fixed"')
@@ -31,25 +32,53 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
     expect(html).not.toContain("ghc-detail-grid")
   })
 
-  test("a failed send keeps its text and offers Retry; the composer and Send are present while the thread is open", () => {
+  test.each(["owner", "U1", "viewer", undefined])("historical owned and nonowned reaction counts stay visible for %s without mutation buttons", async viewer => {
+    const data = new Map<string, string>()
+    const store = await createAppStore({ kind: "localStorage", storage: {
+      getItem: key => data.get(key) ?? null,
+      setItem: (key, value) => void data.set(key, value),
+      removeItem: key => void data.delete(key)
+    } })
+    try {
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: viewer === undefined ? "signed-out" : "signed-in", login: viewer ?? null, admin: false, scopesPlain: null }).isPersisted.promise
+      const card = issue()
+      const historical = { ...card, payload: { ...card.payload, comments: [{ ...card.payload.comments[0]!, reactions: [
+        { name: "eyes", actor: "owner", active: true },
+        { name: "eyes", actor: "U1", active: true },
+        { name: "thumbsup", actor: "U1", active: true },
+        { name: "inactive", actor: "owner", active: false }
+      ] }] } }
+      const html = renderToStaticMarkup(<IssueCardBody card={historical} onRunCommand={noop} projectionStore={store} />)
+      expect(html).toContain('<span class="thread-reaction">eyes 2</span>')
+      expect(html).toContain('<span class="thread-reaction">thumbsup 1</span>')
+      expect(html.match(/class="thread-reaction"/g)).toHaveLength(2)
+      expect(html).not.toContain("inactive")
+      expect(html).not.toContain("Remove your")
+      expect(html).not.toContain('data-flow="issues.comment.react"')
+      expect(html).not.toContain('data-flow="issues.comment.retry"')
+    } finally {
+      await store.dispose?.()
+    }
+  })
+
+  test("a failed send keeps its error and text; the composer and Send are present while the thread is open", () => {
     const html = renderToStaticMarkup(<IssueCardBody card={issue()} onRunCommand={noop} />)
     expect(html).toContain('data-pending="failed"')
     expect(html).toContain("<p>Smithers could not send this message. Not your fault.</p>")
     expect(html).toContain('<pre tabindex="0" role="region" aria-label="Failure details">Posting the message failed (503)</pre>')
     expect(html).not.toContain("<p>Posting the message failed")
     expect(html).toContain("And add the test to the wiki suite.")
-    expect(html).toContain('data-flow="issues.comment.retry"')
     expect(html).toContain('data-testid="thread-composer"')
     expect(html).toContain('data-flow="issues.comment"')
   })
 
-  test("the state acts follow the backend's ladder and the fixer cannot verify their own fix", () => {
+  test("retained issue state controls close and reopen without exposing maintainer-only acts", () => {
     const fixedByEngineer = issue()
-    expect(stateActions(fixedByEngineer, "owner").map((act) => [act.flow, act.disabled])).toEqual([["issues.verify", undefined], ["issues.reopen", undefined]])
+    expect(stateActions(fixedByEngineer, "owner").map((act) => [act.flow, act.disabled])).toEqual([["issues.reopen", undefined]])
     const fixedByViewer = { ...fixedByEngineer, payload: { ...fixedByEngineer.payload, task: { ...fixedByEngineer.payload.task, fixedBy: { id: "owner", name: "Owner" } } } }
-    expect(stateActions(fixedByViewer, "owner").map((act) => [act.flow, act.disabled])).toEqual([["issues.verify", "fixed by you"], ["issues.reopen", undefined]])
+    expect(stateActions(fixedByViewer, "owner").map((act) => [act.flow, act.disabled])).toEqual([["issues.reopen", undefined]])
     const open = { ...fixedByEngineer, payload: { ...fixedByEngineer.payload, state: "open" as const } }
-    expect(stateActions(open).map((act) => act.flow)).toEqual(["issues.fix", "issues.close"])
+    expect(stateActions(open).map((act) => act.flow)).toEqual(["issues.close"])
     const chat = { ...open, payload: { ...open.payload, task: undefined } }
     expect(stateActions(chat).map((act) => act.flow)).toEqual(["issues.close"])
     const closed = { ...chat, payload: { ...chat.payload, state: "closed" as const } }
@@ -105,4 +134,3 @@ describe("chat origin (#2489)", () => {
     expect(none).toContain(`dateTime="${row.updatedAt}"`)
   })
 })
-

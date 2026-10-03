@@ -87,13 +87,8 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
     { id: "approvals.product-approve", capabilities: ["identity", "cloud"] },
     { id: "approvals.product-deny", capabilities: ["identity", "cloud"] }
   ], tier: "local-infrastructure" },
-  /*
-   * The issue-resolution replay left with issues.sync.resolve (#3385). Setup
-   * inspection proves the same property on both hosts: a repeated act joins
-   * its durable request and never launches twice. A scenario serves one
-   * obligation, so it carries the setup-inspection proof here as well.
-   */
-  { id: "duplicate-input", scenarios: [{ id: "setup.inspect-recovery", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
+  // Stack bootstrap proves repeat input joins one durable request.
+  { id: "duplicate-input", scenarios: [{ id: "history.production-bootstrap-show-parallel", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "error-surfaced", scenarios: [{ id: "flows.product-no-box", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" }
 ]
 
@@ -160,7 +155,6 @@ export const applicableScenarioIds = (capabilities: readonly string[]): readonly
 
 export const MANDATORY_DETERMINISTIC_BUN_TESTS = [
   "src/mainview/state/controller/workflows.test.ts",
-  "src/mainview/state/controller/repositorySetup.test.ts",
   "src/mainview/state/controller/failures.test.ts"
 ] as const
 

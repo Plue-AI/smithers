@@ -77,11 +77,6 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
-    literal: "chat",
-    file: "e2e/playwright/reaction-owner.spec.ts",
-    reason: "The issue DTO's kind (packages/rpc/src/Cards.ts `kind: z.enum([\"issue\", \"chat\"])`), not a card kind: the wire issue shares id, title and body with a card frame."
-  },
-  {
     literal: "owner-session",
     file: "scripts/run-mode-matrix.ts",
     reason: "Mode-matrix credential kind, declared by the matrix fixture contract, not a card kind."
@@ -125,11 +120,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     literal: "main.home",
     file: "e2e/site/landing-start.spec.ts",
     reason: "CSS selector for the Astro landing's main.home in apps/site/src/pages/index.astro, outside the app vocabulary; the browser assertion requires the element to be visible"
-  },
-  {
-    literal: "data-arrived",
-    file: "e2e/site/landing-tagline.spec.ts",
-    reason: "the attribute the Astro landing's script sets (headline.dataset.arrived in apps/site/src/pages/index.astro) when the tagline arrives through the view transition; set by the site, not rendered by the app"
   },
   {
     literal: "stub-call-",

@@ -103,9 +103,9 @@ test.skip(process.env.SMITHERS_CHAT_STUB === "0", "the stub suite; chat.real.spe
 
 test("typing 'say ok' and sending renders the stub reply", async ({ page }) => {
   await page.goto("/")
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click()
   const input = page.getByTestId("composer-input")
   await expect(input).toBeHidden()
+  await page.getByRole("button", { name: "Chat", exact: true }).focus()
   await page.keyboard.press("Meta+k")
   await expect(input).toBeVisible()
   await input.fill("say ok")

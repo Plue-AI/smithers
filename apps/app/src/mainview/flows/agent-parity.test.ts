@@ -23,10 +23,9 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
-import { SUBAGENTS_USER_ONLY_REASON } from "./entries/agent"
 import { HISTORY_LAND_USER_ONLY_REASON, HISTORY_RETRY_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
-import { WIKI_ASK_USER_ONLY_REASON, WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@smthrs/ui/app-operations/wiki"
+import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@smthrs/ui/app-operations/wiki"
 
 /**
  * Every user-only flow, with the reason the registry states. A flow user-only
@@ -44,10 +43,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "chat.send": "the composer is the human's; the model is already the turn, and sending would nest one",
   "chat.stop": "stopping the model's own turn is the human's Escape key",
   "chat.copy-message": "the clipboard write is the human's browser gesture",
-  "flows": "a surface switch; the model lists flows with flow.list, which answers as an embedded card",
-  "subagents": SUBAGENTS_USER_ONLY_REASON,
   "wiki.pane": "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
-  "system.recommend": "the system's own refresh; a model must not steer what the human is offered next",
   "flow.repo.choose": "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
   "card.maximize": "maximizing a card is the human's explicit act (THE EMBED LAW)",
   "card.minimize": "minimizing a card is the human's explicit act",
@@ -56,22 +52,16 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "wiki.delete.confirm": "a confirm-dialog answer is the human's",
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
-  "wiki.ask": WIKI_ASK_USER_ONLY_REASON,
   "history.retry": HISTORY_RETRY_USER_ONLY_REASON,
   "history.land": HISTORY_LAND_USER_ONLY_REASON,
   "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.
-  "world.delete.confirm": "a confirm-dialog answer is the human's",
-  "world.delete.cancel": "a confirm-dialog answer is the human's",
   "auth.sign-in": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
   "auth.sign-out": "dropping the human's session is theirs alone",
   "cloud.sign-in": "the Smithers Cloud browser login is the human's gesture on their account; the agent renders the step with cloud.prompt",
   "cloud.sign-out": "dropping the human's Smithers Cloud credential is theirs alone",
   "toast.dismiss": "dismissing a toast is the human's gesture",
-  "tab.select": "focus is the human's",
   "repo.select": "which pinned repository is active is the human's selection",
-  "box.select": "which box an act runs on is the human's selection",
-  "workspace.rename.edit": "opening the inline editor is the human's gesture; the agent names the workspace with workspace.rename",
   "chat.open": "opening Chat and starting the selected microphone mode is the human's gesture",
   "chat.dictate": "microphone capture is the human's explicit gesture",
   "palette.open": PALETTE_OPEN_REASON,
@@ -83,8 +73,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "billing.portal": "the external billing portal; the human clicks",
   "admin.devtools": "the admin panel's presentation toggle",
   "debug.backend": "admin diagnostics; the agent must never reason about its engine",
-  "admin.grant.confirm": "a grant confirmation is the operator's own answer",
-  "admin.grant.cancel": "a confirm-dialog answer is the human's",
   "approval.approve": "approvals belong to the human",
   "triggers.approve": "approvals belong to the human",
   "approval.deny": "approvals belong to the human",
@@ -108,14 +96,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.trace.live", args: "run-1", confirm: false },
   { name: "runs.coding.select", args: "run-1 storage", confirm: false },
   /* The issue-sweep board's reader state is free; starting the sweep launches agents, so it confirms. */
-  { name: "runs.burndown.filter", args: "run-1 failed", confirm: false },
-  { name: "runs.burndown.select", args: "run-1 3219", confirm: false },
-  { name: "issue-sweep", args: "{\"maxAgents\":8,\"placement\":\"vm\",\"repo\":\"will/smithers\"}", confirm: true },
-  { name: "chat.clear", confirm: true },
-  { name: "tab.card", args: "card-1", confirm: false },
-  { name: "tab.close", args: "t1", confirm: false },
   { name: "repo.tree", args: "shared:will/smithers", confirm: false },
-  { name: "workspace.rename", args: "Force", confirm: false },
   { name: "change.pins", args: "c1 parent current", confirm: false },
   { name: "change.checks", args: "c1 1", confirm: false },
   { name: "box.facet", args: "ws-1 files", confirm: false },
@@ -130,11 +111,6 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
    * sessions"): the reads are free; launching a sandbox agent, steering it
    * with a follow-up (dispatches its next run) and stopping it all confirm.
    */
-  { name: "agent.session.new", args: "will/smithers codex fix the retry loop", confirm: true },
-  { name: "agent.session.list", confirm: false },
-  { name: "agent.session.view", args: "sess-1", confirm: false },
-  { name: "agent.session.say", args: "sess-1 hello there", confirm: true },
-  { name: "agent.session.stop", args: "sess-1", confirm: true },
   /* Code intelligence (docs/code-intel/PLAN.md §4): reads over the workspace LSP tunnel; none confirms. */
   { name: "code.hover", args: "src/index.ts:3:7", confirm: false },
   { name: "code.definition", args: "src/index.ts:3:17", confirm: false },
@@ -267,7 +243,6 @@ describe("the three-door law", () => {
 
   test("every agent row of the policy table is invocable through the tool; a confirm row yields the confirm card, never a refusal", async () => {
     const { store, controller } = await boot()
-    const tabsBefore = store.collections.tabs.size
     for (const row of AGENT_ROWS) {
       const result = await execute(controller, row.name, row.args)
       expect(`${row.name}: ${result}`).not.toContain("is user-only")
@@ -278,11 +253,6 @@ describe("the three-door law", () => {
       expect(`${row.name} confirmation`).toBe(`${row.name} ${confirmation === undefined ? "missing" : "confirmation"}`)
       expect(confirmation?.action?.args).toBe(row.args)
     }
-    // The no-confirm rows acted: the card is a tab, the card tab t1 closed (its card stays), the workspace is named.
-    expect(store.collections.tabs.get("t1")).toBeUndefined()
-    expect(store.collections.tabs.size).toBe(tabsBefore)
-    expect(store.collections.tabs.get("card-card-1")?.kind).toBe("card")
-    expect(store.session().workspaceName).toBe("Force")
   })
 
   test("cloud.prompt renders the Smithers Cloud sign-in step; signed in it says so", async () => {
@@ -333,8 +303,6 @@ describe("the three-door law", () => {
 
   test("a user-only refusal quotes the registry's reason and the agent's door", async () => {
     const { controller } = await boot()
-    const focus = await execute(controller, "tab.select", "1")
-    expect(focus).toBe(`failed: /tab.select is user-only — ${USER_ONLY_ALLOWLIST["tab.select"]}`)
     const cloud = await execute(controller, "cloud.sign-in")
     expect(cloud).toContain(USER_ONLY_ALLOWLIST["cloud.sign-in"])
     expect(cloud).toContain("invoke cloud.prompt, which renders that button in the chat")
@@ -343,15 +311,15 @@ describe("the three-door law", () => {
     expect(typed).toEqual({ status: "failed", error: `failed: /auth.sign-in is user-only — ${USER_ONLY_ALLOWLIST["auth.sign-in"]} — invoke auth.prompt, which renders that button in the chat` })
   })
 
-  test("the + menu's flows are the agent's flows: files.add and flow.create are callable", async () => {
+  test("flow authoring and card acts remain callable through the agent", async () => {
     const { controller } = await boot()
     const callable = new Set(controller.commands.callable().map(nameOf))
-    for (const name of ["files.add", "flow.create", "tab.card", "agent.list", "form.set", "form.submit", "card.dismiss"]) {
+    for (const name of ["flow.create", "agent.list", "form.set", "form.submit", "card.dismiss"]) {
       expect(callable.has(name)).toBe(true)
     }
     // And listed: the slash menu and the prompt's catalog show them.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
-    for (const name of ["files.add", "flow.create", "cloud.prompt", "agent.list"]) {
+    for (const name of ["flow.create", "cloud.prompt", "agent.list"]) {
       expect(disclosed.has(name)).toBe(true)
     }
     expect(disclosed.has("flow.run.retry")).toBe(false)

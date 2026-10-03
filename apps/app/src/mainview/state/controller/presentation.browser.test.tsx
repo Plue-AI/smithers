@@ -48,7 +48,7 @@ const harness = async () => {
   const failures = createFailureController(ctx)
   ctx.withToast = failures.withToast
   ctx.resolveToast = failures.resolveToast
-  const presentation = createPresentationController(ctx, async () => undefined)
+  const presentation = createPresentationController(ctx)
   const card = () => {
     const value = store.collections.cards.get(`browser-${url}`)
     if (value?.kind !== "browser") throw new Error("Missing Browser card")

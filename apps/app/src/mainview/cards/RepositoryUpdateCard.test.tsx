@@ -10,7 +10,7 @@ afterAll(() => GlobalRegistrator.unregister())
 const noop = () => {}
 const handlers: Omit<CardViewProps, "card"> = {
   maximized: false, onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop,
-  onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
+  onMaximize: noop, onMinimize: noop, 
   onConnectGitHub: noop, onRunWorkflow: noop, onStopRun: noop,
   onRetryRun: noop, onChooseWorkflowRepo: noop, worldDocuments: [], onChangeWorldDocument: noop,
   onRunCommand: noop

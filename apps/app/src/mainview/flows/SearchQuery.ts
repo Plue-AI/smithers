@@ -17,14 +17,12 @@ export type PaletteMode =
   | "path"
   | "line"
   | "flows"
-  | "targets"
   | "wiki"
   | "history"
   | "ask"
   | "runs"
   | "changes"
   | "issues"
-  | "boxes"
   | "secrets"
   | "help"
 
@@ -48,14 +46,12 @@ export const PREFIXES: ReadonlyArray<PrefixRow> = [
   { prefix: "", label: "path", mode: "path", searches: "Files by path, fuzzy per segment", flow: "search.files", signedIn: false },
   { prefix: ":", label: ":", mode: "line", searches: "Line :120 or :120:8 in the focused file card", flow: null, signedIn: false },
   { prefix: "/", label: "/", mode: "flows", searches: "Flows: the slash tree", flow: "search.flows", signedIn: false },
-  { prefix: "//", label: "//", mode: "targets", searches: "Targets, //apps/app:test", flow: "search.targets", signedIn: false },
   { prefix: "wiki:", label: "wiki:", mode: "wiki", searches: "Generated wiki pages; signed in, your notes join the list", flow: "search.wiki", signedIn: false },
   { prefix: "history:", label: "history:", mode: "history", searches: "Changes by title, id, issue", flow: "search.history", signedIn: true },
   { prefix: "ask:", label: "ask:", mode: "ask", searches: "The Librarian: one sentence with citation doors (proposed)", flow: null, signedIn: false },
   { prefix: "run:", label: "run:", mode: "runs", searches: "Runs by id, flow, status, step", flow: "search.runs", signedIn: false },
   { prefix: "change:", label: "change:", mode: "changes", searches: "Changes by id, title, file", flow: "search.changes", signedIn: false },
   { prefix: "#", label: "#", mode: "issues", searches: "Issues, #412 or #label:bug", flow: "search.issues", signedIn: false },
-  { prefix: "box:", label: "box:", mode: "boxes", searches: "Boxes by branch, owner, state", flow: "search.boxes", signedIn: true },
   { prefix: "secret:", label: "secret:", mode: "secrets", searches: "Secret names and grants; values never index", flow: "search.secrets", signedIn: true },
   { prefix: "?", label: "?", mode: "help", searches: "The prefix list", flow: null, signedIn: false }
 ]
@@ -119,14 +115,13 @@ const splitQualifiers = (rest: string): { readonly query: string; readonly quali
 
 /**
  * The first token decides the mode (§3: "Mode switches when the prefix is
- * the first token"). `//` beats `/`, a lone `?` is the
+ * the first token"). A lone `?` is the
  * prefix list, `:N` is a line, a known `word:` is its mode, `#` is issues,
  * and a single unprefixed token is a path when it carries a `/` or a `.`.
  */
 export const parseQuery = (text: string): ParsedQuery => {
   const raw = text.trimStart()
   if (raw.trim() === "?") return { mode: "help", prefix: "?", query: "", qualifiers: [] }
-  if (raw.startsWith("//")) return { mode: "targets", prefix: "//", ...splitQualifiers(raw.slice(2)) }
   if (raw.startsWith("/")) return { mode: "flows", prefix: "/", query: raw.slice(1).trim(), qualifiers: [] }
   const line = /^:(\d+)(?::(\d+))?\s*$/.exec(raw)
   if (line !== null) {

@@ -71,7 +71,9 @@ test.each(["localStorage", "sqlite"].flatMap(backend => ["local:/checkout", "own
     expect(() => upgraded.dispatch({ type: "repo.pinned", actor: "user", pin: {} } as never)).toThrow()
     expect(upgraded.collections).not.toHaveProperty("pinnedRepos")
     expect(upgraded.session().activeRepoKey).toBe(selection.includes("local:") ? null : selection)
-    expect(upgraded.collections.tabs.get("card-kept")).toMatchObject({ cardId: "kept" })
+    // T-CUT-01 / Appendix B cuts tab.*, preserving the saved card itself.
+    expect(upgraded.collections.tabs.has("card-kept")).toBe(false)
+    expect(upgraded.session().activeTabId).toBe("main")
     expect(upgraded.collections.cards.get("kept")?.payload).toMatchObject({ content: "saved" })
     expect(upgraded.collections.workingCopies.has("workspace:box")).toBe(true)
     expect((await upgraded.verifyState()).valid).toBe(true)

@@ -62,7 +62,7 @@ authenticatedTest("history on an owned repository: bootstrap, show, lane count, 
   capabilities: ["identity", "cloud"],
   coverage: [
     "action:history.show", "action:history.bootstrap", "action:history.parallel", "action:history.backfill", "action:history.retry",
-    "host:production", "path:success", "path:error", "path:permission", "path:persistence",
+    "host:local", "host:production", "path:success", "path:error", "path:permission", "path:persistence",
     "door:slash", "door:button",
     "dimension:reload", "dimension:duplicate-input", "dimension:chat-during-launch", "dimension:signed-out-refusal",
     "evidence:stack-snapshot-readback"

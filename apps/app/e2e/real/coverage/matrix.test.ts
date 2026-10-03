@@ -155,7 +155,7 @@ describe("deployment mode matrix", () => {
     for (const mode of DEPLOYMENT_MODES) {
       expect(owedScenarioIds(mode)).toEqual(expect.arrayContaining([
         "approvals.product-approve", "approvals.product-deny",
-        "setup.inspect-recovery", "flows.product-no-box"
+        "history.production-bootstrap-show-parallel", "flows.product-no-box"
       ]))
     }
   })

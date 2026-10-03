@@ -1,6 +1,7 @@
 import { initialSetup, setupCandidate } from "@smthrs/rpc/RepositorySetup"
 import type { RepositoryJob, RepositorySetup } from "@smthrs/rpc/RepositorySetup"
 import { expect, test } from "bun:test"
+import { CardSchema } from "@smthrs/rpc/Cards"
 import type { Card, RepositoryJobObservation } from "./AppState"
 import { registeredRepositoryJobs, repositoryJobsKnown, repositoryJobState, repositoryJobStates } from "./RepositoryJobs"
 
@@ -18,7 +19,7 @@ const setup = (job: RepositoryJob, active: { readonly enabled: boolean; readonly
   return { ...state, recovery: { id: `rec-${job}`, baseRevision: state.revision, baseDigest: setupCandidate(state), state: "completed", registrationState: "known" } }
 }
 
-const card = (job: RepositoryJob, payload: RepositorySetup): Card => ({
+const card = (job: RepositoryJob, payload: RepositorySetup): Card => CardSchema.parse({
   id: `setup:${OWNER}:${encodeURIComponent(REPO)}:${job}`, kind: "repository-setup", title: job,
   status: "active", createdAt: 1, ordinal: 1, payload
 })

@@ -36,54 +36,7 @@
 	flex-direction: column;
 }
 
-.chat-filter-swatch,
-.subagent-card,
-.subagent-tree-row,
-.subagent-crumb { --lane-color: var(--lane-0); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="1"] { --lane-color: var(--lane-1); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="2"] { --lane-color: var(--lane-2); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="3"] { --lane-color: var(--lane-3); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="4"] { --lane-color: var(--lane-4); }
-:is(.chat-filter-swatch, .subagent-card, .subagent-tree-row, .subagent-crumb)[data-lane-color="5"] { --lane-color: var(--lane-5); }
-
 /* Subagent cards (#2162): tones name the shared SubagentCard roles. */
-.subagent-glyph[data-tone="waiting"] { color: var(--warning); }
-.subagent-glyph[data-tone="done"] { color: var(--success); }
-.subagent-glyph[data-tone="failed"] { color: var(--danger); }
-.subagent-glyph[data-tone="stopped"] { color: var(--text-faint); }
-.subagent-batch { margin: 14px 0 8px; }
-.subagent-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; font-weight: 600; }
-.subagent-header[data-tone="done"] .subagent-header-text, .subagent-header[data-tone="done"] .subagent-header-mark { color: var(--success); }
-.subagent-header[data-tone="failed"] .subagent-header-mark { color: var(--danger); }
-.subagent-header-count { color: var(--text-muted); font-weight: 400; }
-.subagent-bar { display: inline-flex; gap: 2px; color: var(--border-strong); }
-.subagent-bar i { display: block; width: 14px; height: 6px; overflow: hidden; border-radius: 2px; background: currentColor; font-size: 0; }
-.subagent-bar i[data-state="done"] { color: var(--success); }
-.subagent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 10px; }
-.subagent-card { position: relative; display: flex; flex-direction: column; min-width: 0; padding: 10px 12px; border: 1px solid var(--border-solid); border-left: 4px solid var(--lane-color); border-radius: var(--r-sm); background: var(--surface); font-size: var(--fs-small); cursor: pointer; }
-.subagent-card:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
-.subagent-title { overflow: hidden; padding-right: 50px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.subagent-activity { flex: 1; margin: 6px 0; color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-caption); }
-.subagent-earlier { color: var(--text-faint); }
-.subagent-activity-row { display: flex; gap: 0.5ch; min-width: 0; white-space: nowrap; }
-.subagent-activity-text { overflow: hidden; min-width: 0; text-overflow: ellipsis; }
-.subagent-activity-row:is([data-state="pending"], [data-state="stopped"], [data-state="text"]) .subagent-activity-text { color: var(--text-faint); }
-.subagent-mark { flex: none; }
-.subagent-mark[data-mark="✗"] { color: var(--danger); }
-.subagent-mark[data-mark="■"] { color: var(--text-faint); }
-.subagent-footer { display: flex; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: var(--fs-caption); }
-.subagent-files { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.subagent-aside { margin-left: 8px; color: var(--warning); }
-.subagent-stop { position: absolute; top: 8px; right: 8px; display: none; padding: 1px 8px; border: 1px solid var(--danger-border); border-radius: 6px; background: var(--surface); color: var(--danger); font-size: var(--fs-caption); }
-.subagent-card:is(:hover, :focus-within) .subagent-stop { display: block; }
-:is(.subagent-stop, .subagent-files, .subagent-back):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.subagent-finished { margin: 8px 0; }
-.subagent-earlier-batches { margin: 14px 0 8px; padding: 0; border: 0; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
-.subagent-earlier-batches:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.subagent-crumb { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 16px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-small); }
-.subagent-crumb-title { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
-.subagent-crumb-rail { color: var(--lane-color); font-weight: 700; }
-.subagent-back { flex: none; padding: 0; border: 0; background: transparent; color: var(--info); font: inherit; cursor: pointer; }
 .chat-filter-control { position: relative; }
 .chat-filter-trigger { border: 1px solid var(--border-solid); border-radius: var(--r-sm); background: var(--surface); color: var(--text); padding: 6px 12px; }
 .chat-filter-trigger[data-active] { border-color: var(--text); font-weight: 650; }
@@ -91,7 +44,6 @@
 .chat-filter-menu button { display: flex; align-items: center; width: 100%; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
 .chat-filter-menu button[aria-checked="false"] { opacity: .55; }
 .chat-filter-menu button:focus-visible, .chat-filter-trigger:focus-visible, .chat-filter-menu input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.chat-filter-swatch { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--lane-color); }
 .chat-filter-menu input { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--border-solid); border-radius: 4px; background: var(--surface); color: var(--text); }
 
 .chat-frame[data-pane] .chat-column {
@@ -622,120 +574,7 @@
 	animation: view-in var(--dur-slow) var(--ease-current);
 }
 
-.connectors-surface,
-/* Ask 5: the Flows pane sits beside the conversation like the other two. */
-.flows-surface,
-/* ctrl+s: every subagent (#2190). */
-.subagents-surface {
-	display: flex;
-	min-width: 0;
-	min-height: 0;
-	flex: 1;
-	flex-direction: column;
-	background: var(--surface);
-	animation: view-in var(--dur-slow) var(--ease-current);
-}
-
-.subagents-content {
-	min-height: 0;
-	flex: 1;
-	/* 80px bottom keeps the last card clear of the composer dock. */
-	padding: var(--sp-5) var(--sp-6) 80px;
-	overflow: auto;
-}
-
-.subagent-tree { margin: 0; padding: 0; list-style: none; }
-.subagent-tree-row { display: flex; align-items: center; width: 100%; gap: 8px; padding: 4px 8px; border: 0; border-left: 3px solid var(--lane-color); border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
-.subagent-tree-row:hover { background: var(--surface-2); }
-.subagent-tree-row:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.subagent-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.subagent-tree-row .subagent-clock { color: var(--text-muted); }
-
-.flows-content {
-	display: flex;
-	min-height: 0;
-	flex: 1;
-	flex-direction: column;
-	gap: var(--sp-2);
-	/* 80px bottom keeps the last row clear of the composer dock. */
-	padding: var(--sp-5) var(--sp-6) 80px;
-	overflow: auto;
-}
-
-.connectors-content {
-	display: flex;
-	width: min(100%, 980px);
-	min-height: 0;
-	margin: 0 auto;
-	padding: 36px 32px 100px;
-	flex: 1;
-	flex-direction: column;
-	gap: 24px;
-	overflow: auto;
-}
-
-.connected-repositories-heading {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 20px;
-}
-
-.connected-repositories-heading h2,
-.connected-repositories-heading p {
-	margin: 0;
-}
-
-.connected-repositories-heading h2 {
-	font-size: 18px;
-	letter-spacing: -0.02em;
-}
-
-.connected-repositories-heading p {
-	max-width: 680px;
-	margin-top: 5px;
-	color: var(--text-muted);
-	font-size: var(--fs-small);
-}
-
-.connected-repositories {
-	display: flex;
-	flex-direction: column;
-	gap: 14px;
-}
-
-.connector-empty {
-	display: flex;
-	min-height: 92px;
-	padding: var(--sp-5);
-	align-items: center;
-	justify-content: center;
-	gap: var(--sp-3);
-	border: 1px dashed var(--border-strong);
-	border-radius: var(--r-2);
-	color: var(--text-muted);
-}
-
-.connector-empty div {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-}
-
-.connector-empty strong {
-	color: var(--text);
-	font-size: var(--fs-small);
-}
-
-.connector-empty span {
-	font-size: var(--fs-caption);
-}
-
 /* §11.6: the empty state's own next step sits under the sentence naming it. */
-.connector-empty div > button {
-	align-self: flex-start;
-	margin-top: var(--sp-2);
-}
 
 .world-document-meta,
 .world-document-meta > div {
@@ -866,10 +705,6 @@
 
 	.world-document .sui-markdown-editor .milkdown .ProseMirror {
 		padding: 24px 20px 80px;
-	}
-
-	.connectors-content {
-		padding: 26px 14px 80px;
 	}}
 
 /* Wave 10 — the admin dev-tools panel (§2b/§2d): chat-attached chrome. */
@@ -943,10 +778,6 @@
 
 /* The unknown-repository arrival is a single opening notice. */
 .app-shell .smithers-transcript[data-repository-missing] .sui-chat-messages > :first-child { margin-top: 0; }
-/* The signup headline sits at the top, where the landing page's tagline lands. */
-.app-shell .smithers-transcript[data-signup] .sui-chat-messages > :first-child { margin-top: 0; }
-/* The first-run card alone sits at the top too; the first conversation entry restores bottom anchoring (App.tsx firstRunOnly). */
-.app-shell .smithers-transcript[data-first-run] .sui-chat-messages > :first-child { margin-top: 0; }
 /* Lesson lines are centered; conversation bubbles retain normal reading alignment. */
 .chat-run-timeline {
   flex: none;

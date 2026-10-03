@@ -1,10 +1,10 @@
+import { cardAvailable } from "../CardAvailability"
 import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
 import { releaseInterruptedApproval } from "../ApprovalRecovery"
 import { lostActRefusal } from "../BrowserWriteFailure"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { AGENT_RUNTIME_CONTEXT_VERSION } from "@smthrs/rpc/AgentContext"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
-import { setupCandidate, storedSetupCandidate } from "@smthrs/rpc/RepositorySetup"
 import type { AgentChatMessage,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
 import { agentRefusalText } from "@smthrs/rpc/RefusalCopy"
@@ -21,7 +21,6 @@ import { smithersInstructions,STANDING_INSTRUCTION_TEXT } from "../Instructions"
 import { commandSelectRequest,disclosedCommandNames,pinnedCommandNames,QUERY_DISCLOSURE_LIMIT,selectFailureText } from "../CommandSelection"
 import { activeCatalogRepositoryId,activeRepositoryId } from "../RepoContext"
 import { currentRepositoryUpdate } from "../RepositoryContext"
-import { setupContextSummary } from "./repositorySetup"
 import {
 impossibleAskOf,
 renderedAskTurnText,
@@ -32,7 +31,6 @@ toolResultLaunchedRun
 } from "../RunClaims"
 import { toolActLine } from "../ToolActLine"
 import { WORLD_BODY_BUDGET,worldContextDocuments } from "../WorldContext"
-import { cardAvailable } from "../CardAvailability"
 import { isRuntimeOwnedCard } from "../isRuntimeOwnedCard"
 import type { ActiveTurn,ControllerContext } from "./context"
 import type { FailureController } from "./failures"
@@ -254,14 +252,6 @@ export const createTurnController = (
             kind: card.payload.workspaceKind ?? "unknown", status: card.payload.status,
             facet: card.payload.facet ?? "terminal",
           } } : {}),
-          /*
-           * The open setup's own draft. Asked "what will run automatically?"
-           * beside an issues card whose research, duplicates and reproduce
-           * steps were all automatic, the model answered "Nothing runs
-           * automatically": the draft reached it only through setup.guide,
-           * which it had no reason to call for an ordinary question.
-           */
-          ...(card.kind === "repository-setup" ? { setup: setupContextSummary(card.payload) } : {}),
         })),
       version: AGENT_RUNTIME_CONTEXT_VERSION,
       product: "smithers",
@@ -371,13 +361,9 @@ export const createTurnController = (
    * truth — so the model's offers are bounded by what actually exists, and a
    * workflow is never presented as laundering an effect the catalog lacks.
    */
-  const turnInstructions = (context: AgentRuntimeContext): string => {
+  const turnInstructions = (): string => {
     const identity = store.collections.identitySessions.get("identity")
-    const signedIn = identity?.state === "signed-in"
     const githubConnected = hasGitHubIdentity(identity, identityProviderFor(ctx.services))
-    const recent = new Set(context.recentCards?.map(card => card.id))
-    const prompt = contextMessages().filter(message => "role" in message && message.role === "user").at(-1)
-    const mentioned = (id: string) => prompt !== undefined && "content" in prompt && prompt.content.includes(id)
     const catalog = agentVisibleCatalog(ctx.commands.callable())
     return smithersInstructions(catalog, {
       // The bootstrap is the one authority for the mode: the desktop shell's row says native; every web origin, hosted or self-hosted, is the web app.
@@ -388,17 +374,6 @@ export const createTurnController = (
       },
       localRepositories: [...new Set([...store.collections.connectors.values()].map(connector => connector.name))],
       localRepositoriesAvailable: false,
-      repositorySetups: !signedIn ? [] : [...store.collections.cards.values()]
-        .filter(card => inConversation(card, conversationTabIdOf(store.session())) && (recent.has(card.id) || mentioned(card.id)))
-        .sort((left, right) => Number(mentioned(left.id)) - Number(mentioned(right.id)) || left.ordinal - right.ordinal)
-        .flatMap(card => {
-          if (card.kind !== "repository-setup" || card.payload.owner !== identity.login) return []
-          const { repo, job, revision, inspectedAt, active } = card.payload
-          const digest = setupCandidate(card.payload)
-          return [{ cardId: card.id, repo, job, revision, digest, inspectedAt,
-            state: active?.enabled && active.revision === revision && storedSetupCandidate(card.payload, active.digest) ? "enabled" as const
-              : active?.enabled === false ? "paused" as const : "draft" as const }]
-        })
     }, {
       pinned: pinnedCommandNames(STANDING_INSTRUCTION_TEXT, catalog),
       disclosed: disclosedCommandNames(store.agentContextSnapshot().messages)
@@ -413,7 +388,7 @@ export const createTurnController = (
    */
   const composeTurn = (): { readonly context: AgentRuntimeContext; readonly instructions: string } => {
     const context = agentRuntimeContext()
-    return { context, instructions: turnInstructions(context) }
+    return { context, instructions: turnInstructions() }
   }
 
   /*

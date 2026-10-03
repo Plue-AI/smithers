@@ -1,12 +1,9 @@
 /*
- * box.select real-host Inbox resume (#2474): with several boxes of one
- * repository, Inbox renders the box pick for exactly those boxes. Nothing
- * reaches a box before the pick; Submit selects the chosen box and reads the
- * Inbox from it once, and a second Submit repeats nothing. A box gone by
- * Submit selects and reads nothing. The agent door keeps its refusal
- * (state/BoxPick.test.ts); no box is created or chosen for the person.
+ * Inbox reads stay scoped to one real branch. Multiple boxes refuse before
+ * any RPC; a single remaining box or explicit repository selection supplies
+ * the target, independently verified by the host's approvals readback.
  */
-import type { APIRequestContext, Locator, Page, Request } from "@playwright/test"
+import type { APIRequestContext, Page, Request } from "@playwright/test"
 import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { awaitBoot, expect, productUrl, realApi } from "./support/test"
@@ -121,17 +118,6 @@ const openRepository = async (page: Page, repo: OwnedRepository, boxes: readonly
   await listed
 }
 
-const offered = async (form: Locator): Promise<string[]> =>
-  (await form.getByTestId("flow-form-workspaceId").locator("option").evaluateAll(options =>
-    options.map(option => (option as HTMLOptionElement).value))).filter(value => value !== "").sort()
-
-/** Pick `box` in the rendered form and Submit it. */
-const pick = async (form: Locator, box: Box): Promise<void> => {
-  await form.getByTestId("flow-form-workspaceId").selectOption(box.id)
-  await expect(form.getByTestId("flow-form-submit")).toBeEnabled()
-  await form.getByTestId("flow-form-submit").click()
-}
-
 /** The chosen box answers the Inbox read, and the card says so; a second Submit reads nothing more. */
 const expectInboxOnce = async (page: Page, request: APIRequestContext, repo: OwnedRepository, calls: WorkflowCall[], chosen: Box): Promise<Record<string, unknown>> => {
   const inbox = page.locator('.smithers-card[data-kind="approvals-inbox"]').last()
@@ -147,24 +133,17 @@ const expectInboxOnce = async (page: Page, request: APIRequestContext, repo: Own
   const readbackBody = await readback.json() as { readonly ok?: unknown; readonly payload?: { readonly rows?: unknown } }
   expect(readbackBody.ok).toBe(true)
   expect(readbackBody.payload?.rows).toEqual([])
-  const settled = calls.length
-  const readsBefore = inboxReads(calls).length
-  await runSlash(page, "/form.submit form-box.select")
-  await expect(page.getByText("The form form-box.select was already submitted.").last()).toBeVisible()
-  expect(calls.slice(settled).filter(call => call.workspaceId !== undefined && call.workspaceId !== chosen.id)).toEqual([])
-  expect(inboxReads(calls).length).toBe(readsBefore)
-  expect(await page.locator('.smithers-card[data-kind="approvals-inbox"]').count()).toBe(1)
   return { status: readback.status(), body: readbackBody, reads: reads.length }
 }
 
-authenticatedTest("box.select real-host Inbox resume: several running boxes, one gone by Submit", scenario("box.select.inbox-running", {
+authenticatedTest("Inbox scope: several running boxes, one gone by Submit", scenario("approvals.inbox-running-scope", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:box.select", "action:approvals.list", "host:production", "path:success", "path:error",
-    "door:slash", "door:user-only", "dimension:ambiguous-box", "dimension:gone-box", "dimension:no-repeat",
+    "action:approvals.list", "host:production", "path:success", "path:error",
+    "door:slash", "dimension:ambiguous-box", "dimension:gone-box",
     "evidence:workflow-requests-and-inbox-readback"
   ],
-  description: "Two running boxes: Inbox offers exactly both and touches neither; a box deleted before Submit selects and reads nothing; the other box is selected and read once, and re-Submit repeats nothing."
+  description: "Two running boxes: Inbox refuses an ambiguous scope without reading either; deleting one leaves a single live target whose Inbox is verified by independent readback."
 }), async ({ page, request }, testInfo) => {
   testInfo.setTimeout(1_200_000)
   await withOwnedRepository(page, request, repo => withBoxes(page, request, repo, ["pick-a", "pick-b"], "running", async ([gone, chosen]) => {
@@ -174,18 +153,13 @@ authenticatedTest("box.select real-host Inbox resume: several running boxes, one
     let readback: Record<string, unknown> | undefined
     try {
       await runSlash(page, `/approvals.list ${repo.fullName}`)
-      const form = page.locator('form.flow-form[data-flow-name="box.select"]').last()
-      // A form this browser kept from an earlier session shares the card id until this render replaces it.
-      await expect.poll(() => offered(form), { timeout: 60_000 }).toEqual([gone!.id, chosen!.id].sort())
+      await expect(page.getByText(`Select a box of ${repo.fullName} first.`).last()).toBeVisible()
       expect(calls).toEqual([])
 
       await runSlash(page, `/box.delete ${gone!.id} ${gone!.name}`)
       await expect.poll(async () => (await realApi(page, request, "GET", gone!.path)).status(), { timeout: 120_000 }).toBe(404)
-      await pick(form, gone!)
-      await expect(page.getByText("That box is no longer available.").last()).toBeVisible()
       expect(calls).toEqual([])
-
-      await pick(form, chosen!)
+      await runSlash(page, `/approvals.list ${repo.fullName}`)
       readback = await expectInboxOnce(page, request, repo, calls, chosen!)
     } finally {
       await attachJson(testInfo, "box-select-inbox-running", { repo: repo.fullName, gone: gone!.id, chosen: chosen!.id, calls, answers, readback })
@@ -193,14 +167,14 @@ authenticatedTest("box.select real-host Inbox resume: several running boxes, one
   }))
 })
 
-authenticatedTest("box.select real-host Inbox resume: several suspended boxes", scenario("box.select.inbox-suspended", {
+authenticatedTest("Inbox scope: several suspended boxes", scenario("approvals.inbox-suspended-scope", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:box.select", "action:approvals.list", "host:production", "path:success",
-    "door:slash", "door:user-only", "dimension:resumable-box", "dimension:no-repeat",
+    "action:approvals.list", "action:repo.select", "host:production", "path:success",
+    "door:slash", "dimension:resumable-box",
     "evidence:workflow-requests-and-inbox-readback"
   ],
-  description: "Two suspended boxes: Inbox offers exactly both and touches neither; the chosen box is resumed and read once, the other stays suspended, and re-Submit repeats nothing."
+  description: "Two suspended boxes: Inbox refuses an ambiguous scope without touching either; explicit repository branch selection scopes the read to one and leaves the other suspended."
 }), async ({ page, request }, testInfo) => {
   testInfo.setTimeout(1_500_000)
   await withOwnedRepository(page, request, repo => withBoxes(page, request, repo, ["pick-a", "pick-b"], "suspended", async ([other, chosen]) => {
@@ -210,11 +184,11 @@ authenticatedTest("box.select real-host Inbox resume: several suspended boxes", 
     let readback: Record<string, unknown> | undefined
     try {
       await runSlash(page, `/approvals.list ${repo.fullName}`)
-      const form = page.locator('form.flow-form[data-flow-name="box.select"]').last()
-      await expect.poll(() => offered(form), { timeout: 60_000 }).toEqual([other!.id, chosen!.id].sort())
+      await expect(page.getByText(`Select a box of ${repo.fullName} first.`).last()).toBeVisible()
       expect(calls).toEqual([])
 
-      await pick(form, chosen!)
+      await runSlash(page, `/repo.select ${repo.fullName}#workspace:${chosen!.id}`)
+      await runSlash(page, `/approvals.list ${repo.fullName}`)
       readback = await expectInboxOnce(page, request, repo, calls, chosen!)
       expect(await readStatus(page, request, other!.path)).toBe("suspended")
     } finally {

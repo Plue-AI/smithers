@@ -38,7 +38,7 @@ const fixture = async () => {
     for (const listener of listeners) listener(admitted)
   }
   const pendingCall = (callId = "note-call") => emit({ runId, type: "tool_call", call_id: callId, name: "commands",
-    arguments: JSON.stringify({ action: "execute", name: "world.new-note" }) })
+    arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" }) })
   const answers = () => [...store.collections.messages.values()].filter(row => row.role === "smithers" && row.act === undefined)
   return { store, starts, requests, emit, pendingCall, runId, answers }
 }
@@ -112,8 +112,8 @@ test("ordinary tool completion continues once with the exact result and bills on
   expect(f.starts[1]!.runId).toBe(f.runId)
   expect(f.starts[1]!.messages.filter(message => "type" in message)).toEqual([
     { type: "function_call", call_id: "note-call", name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "world.new-note" }) },
-    { type: "function_call_output", call_id: "note-call", output: "executed /world.new-note" }
+      arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" }) },
+    { type: "function_call_output", call_id: "note-call", output: "executed /wiki.new-note" }
   ])
   expect([...f.store.collections.worldDocuments.values()]).toHaveLength(1)
   expect(f.requests.filter(path => path === "/api/billing/balance")).toHaveLength(0)

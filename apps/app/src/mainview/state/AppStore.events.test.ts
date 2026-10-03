@@ -1,5 +1,6 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
-import { initialSetup, setupActivationProblems, setupCandidate, storedSetupCandidate } from "@smthrs/rpc/RepositorySetup"
+import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import type { StorageApi } from "@tanstack/db"
 import { Database } from "bun:sqlite"
 import { afterEach,describe,expect,test } from "bun:test"
@@ -192,16 +193,15 @@ describe("the live store's authoritative event path", () => {
     expect(restored.session().signup).toEqual(saved)
     await restored.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other-owner",
       provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
-    expect(restored.session().signup).toEqual({ stage: "account", door: "github", account: "other-owner",
-      question: 0, answers: {}, draft: { account: "other-owner" } })
+    expect(restored.session().signup).toEqual({ stage: "sign-in", question: 0, answers: {}, draft: {} })
     expect((await restored.verifyState()).valid).toBe(true)
   })
 
-  test("a v28 health card drops retired billing fields while its evidence and Chat survive reopen", async () => {
+  test("a v28 health card retires while Chat survives reopen", async () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: "admin-health", kind: "admin-health", title: "Health", status: "error", createdAt: 1, ordinal: 1,
-      payload: { services: [{ name: "database", status: "failed", detail: "Offline" }] }
+      id: "admin-health", kind: "file", title: "Health", status: "error", createdAt: 1, ordinal: 1,
+      payload: { repo: "org/repo", path: "health.json", content: "", truncated: false }
     } }).isPersisted.promise
     await store.dispatch({ type: "composer.changed", actor: "user", draft: "Preserved chat" }).isPersisted.promise
     await store.compactEvents()
@@ -210,7 +210,7 @@ describe("the live store's authoritative event path", () => {
       if (Array.isArray(value)) return value.map(legacy)
       if (value === null || typeof value !== "object") return value
       const row = Object.fromEntries(Object.entries(value).map(([key, field]) => [key, legacy(field)]))
-      if (row.kind === "admin-health") row.payload = { ...(row.payload as object), charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-29T00:00:00Z" }
+      if (row.id === "admin-health") { row.kind = "admin-health"; row.payload = { services: [{ name: "database", status: "failed", detail: "Offline" }], charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-29T00:00:00Z" } }
       return row
     }
     const snapshot = legacy(structuredClone(old.checkpoint.snapshot)) as typeof old.checkpoint.snapshot
@@ -226,14 +226,14 @@ describe("the live store's authoritative event path", () => {
     })
     expect(JSON.stringify(envelopeRows(storage))).toContain("lifetimeChargedUsd")
     const upgraded = await open(storage)
-    expect(upgraded.collections.cards.get("admin-health")?.payload).toEqual({ services: [{ name: "database", status: "failed", detail: "Offline" }] })
+    expect(upgraded.collections.cards.get("admin-health")).toMatchObject({ kind: "retired", title: "", status: "acted", payload: {} })
     expect(upgraded.session().draft).toBe("Preserved chat")
     expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
-    expect((await upgraded.eventHistory()).checkpoint.snapshot.cards).toContainEqual(expect.objectContaining({ id: "admin-health", payload: { services: [{ name: "database", status: "failed", detail: "Offline" }] } }))
+    expect((await upgraded.eventHistory()).checkpoint.snapshot.cards).toContainEqual(expect.objectContaining({ id: "admin-health", kind: "retired", payload: {} }))
     expect((await upgraded.verifyState()).valid).toBe(true)
     await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
     const reopened = await open(storage)
-    expect(reopened.collections.cards.get("admin-health")?.payload).toEqual({ services: [{ name: "database", status: "failed", detail: "Offline" }] })
+    expect(reopened.collections.cards.get("admin-health")).toMatchObject({ kind: "retired", payload: {} })
     expect(reopened.session().draft).toBe("Preserved chat")
     expect((await reopened.verifyState()).valid).toBe(true)
   })
@@ -348,6 +348,7 @@ describe("the live store's authoritative event path", () => {
       const store = await open(storage)
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
         provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "account", door: "github", account: "new-owner", draft: { account: "new-owner" } } }).isPersisted.promise
       const saved = store.session().signup!
       expect(writeEntityRecovery(recovery, { key: "signup", revision: 1, value: { kind: "signup", signup: {
         ...saved, draft: { ...saved.draft, name: "PRIVATE STALE EDIT" }
@@ -406,155 +407,48 @@ describe("the live store's authoritative event path", () => {
     }
   })
 
-  test("version 6 upgrade retains setup policy and a later pending guide survives reopen", async () => {
+  for (const version of [4, 5, 6, 7]) test(`version ${version} upgrades old setup cards and frame snapshots into inert history`, async () => {
     const storage = memoryStorage(), store = await open(storage)
-    const payload = initialSetup("org/repo", "issues", "alice")
-    payload.active = { revision: 1, digest: setupCandidate(payload), registrationId: "issues", sourceRevision: "source", enabled: false, owned: true }
-    await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload } }).isPersisted.promise
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "Keep the conversation" }).isPersisted.promise
+    await store.dispatch({ type: "card.upsert", actor: "user", card: {
+      id: "old-setup", kind: "file", title: "Old setup", status: "active", createdAt: 1, ordinal: 1,
+      payload: { repo: "org/repo", path: "old.json", content: "", truncated: false }
+    } }).isPersisted.promise
+    await store.dispatch({ type: "card.maximized", actor: "user", id: "old-setup" }).isPersisted.promise
     await store.compactEvents()
     const old = await store.eventHistory()
-    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 6 }
-    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
-    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
-    editEnvelope(storage, entries => {
-      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 6 }], ["app-event-checkpoints", checkpoint]] as const) {
-        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
-      }
-    })
-    const upgraded = await open(storage), card = upgraded.collections.cards.get("setup")!
-    if (card.kind !== "repository-setup") throw Error("Missing setup")
-    expect(card.payload).toEqual(payload)
-    expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
-    const guidance = { id: "6405cbb6-c18f-452e-99db-adb1283ee18a", state: "requested" as const }
-    await upgraded.dispatch({ type: "card.upsert", actor: "user", card: { ...card, payload: { ...card.payload, guidance } } }).isPersisted.promise
-    await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
-    const reopened = await open(storage)
-    expect(reopened.collections.cards.get("setup")).toMatchObject({ payload: { guidance, active: payload.active } })
-    expect((await reopened.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
-    expect((await reopened.verifyState()).valid).toBe(true)
-  })
-
-  test("version 5 upgrade preserves a chore policy; its observed next execution survives reopen without granting evidence", async () => {
-    const storage = memoryStorage(), store = await open(storage)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
-    const payload = initialSetup("org/repo", "chores", "alice")
-    payload.draft.schedule = "0 9 * * *"
-    payload.active = { revision: 1, digest: setupCandidate(payload), registrationId: "chore", sourceRevision: "immutable-source", enabled: true, owned: true }
-    payload.recovery = { id: "recover", baseRevision: 1, baseDigest: setupCandidate(payload), state: "completed", registrationState: "known" }
-    await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "chore", kind: "repository-setup", title: "Automate a chore", status: "active", createdAt: 1, ordinal: 1, payload } }).isPersisted.promise
-    await store.compactEvents()
-    const old = await store.eventHistory()
-    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 5 }
-    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
-    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
-    editEnvelope(storage, entries => {
-      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 5 }], ["app-event-checkpoints", checkpoint]] as const) {
-        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
-      }
-    })
-    const restored = await open(storage), card = restored.collections.cards.get("chore")!
-    if (card.kind !== "repository-setup") throw Error("Chore was not retained")
-    expect(card.payload).toEqual(payload)
-    expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
-    expect((await restored.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
-    await restored.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload,
-      active: { ...card.payload.active!, schedule: { expression: "0 9 * * *", nextFireAt: "2026-09-18T09:00:00Z" } }
-    } } }).isPersisted.promise
-    await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
-    const reopened = await open(storage), resumed = reopened.collections.cards.get("chore")!
-    if (resumed.kind !== "repository-setup") throw Error("Chore was not retained")
-    expect(resumed.payload.active?.schedule?.nextFireAt).toBe("2026-09-18T09:00:00Z")
-    expect(resumed.payload.evaluation).toBeUndefined()
-    expect(resumed.payload.trial).toBeUndefined()
-    expect((await reopened.verifyState()).valid).toBe(true)
-  })
-
-  test("version 4 upgrade preserves setup cases and an unfinished receipt; recovery markers survive the next reopen", async () => {
-    const storage = memoryStorage(), store = await open(storage)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
-    const payload = initialSetup("org/repo", "issues", "alice")
-    payload.draft.cases = [{ id: "retained-case", name: "Retained case", input: "An issue", expected: "A source-bound answer", required: true }]
-    const candidate = setupCandidate(payload)
-    payload.request = { id: "retained-request", operation: "evaluate", revision: 1, digest: candidate, state: "running" }
-    payload.receipt = { requestId: "retained-request", operation: "evaluate", revision: 1, digest: candidate, runId: "retained-run", phase: "waiting", updatedAt: 1, results: [], evidence: ["run:retained-run"] }
-    await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload } }).isPersisted.promise
-    await store.compactEvents()
-    const old = await store.eventHistory()
-    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 4 }
-    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
-    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
-    editEnvelope(storage, entries => {
-      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 4 }], ["app-event-checkpoints", checkpoint]] as const) {
-        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
-      }
-    })
-    const restored = await open(storage), card = restored.collections.cards.get("setup")!
-    if (card.kind !== "repository-setup") throw Error("Setup was not retained")
-    expect(card.payload).toEqual(payload)
-    expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
-    expect((await restored.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
-    await restored.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload,
-      request: { ...card.payload.request!, observeOnly: true }, recovery: { id: "recover", baseRevision: 1, baseDigest: candidate, state: "requested", registrationState: "unknown", adoptDraft: false }
-    } } }).isPersisted.promise
-    await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
-    const reopened = await open(storage), resumed = reopened.collections.cards.get("setup")!
-    if (resumed.kind !== "repository-setup") throw Error("Setup was not retained")
-    expect(resumed.payload.request?.observeOnly).toBe(true)
-    expect(resumed.payload.recovery?.state).toBe("requested")
-    expect(resumed.payload.receipt?.phase).toBe("waiting")
-    expect(resumed.payload.trial).toBeUndefined()
-    expect(resumed.payload.evaluation).toBeUndefined()
-    expect((await reopened.verifyState()).valid).toBe(true)
-  })
-
-  test("version 7 upgrade decodes a chore draft stored before the chore event existed", async () => {
-    const storage = memoryStorage(), store = await open(storage)
-    const payload = initialSetup("org/repo", "chores", "alice")
-    payload.draft.schedule = "0 9 * * *"
-    payload.draft.steps = payload.draft.steps.map(step => ({ ...step, mode: "approved" as const }))
-    payload.draft.cases = [{ id: "retained-chore", name: "Retained chore", input: "A weekly tidy", expected: "A scoped maintenance change", required: true }]
-    // The digest the pre-stack code at 1f7d9b40bcc5 wrote into this card, not one this build recomputes.
-    const digestBeforeChoreEvents = "4ae1937060bb181a4d1e1a910fab2b986e4139b8513c296f4c7279fd532686bd"
-    const evidence = (operation: "evaluate" | "trial") => ({ requestId: `${operation}-request`, runId: `${operation}-run`,
-      revision: 1, operation, phase: "completed" as const, digest: digestBeforeChoreEvents, updatedAt: 1,
-      results: [{ caseId: "retained-chore", status: "passed" as const, observed: "A scoped maintenance change", evidence: ["execution:retained-chore"], executionId: "retained-chore" }],
-      evidence: [`run:${operation}-run`], sourceRevision: "immutable-source" })
-    payload.evaluation = evidence("evaluate")
-    payload.trial = evidence("trial")
-    payload.active = { revision: 1, digest: digestBeforeChoreEvents, registrationId: "chore", sourceRevision: "immutable-source", enabled: true, owned: true }
-    await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "chore", kind: "repository-setup", title: "Automate a chore", status: "active", createdAt: 1, ordinal: 1, payload } }).isPersisted.promise
-    await store.compactEvents()
-    const old = await store.eventHistory()
-    const withoutChoreEvent = (value: unknown): unknown => {
-      if (Array.isArray(value)) return value.map(withoutChoreEvent)
+    const payload = initialSetup("org/repo", version === 5 || version === 7 ? "chores" : "issues", "alice")
+    const legacy = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(legacy)
       if (value === null || typeof value !== "object") return value
-      return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => key !== "choreEvent").map(([key, field]) => [key, withoutChoreEvent(field)]))
+      const row = Object.fromEntries(Object.entries(value).map(([key, field]) => [key, legacy(field)]))
+      if (row.id === "old-setup" && row.kind === "file") return { ...row, kind: "repository-setup", payload }
+      return row
     }
-    const snapshot = withoutChoreEvent(structuredClone(old.checkpoint.snapshot)) as typeof old.checkpoint.snapshot
+    const snapshot = legacy(structuredClone(old.checkpoint.snapshot)) as typeof old.checkpoint.snapshot
     const stateHash = appProjectionHash(snapshot as unknown as Parameters<typeof appProjectionHash>[0])
-    const head = { ...old.head, projectorVersion: 7, stateHash }
-    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 7, snapshot, stateHash }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: version, snapshot, stateHash }
     const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
     await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
     editEnvelope(storage, entries => {
-      entries["smithers-mvp.app-cards"] = JSON.stringify(withoutChoreEvent(JSON.parse(entries["smithers-mvp.app-cards"]!)))
-      for (const [id, data] of [["app-event-heads", head], ["app-event-checkpoints", checkpoint]] as const) {
+      for (const key of ["smithers-mvp.app-cards", "smithers-mvp.app-frames"]) entries[key] = JSON.stringify(legacy(JSON.parse(entries[key]!)))
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: version, stateHash }], ["app-event-checkpoints", checkpoint]] as const) {
         entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
       }
     })
-    const restored = await open(storage), card = restored.collections.cards.get("chore")!
-    if (card.kind !== "repository-setup") throw Error("Chore was not retained")
-    expect(card.payload.draft.choreEvent).toBe("none")
-    expect(card.payload).toEqual(payload)
-    expect(storedSetupCandidate(card.payload, card.payload.active!.digest)).toBe(true)
-    expect(setupCandidate(card.payload)).not.toBe(card.payload.active!.digest)
-    // The registration still names this draft. Its proof does not: a receipt
-    // carries the digest it was issued at, so the card re-proves this candidate.
-    expect(setupActivationProblems(card.payload)).toEqual(["Run evals for this draft.", "Complete the live trial for this draft."])
+    const restored = await open(storage)
+    expect(restored.collections.cards.get("old-setup")).toMatchObject({ kind: "retired", payload: {}, title: "", status: "acted" })
+    expect(restored.collections.frames.get(cardFrameId(restored.session().activeBranchId!, "old-setup"))?.snapshot?.cards.find(card => card.id === "old-setup"))
+      .toMatchObject({ kind: "retired", payload: {} })
+    expect(restored.session().draft).toBe("Keep the conversation")
     expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
-    expect((await restored.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect((await restored.verifyState()).valid).toBe(true)
+    await restored.dispatch({ type: "composer.changed", actor: "user", draft: "Still usable" }).isPersisted.promise
+    await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
+    const reopened = await open(storage)
+    expect(reopened.collections.cards.get("old-setup")).toMatchObject({ kind: "retired", payload: {} })
+    expect(reopened.session().draft).toBe("Still usable")
+    expect((await reopened.verifyState()).valid).toBe(true)
   })
 
   test("version 8 upgrade drops the retired sidebar state", async () => {
@@ -654,7 +548,7 @@ describe("the live store's authoritative event path", () => {
     const restored = await open(storage)
     const history = await restored.eventHistory()
     expect(history.checkpoint.reason).toBe("projector-upgrade")
-    expect(history.head.projectorVersion).toBe(32)
+    expect(history.head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect(history.head.streamId).not.toBe(old.head.streamId)
     expect([...restored.collections.messages.values()].some(message => message.text === "Keep my work")).toBe(true)
     expect(restored.collections.cards.get("kept")?.payload).toMatchObject({ content: "retained" })
@@ -778,7 +672,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 32, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 33, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -885,13 +779,13 @@ describe("the live store's authoritative event path", () => {
     expect(restored.session().draft).toBe("kept")
   })
 
-  test("version 24 checkpoint upgrades without job observations and preserves the conversation and setup draft", async () => {
+  test("version 24 checkpoint upgrades without job observations and preserves conversation alongside retired setup", async () => {
     const storage = memoryStorage(), store = await open(storage)
     const setup = initialSetup("org/repo", "issues", "maintainer")
     await store.dispatch({ type: "composer.changed", actor: "user", draft: "Keep this conversation" }).isPersisted.promise
-    await store.dispatch({ type: "card.upsert", actor: "user", card: {
+    await store.dispatch({ type: "card.upsert", actor: "user", card: CardSchema.parse({
       id: "kept-setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: setup
-    } }).isPersisted.promise
+    }) }).isPersisted.promise
     await store.compactEvents()
     const old = await store.eventHistory()
     const { repositoryJobObservations: _observations, ...snapshot } = structuredClone(old.checkpoint.snapshot)
@@ -915,14 +809,14 @@ describe("the live store's authoritative event path", () => {
     expect(history.head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect(history.head.streamId).not.toBe(old.head.streamId)
     expect(restored.session().draft).toBe("Keep this conversation")
-    expect(restored.collections.cards.get("kept-setup")).toMatchObject({ payload: setup })
+    expect(restored.collections.cards.get("kept-setup")).toMatchObject({ kind: "retired", payload: {} })
     expect(restored.collections.repositoryJobObservations.size).toBe(0)
     expect((await restored.verifyState()).valid).toBe(true)
     await restored.dispatch({ type: "composer.changed", actor: "user", draft: "Still usable" }).isPersisted.promise
     await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
     const again = await open(storage)
     expect(again.session().draft).toBe("Still usable")
-    expect(again.collections.cards.get("kept-setup")).toMatchObject({ payload: setup })
+    expect(again.collections.cards.get("kept-setup")).toMatchObject({ kind: "retired", payload: {} })
     expect((await again.verifyState()).valid).toBe(true)
   })
 
@@ -1084,10 +978,10 @@ describe("the live store's authoritative event path", () => {
     expect(envelopeRows(storage)).toEqual(before)
   })
 
-  test.each<{ name: string; displayName: string | undefined; draft: Record<string, string> }>([
-    { name: "recorded before displayName joined it", displayName: undefined, draft: { account: "alice" } },
-    { name: "carrying displayName", displayName: "Alice Park", draft: { account: "alice", name: "Alice Park" } }
-  ])("an identity event $name replays on this projector, unchanged and unupgraded", async ({ displayName, draft }) => {
+  test.each<{ name: string; displayName: string | undefined }>([
+    { name: "recorded before displayName joined it", displayName: undefined },
+    { name: "carrying displayName", displayName: "Alice Park" }
+  ])("an identity event $name replays on this projector, unchanged and unupgraded", async ({ displayName }) => {
     const storage = memoryStorage()
     const before = await open(storage)
     await before.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
@@ -1105,9 +999,10 @@ describe("the live store's authoritative event path", () => {
     const replayed = await restored.eventHistory()
     expect(replayed.checkpoint.reason).not.toBe("projector-upgrade")
     expect(replayed.head).toEqual(written.head)
-    expect(replayAppEvents(replayed.checkpoint, replayed.events, replayed.head).snapshot.sessions[0]?.signup?.draft).toEqual(draft)
+    expect(replayAppEvents(replayed.checkpoint, replayed.events, replayed.head).snapshot.sessions[0]?.signup).toBeUndefined()
     expect((await restored.verifyState()).valid).toBe(true)
-    expect(restored.session().signup).toEqual({ stage: "account", door: "github", question: 0, account: "alice", answers: {}, draft })
+    expect(restored.session().signup).toBeUndefined()
+    expect(restored.collections.identitySessions.get("identity")).toMatchObject({ state: "signed-in", login: "alice" })
   })
 
   test("an identity event whose displayName is empty is refused before it is recorded", async () => {
@@ -1228,13 +1123,15 @@ describe("the live store's authoritative event path", () => {
 
   test("draft coalescing commits one immutable fact with the final input", async () => {
     const store = await open(memoryStorage())
+    const baseline = await store.eventHistory()
     const one = store.dispatch({ type: "composer.changed", actor: "user", draft: "a" })
     const two = store.dispatch({ type: "composer.changed", actor: "user", draft: "abc" })
     expect(one).toBe(two)
     await one.isPersisted.promise
     const history = await store.eventHistory()
-    expect(history.events.map(event => event.type)).toEqual(["palette.changed", "composer.changed"])
-    expect(decodeEventValue(history.events[1]!.input)).toEqual({ type: "composer.changed", actor: "user", draft: "abc" })
+    expect(history.events.map(event => event.type)).toEqual([...baseline.events.map(event => event.type), "composer.changed"])
+    expect(history.events.slice(0, baseline.events.length)).toEqual([...baseline.events])
+    expect(decodeEventValue(history.events[baseline.events.length]!.input)).toEqual({ type: "composer.changed", actor: "user", draft: "abc" })
     expect((await store.verifyState()).valid).toBe(true)
   })
 
@@ -1312,6 +1209,7 @@ describe("the live store's authoritative event path", () => {
 
   test("concurrent accepted writes are not reported as projection corruption", async () => {
     const store = await open(memoryStorage())
+    const initialSequence = (await store.eventHistory()).head.sequence
     const before = store.verifyState()
     const accepted = store.dispatch({ type: "theme.changed", actor: "user", theme: "dark" }).isPersisted.promise
     const during = store.verifyState()
@@ -1320,7 +1218,7 @@ describe("the live store's authoritative event path", () => {
     const proofs = await Promise.all([before, during, after])
     await Promise.all([accepted, next])
     expect(proofs.every(proof => proof.valid)).toBe(true)
-    expect(proofs[2]?.sequence).toBe(3)
+    expect(proofs[2]?.sequence).toBe(initialSequence + 2)
   })
 
   test("failed commits reject their events and every optimistic dependent", async () => {

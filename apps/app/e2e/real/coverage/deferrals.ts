@@ -1,6 +1,3 @@
-import { admin } from "./deferrals/admin"
-import { agent } from "./deferrals/agent"
-import { app } from "./deferrals/app"
 import { approvals } from "./deferrals/approvals"
 import { billing } from "./deferrals/billing"
 import { box } from "./deferrals/box"
@@ -8,20 +5,15 @@ import { branches } from "./deferrals/branches"
 import { change } from "./deferrals/change"
 import { code } from "./deferrals/code"
 import { commits } from "./deferrals/commits"
-import { connect } from "./deferrals/connect"
 import { egress } from "./deferrals/egress"
 import { env } from "./deferrals/env"
-import { feature } from "./deferrals/feature"
 import { files } from "./deferrals/files"
 import { findings } from "./deferrals/findings"
 import { flow } from "./deferrals/flow"
-import { flows } from "./deferrals/flows"
 import { form } from "./deferrals/form"
 import { github } from "./deferrals/github"
 import { history } from "./deferrals/history"
-import { issueSweep } from "./deferrals/issueSweep"
 import { issues } from "./deferrals/issues"
-import { notifications } from "./deferrals/notifications"
 import { plugins } from "./deferrals/plugins"
 import { prs } from "./deferrals/prs"
 import { repo } from "./deferrals/repo"
@@ -29,10 +21,8 @@ import { repos } from "./deferrals/repos"
 import { runs } from "./deferrals/runs"
 import { search } from "./deferrals/search"
 import { secrets } from "./deferrals/secrets"
-import { setup } from "./deferrals/setup"
 import { triggers } from "./deferrals/triggers"
 import { wiki } from "./deferrals/wiki"
-import { workspace } from "./deferrals/workspace"
 
 /**
  * The reviewed ledger of built-in actions that have no real scenario.
@@ -45,17 +35,13 @@ import { workspace } from "./deferrals/workspace"
 
 /** Journeys the release depends on. Only a real scenario can account for them. */
 export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
-  "approval.approve", "approval.deny", "change.land", "repository.register", "secrets.connect", "secrets.connections",
-  "secrets.list", "secrets.revoke", "setup.configure", "setup.run", "signup.account", "signup.finish",
-  "signup.next", "signup.repo", "signup.set"
+  "approval.approve", "approval.deny", "change.land", "secrets.connect", "secrets.connections",
+  "secrets.list", "secrets.revoke"
 ]
 
 export type Deferral = "browser" | "diagnostics" | "owed"
 
 export const OWED_ACTIONS_BY_FAMILY = {
-  admin,
-  agent,
-  app,
   approvals,
   billing,
   box,
@@ -63,20 +49,15 @@ export const OWED_ACTIONS_BY_FAMILY = {
   change,
   code,
   commits,
-  connect,
   egress,
   env,
-  feature,
   files,
   findings,
   flow,
-  flows,
   form,
   github,
   history,
-  "issue-sweep": issueSweep,
   issues,
-  notifications,
   plugins,
   prs,
   repo,
@@ -84,22 +65,20 @@ export const OWED_ACTIONS_BY_FAMILY = {
   runs,
   search,
   secrets,
-  setup,
   triggers,
   wiki,
-  workspace,
 } as const
 
 export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>> = {
   /** Acts only on this browser's UI or storage; no host contract to break. */
   browser: [
-    "app.first-run.dismiss", "app.hint.dismiss",
+    "app.hint.dismiss", "card.history.back", "card.history.forward",
     "chat", "chat.dictate", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle",
     "chat.queue", "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload", "cloud.prompt", "flow.plan.select",
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
-    "history.view", "runs.burndown.filter", "runs.burndown.select", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
-    "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
-    "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit"
+    "history.view", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
+    "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
+    "toast.dismiss", "wiki.pane", "wiki.view"
   ],
   /** Developer tooling, not a user journey. */
   diagnostics: [

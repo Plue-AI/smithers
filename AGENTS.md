@@ -168,7 +168,7 @@ This applies equally to normal use and every tutorial/onboarding lesson.
   command must return before either finishes, chat must remain usable, and
   the toast must settle only with the job. Cover failure and duplicate input.
 
-Reference implementation: `apps/app/src/mainview/state/controller/repositorySetup.ts`.
+Reference implementation: `apps/app/src/mainview/state/controller/backgroundWork.ts`.
 Shared notifications: `apps/app/src/mainview/state/controller/failures.ts`.
 App-specific rules: `apps/app/AGENTS.md`.
 

@@ -13,11 +13,16 @@ import { nameOf } from "./registry"
 const unused = {} as CommandActions
 
 const bound = [...wikiSurfaceFlows(unused), ...wikiFlows(unused)]
-const shared: ReadonlyArray<AppOperation> = [...wikiSurfaceOperations, ...wikiOperations]
+const shared: ReadonlyArray<AppOperation> = [...wikiSurfaceOperations, ...wikiOperations].filter(operation => operation.name !== "wiki.ask")
 
 describe("GUI wiki flows", () => {
-  test("register exactly the shared operations, in their order", () => {
+  test("register exactly the retained shared operations, in their order", () => {
     expect(bound.map(nameOf)).toEqual(shared.map((declared) => declared.name))
+  })
+
+  test("the public wiki question operation remains available without an app door", () => {
+    expect(wikiOperations.some(operation => operation.name === "wiki.ask")).toBe(true)
+    expect(bound.map(nameOf)).not.toContain("wiki.ask")
   })
 
   test("take their input schema from the shared declaration", () => {

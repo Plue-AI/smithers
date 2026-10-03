@@ -33,18 +33,6 @@
 	border-radius: 0;
 }
 
-.card-tab {
-	flex: 1;
-	min-height: 0;
-	padding: 16px;
-	overflow: auto;
-}
-
-.card-tab-gone {
-	margin: 16px;
-	color: var(--bubble-meta, var(--text));
-}
-
 /* One row recipe: 32px, 8px inline padding, 8px radius. */
 .chrome-action {
 	display: flex;

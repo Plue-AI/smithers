@@ -76,7 +76,7 @@ describe("done frames feed the meter", () => {
     const listeners = new Set<(frame: AgentTurnFrame) => void>()
     const legs: ReadonlyArray<ReadonlyArray<AgentTurnFrame>> = [
       [
-        { runId: "", type: "tool_call", call_id: "c1", name: "commands", arguments: JSON.stringify({ action: "execute", name: "world.new-note" }) },
+        { runId: "", type: "tool_call", call_id: "c1", name: "commands", arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" }) },
         { runId: "", type: "done", reason: "tool_call", usage: { inputTokens: 1_000, outputTokens: 20, cachedInputTokens: 0 } }
       ],
       [

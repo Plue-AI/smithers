@@ -614,7 +614,7 @@ test("an unexpected TODO follow failure keeps its diagnostic out of the notice",
     clientErrors: { report: (_kind, error) => reports.push(String(error)), reported: () => reports.length }
   })
   await signIn(store)
-  await waitFor(() => fake.profileReads.length === 1)
+  expect(fake.profileReads).toEqual([])
   fake.set(snapshot(1, []))
   fake.handlers.set(`POST ${BASE}/todos`, async () => {
     failTodoWrite = true

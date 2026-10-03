@@ -1,3 +1,4 @@
 export const runs = [
-  "runs.continue", "runs.release", "runs.signal", "runs.takeover",
+  "runs.continue",
+  "runs.signal",
 ] as const

@@ -131,15 +131,14 @@ describe("every listed flow is a tool call", () => {
       admin: false,
       scopesPlain: null
     })
-    const outcome = await controller.commands.runForAgent("change.revert", "42")
+    const outcome = await controller.commands.runForAgent("runs.resume", "run-42")
     // The model's tool result is honest: asked, not done.
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" && outcome.value).toContain("confirm")
     const messages = [...store.collections.messages.values()]
-    const confirmation = messages.find((message) => message.action?.flow === "change.revert")
-    expect(confirmation?.action?.args).toBe("42")
-    // Nothing was reverted: no message reports a revert, only the ask.
-    expect(messages.some((message) => message.text.toLowerCase().includes("reverted"))).toBe(false)
+    const confirmation = messages.find((message) => message.action?.flow === "runs.resume")
+    expect(confirmation?.action?.args).toBe("run-42")
+    expect([...store.collections.runtimeRuns.values()]).toEqual([])
   })
 })
 

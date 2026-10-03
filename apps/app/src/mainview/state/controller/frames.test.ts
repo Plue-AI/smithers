@@ -111,36 +111,4 @@ describe("durable frame navigation", () => {
     expect(restored.session().maximizedCardId).toBe(card.id)
     restoredController.dispose()
   })
-  test("open-in-tab returns the address bar to the root frame, so a reload does not re-maximize the card", async () => {
-    const host = storage()
-    const history = memoryHistory()
-    const store = await createAppStore({ kind: "localStorage", storage: host })
-    const controller = createAppController(store, agent, { frameHistory: history })
-    const card = {
-      id: "status-2",
-      kind: "status" as const,
-      title: "Status",
-      status: "active" as const,
-      createdAt: 1,
-      ordinal: 0,
-      payload: { progress: 0.5 }
-    }
-    await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
-    controller.maximizeCard(card.id)
-    await settle()
-    expect(history.value()?.frameId).toBe(cardFrameId(DEFAULT_BRANCH_ID, card.id))
-
-    controller.openCardTab(card.id)
-    await settle()
-    expect(store.session().activeTabId).toBe(`card-${card.id}`)
-    expect(store.session().maximizedCardId).toBeNull()
-    expect(store.session().activeFrameId).toBe(rootFrameId(DEFAULT_BRANCH_ID))
-    expect(history.value()?.frameId).toBe(rootFrameId(DEFAULT_BRANCH_ID))
-
-    // Opening the tab of an already-embedded card leaves the frame alone.
-    controller.openCardTab(card.id)
-    await settle()
-    expect(history.value()?.frameId).toBe(rootFrameId(DEFAULT_BRANCH_ID))
-    controller.dispose()
-  })
 })

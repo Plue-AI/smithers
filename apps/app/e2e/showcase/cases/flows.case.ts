@@ -26,7 +26,7 @@ export default showcase({
   order: 105,
   title: "Flows",
   summary: "Plan a flow and inspect its graph, run it, write a new one; schedules in the Dispatcher.",
-  flows: ["flows", "flow.plan", "flow.plan.select", "flow.run", "flow.create", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
+  flows: ["flow.list", "flow.plan", "flow.plan.select", "flow.run", "flow.create", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
   run: async ({ page, app, backend }) => {
     let paused = false
     const pauseReceipt = Promise.withResolvers<void>()
@@ -123,9 +123,7 @@ export default showcase({
     })
 
     await app.open("/")
-    await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
-    // /flows is the `flows` surface: the repository's flow list as a card.
-    await app.slash("/flows")
+    await app.slash(`/flow.list ${REPO}`)
     await app.closeComposer()
     const list = page.locator('[data-kind="workflow-list"]').last()
     await expect(list).toContainText(FLOW)

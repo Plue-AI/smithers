@@ -14,23 +14,18 @@ SuggestionGroup
 import { useLiveQuery } from "@tanstack/react-db"
 import { Sparkles } from "lucide-react"
 import type { PointerEvent as ReactPointerEvent } from "react"
-import { useMemo,useRef,useState } from "react"
+import { useMemo,useRef } from "react"
 import { cardActions } from "./cards/CardActions"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
-import { SetupChecklist, useFirstRun } from "./cards/SetupChecklist"
-import { SignupCards } from "./cards/SignupCards"
-import { signupOpening } from "./state/Signup"
 import { CardView } from "./ChatCards"
 import { ChatFilterMenu } from "./ChatFilterMenu"
 import { ChatMeter } from "./ChatMeter"
 import { Composer } from "./Composer"
-import { ConnectorsSurface } from "./ConnectorsSurface"
 import { useController } from "./ControllerContext"
 import { DevtoolsPanel } from "./DevtoolsPanel"
 import { ChatHint,FirstSightHint } from "./FirstSightHint"
 import { dynamicFlowAction, flowProps } from "./flows/FlowAction"
 import { repositoryFlowName } from "./flows/entries/flow"
-import { FlowsSurface } from "./FlowsSurface"
 import { InputModeMenu } from "./InputModeMenu"
 import type { InitMessage } from "./Onboarding"
 import { cloudWebHost, initMessage } from "./Onboarding"
@@ -41,11 +36,9 @@ import { conversationTabIdOf,DEFAULT_BRANCH_ID,inConversation,MAIN_TAB_ID } from
 import { catalogRepositoryOf } from "./state/RepoContext"
 import { useCardRows,useFileCardRows,useFlowDurationRows,useTriggerListRows,useWorkflowCatalogRows } from "./state/useCardRows"
 import { ConfirmDialog } from "./SurfaceChrome"
-import { TabBodies } from "./tabs/TabBodies"
 import { ToastStack } from "./ToastStack"
 import { TranscriptMessage } from "./TranscriptMessage"
-import { agentDoors, SubagentBatch, SubagentEarlier, SubagentFinished, SubagentOverview } from "./SubagentGrid"
-import { all as allChat, entryId, fold as foldTimeline, merge as mergeTimeline, subagentsFromCards } from "./state/ChatTimeline"
+import { all as allChat, entryId,  merge as mergeTimeline } from "./state/ChatTimeline"
 import { ChatRunTimeline } from "./ChatRunTimeline"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
 import { WorldSurface } from "./WorldSurface"
@@ -87,8 +80,6 @@ function AppContent() {
   const { data: sessionRows } = useLiveQuery((q) =>
     q.from({ session: collections.sessions }).select(({ session }) => ({
       id: session.id,
-      firstRunDismissed: session.firstRunDismissed,
-      signup: session.signup,
       phase: session.phase,
       theme: session.theme,
       surface: session.surface,
@@ -157,8 +148,6 @@ function AppContent() {
    */
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
-  // The first-run card's projection, read here to hold Chat until the first job (SetupChecklist.tsx).
-  const firstRun = useFirstRun(flows)
   const typing = session.phase === "responding"
   const activeTabId = session.activeTabId ?? MAIN_TAB_ID
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
@@ -233,10 +222,7 @@ function AppContent() {
   const publicRepositoryLinks = (bootEntry?.publicRepositories ?? [])
     .filter(repo => repo.toLowerCase() !== missingBootRepository?.toLowerCase())
     .map(repo => `- [${repo}](/${repo.toLowerCase()}/)`)
-  // The signup onboarding owns the transcript until its stage is done (state/Signup.ts).
-  // A repository URL is a page about that repository; the signup meets the landing entry, or resumes wherever its row is.
-  const signingUp = githubIdentity && (session.signup !== undefined || controller.repositoryApp === null) && signupOpening(session.signup, identity?.state, identity?.accountOwnerLogin) !== false
-  const authMessage: Message | undefined = signingUp ? undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity
+  const authMessage: Message | undefined = identity?.state === "signed-out" && hasBootstrap && !githubIdentity
     ? {
       id: "auth-state",
       role: "smithers",
@@ -342,10 +328,10 @@ function AppContent() {
   // A cloud repository opens on its Welcome actions. Selection is durable and
   // precedes that card's load, so the technical success read never flashes first.
   const repositoryOpening = session.activeRepoKey != null
-  // A new conversation opens empty; the host's opening read belongs to main alone, after the signup.
+  // A new conversation opens empty; the host's opening read belongs to main alone.
   // The host read is a diagnostic: local hosts show it; a cloud visitor never needs it.
   const cloudWeb = cloudWebHost(controller.bootstrap)
-  const openingMessage: InitMessage | undefined = gatedByAuth || signingUp || cloudWeb || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
+  const openingMessage: InitMessage | undefined = gatedByAuth || cloudWeb || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
     connectors: connectorRows,
@@ -370,35 +356,15 @@ function AppContent() {
     if (entryOrdinal(left) !== entryOrdinal(right)) return entryOrdinal(left) - entryOrdinal(right)
     return entryCreatedAt(left) - entryCreatedAt(right)
   })
-  /*
-   * The first app screen (Will, 2026-10-01): while the first-run card is all
-   * the transcript holds, it sits at the top as the signup did; the first
-   * conversation entry restores bottom anchoring.
-   */
-  const firstRunShown = !signingUp && !repositoryNotice && !appsHome
-  const firstRunOnly = firstRunShown && homeCard === undefined && mainEntries.length === 0 && !typing
-  /*
-   * Chat arrives with the first job: on the hosted web app, past the signup,
-   * the footer stays away while the card is open, no job is registered and
-   * the person has written nothing here. ⌘K still opens Chat. With no job
-   * tile on offer there is nothing to wait for.
-   */
-  const firstJobPending = cloudWeb && firstRunShown && identity?.state === "signed-in" && !firstRun.dismissed &&
-    firstRun.jobTiles && firstRun.completedJobs.size === 0 && !messages.some(message => message.role === "user")
   // Transient chrome: Chat that was withheld against a known answer arrives with motion; Chat present from load does not.
-  const [chatWithheld, setChatWithheld] = useState(false)
-  if (firstJobPending && firstRun.jobsKnown && !chatWithheld) setChatWithheld(true)
-  const chatArrives = chatWithheld && !firstJobPending
-  const chatAway = homeOnly || firstJobPending
-  const subagents = subagentsFromCards(conversationCards)
+  const chatAway = homeOnly
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
-  const [earlierOpenFor, setEarlierOpenFor] = useState<string | undefined>(undefined)
   const transcriptKey = `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
-  const entries = foldTimeline(mergeTimeline(mainEntries, subagents, session.chatFilter ?? allChat), earlierOpenFor === transcriptKey)
 
+  const entries = mergeTimeline(mainEntries, session.chatFilter ?? allChat).filter((entry): entry is TranscriptEntry => entry.kind === "card" || entry.kind === "message" || entry.kind === "init")
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
-  const initialReadId = signingUp ? "signup" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : !session.firstRunDismissed ? "setup-checklist" : undefined
+  const initialReadId = repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : undefined
 
   // Chat stays mounted when closed.
   const composerWrap = (
@@ -480,12 +446,6 @@ function AppContent() {
           controller.runCommand("card.minimize")
           return
         }
-        // ctrl+s shows every subagent, as the TUI's Summary does (#2190).
-        if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
-          event.preventDefault()
-          controller.runCommand("subagents")
-          return
-        }
         // The dev-tools keyboard path (§2b): unregistered for non-admins, so a no-op there.
         if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "d") {
           event.preventDefault()
@@ -547,8 +507,6 @@ function AppContent() {
 
           <div className="sui-chat-transcript smithers-transcript" data-slot="chat-transcript"
             data-repository-missing={repositoryNotice || undefined}
-            data-signup={signingUp || undefined}
-            data-first-run={firstRunOnly || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
           <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={initialReadId}
@@ -556,23 +514,16 @@ function AppContent() {
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
               requestId: readRequestRef.current,
               userMessageId: messages.filter(message => message.role === "user").at(-1)?.id,
-              version: latestEntry?.kind === "subagents" ? latestEntry.subagents.map(each => `${each.id}:${each.subagent.status}:${each.subagent.entries.length}`).join(" ") :
-                latestEntry?.kind === "card" ? `${latestEntry.card.ordinal}:${latestEntry.card.kind}` : undefined }}>
+              version: latestEntry?.kind === "card" ? `${latestEntry.card.ordinal}:${latestEntry.card.kind}` : undefined }}>
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
             <MessageScrollerViewport fade>
             <MessageScrollerContent className="sui-chat-messages">
-            {!signingUp && !repositoryNotice && homeCard && <MessageScrollerItem messageId={homeCard.id}>
+            {!repositoryNotice && homeCard && <MessageScrollerItem messageId={homeCard.id}>
               <RepositoryHomeCard card={homeCard} onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
             {/* Always rendered: the landing page's tagline transition snapshots this headline on its first frame. */}
-            {signingUp && <MessageScrollerItem messageId="signup" style={{ contentVisibility: "visible" }}><SignupCards /></MessageScrollerItem>}
-            {firstRunShown && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
             {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
-              {entry.kind === "subagents" ?
-                <SubagentBatch onRunCommand={controller.runCommand} items={entry.subagents.map(each => ({ id: each.id, color: each.color, subagent: each.subagent, ...agentDoors(each.card) }))} /> :
-              entry.kind === "finished" ? <SubagentFinished subagent={entry.subagent.subagent} color={entry.subagent.color} /> :
-              entry.kind === "earlier" ? <SubagentEarlier batches={entry.batches} onOpen={() => setEarlierOpenFor(transcriptKey)} /> :
-              entry.kind === "card" ?
+              {entry.kind === "card" ?
                 (
                   <CardView
                     key={entry.card.id}
@@ -599,19 +550,13 @@ function AppContent() {
           </MessageScrollerProvider>
           </div>
 
-          {!signingUp && !repositoryNotice && session.surface === "chat" &&
+          {!repositoryNotice && session.surface === "chat" &&
             <ChatRunTimeline cards={conversationCards} onRunCommand={controller.runCommand} />}
 
         </div>
 
         {session.surface === "world" ?
           <WorldSurface documents={worldDocuments} /> :
-          session.surface === "connectors" ?
-          <ConnectorsSurface /> :
-          session.surface === "flows" ?
-          <FlowsSurface cards={cardRows} /> :
-          session.surface === "subagents" ?
-          <SubagentOverview cards={conversationCards} onRunCommand={controller.runCommand} /> :
           null}
 
         {/* Admin-only: the panel is absent — not hidden — for everyone else. */}
@@ -620,23 +565,22 @@ function AppContent() {
       </div>
 
       {/* Card tabs; hidden while inactive, never unmounted. */}
-      <TabBodies />
       {/* Keep Chat reachable while a terminal or another tab owns the view. */}
       <div className="composer-overlay" data-testid="composer-overlay" hidden={session.paletteOpen !== true}>
         {composerWrap}
       </div>
       {/* The signup owns the screen: Chat arrives once there is something to ask it. */}
-      {signingUp ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
-        data-arriving={chatArrives || undefined} hidden={chatAway && session.inputMode !== "vim"}>
+      <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
+        hidden={chatAway && session.inputMode !== "vim"}>
         {chatAway ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
           // Focus an already-open input now; Composer owns focus on opening.
           composerWrapRef.current?.querySelector("textarea")?.focus()
         }}>Chat</GuideButton></FirstSightHint>}
         {chatAway && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
-        {chatAway ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />}
+        {chatAway ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} onRunCommand={controller.runCommand} />}
         {chatAway ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
-      </footer>}
+      </footer>
       </div>
 
       {

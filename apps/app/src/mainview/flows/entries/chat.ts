@@ -37,18 +37,6 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       actions.send(text, undefined, gesture?.composerDraftCurrent)
     }
   }
-  /*
-   * Local archive/start-new is always available. Optional summarization may
-   * fail without changing the conversation; it never replaces existing notes.
-   */
-  const CLEAR = {
-    name: "chat.clear",
-    summary: "Archive this conversation and start fresh; optionally summarize into Wiki notes",
-    confirm: "archive this conversation and start a new one",
-    args: "[--summarize]",
-    input: Schema.Struct({ summarize: Schema.optional(Schema.Boolean) }),
-    handler: (options: { readonly summarize?: boolean }) => actions.clearConversation(options)
-  }
   return [
   flow({
     /*
@@ -96,7 +84,6 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "chat.queue.resume", summary: "Resume queued prompts", hidden: true,
     userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
     input: NoPayload, handler: () => actions.resumePromptQueue() }),
-  flow(CLEAR),
   flow({ name: "chat.filter", summary: "Open the chat filter", input: NoPayload,
     handler: () => actions.toggleChatFilterMenu() }),
   flow({ name: "chat.filter.toggle", summary: "Hide or show a chat source or kind", args: "<target>",

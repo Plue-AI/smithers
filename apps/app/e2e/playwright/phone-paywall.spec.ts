@@ -2,7 +2,7 @@ import { expect, test, type Page } from "./browserTest"
 import { identityRoute, signedOutVisitor, skipSignup } from "./identity"
 
 /*
- * The paying path at 390 px (iPhone 12–15 width): the signup, the plans card
+ * The paying path at 390 px (iPhone 12–15 width): the plans card
  * and the out-of-credit card must fit the screen. Nothing may render past the
  * viewport except inside a box that scrolls on its own (the plans table), and
  * every button a person needs is fully on screen and at least 24 px square
@@ -24,12 +24,12 @@ const overflow = (page: Page) => page.evaluate(() => {
   }
   const out: string[] = []
   if (document.documentElement.scrollWidth > viewport) out.push(`document scrollWidth=${document.documentElement.scrollWidth}`)
-  for (const el of document.querySelectorAll<HTMLElement>("main *, [data-testid='signup'] *")) {
+  for (const el of document.querySelectorAll<HTMLElement>("main *")) {
     const rect = el.getBoundingClientRect()
     if (rect.width === 0 || rect.right <= viewport + 1 || scrolls(el.parentElement)) continue
     out.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} right=${Math.round(rect.right)}`)
   }
-  for (const el of document.querySelectorAll<HTMLElement>("[data-testid='signup'] button, .world-card-list button")) {
+  for (const el of document.querySelectorAll<HTMLElement>(".world-card-list button")) {
     const rect = el.getBoundingClientRect()
     if (rect.width === 0 || scrolls(el.parentElement)) continue
     if (rect.left < -1 || rect.right > viewport + 1) out.push(`button "${el.textContent}" off screen`)
@@ -38,31 +38,7 @@ const overflow = (page: Page) => page.evaluate(() => {
   return out
 })
 
-test("the signup fits a 390 px phone at every stage", async ({ page }) => {
-  await page.setViewportSize(PHONE)
-  await signedOutVisitor(page)
-  await page.goto("/")
-  await expect(page.getByTestId("signup-github")).toBeVisible()
-  await page.waitForTimeout(1500)
-  expect(await overflow(page)).toEqual([])
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-1-doors.png`, fullPage: true })
 
-  await page.route("**/api/user", identityRoute("adapark"))
-  await page.goto("/")
-  await expect(page.getByTestId("signup-account")).toHaveValue("adapark")
-  expect(await overflow(page)).toEqual([])
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-2-account.png`, fullPage: true })
-  await page.getByTestId("signup-name").fill("Ada Park")
-  await page.getByTestId("signup-account-continue").click()
-
-  await expect(page.getByTestId("signup-question")).toHaveAttribute("data-question", "repo")
-  expect(await overflow(page)).toEqual([])
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-3-repo.png`, fullPage: true })
-  await page.getByTestId("signup-skip").click()
-  await expect(page.getByTestId("signup-finish")).toBeVisible()
-  expect(await overflow(page)).toEqual([])
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-4-ready.png`, fullPage: true })
-})
 
 const plans = [
   { key: "free", display_name: "Free", price_cents: 0, sandboxes: 1, idle: 1800, hours: 4, credit: 0 },

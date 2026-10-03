@@ -5,8 +5,7 @@ import type { AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { parseDiagnosticQuery, readDiagnostics } from "./Diagnostics"
 import { SMITHERS_INSTRUCTIONS } from "./Instructions"
-import { SIGNUP_PROFILE_PATH } from "./Signup"
-import { memoryStorage, settled, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
+import { memoryStorage, settled, signupProfileFetch, silentAgent } from "./TestFixtures"
 
 // Pure read/query tests below are independent of these controlled controller boundaries.
 // Map storage, silent AgentPort and explicit HTTP doubles do not qualify real backend integration.
@@ -161,7 +160,7 @@ describe("app diagnostics without a repository", () => {
     const late = Promise.withResolvers<Response>()
     const entered = Promise.withResolvers<void>()
     releaseRequests.push(() => late.resolve(new Response("", { status: 500 })))
-    // Each sign-in's signup-profile read answers as the backend does; only the probes below fail.
+    // Keep a signup-profile response available to detect unintended onboarding reads; only the probes below fail.
     const profile = signupProfileFetch(async input => {
       if (!String(input).includes("late")) return new Response("", { status: 500 })
       entered.resolve()
@@ -177,10 +176,9 @@ describe("app diagnostics without a repository", () => {
     await identity("bob")
     late.resolve(new Response("", { status: 500 }))
     await pending
-    // Bob's sign-in reads his signup profile once; Alice signed in before this controller existed.
-    await waitFor(() => profile.reads.length === 1)
+    // Changing accounts must not revive the removed onboarding profile read.
     await settled()
-    expect(profile.reads).toEqual([SIGNUP_PROFILE_PATH])
+    expect(profile.reads).toEqual([])
     const result = await read(controller)
     expect(JSON.stringify(result)).not.toContain("alice")
     expect(JSON.stringify(result)).not.toContain("Alice")

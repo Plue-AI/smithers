@@ -91,9 +91,9 @@ const landOwnedChange = async (page: Page, request: APIRequestContext, door: "sl
     await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
     await awaitBoot(page, "navigate", startedAt)
     await finishFirstVisit(page)
-    const created = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `${repo.path}/landings`, { timeout: 15_000 })
-    await runSlash(page, `/prs.create ${title} from:fixture ${repo.fullName}`)
-    const creation = await created
+    const creation = await realApi(page, request, "POST", `${repo.path}/landings`, {
+      title, body: "", source_bookmark: "fixture", target_bookmark: "main", change_ids: [change!.change_id]
+    })
     expect(creation.status()).toBe(201)
     const landing = await creation.json() as { readonly number?: number; readonly title?: string; readonly state?: string }
     expect(landing.title).toBe(title)
@@ -138,14 +138,14 @@ const landOwnedChange = async (page: Page, request: APIRequestContext, door: "sl
 
 authenticatedTest("a pushed local change opens and lands through the slash command", scenario("landings.local-change-land", {
   capabilities: ["identity"],
-  coverage: ["action:prs.create", "action:prs.land", "host:local", "host:production", "path:success", "path:persistence", "door:slash", "dimension:reload", "surface:landing-api", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
+  coverage: ["action:prs.land", "host:local", "host:production", "path:success", "path:persistence", "door:slash", "dimension:reload", "surface:landing-api", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
 }), async ({ page, request }) => {
   await landOwnedChange(page, request, "slash")
 })
 
 authenticatedTest("a pushed local change lands through the change card with the keyboard", scenario("landings.change-card-land", {
   capabilities: ["identity"],
-  coverage: ["action:prs.create", "action:change.view", "action:change.land", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:button", "dimension:keyboard", "dimension:reload", "surface:change-card", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
+  coverage: ["action:change.view", "action:change.land", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:button", "dimension:keyboard", "dimension:reload", "surface:change-card", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
 }), async ({ page, request }) => {
   await landOwnedChange(page, request, "button")
 })

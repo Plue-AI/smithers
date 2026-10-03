@@ -37,41 +37,34 @@ function joinDefault(root: string, child: string): string {
 {
   const baseline = {
     browser: [
+      "app.hint.dismiss", "card.history.back", "card.history.forward", "chat", "chat.dictate",
       "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.queue",
       "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload",
       "cloud.prompt", "flow.plan.select", "flow.plan.tab", "flow.repo.choose", "history.view", "input.mode",
       "palette.actions", "palette.recent", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select",
-      "runs.graph.tab", "runs.burndown.filter", "runs.burndown.select", "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
-      "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit",
-    ],
+      "runs.graph.tab", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
+      "toast.dismiss", "wiki.pane", "wiki.view" ],
     diagnostics: [
       "admin.reset", "debug.backend", "debug.errors", "debug.events", "debug.net",
       "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose",
     ],
     owed: [
-      "admin.grant.confirm", "agent.list",
-      "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view",
-      "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
-      "change.revert", "change.split", "code.definition", "code.diagnostics",
-      "code.hover", "commits.list", "commits.read", "connect", "egress.session", "env.remove-token", "env.set", "env.view", "feature.prototype",
-      "files.list", "files.open-diff", "issues.comment.react", "issues.comment.retry",
-      "issues.fix", "issues.set", "issues.verify", "files.read", "findings.not-useful", "findings.please-fix",
-      "flow.plan", "flow.run.retry", "flows", "github.app.choose", "github.app.open",
-      "github.mirror-sync", "github.mirror.retry-ref", "github.reconcile", "history.bootstrap", "issues",
-      "prs.triage", "wiki.ask", "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new",
-      "wiki.cloud.rename", "wiki.history", "wiki.space", "notifications.read-update", "notifications.tag",
-      "prs",
+      // Cut setup/signup specs no longer exercise these retained host actions.
+      "approvals.open", "billing.plans", "billing.portal", "billing.upgrade", "history.todo",
+      "agent.list",
+      "branches.list", "change.checks", "change.pins", "change.resolve",
+      "code.definition", "code.diagnostics",
+      "code.hover", "commits.list", "commits.read", "egress.session", "env.remove-token", "env.set", "env.view", "files.list", "files.open-diff", "files.read", "findings.not-useful", "findings.please-fix",
+      "flow.plan", "flow.run.retry", "github.app.choose", "github.app.open",
+      "github.mirror-sync", "github.mirror.retry-ref", "github.reconcile", "history.bootstrap", "prs.triage", "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new",
+      "wiki.cloud.rename", "wiki.history", "wiki.space", "prs",
       "repo.choose", "repo.tree", "repo.update", "repos.import.retry", "review.ack",
-      "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.release",
-      "runs.signal", "runs.takeover", "search.boxes", "search.changes", "search.files", "search.history",
+      "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.signal", "search.changes", "search.files", "search.history",
       "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex",
-      "secrets.move", "search.targets", "search.wiki", "setup.ask", "setup.discard",
-      "setup.discard.confirm", "setup.guide", "setup.retry", "setup.work", "secrets.scope",
+      "secrets.move", "search.wiki", "secrets.scope",
       "history.backfill", "history.parallel", "history.retry", "history.show", "triggers.approve",
-      "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "workspace.rename",
-      "box.session.destroy", "box.select",
-      // Added without a scenario since the review, or left without one by the MVP cut (#3385).
-      "agent.explain", "egress.allow", "form.submit", "history.land", "issue-sweep", "runs.continue", "secrets.bind",
+      "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "box.session.destroy", // Added without a scenario since the review, or left without one by the MVP cut (#3385).
+      "egress.allow", "form.submit", "history.land", "runs.continue", "secrets.bind",
     ],
   } as const
   const covered = new Set(report.scenarios.flatMap((scenario) => scenario.actions))

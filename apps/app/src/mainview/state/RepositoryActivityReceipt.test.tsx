@@ -21,7 +21,7 @@ const failureText = (error: unknown): string => error instanceof AggregateError
 const noop = () => {}
 const handlers: Omit<CardViewProps, "card"> = {
   maximized: false, onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop,
-  onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
+  onMaximize: noop, onMinimize: noop,
   onConnectGitHub: noop, onRunWorkflow: noop, onStopRun: noop,
   onRetryRun: noop, onChooseWorkflowRepo: noop, worldDocuments: [], onChangeWorldDocument: noop,
   onRunCommand: noop
@@ -95,11 +95,8 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
     // The public store may expose an optimistic card. Its user-visible result
     // must not look like a completed, reload-safe receipt before COMMIT.
     expect(host.textContent).not.toContain("Uncommitted activity receipt")
-    const markRead = () => [...host.querySelectorAll("button")].find(button => button.textContent?.includes("Mark all read"))
     if (refresh) {
       expect(host.textContent).toContain("Committed previous receipt")
-      // The shown body is not the one Mark all read would acknowledge, so it waits for the save.
-      expect(markRead()?.disabled).toBe(true)
     }
     controller.changeDraft("Chat remains usable")
     expect(store.session().draft).toBe("Chat remains usable")
@@ -116,7 +113,6 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
       expect(host.textContent).not.toContain("Uncommitted activity receipt")
     } else {
       expect(host.textContent).toContain("Uncommitted activity receipt")
-      expect(markRead()?.disabled).toBe(false)
     }
     flushSync(() => root.unmount()); host.remove(); await settled()
     disposed = true

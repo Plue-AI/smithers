@@ -36,35 +36,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test("clear archives locally and its recovery link restores the conversation after reload", async ({ page }) => {
-  let summaryRequests = 0
-  await page.route("**/api/model/stream", async (route) => {
-    summaryRequests++
-    await route.fulfill({ status: 503, body: "offline" })
-  })
-  await page.goto("/")
-  await openWorkspaceChat(page)
-  await sendSlash(page, "/agent.list")
-  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
-  await expect(card).toBeVisible()
-  const cardId = await card.getAttribute("data-testid")
-  const originalUrl = page.url()
-  await sendSlash(page, "/chat.clear")
-  await expect(page.getByRole("link", { name: "Open the archived conversation" })).toBeVisible()
-  await expect(card).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await expect(page).not.toHaveURL(originalUrl)
-  const newUrl = page.url()
-  await page.reload()
-  await page.getByRole("link", { name: "Open the archived conversation" }).click()
-  await expect(page).toHaveURL(originalUrl)
-  await expect(page.getByTestId(cardId!)).toBeVisible()
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await page.goBack()
-  await expect(page).toHaveURL(newUrl)
-  await expect(page.getByRole("link", { name: "Open the archived conversation" })).toBeVisible()
-  expect(summaryRequests).toBe(0)
-})
+
 
 test("frame URLs survive reload, traverse history, and preserve the card node", async ({ page }) => {
   await page.goto("/")
@@ -106,35 +78,7 @@ test("frame URLs survive reload, traverse history, and preserve the card node", 
   await expect(page.getByTestId("frame-fork")).toHaveCount(0)
 })
 
-test("open-in-tab returns the address bar to the root frame and Escape minimizes a pointer-maximized card", async ({ page }) => {
-  await page.goto("/")
-  await openWorkspaceChat(page)
-  await sendSlash(page, "/agent.list")
 
-  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
-  await expect(card).toBeVisible()
-  const cardId = (await card.getAttribute("data-testid"))?.replace(/^card-/, "")
-  expect(cardId).toBeTruthy()
-
-  // Escape after a pointer maximize: the pressed button unmounted, but focus followed to its replacement.
-  await card.getByTestId(`card-maximize-${cardId}`).click()
-  await expect(card).toHaveAttribute("data-maximized", "true")
-  await page.keyboard.press("Escape")
-  await expect(card).toHaveAttribute("data-maximized", "false")
-  await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname))
-    .toBe("/w/workspace-main/b/branch-main/f/frame-root:branch-main")
-
-  // Open in tab embeds the transcript's copy AND moves the address bar back to root, so reload keeps it embedded.
-  await card.getByTestId(`card-maximize-${cardId}`).click()
-  await page.getByTestId(`card-open-in-tab-${cardId}`).click()
-  await expect(page.locator(".card-tab .smithers-card")).toBeVisible()
-  await expect(card).toHaveAttribute("data-maximized", "false")
-  await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname))
-    .toBe("/w/workspace-main/b/branch-main/f/frame-root:branch-main")
-  await page.reload()
-  await expect(page.locator('.smithers-card[data-kind="agents"][data-maximized="true"]')).toHaveCount(0)
-  await expect(page.locator(".card-maximize-backdrop")).toHaveCount(0)
-})
 
 test("a maximized Files card reveals pointer and keyboard file navigation with Back and visible failures", async ({ page }) => {
   await installCloudFixture(page)

@@ -490,15 +490,14 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     // Only the human's local field edit has a synchronous recovery preparation.
     // Agent input waits for capability authorization in settle before dispatch.
     let pendingFieldInput: PendingFieldInput | PendingFormInput | undefined
-    if (invoker === "user" && (name === "form.set" || name === "signup.set")) {
+    if (invoker === "user" && name === "form.set") {
       const entry = find(name)
       if (entry !== undefined && unmetRequirements(entry.metadata, actions.snapshot(), flowRequirements).length === 0) {
         const parsed = named === undefined ? payloadFor(name, args, entry.metadata.grammar, actions.knownRepositories()) : { payload: named }
         if (!("error" in parsed)) {
           const { cardId, field, value } = parsed.payload
           if (typeof field === "string" && typeof value === "string") {
-            if (name === "signup.set") pendingFieldInput = { field, value }
-            else if (typeof cardId === "string") pendingFieldInput = { cardId, field, value }
+            if (typeof cardId === "string") pendingFieldInput = { cardId, field, value }
           }
         }
       }
@@ -702,12 +701,6 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       })
       if (rendered === undefined) return { status: "failed", error: "error" in parsed ? parsed.error : "Required input is missing" }
       return { status: "form", flow: nameOf(target), cardId: rendered.cardId, fields: rendered.missing }
-    }
-    // The app may ask this question through the agent-shaped form path, but
-    // only a human may answer it. Check after the form branch so a partial
-    // application invocation still renders the question without running it.
-    if (invoker === "agent" && nameOf(target) === "setup.ask") {
-      return { status: "failed", error: "Only the human can answer the setup question through its form." }
     }
     /*
      * A `confirm` flow asked for by the MODEL: consequential acts (land a

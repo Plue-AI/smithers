@@ -77,8 +77,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
           bootstrap: runtime.bootstrap,
           repositoryApp: store.savedStoreUnavailable ? undefined : requested ?? undefined,
           frameHistory: createBrowserFrameHistory(window, { keepUrl: options.keepUrl === true }),
-          // The next-step recommender (state/Recommend.ts) is opt-in here, the one real composition root.
-          recommender: { enabled: hasCapability(bootstrap, "recommend") }
         }
       )
     )
@@ -172,14 +170,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
       if (window.location.search !== "") {
         window.history.replaceState(window.history.state, "", withoutRepoParam(window.location))
       }
-    }
-    // `/?register=1` (the docs' Register a repository link) opens the Register repository app.
-    // Signed out, the flow's sign-in requirement parks it and resumes it after sign-in.
-    if (new URLSearchParams(entrySearch).get("register") === "1") {
-      yield* Effect.sync(() => void controller.runCommand("repository.register"))
-      const next = new URL(window.location.href)
-      next.searchParams.delete("register")
-      window.history.replaceState(window.history.state, "", `${next.pathname}${next.search}`)
     }
     return controller
   })

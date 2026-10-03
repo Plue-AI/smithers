@@ -32,5 +32,6 @@ test("the smithers repository's declared flows and the built-in change and stack
     const entry = controller.commands.find(name)
     expect({ name, grammar: typeof entry?.metadata.grammar }).toEqual({ name, grammar: "function" })
   }
-  for (const name of ["change.request", "history.show"]) expect(controller.commands.find(name)).toBeDefined()
+  expect(controller.commands.find("history.show")).toBeDefined()
+  expect(controller.commands.find("change.request")).toBeUndefined()
 })

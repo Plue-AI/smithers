@@ -111,7 +111,6 @@ describe("branches card", () => {
     expect(html).toContain('data-flow="commits.list"')
     expect(html).toContain('aria-label="Commits on feat/x"')
     expect(html).toContain("01234567")
-    expect(html).toContain('data-flow="prs.create"')
     expect(html).not.toContain("/prs.create")
   })
 })

@@ -6,16 +6,15 @@ const path = (url: string) => decodeURIComponent(new URL(url).pathname)
 export default showcase({
   id: "frames",
   order: 40,
-  title: "Frames and tabs",
-  summary: "Every card has an address: maximize, back, forward, open in a tab.",
-  flows: ["card.maximize", "frame.back", "frame.forward", "tab.card"],
+  title: "Frames",
+  summary: "Every card has an address: maximize, back and forward.",
+  flows: ["card.maximize", "frame.back", "frame.forward"],
   run: async ({ page, app }) => {
     await app.open("/")
     await app.slash("/agent.list")
     await app.closeComposer()
     const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
     await app.show(card)
-    const id = (await card.getAttribute("data-testid"))!.replace(/^card-/, "")
     await app.maximize(card)
     await expect.poll(() => path(page.url())).toMatch(/\/f\/frame-card:/)
     const maximized = page.url()
@@ -34,8 +33,5 @@ export default showcase({
     await expect(card).toHaveAttribute("data-maximized", "true")
     await app.closeComposer()
 
-    await app.click(page.getByTestId(`card-open-in-tab-${id}`))
-    await expect(page.locator(".card-tab .smithers-card")).toBeVisible()
-    await app.beat(1500)
   }
 })

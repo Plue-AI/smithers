@@ -82,7 +82,7 @@ describe("the slash menu is a tree", () => {
     const view = await mount()
     await view.act(() => view.controller.changeDraft("/"))
     const listed = rows(view.host)
-    expect(listed[0]).toBe("connect")
+    expect(listed).not.toContain("connect")
     expect(listed).toContain("appearance/")
     expect(listed).toContain("chat/")
     expect(listed).not.toContain("appearance.dark-mode")

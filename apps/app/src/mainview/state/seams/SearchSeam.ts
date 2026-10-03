@@ -5,8 +5,7 @@
  * from what the store already holds (§5: "the browser holds caches and
  * recents"), so every row is a fact a seam has already established. `search`
  * is the slash and agent door of every `search.*` flow: it reads the same
- * indexes, takes the ones that have a live read (boxes, secrets, history,
- * the factory projection) from the reader's own answer, embeds ONE
+ * indexes, takes secrets and history from the reader's own answer, embeds ONE
  * `search-results` card for a human and answers the items as data for the
  * model. A search never dispatches another card: the secrets and history
  * cards belong to their own seams' flows (§6).
@@ -35,7 +34,6 @@ import { readRepositorySecrets } from "./RepositorySecrets"
 import type { RepositorySecret } from "./RepositorySecrets"
 import { captureCloudOwner, type SeamContext } from "./SeamContext"
 import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
-import { readFactoryProjection } from "./TriggersSeam"
 
 /** The registry the seam reads: the flows it can act with and the state the scope rules read. */
 export interface SearchRegistry {
@@ -46,8 +44,6 @@ export interface SearchRegistry {
 
 export interface SearchSeamDeps {
   readonly registry: () => SearchRegistry
-  /** The boxes seam's silent refresh, so `search.boxes` lists what plue holds now. */
-  readonly refreshWorkspaces?: (repo?: string) => Promise<string | void>
   /** The history (stack) seam: the watched snapshot, else one read; `heldStack` is the watched one only. */
   readonly readStack?: (repo?: string) => Promise<MythicalStack | string>
   readonly heldStack?: (repo: string) => MythicalStack | undefined
@@ -84,7 +80,7 @@ const joinPath = (directory: string, name: string): string => (directory === "" 
 const firstLine = (text: string): string => text.split("\n")[0]?.trim() ?? ""
 
 /** Signed out, a mode §4 hides answers nothing at all: no rows, no badge, and Enter still runs the flow, which defers through sign-in. */
-const HIDDEN_SIGNED_OUT: ReadonlySet<PaletteMode> = new Set(["boxes", "secrets"])
+const HIDDEN_SIGNED_OUT: ReadonlySet<PaletteMode> = new Set(["secrets"])
 
 /** The flow behind a mode, when the registry has it. */
 const flowOf = (mode: PaletteMode): string | null => prefixRow(mode).flow
@@ -255,34 +251,6 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     return [...seen.values()]
   }
 
-  /** Targets the target graph seam has listed (the targets cards). */
-  const targetItems = (): ReadonlyArray<Fact> => {
-    const seen = new Map<string, Fact>()
-    for (const card of cards()) {
-      if (card.kind !== "targets") continue
-      for (const target of card.payload.targets) {
-        const ref = `${card.payload.repoId} ${target.label}`
-        seen.set(ref, { kind: "target", ref, title: target.label, subtitle: `${target.kinds.join(", ")} · ${card.payload.repoName}` })
-      }
-    }
-    return [...seen.values()]
-  }
-
-  /** Boxes the workspaces seam holds. */
-  const boxItems = (): ReadonlyArray<Fact> => {
-    const seen = new Map<string, Fact>()
-    for (const row of ctx.store.collections.cloudWorkspaces.values()) {
-      seen.set(row.id, { kind: "box", ref: row.id, title: row.name, subtitle: `${row.repoId} · ${row.status}` })
-    }
-    for (const copy of ctx.store.collections.workingCopies.values()) {
-      if (copy.kind !== "workspace") continue
-      const id = copy.workspaceId ?? copy.id
-      if (seen.has(id)) continue
-      seen.set(id, { kind: "box", ref: id, title: copy.label, subtitle: `${copy.repoId}${copy.state === undefined ? "" : ` · ${copy.state}`}` })
-    }
-    return [...seen.values()]
-  }
-
   /** Secret NAMES with the hosts they bind to; no value exists on the wire. */
   const secretItems = (rows: ReadonlyArray<SecretRows>): ReadonlyArray<Fact> => {
     const seen = new Map<string, Fact>()
@@ -322,13 +290,11 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     const secrets = live.secrets ?? heldSecrets()
     switch (mode) {
       case "all":
-        return [...flowItems(), ...fileItems(), ...targetItems(), ...wikiItems(), ...historyItems(history), ...runItems(), ...changeItems(), ...issueItems(), ...boxItems(), ...secretItems(secrets)]
+        return [...flowItems(), ...fileItems(), ...wikiItems(), ...historyItems(history), ...runItems(), ...changeItems(), ...issueItems(), ...secretItems(secrets)]
       case "path":
         return fileItems()
       case "flows":
         return flowItems()
-      case "targets":
-        return targetItems()
       case "wiki":
         return wikiItems()
       case "history":
@@ -343,8 +309,6 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
         const label = qualifier("label")
         return label === undefined ? issueItems(qualifier("is")) : "Issue rows on this wire carry no labels to filter with; search without label:."
       }
-      case "boxes":
-        return boxItems()
       case "secrets":
         return secretItems(secrets)
       case "ask":
@@ -357,7 +321,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
 
   /** The kinds §4 hides from a signed-out visitor, cut from a bare answer. */
   const scoped = (items: ReadonlyArray<Fact>, signedOut: boolean): ReadonlyArray<Fact> =>
-    signedOut ? items.filter((item) => item.kind !== "box" && item.kind !== "secret-name") : items
+    signedOut ? items.filter((item) => item.kind !== "secret-name") : items
 
   const rank = (items: ReadonlyArray<Fact>, query: string): ReadonlyArray<ResultGroup<Fact>> => {
     const session = ctx.store.session()
@@ -422,10 +386,6 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
    * document is always re-read, as secrets.list re-reads it.
    */
   const liveIndexes = async (mode: PaletteMode, args: SearchArgs): Promise<LiveIndexes | string> => {
-    if (mode === "boxes" && deps.refreshWorkspaces !== undefined) {
-      const refused = await deps.refreshWorkspaces()
-      return typeof refused === "string" ? refused : {}
-    }
     if (mode !== "secrets" && mode !== "history") return {}
     const target = resolveTargetRepo(ctx.store, args.repo)
     if ("error" in target) return target.error
@@ -438,24 +398,6 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     if (deps.readStack === undefined) return { history: [] }
     const stack = await deps.readStack(repo)
     return typeof stack === "string" ? stack : { history: [stack] }
-  }
-
-  /** The factory projection's declared flows, as flow items that `flow.run` starts (targets: `//` reads the repository's own catalog). */
-  const projectionFlows = async (args: SearchArgs): Promise<ReadonlyArray<Fact> | string> => {
-    const target = resolveTargetRepo(ctx.store, args.repo)
-    if ("error" in target) return []
-    const read = await readFactoryProjection(ctx, target.repo)
-    if ("error" in read) return `The factory of ${target.repo} couldn't be read: ${read.error}`
-    if (read.absent) return []
-    const entries = deps.registry().entries()
-    const runnable = entries.some((entry) => entry.binding.descriptor.name === "flow.run")
-    return (read.projection.flows ?? []).map((flow) => ({
-      kind: "flow" as const,
-      ref: flow.id,
-      title: flow.id,
-      subtitle: `${flow.summary ?? firstLine(flow.description)} · ${flow.path}`,
-      actions: runnable ? [{ flow: "flow.run", args: flow.id, label: "Run a flow on your workspace", role: "open" as const }] : []
-    }))
   }
 
   const search: SearchSeam["search"] = async (flow, mode, args) => {
@@ -472,13 +414,10 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     const query = parsed.query
     const base = itemsOf(mode, parsed, live)
     if (typeof base === "string") return base
-    const extra = mode === "targets" ? await projectionFlows(args) : []
-    if (!current()) return SIGN_OUT_REFUSAL
-    if (typeof extra === "string") return extra
     const { entries, state } = deps.registry()
     const snapshot = state()
     const kinds = args.kinds === undefined ? undefined : new Set(args.kinds)
-    const pool = scoped([...base, ...extra], snapshot.signedOut).filter((item) => kinds === undefined || kinds.has(item.kind))
+    const pool = scoped(base, snapshot.signedOut).filter((item) => kinds === undefined || kinds.has(item.kind))
     const limit = args.limit ?? SEARCH_DEFAULT_LIMIT
     const registered = entries()
     const items = rank(pool, query).flatMap((group) => group.items.map((row) => row.item)).slice(0, limit).map((fact) => withActions(registered, fact))

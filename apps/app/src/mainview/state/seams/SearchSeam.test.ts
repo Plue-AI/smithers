@@ -199,7 +199,8 @@ describe("the palette's rows (the button door) come from what the store holds", 
     expect(controller.searchPalette("/app")).toMatchObject({ groups: [], flow: "search.flows" })
     const help = controller.searchPalette("?")
     expect(help.help?.map((row) => row.label)).toContain("secret:")
-    expect(help.help?.find((row) => row.mode === "boxes")?.available).toBe(false)
+    expect(help.help?.map(row => row.label)).not.toContain("box:")
+    expect(help.help?.map(row => row.label)).not.toContain("//")
   })
 
   test("an empty query is the pills and the recents, nothing more; a recent item leads on the next query", async () => {
@@ -232,11 +233,9 @@ describe("the palette's rows (the button door) come from what the store holds", 
 })
 
 describe("§4 signed-out scope", () => {
-  test("box: and secret: are hidden signed out (no rows, no refusal, no badge), and a bare query never leaks them", async () => {
+  test("secret: is hidden signed out and a bare query never leaks secret names", async () => {
     const { store, controller } = await ready()
     await seed(store)
-    expect(controller.searchPalette("box:main")).toMatchObject({ groups: [] })
-    expect(controller.searchPalette("box:main").refusal).toBeUndefined()
     expect(controller.searchPalette("secret:NPM")).toMatchObject({ groups: [] })
     expect(refs(controller.searchPalette("NPM").groups, "Secrets")).toEqual([])
   })
@@ -254,8 +253,8 @@ describe("§4 signed-out scope", () => {
   test("Enter on a signed-in-only search defers through sign-in: the flow parks on the requirement", async () => {
     const { store, controller } = await ready()
     // The outcome is the fulfilling flow's (auth.sign-in ran in its place); the search itself parks on the session row.
-    await controller.commands.run("search.boxes", "main")
-    expect(store.session().pendingCommand).toMatchObject({ name: "search.boxes", args: "main", requirement: "signed-in" })
+    await controller.commands.run("search.secrets", "main")
+    expect(store.session().pendingCommand).toMatchObject({ name: "search.secrets", args: "main", requirement: "signed-in" })
   })
 
   test("signed in, secret: lists names and hosts and never a value", async () => {
@@ -322,22 +321,6 @@ describe("§6 the flow doors", () => {
     expect(labeled).toMatchObject({ status: "failed", error: expect.stringContaining("no labels") })
   })
 
-  test("search.targets lists the target graph's labels and the factory projection's flows, each with its run door", async () => {
-    const seen: Array<string> = []
-    const projection = {
-      on: [],
-      flows: [{ id: "review", description: "Reviews the change.", summary: "Review the change.", featured: true, kind: "mdx", path: "flows/review/flow.mdx", capabilities: [], model: null, modelInvocable: true }]
-    }
-    const { store, controller } = await ready(backend({ [`/api/repos/will/flows/contents/.smithers/factory.json`]: json(200, { path: ".smithers/factory.json", content: JSON.stringify(projection) }) }, seen))
-    await seed(store)
-    const outcome = await controller.commands.run("search.targets", "e")
-    expect(outcome.status).toBe("executed")
-    const items = resultsCard(store, "search.targets").payload.items
-    expect(items.find((item) => item.kind === "target")).toMatchObject({ ref: "r1 //apps/app:test", title: "//apps/app:test" })
-    expect(items.find((item) => item.kind === "flow")).toMatchObject({ ref: "review", actions: [{ flow: "flow.run", args: "review", role: "open", label: "Run a flow on your workspace" }] })
-    expect(seen).toContain("/api/repos/will/flows/contents/.smithers/factory.json")
-  })
-
   test("search.secrets signed in reads the CI secrets list and lists names only", async () => {
     const { store, controller } = await ready(
       backend({
@@ -357,7 +340,7 @@ describe("§6 the flow doors", () => {
 
   test("unindexed search flows are absent from the real registry", async () => {
     const { controller } = await ready(backend({}), "signed-in")
-    for (const name of ["search.symbols", "search.text", "search.people"]) {
+    for (const name of ["search.symbols", "search.text", "search.people", "search.targets", "search.boxes"]) {
       expect(controller.commands.find(name)).toBeUndefined()
     }
   })
@@ -460,10 +443,10 @@ test("workspace files retain distinct explicit targets and orphan tree rows are 
   } finally {await controller.dispose?.();await store.dispose?.()}
 })
 
-for (const mode of ["secrets", "targets"] as const) {
+for (const mode of ["secrets"] as const) {
   test(`a retired account's ${mode} search cannot return or persist its private results`, async () => {
     const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
-    const suffix = mode === "secrets" ? "/secrets" : "/contents/.smithers/factory.json"
+    const suffix = "/secrets"
     const { store, controller } = await ready({ fetchImpl: async input => {
       if (String(input).endsWith(`/api/repos/search/private${suffix}`)) { entered.resolve(); return reply.promise }
       return json(404, {})
@@ -472,19 +455,16 @@ for (const mode of ["secrets", "targets"] as const) {
       const pending = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
       await entered.promise
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
-      const payload = mode === "secrets"
-        ? [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
-        : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
+      const payload = [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
       reply.resolve(json(200, payload))
       const result = await pending
       expect(JSON.stringify(result)).not.toContain("PRIVATE_TOKEN")
-      expect(JSON.stringify(result)).not.toContain("private-flow")
       expect(store.collections.cards.get(`search-search.${mode}`)).toBeUndefined()
     } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
   })
 }
 
-for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
+for (const mode of ["secrets", "history"] as const) {
   for (const actor of ["user", "smithers"] as const) {
     test.each(["account", "provider", "sign-out-return", "cloud", "dispose", "refresh"] as Array<"account" | "provider" | "sign-out-return" | "cloud" | "dispose" | "refresh">)(`${actor} ${mode} search keeps its owner through %s`, async change => {
       const { createSearchSeam } = await import("./SearchSeam")
@@ -499,9 +479,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
         limits: { maxParallel: 1 }, changes: [{ changeId: "private-change", commitId: "c1", title: "Private commit", kind: "item", state: "landed" }] }
       const answer = () => mode === "secrets"
         ? [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
-        : mode === "targets"
-          ? { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
-          : {}
+        : {}
       const wait = async () => { reads++; entered.resolve(); await gate.promise }
       try {
         await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
@@ -510,7 +488,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
           http: async () => {
             await wait(); return json(200, answer())
           }
-        }, { registry: () => controller.commands, refreshWorkspaces: wait,
+        }, { registry: () => controller.commands,
           readStack: async () => { await wait(); return privateHistory } })
         const pending = seam.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
         await entered.promise
@@ -530,7 +508,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
         const result = await pending
         if (change === "refresh") {
           expect(typeof result).toBe("object")
-          if (mode !== "boxes") expect(JSON.stringify(result).toLowerCase()).toContain(mode === "secrets" ? "private_token" : mode === "targets" ? "private-flow" : "private commit")
+          expect(JSON.stringify(result).toLowerCase()).toContain(mode === "secrets" ? "private_token" : "private commit")
           expect(store.collections.cards.has(`search-search.${mode}`)).toBe(actor === "user")
         } else {
           expect(result).toBe(SIGN_OUT_REFUSAL)
@@ -546,7 +524,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
   }
 }
 
-for (const mode of ["secrets", "targets"] as const) {
+for (const mode of ["secrets"] as const) {
   test(`a retired ${mode} search cannot return an old refusal`, async () => {
     const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
     const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
@@ -565,7 +543,7 @@ for (const mode of ["secrets", "targets"] as const) {
   })
 }
 
-test("retirement between search stages starts no factory read, and disposal starts no read", async () => {
+test("retirement between search stages publishes nothing, and disposal starts no read", async () => {
   const { createSearchSeam } = await import("./SearchSeam")
   const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
   const { store, controller } = await ready(backend({}), "signed-in")
@@ -574,7 +552,7 @@ test("retirement between search stages starts no factory read, and disposal star
     isDisposed: () => disposed, http: async () => { reads++; return json(404, {}) }
   }, { registry: () => controller.commands })
   try {
-    const pending = seam.search("search.targets", "targets", { query: "private", repo: "search/private" })
+    const pending = seam.search("search.flows", "flows", { query: "private", repo: "search/private" })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
     expect(await pending).toBe(SIGN_OUT_REFUSAL)
     disposed = true
@@ -583,13 +561,11 @@ test("retirement between search stages starts no factory read, and disposal star
   } finally { await controller.dispose(); await store.dispose?.() }
 })
 
-for (const mode of ["secrets", "targets"] as const) {
+for (const mode of ["secrets"] as const) {
   test(`a slow ${mode} query cannot replace a newer search card`, async () => {
     const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
     let reads = 0
-    const payload = mode === "secrets"
-      ? [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
-      : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
+    const payload = [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
     const { store, controller } = await ready({ fetchImpl: async input => {
       if (!String(input).includes("/api/repos/search/private/")) return json(404, {})
       if (++reads === 1) { entered.resolve(); return reply.promise }
@@ -598,7 +574,7 @@ for (const mode of ["secrets", "targets"] as const) {
     try {
       const old = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
       await entered.promise
-      const query = mode === "secrets" ? "token" : "flow"
+      const query = "token"
       await controller.search(`search.${mode}`, mode, { query, repo: "search/private" })
       const before = await store.eventHistory()
       reply.resolve(json(200, payload))
@@ -706,4 +682,22 @@ test("searching another mode does not retire a pending results card", async () =
     expect(store.collections.cards.has("search-search.secrets")).toBe(true)
     expect(store.collections.cards.has("search-search.flows")).toBe(true)
   } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+})
+
+test("bare search excludes Cut targets and boxes while retaining files, issues and Wiki notes", async () => {
+  const { store, controller } = await ready(backend({}), "signed-in")
+  try {
+    card(store, { id: "cut-files", kind: "file-list", title: "Files", payload: { repo: REPO, path: "", entries: [{ name: "cut-match.ts", kind: "file" }] } })
+    card(store, { id: "cut-issues", kind: "issue-list", title: "Issues", payload: { repo: REPO, filter: "all", issues: [{ number: 31, title: "cut-match issue", state: "open", author: null, comments: 0, updatedAt: null }] } })
+    card(store, { id: "cut-targets", kind: "targets", title: "Targets", payload: { repoId: "r1", repoName: "flows", status: "done", warnings: [], targets: [{ id: "cut-target", label: "//cut-match:test", target: "Shell.Test", kinds: ["test"], package: "//cut-match", name: "test", workspace: "." }] } })
+    await store.dispatch({ type: "world.document.upserted", actor: "user", document: { id: "cut-note", path: "cut-match.md", title: "cut-match note", body: "# cut-match note", links: [], tags: [], sources: [], confidence: 1 } }).isPersisted.promise
+    await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [{ id: "0b0c0d0e-0000-4000-8000-00000000000a", repoId: REPO, name: "cut-match box", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
+    const palette = controller.searchPalette("cut-match")
+    expect(palette.groups.map(group => group.label)).toEqual(expect.arrayContaining(["Files", "Issues", "Notes"]))
+    expect(palette.groups.flatMap(group => group.items.map(row => row.item.kind)).filter(kind => kind === "target" || kind === "box")).toEqual([])
+    expect(await controller.commands.run("search.open", "cut-match")).toMatchObject({ status: "executed" })
+    const items = resultsCard(store, "search.open").payload.items
+    expect(items.map(item => item.kind)).toEqual(expect.arrayContaining(["file", "issue", "note"]))
+    expect(items.filter(item => item.kind === "target" || item.kind === "box")).toEqual([])
+  } finally { await controller.dispose(); await store.dispose?.() }
 })

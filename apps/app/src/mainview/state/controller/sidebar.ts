@@ -1,4 +1,4 @@
-import { DEFAULT_WORKSPACE_NAME, repoTreeRowId } from "../AppState"
+import {  repoTreeRowId } from "../AppState"
 import { normalizeTreePath } from "../seams/RepoTreeSeam"
 import type { RepoTreeSeam } from "../seams/RepoTreeSeam"
 import type { ControllerContext } from "./context"
@@ -17,10 +17,6 @@ export interface SidebarController {
    * failed row loads again; a loaded row only turns its caret.
    */
   readonly toggleRepoTree: (copyId: string, path?: string) => Promise<string | void>
-  /** `workspace.rename <name>`: name the workspace heading; a blank name is refused. */
-  readonly renameWorkspace: (name: string) => string | void
-  /** The heading's pencil: open or close the inline rename editor. */
-  readonly toggleWorkspaceRename: () => void
 }
 
 export const createSidebarController = (ctx: ControllerContext, seam: RepoTreeSeam): SidebarController => {
@@ -45,15 +41,5 @@ export const createSidebarController = (ctx: ControllerContext, seam: RepoTreeSe
     await seam.loadDirectory(copyId, path)
   }
 
-  const renameWorkspace: SidebarController["renameWorkspace"] = (name) => {
-    const trimmed = name.trim()
-    if (trimmed === "") return `workspace.rename needs a name — the heading reads "${DEFAULT_WORKSPACE_NAME}" until you give one`
-    store.dispatch({ type: "workspace.renamed", actor: ctx.commandActor, name: trimmed })
-  }
-
-  const toggleWorkspaceRename: SidebarController["toggleWorkspaceRename"] = () => {
-    store.dispatch({ type: "workspace.rename.toggled", actor: "user", open: store.session().workspaceRenameOpen !== true })
-  }
-
-  return { toggleRepoTree, renameWorkspace, toggleWorkspaceRename }
+  return { toggleRepoTree,}
 }

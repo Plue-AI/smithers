@@ -50,7 +50,7 @@ test("a TODO filed from the History card is followed through the factory to its 
   })
 
   await page.goto("/")
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await fillComposer(page, `/history.show ${REPO}`)
   await page.getByTestId("composer-send").click()
   const card = page.locator('[data-kind="stack"]')

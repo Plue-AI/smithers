@@ -1,3 +1,4 @@
+import { describedFailure, FailureNotice } from "../FailureNotice"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction, flowProps } from "../flows/FlowAction"
 /*
@@ -17,7 +18,6 @@ import type { Card } from "../state/AppState"
 import { dayLabel, timeLabel } from "../Timestamps"
 import type { CardProjectionAuthority, RunCommand } from "./CardFamily"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
-import { describedFailure, FailureNotice } from "../FailureNotice"
 
 type IssueCard = Extract<Card, { kind: "issue" }>
 type IssueRow = Extract<Card, { kind: "issue-list" }>["payload"]["issues"][number]
@@ -92,16 +92,13 @@ export const TaskStrip = ({ thread, onRunCommand, compact = false }: { readonly 
 }
 
 /** The state acts an issue offers: a conversation opens and closes; an issue also gets fixed and verified. */
-export const stateActions = (card: IssueCard, viewer?: string) => {
-  const { state, task, number, repo } = card.payload
+export const stateActions = (card: IssueCard, _viewer?: string) => {
+  const { state, number, repo } = card.payload
   const args = flowArgs("issues.close", { number, repo })
-  const selfVerify = task?.fixedBy !== undefined && viewer !== undefined && task.fixedBy.id === viewer
-  const acts: Array<{ readonly flow: "issues.close" | "issues.reopen" | "issues.fix" | "issues.verify"; readonly label: string; readonly disabled?: string }> = []
+  const acts: Array<{ readonly flow: "issues.close" | "issues.reopen"; readonly label: string; readonly disabled?: string }> = []
   if (state === "open") {
-    if (task !== undefined) acts.push({ flow: "issues.fix", label: "Fixed" })
     acts.push({ flow: "issues.close", label: card.payload.kind === "chat" ? "Close" : "Close issue" })
   } else if (state === "fixed") {
-    acts.push({ flow: "issues.verify", label: "Verify", ...(selfVerify ? { disabled: "fixed by you" } : {}) })
     acts.push({ flow: "issues.reopen", label: "Reopen" })
   } else if (state === "verified") {
     acts.push({ flow: "issues.close", label: "Close" })
@@ -114,8 +111,7 @@ export const stateActions = (card: IssueCard, viewer?: string) => {
 export const OriginMark = ({ origin }: { readonly origin: Comment["origin"] }) =>
   origin === undefined || origin === "app" ? null : <span className="thread-slack thread-origin" data-origin={origin}>· {origin}</span>
 
-const MessageRow = ({ comment, first, card, context, onRunCommand }: { readonly comment: Comment; readonly first: boolean; readonly card: IssueCard; readonly context: ThreadContext; readonly onRunCommand: RunCommand }) => {
-  const { number, repo } = card.payload
+const MessageRow = ({ comment, first, context, onRunCommand }: { readonly comment: Comment; readonly first: boolean; readonly card: IssueCard; readonly context: ThreadContext; readonly onRunCommand: RunCommand }) => {
   const persona = commentPersona(comment, context)
   const reactions = reactionChips(comment.reactions, context.viewer)
   return (
@@ -131,12 +127,7 @@ const MessageRow = ({ comment, first, card, context, onRunCommand }: { readonly 
         <Markdown className="smithers-card-markdown" content={comment.commentBody} />
         {reactions.length === 0 || comment.id === undefined ? null : (
           <div className="thread-reactions" aria-label="Reactions">
-            {reactions.map((reaction) => reaction.mine ? (
-              <button key={reaction.name} type="button" className="thread-reaction" data-mine aria-label={`Remove your ${reaction.name} reaction`}
-                {...flowAction(onRunCommand, "issues.comment.react", flowArgs("issues.comment.react", { number, repo, commentId: comment.id!, name: reaction.name, active: false }))}>
-                {reaction.name} {reaction.count}
-              </button>
-            ) : <span key={reaction.name} className="thread-reaction">{reaction.name} {reaction.count}</span>)}
+            {reactions.map((reaction) => <span key={reaction.name} className="thread-reaction">{reaction.name} {reaction.count}</span>)}
           </div>
         )}
       </div>
@@ -232,7 +223,7 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
                     {request.status === "requested" ? "sending…" : request.status === "unknown" ? "Delivery unknown" : "Not delivered"}
                   </span>
                   {request.status === "requested" ? null : (
-                    <Button size="sm" variant="outline" {...flowAction(onRunCommand, "issues.comment.retry", flowArgs("issues.comment.retry", { cardId: card.id, requestId: request.id }))}>Retry</Button>
+                    null
                   )}
                 </>
               )}
@@ -241,8 +232,7 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
               <Markdown className="smithers-card-markdown" content={request.text} />
               {request.error === undefined ? null : (
                 <FailureNotice role="status" className="thread-pending-failure" data-testid={`thread-pending-failure-${request.id}`}
-                  failure={describedFailure(`ThreadMessage.${request.status}`, THREAD_MESSAGE_FAILURES[request.status], request.error)}
-                  actions={{ retry: flowAction(onRunCommand, "issues.comment.retry", flowArgs("issues.comment.retry", { cardId: card.id, requestId: request.id })) }} />
+                  failure={describedFailure(`ThreadMessage.${request.status}`, THREAD_MESSAGE_FAILURES[request.status], request.error)} />
               )}
             </div>
           </li>

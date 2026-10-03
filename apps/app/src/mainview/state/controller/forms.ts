@@ -11,13 +11,11 @@ import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import type { Card, CloudWorkspaceRow } from "../AppState"
 import { parseRepoSelection } from "../AppState"
 import { activeRepositoryId } from "../RepoContext"
-import { knownRepositories, repositoryBoxChoices, resolveTargetRepo } from "../RepoContext"
+import { knownRepositories, resolveTargetRepo } from "../RepoContext"
 import { fileOptions,fileTargetKey } from "../seams/FilesSeam"
 import { readIssueOptions } from "../seams/IssuesSeam"
 import { readLandingOptions } from "../seams/LandingsSeam"
 import type { ControllerContext } from "./context"
-import { setupQuestionCardId } from "./repositorySetup"
-import { setupGuideQuestions } from "./repositorySetupGuide"
 import { claimedSpokenLines,claimSpokenLine, forgetVanishedClaims,latestOrdinal } from "./spokenLines"
 import { presentAppFailure } from "./AppFailure"
 
@@ -369,35 +367,12 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       const missing = missingFields(fields, draftFrom(fields, given))
       fields = fields.filter(field => missing.includes(field.name))
     }
-    /* A box pick for one repository offers only the boxes that act could mean (RepoContext.repositoryBoxChoices). */
-    if (request.name === "box.select" && typeof given["repo"] === "string") {
-      const choices = repositoryBoxChoices(store, given["repo"]).map(workspaceOption)
-      fields = fields.map(({ optionsFrom: _listed, ...field }) => field.name === "workspaceId" ? { ...field, options: choices } : field)
-    }
-    let title = request.title
-    /*
-     * The app's own setup question: its wording is the card's title and its
-     * answers are the select's options, both authored in
-     * controller/repositorySetupGuide.ts. The model contributes nothing here.
-     * A missing or unknown id resolves to the job's default question — a
-     * default belongs to the ASK; answering an unknown id refuses instead.
-     * The title is the question, so the select is named for what it takes.
-     */
-    if (request.name === "setup.ask") {
-      const setup = collections.cards.get(String(given["cardId"] ?? ""))
-      const questions = setup?.kind === "repository-setup" ? setupGuideQuestions(setup.payload) : []
-      const question = questions.find(candidate => candidate.id === given["questionId"]) ?? questions[0]
-      if (question === undefined) return undefined
-      given = { ...given, questionId: question.id }
-      title = question.text
-      fields = fields.filter(field => field.name === "choice").map(field => ({ ...field, kind: "select" as const,
-        label: "Answer", options: question.choices.map(choice => ({ value: choice.id, label: choice.label })) }))
-    }
     // T-APP-02: TODO doors ask only for missing required input; the bound Tn stays in given.
     if (request.name === "todo" || request.name.startsWith("todo.")) {
       const missing = missingFields(fields, draftFrom(fields, given))
       fields = fields.filter(field => missing.includes(field.name))
     }
+    const title = request.title
     const nested = request.payloadField === undefined ? undefined : given[request.payloadField]
     const draft = draftFrom(fields, request.payloadField === undefined
       ? given
@@ -434,9 +409,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       ? { error: refused }
       : "error" in parsed && grammar?.buttonOnly !== true && read.skipped.length === 0 && missingFields(resolved, draft).length === 0
         ? { error: parsed.error } : {}
-    // Two open setups must not overwrite each other's question.
-    const cardId = request.cardId ?? (request.name === "setup.ask"
-      ? setupQuestionCardId(String(given["cardId"] ?? "")) : formCardId(request.name))
+    const cardId = request.cardId ?? formCardId(request.name)
     // A human's menu action now continues in the form. Release the menu's
     // backdrop through the same transitions used by its close gestures.
     // Agent-created forms do not dismiss chrome the human is using.
@@ -545,12 +518,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       // Persist the claim before any command can launch. A reload or second click cannot repeat it.
       await patch(card, { ...card.payload, afterBox: { ...pending, consumed: true } }, "acted")
       if (ctx.disposed || ctx.accountEpoch !== epoch || ctx.accountOwner() !== pending.owner) return "The account changed before the review could start."
-      const outcome = await ctx.commands.run("box.select", flowArgs("box.select", {
-        workspaceId, repo: pending.repo, flow: "prs.triage", args: flowArgs("prs.triage", { number: pending.number, repo: pending.repo }) }))
+      const outcome = await ctx.commands.run("prs.triage", flowArgs("prs.triage", { number: pending.number, repo: pending.repo }))
       if (outcome.status === "executed") return { value: outcome.value ?? `Review PR #${pending.number} requested.` }
       const error = outcome.status === "failed" ? outcome.error
         : outcome.status === "unavailable" ? outcome.reason
-        : outcome.status === "unknown-command" ? "/box.select is not available here."
+        : outcome.status === "unknown-command" ? "/prs.triage is not available here."
         : `Review PR #${pending.number} could not be started. Check Runs before requesting it again.`
       const current = formCard(cardId)
       if (current !== undefined) await patch(current, { ...current.payload, error, errorKind: "run" }, "acted")
@@ -604,15 +576,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     /*
      * The continuation keeps the asker's actor: an agent-rendered form runs
      * as the agent (a consequential flow posts its confirm card, the human's
-     * click runs it), a slash-rendered form runs as the human. The app-rendered
-     * setup question is the exception: the human's Submit answers as human.
+     * click runs it), a slash-rendered form runs as the human.
      * The agent can never launder an act through a human's form: its own call
      * is always the agent's.
      */
-    // setup.ask is rendered by the application through the agent-shaped form
-    // path, but the answer belongs to the person pressing Submit. An agent
-    // invoking form.submit still keeps its own actor and is refused downstream.
-    const asAgent = actor === "smithers" || (via === "agent" && flow !== "setup.ask")
+    const asAgent = actor === "smithers" || via === "agent"
     const continuation = invocation ?? continuationFor(card)
     /*
      * The submission belongs to the account that pressed Submit. Sign-out

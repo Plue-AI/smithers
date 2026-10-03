@@ -9,11 +9,10 @@ import { createAppStore, PERSISTED_COLLECTION_SPECS, type AppStore } from "./App
 import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, silentAgent } from "./TestFixtures"
 import { STAGED_ENVELOPE_STORAGE_KEY } from "../chain/TransactionalStorage"
-import { flowArgs } from "../flows/FlowArgs"
 
 const controllerFor = scopedControllers()
 
-for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pending signup commands and reports one runtime failure`, async () => {
+for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pending input-mode commands and reports one runtime failure`, async () => {
   const directory = mkdtempSync(join(tmpdir(), "smithers-write-failure-")), path = join(directory, "app.sqlite")
   const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
   let armed = false, writesAfterFailure = 0, failed = false
@@ -52,7 +51,7 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
     // a global failure that would leak into another test's document.
     store.onStorageFailure(error => { failures.push(error) })
     armed = true
-    const pending = Array.from({ length: count }, (_, index) => controller.commands.run("signup.set", flowArgs("signup.set", { field: "name", value: `PRIVATE INPUT ${index}` })))
+    const pending = Array.from({ length: count }, (_, index) => controller.commands.run("input.mode", index % 2 === 0 ? "vim" : "normal"))
     await entered.promise
     expect(failures).toEqual([])
     held.resolve()
@@ -73,13 +72,13 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
     await controller.dispose().catch(() => {})
     failed = false
     restored = await open()
-    expect(restored.session().signup?.draft).toEqual({ account: "owner" })
+    expect(restored.session().inputMode).toBe("normal")
     expect(restored.session().draft).toBe("")
     expect(restored.collections.commandIntents.size).toBe(0)
     expect((await restored.verifyState()).valid).toBe(true)
     const retry = controllerFor(restored, silentAgent, {})
-    expect((await retry.commands.run("signup.set", "name Retried name")).status).toBe("executed")
-    expect(restored.session().signup?.draft.name).toBe("Retried name")
+    expect((await retry.commands.run("input.mode", "vim")).status).toBe("executed")
+    expect(restored.session().inputMode).toBe("vim")
   } finally {
     console.warn = originalWarn
     held.resolve(); await Promise.resolve(restored?.dispose?.()).catch(() => {}); await Promise.resolve(store?.dispose?.()).catch(() => {})

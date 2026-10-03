@@ -36,7 +36,6 @@ const handlers = {
   onGrantCancel: () => {},
   onMaximize: () => {},
   onMinimize: () => {},
-  onOpenInTab: () => {},
   onConnectGitHub: () => {},
   onRunWorkflow: () => {},
   onStopRun: () => {},
@@ -144,41 +143,18 @@ describe("CardRenderers", () => {
     expect(pillStatus(images)).toBe("done")
   })
 
-  test("an agent that exited with no exit code is stopped, not done", () => {
-    /* Cards.ts: exitCode is "null when unknown (the tab was closed)" — AgentCardBody reads it "stopped". */
-    const agent: Card = {
-      ...base,
-      kind: "agent",
-      status: "active",
-      payload: {
-        harnessId: "claude",
-        displayName: "reviewer",
-        tabId: "tab-1",
-        sessionId: "sess-1",
-        cwd: "/tmp/repo",
-        phase: "exited",
-        exitCode: null
-      }
-    }
-    expect(pillStatus(agent)).toBe("stopped")
-    expect(pillStatus({ ...agent, payload: { ...agent.payload, exitCode: 0 } })).toBe("done")
-    expect(pillStatus({ ...agent, payload: { ...agent.payload, exitCode: 1 } })).toBe("failed")
-    expect(pillStatus({ ...agent, payload: { ...agent.payload, phase: "running" } })).toBe("running")
-  })
+  
 
   test("the shell mounts the body from the kind's family entry", () => {
-    const notifications: Card = {
+    const status: Card = {
       ...base,
-      kind: "notifications",
+      kind: "status",
       status: "active",
-      payload: {
-        unread: 1,
-        items: [{ id: "n1", title: "Review requested on #12", repo: "o/r", reason: "review_requested", createdAt: null, read: false }]
-      }
+      payload: { progress: 0.5, note: "Building change" }
     }
-    const markup = renderToStaticMarkup(<CardView card={notifications} {...handlers} />)
-    expect(markup).toContain("data-kind=\"notifications\"")
-    expect(markup).toContain("Review requested on #12")
+    const markup = renderToStaticMarkup(<CardView card={status} {...handlers} />)
+    expect(markup).toContain('data-kind="status"')
+    expect(markup).toContain('Building change')
 
     /* A kind the chat has never drawn renders the shell and an empty body, as the switch did. */
     const serviceLog: Card = {
@@ -308,7 +284,7 @@ describe("factory homepage", () => {
       { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
       { type: "app", flow: "pr-triage", title: "Review a PR", picture: "review" },
       { type: "text", text: "After" },
-      { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+      { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
       { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
     ])
     const markup = renderToStaticMarkup(<RepositoryHomeCard card={{ ...card, payload: { ...card.payload, home: { kind: "blocks", blocks: card.payload.home.kind === "blocks" ? card.payload.home.blocks.slice(1) : [] } } }} onRunCommand={() => {}} />)
@@ -316,7 +292,7 @@ describe("factory homepage", () => {
     expect(markup.match(/data-testid="app-tile"/g)).toHaveLength(4)
     expect(markup.match(/data-testid="home-apps"/g)).toHaveLength(1)
     for (const title of ["Fix an issue", "Review a PR", "Ask the codebase", "Run it every night"]) expect(markup.indexOf(title)).toBeLessThan(markup.indexOf("After"))
-    for (const [flow, title, picture] of [["issue.implement", "Fix an issue", "issue"], ["pr-triage", "Review a PR", "review"], ["wiki.ask", "Ask the codebase", "wiki"], ["triggers.register", "Run it every night", "schedule"]]) {
+    for (const [flow, title, picture] of [["issue.implement", "Fix an issue", "issue"], ["pr-triage", "Review a PR", "review"], ["wiki.cloud", "Ask the codebase", "wiki"], ["triggers.register", "Run it every night", "schedule"]]) {
       expect(markup).toContain(`data-flow="${flow}"`)
       expect(markup).toContain(`<span class="app-tile-title">${title}</span>`)
       expect(markup).toContain(`data-picture="${picture}"`)
@@ -349,7 +325,7 @@ describe("factory homepage", () => {
     } as unknown as AppController
     const card = home([
       { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
-      { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" }
+      { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" }
     ])
     const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
     // The newest run of the workflow the flow launches, on this repository: r2, not r1 and not the other repository's.
@@ -358,7 +334,7 @@ describe("factory homepage", () => {
     expect(markup).toContain('data-status="running"')
     expect(markup).toContain(">Running<")
     expect(markup).not.toContain("#42")
-    // No run of wiki.ask: the wiki tile keeps its picture.
+    // No run of wiki.cloud: the wiki tile keeps its picture.
     expect(markup).toContain('data-picture="wiki" aria-hidden="true"')
     expect(lastRunOf(cards.values(), "org/repo", "pr-triage")?.id).toBe("r3")
     expect(lastRunOf(cards.values(), "org/repo", "release")).toBeUndefined()
@@ -371,7 +347,7 @@ describe("factory homepage", () => {
     const card = home([
       { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
       { type: "app", flow: "pr-triage", title: "Review a PR", picture: "review" },
-      { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+      { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
       { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
     ])
     // Signed out (no controller) and signed in with a stack that has no Wiki: pictures only.
@@ -389,7 +365,7 @@ describe("factory homepage", () => {
       items: [], lanes: [{ index: 0, state: "idle" as const }], limits: { maxParallel: 1 }, wiki: { state: "current" as const, pages: 12, edited: 0 } }
     const controller = { stackSnapshots: { get: () => ({ stack, error: null }), subscribe: () => () => {} }, commands: { find: () => undefined },
       store: { collections: { cards: { values: () => [], subscribeChanges: () => ({ unsubscribe: () => {} }) } } } } as unknown as AppController
-    const card = home([{ type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" }])
+    const card = home([{ type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" }])
     const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
     expect(markup).toContain('data-testid="app-tile-wiki"')
     expect(markup).toContain("current · main")

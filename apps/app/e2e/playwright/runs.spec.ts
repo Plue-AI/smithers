@@ -153,8 +153,7 @@ const send = async (page: Page, text: string): Promise<void> => {
 
 /** Exercise workspace flows after the introduction, using its existing command. */
 const finishGuide = async (page: Page): Promise<void> => {
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
 }
 
 test.beforeEach(async ({ page }) => {

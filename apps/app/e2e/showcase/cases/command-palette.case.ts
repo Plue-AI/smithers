@@ -10,7 +10,7 @@ export default showcase({
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await app.open("/")
-    await expect(page.getByTestId("setup-checklist")).toBeVisible()
+    await expect(page.getByTestId("composer-input")).toBeAttached()
     await app.press("ControlOrMeta+k")
     const input = page.getByTestId("composer-input")
     await expect(input).toBeFocused()

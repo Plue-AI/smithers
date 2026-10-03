@@ -27,7 +27,7 @@ const installHome = (page: Page) =>
     { type: "prompt", title: "What should we work on?", placeholder: "Ask Smithers…" },
     { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
     { type: "app", flow: "prs.triage", title: "Review a PR", picture: "review" },
-    { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+    { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
     { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
   ] } }))
 
@@ -187,13 +187,6 @@ test("a message-started run's Steps view leads with the recorded message — aut
       : tag === "run-events" ? journal.filter((row) => row.sequence > (call.payload.after?.value ?? 0)) : []
     return route.fulfill({ json: { ok: true, payload: { cursor: { projection: tag, runId: null, value: 0 }, rows } } })
   })
-  let sessionReads = 0
-  await page.route((url) => url.pathname === `/api/repos/${repo}/agent/sessions/session-9`, (route) => {
-    sessionReads += 1
-    return route.fulfill(json({ id: "session-9", title: "hello greet null", status: "completed", message_count: 1, created_at: at, workspace_id: null }))
-  })
-  await page.route((url) => url.pathname === `/api/repos/${repo}/agent/sessions/session-9/messages`, (route) => route.fulfill(json([])))
-
   await slash(page, `/runs.open ${runId} ${repo}`)
   const card = page.locator('[data-kind="run-trace"]').last()
   await expect(card.getByTestId(`run-trace-${runId}`)).toBeVisible({ timeout: 20_000 })
@@ -204,10 +197,6 @@ test("a message-started run's Steps view leads with the recorded message — aut
   // No row is invented: the recorded message is the only one.
   await expect(card.locator("[data-trigger]")).toHaveCount(1)
   await capture(page, card, "app-run-steps-message")
-
-  // The conversation door opens the session the message was posted in.
-  await message.getByRole("button", { name: "Open" }).click()
-  await expect.poll(() => sessionReads).toBe(1)
 
   // The record is durable: a reload re-reads the same journal, and the row is still there, still once.
   await page.reload()

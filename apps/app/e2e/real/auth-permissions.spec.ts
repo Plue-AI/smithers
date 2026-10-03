@@ -98,7 +98,7 @@ test("a signed-out required action parks behind its durable sign-in step", scena
 test("a signed-out browser gets the same concealed response as an unknown admin route", scenario("auth.signed-out-admin-api-denial", {
   capabilities: ["identity"],
   coverage: [
-    "action:admin.health", "host:production", "path:permission", "door:slash",
+    "action:admin.devtools", "host:production", "path:permission", "door:slash",
     "dimension:anonymous-server-enforced-admin-denial", "evidence:canonical-backend-401-body"
   ],
   description: "The shared backend refuses an anonymous browser at the administrator health endpoint."
@@ -107,10 +107,10 @@ test("a signed-out browser gets the same concealed response as an unknown admin 
   expect(await readAuthenticatedSession(page)).toBeUndefined()
   await openComposer(page)
   const input = page.getByTestId("composer-input")
-  await input.fill("/admin.health")
-  await expect(page.locator('.slash-menu-item[data-flow="admin.health"]')).toHaveCount(0)
+  await input.fill("/admin.devtools")
+  await expect(page.locator('.slash-menu-item[data-flow="admin.devtools"]')).toHaveCount(0)
   await input.press("Escape")
-  await expect(page.locator('.smithers-card[data-kind="admin-health"]')).toHaveCount(0)
+  await expect(page.getByRole("complementary", { name: "Dev tools", exact: true })).toHaveCount(0)
   const denied = await realApi(page, request, "GET", "/api/admin/system/health")
   expect(denied.status()).toBe(401)
   expect(await denied.json()).toMatchObject({ code: "unauthorized" })
@@ -203,14 +203,14 @@ authenticatedTest("GitHub OAuth stays on the original repository and resumes the
   await expect(page.locator('.smithers-card[data-kind="balance"]')).toBeVisible({ timeout: 30_000 })
 })
 
-authenticatedTest("the saved admin identity can read admin health and survives a page restart", scenario("auth.admin-permission-restart", {
+authenticatedTest("the saved admin identity can open devtools and survives a page restart", scenario("auth.admin-permission-restart", {
   capabilities: ["identity"],
   coverage: [
-    "action:admin.health", "action:admin.devtools", "host:production", "path:success", "path:permission",
+    "action:admin.devtools", "action:admin.devtools", "host:production", "path:success", "path:permission",
     "path:persistence", "door:slash", "door:user-only", "dimension:admin-only-registry-after-restart",
-    "evidence:session-api-admin-claim-and-health-card"
+    "evidence:session-api-admin-claim-and-devtools"
   ],
-  description: "The current sanctioned admin session proves its claim through the real session endpoint, reads the deployed admin health route, and retains admin UI after reload."
+  description: "The current sanctioned admin session proves its claim through the real session endpoint, opens its developer tools, and retains admin UI after reload."
 }), async ({ page, request }, testInfo) => {
   const expectedSession = { login: "codeplanesmithers", admin: true }
   const expectedWireSession = expectedSession
@@ -229,14 +229,14 @@ authenticatedTest("the saved admin identity can read admin health and survives a
   await expect(page.locator('[data-testid="chrome-sign-in"], [data-flow="auth.sign-in"]:visible')).toHaveCount(0)
 
   await openComposer(page)
-  await command(page, "/admin.health")
-  await expect(page.locator('.smithers-card[data-kind="admin-health"]')).toBeVisible({ timeout: 30_000 })
+  await command(page, "/admin.devtools")
+  await expect(page.locator(".devtools-panel")).toBeVisible({ timeout: 30_000 })
   await reloadApp(page)
   await expect.poll(() => readAuthenticatedSession(page)).toEqual(expectedSession)
   await openComposer(page)
   await command(page, "/admin.devtools")
   await expect(page.locator(".devtools-panel")).toBeVisible()
-  await expect(page.locator(".devtools-panel")).toContainText("admin.health")
+  await expect(page.locator(".devtools-panel")).toContainText("debug")
 })
 
 authenticatedTest("authenticated cookies survive the canonical document and bootstrap reads", scenario("auth.session-preflight-cookie-persistence", {
@@ -319,7 +319,7 @@ authenticatedTest("sign-out clears the real session and a real OAuth round trip 
 ordinaryTest("an ordinary account is denied by both the admin UI and server route", scenario("auth.ordinary-admin-denial", {
   capabilities: ["identity"],
   coverage: [
-    "action:admin.health", "host:production", "path:permission", "door:slash", "door:user-only",
+    "action:admin.devtools", "host:production", "path:permission", "door:slash", "door:user-only",
     "dimension:ordinary-non-admin-denial", "evidence:session-claim-menu-absence-and-backend-403"
   ],
   description: "A separately provisioned ordinary GitHub identity lacks the admin action in the UI and is forbidden by the protected backend endpoint."
@@ -333,10 +333,10 @@ ordinaryTest("an ordinary account is denied by both the admin UI and server rout
 
   await openComposer(page)
   const input = page.getByTestId("composer-input")
-  await input.fill("/admin.health")
-  await expect(page.locator('.slash-menu-item[data-flow="admin.health"]')).toHaveCount(0)
+  await input.fill("/admin.devtools")
+  await expect(page.locator('.slash-menu-item[data-flow="admin.devtools"]')).toHaveCount(0)
   await input.press("Escape")
-  await expect(page.locator('.smithers-card[data-kind="admin-health"]')).toHaveCount(0)
+  await expect(page.getByRole("complementary", { name: "Dev tools", exact: true })).toHaveCount(0)
   const denied = await realApi(page, request, "GET", "/api/admin/system/health")
   expect(denied.status()).toBe(403)
   expect(await denied.json()).toMatchObject({ code: "forbidden" })

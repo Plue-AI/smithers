@@ -47,11 +47,11 @@ test("mounted cards stay inside the transcript column at 400px", async ({ page }
   await page.setViewportSize({ width: 400, height: 800 })
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
 
   const overflowing = await page.evaluate(() => {
     const out: string[] = []
-    for (const card of document.querySelectorAll<HTMLElement>('.smithers-card, [data-testid="setup-checklist"]')) {
+    for (const card of document.querySelectorAll<HTMLElement>('.smithers-card')) {
       const column = card.parentElement
       if (!column) continue
       const edge = column.getBoundingClientRect().right

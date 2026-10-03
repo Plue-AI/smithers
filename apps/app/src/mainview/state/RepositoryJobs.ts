@@ -24,17 +24,6 @@ export const repositoryJobWorkspace = (
   return { workspaceId }
 }
 
-/** Persisted setup routing provenance is not evidence of an enabled registration. */
-export const recordedSetupWorkspace = (cards: Iterable<Card>, repo: string, owner: string | null):
-  { readonly workspaceId: string } | { readonly error: string } | undefined => {
-  if (owner === null) return undefined
-  const boxes = new Set([...cards].flatMap(card => card.kind === "repository-setup" && card.payload.repo === repo
-    && card.payload.owner?.toLowerCase() === owner.toLowerCase() && card.payload.workspaceId !== undefined ? [card.payload.workspaceId] : []))
-  if (boxes.size > 1) return { error: "The repository's saved setups name different boxes." }
-  const workspaceId = [...boxes][0]
-  return workspaceId === undefined ? undefined : { workspaceId }
-}
-
 const registrationState = (active: { readonly enabled: boolean } | undefined, trial: { readonly enabled: boolean } | undefined, changed: boolean): string =>
   active ? active.enabled ? changed ? "Enabled · draft changes" : "Enabled" : "Paused"
     : trial ? trial.enabled ? "Trial" : "Paused" : "Off"
@@ -67,17 +56,13 @@ const knownRegistrations = (observations: Iterable<RepositoryJobObservation>, re
 
 /** Verified registrations are independent of cards; an open draft only annotates its own registration. */
 export const repositoryJobStates = (
-  observations: Iterable<RepositoryJobObservation>, cards: Iterable<Card>, repo: string, owner: string | null,
+  observations: Iterable<RepositoryJobObservation>, __cards: Iterable<Card>, repo: string, owner: string | null,
   selectedWorkspaceId: string | null = null
 ): Partial<Record<RepositoryJob, string>> => {
   const states: Partial<Record<RepositoryJob, string>> = {}
-  const drafts = [...cards]
   for (const { job, registration } of knownRegistrations(observations, repo, owner, selectedWorkspaceId)) {
     const active = registration.active
-    const changed = active !== undefined && drafts.some(card => card.kind === "repository-setup" && card.payload.repo === repo
-      && card.payload.owner?.toLowerCase() === owner?.toLowerCase() && card.payload.job === job
-      && card.payload.active?.registrationId === active.registrationId && card.payload.revision > active.revision
-      && (card.payload.workspaceId === undefined || card.payload.workspaceId === active.workspaceId))
+    const changed = false
     states[job] = registrationState(active, registration.trial, changed)
   }
   return states

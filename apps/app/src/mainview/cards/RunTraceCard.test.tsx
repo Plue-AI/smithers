@@ -115,17 +115,15 @@ const renderTrace = (overrides: Partial<Extract<Card, { kind: "run-trace" }>["pa
   return { host, dispatched }
 }
 
-test("a message-started run's Steps view leads with the author, the exact quoted text and a door to the conversation", () => {
+test("a message-started run's Steps view leads with the author, the exact quoted text without a retired session door", () => {
   const trigger = { kind: "message", author: "alice", conversationId: "session-9", messageId: "314", text: "Why does /hello greet null?", origin: "chat" }
   const accepted = { sequence: 1, kind: "control.run.accepted", occurredAt: 1000, payload: { runId: "run-1", status: "accepted", trigger } }
-  const { host, dispatched } = renderTrace({ workflow: "coding/dispatch", traceView: "steps", events: [accepted] })
+  const { host } = renderTrace({ workflow: "coding/dispatch", traceView: "steps", events: [accepted] })
   const rows = host.querySelectorAll("[data-trigger]")
   expect([...rows].map((row) => row.getAttribute("data-trigger"))).toEqual(["message"])
   expect(host.querySelector("[data-testid='run-trigger-quote-run-1']")?.textContent).toBe("Why does /hello greet null?")
   expect(rows[0]!.querySelector(".agent-mark-name")?.textContent).toBe("alice")
-  click([...rows[0]!.querySelectorAll("button")].find((button) => button.textContent === "Open") ?? null)
-  expect(dispatched.at(-1)?.name).toBe("agent.session.view")
-  expect(dispatched.at(-1)?.args).toContain("session-9")
+  expect(rows[0]!.querySelectorAll("button")).toHaveLength(0)
 
   const bare = renderTrace({ workflow: "coding/dispatch", traceView: "steps", events: [{ ...accepted, payload: { runId: "run-1", status: "accepted" } }] })
   expect(bare.host.querySelector("[data-trigger='message']")).toBeNull()
@@ -308,25 +306,6 @@ describe("the run card as a trace", () => {
     expect(selected.host.textContent).toContain("At #8")
   })
 
-  test("a spawned child run is a subagent card once its spawn was recorded, and opens as its run card", () => {
-    const events = [
-      stamp(1, "control.agent.turn-opened", {}, 1),
-      stamp(2, "control.agent.cell-call-started", { flowName: "agent/spawn", input: { flow: "review" } }, 2),
-      stamp(3, "control.agent.cell-call-settled", { flowName: "agent/spawn", outcome: "success", value: { child: "run-1/child/review" } }, 3)
-    ]
-    const before = renderRun({ events, traceView: "turns", selection: "call-1", cursorSeq: 2, liveTail: false })
-    expect(before.host.querySelector("[data-flow='runs.open']")).toBeNull()
-    expect(before.host.querySelector(".subagent-card")).toBeNull()
-    expect(before.host.textContent).not.toContain("Inspect child run")
-    const after = renderRun({ events, traceView: "turns", selection: "call-1", cursorSeq: 3, liveTail: false })
-    const child = after.host.querySelector<HTMLElement>(".subagent-card")!
-    expect(child.querySelector(".subagent-title")?.textContent).toMatch(/^[◐◓◑◒] review$/)
-    expect(after.host.querySelector(".subagent-header")?.textContent).toContain("Running 1 subagent")
-    // Unobserved, the child has no stop door of its own yet.
-    expect(child.querySelector(".subagent-stop")).toBeNull()
-    click(child)
-    expect(after.dispatched).toEqual([{ name: "runs.open", args: "sourceCard=flow-run-run-1 run-1/child/review smithersai/smithers" }])
-  })
   test("a run of kind prototype wears the never-promoted banner, offers all | messages | failed, and has no Steer row", () => {
     const { host } = renderRun({ kind: "prototype", events: JOURNAL })
     expect(host.querySelector("[data-testid='run-trace-run-1']")).not.toBeNull()
@@ -1229,21 +1208,6 @@ describe("the run card's token meter", () => {
   test("a run with no recorded usage has no meter", () => {
     const { host } = renderRun({ phase: "running", events: [stamp(1, "control.agent.turn-opened", { seat: "openai:gpt-4o" }, 1000)] })
     expect(host.querySelector("[data-testid='run-meter-run-1']")).toBeNull()
-  })
-})
-
-describe("the run card's take over", () => {
-  test("a live run on a box offers Take over; taken over, the same place offers Release", () => {
-    const box = "3f2b8c1e-8a7d-4b2a-9c3e-1d2f3a4b5c6d"
-    const header = (payload: Record<string, unknown>) => renderRun({ phase: "running", workspaceId: box, ...payload } as never).host
-      .querySelector("[data-testid='run-outcome-run-1']")!
-    const take = header({}).querySelector("[data-testid='flow-run-takeover-run-1']")!
-    expect(take.textContent).toBe("Take over")
-    expect(take.getAttribute("data-flow")).toBe("runs.takeover")
-    const release = header({ takeover: { terminalSessionId: "t-1" } }).querySelector("[data-testid='flow-run-release-run-1']")!
-    expect(release.textContent).toBe("Release")
-    expect(release.getAttribute("data-flow")).toBe("runs.release")
-    expect(renderRun({ phase: "completed", workspaceId: box } as never).host.querySelector("[data-testid^='flow-run-takeover']")).toBeNull()
   })
 })
 

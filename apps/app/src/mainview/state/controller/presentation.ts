@@ -1,27 +1,24 @@
-import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
-import { TOOLS_BROWSER_FETCH_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { AdminSystemHealthSchema } from "@smthrs/rpc/Health"
+
+import { ADMIN_HEALTH_PATH, TOOLS_BROWSER_FETCH_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { refusalOf, storedRefusal } from "@smthrs/rpc/Refusal"
 import type { SessionRefusal } from "@smthrs/rpc/Cards"
 import type { Card } from "../AppState"
-import { conversationTabIdOf,MAIN_TAB_ID,WIKI_DISPLAY_NAME } from "../AppState"
+import { WIKI_DISPLAY_NAME } from "../AppState"
 import { parseDiagnosticQuery,readDiagnostics } from "../Diagnostics"
 import type { ControllerContext,NetEntry } from "./context"
-import { all as allChat, CHAT_KINDS, subagentsFromCards, toggle as toggleChat } from "../ChatTimeline"
+import { all as allChat, CHAT_KINDS,  toggle as toggleChat } from "../ChatTimeline"
 
 export interface PresentationController {
   readonly showChat: () => void
   readonly showWorld: () => void
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
   readonly showWikiPane: () => void
-  readonly showConnectors: () => void
-  /** The ctrl+s overview of every subagent beside the chat (#2190): toggles. */
-  readonly showSubagents: () => void
   readonly toggleDevtools: () => void
   readonly toggleChatFilterMenu: () => { readonly value: string }
   readonly toggleChatFilter: (target: string) => string | { readonly value: string }
   readonly grepChatFilter: (query: string) => { readonly value: string }
   readonly resetChatFilter: () => { readonly value: string }
-  readonly addFiles: () => void
   readonly askReset: () => void
   readonly cancelReset: () => void
   readonly describeAgentBackend: (backend: string) => string | { readonly value: string }
@@ -37,8 +34,7 @@ export interface PresentationController {
 }
 
 export const createPresentationController = (
-  ctx: ControllerContext,
-  adminHealth: () => Promise<string | void>
+  ctx: ControllerContext
 ): PresentationController => {
   const showChat = (): void => {
     ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: "chat" })
@@ -79,48 +75,6 @@ export const createPresentationController = (
     ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: open ? "chat" : "world" })
   }
 
-  /*
-   * The overview is a pane of the main conversation. From a worker's or a
-   * card's tab, ctrl+s brings the conversation forward with it; only a shown
-   * overview closes.
-   */
-  const showSubagents = (): void => {
-    const session = ctx.store.session()
-    const mainShown = (session.activeTabId ?? MAIN_TAB_ID) === MAIN_TAB_ID || conversationTabIdOf(session) !== undefined
-    if (session.surface === "subagents" && mainShown) {
-      ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: "chat" })
-      return
-    }
-    if (!mainShown) ctx.store.dispatch({ type: "tab.selected", actor: ctx.commandActor, id: MAIN_TAB_ID })
-    ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: "subagents" })
-  }
-
-  const showConnectors = (): void => {
-    const identity = ctx.store.collections.identitySessions.get("identity")
-    const provider = identityProviderFor(ctx.services)
-    const connected = hasGitHubIdentity(identity, provider)
-    let highest = -1
-    for (const message of ctx.store.collections.messages.values()) highest = Math.max(highest, message.ordinal)
-    for (const card of ctx.store.collections.cards.values()) highest = Math.max(highest, card.ordinal)
-    const card: Card = {
-      id: "connect-embedded",
-      kind: "connect",
-      title: "Connect work to Smithers",
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: highest + 1,
-      payload: {
-        provider,
-        github: {
-          connected,
-          login: connected ? identity?.login ?? null : null
-        },
-        nativeAvailable: false
-      }
-    }
-    ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card })
-  }
-
   const toggleDevtools = (): void => {
     // The command registers only for admins; the guard keeps the state
     // honest even if a stale binding fires in a non-admin session.
@@ -135,8 +89,7 @@ export const createPresentationController = (
     return { value: open ? "Filter opened." : "Filter closed." }
   }
   const toggleChatFilter = (target: string): string | { readonly value: string } => {
-    const subagents = subagentsFromCards([...ctx.store.collections.cards.values()])
-    const valid = ["chat", ...subagents.map(subagent => subagent.id), ...CHAT_KINDS]
+    const valid = ["chat", ...CHAT_KINDS]
     if (!valid.includes(target)) return `Choose one of: ${valid.join(", ")}`
     const filter = toggleChat(ctx.store.session().chatFilter ?? allChat, target)
     ctx.store.dispatch({ type: "chat-filter.changed", actor: ctx.commandActor,
@@ -151,19 +104,6 @@ export const createPresentationController = (
   const resetChatFilter = (): { readonly value: string } => {
     ctx.store.dispatch({ type: "chat-filter.changed", actor: ctx.commandActor, filter: { sources: [], kinds: [], query: "" } })
     return { value: "Showing all." }
-  }
-
-  /*
-   * The `+` menu's first entry. No host exposes a file-attach seam yet (the
-   * native RPC surface is exactly pickLocalRepository and openExternal), so
-   * the flow answers with the truth instead of a dead picker.
-   */
-  const addFiles = (): void => {
-    ctx.store.dispatch({
-      type: "message.appended",
-      actor: "system",
-      text: "Attachments aren't available on this host yet. Connect a repository and Smithers can read its files."
-    })
   }
 
   const askReset = (): void => {
@@ -300,13 +240,25 @@ export const createPresentationController = (
   const debugNet = (): { readonly value: string } => surfaceDebugRead("Network tap", netTap())
 
   const debugSeams = async (): Promise<string | void | { readonly value: string }> => {
-    // admin.health is a VIEW over this same read, not a separate path.
-    await adminHealth()
-    const card = ctx.store.collections.cards.get("admin-health")
-    if (card === undefined || card.kind !== "admin-health") {
-      return "The seam probe didn't land — see the honest line in the chat."
+    const epoch = ctx.accountEpoch
+    const current = () => !ctx.disposed && ctx.accountEpoch === epoch
+    if (!current()) return
+    try {
+      const response = await ctx.boundedFetch(`${ctx.baseUrl}${ADMIN_HEALTH_PATH}`)
+      if (!current()) return
+      if (response.status !== 200 && response.status !== 503) {
+        const error = await ctx.errorMessageOf(response, "The health read didn't answer.")
+        return current() ? error : undefined
+      }
+      const parsed = AdminSystemHealthSchema.safeParse(await response.json().catch(() => undefined))
+      if (!current()) return
+      if (!parsed.success || parsed.data.status !== (response.status === 200 ? "ok" : "degraded")) {
+        return "The health read answered in a shape I didn't understand."
+      }
+      return surfaceDebugRead("Seam health", JSON.stringify(parsed.data))
+    } catch {
+      if (current()) return "The health read didn't answer — the admin route is unreachable."
     }
-    return { value: JSON.stringify(card.payload) }
   }
 
   /*
@@ -441,14 +393,11 @@ export const createPresentationController = (
     showChat,
     showWorld,
     showWikiPane,
-    showConnectors,
-    showSubagents,
     toggleDevtools,
     toggleChatFilterMenu,
     toggleChatFilter,
     grepChatFilter,
     resetChatFilter,
-    addFiles,
     askReset,
     cancelReset,
     describeAgentBackend,

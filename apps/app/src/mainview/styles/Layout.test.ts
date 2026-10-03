@@ -205,9 +205,7 @@ describe("the shared card frame fits the phone column", () => {
 
 /* Will, 2026-10-01: the first app screen. */
 describe("the first app screen", () => {
-  test("the first-run card alone sits at the top of the transcript, as the signup does", () => {
-    expect(chat).toMatch(/\.app-shell \.smithers-transcript\[data-first-run\] \.sui-chat-messages > :first-child\s*\{\s*margin-top: 0;\s*\}/)
-    // Everything else stays bottom-anchored.
+  test("the transcript stays bottom-anchored", () => {
     expect(chat).toMatch(/\.app-shell \.smithers-transcript \.sui-chat-messages > :first-child\s*\{\s*margin-top: auto;\s*\}/)
   })
 

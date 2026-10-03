@@ -7,7 +7,7 @@ import { Schema } from "effect"
 import { fileArgs } from "../FileArgs"
 import { flowArgs } from "../FlowArgs"
 import { text } from "@smthrs/ui/flow-form"
-import { flow, NoPayload } from "./Declare"
+import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -69,12 +69,3 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   })
 ]
 
-/** The file attachment flow. */
-export const filesAddFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "files.add",
-    summary: "Add files to the conversation",
-    input: NoPayload,
-    handler: () => actions.addFiles()
-  })
-]

@@ -25,15 +25,12 @@ export const cardContainsRun = (card: Card, runId: string, allowChild = false): 
     case "run-list": return card.payload.runs.some((row) => row.runId === runId) ||
       (card.payload.approvals?.some((row) => row.runId === runId) ?? false)
     case "approvals-inbox": return card.payload.approvals.some((row) => row.runId === runId)
-    case "repository-setup": return [card.payload.receipt, card.payload.evaluation, card.payload.trial, ...card.payload.previousReceipts]
-      .some(receipt => receipt?.runId === runId || receipt?.jobRunId === runId)
     default: return false
   }
 }
 
 /** Old ancillary omission can inherit only the already-recorded legacy-key run trace. */
 export const runScopeFromCard = (store: AppStore, card: Card, runId: string): RunScope | undefined => {
-  if (card.kind === "repository-setup" && card.payload.owner !== store.collections.identitySessions.get("identity")?.login) return undefined
   if (!("repo" in card.payload) || typeof card.payload.repo !== "string") return undefined
   let workspaceId = "workspaceId" in card.payload && typeof card.payload.workspaceId === "string"
     ? card.payload.workspaceId : undefined

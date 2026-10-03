@@ -4,10 +4,17 @@ import { runLaunchCommandOf, toolResultLaunchedRun } from "./RunClaims"
 const argumentsOf = (name: string, action: unknown = "execute"): string => JSON.stringify({ name, action, args: "owner/repo" })
 
 test("every supported launch door recognizes executable canonical and catalog names", () => {
-  for (const name of ["flow.create", "flow.run", "feature.prototype", "change.request"]) {
+  for (const name of ["flow.create", "flow.run"]) {
     expect(runLaunchCommandOf(name, "not JSON")).toBe(name)
     expect(runLaunchCommandOf("commands", argumentsOf(name))).toBe(name)
     expect(runLaunchCommandOf("commands", argumentsOf(`  //${name}  `))).toBe(name)
+  }
+})
+
+test("retired launch doors cannot arm a run claim", () => {
+  for (const name of ["feature.prototype", "change.request"]) {
+    expect(runLaunchCommandOf(name, "")).toBeUndefined()
+    expect(runLaunchCommandOf("commands", argumentsOf(name))).toBeUndefined()
   }
 })
 

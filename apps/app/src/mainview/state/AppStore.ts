@@ -1934,13 +1934,12 @@ const initializeAppStore = async (
   }
 
   /*
-   * A card tab whose card was cleared closes through the dispatcher. The
-   * selected tab falls back to main when it no longer exists — including a
-   * terminal or harness tab a store saved before those retired (the row
-   * itself fails `TabSchema` and is quarantined at open).
+   * Appendix B retires card tabs. Close saved tabs through the dispatcher,
+   * retaining their cards/history and returning the transcript to main.
+   * Terminal and harness tabs already fail TabSchema and are quarantined.
    */
   for (const tab of orderedTabs(collections)) {
-    const stale = tab.kind === "card" && collections.cards.get(tab.cardId) === undefined
+    const stale = tab.kind === "card"
     if (stale) await dispatch({ type: "tab.closed", actor: "system", id: tab.id }).isPersisted.promise
   }
   if (collections.tabs.get(collections.sessions.get(SESSION_ID)?.activeTabId ?? MAIN_TAB_ID) === undefined) {

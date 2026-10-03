@@ -49,7 +49,7 @@ test("the Stack card follows lanes live, and a refused act is retried from the c
   })
 
   await page.goto("/")
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await fillComposer(page, `/history.show ${REPO}`)
   await page.getByTestId("composer-send").click()
   const card = page.locator('[data-kind="stack"]')

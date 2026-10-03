@@ -180,24 +180,9 @@ export const reloadApp = async (page: Page, timeout = BOOT_TIMEOUT_MS): Promise<
   await awaitBoot(page, "reload", startedAt, timeout)
 }
 
-/**
- * Wait for the app past its signup: Chat's button, or the first-run card
- * holding it, is on screen.
- *
- * Chat's button alone was this signal until the hosted web app began to
- * withhold it while the first-run card waits for the first registered job,
- * the card's dismissal or a sent message (`firstJobPending`,
- * `src/mainview/App.tsx`; apps/app/AGENTS.md First-run). The signup renders
- * neither, so a scenario stranded there still reds here. Opening Chat needs
- * neither: `openComposer` presses Command-K, which works throughout.
- *
- * Call it after a boot wait; the default budget is the assertion default, so
- * chrome that went missing reds fast rather than spending the boot's.
- */
+/** Wait for the booted app's Chat button. */
 export const appReady = async (page: Page, timeout?: number): Promise<void> => {
-  const chat = page.getByRole("button", { name: "Chat", exact: true })
-  const firstRun = page.locator('[data-testid="setup-checklist"]:visible')
-  await expect(chat.or(firstRun).first(), "Chat or the first-run card holding it must be on screen")
+  await expect(page.getByRole("button", { name: "Chat", exact: true }))
     .toBeVisible(timeout === undefined ? {} : { timeout })
 }
 

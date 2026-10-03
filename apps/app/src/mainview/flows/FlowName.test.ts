@@ -49,7 +49,11 @@ const declaredNames = (): ReadonlyArray<string> => {
   }
   const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
   for (const file of readdirSync(shared).sort()) {
-    for (const match of readFileSync(`${shared}${file}`, "utf8").matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
+    for (const match of readFileSync(`${shared}${file}`, "utf8").matchAll(/\bname:\s*"([^"]+)"/g)) {
+      // The public Wiki library retains its operation; the app binds only MVP doors.
+      if (file === "wiki.ts" && match[1] === "wiki.ask") continue
+      names.push(match[1]!)
+    }
   }
   const constants = stringConstants()
   for (const file of readdirSync(flows).sort()) {

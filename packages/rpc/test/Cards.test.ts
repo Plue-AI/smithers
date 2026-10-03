@@ -474,35 +474,7 @@ describe("the agent cards", () => {
     )
   })
 
-  test("the subagent card takes a built-in role id and its purpose, and still parses without one", () => {
-    const payload = {
-      harnessId: "codex",
-      displayName: "Reviewer · GPT-5.6 Terra",
-      roleId: "implement",
-      purpose: "Reviews diffs.",
-      tabId: "pty-1",
-      sessionId: "pty-1",
-      cwd: "/tmp",
-      phase: "running",
-      exitCode: null
-    }
-    const card = CardSchema.parse({ ...base, kind: "agent", payload })
-    if (card.kind !== "agent") return
-    // The agent payload is a union: the local tab card and the Smithers Cloud
-    // session card that `cloud: true` marks. A subagent launched from the `+`
-    // menu is the local variant, so pin that before reading the role fields —
-    // narrowing alone would let a card that parsed as the cloud variant pass
-    // this test without ever asserting a role.
-    expect("cloud" in card.payload).toBe(false)
-    if ("cloud" in card.payload) return
-    expect(card.payload.roleId).toBe("implement")
-    expect(card.payload.purpose).toBe("Reviews diffs.")
-    const { roleId: _roleId, purpose: _purpose, ...bare } = payload
-    expect(CardSchema.safeParse({ ...base, kind: "agent", payload: bare }).success).toBe(true)
-    expect(CardSchema.safeParse({ ...base, kind: "agent", payload: { ...payload, roleId: "Not An Id" } }).success).toBe(
-      false
-    )
-  })
+
 })
 
 describe("the models card", () => {
@@ -713,14 +685,8 @@ describe("card patch validation", () => {
 })
 
 describe("card patches never invent defaults", () => {
-  test("a repository-setup patch that omits previousReceipts decodes without it", () => {
-    expect(CardPatchSchema.parse({ kind: "repository-setup", payload: { inspectedAt: 5 } })).toEqual({
-      kind: "repository-setup",
-      payload: { inspectedAt: 5 }
-    })
-  })
   test("an empty payload patch stays empty for every card kind with an object payload", () => {
-    const objectPayloads = CardSchema.options.filter((option) => option.shape.payload instanceof z.ZodObject)
+    const objectPayloads = CardSchema.options.filter((option) => !CUT_KINDS.includes(option.shape.kind.value) && option.shape.payload instanceof z.ZodObject)
     expect(objectPayloads.length).toBeGreaterThan(CardSchema.options.length / 2)
     for (const option of objectPayloads) {
       const kind = option.shape.kind.value
@@ -2873,7 +2839,9 @@ test("repository home schema decodes every resolution and refuses unsafe paths",
   ).toBe(false)
 })
 
-const kinds = CardSchema.options.map((option) => option.shape.kind.value)
+/* mvp.md §8: old Cut cards decode inertly; retained kinds keep their schema audits. */
+const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent"]
+const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !CUT_KINDS.includes(kind))
 const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" ? { audience_member_id: "ben" } : {}) })
 
 /** The fields a kind's payload declares, or null when the payload is a union of stages rather than one object. */
@@ -2899,31 +2867,11 @@ const objectKinds = kinds.filter((kind) => payloadFields(kind) !== null)
 
 describe("every persisted card kind", () => {
   test("has fixtures: a kind added to the union without them is the gap this table closes", () => {
-    expect(Object.keys(FIXTURES).sort()).toEqual([...kinds].sort())
-  })
-
-  test("agents: the local roster and a repository's cloud sessions parse, and neither takes the other's fields", () => {
-    const cloud = {
-      cloud: true,
-      repo: "smithersai/smithers",
-      sessions: [{
-        id: "s-1",
-        title: "Fix CI",
-        status: "running",
-        messageCount: 3,
-        createdAt: null,
-        workspaceId: "ws-1"
-      }]
-    }
-    const read = CardSchema.parse(card("agents", cloud))
-    expect(read.payload).toEqual(cloud)
-    expect(CardSchema.safeParse(card("agents", { ...cloud, cloud: false })).success).toBe(false)
-    expect(CardSchema.safeParse(card("agents", { cloud: true, repo: "smithersai/smithers" })).success).toBe(false)
-    expect(CardSchema.safeParse(card("agents", { native: true })).success).toBe(false)
+    expect(Object.keys(FIXTURES).filter(kind => !CUT_KINDS.includes(kind)).sort()).toEqual([...kinds].sort())
   })
 
   test("every union payload has an explicit branch audit below", () => {
-    expect(kinds.filter((kind) => payloadFields(kind) === null)).toEqual(["agent", "agents"])
+    expect(kinds.filter((kind) => payloadFields(kind) === null)).toEqual(["agents"])
   })
 
   test.each(objectKinds)("%s: the fixtures name every field the payload declares, and no more", (kind) => {
@@ -2976,15 +2924,7 @@ describe("every persisted card kind", () => {
     for (const deadlineAt of ["1790000900000", null]) {
       expect(CardSchema.safeParse(card("run-trace", { ...FIXTURES["run-trace"].full, deadlineAt })).success).toBe(false)
     }
-    const malformedCached = [
-      null,
-      { commit: 42, report: {} },
-      { commit: "fc3f257", report: null },
-      { commit: "fc3f257", report: [] }
-    ]
-    for (const cached of malformedCached) {
-      expect(CardSchema.safeParse(card("registration", { ...FIXTURES.registration.full, cached })).success).toBe(false)
-    }
+
   })
 
   test("PR read failures and repository import launch identity refuse invalid persisted values", () => {
@@ -3088,56 +3028,12 @@ const cloudAgentFixtures: KindFixtures = {
   }
 }
 
-describe("the persisted local and cloud agent variants", () => {
-  const schema = CardSchema.options.find((option) => option.shape.kind.value === "agent")!.shape.payload
-  const variants = [{ name: "local", fixture: FIXTURES.agent }, { name: "cloud", fixture: cloudAgentFixtures }]
-
-  test("each union arm has one fixture, including every declared optional field", () => {
-    expect(schema).toBeInstanceOf(z.ZodUnion)
-    if (!(schema instanceof z.ZodUnion)) throw new Error("Agent variants must be explicit")
-    expect(schema.options).toHaveLength(variants.length)
-    for (const branch of schema.options) {
-      expect(branch).toBeInstanceOf(z.ZodObject)
-      if (!(branch instanceof z.ZodObject)) throw new Error("Agent variant must be an object")
-      const matches = variants.filter(({ fixture }) => branch.safeParse(fixture.minimal).success)
-      expect(matches).toHaveLength(1)
-      const { minimal, full } = matches[0]!.fixture
-      const fields = branch.shape as Record<string, z.ZodType>
-      expect(Object.keys(full).sort()).toEqual(Object.keys(fields).sort())
-      expect(Object.keys(minimal).sort()).toEqual(
-        Object.keys(fields).filter((field) => !optional(fields[field]!)).sort()
-      )
-    }
-  })
-
-  test.each(variants)("$name rows survive card, patch and snapshot decoding without invented fields", ({ fixture }) => {
-    for (const payload of [fixture.minimal, fixture.full]) {
-      const encoded = JSON.parse(JSON.stringify(card("agent", payload)))
-      const parsed = CardSchema.parse(encoded)
-      expect(parsed.payload).toEqual(payload)
-      expect(CardSchema.parse(parsed)).toEqual(parsed)
-      expect(CardPatchSchema.parse({ kind: "agent", payload })).toEqual({ kind: "agent", payload })
-      expect(z.object({ cards: z.array(CardSchema) }).parse({ cards: [encoded] }).cards).toEqual([parsed])
-    }
-  })
-
-  test("cloud observations require their discriminator, routing, and transcript identity", () => {
-    for (const field of ["cloud", "repo", "sessionId", "transcript"]) {
-      const payload = { ...cloudAgentFixtures.minimal }
-      delete payload[field]
-      expect(CardSchema.safeParse(card("agent", payload)).success).toBe(false)
-    }
-    expect(CardSchema.safeParse(card("agent", { ...cloudAgentFixtures.minimal, provider: "guessed" })).success).toBe(
-      false
-    )
-    expect(CardSchema.safeParse(card("agent", { ...cloudAgentFixtures.minimal, transcript: [{ id: "7" }] })).success)
-      .toBe(false)
-  })
-})
-
 describe("removed presentation compatibility", () => {
   const saved = (kind: string, payload: unknown) => ({ ...base, kind, payload, body: "Old content", loading: true })
   const retired = [
+    ...CUT_KINDS.flatMap(kind => [saved(kind, FIXTURES[kind].minimal), saved(kind, FIXTURES[kind].full)]),
+    saved("agent", cloudAgentFixtures.full),
+    saved("agents", { cloud: true, repo: "org/repo", sessions: [] }),
     ...["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form"].map((kind) =>
       saved(kind, { draft: "old data" })
     ),
@@ -3214,21 +3110,10 @@ describe("removed presentation compatibility", () => {
     expect(result).toEqual({ ...base, kind: "retired", title: "", status: "acted", payload: {}, loading: false })
     expect(CardSchema.parse(result)).toEqual(result)
     expect(z.object({ cards: z.array(CardSchema) }).parse({ cards: [row] }).cards).toEqual([result])
-    if (row.kind !== "flow-form") {
+    // T-CUT-01 Matching rows: legacy schema/patch options stay until T-APP-22.
+    if (row.kind !== "flow-form" && !CUT_KINDS.includes(row.kind) && row.kind !== "agents") {
       expect(CardPatchSchema.safeParse({ kind: row.kind, payload: row.payload }).success).toBe(false)
     }
-  })
-  test("a stored connect card drops all retired provider rows and retains GitHub authentication", () => {
-    const slack = { id: "slack", state: "connected", detail: "C003" }
-    const old = saved("connect", {
-      ...FIXTURES.connect.minimal,
-      integrations: { repo: "smithersai/smithers", rows: [slack, { id: "linear", state: "connected", detail: "ENG" }] }
-    })
-    const result = CardSchema.parse(JSON.parse(JSON.stringify(old)))
-    expect(result.kind).toBe("connect")
-    expect(result.payload).toEqual(FIXTURES.connect.minimal)
-    expect(CardSchema.parse(result)).toEqual(result)
-    expect(CardPatchSchema.parse({ kind: "connect", payload: old.payload }).payload).toEqual(FIXTURES.connect.minimal)
   })
   test("the old snapshot facet becomes a terminal while internal snapshot provenance survives", () => {
     const old = saved("workspace", {

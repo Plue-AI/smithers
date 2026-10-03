@@ -74,7 +74,7 @@ const questionGate: Row = {
 const serveGateway = async (page: Page, extra: {
   readonly runs?: ReadonlyArray<Row>
   readonly journals?: Readonly<Record<string, ReadonlyArray<Row>>>
-  /** `cloud.terminal`: the box terminal tunnel exists on this host (runs.takeover needs it). */
+  /** `cloud.terminal`: the box terminal tunnel exists on this host. */
   readonly terminal?: boolean
 } = {}): Promise<{ rpc: Array<RpcCall> }> => {
   const rpc: Array<RpcCall> = []
@@ -189,13 +189,7 @@ const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" })
   await page.goto("/")
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
-  await page.getByRole("button", { name: "Dismiss", exact: true }).focus()
-  await page.keyboard.press("Enter")
-  // Dismissed, the card collapses to its job tiles (apps/app/AGENTS.md First-run): no steps, no Dismiss.
-  const checklist = page.getByTestId("setup-checklist")
-  await expect(checklist.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0)
-  await expect(checklist.locator("ol")).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeAttached()
 }
 
 /** Flip the theme through /appearance.dark-mode and wait for the root to say so. */
@@ -245,9 +239,6 @@ test("run forest: a child execution opens in place and Open on its up node retur
   await expect(meter).toHaveText("↑34k ↓2.0k · 5.1%/200k · cache 94%")
   await expect(meter).toHaveAttribute("aria-label", "34k tokens in, 2.0k out, 5.1% of 200k window, cache 94%")
   await shot(page, card.getByTestId(`run-outcome-${RUN_ID}`), "03-meter.png")
-  // A settled run on a box offers neither Take over nor Release.
-  await expect(card.getByTestId(`flow-run-takeover-${RUN_ID}`)).toHaveCount(0)
-  await expect(card.getByTestId(`flow-run-release-${RUN_ID}`)).toHaveCount(0)
 
   // Graph, through the trace bar's own button.
   await tabTo(page, card.getByRole("button", { name: "Graph", exact: true }))
@@ -441,49 +432,6 @@ const serveBox = async (page: Page): Promise<{ sessionPosts: Array<Row>; typed: 
   })
   return { sessionPosts, typed }
 }
-
-test("take over: a live Claude Code run opens its box terminal on the vendor session, and Release exits it", async ({ page }) => {
-  test.setTimeout(150_000)
-  const RUN = "run-live"
-  const journal: ReadonlyArray<Row> = [
-    { cursor: { sequence: 1 }, sequence: 1, kind: "control.agent.turn-opened", runId: RUN, occurredAt: 1, payload: { seat: "claude-code:opus" } },
-    { cursor: { sequence: 2 }, sequence: 2, kind: "control.agent.model-settled", runId: RUN, occurredAt: 2,
-      payload: { text: "ok", sessionId: "sess-7", usage: { inputTokens: 5000, outputTokens: 400, cachedInputTokens: 4000 } } }
-  ]
-  await serveGateway(page, { runs: [summary(RUN, "coding/request", "running")], journals: { [RUN]: journal }, terminal: true })
-  const { sessionPosts, typed } = await serveBox(page)
-  await boot(page)
-  await command(page, `/runs.open ${RUN} ${REPO}`)
-  const card = page.getByTestId(`card-${boxRunCardId(REPO, RUN)}`)
-  await expect(card).toBeVisible({ timeout: 15_000 })
-
-  const takeOver = card.getByTestId(`flow-run-takeover-${RUN}`)
-  await expect(takeOver).toHaveText("Take over")
-  await tabTo(page, takeOver)
-  await page.keyboard.press("Enter")
-
-  // The box terminal opened: one session POST for the run's box, and the box card on its Terminal facet.
-  await expect.poll(() => sessionPosts.length).toBe(1)
-  expect(sessionPosts[0]).toMatchObject({ workspace_id: FIXTURE_BOX })
-  const terminal = page.getByTestId(`card-workspace-${FIXTURE_BOX}`)
-  await expect(terminal).toBeVisible({ timeout: 15_000 })
-  await expect(terminal.getByRole("tab", { name: "Terminal", exact: true })).toHaveAttribute("aria-selected", "true")
-  // The vendor's resume line reached the terminal's stdin as typed keystrokes.
-  await expect.poll(() => typed.join(""), { timeout: 15_000 }).toContain("claude --resume sess-7\r")
-  const release = card.getByTestId(`flow-run-release-${RUN}`)
-  await expect(release).toHaveText("Release")
-  await expect(card.getByTestId(`flow-run-takeover-${RUN}`)).toHaveCount(0)
-  await shot(page, page, "09-takeover.png")
-
-  await tabTo(page, release)
-  await page.keyboard.press("Enter")
-  await expect.poll(() => typed.join("")).toContain("/exit\r")
-  expect(typed.join("").indexOf("/exit\r")).toBeGreaterThan(typed.join("").indexOf("claude --resume sess-7\r"))
-  await expect(card.getByTestId(`flow-run-takeover-${RUN}`)).toHaveText("Take over")
-  await expect(card.getByTestId(`flow-run-release-${RUN}`)).toHaveCount(0)
-  expect(sessionPosts).toHaveLength(1)
-  await shot(page, page, "10-released.png")
-})
 
 test("the drawer's In tab: memory in and withheld, the box it runs on, and the secret names that box reaches", async ({ page }) => {
   test.setTimeout(150_000)

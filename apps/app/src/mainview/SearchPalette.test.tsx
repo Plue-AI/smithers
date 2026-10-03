@@ -334,13 +334,13 @@ describe("§3 the keyboard contract", () => {
     expect(invoked(view.store).some(row => row.name === "wiki.cloud")).toBe(false)
   })
 
-  test("/issues retains the slash path and exact-name precedence", async () => {
+  test("/wiki retains the slash path and exact-name precedence", async () => {
     const view = await mount()
     await press(view, "k", { meta: true })
-    await view.act(() => view.controller.changeDraft("/issues"))
+    await view.act(() => view.controller.changeDraft("/wiki"))
     await press(view, "Enter")
-    // The bare door named outright is the act, not whichever issues.* row the menu led with.
-    expect(invoked(view.store).map(row => row.name)).toContain("issues")
+    // The bare door named outright is the act, not whichever wiki.* row the menu led with.
+    expect(invoked(view.store).map(row => row.name)).toContain("wiki")
     expect(invoked(view.store).some(row => row.name === "chat.send" || row.name.startsWith("search."))).toBe(false)
   })
 
@@ -508,17 +508,17 @@ describe("§3 the keyboard contract", () => {
     await press(view, "ArrowDown")
     await press(view, "ArrowDown")
     await press(view, "Enter")
-    expect(view.store.session().draft).toBe("//")
-    expect(palette(view.host)?.dataset["mode"]).toBe("targets")
+    expect(view.store.session().draft).toBe("wiki:")
+    expect(palette(view.host)?.dataset["mode"]).toBe("wiki")
   })
 
   test("a mode with no rows runs its flow on Enter (the form law answers a bare prefix)", async () => {
     const view = await mount()
-    await view.act(() => view.controller.changeDraft("box:"))
+    await view.act(() => view.controller.changeDraft("secret:missing"))
     await press(view, "k", { meta: true })
     expect(rows(view.host)).toEqual([])
     await press(view, "Enter")
-    expect(invoked(view.store).map((row) => row.name)).toContain("search.boxes")
+    expect(invoked(view.store).map((row) => row.name)).toContain("search.secrets")
   })
 
   test("with the overlay open, Enter on a slash command with arguments is the composer's send, never search.flows", async () => {

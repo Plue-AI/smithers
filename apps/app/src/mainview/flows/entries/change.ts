@@ -5,7 +5,6 @@
  */
 import { Schema } from "effect"
 import { flow } from "./Declare"
-import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -14,34 +13,6 @@ export const namespace: Namespace = { id: "change", label: "Changes", summary: "
 
 /** The `change` flows registered as one aggregator block. */
 export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  /*
-   * A change asked for in words: the workspace's coding/request plans,
-   * implements and checks it, and a validated request continues into
-   * coding/vibe, which commits and lands it on main. It lands code, so the
-   * agent's door confirms. It starts from the caller's pushed ref `from`
-   * (`smithers repo push --name <from>`), else their `head` when they pushed
-   * one; that local work lands with the change.
-   */
-  flow({
-    name: "change.request",
-    form: {
-      fields: {
-        prompt: { label: "Change", kind: "textarea" },
-        repo: { optionsFrom: "cloud-repos", kind: "text" }
-      },
-      args: (payload) => {
-        const from = text(payload, "from")
-        return line(text(payload, "prompt"), from === undefined ? undefined : `from:${from}`, text(payload, "repo"))
-      }
-    },
-    summary: "Make a code change in a repository and land it on main: the Cloud workspace plans, implements, checks and lands it",
-    runtime: ["cloud"],
-    confirm: (payload) => `make and land this change${typeof payload.from === "string" ? ` from ${payload.from}` : ""}${typeof payload.repo === "string" ? ` on ${payload.repo}` : ""}`,
-    args: "<what to change…> [from:<pushed ref>] [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ prompt: Schema.String, from: Schema.optional(Schema.String), repo: Schema.optional(Schema.String) }),
-    handler: ({ prompt, from, repo }) => actions.requestChange(prompt, repo, from, true)
-  }),
   /*
    * Lane change (ADR 0003): the change is the unit. `change.view` renders
    * the change card (one card per change, five facets); `change.diff`
@@ -84,23 +55,6 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId }) => actions.landChange(changeId)
   }),
   flow({
-    /*
-     * plue#489 moves the NAMED PATHS' diff into a new change and leaves the
-     * original holding everything else, so the act is per path — plue refuses
-     * an empty `paths` outright. The card offers it on the diff's file rows,
-     * where the paths are, and only while the landing request's landable
-     * prefix is shorter than its stack.
-     */
-    name: "change.split",
-    summary: "Move a change's named paths into a new change",
-    runtime: ["cloud"],
-    confirm: "move the named paths into a new change",
-    args: "<changeId> <path> [path…]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ changeId: Schema.String, paths: Schema.Array(Schema.String) }),
-    handler: ({ changeId, paths }) => actions.splitChange(changeId, paths)
-  }),
-  flow({
     name: "change.resolve",
     summary: "Dispatch an agent to resolve a change's conflict",
     runtime: ["cloud"],
@@ -109,16 +63,6 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     requires: ["signed-in"],
     input: Schema.Struct({ changeId: Schema.String, path: Schema.String }),
     handler: ({ changeId, path }) => actions.resolveChangeConflict(changeId, path)
-  }),
-  flow({
-    name: "change.revert",
-    summary: "Revert a landed change",
-    runtime: ["cloud"],
-    confirm: "revert the landed change",
-    args: "<changeId>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ changeId: Schema.String }),
-    handler: ({ changeId }) => actions.revertChange(changeId)
   }),
   flow({
     /* The card's body tab: showing a facet is how the agent answers "show me the diff / the checks" (.specs/engineering/spec.md §6.1). */

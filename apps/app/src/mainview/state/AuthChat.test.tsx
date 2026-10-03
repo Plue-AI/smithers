@@ -22,10 +22,6 @@ const createAppController = scopedControllers()
  * second surface anywhere, and that the composer's attempted send resolves to
  * the calm one-line reply.
  *
- * Since the signup (apps/app/AGENTS.md, Will 2026-09-20) the landing entry's
- * one action is the signup's GitHub door; a repository URL keeps the opening
- * message and its CTA, and is built here the way the one composition root
- * builds it (ControllerBoot.client.ts: `repositoryApp` is the requested repo).
  */
 
 GlobalRegistrator.register({ url: "https://smithers.sh/" })
@@ -176,13 +172,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(pills).toEqual([])
   })
 
-  test("signed-out on the web (host cloud): the landing transcript is the signup, whose GitHub door is auth.sign-in", async () => {
-    /*
-     * The signup (apps/app/AGENTS.md, Will 2026-09-20) took docs/web-mode/
-     * PLAN.md §3's place on the landing entry: a visitor with no account reads
-     * the hero and the doors, and the GitHub door is still auth.sign-in. The
-     * transcript holds nothing else — no opening read, no checklist, no pills.
-     */
+  test("signed-out on the web keeps Chat available and GitHub sign-in registered", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
@@ -196,17 +186,13 @@ describe("auth is a conversation state — the chat is the only page", () => {
 
     const { host, markup } = mount(controller)
     expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-repository-missing")).toBe(false)
-    expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("sign-in")
-    expect(host.querySelector(".signup h1")?.textContent).toBe("Automate maintaining your codebase")
-    const door = host.querySelector<HTMLButtonElement>('.signup-door[data-flow="auth.sign-in"]')
-    expect(door?.dataset.testid).toBe("signup-github")
-    expect(door?.textContent).toBe("Continue with GitHub")
+    expect(host.querySelector('[data-testid="signup"]')).toBeNull()
     expect(controller.commands.find("auth.sign-in")).toBeDefined()
-    expect([...host.querySelectorAll(".smithers-chat-message")]).toEqual([])
-    expect(markup()).not.toContain(WEB_OPENING)
+    expect(host.querySelectorAll(".smithers-chat-message").length).toBe(1)
+    expect(markup()).toContain(WEB_OPENING)
     expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
     expect(markup()).not.toContain("Smithers initialized")
-    expect([...host.querySelectorAll(".smithers-suggestion")]).toEqual([])
+    expect(host.querySelectorAll(".smithers-suggestion").length).toBe(0)
     // The chat is still the only page: transcript and composer, no takeover.
     expect(host.querySelector(".smithers-composer")).not.toBeNull()
     expect(host.querySelector(".landing-surface")).toBeNull()
@@ -232,7 +218,8 @@ describe("auth is a conversation state — the chat is the only page", () => {
     await controller.loadSession()
     await settled()
     const { host } = mount(controller)
-    expect(host.querySelector<HTMLButtonElement>('.signup-door[data-flow="auth.sign-in"]')?.textContent).toBe("Continue with GitHub")
+    expect(host.querySelector('[data-testid="signup"]')).toBeNull()
+    expect(controller.commands.find("auth.sign-in")).toBeDefined()
     expect(store.session().activeRepoKey ?? null).toBeNull()
 
     const parked = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -413,7 +400,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(host.querySelector(".smithers-composer")).not.toBeNull()
   })
 
-  test("signed-out at the landing entry with a repository the catalog did not supply: the signup opens and the write gate stands", async () => {
+  test("signed-out with a repository the catalog did not supply keeps the write gate", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       bootstrap: WEB,
@@ -432,13 +419,11 @@ describe("auth is a conversation state — the chat is the only page", () => {
     await settled()
 
     const { host, markup } = mount(controller)
-    // The landing entry belongs to the signup; a remembered selection the
-    // catalog never supplied does not open that repository to this visitor.
+    // A remembered selection does not grant this visitor repository access.
     expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-repository-missing")).toBe(false)
-    expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("sign-in")
-    expect(host.querySelector('.signup-door[data-flow="auth.sign-in"]')).not.toBeNull()
-    expect([...host.querySelectorAll(".smithers-chat-message")]).toEqual([])
-    expect(markup()).not.toContain(WEB_OPENING)
+    expect(host.querySelector('[data-testid="signup"]')).toBeNull()
+    expect(host.querySelectorAll(".smithers-chat-message").length).toBe(1)
+    expect(markup()).toContain(WEB_OPENING)
     expect(markup()).not.toContain("You are exploring")
     expect(controller.commands.state().publicRepo).toBe(false)
   })
@@ -567,42 +552,4 @@ test("the expanded empty wiki carries the current repository through Create Wiki
   host.querySelector<HTMLButtonElement>('.world-surface [data-flow="wiki.create"]')?.click()
   await settled()
   expect(store.session().pendingCommand).toMatchObject({ name: "wiki.create", args: "smithersai/smithers" })
-})
-
-
-test("the signup's sign-in door closes when its identity requirement is met", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, silentAgent, { bootstrap: WEB,
-    fetchImpl: async () => Response.json({}, { status: 404 }) })
-  await controller.adoptSession({ state: "signed-out", login: null, admin: false })
-  const { host } = mount(controller)
-  expect(host.querySelector('.signup-door[data-flow="auth.sign-in"]')).not.toBeNull()
-  await controller.adoptSession({ state: "signed-in", login: "codeplanesmithers", admin: false })
-  await settled()
-  flushSync(() => {})
-  expect(host.querySelectorAll('.signup-door[data-flow="auth.sign-in"]').length).toBe(0)
-  expect(host.querySelectorAll('.message-cta[data-flow="auth.sign-in"]').length).toBe(0)
-  // The door closes onto the next stage, carrying the login (state/Signup.ts).
-  expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
-  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-account"]')?.value).toBe("codeplanesmithers")
-  // This opening is a live projection, never an appended transcript row.
-  expect(store.collections.messages.get("auth-state")).toBeUndefined()
-  // No GitHub name in the answer: Full name stays empty for the person to type.
-  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-name"]')?.value).toBe("")
-})
-
-test("the signup's account step prefills Full name with the signed-in person's GitHub name", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, silentAgent, { bootstrap: WEB,
-    fetchImpl: async () => Response.json({}, { status: 404 }) })
-  await controller.adoptSession({ state: "signed-out", login: null, admin: false })
-  const { host } = mount(controller)
-  await controller.adoptSession({ state: "signed-in", login: "codeplanesmithers", displayName: "Ada Park", admin: false })
-  await settled()
-  flushSync(() => {})
-  expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
-  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-name"]')?.value).toBe("Ada Park")
-  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-account"]')?.value).toBe("codeplanesmithers")
-  // The name rides the identity answer into the signup draft, not the identity row.
-  expect(JSON.stringify(store.collections.identitySessions.get("identity"))).not.toContain("Ada Park")
 })

@@ -100,7 +100,7 @@ const wikiFixture = async (page: Page) => {
     { type: "prompt", title: "What should we work on?", placeholder: "Ask Smithers…" },
     { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
     { type: "app", flow: "prs.triage", title: "Review a PR", picture: "review" },
-    { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+    { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
     { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
   ] } }))
   // The stack (D-09b): the pane reads generated pages' freshness from it; the event stream rests open.

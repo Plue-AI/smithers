@@ -45,7 +45,7 @@ const newNoteCall = {
   type: "tool_call" as const,
   call_id: "call_1",
   name: "commands",
-  arguments: JSON.stringify({ action: "execute", name: "world.new-note" })
+  arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" })
 }
 
 describe("the client-side agent tool loop", () => {
@@ -63,7 +63,7 @@ describe("the client-side agent tool loop", () => {
             name: "commands",
             arguments: newNoteCall.arguments
           },
-          { type: "function_call_output", call_id: "call_1", output: "executed /world.new-note" }
+          { type: "function_call_output", call_id: "call_1", output: "executed /wiki.new-note" }
         ])
         return [
           { type: "delta" as const, kind: "text" as const, text: "Done — the note exists." },
@@ -92,7 +92,7 @@ describe("the client-side agent tool loop", () => {
 
     // The act is visible — nothing completes silently.
     const acts = [...store.collections.messages.values()].filter((message) => message.act !== undefined)
-    expect(acts.map((message) => message.text)).toEqual(["Smithers ran /world.new-note"])
+    expect(acts.map((message) => message.text)).toEqual(["Smithers ran /wiki.new-note"])
     // The journal records the agent as the actor of its own act.
     const journal = [...store.collections.transitions.values()]
     expect(journal.some((r) => r.type === "message.tool.executed" && r.actor === "smithers")).toBe(true)
@@ -148,7 +148,7 @@ describe("the client-side agent tool loop", () => {
       type: "tool_call" as const,
       call_id: "call_s",
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "/world.new-note" })
+      arguments: JSON.stringify({ action: "execute", name: "/wiki.new-note" })
     }
     const { agent, requests } = scriptedToolAgent([
       () => [slashCall, { type: "done" as const, reason: "tool_call" as const }],
@@ -164,10 +164,10 @@ describe("the client-side agent tool loop", () => {
 
     const output = requests[1]?.messages.find((m) => "type" in m && m.type === "function_call_output")
     expect(output !== undefined && "output" in output ? output.output : undefined).toBe(
-      "executed /world.new-note"
+      "executed /wiki.new-note"
     )
     const acts = [...store.collections.messages.values()].filter((message) => message.act !== undefined)
-    expect(acts.map((message) => message.text)).toEqual(["Smithers ran /world.new-note"])
+    expect(acts.map((message) => message.text)).toEqual(["Smithers ran /wiki.new-note"])
   })
 
   test("null tool input is returned to the model and the turn can finish", async () => {
@@ -196,20 +196,20 @@ describe("the client-side agent tool loop", () => {
     const store = await webStore()
     const { agent, requests } = scriptedToolAgent([
       () => [
-        { type: "tool_call" as const, call_id: "clear", name: "commands", arguments: JSON.stringify({ action: "execute", name: "chat.clear" }) },
+        { type: "tool_call" as const, call_id: "delete", name: "commands", arguments: JSON.stringify({ action: "execute", name: "flow.run.stop", args: "held-run" }) },
         { type: "done" as const, reason: "tool_call" as const }
       ],
       () => [{ type: "done" as const, reason: "stop" as const }]
     ])
     const controller = createAppController(store, agent)
     try {
-      controller.send("start a fresh conversation")
+      controller.send("stop the run")
       await settled(); await settled()
       expect(requests).toHaveLength(2)
       const acts = [...store.collections.messages.values()].filter((message) => message.act !== undefined)
-      expect(acts.map((message) => message.text)).toEqual(["Smithers asked for confirmation of /chat.clear"])
-      // The conversation is untouched until the human confirms: the ask is a message with the flow attached.
-      expect([...store.collections.messages.values()].some((message) => message.action?.flow === "chat.clear")).toBe(true)
+      expect(acts.map((message) => message.text)).toEqual(["Smithers asked for confirmation of /flow.run.stop"])
+      // The run is untouched until the human confirms: the ask carries the flow.
+      expect([...store.collections.messages.values()].some((message) => message.action?.flow === "flow.run.stop")).toBe(true)
     } finally { controller.dispose() }
   })
 

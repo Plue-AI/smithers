@@ -50,7 +50,7 @@ for (const width of [390, 900]) test(`chat monitor stays reachable during work a
   for (const control of await page.getByRole("contentinfo", { name: "Chat controls" }).locator(".guide-button").all()) {
     expect((await control.boundingBox())!.height).toBeLessThan(40)
   }
-  const dismiss = page.getByRole("button", { name: "Dismiss", exact: true })
+  const dismiss = page.getByRole("button", { name: "Dismiss help", exact: true })
   await dismiss.click()
   const composer = page.getByTestId("composer-input")
   await page.keyboard.press("Control+k")

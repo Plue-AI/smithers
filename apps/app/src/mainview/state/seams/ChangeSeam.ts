@@ -72,12 +72,8 @@ export interface ChangeSeam {
   readonly checksAt: (changeId: string, seq: number, repo?: string) => Outcome
   /** `change.land <changeId>`: land the carrying landing request (queued). */
   readonly landChange: (changeId: string, repo?: string) => Outcome
-  /** `change.split <changeId> <path…>`: move the named paths into a new change (plue#489). */
-  readonly splitChange: (changeId: string, paths: ReadonlyArray<string>, repo?: string) => Outcome
   /** `change.resolve <changeId> <path>`: dispatch an agent session on the conflict; a degraded sign-in can't. */
   readonly resolveConflict: (changeId: string, path: string, repo?: string) => Outcome
-  /** `change.revert <changeId>`: back a landed change out into a new reviewable change (plue#456). */
-  readonly revertChange: (changeId: string, repo?: string) => Outcome
   /** The card's body tab; hidden, card-button scoped. */
   readonly setFacet: (changeId: string, facet: ChangeFacet, repo?: string) => Promise<string | void>
   /** `review.done <changeId> <threadId>`: the author addressed the thread at the current revision. */
@@ -1405,42 +1401,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     return mutationResult(repoId, changeId, `Landing request #${landing.number} is queued — it lands ${scope}; the card tracks it.`, {}, null, current)
   }
 
-  /*
-   * plue#489 `POST …/changes/{id}/split { paths }` (200): the listed paths'
-   * diff moves into a NEW change and the original keeps every unselected
-   * path. plue refuses an empty `paths` (400 "paths must not be empty"), so
-   * the act names the paths it moves and never sends an empty list.
-   *
-   * The answer is `{ original, split }` — two `repohost.Change` rows. Both
-   * are surfaced as change cards, because both are the returned changes and
-   * the split one is the reviewable object the act produced.
-   */
-  const splitChange: ChangeSeam["splitChange"] = async (changeId, paths, repo) => {
-    const refusal = gate()
-    if (refusal !== undefined) return refusal
-    const current = captureCloudOwner(ctx)
-    const wanted = paths.map((path) => path.trim()).filter((path) => path !== "")
-    if (wanted.length === 0) {
-      return "change.split needs at least one path to move: /change.split <changeId> <path> [path…]"
-    }
-    const resolved = resolveRepo(changeId, repo)
-    if ("error" in resolved) return resolved.error
-    const split = await sendJson("POST", changePath(resolved.repo, changeId, "/split"), { paths: wanted })
-    if (!current() && "error" in split) return SIGN_OUT_REFUSAL
-    if ("error" in split) return split.error
-    const body = isRecord(split.body) ? split.body : null
-    const original = body !== null && isRecord(body.original) ? str(body.original.change_id) : null
-    const created = body !== null && isRecord(body.split) ? str(body.split.change_id) : null
-    if (original === null || created === null) {
-      return `Smithers Cloud's answer for the split of ${changeId} named no changes.`
-    }
-    return mutationResult(
-      resolved.repo, [original, created],
-      `${wanted.join(", ")} moved out of ${original} into the new change ${created} — both cards track them.`,
-      { facet: "diff" }, null, current
-    )
-  }
-
   const resolveConflict: ChangeSeam["resolveConflict"] = async (changeId, path, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
@@ -1456,36 +1416,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     return mutationResult(
       resolved.repo, changeId,
       `Dispatched an agent${sessionId === null ? "" : ` (session ${sessionId})`} to resolve ${path} in ${changeId} — the next revision carries the resolution.`,
-      {}, null, current
-    )
-  }
-
-  /*
-   * plue#456 `POST …/changes/{id}/revert` (201): Smithers Cloud backs the
-   * landed revision out into a new change and opens its landing request, or,
-   * for a member of a landed changeset, backs out every member into a new
-   * changeset. Smithers Cloud decides whether the change has landed; its
-   * refusal is the answer. The new change renders only when it lives in this
-   * repository (a landing request); a changeset's lives in its superproject.
-   */
-  const revertChange: ChangeSeam["revertChange"] = async (changeId, repo) => {
-    const refusal = gate()
-    if (refusal !== undefined) return refusal
-    const current = captureCloudOwner(ctx)
-    const resolved = resolveRepo(changeId, repo)
-    if ("error" in resolved) return resolved.error
-    const reverted = await sendJson("POST", changePath(resolved.repo, changeId, "/revert"))
-    if (!current() && "error" in reverted) return SIGN_OUT_REFUSAL
-    if ("error" in reverted) return reverted.error
-    const body = isRecord(reverted.body) ? reverted.body : null
-    const created = body === null ? null : str(body.change_id)
-    if (created === null) return `Smithers Cloud's answer for the revert of ${changeId} named no change.`
-    const changeset = body === null ? null : seqOrNull(body.changeset_id)
-    if (changeset !== null) return `${created} reverts ${changeId} — changeset ${changeset} carries it.`
-    const landing = body === null ? null : seqOrNull(body.landing_request_number)
-    return mutationResult(
-      resolved.repo, created,
-      `${created} reverts ${changeId}${landing === null ? "" : ` — landing request #${landing} carries it`}.`,
       {}, null, current
     )
   }
@@ -1652,9 +1582,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     sinceMyReview,
     checksAt,
     landChange,
-    splitChange,
     resolveConflict,
-    revertChange,
     setFacet,
     threadDone: transitionThread("done"),
     threadAck: transitionThread("ack"),

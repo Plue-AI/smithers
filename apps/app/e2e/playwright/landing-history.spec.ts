@@ -34,7 +34,7 @@ for (const theme of ["light", "dark"] as const) test(`retained PR history recove
     } })
   })
   await page.goto("/")
-  await expect(page.getByTestId("setup-checklist")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await fillComposer(page, `/prs.view 9 ${repo}`)
   await page.getByTestId("composer-send").click()
   const card = page.locator('[data-kind="pr"]')

@@ -9,8 +9,8 @@ const call = (name: string, args = ""): PendingToolCall => ({
 })
 
 test("accepted whitespace-padded command names keep canonical visible labels", () => {
-  expect(toolActLine(call("world.new-note"), "executed /world.new-note")).toBe("Smithers ran /world.new-note")
-  expect(toolActLine(call("  //world.new-note  "), "executed /world.new-note")).toBe("Smithers ran /world.new-note")
+  expect(toolActLine(call("wiki.new-note"), "executed /wiki.new-note")).toBe("Smithers ran /wiki.new-note")
+  expect(toolActLine(call("  //wiki.new-note  "), "executed /wiki.new-note")).toBe("Smithers ran /wiki.new-note")
 })
 
 test("accepted whitespace-padded browser commands retain their read receipt", () => {

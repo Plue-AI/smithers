@@ -15,7 +15,7 @@ import type React from "react"
  * (parity.test.ts gates this).
  */
 import { Button, StatusPill } from "@smthrs/ui"
-import { AlertTriangle, FileDiff, GitMerge, GitPullRequest, History, Split } from "lucide-react"
+import { AlertTriangle, FileDiff, GitMerge, GitPullRequest, History } from "lucide-react"
 import { Suspense } from "react"
 import type { ChangeFacet, ChangeRevision, ChangeThread, LandingBlock } from "@smthrs/rpc/Changes"
 import type { Card } from "../state/AppState"
@@ -318,14 +318,7 @@ const ChangeDiffFacet = ({ card, onRunCommand }: { readonly card: ChangeCard } &
                 {/* plue#489: move this file's diff into a new change; offered only while the stack's landable prefix is short. */}
                 {canSplit ?
                   (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      aria-label={`Split ${file.path} into a new change`}
-                      {...flowAction(onRunCommand, "change.split", flowArgs("change.split", { changeId: payload.changeId, paths: [file.path] }))}
-                    >
-                      <Split size={12} aria-hidden="true" /> Split
-                    </Button>
+                    null
                   ) :
                   null}
               </li>
@@ -1040,14 +1033,7 @@ export const ChangeCardBody = ({
         ))}
         {landed ?
           (
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Revert the landed change"
-              {...flowAction(onRunCommand, "change.revert", payload.changeId)}
-            >
-              Revert
-            </Button>
+            null
           ) :
           null}
         <Button

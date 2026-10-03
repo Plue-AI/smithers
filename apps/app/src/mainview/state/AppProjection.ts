@@ -901,17 +901,6 @@ const answerSignInPrompts = (
     for (const card of collections.cards.values()) {
       if (card.kind === "anonymous-ceiling" && card.status !== "acted") {
         collections.cards.update(card.id, draft => { draft.status = "acted" })
-      } else if (card.kind === "connect") {
-        const connected = provider !== "local"
-        const githubLogin = connected ? login : null
-        if (card.payload.github.connected !== connected || card.payload.github.login !== githubLogin ||
-            (provider !== undefined && card.payload.provider !== provider)) {
-          collections.cards.update(card.id, draft => {
-            if (draft.kind !== "connect") return
-            draft.payload.github = { connected, login: githubLogin }
-            if (provider !== undefined) draft.payload.provider = provider
-          })
-        }
       }
     }
   }
@@ -2735,12 +2724,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             forgetAccountState(collections, createdAt)
           }
           const nextOwner = transition.state === "signed-in" ? transition.login : transition.state === "signed-out" ? null : owner
-          // A definitive sign-in carries an unfinished signup past its doors (state/Signup.ts).
-          if (transition.state === "signed-in") {
-            const session = collections.sessions.get(SESSION_ID)
-            const advanced = signupAfterIdentity(session?.signup, "signed-in", transition.login, owner, transition.displayName)
-            if (advanced !== undefined && advanced !== session?.signup) collections.sessions.update(SESSION_ID, draft => { draft.signup = advanced })
-          }
           const commandEntry = collections.sessions.get(SESSION_ID)?.repositoryCommandEntry
           if (commandEntry !== undefined && commandEntry.owner !== nextOwner) {
             collections.sessions.update(SESSION_ID, draft => {
@@ -3047,10 +3030,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               })
               continue
             }
-            if ((card.kind !== "agent" && card.kind !== "run-trace") || (card.kind === "agent" && "cloud" in card.payload) || card.payload.statusRollup === undefined) continue
+            if (card.kind !== "run-trace" || card.payload.statusRollup === undefined) continue
             const status = expireStatus(card.payload.statusRollup, transition.now)
             if (status !== card.payload.statusRollup) collections.cards.update(card.id, (draft) => {
-              if ((draft.kind === "agent" && !("cloud" in draft.payload)) || draft.kind === "run-trace") draft.payload.statusRollup = status
+              if (draft.kind === "run-trace") draft.payload.statusRollup = status
             })
           }
           break

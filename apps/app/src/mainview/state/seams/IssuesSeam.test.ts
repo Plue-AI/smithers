@@ -9,9 +9,8 @@ import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { processRepositoryEvents } from "../RepositoryNotifications"
 import { invalidatePreparedViews } from "../PreparedView"
-import { initialSetup, setupCandidate, type SetupRecoveryResponse } from "@smthrs/rpc/RepositorySetup"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
-import { applicationIdentityFromFetch, waitFor } from "../TestFixtures"
+import { applicationIdentityFromFetch } from "../TestFixtures"
 import { fetchIssuePayload, readIssueOptions } from "./IssuesSeam"
 import type { SeamContext } from "./SeamContext"
 
@@ -128,44 +127,6 @@ const wireIssue = (number: number, overrides: Record<string, unknown> = {}) => (
   updated_at: "2026-08-11T09:00:00Z",
   closed_at: null,
   ...overrides
-})
-
-test.each([
-  { name: "unconfigured", enabled: false, owner: "will", tips: 1 },
-  { name: "enabled CI", enabled: true, owner: "will", tips: 0 },
-  { name: "another account's CI", enabled: true, owner: "someone-else", tips: 1 }
-])("issue creation suggests optional CI once for $name", async scenario => {
-  // The suggestion reads the host's verified registration for the signed-in
-  // account (#2536): a saved card, even another account's enabled CI, is not will's.
-  const verified = initialSetup("will/flows", "ci", "will")
-  const registration = (job: string): SetupRecoveryResponse["registration"] => scenario.enabled && scenario.owner === "will" && job === "ci"
-    ? { state: "known", active: { registrationId: "test", workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a", revision: verified.revision,
-      digest: setupCandidate(verified), sourceRevision: "test", enabled: true, owned: true, draft: verified.draft } }
-    : { state: "known" }
-  const { store, controller } = await issuesController(backend({
-    "GET /api/repository-setup/state": request => {
-      const job = new URL(request.url).searchParams.get("job") ?? ""
-      const body: SetupRecoveryResponse = { owner: "will", repo: "will/flows", job: job as SetupRecoveryResponse["job"], registration: registration(job), setup: { state: "none" } }
-      return json(200, body)
-    },
-    "POST /api/repos/will/flows/issues": json(201, wireIssue(8)),
-    "GET /api/repos/will/flows/issues/8": json(200, wireIssue(8)),
-    "GET /api/repos/will/flows/issues/8/comments": json(200, [])
-  }))
-  try {
-    const setup = initialSetup("will/flows", "ci", scenario.owner)
-    if (scenario.enabled) setup.active = { revision: 1, digest: "test", registrationId: "test", sourceRevision: "test", enabled: true }
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: "ci-settings", kind: "repository-setup", title: "CI", createdAt: 1, ordinal: 1, status: "active", payload: setup
-    } }).isPersisted.promise
-    await waitFor(() => [...store.collections.repositoryJobObservations.values()].some(row => row.job === "ci" && row.state === "completed"))
-    await controller.commands.run("issues.create", "Improve logging")
-    await controller.commands.run("issues.create", "Improve tests")
-    await store.settled?.()
-    const tips = [...store.collections.toasts.values()].filter(toast => toast.action?.flow === "ci.setup")
-    expect(tips).toHaveLength(scenario.tips)
-    if (scenario.tips) expect(tips[0]).toMatchObject({ status: "ok", action: { label: "Set up CI", args: "will/flows" } })
-  } finally { await controller.dispose(); await store.dispose?.() }
 })
 
 /* GitHub's issue wire shape off the source read (multi src/smithersCloud/githubIssues.ts). */
@@ -931,15 +892,6 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     expect(calls.filter((call) => call.startsWith("PATCH"))).toEqual(["PATCH /api/repos/will/flows/issues/999"])
   })
 
-  test("creating an issue in a loaded repository the platform 404s names the repository, not the import", async () => {
-    const { controller } = await issuesController(backend({
-      "POST /api/repos/will/flows/issues": json(404, REPOSITORY_NOT_FOUND)
-    }))
-    const outcome = await controller.commands.run("issues.create", "A brand new idea")
-    expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("will/flows was not found")
-  })
-
   test("a number-scoped 404 answers the number", async () => {
     const { controller } = await issuesController(backend({
       "PATCH /api/repos/will/flows/issues/999": json(404, ISSUE_NOT_FOUND)
@@ -1103,7 +1055,7 @@ test("private chat creation, persona comments, edits and deletes use the existin
   try {
     expect(await controller.createIssue("sync test", "will/flows", "chat")).toBeUndefined()
     expect(writes[0]).toEqual({ title: "sync test", kind: "chat", visibility: "private" })
-    expect([...store.collections.toasts.values()].some(toast => toast.action?.flow === "ci.setup")).toBe(false)
+    expect([...store.collections.toasts.values()].some(toast => String(toast.action?.flow) === "ci.setup")).toBe(false)
     const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
     if (card.kind !== "issue") throw Error("Wrong card")
     expect(card.payload).toMatchObject({ kind: "chat", visibility: "private", comments: [{ id: 31, persona: { username: "Reviewer" } }] })
@@ -1241,32 +1193,6 @@ test("a Smithers reply with trailing whitespace posts once and never PATCHes the
     const saved = (store.collections.cards.get(card.id) as typeof card).payload
     expect(saved.pendingComments).toEqual([])
     expect(saved.comments.map(row => row.commentBody)).toEqual(["hello", "On it."])
-  } finally { await controller.dispose(); await store.dispose?.() }
-})
-
-test("failed chat messages remain retryable with the same durable idempotency key", async () => {
-  const requests: string[] = []
-  const { store, controller } = await issuesController(backend({
-    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
-    "GET /api/repos/will/flows/issues/8/comments": () => json(200, requests.length > 1 ? [wireComment(31, "retry me")] : []),
-    "POST /api/repos/will/flows/issues/8/comments": async request => {
-      requests.push((await request.json() as { idempotency_key: string }).idempotency_key)
-      return requests.length === 1 ? json(503, { message: "Try again" }) : json(201, wireComment(31, "retry me"))
-    }
-  }))
-  try {
-    await controller.commands.run("issues.view", "8 will/flows")
-    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
-    if (card.kind !== "issue") throw Error("Wrong card")
-    await controller.commentOnIssue(8, "retry me", "will/flows")
-    await new Promise(resolve => setTimeout(resolve, 50))
-    const pending = (store.collections.cards.get(card.id) as typeof card).payload.pendingComments![0]!
-    expect(pending).toMatchObject({ status: "failed", error: "Posting the message failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
-    expect(pending.error).not.toContain("Try again")
-    await controller.retryIssueComment(card.id, pending.id)
-    await new Promise(resolve => setTimeout(resolve, 50))
-    expect(requests).toEqual([pending.id, pending.id])
-    expect((store.collections.cards.get(card.id) as typeof card).payload.pendingComments).toEqual([])
   } finally { await controller.dispose(); await store.dispose?.() }
 })
 

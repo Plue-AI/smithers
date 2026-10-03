@@ -2,15 +2,6 @@ import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { live, type Status } from "@smthrs/rpc/WorkerControls"
 import type { Card } from "./AppState"
 import { traceFromJournal, type TraceSpan } from "../cards/RunTrace"
-
-/*
- * The app's workers as `SubagentCard.Subagent`s (#2162): the chat grid, the
- * run card's child runs, the breadcrumb and the worker toasts all read these,
- * so every one of them draws the same glyph, rows and clock as the TUI.
- * Nothing here is invented: a fact a card does not carry is left out.
- */
-
-type AgentCard = Extract<Card, { kind: "agent" }>
 type RunCard = Extract<Card, { kind: "run-trace" }>
 
 /** A run card's worker status, the one mapping the toasts and the cards share. */
@@ -24,20 +15,10 @@ export const runStatus = (card: RunCard): Status => {
     : waiting ? "parked" : "running"
 }
 
-/** A local agent's process, or a cloud session's word, as a worker status. */
-export const agentStatus = (card: AgentCard): Status => {
-  const payload = card.payload
-  if ("cloud" in payload) {
-    return payload.state === "completed" ? "done" : payload.state === "failed" ? "failed"
-      : payload.state === "cancelled" ? "cancelled" : "running"
-  }
-  return payload.phase === "running" ? "running" : payload.exitCode === 0 ? "done" : payload.exitCode === null ? "cancelled" : "failed"
-}
-
 const SETTLED_ROLLUPS: ReadonlySet<string> = new Set(["completed", "failed", "cancelled", "exited"])
 
 /** When a settled worker stopped: its settled status rollup, else its last dated row. */
-const endedAt = (card: AgentCard | RunCard, status: Status, lastRowAt: number | undefined): number | undefined => {
+const endedAt = (card: RunCard, status: Status, lastRowAt: number | undefined): number | undefined => {
   if (live(status)) return undefined
   const rollup = card.payload.statusRollup
   if (rollup !== undefined && SETTLED_ROLLUPS.has(rollup.state)) return rollup.updatedAt
@@ -47,80 +28,8 @@ const endedAt = (card: AgentCard | RunCard, status: Status, lastRowAt: number | 
 const record = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 
-const parse = (text: string): Record<string, unknown> => {
-  try {
-    return record(JSON.parse(text))
-  } catch {
-    return {}
-  }
-}
-
-/** The argument a tool acted on, when the call names one. */
-const targetOf = (args: Record<string, unknown>): string => {
-  for (const key of ["path", "file_path", "file", "command", "cmd", "pattern", "query", "url"]) {
-    const value = args[key]
-    if (typeof value === "string" && value !== "") return value
-  }
-  return ""
-}
-
-/**
- * A cloud transcript's activity: the agent's text as text rows, and each
- * `tool_call` part as a tool row that its `tool_result` settles. The user's
- * own messages are the request, not the agent's activity.
- */
-const cloudEntries = (transcript: Extract<AgentCard["payload"], { cloud: true }>["transcript"]): ReadonlyArray<SubagentCard.Entry> => {
-  const entries: Array<SubagentCard.Entry> = []
-  for (const row of [...transcript].sort((a, b) => a.sequence - b.sequence)) {
-    if (row.role === "user") continue
-    for (const part of row.parts) {
-      if (part.type === "text") {
-        if (part.text.trim() !== "") entries.push({ kind: "text", text: part.text })
-      } else if (part.type === "tool_call") {
-        const call = parse(part.text)
-        const name = typeof call.name === "string" ? call.name : typeof call.tool === "string" ? call.tool : "tool"
-        const args = typeof call.arguments === "string" ? parse(call.arguments) : record(call.arguments ?? call.input)
-        entries.push({ kind: "tool", tool: name.toLowerCase(), state: "pending", target: targetOf(args) })
-      } else if (part.type === "tool_result") {
-        for (let open = entries.length - 1; open >= 0; open--) {
-          const entry = entries[open]!
-          if (entry.kind !== "tool" || entry.state !== "pending") continue
-          entries[open] = { ...entry, state: "done" }
-          break
-        }
-      }
-    }
-  }
-  return entries
-}
-
 const lastDated = (rows: ReadonlyArray<number | undefined>): number | undefined =>
   rows.reduce<number | undefined>((last, at) => at !== undefined && Number.isFinite(at) ? Math.max(last ?? at, at) : last, undefined)
-
-/** A local or cloud agent card as the card it draws. */
-export const agentSubagent = (card: AgentCard): SubagentCard.Subagent => {
-  const status = agentStatus(card)
-  const payload = card.payload
-  if ("cloud" in payload) {
-    const last = lastDated(payload.transcript.map((row) => row.createdAt === null ? undefined : Date.parse(row.createdAt)))
-    const ended = endedAt(card, status, last)
-    return {
-      title: payload.displayName || card.title,
-      status,
-      startedAt: card.createdAt,
-      ...(ended === undefined ? {} : { endedAt: ended }),
-      entries: cloudEntries(payload.transcript)
-    }
-  }
-  const ended = endedAt(card, status, undefined)
-  return {
-    title: payload.displayName || payload.task || card.title,
-    status,
-    startedAt: card.createdAt,
-    ...(ended === undefined ? {} : { endedAt: ended }),
-    entries: []
-  }
-}
 
 /** A run card as the card it draws; its transcript rows are its activity. */
 export const runSubagent = (card: RunCard, title = card.title): SubagentCard.Subagent => {
@@ -138,7 +47,7 @@ export const runSubagent = (card: RunCard, title = card.title): SubagentCard.Sub
 
 /** Any worker card's subagent, or undefined for a card that is not one. */
 export const subagentOf = (card: Card | undefined): SubagentCard.Subagent | undefined =>
-  card?.kind === "agent" ? agentSubagent(card) : card?.kind === "run-trace" ? runSubagent(card) : undefined
+  card?.kind === "run-trace" ? runSubagent(card) : undefined
 
 /**
  * The footer at `now`. A settled worker whose end was never recorded says
@@ -213,56 +122,4 @@ export const parentRunOf = (cards: ReadonlyArray<Card>, card: RunCard): { readon
     if (index >= 0) return { parent, index, child: children[index]! }
   }
   return undefined
-}
-
-/** One row of the ctrl+s overview's tree (#2190). */
-export interface OverviewNode {
-  readonly id: string
-  readonly level: number
-  readonly color: number
-  readonly subagent: SubagentCard.Subagent
-  /** The worker's own card, while this client holds one. */
-  readonly card: AgentCard | RunCard | undefined
-  /** How it opens: its agent card, or a run id in its repository. */
-  readonly open: { readonly agent: AgentCard } | { readonly runId: string; readonly repo: string }
-}
-
-/**
- * Every subagent in the conversation as a tree, depth first: each agent card
- * and each run no other run spawned, oldest first, with the child runs each
- * run's journal recorded under it. Agents keep their chat lane color; a child
- * keeps its place among its siblings, as the run card's grid colors it.
- */
-export const overview = (cards: ReadonlyArray<Card>, laneColors: number): ReadonlyArray<OverviewNode> => {
-  const agents = cards.filter((card): card is AgentCard => card.kind === "agent")
-    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-  const runs = cards.filter((card): card is RunCard => card.kind === "run-trace" && parentRunOf(cards, card) === undefined)
-  const roots = [...agents, ...runs].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-  const nodes: Array<OverviewNode> = []
-  const seen = new Set<string>()
-  const children = (run: RunCard, level: number): void => {
-    if (seen.has(run.id)) return
-    seen.add(run.id)
-    childRuns(run, true).forEach((child, index) => {
-      const own = childCardOf(cards, run, child.runId)
-      nodes.push({
-        id: `${run.id}/${child.runId}`,
-        level,
-        color: index % laneColors,
-        subagent: childSubagent(child, own),
-        card: own,
-        open: { runId: child.runId, repo: run.payload.repo }
-      })
-      if (own !== undefined) children(own, level + 1)
-    })
-  }
-  roots.forEach((root, index) => {
-    if (root.kind === "agent") {
-      nodes.push({ id: root.id, level: 0, color: agents.indexOf(root) % laneColors, subagent: agentSubagent(root), card: root, open: { agent: root } })
-      return
-    }
-    nodes.push({ id: root.id, level: 0, color: index % laneColors, subagent: runSubagent(root), card: root, open: { runId: root.payload.runId, repo: root.payload.repo } })
-    children(root, 1)
-  })
-  return nodes
 }

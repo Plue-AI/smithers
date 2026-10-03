@@ -18,7 +18,6 @@ type FileRow = NonNullable<PrPayload["files"]>[number]
 /** The most changes a PR card reads (two requests each); a taller stack shows its top. */
 const STACK_CAP = 20
 import { resolveTargetRepo } from "../RepoContext"
-import { fetchAllBookmarks } from "./BookmarksSeam"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage, readResult } from "./SeamContext"
 
@@ -26,12 +25,6 @@ export interface LandingsSeam {
   readonly setTab: (cardId: string, tab: "conversation" | "commits" | "checks" | "files") => Promise<string | void>
   readonly listLandings: ViewAction<[repo?: string]>
   readonly viewLanding: ViewAction<[number: number, repo?: string]>
-  readonly createLanding: (
-    title: string,
-    repo?: string,
-    /** The source bookmark (`from:<name>` in /prs.create); required by plue's POST /landings. */
-    fromBookmark?: string
-  ) => Promise<string | void>
   readonly landLanding: (number: number, repo?: string) => Promise<string | void>
   /**
    * One pull request as the context a review flow reads (the Review a PR
@@ -243,72 +236,6 @@ export const readLandingOptions = async (
   if (!Array.isArray(body)) return { options: [], error: `Pull requests for ${repo} answered with a payload this app couldn't read.` }
   return { options: body.map(parseLandingRow).filter((row): row is LandingRow => row !== null && reviewable(row.state))
     .map((row) => ({ value: String(row.number), label: `#${row.number} ${row.title}` })) }
-}
-
-/** One jj change row: the parent walk is all a landing stack needs. */
-interface RepoChangeRow {
-  readonly changeId: string
-  readonly parentChangeIds: readonly string[]
-}
-
-/**
- * The change rows out of the paginated/bare-array shapes plue may answer
- * (multi repoChanges.ts changeArray + parseRepoChange, loosened): change_id is
- * required, a missing parent_change_ids degrades to [], and a malformed row is
- * skipped instead of failing the payload.
- */
-const parseRepoChanges = (body: unknown): RepoChangeRow[] => {
-  const rows: unknown[] = Array.isArray(body)
-    ? body
-    : isRecord(body) && Array.isArray(body.changes)
-    ? body.changes
-    : isRecord(body) && Array.isArray(body.items)
-    ? body.items
-    : []
-  return rows.flatMap((value): RepoChangeRow[] => {
-    if (!isRecord(value)) return []
-    if (typeof value.change_id !== "string" || value.change_id === "") return []
-    const parents = Array.isArray(value.parent_change_ids)
-      ? value.parent_change_ids.filter((id): id is string => typeof id === "string")
-      : []
-    return [{ changeId: value.change_id, parentChangeIds: parents }]
-  })
-}
-
-/**
- * Walk the linear chain of parent change ids from the source tip back to the
- * target tip, answering the stack base-first/tip-last — plue lands exactly the
- * stored change_ids in this order (landing_worker.go PositionInStack), so a
- * tip-only id would silently drop ancestor changes. Bails to [] — an honest
- * refusal, never a partial or guessed stack — on tip equality, a parent absent
- * from the fetched list, a merge (ambiguous side), a cycle, or a walk past
- * plue's 50-change stack cap. Ported from multi repoChanges.ts
- * deriveBookmarkStack.
- */
-const deriveBookmarkStack = (
-  changes: readonly RepoChangeRow[],
-  sourceTipChangeId: string,
-  targetTipChangeId: string
-): string[] => {
-  if (sourceTipChangeId === "" || targetTipChangeId === "") return []
-  if (sourceTipChangeId === targetTipChangeId) return []
-  const byId = new Map(changes.map((change) => [change.changeId, change]))
-  const stack: string[] = []
-  const seen = new Set<string>()
-  const MAX_STACK = 50
-  let cursor = sourceTipChangeId
-  while (cursor !== targetTipChangeId) {
-    if (seen.has(cursor)) return [] // cycle
-    if (stack.length >= MAX_STACK) return [] // deeper than plue's stack cap
-    seen.add(cursor)
-    stack.push(cursor)
-    const change = byId.get(cursor)
-    if (change === undefined) return [] // parent absent from the fetched list
-    if (change.parentChangeIds.length > 1) return [] // merge — ambiguous
-    if (change.parentChangeIds.length === 0) return [] // walked off the end
-    cursor = change.parentChangeIds[0] as string
-  }
-  return stack.reverse()
 }
 
 export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm): LandingsSeam => {
@@ -634,84 +561,6 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
       if ("error" in target) return target.error
       return readRepositoryDetail(ctx, target.repo, "pr", number, () => landingView(number, target.repo))
     }, { preload: landingView.preload }),
-
-    createLanding: async (title, repoArg, fromBookmark) => {
-      const target = resolveTargetRepo(ctx.store, repoArg)
-      if ("error" in target) return target.error
-      const repo = target.repo
-      if (fromBookmark === undefined || fromBookmark === "") {
-        // The source branch is a genuine user choice — named, never guessed.
-        return "prs.create needs a source branch — run /branches.list, then /prs.create <title> from:<bookmark>"
-      }
-      const trimmedTitle = title.trim()
-      if (trimmedTitle === "") return "prs.create needs a title"
-      /*
-       * Assemble plue's required payload the way multi does (landingsStore
-       * executeCreate): the live bookmarks give the source and target tips,
-       * the repo's changes give the parent walk, and the FULL target..source
-       * stack rides as change_ids. Multi's draft-materialization step
-       * (applyDraftsToChange) is workspace-only state this app cannot reach
-       * (scratchpad ISSUE-landings-2.md); everything else is the same routes.
-       */
-      const bookmarks = await fetchAllBookmarks(ctx, repo)
-      if ("error" in bookmarks) return bookmarks.error
-      const source = bookmarks.rows.find((row) => row.name === fromBookmark)
-      if (source === undefined) {
-        return `Bookmark "${fromBookmark}" wasn't found in ${repo} — run /branches.list for the choices.`
-      }
-      // Multi's create defaults the target to "main" (create-pull-request
-      // command.ts) and refuses when it is absent, rather than guessing.
-      const targetBookmark = "main"
-      const targetRow = bookmarks.rows.find((row) => row.name === targetBookmark)
-      if (targetRow === undefined) {
-        return `Target bookmark "${targetBookmark}" wasn't found in ${repo}.`
-      }
-      if (source.targetChangeId === targetRow.targetChangeId) {
-        return `No changes over ${targetBookmark} — commit to ${fromBookmark} first.`
-      }
-      let changesResponse: Response
-      try {
-        changesResponse = await ctx.http(`${ctx.baseUrl}${repoApiRoot(repo)}/changes?limit=100`)
-      } catch {
-        return `The changes for ${repo} couldn't be read — the platform didn't answer.`
-      }
-      if (!changesResponse.ok) {
-        return readErrorMessage(changesResponse, `The changes for ${repo} couldn't be read.`)
-      }
-      const changes = parseRepoChanges(await changesResponse.json().catch(() => undefined))
-      const stack = deriveBookmarkStack(changes, source.targetChangeId, targetRow.targetChangeId)
-      // Landing a partial stack would silently omit changes: a merge, missing
-      // parent, cycle, or over-long walk is a hard local refusal (multi's stance).
-      if (stack.length === 0) return "Couldn't derive the branch's change stack."
-      let response: Response
-      try {
-        response = await ctx.http(landingsUrl(repo), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            title: trimmedTitle,
-            body: "",
-            source_bookmark: fromBookmark,
-            target_bookmark: targetBookmark,
-            change_ids: stack
-          })
-        })
-      } catch {
-        return "The pull request couldn't be opened — the platform didn't answer."
-      }
-      if (!response.ok) {
-        return readErrorMessage(response, "The pull request couldn't be opened.")
-      }
-      const created = parseLandingRow(await response.json().catch(() => undefined))
-      if (created === null) {
-        return `The pull request was opened on ${repo}, but the platform's answer couldn't be read — run /prs.list to find it.`
-      }
-      // The one detail door: the created landing surfaces as the same "pr"
-      // card every other read lands on.
-      const refreshError = await surfaceLanding(repo, created.number)
-      if (typeof refreshError !== "string") return
-      return `Pull request #${created.number} was opened, but couldn't be re-read: ${refreshError}`
-    },
 
     landLanding: async (number, repoArg) => {
       const target = resolveTargetRepo(ctx.store, repoArg)

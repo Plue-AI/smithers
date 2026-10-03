@@ -1,15 +1,7 @@
 /*
  * The CardView command bindings, built once per controller.
  *
- * Every act a card raises is a flow name, and the transcript (App.tsx) and a
- * card tab (tabs/CardTabBody.tsx) bind the SAME ones — the card in the tab is
- * a presentation of the card in the transcript, never a second implementation.
- * Both used to hold their own copy of the same eighteen inline arrows, and the
- * copies drifted: the tab never bound onFrameBack, onFrameForward or
- * onForkFrame, so the three frame controls a maximized card renders did
- * nothing there. Being fresh closures on every render, they also defeated
- * memoization — one streaming token re-ran the render function of every card
- * body in the transcript.
+ * Every act a card raises is a flow name, bound to the same controller.
  *
  * Bindings are cached by controller and card record. Unchanged cards keep
  * the same callbacks through unrelated transcript renders, and replaced
@@ -39,6 +31,10 @@ export const cardActions = (controller: AppController, card?: Card): CardBinding
     : controller.runCommand(name, args, card.id)
   const actions: CardBindings = {
     projectionStore: controller.store,
+    // Saved confirmations retain their command door; removed commands report
+    // the controller's explicit refusal rather than silently doing nothing.
+    onGrantConfirm: (id) => runCommand("admin.grant.confirm", id),
+    onGrantCancel: (id) => runCommand("admin.grant.cancel", id),
     onDecideApproval: (id, decision, answer, question) =>
       // Structured human answers keep their value shape through the controller.
       answer === undefined
@@ -47,13 +43,10 @@ export const cardActions = (controller: AppController, card?: Card): CardBinding
           id
         )
         : controller.answerApproval(id, answer, question),
-    onGrantConfirm: (id) => runCommand("admin.grant.confirm", id),
-    onGrantCancel: (id) => runCommand("admin.grant.cancel", id),
     onMaximize: (id) => runCommand("card.maximize", id),
     onMinimize: () => runCommand("card.minimize"),
     onFrameBack: () => runCommand("frame.back"),
     onFrameForward: () => runCommand("frame.forward"),
-    onOpenInTab: (id) => runCommand("tab.card", id),
     onConnectGitHub: () => runCommand("auth.sign-in"),
     onRunWorkflow: (name) => runCommand("flow.run", name),
     onStopRun: (id) => runCommand("flow.run.stop", id),

@@ -304,16 +304,6 @@ test("a signed-out Cloud session on web still offers reauthentication when GitHu
   expect(h.store.collections.messages.get(prompt!.id)?.answeredAction?.answer).toContain("Smithers Cloud")
 })
 
-test("the onboarding connector card answers its persisted GitHub sign-in door", async () => {
-  const h = await setup()
-  await h.controller.commands.runForAgent("connect")
-  const before = h.store.collections.cards.get("connect-embedded")!
-  expect(before).toMatchObject({ kind: "connect", payload: { github: { connected: false } } })
-  await h.signIn()
-  expect(h.store.collections.cards.get(before.id)).toMatchObject({ id: before.id, ordinal: before.ordinal,
-    payload: { github: { connected: true, login: "codeplanesmithers" } } })
-})
-
 test("unavailable identity and unrelated fulfilled requirements cannot answer a sign-in prompt", async () => {
   const h = await setup(false)
   h.controller.promptSignIn()

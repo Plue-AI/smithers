@@ -1,12 +1,12 @@
-import { closeComposer, reloadApp } from "./support"
+import { reloadApp } from "./support"
 import { bootProductionRepository } from "./repositories-github/production"
 import { scenario } from "./coverage/types"
 import { fixtureCommentBody } from "./support/values"
 import { authenticatedTest as test, readAuthenticatedSession } from "./auth-permissions/profile"
-import { command, expect, openComposer, realApi, test as anonymousTest } from "./support/test"
+import { command, expect, openComposer, realApi } from "./support/test"
 import {
   attachPullRequestEvidence,
-  createPullRequestThroughUI,
+  createPullRequestFixture,
   enableProductionVerbose,
   expectFlowOutcome,
   importOwnedPullRequestRepo,
@@ -30,9 +30,9 @@ test(
   "a private branch becomes a real pull request whose list, commits, empty checks, files, and reload all agree",
   scenario("pull-requests.production-create-detail-tabs", {
     capabilities: ["identity", "cloud"],
-    description: "Create a private two-commit branch, import it through the real service, open its pull request through the UI, and compare its detail tabs with independent platform reads, including the honest empty-check state.",
+    description: "Create a private two-commit branch, import it through the real service, seed its pull request through the real API and open it through the UI, and compare its detail tabs with independent platform reads, including the honest empty-check state.",
     coverage: [
-      "action:prs.create", "action:prs.list", "action:prs.view", "action:prs.tab",
+      "action:prs.list", "action:prs.view", "action:prs.tab",
       "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
       "dimension:private-repository", "dimension:commits", "dimension:checks-empty", "dimension:diff",
       "dimension:keyboard", "dimension:list-status-count", "dimension:reload", "evidence:ui-platform-github-readback"
@@ -45,7 +45,7 @@ test(
       await importOwnedPullRequestRepo(page, request, owned)
       const checks = await readChecks(page, request, owned)
       expect(checks).toEqual([])
-      const created = await createPullRequestThroughUI(page, request, owned, `Real detail ${owned.marker}`)
+      const created = await createPullRequestFixture(page, request, owned, `Real detail ${owned.marker}`)
 
       const platform = await readLanding(page, request, owned, created.number)
       expect(platform).toMatchObject({
@@ -118,7 +118,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Post a real review comment from the PR detail flow, then activate Approve and require the platform's self-review denial with unchanged review state.",
     coverage: [
-      "action:prs.create", "action:prs.view", "action:prs.review", "host:production", "path:success",
+      "action:prs.view", "action:prs.review", "host:production", "path:success",
       "path:permission", "door:slash", "door:button", "dimension:review-comment", "dimension:request-changes", "dimension:self-approval",
       "evidence:ui-platform-review-readback"
     ]
@@ -128,7 +128,7 @@ test(
     expect(session).toBeDefined()
     await withOwnedPullRequestRepo(page, request, context, session!.login, testInfo, "review", async (owned) => {
       await importOwnedPullRequestRepo(page, request, owned)
-      const created = await createPullRequestThroughUI(page, request, owned, `Real review ${owned.marker}`)
+      const created = await createPullRequestFixture(page, request, owned, `Real review ${owned.marker}`)
       const comment = fixtureCommentBody(`review-note-${owned.marker}`)
 
       await command(page, `/prs.review ${created.number} comment ${comment} ${owned.fullName}`)
@@ -174,7 +174,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Land a disposable private pull request from its UI button, require the queued intermediate truth, then prove the worker merged that exact tip into main.",
     coverage: [
-      "action:prs.create", "action:prs.view", "action:prs.land", "host:production", "path:success",
+      "action:prs.view", "action:prs.land", "host:production", "path:success",
       "door:slash", "door:button", "dimension:queue", "dimension:merge", "dimension:bookmark-advance",
       "evidence:ui-platform-git-state-proof"
     ]
@@ -184,7 +184,7 @@ test(
     expect(session).toBeDefined()
     await withOwnedPullRequestRepo(page, request, context, session!.login, testInfo, "land", async (owned) => {
       await importOwnedPullRequestRepo(page, request, owned)
-      const created = await createPullRequestThroughUI(page, request, owned, `Real land ${owned.marker}`)
+      const created = await createPullRequestFixture(page, request, owned, `Real land ${owned.marker}`)
       const before = await readBookmarks(page, request, owned)
       const mainBefore = before.find((bookmark) => bookmark.name === "main")
       const tipBefore = await readChange(page, request, owned)
@@ -236,7 +236,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Hold a rendered Land action, queue the PR through the real API, then activate the stale button and require a conflict without a second state change.",
     coverage: [
-      "action:prs.create", "action:prs.view", "action:prs.land", "host:production", "path:error",
+      "action:prs.view", "action:prs.land", "host:production", "path:error",
       "door:button", "dimension:stale-action", "dimension:idempotency", "evidence:platform-state-before-after-stale-click"
     ]
   }),
@@ -245,7 +245,7 @@ test(
     expect(session).toBeDefined()
     await withOwnedPullRequestRepo(page, request, context, session!.login, testInfo, "stale", async (owned) => {
       await importOwnedPullRequestRepo(page, request, owned)
-      const created = await createPullRequestThroughUI(page, request, owned, `Real stale ${owned.marker}`)
+      const created = await createPullRequestFixture(page, request, owned, `Real stale ${owned.marker}`)
       const staleButton = landingDetail(page, created.number).getByRole("button", { name: /Land \(queue merge\)/ })
       await expect(staleButton).toBeVisible()
 
@@ -271,38 +271,7 @@ test(
   }
 )
 
-test(
-  "cancelling a completed create form emits no pull-request mutation",
-  scenario("pull-requests.production-create-cancel", {
-    capabilities: ["identity", "cloud"],
-    description: "Fill every field in the real PR creation form, cancel it through the UI, and prove no landing request reached the service.",
-    coverage: [
-      "action:prs.create", "action:card.dismiss", "host:production", "path:success",
-      "door:slash", "door:button", "dimension:cancellation", "dimension:no-mutation", "evidence:ui-and-network-absence"
-    ]
-  }),
-  async ({ page }, testInfo) => {
-    expect(await readAuthenticatedSession(page)).toBeDefined()
-    const mutations: string[] = []
-    page.on("request", (request) => {
-      const path = new URL(request.url()).pathname
-      if (request.method() === "POST" && /\/repos\/[^/]+\/[^/]+\/landings$/.test(path)) mutations.push(path)
-    })
 
-    await openComposer(page)
-    await command(page, "/prs.create")
-    const form = page.locator('.flow-form[data-flow-name="prs.create"]').last()
-    await expect(form).toBeVisible()
-    await form.getByTestId("flow-form-title").fill(`cancelled-${Date.now()}`)
-    await form.getByTestId("flow-form-from").fill("never-submitted")
-    await form.getByTestId("flow-form-repo").fill("codeplanesmithers/canary-sandbox")
-    await expect(form.getByTestId("flow-form-submit")).toBeEnabled()
-    await form.getByTestId("flow-form-cancel").click()
-    await expect(form).toHaveCount(0)
-    expect(mutations).toEqual([])
-    await attachPullRequestEvidence(testInfo, "create-cancel", { formDismissed: true, mutations })
-  }
-)
 
 test(
   "a missing pull-request number preserves the platform 404 as a failed UI action",
@@ -346,33 +315,3 @@ test(
   }
 )
 
-anonymousTest(
-  "a signed-out create request defers to the real sign-in door without touching a repository",
-  scenario("pull-requests.production-signed-out-create", {
-    capabilities: ["cloud", "identity"],
-    description: "Invoke prs.create in a clean production browser and prove the required-auth projection appears before any landing mutation request.",
-    coverage: [
-      "action:prs.create", "action:auth.prompt", "host:production", "path:permission", "door:slash",
-      "dimension:signed-out", "dimension:no-mutation", "evidence:ui-and-network-absence"
-    ]
-  }),
-  async ({ page }, testInfo) => {
-    const mutations: string[] = []
-    page.on("request", (request) => {
-      const url = new URL(request.url())
-      if (request.method() !== "GET" && /\/repos\/[^/]+\/[^/]+\/landings(?:\/|$)/.test(url.pathname)) {
-        mutations.push(`${request.method()} ${url.pathname}`)
-      }
-    })
-    await page.goto("/codeplanesmithers/canary-sandbox", { waitUntil: "domcontentloaded" })
-    expect(await readAuthenticatedSession(page)).toBeUndefined()
-    await openComposer(page)
-    await command(page, "/prs.create")
-    await closeComposer(page)
-    await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
-    await expect(page.getByTestId("transcript")).toContainText(/sign in/i)
-    await expect(landingDetail(page, 1)).toHaveCount(0)
-    expect(mutations).toEqual([])
-    await attachPullRequestEvidence(testInfo, "signed-out-create", { session: null, signInVisible: true, mutations })
-  }
-)

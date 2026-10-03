@@ -14,7 +14,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { executeAgentToolCall } from "../flows/agentTools"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { IDENTITY_LINE, WEB_HOST_LINE, smithersInstructions } from "./Instructions"
+import { WEB_HOST_LINE, smithersInstructions } from "./Instructions"
 import type { InstructionHonesty } from "./Instructions"
 import { memoryStorage, settle } from "./TestFixtures"
 
@@ -110,14 +110,13 @@ const firstTurnInstructions = async (host: AppBootstrap["host"], prompt = "hello
  */
 describe("a turn asking who you are is answered with the name", () => {
   for (const host of ["cloud", "local"] as const) {
-    test(`${host}: the instructions pin the one-word name, name smithers.who, and the catalog lists it`, async () => {
+    test(`${host}: the instructions pin the one-word name without the retired identity command`, async () => {
       const { instructions, names } = await firstTurnInstructions(host, "who are you?")
-      expect(instructions).toContain(IDENTITY_LINE)
-      expect(IDENTITY_LINE).toContain("answer with the single word Smithers")
-      expect(IDENTITY_LINE).toContain("execute smithers.who")
-      expect(names).toContain("smithers.who")
-      // smithers.who is pinned: the standing instructions name it, so its line is listed in full.
-      expect(instructions).toMatch(/^- \/smithers\.who\b.* — /m)
+      expect(instructions).toContain('Your name is exactly "Smithers"')
+      expect(instructions).not.toContain("execute smithers.who")
+      expect(names).not.toContain("smithers.who")
+      // The retained identity rule needs no dedicated command.
+      expect(instructions).not.toMatch(/^- \/smithers\.who\b.* — /m)
       expect(instructions).toContain("Your name is exactly \"Smithers\"")
       expect(instructions).toContain("Do not suggest features absent from your catalog.")
       expect(names).toContain("wiki")
@@ -170,7 +169,7 @@ describe("the command section lists pinned and disclosed commands in full, and o
 describe("the prompt's surface examples", () => {
   test("name no default-off feature, in either flag state", () => {
     const prompt = smithersInstructions([], honesty())
-    expect(prompt).toContain("When a surface is involved (connect, browser)")
+    expect(prompt).toContain("When a surface is involved (wiki, browser)")
     expect(prompt).not.toContain("(world, connect, browser)")
   })
 })

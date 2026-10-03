@@ -5,7 +5,6 @@ test("keyboard takeover at the Astro root consumes its intent and restores the s
   const errors: string[] = []
   context.on("page", tab => tab.on("pageerror", error => errors.push(error.message)))
   page.on("pageerror", error => errors.push(error.message))
-  await context.route("**/api/recommend", route => route.fulfill({ json: { suggestions: [] } }))
   await context.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity"], authFlow: "redirect", sandbox: null,
   } }))
@@ -13,22 +12,22 @@ test("keyboard takeover at the Astro root consumes its intent and restores the s
   await page.goto("/")
   await page.getByRole("link", { name: "Get started for free", exact: true }).focus()
   await page.keyboard.press("Enter")
-  // A signed-out cloud visitor's app is the signup; each writer restores it.
-  await expect(page.getByTestId("signup")).toBeVisible()
+  // Each writer restores the signed-out app.
+  await expect(page.getByTestId("composer-input")).toBeAttached()
 
   const second = await context.newPage()
   await second.goto("/?tutorial")
   await expect(second.getByRole("heading", { name: "Smithers is open in another tab" })).toBeVisible()
   await second.getByRole("button", { name: "Use Smithers here" }).focus()
   await second.keyboard.press("Enter")
-  await expect(second.getByTestId("signup")).toBeVisible()
+  await expect(second.getByTestId("composer-input")).toBeAttached()
   await expect(page.getByRole("heading", { name: "Smithers moved to another tab" })).toBeVisible()
 
   // This document has no query marker: its explicit request must cross the landing boundary.
   await expect(page).toHaveURL("/")
   await page.getByRole("button", { name: "Use Smithers here" }).focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByTestId("signup")).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeAttached()
   await expect(second.getByRole("heading", { name: "Smithers moved to another tab" })).toBeVisible()
   expect(await page.evaluate(() => sessionStorage.getItem("smithers.writer-takeover"))).toBeNull()
 

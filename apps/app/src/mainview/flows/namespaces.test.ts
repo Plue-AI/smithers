@@ -34,7 +34,13 @@ const modules = async (): Promise<Map<string, EntriesModule>> => {
 describe("registry data tables read the namespace modules", () => {
   test("every namespace row is the row its own module exports, and every exported row is listed", async () => {
     const found = await modules()
-    const exported = [...found].flatMap(([id, module]) => (module.namespace === undefined ? [] : [{ id, row: module.namespace }]))
+    // These shared modules retain historical metadata; every app door in
+    // these namespaces was explicitly Cut, so no palette row remains.
+    const cutNamespaces = new Set(["connector", "notifications", "repository", "smithers", "system", "tab", "workspace"])
+    const exported = [...found].flatMap(([id, module]) =>
+      module.namespace === undefined || cutNamespaces.has(id) ? [] : [{ id, row: module.namespace }]
+    )
+    for (const id of cutNamespaces) expect(NAMESPACES.some(row => row.id === id)).toBe(false)
     expect(exported.length).toBeGreaterThan(30)
     for (const { id, row } of exported) {
       expect(row.id).toBe(id)

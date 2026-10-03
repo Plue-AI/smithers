@@ -1,6 +1,6 @@
 import { scenario } from "./coverage/types"
 import { expect, test } from "./support"
-import { FORM_VEHICLE_CARD_ID, openVehicleForm } from "./navigation-frames/cards"
+import { openVehicleForm } from "./navigation-frames/cards"
 
 /*
  * Neither scenario here is about the flow behind the card. They are about
@@ -14,7 +14,7 @@ test(
   "a card maximize and restore cycle preserves the selected card and focus",
   scenario("real-card-maximize-restore", {
     capabilities: [],
-    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:tab.card", "action:form.set", "action:card.maximize", "action:card.minimize", "dimension:focus-restoration", "evidence:card-state"]
+    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:card.maximize", "action:form.set", "action:card.maximize", "action:card.minimize", "dimension:focus-restoration", "evidence:card-state"]
   }),
   async ({ page }) => {
     const { card } = await openVehicleForm(page, "recovery-maximize-restore")
@@ -33,21 +33,3 @@ test(
   }
 )
 
-test(
-  "a maximized card can move to a tab session and close cleanly",
-  scenario("real-card-tab-session-lifecycle", {
-    capabilities: [],
-    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:tab.card", "action:form.set", "action:card.maximize", "action:tab.card", "action:tab.select", "action:tab.close", "dimension:session-lifecycle", "evidence:tab-state"]
-  }),
-  async ({ page }) => {
-    const { card } = await openVehicleForm(page, "recovery-tab-session")
-    await card.getByRole("button", { name: "Maximize card", exact: true }).click()
-    await expect(card.getByRole("button", { name: "Open in tab", exact: true })).toBeVisible()
-    await card.getByRole("button", { name: "Open in tab", exact: true }).click()
-    const body = page.getByTestId(`tab-body-${FORM_VEHICLE_CARD_ID}`)
-    await expect(body).toBeVisible()
-    await expect(body.getByTestId(FORM_VEHICLE_CARD_ID)).toBeVisible()
-    await page.keyboard.press("Meta+w")
-    await expect(page.getByTestId(`tab-body-${FORM_VEHICLE_CARD_ID}`)).toHaveCount(0)
-  }
-)

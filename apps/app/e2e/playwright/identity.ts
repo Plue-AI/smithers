@@ -43,14 +43,10 @@ export const SCOPED_TEST_USER_CLOUD_SESSION = {
   expiresAt: "2027-01-01T00:00:00.000Z"
 } as const
 
-/** Close the signup a signed-out visitor meets first (state/Signup.ts), so a spec reaches the first-run transcript. */
+/** Wait for the plain app a signed-out visitor meets. */
 export async function skipSignup(page: import("@playwright/test").Page) {
   const { expect } = await import("@playwright/test")
-  await expect(page.getByTestId("signup")).toBeVisible()
-  if (!await page.getByTestId("composer-input").isVisible()) await page.keyboard.press("Control+k")
-  await page.getByTestId("composer-input").fill("/signup.finish")
-  await page.getByTestId("composer-input").press("Enter")
-  await expect(page.getByTestId("signup")).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeAttached()
 }
 
 /**
