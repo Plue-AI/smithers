@@ -1096,30 +1096,6 @@ export const createRunsController = (
       try {
         if (!current()) return TOAST_SUPERSEDED
         if ("error" in binding) return await settle(binding.error) ? binding.error : TOAST_SUPERSEDED
-        let registrationCount = 0
-        // Boxes whose registration reviews could not be read (asleep or not
-        // answering, #2341): their earlier cards stand, and the answer says how
-        // many went unread instead of failing or claiming none are pending.
-        let unread = 0
-        if (store.collections.identitySessions.get("identity")?.admin === true) {
-          const registrations = await gateway.registrationInboxes(request.repo, binding)
-          if (!current()) return TOAST_SUPERSEDED
-          if (registrations.status !== "ok") return await settle(registrations.message) ? registrations.message : TOAST_SUPERSEDED
-          for (const inbox of registrations.value) {
-            // This repository's ordinary inbox below includes its registration waits.
-            if (inbox.workspaceId === binding.workspaceId) continue
-            if (inbox.error !== undefined) { unread += 1; continue }
-            const old = store.collections.cards.get(inboxCardIdFor(inbox.repo, inbox.workspaceId))
-            if (inbox.rows.length === 0 && old?.kind !== "approvals-inbox") continue
-            const runIds = new Set([...inbox.rows.map(row => row.runId), ...(old?.kind === "approvals-inbox" ? old.payload.approvals.map(row => row.runId) : [])])
-            for (const runId of runIds) {
-              await reconcileRunApprovals(store, { repo: inbox.repo, workspaceId: inbox.workspaceId, runId }, inbox.rows.filter(row => row.runId === runId))
-              if (!current()) return TOAST_SUPERSEDED
-            }
-            registrationCount += await publishInbox(inbox.repo, { workspaceId: inbox.workspaceId }, inbox.rows)
-            if (!current()) return TOAST_SUPERSEDED
-          }
-        }
         const provisioned = await workflows.provisionWorkspace(request.repo, binding)
         if (!current()) return TOAST_SUPERSEDED
         if (provisioned !== true) return await settle(provisioned) ? provisioned : TOAST_SUPERSEDED
@@ -1135,17 +1111,13 @@ export const createRunsController = (
         // target rows already listed stand rather than vanish.
         const targets = await gateway.targetApprovals(request.repo, binding)
         if (!current()) return TOAST_SUPERSEDED
-        const pending = registrationCount + await publishInbox(request.repo, binding, [
+        const pending = await publishInbox(request.repo, binding, [
           ...inbox.value,
           ...targets.status === "ok" ? targets.value : listedTargets(inboxCardIdFor(request.repo, binding.workspaceId))
         ])
         if (!await settle()) return TOAST_SUPERSEDED
         const approvals = `${pending} approval${pending === 1 ? "" : "s"} pending`
-        if (unread > 0) {
-          const unchecked = `${unread} box${unread === 1 ? "" : "es"} not checked`
-          return { value: `${approvals}; ${unchecked}.`, toastDetail: unchecked }
-        }
-        return { value: pending === 0 ? `No approvals are pending on ${request.repo}.` : registrationCount > 0 ? `${approvals}.` : `${approvals} on ${request.repo}.` }
+        return { value: pending === 0 ? `No approvals are pending on ${request.repo}.` : `${approvals} on ${request.repo}.` }
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
         const message = readFailure(error, toastKey, "The approvals could not be loaded. Not your fault.")
