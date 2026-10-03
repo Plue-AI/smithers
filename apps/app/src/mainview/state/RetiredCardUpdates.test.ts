@@ -173,27 +173,3 @@ test("reload retires a selected retained card tab without losing its card or con
   expect(restored.session().draft).toBe("Keep conversation")
   expect((await restored.verifyState()).valid).toBe(true)
 })
-
-test("retained grant confirmation bindings report removed command refusals through the real controller", async () => {
-  // Ticket Out retains GrantConfirm; a saved action must never silently no-op.
-  const { controllerCardActions: cardActions } = await import("../cards/controllerCardActions")
-  const { createAppController } = await import("./AppController")
-  const { silentAgent, json } = await import("./TestFixtures")
-  const store = await open(memoryStorage())
-  const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
-  try {
-    for (const phase of ["confirm", "failed"] as const) {
-      const card = { id: `grant-${phase}`, kind: "grant-confirm", title: "Grant", status: "active", createdAt: 1, ordinal: 1,
-        payload: { login: "alice", amountUsd: 1, phase } } as const
-      await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
-      const bindings = cardActions(controller, card)
-      for (const action of [bindings.onGrantConfirm, bindings.onGrantCancel]) {
-        action(card.id)
-        const command = action === bindings.onGrantConfirm ? "confirm" : "cancel"
-        expect([...store.collections.toasts.values()]).toContainEqual(expect.objectContaining({
-          key: `command.unavailable.admin.grant.${command}`, title: "This action is no longer available", status: "failed"
-        }))
-      }
-    }
-  } finally { await controller.dispose() }
-})

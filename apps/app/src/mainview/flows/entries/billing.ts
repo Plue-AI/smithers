@@ -11,8 +11,19 @@ import type { CommandActions } from "./Declare"
 /** The `billing` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "billing", label: "Billing", summary: "Balance and plan" }
 
+/*
+ * The host's billing doors, read off the bootstrap. Registration-only callers
+ * pass inert actions whose every member answers a function or `undefined`
+ * (FlowFlags.test.ts), so the read guards the answer as well as the member:
+ * no capability list registers no billing flow.
+ */
+const hostCapabilities = (actions: CommandActions): ReadonlyArray<string> => {
+  const capabilities: unknown = actions.bootstrap?.capabilities
+  return Array.isArray(capabilities) ? capabilities : []
+}
+
 /** The balance read remains available beside plan and sandbox usage. */
-export const billingBalanceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+export const billingBalanceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => hostCapabilities(actions).includes("billing.balance") ? [
   flow({
     name: "billing.balance",
     summary: "Show your balance",
@@ -21,10 +32,10 @@ export const billingBalanceFlows = (actions: CommandActions): ReadonlyArray<Flow
     input: NoPayload,
     handler: () => actions.showBalance()
   })
-]
+] : []
 
 /** Plan reads and human billing doors only where their routes exist. */
-export const billingPlanFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+export const billingPlanFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => hostCapabilities(actions).some(capability => ["billing.plans", "billing.checkout", "billing.portal"].includes(capability)) ? [
   flow({
     name: "billing.plans", summary: "Show plans and sandbox usage", runtime: ["identity", "billing.plans"],
     requires: ["signed-in"], input: NoPayload, handler: () => actions.showBillingPlans()
@@ -50,4 +61,4 @@ export const billingPlanFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
     input: NoPayload,
     handler: () => actions.openBillingPortal()
   })
-]
+] : []

@@ -121,8 +121,6 @@ describe("server-emitted card frames", () => {
       maximized: false,
       onDecideApproval: () => {},
       onRecoAction: () => {},
-      onGrantConfirm: () => {},
-      onGrantCancel: () => {},
       onRepoToggle: () => {},
       onReposSelectAll: () => {},
       onReposSelectNone: () => {},
@@ -164,8 +162,6 @@ describe("server-emitted card frames", () => {
   test("a maximized card names its way back: a Restore button on card.minimize", () => {
     const handlers = {
       onDecideApproval: () => {},
-      onGrantConfirm: () => {},
-      onGrantCancel: () => {},
       onMaximize: () => {},
       onMinimize: () => {},
       onConnectGitHub: () => {},
@@ -225,13 +221,11 @@ describe("server-emitted card frames", () => {
     }
   })
 
-  test("old balance cards keep their data without MVP renderer exposure", () => {
+  test("old balance cards keep their data in a titled read-only legacy card", () => {
     const cardViewHandlers = {
       maximized: false,
       onDecideApproval: () => {},
       onRecoAction: () => {},
-      onGrantConfirm: () => {},
-      onGrantCancel: () => {},
       onRepoToggle: () => {},
       onReposSelectAll: () => {},
       onReposSelectNone: () => {},
@@ -249,7 +243,8 @@ describe("server-emitted card frames", () => {
     }
     const markup = renderToStaticMarkup(<CardView card={balanceCard} {...cardViewHandlers} />)
     expect(CardSchema.parse(balanceCard)).toEqual(balanceCard)
-    expect(markup).toBe("")
+    expect(markup).toContain("Balance")
+    expect(markup).not.toContain("<button")
   })
 
   test("a quiet or stopped run card never wears a Running pill (wave 12 §3, review)", () => {
@@ -263,8 +258,6 @@ describe("server-emitted card frames", () => {
       maximized: false,
       onDecideApproval: () => {},
       onRecoAction: () => {},
-      onGrantConfirm: () => {},
-      onGrantCancel: () => {},
       onRepoToggle: () => {},
       onReposSelectAll: () => {},
       onReposSelectNone: () => {},

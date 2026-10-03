@@ -279,7 +279,7 @@ describe("requirement axis — the run path", () => {
     const { store, controller } = await freshController()
     await signedIn(store)
     await reposLoaded(store)
-    const outcome = await controller.commands.run("billing.balance")
+    const outcome = await controller.commands.run("auth.prompt")
     // The dead backend fails the seam honestly — but nothing parked.
     expect(outcome.status).not.toBe("unknown-command")
     await settled()

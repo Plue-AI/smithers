@@ -800,3 +800,13 @@ describe("missing VM recovery actions", () => {
     } finally {await controller.dispose(); await controller.store.dispose?.()}
   })
 })
+
+for (const [code, sentence] of [["plan_limit_exceeded", "Your plan is at its sandbox limit."],
+  ["out_of_credit", "Out of credit."]] as const) test(`a ${code} terminal refusal states its typed failure without Upgrade`, () => {
+  const { host } = render(workspaceCard({ terminalRefusal: {
+    status: 402, code, message: "Limit reached.", retryAfterSeconds: null, upgrade_plan_key: "pro"
+  } }))
+  expect(host.textContent).toContain(sentence)
+  expect(host.querySelector('[data-flow="billing.upgrade"]')).toBeNull()
+  expect([...host.querySelectorAll('button')].some(button => button.textContent?.includes('Upgrade'))).toBe(false)
+})

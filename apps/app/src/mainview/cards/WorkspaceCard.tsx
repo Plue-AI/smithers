@@ -1,6 +1,5 @@
 import { TerminalView } from "../tabs/TerminalView"
 import { Copy } from "lucide-react"
-import type { Refusal } from "@smthrs/rpc/Refusal"
 import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
 /*
@@ -38,7 +37,7 @@ import { Globe, Monitor, Play, RefreshCw, Server, Square, Trash2 } from "lucide-
 import { useController } from "../ControllerContext"
 import type { Card } from "../state/AppState"
 import { refusalFromStored } from "@smthrs/rpc/Refusal"
-import { refusalDoors, refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
+import { refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { EGRESS_PROXY_UNAVAILABLE } from "../state/seams/WorkspaceSeam"
@@ -54,27 +53,6 @@ export const BOX_FAILURE_COPY: Readonly<Record<"EgressProxyUnavailable" | "BoxFa
   EgressProxyUnavailable: { fault: "infra", sentence: "This box could not start its network guard. Not your fault.", actions: [] },
   BoxFailed: { fault: "infra", sentence: "This box failed. Not your fault.", actions: [] },
   BoxActRefused: { fault: "infra", sentence: "Smithers could not finish that on this box.", actions: [] }
-}
-
-/** THE SEAM: the upgrade door uses the same typed flow as the plans card. */
-/*
- * The plan an upgrade door buys. The backend names it for a plan limit; an
- * out-of-credit refusal names none (Plue sends only `upgrade: "/billing"`), and
- * Pro is the one plan on sale, so that door buys Pro.
- */
-export const upgradePlanKey = (refusal: Refusal): string | null =>
-  refusal.upgrade_plan_key ?? (refusal.code === "out_of_credit" ? "pro" : null)
-
-export const UpgradeDoor = ({ refusal, onRunCommand, disabled = false }: {
-  readonly refusal: Refusal; readonly onRunCommand: RunCommand; readonly disabled?: boolean
-}) => {
-  const plan = upgradePlanKey(refusal)
-  return refusalDoors(refusal).includes("upgrade") && plan ? (
-    <Button size="sm" variant="outline" disabled={disabled}
-      {...flowAction(onRunCommand, "billing.upgrade", flowArgs("billing.upgrade", { plan }))}>
-      Upgrade
-    </Button>
-  ) : null
 }
 
 export interface WorkspaceCardActions {
@@ -301,7 +279,6 @@ const WorkspaceFacetBody = ({
       {terminalRefusal !== null ?
         (
           <>
-            <UpgradeDoor refusal={terminalRefusal} onRunCommand={onRunCommand} />
             <FailureNotice failure={refusalUserFailure(terminalRefusal)} role="status" className="world-card-empty" />
             {terminalRefusal.fault === "wait" && terminalRefusal.retryAfter != null ?
               <p className="world-card-path">{`Try again in ${terminalRefusal.retryAfter}s.`}</p> :

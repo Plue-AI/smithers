@@ -38,9 +38,13 @@ const backend = (): AppServices => ({
   }
 })
 
-const ready = async (): Promise<{ store: AppStore; controller: ReturnType<typeof createAppController> }> => {
+/* Hosted (Plue) only: the Mac install registers no billing flow (mvp.md M-09). */
+const hostedBalance: AppServices["bootstrap"] = { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null,
+  capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: false, balance: true }) }
+
+const ready = async (services: Partial<AppServices> = {}): Promise<{ store: AppStore; controller: ReturnType<typeof createAppController> }> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, unavailableAgent, backend())
+  const controller = createAppController(store, unavailableAgent, { ...backend(), ...services })
   store.dispatch({
     type: "identity.session.loaded",
     actor: "system",
@@ -114,8 +118,8 @@ describe("a failed flow reaches the model as a failure", () => {
 })
 
 describe("the model is told the numbers it is asked about", () => {
-  test("billing.balance hands the figure back instead of void", async () => {
-    const { controller } = await ready()
+  test("hosted billing.balance hands the figure back instead of void", async () => {
+    const { controller } = await ready({ bootstrap: hostedBalance })
     const result = await execute(controller, "billing.balance")
     expect(result).not.toStartWith("failed:")
     expect(result).toContain("$519")
@@ -138,8 +142,7 @@ describe("the model is told the numbers it is asked about", () => {
       },
       {
         ...backend(),
-        bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null,
-          capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: false, balance: true }) }
+        bootstrap: hostedBalance
       }
     )
     store.dispatch({
@@ -178,9 +181,10 @@ describe("the model is told the numbers it is asked about", () => {
     ])
   })
 
-  test("a billing service that did not answer states that, and names no figure", async () => {
+  test("a hosted billing service that did not answer states that, and names no figure", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, unavailableAgent, {
+      bootstrap: hostedBalance,
       fetchImpl: async () => json(500, { message: "billing is down" })
     })
     store.dispatch({

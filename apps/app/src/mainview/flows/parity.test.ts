@@ -172,8 +172,6 @@ const PRESENTATION_ONLY = [
   "onDownload}", // delegated: TranscriptMessage.tsx binds StorageRecoveryButton to storage.recovery.export
   "onDecideApproval(", // delegated: App.tsx binds it to approval.approve / approval.deny
   "onRecoAction(", // delegated: App.tsx binds it to reco.accept / reco.edit / reco.dismiss
-  "onGrantConfirm(", // delegated: App.tsx binds it to admin.grant.confirm
-  "onGrantCancel(", // delegated: App.tsx binds it to admin.grant.cancel
   "onDismiss(", // delegated: App.tsx binds it to runCommand("toast.dismiss", ...)
   "onMaximize(", // delegated: App.tsx binds it to runCommand("card.maximize", ...)
   "onMinimize(", // delegated: App.tsx binds it to card.minimize
@@ -1171,7 +1169,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * facet's rows belong to the imported FileListCardBody and are counted
        * in its file. Retained facets: terminal, browser, editor, files and status.
        */
-      "../cards/WorkspaceCard.tsx": 14,
+      "../cards/WorkspaceCard.tsx": 13,
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */

@@ -10,8 +10,8 @@ export default showcase({
   id: "accounts",
   order: 80,
   title: "Accounts",
-  summary: "Your GitHub login, the Claude and Codex accounts sessions draw from, and your balance.",
-  flows: ["account.show", "secrets.connections", "secrets.move", "secrets.connect.codex", "billing.balance"],
+  summary: "Your GitHub login and the Claude and Codex accounts sessions draw from.",
+  flows: ["account.show", "secrets.connections", "secrets.move", "secrets.connect.codex"],
   run: async ({ page, app, backend }) => {
     const limited = new Date(Date.now() + 2 * 3600_000).toISOString()
     let rows: Row[] = [
@@ -20,7 +20,7 @@ export default showcase({
     ]
     let polls = 0
     const orders: string[][] = []
-    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "billing.balance"] })
+    await backend.cloud({ capabilities: ["agent", "identity", "cloud"] })
     await backend.route(url => url.pathname === CONNECTIONS, route => route.fulfill({ json: rows }))
     await backend.route(url => url.pathname === `${CONNECTIONS}/order`, async route => {
       const { provider, ids } = route.request().postDataJSON() as { provider: string; ids: string[] }
@@ -70,11 +70,5 @@ export default showcase({
     await expect(pool.getByTestId("account-codex-pro")).toBeVisible({ timeout: 15_000 })
     await app.show(pool)
     await app.beat(1500)
-
-    await app.slash("/billing.balance")
-    await app.closeComposer()
-    const balance = page.locator('.smithers-card[data-kind="balance"]').last()
-    await expect(balance).toContainText("$500")
-    await app.show(balance)
   }
 })

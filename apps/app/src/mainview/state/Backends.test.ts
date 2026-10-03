@@ -227,9 +227,10 @@ describe("billing record", () => {
     expect(account?.allowedToStartWork).toBe(true)
   })
 
-  test("the balance card states the first-run line once, in dollars", async () => {
+  test("the hosted composition preserves its balance producer", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
+      bootstrap: { apiVersion: 1, version: "test", buildSha: "test", host: "cloud", authFlow: "redirect", sandbox: null, capabilities: ["identity", "billing.balance"] },
       ...backend({ "/api/billing/balance": json(200, balanceBody("500")) })
     })
     await controller.showBalance()
@@ -238,9 +239,10 @@ describe("billing record", () => {
     expect(card.payload.introUsd).toBe("500")
   })
 
-  test("the intro line is gone once anything has been charged", async () => {
+  test("the hosted balance producer retains recorded charge history", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, {
+      bootstrap: { apiVersion: 1, version: "test", buildSha: "test", host: "cloud", authFlow: "redirect", sandbox: null, capabilities: ["identity", "billing.balance"] },
       ...backend({ "/api/billing/balance": json(200, balanceBody("499.94625", 1)) })
     })
     await controller.showBalance()

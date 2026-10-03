@@ -14,7 +14,6 @@ AUTH_SIGNED_IN_PARAM,
 BILLING_BALANCE_PATH
 } from "@smthrs/rpc/AgentApiRoutes"
 import { signInReturnTo } from "../../RepoLink"
-import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import type { FailureController } from "./failures"
 import { TOAST_SUPERSEDED } from "./failures"
@@ -41,7 +40,6 @@ export interface AuthBillingController {
   readonly signIn: (reservedOpen?: (url: string) => Promise<boolean>) => Promise<void> | void
   readonly signOut: () => Promise<string | void>
   readonly refreshBalance: () => Promise<void>
-  readonly showBalance: () => Promise<string | { readonly value: string }>
   readonly settleTurnBilling: () => void
   readonly watchIdentityAcrossTabs: () => void
 }
@@ -62,7 +60,6 @@ export interface SelectedBackendIdentity extends ApplicationIdentityClient {
 
 export const createAuthBillingController = (
   ctx: ControllerContext,
-  nextTranscriptOrdinal: () => number,
   selectedIdentity?: SelectedBackendIdentity,
   openLocalAuth?: () => boolean
 ): AuthBillingController => {
@@ -690,49 +687,6 @@ export const createAuthBillingController = (
       : readBalance(false)
 
   /*
-   * §22.7: this returned void, so the model's own `billing.balance` call
-   * handed it NOTHING back and it answered from a guess — "$0.00" one line
-   * above the card the same call had just rendered reading "$519 left". A
-   * tool that can be invoked and cannot be read confabulates on every data
-   * question, not just this one.
-   */
-  const showBalance = async (): Promise<string | { readonly value: string }> => {
-    if (!balanceAvailable) return "Balance is unavailable on this host."
-    await refreshBalance()
-    const account = store.collections.billingAccounts.get("billing")
-    if (account === undefined || account.state === "unknown" || account.state === "unavailable") {
-      return "The billing service didn't answer, so there is no balance to state right now."
-    }
-    // One balance card, re-surfaced at the end of the transcript each time it
-    // is asked for: leaving it at its old ordinal would answer the command
-    // with a silent no-op once the conversation has moved past it.
-    const card: Card = {
-      id: "billing-balance",
-      kind: "balance",
-      title: "Balance",
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: nextTranscriptOrdinal(),
-      payload: {
-        totalUsd: account.totalUsd ?? "0",
-        state: account.state,
-        allowedToStartWork: account.allowedToStartWork,
-        lifetimeChargedUsd: account.lifetimeChargedUsd ?? "0",
-        chargeCount: account.chargeCount,
-        // The first-run line, stated once: an untouched grant reads
-        // "You have $500 of usage on us." — after any charge it is gone.
-        introUsd: account.chargeCount === 0 ? account.totalUsd : null
-      }
-    }
-    store.dispatch({ type: "card.upsert", actor: "system", card })
-    return {
-      value: `balance: $${account.totalUsd ?? "0"} left; $${
-        account.lifetimeChargedUsd ?? "0"
-      } spent across ${account.chargeCount} turn(s)`
-    }
-  }
-
-  /*
    * Chat is complimentary during the alpha: the billing seam records each
    * turn's true cost and debits zero, so the UI carries NO per-turn dollar
    * line. The balance chip still refreshes from the real answer after a turn.
@@ -799,7 +753,6 @@ export const createAuthBillingController = (
     signIn,
     signOut,
     refreshBalance,
-    showBalance,
     settleTurnBilling,
     watchIdentityAcrossTabs
   }

@@ -20,7 +20,7 @@ const failureText = (error: unknown): string => error instanceof AggregateError
   ? [String(error), ...error.errors.map(failureText)].join("\n") : String(error)
 const noop = () => {}
 const handlers: Omit<CardViewProps, "card"> = {
-  maximized: false, onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop,
+  maximized: false, onDecideApproval: noop,
   onMaximize: noop, onMinimize: noop,
   onConnectGitHub: noop, onRunWorkflow: noop, onStopRun: noop,
   onRetryRun: noop, onChooseWorkflowRepo: noop, worldDocuments: [], onChangeWorldDocument: noop,

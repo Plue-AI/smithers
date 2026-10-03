@@ -13,8 +13,8 @@ const cleanups: Array<() => void> = []
 afterEach(() => { while (cleanups.length) cleanups.pop()!() })
 const noop = () => {}
 const issue = CardSchema.parse({ id: "issue", kind: "issue", title: "Issue", status: "active", ordinal: 1, createdAt: 1, payload: { repo: "smithersai/hello-server", number: 3, title: "Greet the world", state: "open", author: "Ada", issueBody: "Body", labels: [], comments: [] } })
-const props: CardViewProps = { card: issue, maximized: false, onMaximize: noop, onMinimize: noop, 
-  onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop, onConnectGitHub: noop,
+const props: CardViewProps = { card: issue, maximized: false, onMaximize: noop, onMinimize: noop,
+  onDecideApproval: noop, onConnectGitHub: noop,
   onRunWorkflow: noop, onStopRun: noop, onRetryRun: noop, onChooseWorkflowRepo: noop,
   worldDocuments: [], onChangeWorldDocument: noop, onRunCommand: noop }
 const mount = (overrides: Partial<CardViewProps> = {}, onKeyDown = noop) => {
@@ -139,4 +139,19 @@ test("a conversations list is headed Conversations; every other issue list is he
     render({ card: list(kind) })
     expect(host.querySelector(".smithers-card-title")?.textContent).toBe("Issues")
   }
+})
+
+for (const [kind, payload] of [
+  ["balance", { totalUsd: "25", state: "ok", allowedToStartWork: true, lifetimeChargedUsd: "0", chargeCount: 0, introUsd: null }],
+  ["billing-plans", { planKey: "pro", sandbox: null, plans: [], checkout: true }],
+  ["grant-confirm", { login: "alice", amountUsd: 25, phase: "confirm" }]
+] as const) test(`saved ${kind} is a titled read-only legacy card`, () => {
+  const card = CardSchema.parse({ id: kind, kind, title: "Saved billing", status: "active", createdAt: 1, ordinal: 1, payload })
+  const { host, render } = mount({ card })
+  expect(host.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe(kind)
+  expect(host.textContent).toBe("Saved billing")
+  expect(host.querySelector('button, a, input, [data-flow]')).toBeNull()
+  render({ maximized: true })
+  expect(host.textContent).toBe("Saved billing")
+  expect(host.querySelector('button, a, input, [data-flow]')).toBeNull()
 })

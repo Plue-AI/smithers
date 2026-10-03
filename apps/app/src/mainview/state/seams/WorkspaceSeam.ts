@@ -1,5 +1,5 @@
 import { captureCloudOwner } from "./SeamContext"
-import { renderPlanLimit } from "./BillingSeam"
+import { renderPlanLimit } from "./HostedBilling"
 import { Effect, Exit, Fiber, FiberMap, Layer, ManagedRuntime, Schedule, Scope } from "effect"
 import { preparedView, type ViewAction } from "../PreparedView"
 import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"
@@ -763,7 +763,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     refusal: string | { readonly error: string; readonly code: string | null; readonly refusal?: Refusal; readonly details?: unknown }
   ): string | Promise<string> => {
     if (typeof refusal !== "string" && refusal.refusal?.rawCode === "plan_limit_exceeded") {
-      return renderPlanLimit(ctx.store, refusal.refusal, ctx.checkout ?? true, ctx.actor())
+      return renderPlanLimit(ctx.store, refusal.refusal, ctx.checkout ?? false, ctx.actor())
     }
     const error = typeof refusal === "string" ? refusal : refusal.error
     if (typeof refusal !== "string" && refusal.code === "workspace_vm_missing" && isRecord(refusal.details)
@@ -1046,7 +1046,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
           ...(created.code === "snapshot_not_found" ? { snapshotId: undefined } : {}),
           request: { ...facts.request!, state: created.status === null || created.status >= 500 ? "requested" : "failed", error: created.error } })
       }
-      if (created.refusal.rawCode === "plan_limit_exceeded") return renderPlanLimit(ctx.store, created.refusal, ctx.checkout ?? true, ctx.actor())
+      if (created.refusal.rawCode === "plan_limit_exceeded") return renderPlanLimit(ctx.store, created.refusal, ctx.checkout ?? false, ctx.actor())
       for (const row of ctx.store.collections.cloudWorkspaces.values()) {
         if (row.repoId !== target.repo || row.status !== "failed") continue
         if (ctx.store.collections.cards.get(cardIdOf(row.id)) === undefined) continue
@@ -1667,7 +1667,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       }
       /* No HTTP answer at all: there is no status or code to render, only the reach failure. */
       if (answer.status === null) return failOnCard(workspace, answer)
-      if (answer.refusal.rawCode === "plan_limit_exceeded") return renderPlanLimit(ctx.store, answer.refusal, ctx.checkout ?? true, ctx.actor())
+      if (answer.refusal.rawCode === "plan_limit_exceeded") return renderPlanLimit(ctx.store, answer.refusal, ctx.checkout ?? false, ctx.actor())
       /* The worker's own credential-boundary refusal keeps the card-level marker it always had. */
       const proxyGone = answer.code === EGRESS_PROXY_UNAVAILABLE
       renderWorkspace(workspace, {

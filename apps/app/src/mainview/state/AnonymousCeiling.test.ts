@@ -167,15 +167,18 @@ test("sign-in answers the anonymous ceiling's persisted sign-in card", async () 
 })
 
 describe("a signed-in turn refused for lack of model credit", () => {
-  test("renders the out-of-credit plans card whose door buys Pro", async () => {
-    const { store } = await sendRefused("signed-in", {
+  test("states the typed failure with no plans card and no Upgrade door (M-09: billing is deferred)", async () => {
+    const { store, ceilingCards, failedMessages } = await sendRefused("signed-in", {
       status: "error",
       message: "That turn wasn't run because the account has no balance left. (HTTP 402)",
       refusal: { code: "out_of_credit", message: "Out of credit.", retryAt: null }
     })
     await settled()
-    const card = store.collections.cards.get("billing-credit-exhausted")
-    expect(card?.kind).toBe("billing-plans")
-    expect(card?.payload).toMatchObject({ refusal: { code: "out_of_credit", upgrade_plan_key: "pro" } })
+    expect(ceilingCards).toEqual([])
+    expect(failedMessages.map((message) => message.text)).toEqual([
+      "I couldn't complete that turn. That turn wasn't run because the account has no balance left. (HTTP 402)"
+    ])
+    expect([...store.collections.cards.values()].filter((card) => ["balance", "billing-plans", "grant-confirm"].includes(card.kind))).toEqual([])
+    expect(store.session().phase).toBe("idle")
   })
 })

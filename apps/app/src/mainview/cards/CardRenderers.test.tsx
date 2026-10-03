@@ -32,8 +32,6 @@ const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 const handlers = {
   maximized: false,
   onDecideApproval: () => {},
-  onGrantConfirm: () => {},
-  onGrantCancel: () => {},
   onMaximize: () => {},
   onMinimize: () => {},
   onConnectGitHub: () => {},
@@ -143,7 +141,7 @@ describe("CardRenderers", () => {
     expect(pillStatus(images)).toBe("done")
   })
 
-  
+
 
   test("the shell mounts the body from the kind's family entry", () => {
     const status: Card = {

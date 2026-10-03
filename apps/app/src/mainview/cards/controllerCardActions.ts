@@ -34,8 +34,6 @@ export const controllerCardActions = (controller: AppController, card?: Card): C
     projectionStore: controller.store,
     // Saved confirmations retain their command door; removed commands report
     // the controller's explicit refusal rather than silently doing nothing.
-    onGrantConfirm: (id) => runCommand("admin.grant.confirm", id),
-    onGrantCancel: (id) => runCommand("admin.grant.cancel", id),
     onDecideApproval: (id, decision, answer, question) =>
       // Structured human answers keep their value shape through the controller.
       answer === undefined

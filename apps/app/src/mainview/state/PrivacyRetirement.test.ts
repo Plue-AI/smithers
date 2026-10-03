@@ -59,7 +59,7 @@ describe("durable privacy retirement", () => {
     const store = await open(storage, async () => { entered.resolve(); await release.promise; if (fails) throw new Error(secret) })
     await fill(store)
     const ctx = createControllerContext(store, unavailableAgent, { fetchImpl: async () => Response.json({}) })
-    const auth = createAuthBillingController(ctx, store.nextOrdinal)
+    const auth = createAuthBillingController(ctx)
     let changed = 0, finished = false
     ctx.identityChanged = () => { changed++ }
     try {

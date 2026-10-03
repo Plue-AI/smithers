@@ -3,6 +3,7 @@ import { BillingOverviewSchema, BillingPlansResponseSchema } from "@smthrs/rpc/B
 import { z } from "zod"
 import { refusalOf, storedRefusal, type Refusal } from "@smthrs/rpc/Refusal"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
+import type { Card } from "../AppState"
 import type { AppStore } from "../AppStore"
 
 /*
@@ -74,6 +75,7 @@ const openSession = async (
 /** A refusal can precede workspace creation; its upgrade door still embeds in the transcript. */
 export const renderPlanLimit = async (store: AppStore, refusal: Refusal, checkout: boolean, actor: "user" | "smithers" | "system",
   card: { readonly id: string; readonly title: string } = { id: "billing-plan-limit", title: "Sandbox limit" }) => {
+  if (!checkout) return refusalSentence(refusal)
   const account = store.collections.billingAccounts.get("billing")
   await store.dispatch({ type: "card.upsert", actor, card: {
     id: card.id, kind: "billing-plans", title: card.title, status: "active",
@@ -106,7 +108,7 @@ export interface BillingCapabilities {
 }
 
 export const createBillingSeam = (ctx: SeamContext,
-  capabilities: BillingCapabilities = { overview: true, plans: true, checkout: true, portal: true },
+  capabilities: BillingCapabilities,
   disposed: () => boolean = () => false): BillingSeam => {
   const { checkout } = capabilities
   const currentAccount = () => {
@@ -183,3 +185,39 @@ export const createBillingSeam = (ctx: SeamContext,
   }
   }
 }
+
+export const showHostedBalance = async (store: AppStore, refreshBalance: () => Promise<void>, balanceAvailable: boolean): Promise<string | { readonly value: string }> => {
+    if (!balanceAvailable) return "Balance is unavailable on this host."
+    await refreshBalance()
+    const account = store.collections.billingAccounts.get("billing")
+    if (account === undefined || account.state === "unknown" || account.state === "unavailable") {
+      return "The billing service didn't answer, so there is no balance to state right now."
+    }
+    // One balance card, re-surfaced at the end of the transcript each time it
+    // is asked for: leaving it at its old ordinal would answer the command
+    // with a silent no-op once the conversation has moved past it.
+    const card: Card = {
+      id: "billing-balance",
+      kind: "balance",
+      title: "Balance",
+      status: "active",
+      createdAt: Date.now(),
+      ordinal: store.nextOrdinal(),
+      payload: {
+        totalUsd: account.totalUsd ?? "0",
+        state: account.state,
+        allowedToStartWork: account.allowedToStartWork,
+        lifetimeChargedUsd: account.lifetimeChargedUsd ?? "0",
+        chargeCount: account.chargeCount,
+        // The first-run line, stated once: an untouched grant reads
+        // "You have $500 of usage on us." — after any charge it is gone.
+        introUsd: account.chargeCount === 0 ? account.totalUsd : null
+      }
+    }
+    store.dispatch({ type: "card.upsert", actor: "system", card })
+    return {
+      value: `balance: $${account.totalUsd ?? "0"} left; $${
+        account.lifetimeChargedUsd ?? "0"
+      } spent across ${account.chargeCount} turn(s)`
+    }
+  }

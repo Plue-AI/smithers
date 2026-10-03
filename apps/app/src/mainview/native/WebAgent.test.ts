@@ -339,11 +339,12 @@ describe("createWebAgent", () => {
     }
   })
 
-  test("a coded 402 becomes the out-of-credit refusal that renders the Upgrade card", async () => {
+  test("a coded 402 carries the typed out-of-credit sentence", async () => {
     for (const [code, expected] of [["out_of_credit", true], ["payment_required", false]] as const) {
       const agent = createWebAgent({ fetchImpl: async () => new Response(JSON.stringify({ status: "error", code, message: "Out of credit." }), { status: 402 }) })
       const result = await agent.startTurn(request)
       expect(result.status === "error" ? result.refusal : undefined).toEqual(expected ? { code: "out_of_credit", message: "Out of credit.", retryAt: null } : undefined)
+      if (expected) expect(result.status === "error" ? result.message : "").toContain("Out of credit.")
     }
   })
 

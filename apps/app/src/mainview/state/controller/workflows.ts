@@ -2,7 +2,7 @@ import { prepareTriggerRegistration, readTriggerRegistrations } from "../seams/T
 import type { TriggerRegistration } from "../WorkflowLaunch"
 import { cloudFailure } from "../seams/CloudClient"
 import { pinUserRefSource } from "../seams/UserRefSource"
-import { outOfCreditRefusal, renderCreditExhausted, renderPlanLimit } from "../seams/BillingSeam"
+import { outOfCreditRefusal, renderCreditExhausted, renderPlanLimit } from "../seams/HostedBilling"
 import type { ViewAction } from "../PreparedView"
 import { createWorkflowCatalogController } from "./workflow-catalog"
 import { WORKFLOW_PROVISION_PATH } from "@smthrs/rpc/AgentApiRoutes"
@@ -169,7 +169,7 @@ export const createWorkflowController = (
     const billing = store.collections.billingAccounts.get("billing")
     if (billing === undefined || billing.allowedToStartWork) return undefined
     void renderCreditExhausted(store, outOfCreditRefusal(ZERO_BALANCE_EXHAUSTED_TEXT),
-      ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? true, "system")
+      ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? false, "system")
     return ZERO_BALANCE_EXHAUSTED_TEXT
   }
 
@@ -243,7 +243,7 @@ export const createWorkflowController = (
           const failure = await cloudFailure(response, "The workspace couldn't be prepared.")
           if (!current()) return { code: "request_superseded", message: "The account changed while the workspace was being prepared." }
           if (failure.refusal.rawCode === "plan_limit_exceeded") {
-            return { code: "plan_limit_exceeded", message: await renderPlanLimit(store, failure.refusal, ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? true, ctx.commandActor) }
+            return { code: "plan_limit_exceeded", message: await renderPlanLimit(store, failure.refusal, ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? false, ctx.commandActor) }
           }
           return { code: failure.code ?? "workspace_unavailable", message: refusalSentence(failure.refusal),
             ...(failure.retryAfterSeconds === null ? {} : { retryAfterSeconds: failure.retryAfterSeconds }) }

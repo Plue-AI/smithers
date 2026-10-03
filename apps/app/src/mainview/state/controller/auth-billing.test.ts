@@ -1,3 +1,4 @@
+import { showHostedBalance } from "../seams/HostedBilling"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 
@@ -51,7 +52,7 @@ for (const balance of [false, true]) for (const checkout of [false, true]) for (
       }
     })
     ctx.withToast = createFailureController(ctx).withToast
-    const controller = createAuthBillingController(ctx, store.nextOrdinal)
+    const controller = createAuthBillingController(ctx)
     try {
       await controller.adoptSession(signedIn)
       await settle()
@@ -61,7 +62,7 @@ for (const balance of [false, true]) for (const checkout of [false, true]) for (
       if (balance && failure) await waitFor(() => [...store.collections.toasts.values()].some(row => row.status === "failed"))
       else if (balance) expect(store.collections.billingAccounts.get("billing")?.totalUsd).toBe("25")
       else expect(store.collections.toasts.size).toBe(0)
-      const result = await controller.showBalance()
+      const result = await showHostedBalance(store, controller.refreshBalance, balance)
       if (!balance) {
         expect(reads).toBe(0)
         expect(store.collections.cards.has("billing-balance")).toBe(false)
@@ -103,7 +104,7 @@ const runSignedInEntry = async (entry: "load" | "adopt", sessionAnswer: Record<s
     return work()
   }
 
-  const controller = createAuthBillingController(ctx, () => 0, {
+  const controller = createAuthBillingController(ctx, {
     current: async () => ({ username: String(sessionAnswer.login), admin: sessionAnswer.admin === true, scopes: null }),
     signInPath: "/api/auth/github"
   })
@@ -205,7 +206,7 @@ describe("sign-in return path", () => {
       scopesPlain: null
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
-    return { store, controller: createAuthBillingController(ctx, () => 0) }
+    return { store, controller: createAuthBillingController(ctx) }
   }
 
   test("from a repository page the sign-in door names that page as return_to", async () => {
@@ -233,7 +234,7 @@ describe("sign-in return path", () => {
     const ctx = createControllerContext(store, agent, {
       fetchImpl: async () => Response.json({})
     })
-    const controller = createAuthBillingController(ctx, () => 0, {
+    const controller = createAuthBillingController(ctx, {
       current: async () => null,
       signInPath: "/api/auth/github"
     })
@@ -272,7 +273,7 @@ test("selected backend identity also supplies the Cloud capability session", asy
   })
   ctx.withToast = async (_key, _title, _done, work) => work()
   const settled: string[] = []
-  const controller = createAuthBillingController(ctx, () => 0, {
+  const controller = createAuthBillingController(ctx, {
     current: async () => ({ username: "owner", admin: true, scopes: "degraded" }),
     signInPath: "/api/auth/github",
     settled: () => settled.push("settled")
@@ -362,7 +363,7 @@ describe("native sign-in handoff ownership", () => {
     }
     store.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn,
       state: "signed-out", login: null, scopesPlain: null })
-    const controller = createAuthBillingController(ctx, () => 0, {
+    const controller = createAuthBillingController(ctx, {
       current: async signal => {
         requests.push("/api/user")
         requestSignal = signal
@@ -533,7 +534,7 @@ describe("a balance refresh the account outlives", () => {
       toastAutoDismissMs: 10_000
     })
     ctx.withToast = createFailureController(ctx).withToast
-    const controller = createAuthBillingController(ctx, () => 0)
+    const controller = createAuthBillingController(ctx)
 
     const pending = controller.refreshBalance()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -570,7 +571,7 @@ test("a selected identity read completes before resuming a parked act", async ()
     let release!: (identity: { username: string; admin: boolean; scopes: null }) => void
     const identity = new Promise<{ username: string; admin: boolean; scopes: null }>(resolve => { release = resolve })
     ctx.resumeDeferredCommand = () => calls.push("resume")
-    const controller = createAuthBillingController(ctx, () => 0, {
+    const controller = createAuthBillingController(ctx, {
       current: async () => { calls.push("identity"); return identity },
       signInPath: "/api/auth/github"
     })
@@ -619,7 +620,7 @@ describe("automatic balance refreshes", () => {
     }
     return {
       ctx,
-      controller: createAuthBillingController(ctx, () => 0, {
+      controller: createAuthBillingController(ctx, {
         current: async () => ({ username: "will", admin: false, scopes: null }), signInPath: "/api/auth/github"
       }),
       toast,
@@ -754,7 +755,7 @@ describe("automatic balance refreshes", () => {
 
   test("the balance a user asks for still states its result", async () => {
     const h = await setupBilling()
-    const asked = h.controller.showBalance()
+    const asked = showHostedBalance(h.ctx.store, h.controller.refreshBalance, true)
     await h.running()
     h.release(Response.json(balanceOk))
     expect(await asked).toEqual({ value: "balance: $500 left; $0 spent across 0 turn(s)" })
@@ -763,7 +764,7 @@ describe("automatic balance refreshes", () => {
 
   test("an automatic refresh answering first leaves the asked-for read its notice", async () => {
     const h = await setupBilling()
-    const asked = h.controller.showBalance()
+    const asked = showHostedBalance(h.ctx.store, h.controller.refreshBalance, true)
     await h.running()
     h.controller.settleTurnBilling()
     await h.inFlight(2)
@@ -796,7 +797,7 @@ describe("identity re-probes", () => {
       }
     })
     ctx.withToast = async (_key, _title, _done, work) => work()
-    const controller = createAuthBillingController(ctx, () => 0, {
+    const controller = createAuthBillingController(ctx, {
       current: () => new Promise(resolve => { answers.push(resolve) }), signInPath: "/api/auth/github"
     })
     const until = async (ready: () => boolean) => {
@@ -873,9 +874,9 @@ test.each([
   const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
     fetchImpl: async () => Response.json(body) })
   ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  const controller = createAuthBillingController(ctx)
   try {
-    expect(await controller.showBalance()).toBe("The billing service didn't answer, so there is no balance to state right now.")
+    expect(await showHostedBalance(store, controller.refreshBalance, true)).toBe("The billing service didn't answer, so there is no balance to state right now.")
     expect(store.collections.billingAccounts.get("billing")?.state).toBe("unavailable")
     expect(store.collections.cards.has("billing-balance")).toBe(false)
     expect(store.collections.toasts.get("toast-billing.balance.refresh")).toMatchObject({ status: "failed",
@@ -894,7 +895,7 @@ test.each([
     scopesPlain: null }).isPersisted.promise
   let fetches = 0
   const ctx = createControllerContext(store, agent, { fetchImpl: async () => { fetches++; throw Error("Unexpected network call") } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  const controller = createAuthBillingController(ctx)
   try {
     await controller.signIn()
     expect(store.collections.toasts.get(`toast-${key}`)).toMatchObject({ status, detail })
@@ -917,7 +918,7 @@ test.each([
     ] })
     throw Error("Unexpected request")
   } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, { current, signInPath: "/api/auth/github" })
+  const controller = createAuthBillingController(ctx, { current, signInPath: "/api/auth/github" })
   try {
     await controller.loadSession()
     expect(store.collections.identitySessions.get("identity")?.state).toBe(state)
@@ -943,7 +944,7 @@ test("three refused native claims end sign-in with the host's error", async () =
       throw Error("Unexpected route")
     } })
   ctx.resolveToast = createFailureController(ctx).resolveToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
+  const controller = createAuthBillingController(ctx)
   try {
     await controller.signIn()
     await waitFor(() => store.collections.toasts.get("toast-auth.sign-in.handoff")?.status === "failed")
@@ -959,7 +960,7 @@ test("a selected identity provider that cannot answer leaves the session unavail
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let settledCalls = 0, requests = 0
   const ctx = createControllerContext(store, agent, { fetchImpl: async () => { requests++; throw Error("Unexpected web probe") } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+  const controller = createAuthBillingController(ctx, {
     current: async () => { throw Error("provider offline") }, signInPath: "/api/auth/github", settled: () => { settledCalls++ }
   })
   try {
@@ -1017,7 +1018,7 @@ test("tab focus coalesces one session read and disposal removes its observer", a
     if (String(input).endsWith("/api/auth/scopes")) return Response.json({ scopes: [] })
     throw Error("Unexpected route")
   } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+  const controller = createAuthBillingController(ctx, {
     current: () => { sessionReads++; return new Promise(resolve => { answers.push(resolve) }) },
     signInPath: "/api/auth/github"
   })
@@ -1046,7 +1047,7 @@ test("a failed focus refresh reports its callback error while keeping the signed
   const ctx = createControllerContext(store, agent, { fetchImpl: async () => Response.json({ state: "ok", allowedToStartWork: true,
       balance: { totalUsd: "25", lifetimeChargedUsd: "0", chargeCount: 0 } }) })
   ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+  const controller = createAuthBillingController(ctx, {
     current: async () => ({ username: "will", admin: false, scopes: null }),
     signInPath: "/api/auth/github",
     settled: () => { throw Error("Selected identity callback failed") }
@@ -1070,7 +1071,7 @@ test("a sibling identity signal rereads the session and closes its channel on di
     if (String(input).endsWith("/api/auth/scopes")) return Response.json({ scopes: [] })
     throw Error("Unexpected route")
   } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal, {
+  const controller = createAuthBillingController(ctx, {
     current: () => { reads++; return answer.promise }, signInPath: "/api/auth/github"
   })
   await withVisibleHost(async ({ channels }) => {

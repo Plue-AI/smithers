@@ -70,8 +70,6 @@ export interface CardViewProps extends CardActions {
   readonly onFrameBack?: () => void
   readonly onFrameForward?: () => void
   /* A maximized card's "Open in tab" (docs/LOCAL-APP.md "Cards"): user-triggered only. */
-  readonly onGrantConfirm: (id: string) => void
-  readonly onGrantCancel: (id: string) => void
 }
 
 /*
@@ -85,8 +83,6 @@ export const CardView = memo(function CardView({
   card,
   maximized,
   onDecideApproval,
-  onGrantConfirm,
-  onGrantCancel,
   onMaximize,
   onMinimize,
   onFrameBack,
@@ -153,6 +149,11 @@ export const CardView = memo(function CardView({
     onMinimize()
   }
   if (card.kind === "retired") return null
+  if (["balance", "billing-plans", "grant-confirm"].includes(card.kind)) return (
+    <section className="smithers-card" data-kind={card.kind} data-testid={`card-${card.id}`} aria-label={card.title}>
+      <header className="smithers-card-header"><span className="smithers-card-title">{card.title}</span></header>
+    </section>
+  )
   if (isRetiredCard(card)) return null
   return (
     <>
@@ -221,7 +222,7 @@ export const CardView = memo(function CardView({
                   </>
                 )}
                 {/* Open in tab exists only on the maximized card: a user's explicit act (THE EMBED LAW). */}
-              
+
                 {
                   /*
                    * Ask 8 (will, 2026-09-02): "when I maximize a file I have no
@@ -268,8 +269,6 @@ export const CardView = memo(function CardView({
           <CardBodyBoundary cardId={card.id} onRunCommand={onRunCommand}>
           {card.loading && card.kind !== "workspace" ? <ViewSkeleton /> : renderCardBody(card, {
             onDecideApproval,
-            onGrantConfirm,
-            onGrantCancel,
             onConnectGitHub,
             onRunWorkflow,
             onStopRun,

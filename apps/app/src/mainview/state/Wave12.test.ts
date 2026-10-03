@@ -32,11 +32,7 @@ const OTHER_REPO = "codeplanesmithers/smithers-cloud"
 const said = (outcome: { status: string; value?: string; error?: string }): string =>
   outcome.status === "failed" ? (outcome.error ?? "") : (outcome.value ?? "")
 
-/** The durable card `flow.create` mints: where a background refusal is stated and retried. */
-const authoringCard = (store: Awaited<ReturnType<typeof webStore>>) => {
-  const card = [...store.collections.cards.values()].find((entry) => entry.kind === "run-trace" && entry.payload.authoring !== undefined)
-  return card?.kind === "run-trace" ? card : undefined
-}
+
 
 /** The same relay double wave 11 proved against, with the states §3/§4 need. */
 const relay = (options: {
@@ -708,25 +704,4 @@ describe("reopening a run whose watch went quiet or stopped re-reads its history
     await waitFor(() => historyReads(double) > before)
     expect(runCard(store)?.payload.observationError).toBeUndefined()
   })
-})
-
-describe("wave 12 §4 — the residuals", () => {
-  test("a workflow plan limit embeds its upgrade door and stops provisioning", async () => {
-    const store = await webStore()
-    const double = relay({ provisionStatus: 402, provision: () => ({
-      code: "plan_limit_exceeded", fault: "user", message: "Suspend one sandbox or upgrade.",
-      plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro"
-    }) })
-    const controller = createAppController(store, silentAgent, double.services)
-    await signIn(store)
-    /* The door answers at once and provisions in the background, so the refusal lands on the durable card. */
-    expect(said(await controller.commands.run("flow.create", "summarize my issues"))).toContain("flow-requested")
-    await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
-    expect(authoringCard(store)?.payload.authoring?.launchError).toContain("Your plan is at its sandbox limit.")
-    expect(authoringCard(store)?.status).toBe("error")
-    expect(store.collections.cards.get("billing-plan-limit")).toMatchObject({ kind: "billing-plans", payload: { refusal: { upgrade_plan_key: "pro" } } })
-    expect(double.calls.filter(call => call.path === "/api/workflow/provision")).toHaveLength(1)
-    expect(double.state.launched).toHaveLength(0)
-  })
-
 })

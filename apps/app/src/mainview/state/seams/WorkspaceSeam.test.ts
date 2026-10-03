@@ -1797,14 +1797,14 @@ describe("workspace seam lifecycle cancellation", () => {
   }
 })
 
-describe("plan sandbox limits embed an upgrade refusal", () => {
+describe("Mac plan sandbox limits retain the typed failure without an upgrade door", () => {
   const limit = () => json(402, { code: "plan_limit_exceeded", fault: "user", message: "Suspend one sandbox or upgrade.", plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" })
   const paths = [
     ["open", "POST api/repos/will/smithers/workspaces"],
     ["resume", "POST api/repos/will/smithers/workspaces/ws-1/resume"],
   ] as const
-  for (const [act, path] of paths) test(`${act} preserves the refusal and upgrade target in the transcript card`, async () => {
-    
+  for (const [act, path] of paths) test(`${act} states the typed refusal without a billing card`, async () => {
+
     const { store, seam, requests } = await harness({ [path]: limit, "api/repos/will/smithers/workspaces/ws-1": json(200, WS_RUNNING) })
     await seedWorkspace(store, { ...wsRow, kind: "vm" })
     const answer = act === "open" ? await seam.openWorkspace(undefined, "will/smithers")
@@ -1812,7 +1812,7 @@ describe("plan sandbox limits embed an upgrade refusal", () => {
       : await seam.resumeWorkspace("ws-1")
     expect(answer).toContain("Your plan is at its sandbox limit.")
     const card = store.collections.cards.get("billing-plan-limit")
-    expect(card?.kind).toBe("billing-plans")
+    expect(card).toBeUndefined()
     expect(requests.filter(request => request === path)).toHaveLength(1)
   })
 })

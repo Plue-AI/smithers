@@ -163,45 +163,6 @@ const invoked = (store: AppStore): Array<{ name: string; args: string | null }> 
     })
 
 describe("§3 the keyboard contract", () => {
-  for (const host of ["local", "cloud"] as const) {
-    for (const draft of ["/billing.plans", "/billing.upgrade pro", "/billing.portal"]) {
-      test(`${host} palette explains unavailable ${draft} without offering or executing it`, async () => {
-        const calls: string[] = []
-        const view = await mount({ bootstrap: { apiVersion: 1, host, version: "test", buildSha: "test", capabilities: ["identity"], authFlow: "credentials", sandbox: null },
-          fetchImpl: async input => { calls.push(typeof input === "string" ? input : input instanceof URL ? input.href : input.url); return json(404, {}) } })
-        const name = draft.slice(1).split(" ")[0]!
-        const absence = view.controller.commands.explainAbsent(name)
-        expect(absence).toEqual({ door: "origin", reason: `/${name} is not available on this origin yet.` })
-        await press(view, "k", { meta: true })
-        await view.act(() => view.controller.changeDraft(draft))
-        expect(view.host.querySelector('[data-testid="palette-refusal"]')?.textContent).toBe(absence!.reason)
-        expect(rows(view.host)).not.toContain(name)
-        await press(view, "Enter")
-        if (draft.includes(" ")) {
-          expect([...view.store.collections.toasts.values()].some(toast => toast.detail === absence!.reason)).toBe(true)
-          expect(view.store.session().draft).toBe("")
-          await press(view, "k", { meta: true })
-        } else {
-          expect(view.host.querySelector('[data-testid="palette-refusal"]')?.textContent).toBe(absence!.reason)
-          expect(view.store.session().draft).toBe(draft)
-          expect(invoked(view.store).some(row => row.name === "chat.send")).toBe(false)
-        }
-        expect(calls.some(path => path.includes("/api/billing"))).toBe(false)
-        expect(await view.controller.commands.run(name)).toMatchObject({ status: "unavailable", reason: absence!.reason })
-        expect(calls.some(path => path.includes("/api/billing"))).toBe(false)
-        // Editing to an unknown or restricted name clears the old availability hint.
-        for (const unknown of ["does-not-exist", "admin.health"]) {
-          await view.act(() => view.controller.changeDraft(`/${unknown}`))
-          expect(view.host.querySelector('[data-testid="palette-refusal"]')?.textContent).toContain(`There is no /${unknown} flow.`)
-          expect(rows(view.host)).not.toContain(unknown)
-        }
-        await view.act(() => view.controller.changeDraft("/account.show"))
-        expect(view.host.querySelector('[data-testid="palette-refusal"]')).toBeNull()
-        expect(rows(view.host)).toContain("account.show")
-      })
-    }
-  }
-
   test("the cloud session explanation is shared by the palette without offering a native-only action", async () => {
     const view = await mount({ bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity"], authFlow: "redirect", sandbox: null } })
     await press(view, "k", { meta: true })

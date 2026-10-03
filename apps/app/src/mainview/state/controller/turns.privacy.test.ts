@@ -46,7 +46,7 @@ const fixture = async (options: {
     state: () => ({ surface: "chat", typing: false, hasConnectors: false, admin: false, signedOut: false }),
     executeForAgent: options.tool ?? (async () => "done") } as unknown as CommandRegistry
   ctx.withToast = async (_key, _title, _doneTitle, work) => work()
-  const auth = createAuthBillingController(ctx, store.nextOrdinal, {
+  const auth = createAuthBillingController(ctx, {
     current: async () => null, signInPath: "/api/auth/github"
   })
   const turns = createTurnController(ctx, { nextOrdinal: store.nextOrdinal,

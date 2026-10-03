@@ -51,8 +51,6 @@ export interface CardActions {
   readonly projectionStore?: CardProjectionAuthority
   /** Structured answers carry what the human wrote, already shaped for the question. */
   readonly onDecideApproval: (id: string, decision: "approved" | "denied", answer?: unknown, question?: string) => void
-  readonly onGrantConfirm: (id: string) => void
-  readonly onGrantCancel: (id: string) => void
   readonly onConnectGitHub: () => void
   readonly onRunWorkflow: (name: string) => void
   /* Wave 12 — the run card's quiet-state acts and the which-repo answer. */

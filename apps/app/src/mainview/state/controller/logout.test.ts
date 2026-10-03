@@ -33,7 +33,7 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
       return Response.json({ scopes: [] })
     }
   })
-  const auth = createAuthBillingController(ctx, store.nextOrdinal,
+  const auth = createAuthBillingController(ctx,
     { ...applicationIdentity, signInPath: provider === "local" ? "/login" : "/api/auth/github", settled: () => { settlements++ } })
   return { store, identity, ctx, auth, paths, logout, session, sessionPath, settlements: () => settlements, dispose: async () => {
     await ctx.dispose(); logout.resolve(Response.json({})); session.resolve(Response.json({ state: "signed-out" })); await store.dispose?.()

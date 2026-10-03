@@ -63,7 +63,7 @@ describe("WikiLinksCardBody", () => {
     const Bound = () => {
       const { data: worldDocuments } = useLiveQuery(store.collections.worldDocuments)
       return wikiCardFamily["wiki-links"].render(links, { projectionStore: store, worldDocuments, onRunCommand: noop,
-        onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop, 
+        onDecideApproval: noop,
         onConnectGitHub: noop, onRunWorkflow: noop, onStopRun: noop,
         onRetryRun: noop, onChooseWorkflowRepo: noop, onChangeWorldDocument: noop })
     }

@@ -154,3 +154,19 @@ test("a cold workspace keeps the flow-authoring door polling: no rpc, no transcr
     expect(double.calls.filter(call => call.path === "/api/workflow/rpc").map(call => call.body).length).toBeGreaterThan(0)
   } finally { await controller.dispose(); await store.dispose?.() }
 })
+
+test("a Mac workflow provision plan limit keeps its typed failure and stops without a billing card", async () => {
+  const store = await signedInStore()
+  const double = relay({ provisionStatus: 402, provision: () => ({ code: "plan_limit_exceeded", fault: "user",
+    message: "Suspend one sandbox or upgrade.", plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" }) })
+  const controller = createAppController(store, silentAgent, { ...double.services,
+    bootstrap: { apiVersion: 1, version: "test", buildSha: "test", host: "cloud", authFlow: "credentials", sandbox: null,
+      capabilities: ["identity", "agent", "cloud"] } })
+  expect((await controller.commands.run("flow.create", `summarize my issues ${REPO}`)).status).toBe("executed")
+  await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
+  expect(authoringCard(store)?.payload.authoring?.launchError).toContain("Your plan is at its sandbox limit.")
+  expect(authoringCard(store)?.status).toBe("error")
+  expect(store.collections.cards.has("billing-plan-limit")).toBe(false)
+  expect(double.calls.filter(call => call.path === "/api/workflow/provision")).toHaveLength(1)
+  expect(double.calls.filter(call => call.path === "/api/workflow/rpc")).toEqual([])
+})

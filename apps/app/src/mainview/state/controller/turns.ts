@@ -36,7 +36,7 @@ import type { ActiveTurn,ControllerContext } from "./context"
 import type { FailureController } from "./failures"
 import { createHttpTurnDriver } from "./httpTurns"
 import { ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
-import { outOfCreditRefusal, renderCreditExhausted } from "../seams/BillingSeam"
+import { outOfCreditRefusal, renderCreditExhausted } from "../seams/HostedBilling"
 import { latestOrdinal } from "./spokenLines"
 
 /**
@@ -123,7 +123,7 @@ export const createTurnController = (
   /** Out of model credit: the plans card with its Upgrade-to-Pro door, beside the failed turn. */
   const offerCreditUpgrade = (): void => {
     void renderCreditExhausted(store, outOfCreditRefusal(ZERO_BALANCE_EXHAUSTED_TEXT),
-      ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? true, "system")
+      ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? false, "system")
   }
 
   /* The Worker's own ceiling sentence (TurnRefusal's contract: written for a person, per code), never a raw body. */

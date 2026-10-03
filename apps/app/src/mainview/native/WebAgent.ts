@@ -5,7 +5,7 @@ import type { AgentTurnJournalDelivery } from "@smthrs/rpc/AgentTurnJournal"
 import { decodeAgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnResult, TurnRefusal } from "@smthrs/rpc/NativeAgent"
 import { refusalOf } from "@smthrs/rpc/Refusal"
-import { refusalLine } from "@smthrs/rpc/RefusalCopy"
+import { refusalLead, refusalLine } from "@smthrs/rpc/RefusalCopy"
 import type { AgentPort } from "../runtime/AgentPort"
 import { AgentJournalIntegrityError } from "../runtime/AgentPort"
 
@@ -56,7 +56,9 @@ const bodyWords = (body: unknown): string =>
  * provider's wire error never reaches the chat.
  */
 const errorDetail = (status: number, body: string, turn: TurnRefusal | undefined): string => {
-  if (turn !== undefined) return turn.message
+  if (turn !== undefined) return turn.code === "out_of_credit"
+    ? refusalLead(refusalOf({ status, body: { code: turn.code }, message: turn.message }))
+    : turn.message
   let parsed: unknown = null
   try {
     parsed = JSON.parse(body)
