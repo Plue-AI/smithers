@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, expect, mock, test } from "bun:test"
-import { copyText } from "../../../../../../../packages/smithers/ui/src/internal/copyToClipboard"
+import { copyText } from "@smthrs/ui"
 
 GlobalRegistrator.register()
 afterAll(() => GlobalRegistrator.unregister())
@@ -16,10 +16,6 @@ afterEach(() => {
 const clipboard = (value: unknown) => Object.defineProperty(navigator, "clipboard", { configurable: true, value })
 const legacy = (fn: unknown) => Object.defineProperty(document, "execCommand", { configurable: true, value: fn })
 
-test("public copyText export exists", async () => {
-  const entry = await Bun.file(new URL("../../../../../../../packages/smithers/ui/src/index.ts", import.meta.url)).text()
-  expect(entry).toContain("export { copyText,")
-})
 test("secure clipboard receives exact text", async () => {
   const writeText = mock(async (_text: string) => {})
   clipboard({ writeText })
