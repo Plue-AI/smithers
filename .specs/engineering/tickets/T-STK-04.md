@@ -8,6 +8,8 @@ A merge happens only by Review & merge from an owner or maintainer signed in wit
 
 ## Scope
 
+- Remove the TUI landCommand and its landable caller in apps/tui/src/factory.ts, plus the CLI smthrs history land handler in packages/smithers/src/internal/backend/History.ts and Definitions.ts. Update factory.test.ts and BackendHistory.test.ts. Publish a root CHANGELOG.md Removed migration note through the routed follow-up. Preserve ChangeCards.tsx landablePrefix, which is unrelated. Check: C-STK-07.
+
 - Delete all legacy TODO Land controls and their controller/flow bindings in this ticket. This includes removal from StackCard and ChangeCards; the new Merge and Confirm Views stay with their UI tickets. Check: C-STK-07.
 In:
 - `POST /api/todos/{n}/merge {reviewed_head_sha}` and the `/merge Tn` catalog command (`agent: confirm`, kind `review_merge`; agents get a Review & merge confirmation, and execution requires an eligible person session, mvp.md Appendix B.2).
@@ -20,6 +22,7 @@ In:
 - One merge path: delete the `automerge`-label merge, Land and `change.land` paths in this change (mvp.md Appendix B.4: "today it merges on the `automerge` label").
 
 Out:
+- New Merge/Confirm Views and unrelated Plue-only landing remain outside this deletion.
 - The Confirm card and person confirmations for delegated credentials (T-ACC-05, T-APP-04).
 - Reading required checks from branch protection, protection reason text and out-of-order merges on GitHub (T-GH-05).
 - Implementing outbound idempotency keys and crash reconcile (T-GH-09); the merge path must consume them before it is enabled.
@@ -27,6 +30,8 @@ Out:
 - The squash-merge check at setup (T-INS-06). Stacked PR bases (spec §0 [D]).
 
 ## Changes
+
+- Remove the TUI landCommand and its landable caller in apps/tui/src/factory.ts, plus the CLI smthrs history land handler in packages/smithers/src/internal/backend/History.ts and Definitions.ts. Update factory.test.ts and BackendHistory.test.ts. Publish a root CHANGELOG.md Removed migration note through the routed follow-up. Preserve ChangeCards.tsx landablePrefix, which is unrelated. Check: C-STK-07.
 
 - This ticket owns deletion of the `prs.land` command handler and its install route. T-APP-04 owns binding and removal of the control only. Preserve Plue-only landing services and routes. Check: C-STK-07.
 
@@ -106,6 +111,8 @@ Out:
 
 ## Tests
 
+- Assert TUI and CLI expose no TODO Land command and send no POST /items/{id}/land. Retain tests for unrelated landablePrefix and Plue-only landing. Check: C-STK-07.
+
 - Wire T-ACC-05’s confirmation-to-action seam to the real merge service before enabling Merge. Drive production confirmation approval and merge routes through the composed router with real PostgreSQL and fake GitHub. Prove C-ACC-02’s session/role/revision checks, pending-on-state-conflict behavior and outbound reconciliation through T-GH-09 after a kill between approval and the external call. A test-only merge handler cannot discharge this gate. Keep Depends on T-ACC-05; do not add a reverse edge.
 - `review_merge` binds generation plus reviewed PR head. Changing generation with unchanged displayed head refuses without effects. MergeReady and definitive GitHub refusals leave the confirmation pending; only confirmed merge approves it. Prove through the real approval route and production merge consumer. Check: C-ACC-02.
 - Include `prs.land` in the C-STK-07 executable-door deletion gate; assert its install command and route are absent and the control binds only the supported Merge command.
@@ -144,5 +151,5 @@ Out:
 2. Out names Confirm Views, implementing check ingestion and outbound recovery, Plue landing removal, direct agent merge, host checks and stacked PR bases. Consuming prerequisite services is in scope.
 3. C-STK-07 and `todo_merge_db_test.go` call `POST /api/todos/{n}/merge` through the install router with real middleware, PostgreSQL and GitHub fake. C-ACC-02 exercises `/merge` and confirmation approval through the production catalog dispatcher. Assert each literal guard fixture’s route status, merge_block and GitHub call count. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 4. smithers-8a decides merge-contract changes and Plue/install deletion ambiguity. smithers-b8 approves catalog/app seams; smithers-38 signs off removing `landable` under §21.1.
-5. Before start, smithers-3f: do all stack writers use the same lock/fence; do fresh capture and outbound recovery prevent stale or duplicate merge? smithers-b8: do delegated requests use confirmation and all TODO Land doors disappear? smithers-38: is removing `landable` complete for every caller? Legacy Land-control deletion is in scope; new View behavior still needs smithers-06 pre-review. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. The Merge control uses the §10.6.2a reasons, with failed checks in ember and waits neutral."
+5. Before start, smithers-3f: do all stack writers use the same lock/fence; do fresh capture and outbound recovery prevent stale or duplicate merge? smithers-b8: do delegated requests use confirmation and all TODO Land doors disappear? smithers-38: is removing `landable` complete for every caller? Legacy Land-control deletion is in scope; new View behavior still needs smithers-06 pre-review. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. The Merge control uses the §10.6.2a reasons, with failed checks in ember and waits neutral." smithers-38: answered, changes applied (tech lead adopts).
 6. Fresh capture uses the machine boundary. Checks and repository flows never execute on the host; T-INS-02 refuses missing isolation (§1.3). Packaged host Git operations on captured trees disable repository hooks/helpers (§10.5.5). smithers-3f reviews this boundary and session-only execution; C-STK-07, C-ACC-02 and C-SEC-02 prove it.

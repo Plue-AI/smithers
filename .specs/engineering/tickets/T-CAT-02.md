@@ -1,12 +1,14 @@
 # T-CAT-02 CLI doors for Appendix A; skill generated from the catalog
 
-Stage S1 · Size M · Depends on T-CAT-01, T-ACC-04, T-ACC-05, T-APP-04, T-STK-01, T-STK-02, T-STK-06 · Unblocks T-APP-06, T-APP-23, T-CUT-03, T-FLW-05, T-FLW-07, T-FLW-08, T-FLW-13, T-REL-02, T-TRM-02 · Issue: [#3448](https://github.com/smithersai/smithers/issues/3448)
+Stage S1 · Size M · Depends on T-CAT-01, T-ACC-04, T-ACC-05, T-APP-04, T-STK-01, T-STK-02, T-STK-06, T-APP-19b · Unblocks T-APP-06, T-APP-23, T-CUT-03, T-FLW-05, T-FLW-07, T-FLW-08, T-FLW-13, T-REL-02, T-TRM-02 · Issue: [#3448](https://github.com/smithersai/smithers/issues/3448)
 Spec: spec.md §5.4, §6.1.1–§6.1.3, §6.4, §15.3 · Delta: delta.md §9 (CLI mount consumes descriptors; skill generator) · Product: mvp.md §2 rule 1, §6.13 "Smithers skill", "CLI", §8 (CLI and skill: Keep), J6.3–J6.4, M-21, Appendix A, Appendix B.6
 
 ## Goal
 `smthrs` has one command for every Appendix A row open to external agents, plus person card doors for `/secrets`, `/members` and `/settings` that expose no external-agent action (§6.1.2a, mvp.md B.6, C-CAT-02). Each command's flags are its catalog payload schema, and each follows its row's `agent: run | confirm | never` value. The Smithers skill lists exactly those commands, so Claude Code and Codex see the same catalog and the same rules as the app agent (Appendix B.6).
 
 ## Scope
+- CLI and HostTools share the public RPC descriptor-to-HTTP mapping via T-APP-19b (#3601). The mapping stays beside catalog descriptors and follows their existing policy. Check: C-CAT-02.
+
 Approved integration requirements (In):
 - Render HTTP 202 as Waiting for <person> to confirm with confirmation id/pending state and an exit code distinct from refusal. Render exact never/permission/death/infra envelopes; no 202 executes a TODO or merge. Checks: C-CAT-02, C-ACC-02.
 - A-27 CLI rulings: `/terminal` uses `workspace ssh`, `shell` and `exec`. `/search` and `/github` status carry X and use the same read-only skill as the app agent. `/secrets`, `/members` and `/settings` open the app card for the person, and delegated mutations are refused; GitHub App changes require the Owner's session. Checks: C-CAT-02, C-CAT-03, C-ACC-01.
@@ -23,6 +25,8 @@ In:
 - MVP help and CLI docs list only Appendix A rows and the B.6 kept items (`login`, `ssh-key`, `workspace ssh|shell|exec|cp`, `api`, and `host start|stop|status|upgrade|backup|restore`, run by the owner on the Mac). An explicit hidden list in `Cli.ts` removes the other groups, since incur 0.5.1 has no hidden flag (§6.1.2). Those groups stay published and keep `--help` (§6.1.3, mvp.md §8).
 
 Out:
+- A CLI-internal mapping exported for HostTools, a second descriptor-to-HTTP mapping, or a HostTools policy table. RPC catalog changes land via T-APP-19b (#3601).
+
 - Server routes for `new` rows (their feature tickets). The CLI door exists, and an unserved route returns the server's typed refusal.
 - The app side (T-CAT-01).
 - TUI hiding (T-CUT-03).
@@ -34,13 +38,15 @@ Out:
   - Map each zod payload to incur args and options.
   - `commandPath` remapping (`:105-118`) stays only for non-catalog commands.
 - `packages/smithers/src/internal/backend/Definitions.ts:543-562`: delete the entries the catalog replaces, and the matching handlers in `History.ts`.
-- `packages/smithers/src/internal/backend/Client.ts`: one `catalogRequest(descriptor, payload)` used by the generic handler.
+- `packages/rpc/src/catalog/` (via T-APP-19b (#3601)): export one `catalogRequest(descriptor, payload)` descriptor-to-HTTP mapping from `@smthrs/rpc/catalog`, beside the descriptors. `packages/smithers/src/internal/backend/Client.ts` and the generic CLI handler import it; T-APP-23’s `HostTools.ts` imports the same function. Client.ts supplies HTTP transport and credentials, not a second descriptor mapping. No HostTools policy table. Check: C-CAT-02.
 - `packages/smithers/skills/smithers/SKILL.md`: a generated `## Commands` section between markers, written by `packages/rpc/src/catalog/generate.ts --skill` (new mode) and checked by `--check`.
 - `packages/smithers/src/Cli.ts:118-121` (`sync.include`): limit generated per-command skills to Appendix A command groups, through the hidden list above.
 - Docs: `packages/smithers/docs/` gets one generated "Commands" page from `catalog.mvp.json`. Run `pnpm docs:sync`, `pnpm docs:check` and `smthrs docs //packages/smithers:docs`.
 - `packages/smithers/test/OneCli.test.ts`: group summaries for new groups (`todo`, `branch`, `members`, …), per its rule that every group has one.
 
 ## Tests
+- Shared RPC mapping tests (C-CAT-02, via T-APP-19b (#3601)): the CLI handler and HostTools import the same `@smthrs/rpc/catalog` function. Literal fixtures assert equal method/path/body without an internal CLI import or second mapping/policy table. Pin TODO PATCH’s one JSON success response carrying `state`, typed `github_check` evidence `{name, state, required, url}`, attention id/revision, `order.ok` input `{id, revision}`, `main.reset-to-github` input `{id, old, new}`, and one registration for `github.retry`. Fixtures do not derive expectations from production descriptors.
+
 - Literal source-CLI dispatcher stubs cover allow, 202 confirmation/requested, 403 never/never, 403 permission/permission, 401 permission/unauthenticated and 503 infra/confirmation_unavailable. Missing S1 delegated append card paths return 403 permission/confirm_in_app with no effect; with the listed consumer dependency, delegated append requires a private confirmation. A person-session direct append is the distinct allow case. Assert Waiting for <person> to confirm, id/state and an exit code distinct from refusal; no 202 fabricates TODO or merge completion (C-CAT-02, C-SEC-05).
 - Unit: `packages/smithers/test/CatalogCli.test.ts` (new, C-CAT-02) invokes the production `makeCli().serve(argv)` parser and dispatcher, with a recording HTTP server and app-opener adapter. Pin Appendix A/B.6 command paths, flags, types, required inputs, enum values, method/path/body, attribution and expected refusals in `packages/smithers/test/fixtures/CatalogCli.ts` (new). Review those literals against product when authored; never derive expectations from descriptors, `catalog.mvp.json`, the CLI tree or spec files at runtime. Assert required-flag and invalid-enum failures before HTTP dispatch; person card doors open the pinned app destination and send no mutation.
 - Unit: `packages/smithers/test/CatalogSkill.test.ts` (new, C-CAT-03) invokes `makeCli().serve(["skills", "add"])` into a temporary directory. Assert installed command paths and each `agent` value against the same pinned fixture, including literal excluded groups. Separately regenerate the skill section and check drift; regeneration is not the acceptance oracle.
@@ -64,5 +70,5 @@ Out:
 2. Exclusions: server feature routes, app catalog work, TUI hiding, SSH behavior, credentials/confirmation implementation and host execution are named under Out.
 3. Tests: CatalogCli and CatalogSkill invoke the source CLI dispatcher; CatalogCli.integration invokes it against the install router. A committed literal fixture pins expectations independently of runtime code and spec files (C-CAT-02/03).
 4. Decisions: smithers-b8 approves the CLI/skill contract; smithers-38 approves catalog/generator seams; smithers-3f approves backend security seams; Will decides product changes and smithers-8a resolves spec conflicts.
-5. Owner pre-review before start: smithers-b8: Do person card doors perform no mutation? Does hiding preserve published non-MVP groups? Are confirmation output and exit codes compatible? smithers-38: Is the per-module catalog import stable? Does the generator mode preserve descriptor authority? smithers-3f: Does production dispatch enforce delegated role/scope policy? Can any CLI path execute repository code on the host?
+5. Owner pre-review before start: smithers-b8: Do person card doors perform no mutation? Does hiding preserve published non-MVP groups? Are confirmation output and exit codes compatible? smithers-38: Is the per-module catalog import stable? Does the generator mode preserve descriptor authority? smithers-3f: Does production dispatch enforce delegated role/scope policy? Can any CLI path execute repository code on the host? smithers-38: answered, changes applied (tech lead adopts).
 6. Security: delegated credentials never approve; eligible person-only raw API calls receive 403 never, and insufficient role/scope receives permission. Repository execution remains machine-only with no host fallback; smithers-3f reviews these preconditions (C-SEC-05, C-ACC-01/02).

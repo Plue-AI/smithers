@@ -1,12 +1,14 @@
 # T-GH-07 Force-push to `main` becomes Needs you for the owner
 
-Stage S1 · Size S · Depends on T-GH-02, T-STK-07, T-GH-05, T-ACC-03, T-FLW-03 · Unblocks T-APP-01, T-APP-08, T-GH-08, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
+Stage S1 · Size S · Depends on T-GH-02, T-STK-07, T-GH-05, T-ACC-03, T-FLW-03, T-APP-19b · Unblocks T-APP-01, T-APP-08, T-GH-08, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
 Spec: spec.md §4.1.2a, §6.1.2 (in-card), §10.1, §10.5.1, §10.8.1, §11.3.1, §12.3 (`main` rewritten row), §14.5.2 · Delta: delta.md §7 "Force-push to `main`…" · Product: mvp.md §6.3 "`main` rewritten on GitHub", M-22
 
 ## Goal
 When `main` on GitHub is rewritten (not a fast-forward), the owner sees it on the Needs you card for `main`, and nothing in Smithers changes until the owner confirms. Then the mirror resets to the new `main` and the stack rebases onto it. Check: C-J10-07.
 
 ## Scope
+
+- Consume one kind-discriminated HomeCard attention union via T-APP-19b (#3601): common id, revision, text and actions[]; force_push adds old/new, order adds optional todo. Bind main.reset-to-github to {id, old, new} and order.ok to {id, revision}. Land this shared contract together with T-GH-05. Check: C-J10-07.
 In (adopted owner pre-review):
 - Reset, ordinary main pulls and merge dispatch share the repository operation serialization boundary and the existing repo-host write lock. Under that boundary, reread the attention/merge fence and reset binding before the expected-old ref write; retain the operation claim through settlement. Persist reset intent before writing. After the ref reaches new, atomically commit attention settlement, projections and durable main-moved intents keyed to that reset intent. Stack and machine-only flow-load consumers apply each intent idempotently after commit. Recovery at old keeps attention open, at new finishes settlement/intents once, and at a legitimate third tip preserves it with attention open. Check: C-J10-07.
 
@@ -18,9 +20,12 @@ In:
 - On confirm: reset the mirror's `main` to `new` through one guarded path, then publish "main moved" as for a fast-forward. Later items get `rebase_pending` (§10.5.1), and a flow load runs (§11.3.1).
 - Smithers never writes GitHub's `main` (§10.1).
 
-Out: accepting resets from agents or posting delegated confirmations; a slash, CLI or skill reset door; automatic reset or GitHub main writes; UI Views and Containers; rebase execution and its conflicts (T-STK-08, T-STK-11); the Home card row (T-APP-01); health (T-GH-08); recovering work that existed only in the rewritten commits (none exists in Smithers, since `main` is read-only).
+Out:
+- Alternate attention models, revision-only reset inputs and RPC implementation outside T-APP-19b (#3601) are excluded. accepting resets from agents or posting delegated confirmations; a slash, CLI or skill reset door; automatic reset or GitHub main writes; UI Views and Containers; rebase execution and its conflicts (T-STK-08, T-STK-11); the Home card row (T-APP-01); health (T-GH-08); recovering work that existed only in the rewritten commits (none exists in Smithers, since `main` is read-only).
 
 ## Changes
+
+- Consume one kind-discriminated HomeCard attention union via T-APP-19b (#3601): common id, revision, text and actions[]; force_push adds old/new, order adds optional todo. Bind main.reset-to-github to {id, old, new} and order.ok to {id, revision}. Land this shared contract together with T-GH-05. Check: C-J10-07.
 - Reset, ordinary main pulls and merge dispatch share the repository operation serialization boundary and the existing repo-host write lock. Under that boundary, reread the attention/merge fence and reset binding before the expected-old ref write; retain the operation claim through settlement. Persist reset intent before writing. After the ref reaches new, atomically commit attention settlement, projections and durable main-moved intents keyed to that reset intent. Stack and machine-only flow-load consumers apply each intent idempotently after commit. Recovery at old keeps attention open, at new finishes settlement/intents once, and at a legitimate third tip preserves it with attention open. Check: C-J10-07.
 
 - `packages/backend/internal/services/github_main_pull.go:589-591` → the non-ancestor case returns `force_push{old, new}` and opens the attention row through T-STK-07's `stack_attention` API; delete the retry with backoff (`gitHubMainPullBaseBackoff`/`MaxBackoff`, `:51-52`) for this case.
@@ -30,6 +35,8 @@ Out: accepting resets from agents or posting delegated confirmations; a slash, C
 - `packages/backend/docs/github-sync.md` → "`main` rewritten on GitHub" section; docs gates as in T-GH-02.
 
 ## Tests
+
+- Decode both attention kinds and capture exact reset input {id, old, new}. Wrong id or stale old/new refuses without resetting or settling. Preserve owner-session authorization, expected-old writes and third-tip recovery assertions. Check: C-J10-07.
 - Assert complete refusal envelopes through the production reset route: delegated owner/maintainer/member=403 never/never; maintainer/member session=403 permission/permission; stale `(old, new)` owner session=409 conflict/stale_attention. Each refusal leaves the mirror unchanged and attention open; stale attention names the current tip. Check: C-J10-07.
 
 - Race reset with ordinary pull and merge dispatch through production boundaries using barriers at fence verification and locked ref write. Crash before ref write, after ref write and after settlement commit before consumer dispatch; recovery admits one effective stack update and machine-only flow load. Inject a legitimate concurrent third tip and assert it remains unchanged with attention open. Owner/session and stale-tip refusals precede writes. Check: C-J10-07.
@@ -56,5 +63,5 @@ Out: accepting resets from agents or posting delegated confirmations; a slash, C
 2. Out excludes agent resets/confirmations, extra command doors, automatic reset, GitHub main writes, Views/Containers, rebase execution and recovery of discarded GitHub-only work.
 3. C-J10-07 starts the production refs worker and calls the composed attention route. Fault tests restart the real install composition around the durable reset intent. Commit literal role, ref and unchanged-table fixtures; no test reads spec files or derives expected results from production code at runtime. Assert no machine flow-load admission before confirmation and one bound load after it.
 4. smithers-3f approves guarded mirror writes and reset recovery; smithers-b8 signs off the public route/catalog contract; smithers-8a accepts the note for already-merged commits removed from main and the shared-route policy split; Will decides changes to that product behavior. Check: C-J10-07.
-5. Before start, smithers-3f: does the expected-old write serialize with main pulls and merges; can reset recover without a third-value overwrite or duplicate effects; does flow loading remain machine-only? smithers-b8: does reset use owner-session eligibility independently of maintainer OK? smithers-38: do attention old/new fields fit the topic schema? smithers-06: can the existing Home attention View show the bound reset and a stale-tip refusal without a new component? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. The bound reset is the attention row's OK at the shown revision; a stale tip is reason text, with no new component."
+5. Before start, smithers-3f: does the expected-old write serialize with main pulls and merges; can reset recover without a third-value overwrite or duplicate effects; does flow loading remain machine-only? smithers-b8: does reset use owner-session eligibility independently of maintainer OK? smithers-38: do attention old/new fields fit the topic schema? smithers-06: can the existing Home attention View show the bound reset and a stale-tip refusal without a new component? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. The bound reset is the attention row's OK at the shown revision; a stale tip is reason text, with no new component." smithers-38: answered, changes applied (tech lead adopts).
 6. GitHub commits remain untrusted data; host mirror operations disable repository hooks/helpers. Reset cannot evaluate repository flows: T-FLW-03 admits their load in a machine (§1.3, M-29), and no host fallback exists. smithers-3f reviews this boundary. C-J10-07 proves owner-only effects and admission ordering; C-SEC-02 proves machine-only execution.

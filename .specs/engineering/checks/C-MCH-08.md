@@ -13,6 +13,8 @@ Automation: `packages/backend/internal/services/branch_fork_integration_test.go`
 - Expected tree bytes, patch content and source refs come from fixed test setup, never from spec files or production code at runtime. HTTP calls use the production router and dispatcher; service-only calls do not count.
 
 ## Steps
+
+- Decode and dispatch forks from main and T2; reject missing from. Test Add to stack with after and before independently and reject both together under todo.new placement rules. Verify explicit and default placement through production dispatch and Confirm.
 1. Record the source VM's boot id (`/proc/sys/kernel/random/boot_id`) and the counter loop's pid.
 2. Ben forks T2: `POST /api/branches {from: "T2", name: "try-retry"}`.
 3. Record the capture's commit C, the scratch branch's `forked_from`, and the source boot id and loop pid again.
@@ -24,6 +26,8 @@ Automation: `packages/backend/internal/services/branch_fork_integration_test.go`
 8. Exercise every retained hosted ForkWorkspace consumer and its served workspace fork route with the compatibility decision applied. Verify revision-based creation and the same source boot id, loop pid and no-stop timing assertions; a deleted route is explicitly absent rather than silently falling back to stop/snapshot.
 
 ## Pass when
+
+- The adopted owner contract passes: Decode and dispatch forks from main and T2; reject missing from. Test Add to stack with after and before independently and reject both together under todo.new placement rules. Verify explicit and default placement through production dispatch and Confirm.
 - Step 8: retained hosted callers use revision-based creation and preserve the no-stop guarantee. No caller can reach the old wake/stop/snapshot path.
 
 

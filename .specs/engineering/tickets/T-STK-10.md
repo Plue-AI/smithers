@@ -1,12 +1,14 @@
 # T-STK-10 Evidence per attempt
 
-Stage S1 · Size S · Depends on T-STK-01, T-FLW-11, T-FLW-04, T-FLW-07, T-GH-05, T-ACC-03, T-APP-19 · Unblocks T-APP-02, T-FLW-06, T-GH-03, T-REL-02 · Issue: [#3464](https://github.com/smithersai/smithers/issues/3464)
+Stage S1 · Size S · Depends on T-STK-01, T-FLW-11, T-FLW-04, T-FLW-07, T-GH-05, T-ACC-03, T-APP-19, T-APP-19b · Unblocks T-APP-02, T-FLW-06, T-GH-03, T-REL-02 · Issue: [#3464](https://github.com/smithersai/smithers/issues/3464)
 Spec: spec.md §3 (`todo_attempts.evidence`), §10.4.1, §10.4.3, §11.4.1, §11.6.1, §12.5.1, §14.3 (TODO card), §15.2 · Delta: delta.md §6 (Retry with attempt rows), §7 (checks evidence) · Product: mvp.md J2.5, §4.1 Failed ("earlier attempts and evidence kept"), §6.10 PR card, §6.9 Model access
 
 ## Goal
 Every attempt of a TODO keeps its own evidence (diff stat, checks run on the machine with logs, the agent's review summary, GitHub checks, tokens and time, the flow version and the model access), readable on the TODO card and used by the PR body, and a later attempt never overwrites it.
 
 ## Scope
+
+- Extend the existing EvidenceSchema in packages/rpc/src/CardPrimitives.ts via T-APP-19b (#3601); TodoCard already consumes it. Validate log_url with RelativeUrlPathSchema from WebUrl.ts, since it is an origin-relative route path. Keep TodoCard as the sole card model. Check: C-J2-04.
 In (adopted owner pre-review):
 - Validate evidence producer ownership in the write transaction: resolve run id to its owning attempt, and generation to that attempt’s persisted candidate. Compare persisted versions atomically and reject mismatched producers or superseded-run callbacks. Route late GitHub checks using persisted push ownership (attempt, generation, pushed head and publication identity), including identical heads reused across attempts; head equality alone cannot select an owner. Ambiguous callbacks update no attempt. Authorize the TODO and verify the named attempt references the digest before invoking blob retrieval. Check: C-J2-04.
 
@@ -20,11 +22,14 @@ In:
 - The `todo:<n>` projection's evidence per attempt.
 
 Out:
+- A second evidence model, Todo.ts and RPC schema implementation outside T-APP-19b (#3601) are excluded.
 - PR body layout (T-GH-03); required-check names and branch protection (T-GH-05).
 - Per-step cost and usage collection in the monitor (T-FLW-07). Learning's use of evidence (T-FLW-06). Wiki citations (T-FLW-10 adds a field).
 - Running checks, review or repository commands on the host; retry mechanics; TODO/PR View and Container changes (T-APP-02, T-GH-03).
 
 ## Changes
+
+- Extend the existing EvidenceSchema in packages/rpc/src/CardPrimitives.ts via T-APP-19b (#3601); TodoCard already consumes it. Validate log_url with RelativeUrlPathSchema from WebUrl.ts, since it is an origin-relative route path. Keep TodoCard as the sole card model. Check: C-J2-04.
 - `packages/backend/internal/routes/todos.go` and `docs/api/openapi/todos.yaml` → add `GET /api/todos/{n}/attempts/{attempt}/logs/{digest}`. HTTP 200 has Content-Type `text/plain`; an unrelated digest returns HTTP 404 JSON `{code: "not_found", class: "user"}`. Authorize the TODO and prove that attempt references the digest before blob retrieval. Set evidence `log_url` to this path so the TODO card’s gesture opens it. Re-bundle OpenAPI and regenerate clients. Check: C-J2-04.
 
 - Validate evidence producer ownership in the write transaction: resolve run id to its owning attempt, and generation to that attempt’s persisted candidate. Compare persisted versions atomically and reject mismatched producers or superseded-run callbacks. Route late GitHub checks using persisted push ownership (attempt, generation, pushed head and publication identity), including identical heads reused across attempts; head equality alone cannot select an owner. Ambiguous callbacks update no attempt. Authorize the TODO and verify the named attempt references the digest before invoking blob retrieval. Check: C-J2-04.
@@ -36,9 +41,11 @@ Out:
 - Consume T-GH-05's structured check projection for the attempt's PR head → `github_checks`. Today `HeadChecks` (`services/mythical_github.go:611`) returns an aggregate string, not check names and required flags; do not infer those fields from it.
 - Flow `{name, digest}` from the pin recorded when the TODO entered `starting` (§11.4.1; T-FLW-04 owns the pin) and `model_access` from the run (§15.2).
 - `completionBody` and `mythicalReceiptsSummary` (`mythical_items.go:3255`, `:3301`) read `todo_attempts.evidence` instead of `mythical_items.checks`.
-- Extend T-APP-19's `packages/rpc/src/TodoCard.ts` evidence contract (new in that prerequisite; no `Todo.ts` exists today); `packages/backend/docs/todos.md` (new); docs gates.
+- Consume the existing EvidenceSchema extension via T-APP-19b (#3601); TodoCard already uses it. Update `packages/backend/docs/todos.md` (new); docs gates. Check: C-J2-04.
 
 ## Tests
+
+- Decode the attempt evidence through EvidenceSchema and TodoCard with literal origin-relative log_url. Reject scheme-relative paths, backslashes and control characters. Verify the authorized log route and its TODO card gesture. Check: C-J2-04.
 - Invoke the served log route with a referenced digest and assert literal text/plain 200 bytes. An unrelated digest returns literal 404 `{code: "not_found", class: "user"}` and performs zero blob reads. Assert returned evidence log_url equals the route path and the TODO card gesture opens that URL. Check: C-J2-04.
 
 - Drive production run-evidence projection and GitHub check consumers with real PostgreSQL/blob storage. Mismatched run/attempt/generation and delayed superseded-run callbacks write nothing. Reuse the same head across two attempts and deliver late checks with persisted publication ownership; only the owning attempt/generation changes, and ambiguous callbacks change neither. Instrument blob retrieval independently: denied and unrelated-digest log requests return refusal/404 and invoke retrieval zero times. Check: C-J2-04.
@@ -66,5 +73,5 @@ Out:
 2. Exclusions: Scope names PR layout, protection policy, cost collection, learning, wiki fields, retry mechanics, visual wiring and host execution of checks.
 3. Boundary tests: `todo_evidence_db_test.go` feeds the production flowdispatch projection callback and GitHub check-sync scheduler, then reads GET /api/todos/{n} and the named log route through the production router. Literal receipts include two checks, distinct attempt/head/generation ids, known output and timestamps, usage and pin values; assert stored and returned evidence, closed-attempt refusal, wrong-head isolation, 1 MiB truncation and unauthorized/unrelated log refusal. Expected JSON and text are checked-in fixtures, never generated from spec files or production schemas at runtime. C-J2-04 runs the later real TODO/PR card integration; its downstream UI rows do not replace this landing test.
 4. Decisions: smithers-3f approves evidence merge/version semantics, log-route authorization and usage/check producer contracts; smithers-38 approves the TypeScript schema; smithers-b8 signs off the public read route; smithers-8a accepts changes to generation reuse or public contract scope. The 1 MiB head/tail cap is fixed by this ticket.
-5. Owner pre-review before start: smithers-3f: Are writes bound to the owning attempt and generation, including late GitHub checks? Does log authorization check the attempt's digest reference before blob access? smithers-38: Does the evidence contract extend TodoCard through its per-module subpath without a second schema? smithers-b8: Is the public log route documented and usable by the TODO card? View changes remain outside scope. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
+5. Owner pre-review before start: smithers-3f: Are writes bound to the owning attempt and generation, including late GitHub checks? Does log authorization check the attempt's digest reference before blob access? smithers-38: Does the evidence contract extend TodoCard through its per-module subpath without a second schema? smithers-b8: Is the public log route documented and usable by the TODO card? View changes remain outside scope. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-38: answered, changes applied (tech lead adopts).
 6. Security: smithers-3f reviews the inherited T-INS-02/T-FLW-11 machine boundary and the log route before start. Repository checks and review execute only inside isolated branch machines (M-29, §1.3); evidence collection never reruns them on the host. The host reads data through scoped projections and authorized blob access; C-SEC-02 covers refusal without isolation, and the boundary tests cover log access.

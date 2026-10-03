@@ -4,6 +4,8 @@ Proves: mvp.md M-08, §6.4 Branch conversations · spec.md §3, §7.2.2, §14.1,
 Automation: `packages/backend/internal/services/conversations_db_test.go` (new), `packages/backend/internal/routes/conversations_test.go` (new) and `apps/app/src/mainview/cards/containers/EarlierContainer.test.tsx` (new) · Runs in: CI
 
 ## Setup
+- Check in conversation/view-state topic goldens and legacy journal page/replay JSON fixtures under `packages/rpc/test/fixtures/` via T-APP-19b (#3601). Root `PACKAGE.ts` backend test inputs declare `//packages/rpc/test/fixtures/topics/*.json`.
+
 - Real PostgreSQL with the product migrations; members Ben and Alice; branches `main` and `smithers/t1`; the live-channel server (T-COL-02) with one subscribed client per member.
 - For Earlier: a seeded browser store holding two legacy conversations of Ben's, and a journal behind `GET /api/agent/conversations` holding one more.
 
@@ -23,6 +25,8 @@ Automation: `packages/backend/internal/services/conversations_db_test.go` (new),
 8. Create a branch through each production fork/TODO command, including a rolled-back creation. Assert its conversation commits or rolls back with the branch. Exercise prompt and view-state mutations through their HTTP routes and Earlier through the real history/replay client; direct service tests supplement these boundary cases.
 
 ## Pass when
+- Each topic golden parses with its actual RPC `topics/*` `z.object` decoder, and the same goldens pass the Go builder comparison. Both topics import the single ConversationEntry wire schema. `AgentConversationPageSchema` and `AgentConversationReplaySchema` parse the checked-in legacy journal fixtures; Earlier’s production history/replay client opens those same records and matches literal expected entries. Golden changes invalidate the backend test target through declared inputs.
+
 - Lock the conversation row in the append transaction, allocate seq from its transactional counter and enforce UNIQUE(conversation_id, seq). Advance the counter only with committed entries and projection rows; branch/conversation creation shares its caller transaction. GET, snapshots and live subscriptions authorize the conversation and filter private entries and queued prompts to their audience member. Foreign view-state reads/writes and snapshots are refused; SharedEntries excludes every private entry, including the reader’s own
 
 - Step 1: one entry list with a gap-free `seq`, identical on both subscribers; two `queued` `agent_turns` rows holding their prompt text, with no shared entry yet, each shown only on its author's `view:` topic.

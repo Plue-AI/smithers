@@ -1,6 +1,6 @@
 # T-COL-02 Live channel `/api/live`: topics, cursors, backpressure
 
-Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-ACC-04, T-INS-04, T-COL-10, T-FLW-01 · Unblocks T-ACC-05, T-ACC-06, T-AGT-02, T-APP-01, T-APP-07, T-APP-08, T-APP-16, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-07, T-FLW-08, T-GH-08, T-MCH-01, T-MCH-08, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
+Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-ACC-04, T-INS-04, T-COL-10, T-FLW-01, T-APP-19b · Unblocks T-ACC-05, T-ACC-06, T-AGT-02, T-APP-01, T-APP-07, T-APP-08, T-APP-16, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-07, T-FLW-08, T-GH-08, T-MCH-01, T-MCH-08, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
 Spec: spec.md §3 (`projection_events`), §3.1, §3.3, §5.6, §6.2.2, §7.1, §7.2, §7.6, §14.1, §14.5.1, §16.3.2–16.3.3, §19.3, §20.3 · Delta: delta.md §4 (live channel row), §9 (seams row) · Product: mvp.md §2 rule 5, §9 Honesty, J4, M-08, M-28
 
 ## Goal
@@ -8,6 +8,8 @@ Spec: spec.md §3 (`projection_events`), §3.1, §3.3, §5.6, §6.2.2, §7.1, §
 A browser tab opens one WebSocket to `/api/live` on the page's origin (`ws://` on a plain-HTTP origin, `wss://` behind HTTPS, §16.3.2), subscribes to projection topics with cursors, and receives every committed card change as a snapshot and then as gap-free deltas within 1 s p95.
 
 ## Scope
+
+- Keep Live subpath exports without a barrel. Define frames as z.discriminatedUnion("t") via T-APP-19b (#3601). Add packages/rpc/test/fixtures/Live.ts and decode tests over every frame, following the committed old-record convention in Cards.test.ts. Reserved presence and binary kinds decode to err unsupported. Check: C-COL-02.
 
 In:
 - Endpoint with subprotocol `smithers.live.v1`, authenticated by the session cookie or a bearer token. Apply T-INS-04’s effective-origin rules (§16.3.3): unknown request hosts get 421, cookie upgrades require Origin equal to the effective origin, and cookie-free bearer upgrades need no Origin. Settings changes apply without a restart.
@@ -31,6 +33,7 @@ In:
   - The S1 server parses these and answers `{"t":"err","id":…,"code":"unsupported"}` (§7.1, T-COL-10). The connection stays open, and nothing is ignored silently.
 
 Out:
+- A barrel export, replacement fixture history and RPC implementation outside T-APP-19b (#3601) are excluded.
 - Presence (T-COL-06), terminal frames (T-TRM-01), Yjs relay and documents (T-COL-08, T-COL-09).
 - Moving the app's seams and deleting per-resource SSE routes (T-APP-08).
 - Card Views, document authority placement, repository-code execution and new public flow-library abstractions.
@@ -38,6 +41,8 @@ Out:
 - Client derivations from shared rows plus the member's own `last_seen_seq` and role: `merged_since_last_look` and the Home card's `attention[]` (T-APP-01).
 
 ## Changes
+
+- Keep Live subpath exports without a barrel. Define frames as z.discriminatedUnion("t") via T-APP-19b (#3601). Add packages/rpc/test/fixtures/Live.ts and decode tests over every frame, following the committed old-record convention in Cards.test.ts. Reserved presence and binary kinds decode to err unsupported. Check: C-COL-02.
 
 - Reuse T-STK-01’s `projection_events` migration and writer (§3.1); do not add a second migration or writer. Add `projection_topics(topic PK, last_seq)` and topic-row locking to that writer so seq order equals commit order.
 - `packages/backend/db/product/queries/projection_events.sql` (new) and the sqlc output in `packages/backend/internal/db/` (run `scripts/check-sqlc-drift.sh`).
@@ -54,6 +59,8 @@ Out:
 - `packages/backend/docs/live-channel.md` (new). Run `pnpm docs:sync` and `pnpm docs:check`, then `smthrs docs //packages/backend:docs`.
 
 ## Tests
+
+- Decode every committed Live frame and old record. Assert discriminator t and reserved presence/binary kinds produce err unsupported with the socket left open. Preserve subpath exports and assert no barrel export. Check: C-COL-02.
 
 - `LiveChannel.test.ts`: two Containers on the same and different topics share one socket. Send one `sub` per topic, send `unsub` only after its last subscriber leaves, and reconnect with one `sub` per topic and its stored cursor. Check: C-COL-02.
 
@@ -94,5 +101,5 @@ Out:
 2. Out names presence/terminals/documents, SSE migration, card models, Views, authority placement and repository execution.
 3. C-COL-02, C-UI-05 and C-PERF-02 connect through `GET /api/live` mounted by `compose/router.go`, with real PostgreSQL and the production LiveChannel client. Add `packages/backend/internal/compose/live_integration_test.go` (new) cases for unsupported frames, private topics, Origin, bearer auth and removal. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 4. smithers-8a accepts ADR 0003 and decides topic sharding. smithers-3f approves the transport/authorization seam; smithers-b8 approves the client seam; smithers-38 signs off `@smthrs/rpc/Live` under §21.1.
-5. Before start, smithers-3f: is there one projection writer; do origin, topic authorization and revocation pass through real middleware? smithers-b8: does one tab keep one socket and resubscribe correctly? smithers-38: do per-module frame exports preserve decoding compatibility? Views are excluded; any View change needs smithers-06 pre-review. smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. I review line flags and spans in its first visual pass."
+5. Before start, smithers-3f: is there one projection writer; do origin, topic authorization and revocation pass through real middleware? smithers-b8: does one tab keep one socket and resubscribe correctly? smithers-38: do per-module frame exports preserve decoding compatibility? Views are excluded; any View change needs smithers-06 pre-review. smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. I review line flags and spans in its first visual pass." smithers-38: answered, changes applied (tech lead adopts).
 6. This transport executes no repository code. Snapshot builders are packaged host code; frames cannot launch processes or import repository modules. smithers-3f reviews this boundary and private-topic authorization; the route cases and C-UI-05 verify it.

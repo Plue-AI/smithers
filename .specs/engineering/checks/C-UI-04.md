@@ -19,6 +19,8 @@ Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference hos
 8. In the production summary worker integration harness with real PostgreSQL, roll back a subject/event transaction, then commit another and restart before the worker runs. Hold responses for two source revisions; return the newer one first. Repeat with a replaced run and attempt and with phase/cell summaries.
 
 ## Pass when
+- The same `ConversationEntry` schema parses literal entries in both topic decoders. `actionFor` results parse with CardAction’s `ActionSchema` and carry catalog tags; CardPrimitives supplies tone, TODO state and Needs you kind without duplicate enums. Attention rows include id/revision. Literal action fixtures bind `order.ok` to `{id, revision}` and `main.reset-to-github` to `{id, old, new}` via T-APP-19b (#3601).
+
 
 - Step 8 admits no job on rollback and retains the committed job after restart. Only the current run, attempt and source revision can update the summary and its projection. Late results leave the accepted literal bytes and summary_rev unchanged. Phase and cell rows obey the same comparison. The shell mounts T-UI-08’s View through T-APP-07’s Containers and has no legacy ToastStack or ChatRunTimeline import.
 - Maya's EMIT entry pins to the top edge with the live tone; Alice, with no timeline, sees a "↑ 1 live above" pill.

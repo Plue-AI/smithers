@@ -8,12 +8,16 @@ Automation: `packages/backend/internal/services/github_inbound_test.go` and `pac
 Committed literal fixtures for the §12.3 fact TSV, every TODO state, first/duplicate/reordered facts and a fixed clock. Expected results are reviewed fixtures, not production-derived values. Seed one TODO for each production consumer.
 
 ## Steps
+
+- Decode the shared github_check facts {name, state, required, url}, ActorSchema kind:"github" authors and foreign_push waits with id/sha via T-APP-19b (#3601). Assert wrong attention/wait bindings refuse with no effects; no parallel check or actor model exists.
 1. Call `decideGitHubFact(fact, todo, item, now)` for every matrix cell.
 2. Deliver poll, review and foreign-push facts through their production consumer with real PostgreSQL.
 3. Repeat and reorder each delivery and inspect semantic events and activity.
 4. Crash each T-GH-05 inbound consumer before commit, after commit and after a keyed remote effect succeeds but before acknowledgement. Restart and replay through production polling. Exercise both merge and completion check callers against the synced-head fixtures.
 
 ## Pass when
+
+- Decode the shared github_check facts {name, state, required, url}, ActorSchema kind:"github" authors and foreign_push waits with id/sha via T-APP-19b (#3601). Assert wrong attention/wait bindings refuse with no effects; no parallel check or actor model exists.
 
 - Step 4: before-commit crash leaves no receipt, transition, projection or outbound intent. After-commit restart retains one complete atomic set. Replays and remote-success recovery add no effective close or comment. Merge and completion read synced facts with no second per-head REST path; the completion comment retains the literal named checks.
 - Every cell has one asserted `Events`, `Noop reason` or `Attention kind` result; an unknown cell fails.

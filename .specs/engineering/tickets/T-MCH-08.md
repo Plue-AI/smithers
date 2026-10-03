@@ -1,6 +1,6 @@
 # T-MCH-08 Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2)
 
-Stage S1, S2 · Size M · Depends on S1: T-STK-02, T-UI-23, T-APP-19, T-INS-02, T-CAT-01, T-ACC-05, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10, T-REL-02, T-STK-05, T-STK-08 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
+Stage S1, S2 · Size M · Depends on S1: T-STK-02, T-UI-23, T-APP-19, T-INS-02, T-CAT-01, T-ACC-05, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04, T-APP-19b · Unblocks T-APP-10, T-REL-02, T-STK-05, T-STK-08 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
 Spec: spec.md §8.1.1, §8.5, §10.2, §6.3 (`/api/branches`) · Delta: delta.md §3 (fork row) · Product: mvp.md J7.2, J7.3, §6.7 Fork, Appendix A (`/branch.fork`, `/branch.add-to-stack`), M-22
 
 ## Goal
@@ -8,6 +8,8 @@ Spec: spec.md §8.1.1, §8.5, §10.2, §6.3 (`/api/branches`) · Delta: delta.md
 A member forks `main` or an item into a scratch branch that starts from a revision without stopping any machine, and **Add to stack** turns that scratch branch into a new TODO's item branch, placed after the item it came from. The stack service performs both, and branch activity shows them as "Smithers, for Ben" (M-32).
 
 ## Scope
+
+- Extend branch.fork through T-APP-19b (#3601) with required from: "main" | Tn and optional name. branch.add-to-stack reuses todo.new placement {after?, before?} alongside text. Route placement through T-STK-02 and retain the source-based default when neither field is supplied. Check: C-MCH-08.
 
 In:
 - Fork and Add to stack are system flows run by the stack service, the only writer of branch history (§8.5.0, M-32). People, the app agent and external agents request them; nobody else writes the branch's history. Each writes one activity entry attributed to Smithers with the requester recorded, rendered "Smithers, for Ben".
@@ -28,11 +30,14 @@ In, S2 (§8.5.1–§8.5.2), once T-COL-03 and T-MCH-04 land:
 - Forking a scratch branch, which stage 1 refuses.
 
 Out:
+- A second placement shape and RPC implementation outside T-APP-19b (#3601) are excluded.
 - [D] **Replace Tn** (§0, §8.5.3). The `add-to-stack` schema has no mode; `replace` is absent from the OpenAPI document and the catalog.
 - **Rebase now** on a scratch branch (§8.5.2a, T-STK-08). Dropping the source item (T-STK-05), except wiring its existing drop path to `FoldIntoForks`. The Branch card (T-APP-10).
 - Disk-copy forks, source-machine stop/snapshot/resume, scratch pushes to GitHub, shared homes, credential copying, free-form history commands and edits to design-owned Views.
 
 ## Changes
+
+- Extend branch.fork through T-APP-19b (#3601) with required from: "main" | Tn and optional name. branch.add-to-stack reuses todo.new placement {after?, before?} alongside text. Route placement through T-STK-02 and retain the source-based default when neither field is supplied. Check: C-MCH-08.
 - `apps/app/src/mainview/flows/entries/` → add `branch.fork` and `branch.add-to-stack` flow entries. `TodoContainer` wires Fork and Add to stack through `cardActions` → `flowAction`; Fork sends `{from: Tn}`. Delegated Add to stack consumes `202 {confirmation: id, state: "pending"}` and renders T-APP-04’s private Confirm card; only the requesting person’s session press executes it. Checks: C-J7-02, C-UI-13.
 
 - Include the surviving `ForkWorkspace` caller at `packages/backend/internal/services/workspace_provisioning.go:855` and its served route at `packages/backend/internal/compose/router.go:541` in the hosted compatibility decision. Any retained caller must use revision-based creation and preserve the no-stop guarantee. Check: C-J7-02.
@@ -46,6 +51,8 @@ Out:
 - `docs/api/openapi/repositories.yaml` `POST …/workspaces/{id}/fork`: deleted with its route if no hosted consumer remains (see notes).
 
 ## Tests
+
+- Decode and dispatch forks from main and T2; reject missing from. Test Add to stack with after and before independently and reject both together under todo.new placement rules. Verify explicit and default placement through production dispatch and Confirm. Check: C-MCH-08.
 - Mount the real TODO Container and record production flow dispatch. Fork dispatches `branch.fork` with literal `{from: "T2"}` once. Add to stack dispatches `branch.add-to-stack`; a delegated request returns literal pending 202 and displays its private Confirm card through T-APP-04 without creating a TODO until the person presses it. Checks: C-J7-02, C-UI-13.
 
 
@@ -82,5 +89,5 @@ Out:
 2. Exclusions: Replace, scratch Rebase now, Drop implementation beyond its hook, Branch card, disk-copy forks, scratch pushes, credential copying and design-owned Views are explicit.
 3. Boundary tests: C-J7-02 drives app/catalog/Confirm/Drop; C-MCH-08 enters the routed fork endpoint and additionally proves awake Add to stack capture. Integration uses real PostgreSQL/jj and the production dispatcher/router with fixed repository fixtures and literal results, never runtime spec or code-derived expectations.
 4. Decisions: smithers-8a accepts the stack-service and hosted-route compatibility decision; smithers-3f approves history/capture seams, smithers-b8 command and Container seams, smithers-38 catalog/schema public API under §21.1, and smithers-06 View props. Will decides product changes such as Replace or source interruption.
-5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok for design. Fork, Add to stack and Drop arrive as Actions; Confirm shows the exact command text and who asked; no new View. The engineering semantics are yours."
+5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok for design. Fork, Add to stack and Drop arrive as Actions; Confirm shows the exact command text and who asked; no new View. The engineering semantics are yours." smithers-38: answered, changes applied (tech lead adopts).
 6. Security: smithers-3f reviews launch, capture and credential boundaries before start. Repository code and scratch terminal commands run only in machines; host system flows call fixed stack-service operations and never load repository flows. SourceRef transfers a revision, not a disk, home or credentials; no member/agent sudo or provider keys in guests. C-J7-02/C-MCH-08 prove the actual runtime path.

@@ -1,6 +1,6 @@
 # T-APP-09 Actor adapter: participants and "for Ben" (§14.6a, M-34)
 
-Stage S1 · Size S · Depends on T-ACC-04, T-UI-01, T-APP-19 · Unblocks T-AGT-03, T-APP-02, T-APP-04, T-APP-06, T-APP-07, T-APP-10, T-APP-16, T-APP-23, T-MCH-08, T-REL-02, T-TRM-02 · Issue: [#3503](https://github.com/smithersai/smithers/issues/3503)
+Stage S1 · Size S · Depends on T-ACC-04, T-UI-01, T-APP-19, T-APP-19b · Unblocks T-AGT-03, T-APP-02, T-APP-04, T-APP-06, T-APP-07, T-APP-10, T-APP-16, T-APP-23, T-MCH-08, T-REL-02, T-TRM-02 · Issue: [#3503](https://github.com/smithersai/smithers/issues/3503)
 Spec: spec.md §2 (actor notation), §5.3, §6.4, §9.3.2, §12.3, §14.6a, §14.6a.1, §15.1 · Delta: delta.md §2 (Add actor `via` on audit events, activity, presence, todo_events), §9 (Modify: actor rendering with `via` badges) · Product: mvp.md J6.3, §6.13 Attribution, M-21, M-34, Appendix A closing paragraph
 
 ## Goal
@@ -8,9 +8,11 @@ Every card, toast and line that names who acted renders the §14.6a participant 
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds the `ActorChip`, with the CSS, in T-UI-01. This ticket builds no View, CSS or editor presentation. It owns the wire actor schema, the participant adapter and the one name function ([card-kinds.md §1](../card-kinds.md)). The seam is the view model from T-APP-19 (spec §14.2.1).
+Design (smithers-06) builds the `ActorChip`, with the CSS, in T-UI-01. This ticket builds no View, CSS or editor presentation. It consumes the wire actor schema via T-APP-19b (#3601) and owns the participant adapter adoption and the one name function ([card-kinds.md §1](../card-kinds.md)). The seam is the view model from T-APP-19 (spec §14.2.1).
 
 ## Scope
+- Adopt the shared Actor widening via T-APP-19b (#3601): `ColorIndexSchema` accepts 0–7 through §14.3. Members use 0–5; delegated agents inherit their member’s index; an undelegated agent uses 6; GitHub and outside actors use 7. GitHub authors parse as `ActorSchema` with `kind: "github"`. Claude Code and Reviewer acting for Ben parse as agent actors with `for`. Check: C-J6-01.
+
 
 - M-34 participants have id, agent kind, avatar, run/session and optional `for_member`. Smithers, Coding agent, Claude Code, Codex and Reviewer each have their own avatar and show for Ben. The broker registers agent process lifetime; ordinary terminal commands remain person-channel activity. Adapt historical `via` actors. Participant ids grant no authorization rights. Checks: C-J3-04, C-J3-10.
 
@@ -21,17 +23,21 @@ In:
 - Adopt it in the S1 adapters that name actors: Home rows (owner), TODO (owner, answerer, amendment and steer authors), Confirm (`asked_by`), Members, entry authors (T-APP-16) and timeline lines (T-APP-07).
 
 Out:
+- A second rendered-actor or via enum. CardPrimitives and ProductActor RPC schema/code changes land via T-APP-19b (#3601); this ticket adopts them in adapters.
+
 - Registering agent processes or inventing participant lifetimes from terminal command text; changing credential authority, roles, or avatar assets. Broker registration lands with the S2 session/presence tickets, not this S1 adapter.
 - Minting delegated credentials, the `Smithers-Via` header and recording `via` (T-ACC-04).
 - Participant presence (T-COL-06), activity (T-COL-04), agent terminals (T-TRM-05) and line-flag data (T-APP-14), which call `toActor`.
 - Branch and Terminal cards adopt it in T-APP-10 and T-APP-12.
 
 ## Changes
-- `packages/rpc/src/ProductActor.ts` (new): the wire schema, `toActor` and `actorName`, exported as `@smthrs/rpc/ProductActor`.
+- `packages/rpc/src/ProductActor.ts` (new, via T-APP-19b (#3601)): the stored actor wire schema reuses CardPrimitives’ `ViaSchema`; `toActor` returns CardPrimitives’ `Actor`, and `actorName` consumes that type. Export as `@smthrs/rpc/ProductActor`. Widen `ViaSchema` for `smithers` and widen the agent variant of `ActorSchema` for the named agent roles and optional `for` person in CardPrimitives via T-APP-19b (#3601). Do not create another via or rendered-actor enum. Check: C-J6-01.
 - The S1 adapters in Scope call `toActor`; this is a no-op where those tickets already do.
 - `apps/app/lint/conformance/Rules.ts` (existing): card, adapter and toast source never builds " via " or " for " or "'s terminal" by hand; every actor string comes from `actorName`.
 
 ## Tests
+- RPC schema and adapter fixtures (C-J6-01): parse `ViaSchema` value `smithers`, Claude Code for Ben and Reviewer for Ben through the widened CardPrimitives contracts via T-APP-19b (#3601). Assert literal names and `for`, member indices 0–5, undelegated-agent index 6, GitHub/outside index 7, and rejection of indices -1 and 8. GitHub authors parse as `kind: "github"`. Assert `toActor` returns the shared `Actor` type without app imports or another via/actor enum.
+
 - Boundary (C-J6-01, S1 CLI portion): invoke `todo.steer` through the production CLI command→API dispatcher as a Claude Code delegated actor, read its recorded actor from the served TODO/conversation projection, decode it with `ProductActor`, and assert the literal label "Claude Code for Ben" in the production adapter. Repeat a session-cookie request with a forged `Smithers-Via` header and assert the literal person label "Ben". Broker, presence and terminal cases are S2 qualification. All expectations are checked-in literals; no test reads spec files or uses `actorName` to manufacture expected names.
 - Unit (`ProductActor.test.ts`): `toActor` and `actorName` for each wire shape and each known `via`: "Smithers for Ben", "Claude Code for Ben", "Codex for Ben", "Ben via SSH", "Ben's terminal", "Ben via CLI", "Coding agent for Ben", "Reviewer for Ben", "Smithers", "Smithers for Ben" for a system write with a requester, "@login" and "changed outside Smithers". An unknown agent `via` becomes an agent participant named verbatim. A removed member keeps their login (§5.6).
 - Unit, same file: a `session` credential's actor never becomes an agent participant, even when the request carried `Smithers-Via` (§6.4); a system write never becomes an agent participant.
@@ -58,5 +64,5 @@ Out:
 2. Exclusions: Out names credential issuance, authorization changes, process registration, avatar assets, presence, activity, terminals and later card adoption.
 3. Boundary tests: the S1 CLI/API dispatcher test exercises recorded attribution and the production adapter with literal names; C-J6-01 qualifies the external-agent journey. Unit fixtures cover every wire shape without spec-derived or production-derived expectations.
 4. Decisions: smithers-38 signs off the `ProductActor` public subpath and stable-id mapping before landing under §21.1; smithers-06 accepts the ActorChip seam and names; smithers-b8 accepts consumer adoption and lint coverage. smithers-3f accepts the wire interpretation against credential attribution. smithers-8a resolves seam disagreements; Will decides product wording changes.
-5. Before start: smithers-38: do ids stay stable per session/run and exports avoid an app dependency? smithers-06: does every actor map to the existing chip props and correct avatar/color? smithers-b8: does lint cover all S1 actor strings without changing dispatcher actors? smithers-3f: does the adapter preserve session versus delegated attribution and grant no authority? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok on #3601's Actor. Delegated actors take the member's color_index; an undelegated agent is 6; github and outside are 7; Smithers is `agent: "smithers"`, an ink square when undelegated."
+5. Before start: smithers-38: do ids stay stable per session/run and exports avoid an app dependency? smithers-06: does every actor map to the existing chip props and correct avatar/color? smithers-b8: does lint cover all S1 actor strings without changing dispatcher actors? smithers-3f: does the adapter preserve session versus delegated attribution and grant no authority? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok on #3601's Actor. Delegated actors take the member's color_index; an undelegated agent is 6; github and outside are 7; Smithers is `agent: "smithers"`, an ink square when undelegated." smithers-38: answered, changes applied (tech lead adopts).
 6. Security: the adapter executes no repository code and grants no authorization rights. smithers-3f reviews credential-kind precedence and forged-header coverage before start; C-J6-01 and the session-header boundary test prove recorded attribution remains authoritative. Repository execution remains confined to machines (§1.3, M-29).

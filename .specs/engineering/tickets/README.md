@@ -74,7 +74,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-STK-07](T-STK-07.md) | Needs you: independent waits, precedence, first answer wins, `ask` bound for implementing seats | S1 | M | T-STK-01, T-ACC-04, T-MCH-14 | C-J1-04, C-J2-03, C-STK-08 |
 | [T-STK-08](T-STK-08.md) | Rebase now; rebase conflicts: agent once, then Needs you with Resolve (M-32) | S1 | M | T-STK-07, T-UI-23, T-APP-19, T-STK-02, T-STK-12, T-FLW-11, T-FLW-02, T-MCH-08 (S1) | C-J7-03, C-UI-13 |
 | [T-STK-09](T-STK-09.md) | Make TODO from an issue; the `todo` label freezes revision 1 | S1 | M | T-STK-01, T-ACC-02, T-GH-02, T-STK-02, T-STK-14, T-ACC-05, T-GH-09, T-APP-16, T-FLW-11 | C-J2-01, C-J2-02, C-SEC-03 |
-| [T-STK-10](T-STK-10.md) | Evidence per attempt | S1 | S | T-STK-01, T-FLW-11, T-FLW-04, T-FLW-07, T-GH-05, T-ACC-03, T-APP-19 | C-J1-04, C-J2-04 |
+| [T-STK-10](T-STK-10.md) | Evidence per attempt | S1 | S | T-STK-01, T-FLW-11, T-FLW-04, T-FLW-07, T-GH-05, T-ACC-03, T-APP-19, T-APP-19b | C-J1-04, C-J2-04 |
 | [T-STK-14](T-STK-14.md) | Existing-item backfill and Plue confirmation | S1 | M | T-STK-01 | C-STK-01 |
 | [T-STK-15](T-STK-15.md) | Amend a TODO through the durable steer path | S1 | M | T-STK-02, T-STK-06, T-STK-12, T-ACC-05, T-STK-05 | C-ACC-01, C-J7-01, C-STK-07 |
 | [T-STK-03](T-STK-03.md) | Parallel setting clamped by capacity; admission in stack order | S2 | S | T-STK-02, T-MCH-06 | C-STK-02 |
@@ -88,11 +88,11 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-GH-14](T-GH-14.md) | Expose canonical App identity for outbound attribution | W0, S1 | S | W0: T-GH-01 · S1: T-GH-01 | W0: C-GH-01 · S1: C-GH-01, C-GH-09 |
 | [T-GH-02](T-GH-02.md) | Poll scheduler: streams, ETags, token cache, budget, 30–120 s cadences | S1 | M | T-GH-01, T-STK-01, T-ACC-02 | C-GH-07, C-GH-08, C-J1-04 |
 | [T-GH-03](T-GH-03.md) | PR shape: slug branch, body, item-only diff; later items' PRs are drafts until next | S1 | M | T-STK-01, T-STK-10, T-GH-09, T-STK-12, T-STK-02, T-STK-15, T-GH-05, T-INS-04, T-INS-02, T-ACC-03 | C-J10-01 |
-| [T-GH-04](T-GH-04.md) | Reviews and comments on TODO PRs become steers | S1 | M | T-GH-02, T-STK-06, T-GH-05, T-ACC-04, T-MCH-14 | C-GH-13, C-J10-02 |
-| [T-GH-05](T-GH-05.md) | Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged | S1 | M | T-GH-02, T-STK-01, T-STK-07, T-GH-09, T-STK-02, T-STK-12, T-STK-13, T-ACC-03, T-FLW-11, T-MCH-14 | C-GH-13, C-J1-04, C-J10-05, C-J10-08, C-STK-04, C-STK-08 |
-| [T-GH-06](T-GH-06.md) | Outside push to a TODO branch: hold the agent's push; Needs you with Bring in or Discard (M-33) | S1 | M | T-GH-02, T-STK-07, T-UI-23, T-GH-05, T-GH-09, T-STK-08, T-ACC-03, T-ACC-05 | C-GH-13, C-J10-03, C-STK-08 |
-| [T-GH-07](T-GH-07.md) | Force-push to `main` becomes Needs you for the owner | S1 | S | T-GH-02, T-STK-07, T-GH-05, T-ACC-03, T-FLW-03 | C-J10-07 |
-| [T-GH-08](T-GH-08.md) | Follow `main` by default; sync health and Retry | S1 | S | T-GH-02, T-UI-06, T-APP-19, T-GH-07, T-FLW-03, T-ACC-03, T-COL-02 | C-J10-06, C-UI-13 |
+| [T-GH-04](T-GH-04.md) | Reviews and comments on TODO PRs become steers | S1 | M | T-GH-02, T-STK-06, T-GH-05, T-ACC-04, T-MCH-14, T-APP-19b | C-GH-13, C-J10-02 |
+| [T-GH-05](T-GH-05.md) | Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged | S1 | M | T-GH-02, T-STK-01, T-STK-07, T-GH-09, T-STK-02, T-STK-12, T-STK-13, T-ACC-03, T-FLW-11, T-MCH-14, T-APP-19b | C-GH-13, C-J1-04, C-J10-05, C-J10-08, C-STK-04, C-STK-08 |
+| [T-GH-06](T-GH-06.md) | Outside push to a TODO branch: hold the agent's push; Needs you with Bring in or Discard (M-33) | S1 | M | T-GH-02, T-STK-07, T-UI-23, T-GH-05, T-GH-09, T-STK-08, T-ACC-03, T-ACC-05, T-APP-19b | C-GH-13, C-J10-03, C-STK-08 |
+| [T-GH-07](T-GH-07.md) | Force-push to `main` becomes Needs you for the owner | S1 | S | T-GH-02, T-STK-07, T-GH-05, T-ACC-03, T-FLW-03, T-APP-19b | C-J10-07 |
+| [T-GH-08](T-GH-08.md) | Follow `main` by default; sync health and Retry | S1 | S | T-GH-02, T-UI-06, T-APP-19, T-GH-07, T-FLW-03, T-ACC-03, T-COL-02, T-APP-19b | C-J10-06, C-UI-13 |
 | [T-GH-09](T-GH-09.md) | Outbound writes: keys, per-target order, supersession and reconcile | S1 | M | T-GH-01, T-STK-01, T-GH-02, T-GH-14, T-ACC-03, T-ACC-05, T-STK-07, T-STK-12 | C-DUR-03, C-GH-09, C-J1-04, C-STK-06 |
 | **Flows and the factory** | | | | | |
 | [T-FLW-01](T-FLW-01.md) | Overridable flows run only in machines; system flow catalog | S1 | M | — | C-J1-04, C-J10-09, C-SEC-01, C-SEC-02 |
@@ -114,13 +114,13 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-MCH-05](T-MCH-05.md) | Delete branch locks | S2 | M | T-MCH-04 | C-CUT-01 |
 | [T-MCH-06](T-MCH-06.md) | Admission scheduler: slots to confirmed stop, per-branch coalescing, disk re-check, positions, safe-idle release | S2 | L | T-MCH-04, T-MCH-01 | C-J10-09, C-MCH-02, C-MCH-11, C-PERF-05 |
 | [T-MCH-07](T-MCH-07.md) | Sleep with final capture; reads never wake | S2 | M | T-COL-03, T-MCH-04 | C-MCH-03 |
-| [T-MCH-08](T-MCH-08.md) | Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2) | S1, S2 | M | S1: T-STK-02, T-UI-23, T-APP-19, T-INS-02, T-CAT-01, T-ACC-05, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04 | S1: C-J1-04, C-J7-02, C-UI-13 · S2: C-MCH-08, C-UI-13 |
+| [T-MCH-08](T-MCH-08.md) | Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2) | S1, S2 | M | S1: T-STK-02, T-UI-23, T-APP-19, T-INS-02, T-CAT-01, T-ACC-05, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04, T-APP-19b | S1: C-J1-04, C-J7-02, C-UI-13 · S2: C-MCH-08, C-UI-13 |
 | [T-MCH-09](T-MCH-09.md) | Cleanup only after settled, captured and quiet | S2 | S | T-MCH-07 | C-MCH-05 |
 | [T-MCH-11](T-MCH-11.md) | Member unix users, `team` group, no-sudo image, per-machine homes | S2 | L | T-MCH-02, T-ACC-02 | C-COL-04, C-MCH-06, C-MCH-09, C-MCH-10 |
 | [T-MCH-12](T-MCH-12.md) | Secrets into machines; main-only kept out | S2 | M | T-MCH-11, T-COL-03 | C-MCH-07, C-SEC-01 |
 | **Live layer and machine daemon** | | | | | |
 | [T-COL-10](T-COL-10.md) | Co-editing contracts: ADR 0004 wire contract, golden frames, the Go codec and the topology-neutral stage-1 contracts (spec §7.6) | S1 | L | — | C-COL-01, C-J1-04, C-UI-05 |
-| [T-COL-02](T-COL-02.md) | Live channel `/api/live`: topics, cursors, backpressure | S1 | L | T-STK-01, T-ACC-03, T-ACC-04, T-INS-04, T-COL-10, T-FLW-01 | C-COL-02, C-J1-04, C-PERF-02, C-UI-05 |
+| [T-COL-02](T-COL-02.md) | Live channel `/api/live`: topics, cursors, backpressure | S1 | L | T-STK-01, T-ACC-03, T-ACC-04, T-INS-04, T-COL-10, T-FLW-01, T-APP-19b | C-COL-02, C-J1-04, C-PERF-02, C-UI-05 |
 | [T-COL-03r](T-COL-03r.md) | Rust crate skeleton, golden-frame codec and component hooks | S2 | S-M | T-COL-10 | C-COL-01 |
 | [T-COL-03f](T-COL-03f.md) | Fake machined for Go component tests | S2 | S | T-COL-10 |  |
 | [T-COL-03a](T-COL-03a.md) | Rust daemon core, broker, capture and durable outbox | S2 | L | T-COL-01, T-COL-10, T-COL-03r, T-TRM-06 | C-COL-01, C-COL-03, C-COL-04, C-DUR-04 |
@@ -154,8 +154,8 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-APP-04](T-APP-04.md) | Confirm card: one-click confirmations and Review & merge | S1 | M | T-ACC-05, T-STK-04, T-UI-05, T-APP-19, T-APP-08, T-APP-16, T-APP-22, T-APP-09, T-STK-05, T-ACC-06 | C-ACC-02, C-J1-04, C-UI-13 |
 | [T-APP-05](T-APP-05.md) | Flow card with versions | S1 | M | T-FLW-03, T-APP-16, T-UI-10, T-APP-19, T-APP-08, T-FLW-04, T-FLW-08, T-APP-15, T-APP-02, T-APP-04 | C-J1-04, C-J11-02, C-J5-01, C-UI-13 |
 | [T-APP-06](T-APP-06.md) | Members card | S1 | M | T-ACC-02, T-UI-09, T-APP-19, T-APP-08, T-APP-16, T-APP-09, T-ACC-03, T-ACC-06, T-CAT-02 | C-J1-04, C-J1-05, C-UI-13 |
-| [T-APP-07](T-APP-07.md) | Edge toast map, timeline, conversation-entry and monitor summaries | S1 | L | T-COL-02, T-APP-08, T-APP-23, T-UI-08, T-APP-19, T-APP-09, T-FLW-08, T-FLW-07 | C-J1-04, C-J11-01, C-PRC-02, C-UI-04, C-UI-13 |
-| [T-APP-09](T-APP-09.md) | Actor adapter: participants and "for Ben" (§14.6a, M-34) | S1 | S | T-ACC-04, T-UI-01, T-APP-19 | C-J1-04, C-J6-01, C-UI-13 |
+| [T-APP-07](T-APP-07.md) | Edge toast map, timeline, conversation-entry and monitor summaries | S1 | L | T-COL-02, T-APP-08, T-APP-23, T-UI-08, T-APP-19, T-APP-09, T-FLW-08, T-FLW-07, T-APP-19b | C-J1-04, C-J11-01, C-PRC-02, C-UI-04, C-UI-13 |
+| [T-APP-09](T-APP-09.md) | Actor adapter: participants and "for Ben" (§14.6a, M-34) | S1 | S | T-ACC-04, T-UI-01, T-APP-19, T-APP-19b | C-J1-04, C-J6-01, C-UI-13 |
 | [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07, T-UI-08, T-APP-19 | C-UI-03, C-UI-13 |
 | [T-APP-19](T-APP-19.md) | Card view-model schemas and fixtures from `ui-components.md`: the seam between design's views and engineering's containers | S1 | S | — | C-J1-04, C-UI-08 |
 | [T-APP-19b](T-APP-19b.md) | Card schemas match §14.3: one rpc reconciliation | S1 | M | T-APP-19 | C-UI-08 |
@@ -173,7 +173,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-UI-12](T-UI-12.md) | Run monitor and Inspect views | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
 | [T-UI-13](T-UI-13.md) | Agent view and model roles | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
 | [T-UI-14](T-UI-14.md) | Commands view (/help) | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
-| [T-UI-23](T-UI-23.md) | TODO view: conflict, moved-off and outside-push forms; Fork and Add to stack | S1 | M | T-UI-04, T-APP-19 | C-UI-12 |
+| [T-UI-23](T-UI-23.md) | TODO view: conflict, moved-off and outside-push forms; Fork and Add to stack | S1 | M | T-UI-04, T-APP-19, T-APP-19b | C-UI-12 |
 | [T-UI-15](T-UI-15.md) | Branch view with moved-off controls | S2 | L | T-UI-01, T-APP-19 | C-UI-12 |
 | [T-UI-16](T-UI-16.md) | File and Diff live states | S2 | S | T-UI-01, T-APP-19 | C-UI-12 |
 | [T-UI-17](T-UI-17.md) | Terminal view | S2 | S | T-UI-01, T-APP-19 | C-UI-12 |
@@ -181,10 +181,10 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-UI-19](T-UI-19.md) | Co-editing visuals | S3 | M | T-UI-01, T-APP-19 | C-UI-12 |
 | [T-UI-20](T-UI-20.md) | Proposal view and lessons receipt | S3 | S | T-UI-01, T-APP-19 | C-UI-12 |
 | [T-APP-15](T-APP-15.md) | File card on CodeMirror 6 with code intelligence (read-only) | S1 | M | T-COL-10, T-UI-11, T-APP-19, T-INS-02, T-CAT-01 | C-COL-01, C-J1-03, C-J1-04, C-UI-11, C-UI-13 |
-| [T-APP-16](T-APP-16.md) | Branch conversations: storage, topics, view state, branch tree, Earlier archive | S1 | L | T-COL-02, T-ACC-02, T-UI-07, T-APP-19, T-APP-22, T-APP-09 | C-APP-04, C-J1-04, C-UI-06, C-UI-13 |
-| [T-APP-23](T-APP-23.md) | Host turns: the app agent's turns move to the host; cutover to shared conversations | S1 | L | T-APP-16, T-APP-22, T-ACC-04, T-ACC-05, T-ACC-06, T-CAT-02, T-UI-07, T-INS-02, T-FLW-08, T-APP-09 | C-APP-05, C-CUT-02, C-J1-04, C-UI-06 |
+| [T-APP-16](T-APP-16.md) | Branch conversations: storage, topics, view state, branch tree, Earlier archive | S1 | L | T-COL-02, T-ACC-02, T-UI-07, T-APP-19, T-APP-22, T-APP-09, T-APP-19b | C-APP-04, C-J1-04, C-UI-06, C-UI-13 |
+| [T-APP-23](T-APP-23.md) | Host turns: the app agent's turns move to the host; cutover to shared conversations | S1 | L | T-APP-16, T-APP-22, T-ACC-04, T-ACC-05, T-ACC-06, T-CAT-02, T-UI-07, T-INS-02, T-FLW-08, T-APP-09, T-APP-19b | C-APP-05, C-CUT-02, C-J1-04, C-UI-06 |
 | [T-APP-24](T-APP-24.md) | Settings HTTPS hint opens the quickstart page | S2 | S | T-APP-20, T-APP-03 | C-UI-09 |
-| [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-23, T-UI-07, T-APP-19, T-UI-12, T-INS-06, T-STK-12, T-FLW-08, T-FLW-07 | C-J1-04, C-UI-07, C-UI-13 |
+| [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-23, T-UI-07, T-APP-19, T-UI-12, T-INS-06, T-STK-12, T-FLW-08, T-FLW-07, T-APP-19b | C-J1-04, C-UI-07, C-UI-13 |
 | [T-APP-10](T-APP-10.md) | Branch card: presence, activity, machine state, terminals, SSH line | S2 | L | T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-11, T-UI-15, T-APP-19, T-APP-11, T-APP-22 | C-J3-01, C-J3-03, C-UI-13 |
 | [T-APP-11](T-APP-11.md) | File and Diff cards reload on change; deleted/renamed states; Restore this file; language server on the daemon | S2 | M | T-COL-04, T-APP-15, T-UI-16, T-APP-19, T-APP-22 | C-J3-08, C-PERF-04, C-UI-11, C-UI-13 |
 | [T-APP-12](T-APP-12.md) | Terminal card ownership UI | S2 | S | T-TRM-01, T-UI-17, T-APP-19 | C-J3-02, C-UI-13 |
@@ -198,7 +198,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-APP-14](T-APP-14.md) | File card live co-editing | S3 | M | T-COL-08, T-APP-14a | C-J3-04, C-UI-13 |
 | **Catalog and cuts** | | | | | |
 | [T-CAT-01](T-CAT-01.md) | One command catalog source; `catalog.mvp.json`; allowlist test from mvp.md Appendix B | S1 | L | T-UI-14, T-APP-19 | C-CAT-01, C-J1-04, C-UI-02, C-UI-13 |
-| [T-CAT-02](T-CAT-02.md) | CLI doors for Appendix A; skill generated from the catalog | S1 | M | T-CAT-01, T-ACC-04, T-ACC-05, T-APP-04, T-STK-01, T-STK-02, T-STK-06 | C-CAT-02, C-CAT-03, C-J1-04 |
+| [T-CAT-02](T-CAT-02.md) | CLI doors for Appendix A; skill generated from the catalog | S1 | M | T-CAT-01, T-ACC-04, T-ACC-05, T-APP-04, T-STK-01, T-STK-02, T-STK-06, T-APP-19b | C-CAT-02, C-CAT-03, C-J1-04 |
 | [T-CUT-01](T-CUT-01.md) | Delete cut app surfaces; align AGENTS.md scope | S1 | L | — | C-CUT-01 |
 | [T-CUT-02](T-CUT-02.md) | Delete cut backend routes with their OpenAPI rows | S1 | M | T-CUT-01, T-INS-08 | C-CUT-01 |
 | [T-CUT-03](T-CUT-03.md) | Hide deferred surfaces: billing, TUI, multi-repository, triggers; delete the TUI docs site | S1 | M | T-CAT-01, T-CAT-02, T-CUT-01, T-ACC-01 | C-CUT-01, C-ACC-01 |

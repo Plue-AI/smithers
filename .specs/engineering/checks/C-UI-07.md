@@ -15,7 +15,7 @@ Automation: `packages/backend/internal/chat/preflight_integration_test.go` (new)
 4. Open Inspect on the answer.
 
 ## Pass when
-- `context[]` has at least one item, includes `src/webhooks/retry.ts`, and every item has kind, ref and reason.
+- `context[]` has at least one item and includes `src/webhooks/retry.ts`. Every stored item parses with CardPrimitives’ `ContextItemSchema.extend({reason: z.string()})` via T-APP-19b (#3601), preserving kind, label, ref, optional revision and reason. Literal label/ref/revision/reason values agree across the answer topic, Context line and Inspect; missing label or reason fails decoding. The Go host selector does not invoke or change memory recall.
 - The answer-step request contains exactly the selected context items, the prompt and the last 3 entries' text. None of the other 497 entries' text appears.
 - The total context stays within the configured budget (default 24k tokens).
 - The preflight step's recorded model is the owner's `agent:fast` setting.

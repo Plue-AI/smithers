@@ -1,12 +1,14 @@
 # T-GH-04 Reviews and comments on TODO PRs become steers
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-06, T-GH-05, T-ACC-04, T-MCH-14 · Unblocks T-REL-02 · Issue: [#3516](https://github.com/smithersai/smithers/issues/3516)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-06, T-GH-05, T-ACC-04, T-MCH-14, T-APP-19b · Unblocks T-REL-02 · Issue: [#3516](https://github.com/smithersai/smithers/issues/3516)
 Spec: spec.md §2, §3 (`activity`), §3.0, §4.1 (`in_review → working`), §10.4.1, §10.7.3, §12.3 (review rows), §12.5.3, §14.6a, §17.1, §17.5 · Delta: delta.md §7 "Inbound reviews…" · Product: mvp.md J10.2, §6.3 "A review or review comment on a TODO's PR", §6.10 "Line comments", M-22
 
 ## Goal
 A member's GitHub review, line comment or PR conversation comment on a TODO's PR reaches the TODO's run as a steer attributed to that person within 60 s, the TODO goes back to Working, and the agent's fix updates the PR.
 
 ## Scope
+
+- Parse GitHub authors as the existing ActorSchema kind:"github" variant with login and color_index 7. Widen the existing ColorIndexSchema to 0–7 through §14.3 via T-APP-19b (#3601): members use 0–5, undelegated agents 6, github/outside 7. Preserve active-member resolution and record-only outsider behavior. Check: C-J10-02.
 In (adopted owner pre-review):
 - Use one transaction for activity, delivery key, TODO transition/events and durable steer signal intent. Supply a transaction-aware signal admission API; a separately committed dispatcher Admit call does not join the transaction. Dispatch only after commit and recover pending intents idempotently. Resolve the GitHub author to a current active member at steer admission and again before held delivery; removed, suspended and outsider authors have record-only activity and no effective steer. Check: C-J10-02.
 
@@ -15,16 +17,19 @@ In:
 - Mapping (§12.3):
   - A review with "changes requested", a review comment (a line comment or a commented review's body) or a conversation comment → one `activity` entry (kind `github`) with the GitHub mark, attributed to the member whose GitHub login wrote it.
   - From a member: one steer per review submission (its body plus its line comments batched, each anchored `path:line` with the commit it was made on) or per standalone comment, through T-STK-06's steer path; `in_review → working`, and approvals for the old head are void (§4.1).
-  - From a non-member: the activity entry shows `{github: login}`, rendered "@login" with the GitHub mark (§14.6a), and is never delivered as a steer (§17.5).
+  - From a non-member: the activity entry uses `ActorSchema` with `kind: "github"`, `login` and `color_index: 7`, rendered "@login" with the GitHub mark (§14.6a), and is never delivered as a steer (§17.5).
   - "Approved" → recorded on the PR card (`todo:<n>` PR `reviews`). Never a Smithers approval (§10.6).
   - An edited comment updates its entry and is re-delivered only if the run hasn't consumed it; a deleted one hides its entry and withdraws its steer only while held, never after delivery (§12.3.0a). A member review while failed is held for Retry; it does not start an attempt.
 - Each GitHub object id is delivered at most once, whether it arrives by poll, webhook hint, replay or after a restart.
 - Comments and reviews made by the install's own App are ignored.
 - `pull_request_review_comment` joins the accepted webhook events, so a delivery triggers its stream's fetch (§12.2.4).
 
-Out: GitHub App permission changes; evaluating GitHub text or running repository code on the host; UI Views and actor rendering (T-APP-09); in-app line comments and agent replies inside GitHub review threads ([D] §12.5.3); the steer delivery inside the run (T-STK-06); stacked bases ([D]); the Branch card that lists activity (T-APP-10, S2); `/review` on non-TODO PRs (unchanged).
+Out:
+- A {github: login} wire variant, a second color schema and RPC implementation outside T-APP-19b (#3601) are excluded. GitHub App permission changes; evaluating GitHub text or running repository code on the host; UI Views and actor rendering (T-APP-09); in-app line comments and agent replies inside GitHub review threads ([D] §12.5.3); the steer delivery inside the run (T-STK-06); stacked bases ([D]); the Branch card that lists activity (T-APP-10, S2); `/review` on non-TODO PRs (unchanged).
 
 ## Changes
+
+- Parse GitHub authors as the existing ActorSchema kind:"github" variant with login and color_index 7. Widen the existing ColorIndexSchema to 0–7 through §14.3 via T-APP-19b (#3601): members use 0–5, undelegated agents 6, github/outside 7. Preserve active-member resolution and record-only outsider behavior. Check: C-J10-02.
 - Use one transaction for activity, delivery key, TODO transition/events and durable steer signal intent. Supply a transaction-aware signal admission API; a separately committed dispatcher Admit call does not join the transaction. Dispatch only after commit and recover pending intents idempotently. Resolve the GitHub author to a current active member at steer admission and again before held delivery; removed, suspended and outsider authors have record-only activity and no effective steer. Check: C-J10-02.
 
 
@@ -34,10 +39,12 @@ Out: GitHub App permission changes; evaluating GitHub text or running repository
 - `packages/backend/internal/services/mythical_items.go:2827` (`ObserveGitHubEvent`) → no review or comment payload handling; webhook deliveries only request fetches (T-GH-02).
 - `packages/backend/internal/services/github_webhook.go:85-95` (`supportedGitHubWebhookEvents`) → add `pull_request_review_comment`.
 - `packages/backend/db/product/migrations/<next>_github_inbound_deliveries.sql` (new) → unique `(kind, github_id)` delivery record with the TODO, steer id, consumed flag and `delivered_at`.
-- Actor: agree the `{github: login}` wire form with smithers-3f and smithers-38 before start; extend T-ACC-04's actor resolver and the matching wire schema without changing existing actor forms. T-APP-09 renders the mark.
+- Actor: extend T-ACC-04's resolver to parse existing ActorSchema kind:"github" via T-APP-19b (#3601). T-APP-09 renders the mark. Check: C-J10-02.
 - `packages/backend/docs/github-sync.md` → "Reviews and comments" section; docs gates as in T-GH-02.
 
 ## Tests
+
+- Decode GitHub authors with kind:"github", login and color_index 7. Decode member 0–5, undelegated agent 6 and outside 7 fixtures; reject indices outside 0–7. Retain no-steer assertions for outsiders and removed or suspended members. Check: C-J10-02.
 - Send reviews through production webhook hints/poll consumers with real PostgreSQL and the real durable signal receiver. Crash before transaction commit and after commit before dispatch; assert all-or-none rows and one recovered steer. Repeat held review delivery after author removal/suspension and include outsider authors: retain allowed activity attribution but no signal, TODO transition or authority from historical roster/login. Check: C-J10-02.
 
 - Unit, `github_inbound_reviews_test.go` (new): the mapping over review state × author (member, non-member, own App) × location (line, review body, conversation) gives steer, record-only or ignore exactly as Scope states.
@@ -66,5 +73,5 @@ Out: GitHub App permission changes; evaluating GitHub text or running repository
 2. Out excludes App permission changes, host repository execution, Views, in-app line comments, GitHub thread replies and non-TODO review changes.
 3. C-GH-13 and the integration test enter through the production poll dispatcher and signed webhook route; C-J10-02 uses the installed machine run. Use committed literal actor, state, anchor and delivery fixtures, including failed/Retry and deletion before/after delivery. No test reads spec files or derives expected values from production code at runtime.
 4. smithers-3f approves delivery transactions, deduplication and actor resolution; smithers-38 approves the wire schema; smithers-8a decides any change to batching or the failed/Retry and deletion rules. Checks: C-GH-13, C-J10-02.
-5. Before start, smithers-3f: are activity, delivery keys and durable signals crash-safe; does membership checking prevent outsider steers? smithers-38: does the GitHub actor form parse without changing existing actor forms? smithers-06: can the actor chip show the GitHub mark and outsider login through the existing T-APP-09 contract? Rendering remains with its owner. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. The github actor is the GitHub mark plus @login at color_index 7, through T-APP-09."
+5. Before start, smithers-3f: are activity, delivery keys and durable signals crash-safe; does membership checking prevent outsider steers? smithers-38: does the GitHub actor form parse without changing existing actor forms? smithers-06: can the actor chip show the GitHub mark and outsider login through the existing T-APP-09 contract? Rendering remains with its owner. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. The github actor is the GitHub mark plus @login at color_index 7, through T-APP-09." smithers-38: answered, changes applied (tech lead adopts).
 6. GitHub text is untrusted data. Only current members steer; non-members and the install's own App never start work. Coding agents, repository flows and checks run only in machines (§1.3, M-29); no host fallback. smithers-3f reviews this boundary. C-J10-02 and C-SEC-03 prove outsider refusal; C-SEC-02 proves machine-only execution.

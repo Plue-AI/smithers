@@ -1,12 +1,14 @@
 # T-GH-05 Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-STK-07, T-GH-09, T-STK-02, T-STK-12, T-STK-13, T-ACC-03, T-FLW-11, T-MCH-14 · Unblocks T-APP-01, T-GH-03, T-GH-04, T-GH-06, T-GH-07, T-REL-02, T-STK-04, T-STK-10 · Issue: [#3517](https://github.com/smithersai/smithers/issues/3517)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-STK-07, T-GH-09, T-STK-02, T-STK-12, T-STK-13, T-ACC-03, T-FLW-11, T-MCH-14, T-APP-19b · Unblocks T-APP-01, T-GH-03, T-GH-04, T-GH-06, T-GH-07, T-REL-02, T-STK-04, T-STK-10 · Issue: [#3517](https://github.com/smithersai/smithers/issues/3517)
 Spec: spec.md §3.0, §4.1, §4.1.2a, §6.1.2 (in-card), §10.6.2, §10.6.4, §12.1.2 (`administration: read`), §12.3 (checks, approved, merged, closed rows), §12.4.1, §14.5.2 · Delta: delta.md §7 "PR closed → dropped…" · Product: mvp.md J10.5, §6.3 (checks, merged, closed, branch protection rows), M-22
 
 ## Goal
 Every TODO PR shows its GitHub checks by name, a blocked merge shows GitHub's own sentence, and a merge, close or reopen made on GitHub moves the TODO to Merged, Dropped or back to In review exactly as if done in Smithers. A later draft un-drafted and merged first marks both items merged with a note, folds `main`, and asks maintainers for an OK.
 
 ## Scope
+
+- Consume check facts {name, state, required, url} through the typed github_check evidence variant via T-APP-19b (#3601), never {status, conclusion}. Attention rows carry id and revision; order.ok binds {id, revision}. Pass both through the shared attention route and land the contract together with T-GH-07. Check: C-J10-05.
 
 - `order.ok` requires an eligible maintainer person session. Eligible delegated credentials return HTTP 403, class and code `never`; lower roles return HTTP 403, class and code `permission`. A stale attention revision returns HTTP 409, class `conflict`, code `stale_attention`, without clearing attention. Check: C-STK-04.
 
@@ -23,9 +25,12 @@ In:
 - PR reopened within 7 days → `in_review` (§4.1) at the TODO's previous stack position when it is still free, otherwise appended. `smithers/<slug>` is recreated on GitHub from the last verified candidate captured in the host repository store, whatever happened to the machine (§12.3). A TODO dropped by a GitHub close stays followed for those 7 days.
 - Out-of-order merge (§10.6.4): someone un-drafts a later item's PR and merges it first. Its squash commit contains the earlier unmerged items' changes. The engine marks the merged item and every earlier unmerged item it contained as `merged`, notes on each earlier one "T3 merged before T2; T2's change is in T3's commit", folds `main`, and opens `stack_attention{kind: order}` for maintainers with that sentence (§4.1.2a). The attention holds the stack's merges until a maintainer presses **OK** (in-card). Later items rebase as after any merge.
 
-Out: GitHub branch-protection or ruleset administration; GitHub App permission expansion; card Views and Containers; automatic replay of a merge approval; starting a reopened TODO's next attempt (T-STK-05); the merge command and its session and role guards (T-STK-04); rebase execution (T-STK-08, T-STK-11); the PR body and draft state (T-GH-03); keyed issue close and comment writes (T-GH-09 wraps them); stacked bases ([D]); merge methods other than squash (§10.6.2 fixes squash).
+Out:
+- A second check-fact model, independent attention-contract landing and RPC implementation outside T-APP-19b (#3601) are excluded. GitHub branch-protection or ruleset administration; GitHub App permission expansion; card Views and Containers; automatic replay of a merge approval; starting a reopened TODO's next attempt (T-STK-05); the merge command and its session and role guards (T-STK-04); rebase execution (T-STK-08, T-STK-11); the PR body and draft state (T-GH-03); keyed issue close and comment writes (T-GH-09 wraps them); stacked bases ([D]); merge methods other than squash (§10.6.2 fixes squash).
 
 ## Changes
+
+- Consume check facts {name, state, required, url} through the typed github_check evidence variant via T-APP-19b (#3601), never {status, conclusion}. Attention rows carry id and revision; order.ok binds {id, revision}. Pass both through the shared attention route and land the contract together with T-GH-07. Check: C-J10-05.
 
 - Document definitive GitHub merge refusals as HTTP 405, 409 or 422 passed through with class `github`, code `github_refused`, and GitHub’s message. Preserve T-STK-04’s lookup and uncertainty rules. Check: C-STK-04.
 
@@ -44,6 +49,8 @@ Out: GitHub branch-protection or ruleset administration; GitHub App permission e
 - `packages/backend/docs/github-sync.md` → "Checks, merges and closes" section; docs gates as in T-GH-02.
 
 ## Tests
+
+- Decode literal github_check facts with name, state, required and url. Dispatch order.ok with literal {id, revision}; a newer revision returns stale_attention without clearing the row. Verify both attention kinds and reset bindings together with T-GH-07. Check: C-J10-05.
 
 - C-STK-04 integration uses the production OK route with delegated maintainer and owner credentials, lower roles and a stale displayed revision. Assert `403 never`, `403 permission`, `409 conflict/stale_attention` and no effects. Assert GitHub 405/409/422 `github/github_refused` envelopes through the production merge route.
 
@@ -87,5 +94,5 @@ Out: GitHub branch-protection or ruleset administration; GitHub App permission e
 2. Out excludes protection administration, App permission expansion, Views/Containers, approval replay, next-attempt launch, merge commands, rebase execution and non-squash methods.
 3. C-GH-13, C-J10-08 and C-STK-04 drive production polling and the OK route. Required-check fixtures assert literal names, required flags and refusal text; containment fixtures persist independently authored manifests, including partial/missing proof. No test reads spec files or computes expected values from production code at runtime. Downstream merge-route validation uses T-STK-04's real route after it lands.
 4. smithers-3f approves fact decisions, containment and close/reopen transactions; smithers-b8 signs off catalog/OpenAPI payloads; smithers-8a accepts the close/reopen ownership split and any mapping or proof-policy change. Checks: C-GH-13, C-STK-04, C-J10-08.
-5. Before start, smithers-3f: does the actual merged head's retained manifest prove each contained change; are close/reopen and outbound effects atomic and deduplicated; can restoration land without T-STK-04 or T-STK-05? smithers-b8: does OK bind the displayed revision and enforce maintainer sessions; do public errors retain GitHub's messages and statuses? smithers-38: do check facts and attention revisions fit the topic schemas? smithers-06: can existing Home/TODO Views display partial-proof attention and named checks without a new visual component? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. Partial proof is an attention row in the existing Home View ("Tk merged out of order; containment of Tj is unverified"), and named checks are in evidence."
+5. Before start, smithers-3f: does the actual merged head's retained manifest prove each contained change; are close/reopen and outbound effects atomic and deduplicated; can restoration land without T-STK-04 or T-STK-05? smithers-b8: does OK bind the displayed revision and enforce maintainer sessions; do public errors retain GitHub's messages and statuses? smithers-38: do check facts and attention revisions fit the topic schemas? smithers-06: can existing Home/TODO Views display partial-proof attention and named checks without a new visual component? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. Partial proof is an attention row in the existing Home View ("Tk merged out of order; containment of Tj is unverified"), and named checks are in evidence." smithers-38: answered, changes applied (tech lead adopts).
 6. Host work reads GitHub facts and immutable repository objects with hooks/helpers disabled; it never evaluates fetched code. Final capture and any work triggered after reopen run through the machine boundary (§1.3, M-29), with no host fallback. smithers-3f reviews this boundary. C-J10-08 proves retained capture/restoration; C-SEC-02 proves machine-only execution.

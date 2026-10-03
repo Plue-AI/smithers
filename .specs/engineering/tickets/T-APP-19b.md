@@ -1,6 +1,6 @@
 # T-APP-19b Card schemas match §14.3: one rpc reconciliation
 
-Stage S1 · Size M · Depends on T-APP-19 · Unblocks T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14 · Issue: [#3601](https://github.com/smithersai/smithers/issues/3601) (in flight since 17:40, smithers-b8's lane; fold this ticket's field list into it)
+Stage S1 · Size M · Depends on T-APP-19 · Unblocks T-APP-07, T-APP-09, T-APP-16, T-APP-17, T-APP-23, T-CAT-02, T-COL-02, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-MCH-08, T-STK-10, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-23 · Issue: [#3601](https://github.com/smithersai/smithers/issues/3601) (in flight since 17:40, smithers-b8's lane; fold this ticket's field list into it)
 Spec: spec.md §14.2.1, §14.3, §21.1 · Delta: delta.md §9 · Product: mvp.md §6, Appendix B · Props: [ui-components.md](../ui-components.md)
 
 ## Goal

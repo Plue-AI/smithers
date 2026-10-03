@@ -22,6 +22,8 @@ Automation: `packages/backend/internal/chat/cutover_integration_test.go` (new) a
 6. Run the architecture test.
 
 ## Pass when
+- HostTools and the CLI handler import the same RPC `catalogRequest` via T-APP-19b (#3601), with no CLI-internal import or HostTools mapping/policy table. Literal boundary fixtures pin equal method/path/body and attribution. TODO PATCH returns one JSON success response carrying state; check facts use typed github_check evidence with name/state/required/url; attention rows carry id/revision; order.ok binds id/revision and main.reset-to-github binds id/old/new. github.retry is registered once. Existing confinement, credential revocation and private-data exclusions still pass.
+
 - `TURN_PATH`, `CANCEL_PATH`, `TURN_RETIRE_PATH`, `CHAT_TURN_PATH`, `CHAT_CANCEL_PATH` and `chat.queue.resume` are absent. `TURN_REPLAY_PATH`, `CONVERSATIONS_PATH`, `CONVERSATION_REPLAY_PATH` and `TURN_ERASE_PATH` remain. Migrated probes invoke only the shared prompt/stop write routes; Earlier remains readable and never starts a turn. Confirm dispatch reports literal `state: "pending"`.
 
 - Acquire a conversation-level database lock before claiming a queued turn; enforce a partial unique index permitting at most one running turn per conversation. Claim, persisted credential identity and model-host lease ownership are durable. Mint-success/launch-failure, shutdown and crash recovery revoke the credential and release the lease. Recovery reconciles and revokes every prior owned credential/lease before admitting the next turn; a row lock on one queued turn is insufficient

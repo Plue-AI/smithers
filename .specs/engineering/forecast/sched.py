@@ -50,6 +50,8 @@ else:
     over = P.get("s1_check_tickets", {})
     chosen = P.get("s1_checks") or [c for c in C if re.match(r"C-J[12]-\d+$", c)]
     roots = {t for c in chosen for t in over.get(c, C.get(c, [])) if T.get(t, {}).get("stage") in ("W0", "S1")}
+    if P.get("s1_roots"):  # explicit root tickets, e.g. the walking skeleton
+        roots = set(P["s1_roots"])
 need, st = set(), list(roots)
 while st:
     u = st.pop()
@@ -129,7 +131,10 @@ def sim():
         pool = "design" if t.startswith("T-UI-") else "code"
         # M-37 (revised 2026-10-02): after stage 1 every ticket runs as a TODO on the install unless it is a
         # named exception (owner, reason, expiry recorded on the ticket), listed here in post_exceptions.
-        if "post_lanes" in P and s1_done is not None and pool == "code" and t not in P.get("post_exceptions", []):
+        # post_outside_share: the fraction of post-stage-1 tickets allowed to run outside the install
+        # (M-37 named exceptions), chosen by a stable hash so runs are comparable.
+        outside = (sum(map(ord, t)) * 2654435761 % 100) < 100 * P.get("post_outside_share", 0.0)
+        if "post_lanes" in P and s1_done is not None and pool == "code" and t not in P.get("post_exceptions", []) and not outside:
             pool = "post"
         er = max([fin.get(d, 0.0) for d in T[t]["deps"] if d in need and d not in done] or [0.0])
         lane = min(range(len(free[pool])), key=lambda i: max(free[pool][i], er))
