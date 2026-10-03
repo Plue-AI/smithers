@@ -184,7 +184,7 @@ ends = sorted(r[0] for r in res)
 t0 = datetime.fromisoformat(P["start"])
 p = lambda q: ends[min(len(ends) - 1, int(q * len(ends)))]
 print(f"tickets in J1/J2 closure: {len(need)}; done: {len(done & need)}; to do: {len(work)}")
-for q in (0.5, 0.9):
+for q in (0.5, 0.8, 0.9):
     print(f"P{int(q*100)}: {p(q):.0f} wall-hours -> {(t0 + timedelta(hours=p(q))).strftime('%a %b %d %H:%M')}")
 chain, n = Counter(r[1] for r in res).most_common(1)[0]
 print(f"most frequent critical chain ({n}/{len(res)}): " + " -> ".join(f"{t}({T[t]['size']})" for t in chain))
