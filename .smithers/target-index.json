@@ -31434,9 +31434,21 @@
         "path": "flows/test/notes.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/test/system-flow-catalog.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/flow_catalog.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/flowdispatch/real_host_test.go"
       },
       {
         "kind": "file",
