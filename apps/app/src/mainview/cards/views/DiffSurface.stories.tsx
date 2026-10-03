@@ -1,6 +1,6 @@
 import { fixtures } from "@smthrs/rpc/fixtures/Diff"
 import type { DiffViewProps } from "@smthrs/rpc/DiffCard"
-import { DiffView } from "./DiffView"
+import { DiffCardSurface } from "../DiffSurface"
 import type { ViewStory } from "./stories"
 export const diffStories = {
   ...fixtures,
@@ -12,5 +12,5 @@ export const diffStories = {
 }
 export const stories: ViewStory[] = Object.entries(diffStories).map(([name, story]) => ({
   name, expect: story.expect, actions: story.actions,
-  render: (callbacks, actions = story.actions) => <DiffView {...story} actions={actions as DiffViewProps["actions"]} {...callbacks} />,
+  render: (callbacks, actions = story.actions) => <DiffCardSurface {...story} actions={actions as DiffViewProps["actions"]} {...callbacks} />,
 }))

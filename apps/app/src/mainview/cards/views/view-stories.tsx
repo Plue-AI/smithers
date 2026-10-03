@@ -5,7 +5,7 @@ import "../../styles/tokens.css"
 import "../../styles/views.css"
 import "./view-stories.css"
 
-const modules = import.meta.glob<StoryModule>("./*View.stories.tsx", { eager: true })
+const modules = import.meta.glob<StoryModule>("./*.stories.tsx", { eager: true })
 const stories: ViewStory[] = Object.entries(modules).flatMap(([path, module]) => module.stories.map(story => ({ ...story, name: `${path.split("/").pop()!.replace(".stories.tsx", "")}/${story.name}` })))
 const params = new URLSearchParams(location.search)
 document.documentElement.dataset.theme = params.get("theme") === "dark" ? "dark" : "light"

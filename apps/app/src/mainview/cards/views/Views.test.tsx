@@ -13,7 +13,7 @@ afterEach(() => {
   consoleError.mockRestore()
   expect(calls).toEqual([])
 })
-const paths = [...new Glob("*View.stories.tsx").scanSync({ cwd: import.meta.dir })].sort()
+const paths = [...new Glob("*.stories.tsx").scanSync({ cwd: import.meta.dir })].sort()
 if (!paths.length) throw new Error("No View stories discovered")
 
 async function mounted(story: ViewStory, removed = false) {
@@ -35,7 +35,7 @@ for (const path of paths) {
       const { host, onAction, onView } = mountedStory
       try {
         // Pierre renders asynchronously into a shadow root; read the production surface.
-        if (path === "DiffView.stories.tsx" && host.querySelector("diffs-container")) {
+        if (path === "DiffSurface.stories.tsx" && host.querySelector("diffs-container")) {
           const deadline = Date.now() + 4000
           while (!host.querySelector("diffs-container")?.shadowRoot?.querySelector("[data-column-number]") && Date.now() < deadline) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
         }
@@ -1301,7 +1301,7 @@ test("Flow failed version without diagnostics has no disclosure", () => {
   }
 })
 
-import { unifiedPatch } from "./DiffView"
+import { unifiedPatch } from "../DiffSurface"
 import { CodeEditorView } from "./CodeEditorView"
 import { fixtures as files } from "@smthrs/rpc/fixtures/File"
 import { fixtures as diffs } from "@smthrs/rpc/fixtures/Diff"
@@ -1324,24 +1324,24 @@ test("File sizes and supplied GitHub links have no editor", () => {
   }
 })
 
-import { DiffView } from "./DiffView"
+import { DiffCardSurface } from "../DiffSurface"
 test("Diff Restore binds the supplied burst; removing it leaves no control", () => {
   const calls: unknown[] = []
-  const host = render(<DiffView {...diffs.burst} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  const host = render(<DiffCardSurface {...diffs.burst} onAction={(...args) => calls.push(args)} onView={() => {}} />)
   act(() => host.querySelector<HTMLButtonElement>('button[data-flow="file.restore"]')!.click())
   expect(calls).toEqual([["file.restore", { path: "flows/todo/flow.ts", revision: "burst-17" }]])
-  act(() => root!.render(<DiffView {...diffs.burst} actions={[]} onAction={() => {}} onView={() => {}} />))
+  act(() => root!.render(<DiffCardSurface {...diffs.burst} actions={[]} onAction={() => {}} onView={() => {}} />))
   expect(host.querySelector('button')).toBeNull()
 })
 test("Diff bases, binary sizes and disabled reason render without inventing controls", () => {
   for (const fixture of [diffs.item_base, diffs.fork, diffs.binary]) {
-    const host = render(<DiffView {...fixture} onAction={() => {}} onView={() => {}} />)
+    const host = render(<DiffCardSurface {...fixture} onAction={() => {}} onView={() => {}} />)
     expect(host.querySelector('button')).toBeNull()
     expect(host.querySelector('[data-against]')!.getAttribute('data-against')).toBe(fixture.model.against.kind)
     if (fixture === diffs.binary) expect(host.textContent).toContain('Binary file · 18.2 kB → 19.7 kB')
   }
   const calls: unknown[] = []
-  const host = render(<DiffView {...diffs.burst} actions={[{ tag: 'file.restore', label: 'Restore this file', disabled: { reason: 'Revision changed' } }]} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  const host = render(<DiffCardSurface {...diffs.burst} actions={[{ tag: 'file.restore', label: 'Restore this file', disabled: { reason: 'Revision changed' } }]} onAction={(...args) => calls.push(args)} onView={() => {}} />)
   act(() => host.querySelector<HTMLButtonElement>('button')!.click())
   expect(calls).toEqual([])
   expect(host.textContent).toContain('Revision changed')

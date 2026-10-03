@@ -176,7 +176,7 @@ test("reload retires a selected retained card tab without losing its card or con
 
 test("retained grant confirmation bindings report removed command refusals through the real controller", async () => {
   // Ticket Out retains GrantConfirm; a saved action must never silently no-op.
-  const { cardActions } = await import("../cards/CardActions")
+  const { controllerCardActions: cardActions } = await import("../flows/cardActions")
   const { createAppController } = await import("./AppController")
   const { silentAgent, json } = await import("./TestFixtures")
   const store = await open(memoryStorage())

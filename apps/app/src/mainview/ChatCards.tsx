@@ -77,7 +77,7 @@ export interface CardViewProps extends CardActions {
 /*
  * Memoized: App renders the whole transcript on every streaming token, and a
  * card whose props are unchanged has nothing new to draw. Every callback comes
- * from cards/CardActions.ts, built once per controller, so the default shallow
+ * from flows/cardActions.ts, built once per controller, so the default shallow
  * comparison actually bails out — the only cards that re-render are the ones
  * whose record, maximized state, verbose flag or world documents changed.
  */

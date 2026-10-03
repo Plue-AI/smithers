@@ -6,7 +6,7 @@ import { createAppStore } from "../../state/AppStore"
 import { credentialReceipt, installFixture } from "../../state/seams/InstallFixtures.test-support"
 import { modelInvocable, nameOf } from "../registry"
 import { cardActions } from "../cardActions"
-import { installKeyAction, type InstallCardDispatch } from "../../cards/InstallCardActions"
+import { installKeyAction, type InstallCardDispatch } from "../cardActions"
 
 const memoryStorage = (): StorageApi => {
   const values = new Map<string, string>()

@@ -43,7 +43,7 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
         else await expect(chip).toHaveText(agent === "smithers" ? "S" : agent === "reviewer" ? "R" : label![0]!)
       }
     }
-    if (story.name.startsWith("DiffView/")) {
+    if (story.name.startsWith("DiffSurface/")) {
       
       const text = diffExpected[story.name.split("/")[1]!]
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
@@ -299,7 +299,7 @@ test("Commands review screenshots and muted policy marks", async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
     await page.goto(`/view-stories.html${story.href}&theme=${theme}`)
     await expect(page.locator("[data-story]")).toBeVisible()
-    if (story.name.startsWith("DiffView/")) {
+    if (story.name.startsWith("DiffSurface/")) {
       
       const text = diffExpected[story.name.split("/")[1]!]
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
@@ -590,18 +590,18 @@ test("T-UI-11 Pierre renders supplied hunks with line numbers and burst Restore"
     ['burst', 'description: "Build"', ['2', '3']],
     ['multiple_hunks', 'same', ['1', '5']],
   ] as const) {
-    await page.goto(`/view-stories.html?story=DiffView/${story}`)
+    await page.goto(`/view-stories.html?story=DiffSurface/${story}`)
     await expect(page.locator('diffs-container')).toBeVisible()
     await expect(page.locator('diffs-container')).toContainText(text)
     for (const n of numbers) await expect(page.locator(`diffs-container [data-column-number="${n}"]`).first()).toBeVisible()
     if (story === 'multiple_hunks') await expect(page.locator('diffs-container [data-line="5"][data-alt-line="4"]')).toContainText('same')
     await expect(page.getByRole('button', { name: 'Restore this file' })).toHaveCount(story === 'burst' ? 1 : 0)
   }
-  await page.goto('/view-stories.html?story=DiffView/burst')
+  await page.goto('/view-stories.html?story=DiffSurface/burst')
   await page.evaluate(() => window.addEventListener('story-callback', event => document.body.setAttribute('data-diff-action', JSON.stringify((event as CustomEvent).detail))))
   await page.getByRole('button', { name: 'Restore this file' }).focus(); await page.keyboard.press('Enter')
   await expect(page.locator('body')).toHaveAttribute('data-diff-action', JSON.stringify({ kind: 'action', value: { tag: 'file.restore', args: { path: 'flows/todo/flow.ts', revision: 'burst-17' } } }))
-  await page.goto('/view-stories.html?story=DiffView/hostile')
+  await page.goto('/view-stories.html?story=DiffSurface/hostile')
   await expect(page.locator('diffs-container')).toContainText('<script>alert("diff")</script>')
   await expect(page.locator('diffs-container script')).toHaveCount(0)
 })

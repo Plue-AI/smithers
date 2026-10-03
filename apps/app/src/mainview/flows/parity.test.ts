@@ -993,7 +993,7 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     for (
       const source of [
         "const actions = [{ tag: \"todo.retry\" }]; const view = <View actions={actions} />",
-        "import { cardActions } from \"../cards/CardActions\"; const actions = cardActions(controller);",
+        "import { controllerCardActions as cardActions } from \"../flows/cardActions\"; const actions = cardActions(controller);",
         "import { cardActions } from \"../flows/cardActions\"; cardActions(run, definitions); const view = <View actions={[{ tag: \"todo.retry\" }]} />",
         "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); bindings.actions = [];",
         "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); bindings.actions.push({ tag: \"todo.retry\" });",
@@ -1297,7 +1297,7 @@ describe("launch-law parity: every affordance is a command", () => {
 
   /* A card's acts bind once, and the live transcript uses that binding. */
   test("the transcript uses the shared card action binding", () => {
-    const actions = read("../cards/CardActions.ts")
+    const actions = read("./cardActions.ts")
     expect(actions).toContain("\"approval.approve\"")
     expect(actions).toContain("\"approval.deny\"")
     expect(actions).toContain("runCommand(\"card.maximize\"")

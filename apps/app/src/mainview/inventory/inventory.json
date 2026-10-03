@@ -88,8 +88,8 @@
       "card": "Diff",
       "stage": "S1",
       "view": {
-        "file": "cards/views/DiffView.tsx",
-        "export": "DiffView"
+        "file": "cards/DiffSurface.tsx",
+        "export": "DiffCardSurface"
       },
       "container": {
         "file": "cards/DiffContainer.tsx",
