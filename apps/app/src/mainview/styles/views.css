@@ -4,3 +4,5 @@
 @import "./views/todo.css";
 @import "./views/setup.css";
 @import "./views/conversation.css";
+
+@import "./views/commands.css";

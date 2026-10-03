@@ -745,3 +745,85 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
     expect(row.host.querySelector(".mvp-tree")).toBeNull()
   } finally { await row.close() }
 })
+
+// T-UI-14: Appendix A literal copy, presentation-only policy and inert text.
+const { CommandsView } = await import("./CommandsView")
+const { appendixCases } = await import("./CommandsCases")
+const { appendixExpectations } = await import("./CommandsExpectations")
+for (const theme of ["light", "dark"]) test(`Commands Appendix A and policy boundary ${theme}`, async () => {
+  document.documentElement.dataset.theme = theme
+  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={appendixCases} actions={[]} {...callbacks} /> }
+  const mountedStory = await mounted(story)
+  try {
+    const rows = [...mountedStory.host.querySelectorAll(".mvp-command")]
+    expect(rows).toHaveLength(57)
+    // Appendix B.2: A✓ asks; person-only settings/secrets/members/sign-in never run as agents.
+    for (const [synopsis, policy] of [["/merge T12", "Asks first"], ["/members", "Only you"], ["/secrets", "Only you"], ["/settings", "Only you"], ["/sign-in, /sign-out", "Only you"]]) {
+      expect(rows.find(row => row.querySelector("dt")!.textContent === synopsis)!.querySelector(".mvp-command-policy")!.textContent).toBe(policy)
+    }
+    expect(rows[0]!.querySelector("kbd")!.textContent).toBe("⌘K")
+
+    expect(rows.map(row => [row.querySelector("dt")!.textContent, row.querySelector("dd")!.textContent])).toEqual(appendixExpectations.map(row => [...row]))
+    expect(mountedStory.host.querySelector("details")!.open).toBe(false)
+    expect(mountedStory.host.querySelectorAll("button, a, script, img")).toHaveLength(0)
+    expect(mountedStory.onAction).not.toHaveBeenCalled()
+    expect(mountedStory.onView).not.toHaveBeenCalled()
+  } finally { await mountedStory.close() }
+})
+test("Commands renders supplied policies and order without dispatch or role filtering", async () => {
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Commands")
+  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView {...fixtures.maintainer} {...callbacks} /> }
+  const mountedStory = await mounted(story)
+  try {
+    expect([...mountedStory.host.querySelectorAll("h3, summary")].map(node => node.textContent)).toEqual(["TODOs", "People", "Advanced"])
+    expect([...mountedStory.host.querySelectorAll(".mvp-command-policy")].map(node => node.textContent)).toEqual(["Asks first", "Only you", "Only you"])
+    expect(mountedStory.host.querySelector(".mvp-command")!.querySelector(".mvp-command-policy")).toBeNull()
+    expect(mountedStory.onAction).not.toHaveBeenCalled()
+    expect(mountedStory.onView).not.toHaveBeenCalled()
+  } finally { await mountedStory.close() }
+})
+test("Commands treats hostile synopsis and descriptions as inert text", async () => {
+  const { stories } = await import("./CommandsView.stories")
+  const mountedStory = await mounted(stories.find(story => story.name === "Inert text")!)
+  try {
+    expect(mountedStory.host.textContent).toContain("<script>alert(1)</script>")
+    expect(mountedStory.host.textContent).toContain("<img src=x onerror=alert(1)>")
+    expect(mountedStory.host.querySelectorAll("script, img, a, button")).toHaveLength(0)
+    expect(mountedStory.onAction).not.toHaveBeenCalled()
+  } finally { await mountedStory.close() }
+})
+
+// ui-components Rules (1): bound arguments plus every supplied form field.
+test("Commands supplied action fields validate and forward literal input once", async () => {
+  const story: ViewStory = { name: "input", expect: [], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={{ groups: [] }} actions={[{ tag: "search", label: "Search", args: { source: "fixture", query: "" }, input: [{ name: "query", label: "Query", kind: "text", required: true }, { name: "scope", label: "Scope", kind: "choice", choices: ["code", "wiki"], value: "code", required: true }, { name: "token", label: "Token", kind: "secret", required: false }, { name: "notes", label: "Notes", kind: "text", multiline: true, required: false }] }]} {...callbacks} /> }
+  const result = await mounted(story)
+  try {
+    const button = result.host.querySelector("button")!
+    expect(button.disabled).toBe(true)
+    await act(async () => button.click())
+    expect(result.onAction).not.toHaveBeenCalled()
+    expect(result.host.querySelector('input[type="password"]')).not.toBeNull()
+    expect(result.host.querySelector("textarea")).not.toBeNull()
+    expect([...result.host.querySelectorAll("select option")].map(option => option.textContent)).toEqual(["code", "wiki"])
+    for (const [name, value] of [["query", "needle"], ["scope", "wiki"], ["token", "secret"], ["notes", "line 1\nline 2"]]) {
+      const field = result.host.querySelector<HTMLInputElement>(`[name="${name}"]`)!
+      await act(async () => {
+        const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : field instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype
+        Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(field, value)
+        field.dispatchEvent(new Event(field instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }))
+      })
+    }
+    expect(button.disabled).toBe(false)
+    await act(async () => button.click())
+    expect(result.onAction.mock.calls).toEqual([["search", { source: "fixture", query: "needle", scope: "wiki", token: "secret", notes: "line 1\nline 2" }]])
+    expect(result.onView).not.toHaveBeenCalled()
+  } finally { await result.close() }
+})
+test("Commands action without bound args forwards an empty object and has no body title", async () => {
+  const result = await mounted({ name: "empty args", expect: [], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={{ groups: [] }} actions={[{ tag: "help", label: "Open" }]} {...callbacks} /> })
+  try {
+    expect(result.host.querySelector("h2")).toBeNull()
+    await act(async () => result.host.querySelector("button")!.click())
+    expect(result.onAction.mock.calls).toEqual([["help", {}]])
+  } finally { await result.close() }
+})

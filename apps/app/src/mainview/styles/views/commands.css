@@ -1,0 +1,12 @@
+.mvp-commands-card { font-family: var(--font-ui); color: var(--text); }
+.mvp-commands { columns: 2 300px; column-gap: var(--sp-6); margin-top: var(--sp-1); }
+.mvp-commands section { break-inside: avoid; margin-bottom: var(--sp-4); }
+.mvp-commands h3 { margin: 0 0 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-commands dl { display: flex; flex-direction: column; gap: 3px; margin: 0; }
+.mvp-command { display: grid; grid-template-columns: minmax(0, 13.5em) minmax(0, 1fr); gap: 3px 10px; font-size: var(--fs-small); break-inside: avoid; overflow-wrap: anywhere; }
+.mvp-command dt code, .mvp-command dt kbd { color: var(--action-primary); font-family: var(--font-mono); font-size: 12.5px; }
+.mvp-command dd { margin: 0; color: var(--text-muted); }
+.mvp-command dd.mvp-command-policy { grid-column: 2; justify-self: end; color: var(--text-faint); font-size: var(--fs-caption); }
+.mvp-commands-advanced { break-inside: avoid; margin-bottom: var(--sp-4); color: var(--text-faint); font-size: var(--fs-small); }
+.mvp-commands-advanced summary { cursor: pointer; }
+.mvp-commands-card :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }

@@ -260,3 +260,81 @@ test("Conversation shell renders branch navigation, entries and Earlier", async 
     await expect.poll(callbacks).toEqual([{ kind: "view", value: { selected_archive: "old" } }])
   }
 })
+
+// T-UI-14 §Tests: native disclosure must never dispatch a command.
+test("Commands keyboard disclosure and inert policy marks", async ({ page }) => {
+  await page.goto("/view-stories.html?story=CommandsView/Commands%20a%20maintainer%20may%20run")
+  await page.evaluate(() => {
+    Object.assign(window, { commandCallbacks: [] })
+    window.addEventListener("story-callback", event => (window as unknown as { commandCallbacks: unknown[] }).commandCallbacks.push((event as CustomEvent).detail))
+  })
+  const advanced = page.locator("details")
+  await expect(advanced).not.toHaveAttribute("open")
+  await expect(page.getByText("/monitor", { exact: true })).toBeHidden()
+  await page.keyboard.press("Tab")
+  await expect(page.locator("summary")).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.getByText("/monitor", { exact: true })).toBeVisible()
+  await page.keyboard.press("Space")
+  await expect(advanced).not.toHaveAttribute("open")
+  await expect(page.locator(".mvp-command-policy").filter({ hasText: "Asks first" })).toHaveCount(1)
+  await expect(page.locator("button, a")).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { commandCallbacks: unknown[] }).commandCallbacks)).toEqual([])
+})
+
+// T-UI-14 acceptance: review widths and expanded disclosure belong to Commands.
+test("Commands review screenshots and muted policy marks", async ({ page }) => {
+  await mkdir(shots, { recursive: true })
+  await page.goto("/view-stories.html")
+  const stories = await page.locator("nav a").evaluateAll(links => links.map(link => ({ name: link.textContent!, href: link.getAttribute("href")! })).filter(story => story.name.startsWith("CommandsView/")))
+  const receipts = []
+  for (const story of stories) for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
+    await page.goto(`/view-stories.html${story.href}&theme=${theme}`)
+    await expect(page.locator("[data-story]")).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    {
+      const policyColors = await page.locator(".mvp-command-policy").evaluateAll(marks => {
+        const probe = document.createElement("span")
+        probe.style.color = "var(--text-faint)"
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return marks.map(mark => ({ actual: getComputedStyle(mark).color, expected }))
+      })
+      for (const colors of policyColors) expect(colors.actual).toBe(colors.expected)
+    }
+    await page.addScriptTag({ path: axePath })
+    for (const expanded of [false, true]) {
+      if (expanded) {
+        if (!await page.locator("summary").count()) continue
+        await page.locator("summary").click()
+      }
+      const violations = await page.evaluate(async () => (await (window as unknown as { axe: { run: () => Promise<{ violations: { impact: string }[] }> } }).axe.run()).violations.filter(item => item.impact === "serious" || item.impact === "critical"))
+      expect(violations).toEqual([])
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      receipts.push({ story: story.name, theme, width, expanded, violations })
+      await page.screenshot({ path: resolve(shots, `${story.name.replace(/[^a-z0-9_-]/gi, "-")}-${theme}-${width}${expanded ? "-advanced" : ""}.png`), animations: "disabled", fullPage: true })
+    }
+  }
+  await writeFile(join(shots, "commands-axe.json"), JSON.stringify(receipts, null, 2))
+})
+
+// ui-components Rules (1): the browser sends edited fields with bound args.
+test("Commands action input dispatches edited values exactly once", async ({ page }) => {
+  await page.goto("/view-stories.html?story=CommandsView/Action%20input")
+  await page.evaluate(() => {
+    Object.assign(window, { commandCallbacks: [] })
+    window.addEventListener("story-callback", event => (window as unknown as { commandCallbacks: unknown[] }).commandCallbacks.push((event as CustomEvent).detail))
+  })
+  await page.getByLabel("Query").fill("")
+  await expect(page.getByRole("button", { name: "Search" })).toBeDisabled()
+  await page.getByLabel("Query").fill("edited")
+  await page.getByLabel("Scope").selectOption("wiki")
+  await page.getByLabel("Token").fill("test-token")
+  await page.getByLabel("Notes").fill("two\nlines")
+  await page.getByRole("button", { name: "Search" }).click()
+  expect(await page.evaluate(() => (window as unknown as { commandCallbacks: unknown[] }).commandCallbacks)).toEqual([
+    { kind: "action", value: { tag: "search", args: { query: "edited", scope: "wiki", token: "test-token", notes: "two\nlines" } } }
+  ])
+})
