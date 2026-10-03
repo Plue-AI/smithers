@@ -600,6 +600,76 @@ test("printable answer keys in a worker's form fill its answer without steering 
   )
 })
 
+const steered = (index: number, boundary: string) =>
+  Effect.runSync(turns[index]!.input.steering!.drain({ boundary, wouldIdle: false })).inserts
+const until = async (check: () => boolean, ms = 5000) => {
+  const deadline = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`Timed out:\n${frame()}`)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    await render()
+  }
+}
+
+test("Alt+Enter in a running agent tab queues the message until that agent finishes", async () => {
+  await delegate(turns[0]!.input)
+  await openWorker()
+  expect(frame()).toContain("enter Steer  alt+enter Queue")
+  await type("Then list the files you read")
+  await key("RETURN", { meta: true })
+  expect(composer().plainText).toBe("")
+  expect(frame()).toContain("Follow-up: Then list the files you read")
+  // Nothing reaches the running agent, or Chat, before it finishes.
+  expect(steered(1, "worker-cell")).toEqual([])
+  expect(steered(0, "chat-cell")).toEqual([])
+  expect(turns).toHaveLength(2)
+  await stream(1, "Still reviewing")
+  expect(turns).toHaveLength(2)
+  await finish(1, { _tag: "done", answer: "Reviewed" })
+  await until(() => turns.length === 3)
+  expect(turns[2]!.input).toMatchObject({ prompt: "Then list the files you read", source: "review" })
+  expect(frame()).not.toContain("Follow-up:")
+  expect(records().filter((record) => record.type === "queued").map((record) => record.prompt))
+    .toMatchObject([{ text: "Then list the files you read", scope: "tab:review" }])
+})
+
+test("a stopped agent keeps its queued message for Alt+Up and never starts it", async () => {
+  await delegate(turns[0]!.input)
+  await openWorker()
+  await type("Queued note")
+  await key("RETURN", { meta: true })
+  await finish(1, { _tag: "cancelled" })
+  expect(turns).toHaveLength(2)
+  expect(frame()).toContain("Follow-up: Queued note")
+  await key("ARROW_UP", { meta: true })
+  expect(composer().plainText).toBe("Queued note")
+  expect(frame()).not.toContain("Follow-up:")
+  expect(turns).toHaveLength(2)
+})
+
+test("an agent's queue stays in its tab, and Chat's in Chat", async () => {
+  await delegate(turns[0]!.input)
+  await type("Chat follow-up")
+  await key("RETURN", { meta: true })
+  expect(frame()).toContain("Follow-up: Chat follow-up")
+  await openWorker()
+  expect(frame()).not.toContain("Follow-up: Chat follow-up")
+  await type("Agent follow-up")
+  await key("RETURN", { meta: true })
+  expect(frame()).toContain("Follow-up: Agent follow-up")
+  await key("ARROW_UP", { meta: true })
+  expect(composer().plainText).toBe("Agent follow-up")
+  await key("c", { ctrl: true })
+  await key("ESCAPE")
+  await until(() => frame().includes("Follow-up: Chat follow-up"))
+  expect(frame()).not.toContain("Agent follow-up")
+  // Chat's queue still runs after Chat's turn, never in the agent.
+  await finish(0, { _tag: "done", answer: "Coordinated" })
+  expect(turns.at(-1)!.input).toMatchObject({ prompt: "Chat follow-up", seat: "replay:chat" })
+})
+
 test("a queued worker retains its message and never reroutes it to Chat", async () => {
   for (let index = 0; index < seats; index++) {
     await delegate(turns[0]!.input, {

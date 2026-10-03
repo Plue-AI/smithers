@@ -118,6 +118,8 @@ type FlowForm = Dispatch.FlowForm
 const askForm = "ask:"
 /** A form's id prefix when it raises a capped worker's token cap. */
 const capForm = "cap:"
+/** The follow-up queue an agent tab's composer adds to, or the chat's. */
+const queueScope = (tab: Tab | undefined) => tab === undefined ? "chat" : `tab:${tab.id}`
 
 export function App(props: AppProps) {
   const renderer = useRenderer()
@@ -687,6 +689,8 @@ export function App(props: AppProps) {
   useEffect(() => {
     if (review !== undefined && review.surface !== surface) setReview(undefined)
   }, [surface, review])
+  /** The follow-ups the shown composer queued: the chat's, or this agent's. */
+  const shownQueue = PromptQueue.inScope(followUps, queueScope(workerTab))
   const continued = workerTab !== undefined &&
       (workerTab.status === "done" || workerTab.status === "failed" || workerTab.status === "cancelled")
     ? workerTab
@@ -1028,21 +1032,34 @@ export function App(props: AppProps) {
     live.current.followUps = next
     setFollowUps(next)
   }, [])
-  /** Admits a follow-up: recorded in the session file, then shown. */
-  const enqueue = useCallback((text: string) => {
-    const next = PromptQueue.enqueue(live.current.followUps, { id: crypto.randomUUID(), text, scope: "chat" })
+  /** Admits a follow-up for the chat, or for the agent tab `scope` names: recorded in the session file, then shown. */
+  const enqueue = useCallback((text: string, scope = "chat") => {
+    const next = PromptQueue.enqueue(live.current.followUps, { id: crypto.randomUUID(), text, scope })
     if (next === live.current.followUps) return
     writer.current.append({ type: "queued", at: Date.now(), prompt: next.at(-1)! })
     setQueue(next)
   }, [setQueue])
-  /** Takes the oldest follow-up for its turn; the record precedes the turn's own prompt. */
-  const dequeue = useCallback((): string | undefined => {
-    const [first, ...rest] = live.current.followUps
+  /** Takes the scope's oldest follow-up for its turn; the record precedes the turn's own prompt. */
+  const dequeue = useCallback((scope = "chat"): string | undefined => {
+    const first = PromptQueue.next(live.current.followUps, scope)
     if (first === undefined) return undefined
     writer.current.append({ type: "dequeued", at: Date.now(), id: first.id, reason: "started" })
-    setQueue(rest)
+    setQueue(PromptQueue.remove(live.current.followUps, first.id))
     return first.text
   }, [setQueue])
+  // An agent's queued message starts its next turn once it finishes; a stopped agent keeps its queue.
+  useEffect(() => {
+    for (const tab of workspace.snapshot().tabs) {
+      if (tab.status !== "done" && tab.status !== "failed") continue
+      const text = dequeue(queueScope(tab))
+      if (text === undefined) continue
+      try {
+        workspace.continue(tab.id, text)
+      } catch (error) {
+        setStatus(Failures.line("worker", error), "warning")
+      }
+    }
+  }, [revision, followUps, workspace, dequeue, setStatus])
 
   useEffect(() => {
     renderer.setTerminalTitle(`smithers - ${basename(props.host.cwd)}`)
@@ -1763,6 +1780,9 @@ export function App(props: AppProps) {
       if (!workspace.drive(driving.id, text)) setStatus(`${driving.title} is not running`, "warning")
       return
     }
+    if (route._tag === "steer" && followUp) {
+      return enqueue(text, queueScope(target))
+    }
     if (route._tag === "steer") {
       if (!workspace.steer(target!.id, text)) {
         setText(text)
@@ -1776,7 +1796,7 @@ export function App(props: AppProps) {
     }
     if (route._tag === "command" && command(text)) return
     send(text, followUp)
-  }, [setText, runShell, command, send, workspace, setStatus])
+  }, [setText, runShell, command, send, workspace, setStatus, enqueue])
 
   /**
    * Runs a contributed action for the person who chose it: a key, a status
@@ -1814,14 +1834,15 @@ export function App(props: AppProps) {
     Surfaces.ownerOf(id, { run: runs.get, plugins: extensions.panels })
 
   /** pi's restore: queued messages go back into the editor, above the draft. */
-  const restoreQueued = useCallback((extra: ReadonlyArray<string> = []) => {
-    const queued = [...extra.map((text) => ({ text })), ...live.current.followUps]
+  const restoreQueued = useCallback((extra: ReadonlyArray<string> = [], scope = queueScope(live.current.workerTab)) => {
+    const scoped = PromptQueue.inScope(live.current.followUps, scope)
+    const queued = [...extra.map((text) => ({ text })), ...scoped]
     if (queued.length === 0) return
     const at = Date.now()
-    for (const each of live.current.followUps) {
+    for (const each of scoped) {
       writer.current.append({ type: "dequeued", at, id: each.id, reason: "restored" })
     }
-    setQueue([])
+    setQueue(live.current.followUps.filter((each) => each.scope !== scope))
     const current = composer.current?.plainText ?? ""
     setText(PromptQueue.restoreDraft(queued, current))
     setStatus(`Restored ${queued.length} queued message${queued.length === 1 ? "" : "s"} to editor`)
@@ -2492,7 +2513,7 @@ export function App(props: AppProps) {
       steering: live.current.steered !== undefined,
       turn: running === undefined ? undefined : {
         stop: () => {
-          restoreQueued(running.steering.take())
+          restoreQueued(running.steering.take(), "chat")
           running.handle.cancel()
         }
       },
@@ -2579,8 +2600,12 @@ export function App(props: AppProps) {
     : workerTab !== undefined && !panelFocus && picker === undefined && form === undefined &&
         activeInspection === undefined && reviewTab === undefined
     ? [
-      ...cardHint(steered === undefined ? "send" : "steer"),
-      ...cardHint("queue"),
+      // Enter continues a finished agent at once; Alt+Enter waits for a working one to finish.
+      ...steered !== undefined
+        ? [...cardHint("steer"), ...cardHint("queue")]
+        : continued !== undefined
+        ? cardHint("send")
+        : [...cardHint("send"), ...cardHint("queue")],
       ...cardHint("close-panel"),
       ...cardHint("keys")
     ]
@@ -2721,7 +2746,7 @@ export function App(props: AppProps) {
     3,
     chatHeight - (short ? 2 : 4) - activityHeight -
       Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short)) -
-      (followUps.length === 0 ? 0 : (short ? 3 : followUps.length + 2))
+      (shownQueue.length === 0 ? 0 : (short ? 3 : shownQueue.length + 2))
   )
 
   return (
@@ -2966,13 +2991,13 @@ export function App(props: AppProps) {
                     : inspectActivity(monitored.activity.records.at(-1)!.sequence!, false)}
               />
             )}
-          {followUps.length === 0 || reviewTab !== undefined ?
+          {shownQueue.length === 0 || reviewTab !== undefined ?
             null :
             (
               <box style={{ marginTop: 1, paddingLeft: 2, flexShrink: 0 }}>
-                {(short ? followUps.slice(-1) : followUps).map((prompt) => (
+                {(short ? shownQueue.slice(-1) : shownQueue).map((prompt) => (
                   <text key={prompt.id} fg={color.muted} wrapMode="none">
-                    {short ? `${followUps.length} queued: ` : "Follow-up: "}
+                    {short ? `${shownQueue.length} queued: ` : "Follow-up: "}
                     {prompt.text.split("\n")[0]}
                   </text>
                 ))}
