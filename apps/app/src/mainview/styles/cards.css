@@ -104,9 +104,6 @@
 	background: transparent;
 }
 
-.smithers-card-body .sui-approval-summary {
-	font-size: var(--fs-small);
-}
 
 .smithers-card-body .sui-confirm-accepted,
 .smithers-card-body .sui-confirm-rejected {
@@ -442,12 +439,6 @@
 		transition: none;
 	}}
 
-.sui-approval-pending {
-	margin: 8px 0 0;
-	font-family: var(--font-mono);
-	font-size: var(--fs-caption);
-	color: var(--text-muted);
-}
 
 .sui-approval-error {
 	margin: 8px 0 0;

@@ -77,9 +77,9 @@ describe("CardRenderers", () => {
       status: "acted",
       payload: { capability: "deploy:production", decision: "denied" }
     }
-    expect(pillStatus(denied)).toBe("denied")
+    expect(pillStatus(denied)).toBe("")
     expect(pillStatus({ ...denied, status: "active", payload: { capability: "deploy:production" } })).toBe(
-      "waiting-approval"
+      ""
     )
 
     const syncing: Card = {

@@ -218,7 +218,7 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../cards/FlowCard.tsx": ["sendRunCommand("],
   "../cards/RunTraceCard.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
-  "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
+  "../cards/RunsCards.tsx": ["onAnswer(", "onClick={send}"], // retained run questions carry values through the inbox controller
   "../ToastStack.tsx": ["setExpanded("] // the "+N more" row is a local disclosure of the capped stack
 }
 
@@ -1129,16 +1129,6 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       "../ChatCards.tsx": 8, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
       "../ChatRunTimeline.tsx": 1,
-      /* The turn's approval card: approve and deny. */
-      "../cards/ApprovalCard.tsx": 2,
-      /*
-       * The answer box for a gate that asks a question rather than for a
-       * grant: Yes, No, one per select option, and Send answer. They carry a
-       * VALUE — what the person wrote — which no flow argument string can hold,
-       * so they call the controller's answerApproval through the card's own
-       * onAnswer prop rather than runCommand.
-       */
-      "../cards/ApprovalAnswer.tsx": 4,
       /* The access-request queue's Approve. */
       /*
        * The run card's lane-runs acts: the two secondary tabs under the trace
@@ -1196,7 +1186,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * approvals inbox's two decision acts (approval.approve / approval.deny
        * through the delegated onDecideApproval).
        */
-      "../cards/RunsCards.tsx": 11, // + the inbox rows' run reference.
+      "../cards/RunsCards.tsx": 15, // Retained run references and question-answer controls.
       "../cards/SearchResultsCard.tsx": 2,
       "../cards/SecretsCard.tsx": 10,
       /* Includes TODO filing, check-receipt run opening, and the failure/Wiki Retry actions. */

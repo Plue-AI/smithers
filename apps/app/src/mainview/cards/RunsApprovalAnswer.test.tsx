@@ -1,5 +1,3 @@
-import { approvalCardFamily } from "./ApprovalCard"
-import type { CardActions } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, describe, expect, test } from "bun:test"
@@ -8,7 +6,7 @@ import { createRoot } from "react-dom/client"
 import type { Card } from "../state/AppState"
 import { approvalActionId } from "../state/ApprovalReference"
 import { ApprovalsInboxCardBody } from "./RunsCards"
-import { answerValue } from "./ApprovalAnswer"
+import { answerValue } from "./RunsCards"
 import { questionOf } from "./ApprovalQuestion"
 
 /*
@@ -246,25 +244,6 @@ test("the answer box restores the projected draft and every input uses its exact
     expect(host.querySelector<HTMLTextAreaElement>("[data-testid=approval-answer-text]")!.value).toBe("")
     render({ ...asked, answerDraft: { question: "a".repeat(64), text: "restored after reopen" } })
     expect(host.querySelector<HTMLTextAreaElement>("[data-testid=approval-answer-text]")!.value).toBe("restored after reopen")
-  } finally {
-    flushSync(() => root.unmount())
-    host.remove()
-  }
-})
-
-
-test("a settled individual question no longer offers an answer box", () => {
-  const card: Extract<Card, { kind: "approval" }> = {
-    id: "settled-question", kind: "approval", status: "acted", title: "Owner?", createdAt: 1, ordinal: 1,
-    payload: { capability: "Owner?", question: { kind: "ask", prompt: "Owner?" }, decision: "approved" }
-  }
-  const actions = { onDecideApproval: () => {}, onRunCommand: () => {} } as unknown as CardActions
-  const host = document.createElement("div")
-  document.body.append(host)
-  const root = createRoot(host)
-  try {
-    flushSync(() => root.render(approvalCardFamily.approval!.render(card, actions)))
-    expect(host.querySelector("[data-testid=approval-answer]")).toBeNull()
   } finally {
     flushSync(() => root.unmount())
     host.remove()

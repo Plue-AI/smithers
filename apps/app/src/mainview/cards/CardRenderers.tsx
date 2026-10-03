@@ -1,4 +1,6 @@
 import { runTraceCardFamily } from "./RunTraceCard"
+import type { ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
+import { ConfirmView } from "./views/ConfirmView"
 import { repositoryUpdateCardFamily } from "./RepositoryUpdateCard"
 import { repositoryHomeCardFamily } from "./RepositoryHomeCard"
 import { useLiveQuery } from "@tanstack/react-db"
@@ -168,3 +170,6 @@ const ProjectedRepositoryUpdateBody = ({ card, actions, store }: {
     ...actions, repositoryUpdatePending: JSON.stringify(card.payload) !== JSON.stringify(committed.payload)
   })
 }
+
+/** T-APP-09 private actor projection enables this mount; legacy approval rows remain dark. */
+export const renderConfirmCard = (props: ConfirmViewProps) => <ConfirmView {...props} />
