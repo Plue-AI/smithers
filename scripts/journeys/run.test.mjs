@@ -30,8 +30,8 @@ const acceptedChecks = [
   ...range('J1', [1, 2, 3, 4, 5, 6]), ...range('J2', [1, 2, 3, 4, 5]),
   ...range('J3', [1, 2, 3, 4, 5, 6, 8, 9, 10]), ...range('J4', [1, 2, 3]),
   ...range('J5', [1, 2, 3]), ...range('J6', [1, 2]), ...range('J7', [1, 2, 3]),
-  ...range('J8', [1, 2, 3, 4]), ...range('J10', [1, 2, 3, 4, 5, 6, 7, 8]),
-  ...range('J11', [1, 3]), 'C-UI-01', 'C-REL-05',
+  ...range('J8', [1, 2, 3, 4, 5, 6]), ...range('J10', [1, 2, 3, 4, 5, 6, 7, 8, 9]),
+  ...range('J11', [1, 2, 3, 4]), 'C-UI-01', 'C-REL-05',
 ].sort()
 
 async function temporaryDirectory(t) {
