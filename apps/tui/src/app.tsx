@@ -809,7 +809,8 @@ export function App(props: AppProps) {
     if (workerTab === undefined || binding.owner !== undefined) return [binding]
     if (binding.id === "cards") return [{ ...binding, label: "Rows" }]
     if (binding.context !== "panel") return [binding]
-    if (binding.id === "navigate") return [{ ...binding, keys: ["up", "down"], display: "↑↓" }]
+    // An agent's actions act on its whole run, so its rows have nothing to select.
+    if (binding.id === "navigate") return []
     if (binding.id === "close-panel") return [{ ...binding, context: panelFocus ? "panel" : "composer" }]
     if (binding.id === "next-panel-tab") return [{ ...binding, label: "Composer" }]
     const keys = binding.keys.filter((key) => key.startsWith("alt+"))
@@ -1952,7 +1953,8 @@ export function App(props: AppProps) {
       completion: liveMenu().menu !== undefined,
       card: focusedCard !== undefined,
       shell: live.current.shell !== undefined || composer.current?.plainText.startsWith("!") === true,
-      turn: live.current.turn !== undefined
+      // An agent tab's composer addresses the agent, never Chat's running turn.
+      turn: live.current.turn !== undefined && live.current.workerTab === undefined
     })
 
   /** `u`: those changes are not all undone, and nothing runs that the writes could race. */

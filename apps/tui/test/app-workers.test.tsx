@@ -447,6 +447,20 @@ test.each([false, true])(
   }
 )
 
+test("an agent tab's keys list its Alt actions and no row navigation", async () => {
+  await delegate(turns[0]!.input)
+  await openWorker()
+  await key("?")
+  // Chat's turn is running, but these keys are the agent's.
+  expect(frame()).toMatch(/alt\+x\s+Stop/)
+  expect(frame()).not.toContain("Interrupt")
+  expect(frame()).not.toContain("Navigate")
+  await key("?")
+  await key("TAB")
+  expect(frame()).toContain("tab Composer")
+  expect(frame()).not.toContain("Navigate")
+})
+
 test("printable retry letters in a finished worker tab remain an unsent draft", async () => {
   await delegate(turns[0]!.input)
   await finish(1, { _tag: "done", answer: "Review complete" })
