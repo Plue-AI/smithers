@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,4 +90,94 @@ export default Flow.make(%q, {
 	var timeout net.Error
 	require.ErrorAs(t, err, &timeout)
 	require.True(t, timeout.Timeout())
+}
+
+// TestCSEC02BundledInstallIsolation refuses to substitute the in-process rig
+// for the production install. No absent prerequisite is a successful skip.
+func TestCSEC02BundledInstallIsolation(t *testing.T) {
+	bundle := os.Getenv("SMITHERS_CHECK_BUNDLE")
+	if bundle == "" {
+		t.Fatal("prerequisite: dependency: built-bundle: SMITHERS_CHECK_BUNDLE required")
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "manifest.json")); err != nil {
+		t.Fatalf("prerequisite: dependency: built-bundle: %v", err)
+	}
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		t.Fatal("prerequisite: environment: darwin-arm64 required")
+	}
+	msb := os.Getenv("SMITHERS_MICROSANDBOX_BIN")
+	if !filepath.IsAbs(msb) {
+		t.Fatal("prerequisite: environment: msb: absolute verified runtime required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	version, err := exec.CommandContext(ctx, msb, "--version").CombinedOutput()
+	if err != nil || !strings.Contains(string(version), "0.6.16") {
+		t.Fatal("prerequisite: environment: msb: version 0.6.16 required")
+	}
+	database := os.Getenv("SMITHERS_TEST_DATABASE_URL")
+	if database == "" {
+		t.Fatal("prerequisite: environment: PG18: allocated database required")
+	}
+	command := exec.CommandContext(ctx, "psql", "-Atqc", "SHOW server_version_num")
+	command.Env = append(os.Environ(), "PGDATABASE="+database)
+	version, err = command.CombinedOutput()
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(version)), "18") {
+		t.Fatal("prerequisite: environment: PG18: server version 18 required")
+	}
+	t.Fatal("prerequisite: dependency: T-INS-01/T-INS-08: bundled launcher and production install lifecycle harness unavailable; steps 1-5 and 7 unexecuted")
+}
+
+// The listener records every accepted connection, even a connection carrying
+// no nonce. Its shutdown waits for the accept loop before reading evidence.
+type isolationCanaryListener struct {
+	listener    net.Listener
+	done        chan struct{}
+	mu          sync.Mutex
+	connections []string
+}
+
+func newIsolationCanaryListener(t *testing.T) *isolationCanaryListener {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	canary := &isolationCanaryListener{listener: listener, done: make(chan struct{})}
+	go func() {
+		defer close(canary.done)
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			canary.mu.Lock()
+			canary.connections = append(canary.connections, connection.RemoteAddr().String())
+			canary.mu.Unlock()
+			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+			data, _ := io.ReadAll(io.LimitReader(connection, 4096))
+			_ = connection.Close()
+			canary.mu.Lock()
+			canary.connections[len(canary.connections)-1] += " " + string(data)
+			canary.mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() { _ = listener.Close(); <-canary.done })
+	return canary
+}
+func TestCSEC02CanaryListenerRecordsConnections(t *testing.T) {
+	canary := newIsolationCanaryListener(t)
+	connection, err := net.Dial("tcp", canary.listener.Addr().String())
+	require.NoError(t, err)
+	_, err = connection.Write([]byte("fixture-nonce"))
+	require.NoError(t, err)
+	require.NoError(t, connection.Close())
+	require.Eventually(t, func() bool {
+		canary.mu.Lock()
+		defer canary.mu.Unlock()
+		return len(canary.connections) == 1 && strings.HasSuffix(canary.connections[0], " fixture-nonce")
+	}, time.Second, time.Millisecond)
+	require.NoError(t, canary.listener.Close())
+	<-canary.done
+	canary.mu.Lock()
+	defer canary.mu.Unlock()
+	require.Len(t, canary.connections, 1)
 }

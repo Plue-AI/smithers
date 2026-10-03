@@ -1,53 +1,59 @@
-#!/usr/bin/env node
-// C-SEC-02: sample only the supplied install's descendants. This script never
-// reads a repository or sends a signal to a sampled process.
-import { appendFile, mkdir } from "node:fs/promises"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-import { parseArgs } from "node:util"
-import { join } from "node:path"
-
-const { values } = parseArgs({ options: {
-  pid: { type: "string" }, output: { type: "string" }, interval: { type: "string", default: "250" }
-} })
-const pid = Number(values.pid), interval = Number(values.interval)
-if (!Number.isSafeInteger(pid) || pid <= 1 || !values.output || !Number.isSafeInteger(interval) || interval < 25) {
-  throw new Error("usage: host-process-sampler.mjs --pid <launcher pid> --output <evidence dir> [--interval 250]")
-}
-const exec = promisify(execFile)
-await mkdir(values.output, { recursive: true })
-let stopping = false
-process.on("SIGTERM", () => { stopping = true })
-process.on("SIGINT", () => { stopping = true })
-while (!stopping) {
-  const at = new Date().toISOString()
-  const { stdout } = await exec("ps", ["-axo", "pid=,ppid=,uid=,command="], { maxBuffer: 16 * 1024 * 1024 })
-  const rows = stdout.split("\n").flatMap((line) => {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line)
-    return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), uid: Number(match[3]), command: match[4] }] : []
+import { execFile } from 'node:child_process'
+import { parseArgs, promisify } from 'node:util'
+import { appendFile, mkdir } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+const execute = promisify(execFile)
+export function descendants(text, rootPid) {
+  const rows = text.split('\n').flatMap(line => {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/)
+    return m ? [{ pid: +m[1], ppid: +m[2], uid: +m[3], command: m[4] }] : []
   })
-  const descendants = new Set([pid])
+  const ids = new Set([rootPid])
   let changed = true
   while (changed) {
     changed = false
-    for (const row of rows) {
-      if (descendants.has(row.ppid) && !descendants.has(row.pid)) {
-        descendants.add(row.pid)
-        changed = true
-      }
-    }
+    for (const row of rows) if (ids.has(row.ppid) && !ids.has(row.pid)) { ids.add(row.pid); changed = true }
   }
-  const processes = rows.filter((row) => descendants.has(row.pid))
-  await appendFile(join(values.output, "process-samples.jsonl"), `${JSON.stringify({ at, root: pid, processes })}\n`)
+  return rows.filter(row => ids.has(row.pid))
+}
+export async function sample({ rootPid, label, directory, exec = execute, now = () => new Date().toISOString() }) {
+  await mkdir(directory, { recursive: true })
+  await appendFile(join(directory, 'lsof-samples.jsonl'), '')
+  const at = now()
+  if (label) {
+    const job = await exec('launchctl', ['print', label])
+    rootPid = Number(job.stdout.match(/\bpid = (\d+)/)?.[1])
+  }
+  if (!Number.isSafeInteger(rootPid) || rootPid <= 0) throw new Error('sampler: live root PID required')
+  const result = await exec('ps', ['-axo', 'pid,ppid,uid,command'])
+  const processes = descendants(result.stdout, rootPid)
+  await appendFile(join(directory, 'process-samples.jsonl'), JSON.stringify({ at, root: rootPid, processes }) + '\n')
   for (const row of processes) {
-    if (!/(?:^|\/)(?:node|bun|smithers-[^ /]+)(?:\s|$)/.test(row.command.split(" ")[0])) continue
-    // Exited processes and lsof permission errors remain evidence, rather than
-    // turning an incomplete observation into an empty successful sample.
-    const result = await exec("lsof", ["-p", String(row.pid), "-Fn"], { maxBuffer: 16 * 1024 * 1024 })
-      .then(({ stdout, stderr }) => ({ stdout, stderr, exitCode: 0 }))
-      .catch((error) => ({ stdout: error.stdout ?? "", stderr: error.stderr || error.message, exitCode: error.code }))
-    await appendFile(join(values.output, "lsof-samples.jsonl"), `${JSON.stringify({ at, ...row, ...result })}\n`)
+    const binary = row.command.split(/\s+/)[0].split('/').at(-1)
+    if (!/^(node|bun|smithers-.*)$/.test(binary)) continue
+    let observation
+    try { const result = await exec('lsof', ['-p', String(row.pid), '-Fn']); observation = { stdout: result.stdout, stderr: result.stderr ?? '', exitCode: 0 } }
+    catch (error) { observation = { exitCode: error.code, stdout: error.stdout ?? '', stderr: error.stderr || error.message } }
+    await appendFile(join(directory, 'lsof-samples.jsonl'), JSON.stringify({ at, ...row, ...observation }) + '\n')
   }
-  if (!processes.some((row) => row.pid === pid)) break
-  await new Promise((resolve) => setTimeout(resolve, interval))
+  return { rootPid, processes }
+}
+export async function monitor(options, { signal, interval = 250, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), clock = Date.now } = {}) {
+  while (!signal?.aborted) {
+    const start = clock()
+    const observation = await sample(options)
+    if (!observation.processes.some(row => row.pid === observation.rootPid)) break
+    if (!signal?.aborted) await sleep(Math.max(0, interval - (clock() - start)))
+  }
+}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { values } = parseArgs({ options: {
+    pid: { type: 'string' }, label: { type: 'string' }, output: { type: 'string' }, interval: { type: 'string', default: '250' }
+  } })
+  const rootPid = Number(values.pid), interval = Number(values.interval)
+  if ((!values.label && (!Number.isSafeInteger(rootPid) || rootPid <= 1)) || (values.label && values.pid) || !values.output || !Number.isSafeInteger(interval) || interval < 25) throw new Error('usage: host-process-sampler.mjs --pid <pid> | --label <launchd domain/label> --output <directory> [--interval 250]')
+  const controller = new AbortController()
+  for (const name of ['SIGTERM', 'SIGINT']) process.once(name, () => controller.abort())
+  await monitor({ rootPid, label: values.label, directory: values.output }, { signal: controller.signal, interval })
 }

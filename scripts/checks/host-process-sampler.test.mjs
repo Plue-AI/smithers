@@ -8,6 +8,8 @@ import { setTimeout as delay } from "node:timers/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { descendants, sample, monitor } from "./host-process-sampler.mjs"
+
 const sampler = fileURLToPath(new URL("./host-process-sampler.mjs", import.meta.url))
 
 const within = async (promise, milliseconds, description) => {
@@ -47,7 +49,8 @@ const readSamples = async (directory, file) => {
 }
 
 const fixture = async (t) => {
-  const directory = await realpath(await mkdtemp(join(tmpdir(), `flw-sampler-${randomUUID()}-`)))
+  await mkdir(join(process.cwd(), ".artifacts"), { recursive: true })
+  const directory = await realpath(await mkdtemp(join(process.cwd(), ".artifacts", `flw-sampler-${randomUUID()}-`)))
   const processes = []
   const launch = (args, options = {}) => {
     const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"], ...options })
@@ -190,4 +193,32 @@ test("ends observation on its own when the supplied launcher exits", async (t) =
   const samples = await readSamples(output, "process-samples.jsonl")
   assert.equal(samples.at(-1).root, root.child.pid)
   assert.equal(samples.at(-1).processes.some((row) => row.pid === root.child.pid), false)
+})
+
+const tree = ' PID PPID UID COMMAND\n 9 2 501 /bin/bun child\n 2 1 501 /bin/smithers-server\n 3 2 501 /bin/sh x\n 4 3 501 /bin/node worker\n 5 1 0 /bin/node unrelated\n'
+test('tree includes nested descendants and excludes unrelated processes', () => {
+  assert.deepEqual(descendants(tree, 2).map(p => p.pid), [9, 2, 3, 4])
+  assert.deepEqual(descendants(tree, 99), [])
+})
+test('sampler resolves launchd PID and records lsof failures as evidence', async t => {
+  await mkdir(join(process.cwd(), '.artifacts'), { recursive: true })
+  const directory = await mkdtemp(join(process.cwd(), '.artifacts/sampler-'))
+  t.after(() => rm(directory, { recursive: true }))
+  const calls = []
+  const exec = async (bin, args) => {
+    calls.push([bin, args])
+    if (bin === 'launchctl') return { stdout: 'pid = 2' }
+    if (bin === 'ps') return { stdout: tree }
+    if (args[1] === '4') throw Object.assign(new Error('gone'), { code: 1, stderr: 'exited' })
+    return { stdout: 'p2\nn/repository/flow.ts\n' }
+  }
+  await sample({ label: 'gui/501/test', directory, exec, now: () => 'fixed' })
+  assert.deepEqual(calls, [['launchctl', ['print', 'gui/501/test']], ['ps', ['-axo', 'pid,ppid,uid,command']], ['lsof', ['-p', '9', '-Fn']], ['lsof', ['-p', '2', '-Fn']], ['lsof', ['-p', '4', '-Fn']]])
+  const rows = (await readFile(join(directory, 'lsof-samples.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+  assert.equal(rows.length, 3); assert.equal(rows[2].exitCode, 1); assert.equal(rows[0].at, 'fixed')
+  assert.equal(JSON.parse(await readFile(join(directory, 'process-samples.jsonl'))).processes.length, 4)
+  await assert.rejects(sample({ rootPid: 0, directory, exec }), /live root PID/)
+  const controller = new AbortController(); const waits = []
+  await monitor({ rootPid: 2, directory, exec }, { signal: controller.signal, clock: () => 0, sleep: async ms => { waits.push(ms); controller.abort() } })
+  assert.deepEqual(waits, [250])
 })
