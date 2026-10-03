@@ -13,6 +13,8 @@ Automation: `packages/backend/internal/services/github_sync_integration_test.go`
   - one further `main` move every 10 min.
 
 ## Steps
+- Adopted T-GH-02 boundary cases: Crash before fetch commit, after commit before dispatch and after consumer effects before acknowledgement; restart and assert no lost delivery or duplicate effective state change. Consumer failures retry the stable identity. Independently count direct repository reads and token mint requests in the shared budget. Start both install and hosted compositions and assert replacement only in install and retained hosted workers
+
 1. Hour 1: play the tape and advance 3,600 s.
 2. Hour 2: advance 3,600 s with no changes.
 3. Hour 3: at minute 10 set `X-RateLimit-Remaining` to 900; at minute 20 answer the pulls stream once with 429 and `Retry-After: 300`; reset the limit at minute 40.
@@ -20,6 +22,8 @@ Automation: `packages/backend/internal/services/github_sync_integration_test.go`
 5. Stop the scheduler, start a new one against the same database and fake server, and advance 120 s.
 
 ## Pass when
+- Commit fetched github_synced_* cache rows, cursor/ETag and pending consumer-delivery records in one transaction. Persist a stable identity per stream/object version or issue event id and consumer. Consumers commit their receipt and effects atomically, then acknowledge delivery; failures and restart retry the same identity. Route every install GitHub request through shared budget admission and accounting, including direct user-repository transports, repository-list reads and installation-token minting. Install startup alone replaces old workers; hosted Plue startup retains its existing workers
+
 - Hour 1: charged ≤ 1,000 and raw ≤ 1,500, token mints, admission reads and writes included and git excluded. Per stream, raw requests stay within the §12.2 worst case: pulls, `pr-state`, review comments and conversation comments 80 each; issues 30; issue events 30; members' permission 10.
 - During the 15 min after the merge, every check change on all ten pending heads lands in the store within 45 s + 1 s of simulated time, through `pr-state` alone: no per-PR or per-head REST request appears.
 - Each `labeled` event lands in the synced store once, in event-id order, with its actor and event id, including both events of the remove-and-reapply; no per-issue events request appears.

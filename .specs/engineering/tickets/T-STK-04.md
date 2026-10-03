@@ -1,14 +1,16 @@
 # T-STK-04 Merge: person session, one predicate and an in-flight fence, sha-bound, squash
 
-Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-STK-12, T-ACC-04, T-ACC-05, T-STK-07, T-GH-02, T-GH-05, T-GH-09, T-INS-02 · Unblocks T-APP-04, T-REL-02, T-STK-05 · Issue: [#3529](https://github.com/smithersai/smithers/issues/3529)
+Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-STK-12, T-ACC-04, T-ACC-05, T-STK-07, T-GH-02, T-GH-05, T-GH-09, T-INS-02 · Unblocks T-APP-04, T-REL-02, T-STK-05, T-STK-16 · Issue: [#3529](https://github.com/smithersai/smithers/issues/3529)
 Spec: spec.md §4.1, §4.1.2a, §5.2, §5.3, §6.2.4, §10.4.5, §10.6.1, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.6.3, §12.1.2, §12.3 (TODO PR merged), §12.5, §16.4 · Delta: delta.md §6 (Modify merge; Delete `change.land` path) · Product: mvp.md §4.2 Merging, §6.10, J1.7, J2.6, M-01, M-05, rule 6, Appendix B.4 (Stack: merge)
 
 ## Goal
 Only an owner or maintainer signed in with a browser session can merge, and only while the one merge predicate holds: the first unmerged item, in review, at its accepted generation with no pending work, rebase or open wait, and at exactly the PR head the person reviewed. A moved head, a pending edit or steer, a rebase, a reorder or an out-of-order request merges nothing.
 
 ## Scope
+
+- Delete all legacy TODO Land controls and their controller/flow bindings in this ticket. This includes removal from StackCard and ChangeCards; the new Merge and Confirm Views stay with their UI tickets. Check: C-STK-07.
 In:
-- `POST /api/todos/{n}/merge {reviewed_head_sha}` and the `/merge Tn` catalog command (person only; agents get a Review & merge confirmation, mvp.md Appendix B.2).
+- `POST /api/todos/{n}/merge {reviewed_head_sha}` and the `/merge Tn` catalog command (`agent: confirm`, kind `review_merge`; agents get a Review & merge confirmation, and execution requires an eligible person session, mvp.md Appendix B.2).
 - T-ACC-03 authorizes session eligibility and role before readiness. `DecideMerge` applies authorization then the single `MergeReady` predicate for route, projection, confirmation and dispatch/recovery. Required reviews must satisfy GitHub branch protection; otherwise `merge_block.reason = review_required`. Check: C-STK-07.
 - Consume T-STK-12's `LockStack`, `todos.merging` and held-signal delivery (§10.6.2b). This ticket owns the locked merge predicate, fresh pre-dispatch rechecks, dispatch and restart reconciliation. Shared primitives refuse fenced mutations and hold steers, review comments, rebases and proposes (C-STK-07).
 - `todo_approvals` rows carrying the D-23 rule: an approval counts only from a person's session and only for the generation and PR head it names (§10.6.2c); a new generation voids it.
@@ -25,6 +27,10 @@ Out:
 - The squash-merge check at setup (T-INS-06). Stacked PR bases (spec §0 [D]).
 
 ## Changes
+
+- This ticket owns deletion of the `prs.land` command handler and its install route. T-APP-04 owns binding and removal of the control only. Preserve Plue-only landing services and routes. Check: C-STK-07.
+
+- Complete TODO Land deletion inventory: remove the history.land button in `apps/app/src/mainview/cards/StackCard.tsx:111`, the change.land button in `apps/app/src/mainview/cards/ChangeCards.tsx:1023`, the HISTORY_LAND_USER_ONLY_REASON import and policy row in `apps/app/src/mainview/flows/Flows.ts:72` and `:119`, and the AppController type/binding entries for landStackItem (`apps/app/src/mainview/state/AppController.ts:528`, `:1781`) and landChange (`:603`, `:1837`). Update the matching StackCard, ChangeCards, flow-order, agent-parity and controller tests. This removal of legacy controls is in scope; new Merge/Confirm Views remain owned by their UI tickets. Check: C-STK-07.
 
 - S22: Row 9, after required checks pass, requires the PR not to be draft, including when GitHub's `mergeable` field is true. A draft PR returns HTTP 409, class `github`, code `github`, with GitHub's supplied draft refusal text verbatim, or detail and message `PR is still draft on GitHub` when none is supplied; no merge PUT is sent. This check precedes other mergeability evaluation within row 9. The normal first-item ready transition (§12.5.1) runs through §12.4; Merge and confirmation approval do not change draft state themselves, and a refused confirmation remains pending under §10.6.2c. Checks: C-STK-07.
 
@@ -100,6 +106,12 @@ Out:
 
 ## Tests
 
+- Wire T-ACC-05’s confirmation-to-action seam to the real merge service before enabling Merge. Drive production confirmation approval and merge routes through the composed router with real PostgreSQL and fake GitHub. Prove C-ACC-02’s session/role/revision checks, pending-on-state-conflict behavior and outbound reconciliation through T-GH-09 after a kill between approval and the external call. A test-only merge handler cannot discharge this gate. Keep Depends on T-ACC-05; do not add a reverse edge.
+- `review_merge` binds generation plus reviewed PR head. Changing generation with unchanged displayed head refuses without effects. MergeReady and definitive GitHub refusals leave the confirmation pending; only confirmed merge approves it. Prove through the real approval route and production merge consumer. Check: C-ACC-02.
+- Include `prs.land` in the C-STK-07 executable-door deletion gate; assert its install command and route are absent and the control binds only the supported Merge command.
+
+- C-STK-07 deletion gate: search app/backend/OpenAPI production sources and tests for history.land, change.land, HISTORY_LAND_USER_ONLY_REASON, landStackItem, landChange and the removed TODO Land route. No executable TODO Land door, controller binding or obsolete test expectation remains. Render the production StackCard and ChangeCards and assert no Land dispatch; verify TODO Merge/Confirm use the authorized merge route. Preserve Plue LandingService and its Plue-only API. Run existing app type and flow-parity gates.
+
 - C-J2-05: TODO and Confirm use the same required-check decision at the reviewed SHA. Failed optional plus passed required permits merge; pending required blocks both Containers and the service, with zero GitHub calls.
 - Unit, `todo_merge_test.go` (new): the guard table. Each guard fails alone (delegated, run and machine credentials; member role; each `MergeReady` row of §10.6.2a with its reason code) and yields no merge PUT. The shared `DecideMerge` function gives the route's refusal and `merge_block`.
 - Integration with real PostgreSQL and the fake GitHub server, `todo_merge_db_test.go` (new): a maintainer session merges T1 at its head. Exactly one `PUT /pulls/{n}/merge` with `sha` and `merge_method=squash`; one `todo_approvals` row; `merged` only after `OnMain` (`mythical_github.go:539`) is true.
@@ -132,5 +144,5 @@ Out:
 2. Out names Confirm Views, implementing check ingestion and outbound recovery, Plue landing removal, direct agent merge, host checks and stacked PR bases. Consuming prerequisite services is in scope.
 3. C-STK-07 and `todo_merge_db_test.go` call `POST /api/todos/{n}/merge` through the install router with real middleware, PostgreSQL and GitHub fake. C-ACC-02 exercises `/merge` and confirmation approval through the production catalog dispatcher. Assert each literal guard fixture’s route status, merge_block and GitHub call count. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 4. smithers-8a decides merge-contract changes and Plue/install deletion ambiguity. smithers-b8 approves catalog/app seams; smithers-38 signs off removing `landable` under §21.1.
-5. Before start, smithers-3f: do all stack writers use the same lock/fence; do fresh capture and outbound recovery prevent stale or duplicate merge? smithers-b8: do delegated requests use confirmation and all TODO Land doors disappear? smithers-38: is removing `landable` complete for every caller? Views are excluded; changing one needs smithers-06 pre-review.
+5. Before start, smithers-3f: do all stack writers use the same lock/fence; do fresh capture and outbound recovery prevent stale or duplicate merge? smithers-b8: do delegated requests use confirmation and all TODO Land doors disappear? smithers-38: is removing `landable` complete for every caller? Legacy Land-control deletion is in scope; new View behavior still needs smithers-06 pre-review. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Fresh capture uses the machine boundary. Checks and repository flows never execute on the host; T-INS-02 refuses missing isolation (§1.3). Packaged host Git operations on captured trees disable repository hooks/helpers (§10.5.5). smithers-3f reviews this boundary and session-only execution; C-STK-07, C-ACC-02 and C-SEC-02 prove it.

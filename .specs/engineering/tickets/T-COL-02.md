@@ -34,7 +34,7 @@ Out:
 - Presence (T-COL-06), terminal frames (T-TRM-01), Yjs relay and documents (T-COL-08, T-COL-09).
 - Moving the app's seams and deleting per-resource SSE routes (T-APP-08).
 - Card Views, document authority placement, repository-code execution and new public flow-library abstractions.
-- Each topic's projection rows and snapshot model (§7.2 lists them). Each owning ticket registers its builder: `home` T-APP-01, `todo:<n>` T-STK-01, `conversation:<branch>` and `view:<member>:<branch>` T-APP-16, `confirmations:<member>` T-ACC-05, timeline fields T-APP-07. T-FLW-07 extends `run:<id>` with cost, waits since and the raw journal.
+- Each topic's projection rows and snapshot model (§7.2 lists them). Each owning ticket registers its builder: `home` T-APP-08, `todo:<n>` T-STK-01, `conversation:<branch>` and `view:<member>:<branch>` T-APP-16, `confirmations:<member>` T-ACC-05, timeline fields T-APP-07. T-FLW-07 extends `run:<id>` with cost, waits since and the raw journal.
 - Client derivations from shared rows plus the member's own `last_seen_seq` and role: `merged_since_last_look` and the Home card's `attention[]` (T-APP-01).
 
 ## Changes
@@ -46,7 +46,7 @@ Out:
   - `hub.go`: one `LISTEN live`, reusing `packages/backend/internal/sse/listener.go`. It reads rows once per notification and fans them out.
   - `registry.go` (with the member-topic rule: the topic's member id must equal the credential's member), `publish.go`, `retention.go`.
   - `run_topic.go`: the base `run:<id>` builder, fed by the host's projection of runtime events (§11.6.1) in the same transaction as the run row change.
-- `packages/backend/internal/routes/live.go` (new): upgrade through `github.com/coder/websocket` (`go.mod:6`, already used by `routes/terminal_session_manager.go:14`). Auth uses the existing `authLoader`. Origins come from the owner-set origins that T-INS-04 serves (today `internal/config/config.go:246-251`, `AllowedOrigins`).
+- `packages/backend/internal/routes/live.go` (new): upgrade through `github.com/coder/websocket` (`go.mod:6`, already used by `packages/backend/internal/routes/terminal_session_manager.go:14`). Auth uses the existing `authLoader`. For the install, validate every upgrade against T-INS-04’s live effective-origin source. The static configuration seam (`packages/backend/internal/config/config.go:246`, AllowedOrigins) is not the install authority. Check: C-COL-02.
 - `packages/backend/internal/compose/router.go`: mount `GET /api/live` outside the JSON timeout group, beside the terminal WebSocket (`router.go:789`).
 - `docs/api/openapi/live.yaml` (new) describes the upgrade route and the frames. `packages/backend/internal/compose/openapi_conformance_test.go` covers it (§6.2.4).
 - `packages/rpc/src/Live.ts` (new): frame schemas shared by the app and the CLI.
@@ -54,6 +54,8 @@ Out:
 - `packages/backend/docs/live-channel.md` (new). Run `pnpm docs:sync` and `pnpm docs:check`, then `smthrs docs //packages/backend:docs`.
 
 ## Tests
+
+- `LiveChannel.test.ts`: two Containers on the same and different topics share one socket. Send one `sub` per topic, send `unsub` only after its last subscriber leaves, and reconnect with one `sub` per topic and its stored cursor. Check: C-COL-02.
 
 - unit (`packages/backend/internal/live/protocol_test.go`, new): every frame round-trips. Reserved topics, kinds 1–5 and `presence` get `err` `unsupported`, an unknown topic gets `unknown_topic`, and a refused topic gets `forbidden`, each with the socket left open. Malformed frames close the socket with a typed reason. The §7.6 row-2 assertion goes in `packages/backend/internal/compose/cocontracts_test.go` (T-COL-10).
 - unit (`apps/app/src/mainview/runtime/LiveChannel.test.ts`, new, fake clock):
@@ -92,5 +94,5 @@ Out:
 2. Out names presence/terminals/documents, SSE migration, card models, Views, authority placement and repository execution.
 3. C-COL-02, C-UI-05 and C-PERF-02 connect through `GET /api/live` mounted by `compose/router.go`, with real PostgreSQL and the production LiveChannel client. Add `packages/backend/internal/compose/live_integration_test.go` (new) cases for unsupported frames, private topics, Origin, bearer auth and removal. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 4. smithers-8a accepts ADR 0003 and decides topic sharding. smithers-3f approves the transport/authorization seam; smithers-b8 approves the client seam; smithers-38 signs off `@smthrs/rpc/Live` under §21.1.
-5. Before start, smithers-3f: is there one projection writer; do origin, topic authorization and revocation pass through real middleware? smithers-b8: does one tab keep one socket and resubscribe correctly? smithers-38: do per-module frame exports preserve decoding compatibility? Views are excluded; any View change needs smithers-06 pre-review.
+5. Before start, smithers-3f: is there one projection writer; do origin, topic authorization and revocation pass through real middleware? smithers-b8: does one tab keep one socket and resubscribe correctly? smithers-38: do per-module frame exports preserve decoding compatibility? Views are excluded; any View change needs smithers-06 pre-review. smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. This transport executes no repository code. Snapshot builders are packaged host code; frames cannot launch processes or import repository modules. smithers-3f reviews this boundary and private-topic authorization; the route cases and C-UI-05 verify it.

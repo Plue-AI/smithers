@@ -16,6 +16,8 @@ Automation: `packages/backend/internal/services/stack_order_attention_test.go` (
 
 ## Pass when
 
+- T-GH-05 containment crash fixtures run through production polling: receipt, proven-item transitions, order attention, projections and keyed close/comment intents commit together. Before-commit crash leaves none; after-commit restart retains one set. Remote-success-before-ack recovery creates no duplicate effective close/comment and leaves every unproven item unchanged.
+
 - S11 exception already in §12.3.0a item 3: a dropped change proven contained in a later merged PR becomes merged with `merged_via`. Terminal-absorption fixtures must preserve this exception.
 
 

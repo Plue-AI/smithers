@@ -15,11 +15,11 @@ In:
 - Retry from `failed` (reached from `starting` or `working`): `failed → queued` with a new `todo_attempts` row and a new run of the pinned flow version from its first step (§4.1, §11.4.2). The earlier attempt and its evidence stay. An optional steer becomes the first message.
 - Retry with the current flow (§4.1): as Retry, but the new attempt pins the currently Active version from `flow_activations` (§11.3.2). Same TODO identity and evidence history.
 - Drop (§10.7.2): confirm, cancel the run, close the PR with "Dropped in Smithers by @x", mark `dropped`, archive the branch (`branches.archived_at`), and call T-STK-02's `Remove` so later items rebase. A final capture runs before the archive; the attempt closes with outcome `dropped`, and its last accepted generation stays on the record. Before later items rebase, Drop calls T-MCH-08's `FoldIntoForks(item)`, so a TODO forked from the dropped item keeps its change (§8.5.3a, C-J7-02).
-- Reopen (§10.7.4), called by T-GH-05 for a PR reopened within 7 days: once per reopen event, restore `in_review` with the retained generation and no run. The first input that needs work (a steer, an amendment, a member's review comment, `rebase_pending` or pending work) starts a new attempt of the dropped attempt's pinned flow version from its first step, with that input as its first message.
+- After T-GH-05 restores a reopened TODO with its retained generation and no live run, the first input that needs work starts a new attempt of the dropped attempt’s pinned flow version from its first step, with that input as its first message (§10.7.4). T-GH-05 owns inbound close/reopen restoration; this ticket owns input-triggered restart.
 
 Out:
 - Machine release by the S2 admission scheduler (T-MCH-06). S1 Stop uses T-MCH-14's retained-workspace path; it does not delete the workspace or disk.
-- Detecting a PR closed or reopened on GitHub (T-GH-05); this ticket provides the `Drop` and `Reopen` it calls.
+- Detecting a PR closed or reopened on GitHub and restoring position/generation (T-GH-05); this ticket owns Drop and input-triggered restart, not inbound restoration.
 - Evidence contents per attempt (T-STK-10). Steer delivery to a working run (T-STK-06).
 - The `todo` run's pause wait and signal handling (T-FLW-11's one-run model); this ticket sends the signals.
 - Generic background-run retry/stop, flow activation or loading, changing an existing attempt's flow digest, PR polling, retention-policy changes, terminal/SSH controls, CLI/skill doors and UI Views or Containers.
@@ -29,7 +29,7 @@ Out:
   - Stop → `flowdispatch.Service.Signal` (`packages/backend/flowdispatch/service.go:94`) named `pause` to the attempt's `todo` run, never `Cancel`. The TODO stays `working` with `stop: requested` until the runtime reports the `paused` wait opened, then moves to `paused` (§19.3). Set `mythical_items.paused_at` only on the wait-opened event. S1 releases execution capacity through T-MCH-14 while retaining the workspace and disk; do not call today's destructive `releaseLane` (`services/mythical_items.go:1182`) for Stop.
   - Resume → settle the pause wait; `paused → queued`. Admission grants a machine and the same run continues; the engine replays settled steps and runs only unfinished ones.
   - Retry → `failed → queued`; insert `todo_attempts(attempt+1)`; pin the attempt's flow digest (`flow: pinned`) or the Active digest (`flow: current`); the new run's first message is the steer.
-  - Reopen → `dropped → in_review` guarded by the reopen event id; restore the position (T-STK-02) and the generation; no launch. An input for an `in_review` TODO with no live run starts attempt n+1 as Retry does, with that input first.
+  - Reopened TODO input → start attempt n+1 as Retry does, with the input first; T-GH-05 has already restored its position and accepted generation without a live run.
   - Drop → confirm; persist `flowdispatch.Service.Cancel` (`:205`), then observe the run stopped before the final capture; `ClosePull` and `Comment` (`mythical_github.go:484`) through `outbound_writes` (T-GH-09); close the attempt and all open waits, clear `needs_you` and `paused_at`, mark `dropped` and archive the branch. Under T-STK-12's stack lock/fence, call `FoldIntoForks(item)` (T-MCH-08 S1), then `Remove(n)` (T-STK-02), before later rebases. T-MCH-14 retains the final capture and accepted generation for Reopen; today's destructive `retireLane` (`mythical_items.go:1576`) cannot precede retained capture. Checks: C-J7-02, C-STK-08, C-J10-08.
 - `packages/backend/internal/services/mythical_github.go` → add `ClosePull(number)` (`PATCH /pulls/{n} {state: closed}`).
 - `packages/backend/internal/services/mythical_items.go` → one `todo_attempts` row per attempt holding the attempt's single `todo` run id and flow digest (T-FLW-11); delete the `request_run_id`/`vibe_run_id`/`verify_run_id` overwrite. Delete the bound-stop resume by re-applying the `todo` label (`:247-258`): Retry is the only way back from `failed`.
@@ -69,6 +69,8 @@ Out:
 - [C-J10-08](../checks/C-J10-08.md): reopen restores the generation; a later review comment starts a new attempt that merges.
 
 ## Risks and notes
+
+- Tech lead adopts the T-GH-05 restoration / T-STK-05 restart split. Do not add T-STK-05 to T-GH-05 dependencies: that creates T-GH-05 → T-STK-05 → T-STK-04 → T-GH-05. Checks: C-J10-08.
 - Risk: a model call in flight delays the boundary past 60 s (§10.7.1). Observation: stop-to-paused time over 60 s in the integration log; then the agent step needs a cancel token.
 - Risk: a run parked in `paused` for days holds a durable wait. T-FLW-11's restart test of 50 waiting runs covers it.
 - Resolved: the index now lists T-FLW-03 as a dependency.

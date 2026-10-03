@@ -2,7 +2,7 @@
 
 Stage S1 · Size M · Depends on T-ACC-01, T-STK-01 · Unblocks T-ACC-04, T-ACC-06, T-APP-06, T-APP-16, T-FLW-13, T-GH-02, T-MCH-11, T-REL-02, T-STK-09, T-TRM-04 · Issue: [#3491](https://github.com/smithersai/smithers/issues/3491)
 Spec: spec.md §5.1.2–§5.1.4, §2 (Install: one owner), §3 (`members`), §3.1, §6.3 (`/api/members`), §7.2 (`members` topic), §12.2 (members' permission stream) · Delta: delta.md §2 (Add `members`; Restore-reference closed-alpha roster) · Product: mvp.md J1.8, §3 "Member", §6.2, §6.15 "Members and maintainers", M-05
-Ready: 2026-10-02 smithers-8a sha256:06cbf6936190
+Ready: 2026-10-02 smithers-8a sha256:302d66636763
 
 ## Goal
 A maintainer adds a person by GitHub username. That person can sign in only while they are on the roster and hold `push` or higher on GitHub. Losing GitHub write access suspends them within one hour.

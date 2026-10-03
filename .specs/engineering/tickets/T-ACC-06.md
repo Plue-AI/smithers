@@ -7,6 +7,9 @@ Spec: spec.md §5.6, §5.1.3, §8.11.1, §15.1.4, §17.2 · Delta: delta.md §2 
 Within 5 s of a member's removal or suspension, the person has no live access: sessions, delegated credentials, member-bound run credentials, SSH grants, sockets, terminals and SSH sessions are all gone. Their TODOs keep their history.
 
 ## Scope
+In (adopted owner pre-review):
+- Use NewTransactionalDBPublisher with queries bound to the member-revocation transaction. Commit member state, credential revocations and durable revocation events before the response. Rollback publishes no event; local fanout consumes only committed events. Set catch-up polling to at most 1 s and reserve the remaining budget for consumer work and guest child termination so commit-to-termination is at most 5 s, including lost NOTIFY. Check: C-ACC-03.
+
 Approved integration requirements (In):
 - Every person-owned TODO run records the sponsoring member with its credential at minting. Run authorization checks that member's current active state without assigning the run a person role or person-command authority. Suspension or removal denies subsequent run calls immediately with HTTP 401, class `permission`, code `unauthenticated`; persistent token revocation completes within the same 5 s as the member's other credentials. Revoke all active run credentials bound to that member, including tokens minted before a later TODO ownership change. In-flight writes follow §5.2.1's state/fence ordering. Stop the affected execution from issuing further authenticated effects; retained TODO/run history is not permission to continue. Takeover by a maintainer does not reactivate a revoked token, and resumed execution mints a fresh credential bound to the new sponsoring member. Clearing suspension does not resurrect revoked credentials. Machine credentials remain separately workspace-scoped and gain no authority to continue a revoked member's run. Checks: C-ACC-01, C-ACC-03.
 In (backend paths are under `packages/backend/internal/` unless shown in full):
@@ -21,7 +24,7 @@ In (backend paths are under `packages/backend/internal/` unless shown in full):
   - SSE streams;
   - SSH sessions in the registry;
   - `/api/live` sockets (T-COL-02's hub).
-- TODO takeover: an owner or maintainer’s session invokes `todo.takeover` through `POST /api/todos/{n}/takeover`, changing `todos.owner_id`. A delegated credential gets 403 `never`; a Member gets 403 `permission`. The change is audited and appended to `todo_events` with the actor (§5.6, C-APP-01).
+- TODO takeover: an owner or maintainer’s session invokes `todo.takeover` through `POST /api/todos/{n} {takeover}`, changing `todos.owner_id`. A delegated credential gets 403 `never`; a Member gets 403 `permission`. The change is audited and appended to `todo_events` with the actor (§5.6, C-APP-01).
 - Define the revocation consumer seam for T-APP-23: cancel queued turns and abort the running turn/model stream within 5 s, with no later write. The real runner wires and proves this before it enables host turns (C-UI-06); this ticket must not depend on that downstream runner.
 
 Out:
@@ -30,9 +33,11 @@ Out:
 - Restoring access on unsuspension. The person signs in again; nothing is restored.
 
 ## Changes
+- Use NewTransactionalDBPublisher with queries bound to the member-revocation transaction. Commit member state, credential revocations and durable revocation events before the response. Rollback publishes no event; local fanout consumes only committed events. Set catch-up polling to at most 1 s and reserve the remaining budget for consumer work and guest child termination so commit-to-termination is at most 5 s, including lost NOTIFY. Check: C-ACC-03.
+
 - `packages/backend/internal/services/members.go`: `RevokeMember`.
   - Uses `DeleteUserSessions` (`internal/db/auth.sql.go:620`) and token revocation by member for delegated tokens and stored sponsoring member for run tokens, publishing `KindTokenRevoked` per token (`revocation/event.go:38`).
-  - Also uses grant revocation (`revocation/access_grants.go:20`) and `KindCollaboratorRemoved` with the member's live `SandboxIDs` (pattern in `services/revocation_publishers.go:157-170`).
+  - Revoke grants and insert `KindCollaboratorRemoved` with the member's live `SandboxIDs` through `NewTransactionalDBPublisher` bound to this transaction. Do not use best-effort publication. Check: C-ACC-03.
 - Verify each consumer closes within the budget:
   - `routes/workspace_socket_revocation.go:113` (terminal and workspace sockets);
   - `ssh/revocation.go:21` (SSH registry);
@@ -40,12 +45,16 @@ Out:
   - Add the `/api/live` hub as a bus consumer.
 - Revoke all run credentials bound to the member within 5 s, including pre-transfer tokens. Next authorization immediately refuses non-active sponsors with 401 permission/unauthenticated. TODO history survives; takeover/resume mints a fresh sponsor-bound credential. Restoration never revives old tokens. Check: C-ACC-03.
 - Takeover:
-  - `POST /api/todos/{n}/takeover` maps to the person-only `todo.takeover` descriptor and calls `Authorize` before changing the owner; a generic `todo.write` or owner PATCH is not this door;
+  - `POST /api/todos/{n} {takeover}` maps to the person-only `todo.takeover` descriptor and calls `Authorize` before changing the owner; a generic `todo.write` or owner PATCH is not this door;
   - the change writes `todo_events{kind: "owner_changed"}` and an audit row through `actor.FromRequest`.
-- OpenAPI: document `POST /api/todos/{n}/takeover` and its person-only refusals in the TODO file T-STK-01 adds.
+- OpenAPI: document `POST /api/todos/{n} {takeover}` and its person-only refusals in the TODO file T-STK-01 adds.
 
 ## Tests
-- Boundary: `compose/member_revocation_integration_test.go` uses the production install router for `DELETE /api/members/{id}`, the actual hourly/reactive recheck job for suspension and `POST /api/todos/{n}/takeover` for takeover. Establish terminal/SSE/SSH/live connections through their real served transports, not direct bus injection. Use committed literal credential refusals, event fields and the 5 s limit; no runtime spec or implementation oracle. Record commit-to-close and DELETE-response-to-close times; an old credential is refused immediately after DELETE returns. Include a delegated takeover attempt and assert no owner change.
+- Invoke `todo.takeover` through `POST /api/todos/{n} {takeover}`. A maintainer session changes the owner once; delegated credentials return HTTP 403, class and code `never`; a Member returns HTTP 403, class and code `permission`. Refusals change no owner or event. The separate `/takeover` path is absent from the served routes and OpenAPI. Checks: C-ACC-03, C-APP-01.
+
+- Drop NOTIFY delivery to a separate consumer, then remove/suspend through production routes/jobs. Measure state-commit-to-stream-close and guest-parent/child termination at no more than 5 s. Inject event insert/NOTIFY failure before commit and assert member state, credential changes and events roll back with no fanout. Crash after commit and verify durable catch-up closes every transport and guest process. Check: C-ACC-03.
+
+- Boundary: `compose/member_revocation_integration_test.go` uses the production install router for `DELETE /api/members/{id}`, the actual hourly/reactive recheck job for suspension and `POST /api/todos/{n} {takeover}` for takeover. Establish terminal/SSE/SSH/live connections through their real served transports, not direct bus injection. Use committed literal credential refusals, event fields and the 5 s limit; no runtime spec or implementation oracle. Record commit-to-close and DELETE-response-to-close times; an old credential is refused immediately after DELETE returns. Include a delegated takeover attempt and assert no owner change.
 - Security: with T-INS-02’s real microVM path, start a terminal command and a lingering child in the guest. Removal must end the member’s session processes within 5 s, not just close the socket; run no repository command on the host. S2’s broker `kill_sessions` is an integration gate of T-TRM-07; rerun C-ACC-03 then.
 - - Run sponsor fixtures cover suspended, removed and restored members, own/other tokens and pre-TODO-transfer tokens. Next call=401 immediately, physical revocation ≤5 s. Takeover preserves history; resumed execution mints a fresh sponsor-bound credential; restoration never revives old tokens. Check: C-ACC-03.
 
@@ -83,5 +92,5 @@ Out:
 2. Exclusions: gateway creation, unix-user teardown, runner implementation and the deferred credential store, history deletion and access restoration are explicit.
 3. Tests: C-ACC-03 drives real DELETE/recheck/transports; takeover uses its production person-only route. Fixed refusals and timing limits cover immediate denial and guest child termination; full downstream gates remain pending until their consumers land.
 4. Decisions: smithers-3f backend/process semantics, smithers-b8 public API, smithers-38 library seam, smithers-8a downstream responsibilities; Will decides budget/policy exceptions.
-5. Owner pre-review before start: smithers-3f: Does revocation commit before response and revoke member-bound run tokens and guest processes within 5 s? Are late runner/daemon consumers required to wire the same event? smithers-b8: Is takeover person-only through its own route? smithers-38: Is one revocation contract shared across stream libraries?
+5. Owner pre-review before start: smithers-3f: Does revocation commit before response and revoke member-bound run tokens and guest processes within 5 s? Are late runner/daemon consumers required to wire the same event? smithers-b8: Is takeover person-only through its own route? smithers-38: Is one revocation contract shared across stream libraries? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Security: §1.3/M-29 and T-INS-02 confine repository commands to machines; guest processes must end, not only sockets. smithers-3f reviews C-ACC-03/C-SPK-08 and the S2 kill_sessions/credential-removal gates.

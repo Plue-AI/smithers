@@ -156,19 +156,19 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07, T-UI-08, T-APP-19 | C-UI-03, C-UI-13 |
 | [T-APP-19](T-APP-19.md) | Card view-model schemas and fixtures from `ui-components.md`: the seam between design's views and engineering's containers | S1 | S | — | C-J1-04, C-UI-08 |
 | [T-UI-01](T-UI-01.md) | Primitives: actor chip, state word, tone | S1 | S | T-APP-19 | C-UI-12 |
-| [T-UI-02](T-UI-02.md) | Setup and Settings views | S1 | M | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-03](T-UI-03.md) | Draft view | S1 | S | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-04](T-UI-04.md) | TODO view: states, questions, failure, evidence, PR and merge | S1 | L | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-05](T-UI-05.md) | Confirm view | S1 | S | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-06](T-UI-06.md) | Home view with the main sync row | S1 | M | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-07](T-UI-07.md) | Conversation shell: branch tree, entry rows, Context line, Earlier archive | S1 | L | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-08](T-UI-08.md) | Toasts, edge map and timeline | S1 | M | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-09](T-UI-09.md) | Members view | S1 | S | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-10](T-UI-10.md) | Flow view | S1 | M | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-11](T-UI-11.md) | Code editor and Diff views (read-only) | S1 | L | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-12](T-UI-12.md) | Run monitor and Inspect views | S1 | M | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-13](T-UI-13.md) | Agent view and model roles | S1 | S | T-UI-01, T-APP-19 | C-UI-12 |
-| [T-UI-14](T-UI-14.md) | Commands view (/help) | S1 | S | T-UI-01, T-APP-19 | C-UI-12 |
+| [T-UI-02](T-UI-02.md) | Setup and Settings views | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-03](T-UI-03.md) | Draft view | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-04](T-UI-04.md) | TODO view: states, questions, failure, evidence, PR and merge | S1 | L | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-05](T-UI-05.md) | Confirm view | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-06](T-UI-06.md) | Home view with the main sync row | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-07](T-UI-07.md) | Conversation shell: branch tree, entry rows, Context line, Earlier archive | S1 | L | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-08](T-UI-08.md) | Toasts, edge map and timeline | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-09](T-UI-09.md) | Members view | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-10](T-UI-10.md) | Flow view | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-11](T-UI-11.md) | Code editor and Diff views (read-only) | S1 | L | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-12](T-UI-12.md) | Run monitor and Inspect views | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-13](T-UI-13.md) | Agent view and model roles | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
+| [T-UI-14](T-UI-14.md) | Commands view (/help) | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
 | [T-UI-23](T-UI-23.md) | TODO view: conflict, moved-off and outside-push forms; Fork and Add to stack | S1 | M | T-UI-04, T-APP-19 | C-UI-12 |
 | [T-UI-15](T-UI-15.md) | Branch view with moved-off controls | S2 | L | T-UI-01, T-APP-19 | C-UI-12 |
 | [T-UI-16](T-UI-16.md) | File and Diff live states | S2 | S | T-UI-01, T-APP-19 | C-UI-12 |
@@ -201,7 +201,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | **Docs and release** | | | | | |
 | [T-DOC-02](T-DOC-02.md) | ADR 0002: Mac install, multi-member, microVM-only, origin-agnostic | S1 | S | — | C-REL-01 |
 | [T-STK-12](T-STK-12.md) | Candidate generations: capture, propose receipts, pending work, the item's prefix | S1 | M | T-STK-01, T-INS-02, T-FLW-01 | C-J1-04, C-STK-06, C-STK-07, C-SEC-02 |
-| [T-INS-09](T-INS-09.md) | Bundle references for the built-bundle host lifecycle | S1 | S | T-INS-01, T-INS-08 | C-INS-05, C-INS-06 |
+| [T-INS-09](T-INS-09.md) | Bundle references for the built-bundle host lifecycle | S1 | S | T-INS-01, T-INS-08 | Documentation gates, C-CAT-01 |
 | [T-CAT-03](T-CAT-03.md) | Reject replaced flow tags after the TODO composition lands | S1 | S | T-CAT-01, T-FLW-11 | C-CAT-01 |
 | [T-STK-13](T-STK-13.md) | TODO projection for independent waits and attached resumed runs | S1 | M | T-STK-01, T-STK-07, T-FLW-11 | C-STK-01, C-STK-03, C-STK-06 |
 | [T-REL-03](T-REL-03.md) | Alpha scorecard instrumentation (mvp.md §10) | S1, S2, S3 | M | S1: T-STK-01, T-INS-06, T-ACC-03, T-GH-02, T-APP-16, T-FLW-03 · S2: T-COL-04, T-COL-06 · S3: T-FLW-06 | S1: C-REL-04 |
@@ -209,12 +209,14 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-DOC-01](T-DOC-01.md) | Quickstart and flows reference as in-app pages; one install page on the site | R | M | T-INS-05, T-APP-20 | C-J1-04, C-REL-01 |
 | [T-DOC-03](T-DOC-03.md) | Replace `docs/mvp/*` with the approved specs (M-12) | R | S | T-CUT-01 | C-REL-01 |
 | [T-REL-01](T-REL-01.md) | Performance benchmarks on the reference host | R | M | T-APP-01, T-COL-04, T-COL-08, T-APP-14, T-MCH-06, T-MCH-07, T-STK-11, T-INS-06 | C-PERF-01, C-PERF-02, C-PERF-03, C-PERF-04, C-PERF-05, C-PERF-06 |
-| [T-REL-02](T-REL-02.md) | Journey recordings J1–J8, J10 and J11 on a fresh macOS user account on the reference mini (mvp.md §12 item 1) | R | M | T-ACC-01, T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-AGT-01, T-AGT-02, T-AGT-03, T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-08, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14, T-APP-14a, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-19, T-APP-20, T-APP-21, T-APP-22, T-APP-23, T-CAT-01, T-CAT-02, T-CAT-03, T-COL-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-03r, T-COL-04, T-COL-04a, T-COL-05, T-COL-06, T-COL-07, T-COL-08, T-COL-08a, T-COL-08b, T-COL-09, T-COL-10, T-COL-12, T-CUT-01, T-CUT-02, T-CUT-03, T-CUT-04, T-DOC-02, T-DOC-04, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-09, T-FLW-10, T-FLW-11, T-FLW-12, T-FLW-13, T-GH-01, T-GH-02, T-GH-03, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-GH-09, T-GH-10, T-GH-11, T-GH-12, T-GH-13, T-GH-14, T-INS-01, T-INS-02, T-INS-04, T-INS-06, T-INS-08, T-INS-09, T-MCH-01, T-MCH-04, T-MCH-05, T-MCH-06, T-MCH-07, T-MCH-08, T-MCH-09, T-MCH-10, T-MCH-11, T-MCH-12, T-MCH-14, T-PRC-01, T-PRC-02, T-PRC-03, T-REL-03, T-REL-04, T-STK-01, T-STK-02, T-STK-03, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-08, T-STK-09, T-STK-10, T-STK-11, T-STK-12, T-STK-13, T-STK-14, T-STK-15, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-04, T-TRM-05, T-TRM-07, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22, T-UI-23 | C-J1-01, C-J1-02, C-J1-03, C-J1-04, C-J1-05, C-J1-06, C-J10-01, C-J10-09, C-J11-01, C-J11-04, C-J2-01, C-J2-05, C-J3-01, C-J3-06, C-J3-08, C-J3-10, C-J4-01, C-J4-03, C-J5-01, C-J5-03, C-J6-01, C-J6-02, C-J7-01, C-J7-03, C-J8-01, C-J8-06, C-REL-05, C-UI-01 |
+| [T-REL-02](T-REL-02.md) | Journey recordings J1–J8, J10 and J11 on a fresh macOS user account on the reference mini (mvp.md §12 item 1) | R | M | T-ACC-01, T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-AGT-01, T-AGT-02, T-AGT-03, T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-08, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14, T-APP-14a, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-19, T-APP-20, T-APP-21, T-APP-22, T-APP-23, T-CAT-01, T-CAT-02, T-CAT-03, T-COL-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-03r, T-COL-04, T-COL-04a, T-COL-05, T-COL-06, T-COL-07, T-COL-08, T-COL-08a, T-COL-08b, T-COL-09, T-COL-10, T-COL-12, T-CUT-01, T-CUT-02, T-CUT-03, T-CUT-04, T-DOC-02, T-DOC-04, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-09, T-FLW-10, T-FLW-11, T-FLW-12, T-FLW-13, T-GH-01, T-GH-02, T-GH-03, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-GH-09, T-GH-10, T-GH-11, T-GH-12, T-GH-13, T-GH-14, T-INS-01, T-INS-02, T-INS-04, T-INS-06, T-INS-08, T-INS-09, T-MCH-01, T-MCH-04, T-MCH-05, T-MCH-06, T-MCH-07, T-MCH-08, T-MCH-09, T-MCH-10, T-MCH-11, T-MCH-12, T-MCH-14, T-PRC-01, T-PRC-02, T-PRC-03, T-REL-03, T-REL-04, T-STK-01, T-STK-02, T-STK-03, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-08, T-STK-09, T-STK-10, T-STK-11, T-STK-12, T-STK-13, T-STK-14, T-STK-15, T-STK-16, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-04, T-TRM-05, T-TRM-07, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22, T-UI-23 | C-J1-01, C-J1-02, C-J1-03, C-J1-04, C-J1-05, C-J1-06, C-J10-01, C-J10-09, C-J11-01, C-J11-04, C-J2-01, C-J2-05, C-J3-01, C-J3-06, C-J3-08, C-J3-10, C-J4-01, C-J4-03, C-J5-01, C-J5-03, C-J6-01, C-J6-02, C-J7-01, C-J7-03, C-J8-01, C-J8-06, C-REL-05, C-UI-01 |
 | [T-DOC-04](T-DOC-04.md) | Delete the generated library docs sites; one wildcard redirect to package docs | S1 | M | — | C-REL-01 |
 | [T-FLW-13](T-FLW-13.md) | Review a member's PR in a background machine | S1 | M | T-FLW-01, T-FLW-03, T-FLW-04, T-ACC-02, T-ACC-05, T-APP-23, T-APP-04, T-CAT-02 | C-J10-09 |
 | [T-PRC-01](T-PRC-01.md) | Declared-input existence in //:targetIndex and the drift set at landing | S1 | S | — | C-PRC-01 |
 | [T-PRC-02](T-PRC-02.md) | DB-free migration gate and planned table ownership at Ready | S1 | S | — | C-PRC-02 |
 | [T-PRC-03](T-PRC-03.md) | Check receipts required to close a ticket | S1 | S | — | C-PRC-03 |
+| [T-APP-19b](T-APP-19b.md) | Card schemas match §14.3: one rpc reconciliation | S1 | M | T-APP-19 | C-UI-08 |
+| [T-STK-16](T-STK-16.md) | Pre-approved TODOs merge when ready (M-39) | S1 | M | T-STK-04, T-GH-09, T-ACC-05, T-STK-01 | C-STK-13 |
 
 ## Deferred
 

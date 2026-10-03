@@ -2,10 +2,10 @@
 
 Version 0.4 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
 
-Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn their callbacks into catalog commands. This page lists the components in order of need and gives each one its props. The props are spec.md §14.3 in TypeScript. T-APP-19 transcribes them into zod schemas in `packages/rpc/src/<Card>Card.ts` with fixtures in `packages/rpc/test/fixtures/<Card>.ts`. Until it lands, design builds against this page with local fixtures.
+Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn callbacks into catalog commands. The props on this page express spec.md §14.3 in TypeScript. T-APP-19 landed the initial contracts. T-APP-19b reconciles every card schema and fixture in one `packages/rpc` change, reviewed by smithers-38 under §21.1. T-UI-02 through T-UI-14 go Ready together after that change lands. Local fixtures permit drafting only. Import schemas through `@smthrs/rpc/<Card>Card` and fixtures through `@smthrs/rpc/fixtures/<Card>`; rpc has no root export. Check: C-UI-08.
 
 ```
-  packages/rpc/src/<Card>Card.ts        zod schema + type   (engineering, T-APP-19)
+  packages/rpc/src/<Card>Card.ts        zod schema + type   (engineering, T-APP-19b)
             │                    │
             ▼                    ▼
   cards/views/<Card>View.tsx ◀── props ── <Card>Container.tsx ──▶ live topic (§7.2)
@@ -20,10 +20,10 @@ Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui
 - A View handler does exactly one of three things (frontend lead, smithers-b8, adopted by the tech lead 2026-10-02). `flows/parity.test.ts` fails any other handler (C-UI-08):
   1. It calls `onAction(action.tag, {...action.args, ...input})` with an action from `actions[]`, `gestures` or a row's own `actions`, and the control carries `data-flow={action.tag}`.
   2. It calls `onView(patch)` for per-member view state: maximize, tab, filter, scroll, selection, the cursor line, a timeline jump and hidden toasts. The container stores the patch in `member_conversation_state` (§14.1.2), where the UI-only flows (`card.maximize`, `toast.dismiss`, B.1) write the same fields.
-  3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-APP-03).
+  3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-UI-01 exports it; smithers-38 approves it; C-UI-12).
 - Tags are opaque to the View. The lists below name the buttons by label.
-- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the three-way rule above instead. Parity moves to the Container: every `*Container.tsx` builds `actions[]` and `gestures` through `cardActions`, which binds each tag to `flowAction`, so the three-door and agent-parity rules hold, because every flow launch goes through (1).
-- A field the View needs but this page lacks is a spec change. Raise it with the tech lead, who updates §14.3, this page and T-APP-19 together. A field here cites the spec section, check or mock card that needs it.
+- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the three-way rule above instead. Parity moves to the Container: every `*Container.tsx` builds `actions[]` and `gestures` through `cardActions`, which binds each tag to `flowAction`, so the three-door and agent-parity rules hold, because every flow launch goes through (1). The same seam and import rules cover `apps/app/src/mainview/BranchTree.tsx`, `EntryRow.tsx`, `ContextLine.tsx`, `EarlierArchive.tsx`, `ToastStackView.tsx`, `EdgeMap.tsx` and `Timeline.tsx`. Their UI tickets extend both scans and remove these files from legacy handler pins in the same change. No shell file is exempt. Check: C-UI-08.
+- Raise every field gap with the tech lead for the single T-APP-19b reconciliation of §14.3 and this page. UI lanes never raise piecemeal schema changes. smithers-38 reviews the public API under §21.1. Check: C-UI-08.
 - Copy follows §14.6b: product words, body blocks of 12 words or fewer, one sentence at most, and no explanatory sentences. Visual wrapping does not count. Check: C-UI-02.
 
 ## Completion gates
@@ -32,8 +32,8 @@ Four gates, each closable by its own ticket. No gate waits on a ticket that depe
 
 | Gate | Check | Ticket | Needs | Done when |
 | --- | --- | --- | --- | --- |
-| Schemas and fixtures | [C-UI-08](checks/C-UI-08.md) | T-APP-19 | nothing | every §14.3 row has a schema whose fields match, every fixture parses, retained schemas match their snapshots, and the View-seam and Container rules reject seeded violations |
-| One View | [C-UI-12](checks/C-UI-12.md) | each T-UI ticket | T-APP-19's fixtures | the View renders every fixture of its schema with the actions it is given, in light and dark, at 1280 and 390 px |
+| Schemas and fixtures | [C-UI-08](checks/C-UI-08.md) | T-APP-19b | T-APP-19 (landed) | every §14.3 row has a schema whose fields match, every fixture parses, retained schemas match their snapshots, and the View-seam and Container rules reject seeded violations |
+| One View | [C-UI-12](checks/C-UI-12.md) | each T-UI ticket | T-APP-19b's reconciled fixtures | the View renders every fixture of its schema with the actions it is given, in light and dark, at 1280 and 390 px |
 | One Container | [C-UI-13](checks/C-UI-13.md) part A | each wiring ticket | its View and its backend | the Container's model from a real topic parses with the schema, and its actions come from `cardActions` |
 | Stage audit | [C-UI-13](checks/C-UI-13.md) part B | the lead engineer at each stage exit | every wiring ticket of the stage | every §14.3 row of that stage or earlier has a View, a Container and a schema, and no View lacks a row |
 
@@ -41,7 +41,7 @@ A design ticket proves only its View. The journey checks (C-J*) belong to the wi
 
 ## Order of need
 
-Stage 1 is on the critical path. Within a stage, the order is the order a fresh install meets each component in J1 (mvp.md J1.2–J1.8), then J2, J4, J5 and J11. Design builds in this order, and T-APP-19 delivers schemas in it.
+Stage 1 is on the critical path. Within a stage, design builds in the order a fresh install meets components in J1 (mvp.md J1.2–J1.8), then J2, J4, J5 and J11. T-APP-19b reconciles every schema in one change before T-UI-02 through T-UI-14 go Ready together. Check: C-UI-08.
 
 | # | Design ticket | Component | Wiring ticket | Stage | First need |
 | --- | --- | --- | --- | --- | --- |
@@ -179,7 +179,7 @@ Capacity 0 renders "No machine fits", the supplied limiting term and fix link on
 // One step identity and order: spec §16.2 and T-INS-06 steps 0–6. T-INS-06 stores each step under `setup.<id>`
 // and reports these states, so the container passes them through with no mapping. The squash check runs inside
 // `repository` and blocks it with its fix link (§10.6.2); §16.2 step 1 is the setup session itself.
-type SetupStepId = "address" | "app" | "sign_in" | "repository" | "models" | "source" | "machine"
+type SetupStepId = "address" | "app_manifest" | "sign_in" | "repository" | "models" | "source" | "machine"
 type SetupStep = {
   id: SetupStepId
   state: "pending" | "running" | "done" | "blocked" | "failed"   // a step's control enables when the step before it is done
@@ -198,7 +198,7 @@ type SetupModel = {
   steps: SetupStep[]                               // all seven, in order
   this_mac: { memory_gb: number; disk_free_gb: number; capacity: number
               limit?: { term: string; fix: string } }   // capacity 0: the limiting term and its fix (§8.2.1a)
-  github: { owner?: string                        // the account that owns the repository, asked in `app` (§12.1.1)
+  github: { owner?: string                        // the account that owns the repository, asked in `app_manifest` (§12.1.1)
             signed_in: boolean; app_installed: boolean; squash_allowed?: boolean }
   repository?: { owner: string; name: string }
   repositories?: string[]                          // choices while the repository step runs
@@ -238,6 +238,11 @@ type DraftModel = {                  // spec §14.3 Draft
 }
 type DraftViewProps = CardProps<DraftModel, {}, "set">
 // gestures.set: a field edit, sent on blur as { field: "title" | "prompt" | "acceptance" | "place" | "fixes", value }
+// value is a string: title/prompt unchanged; acceptance JSON.stringify(string[]);
+// place JSON.stringify({ mode: "append" | "before" | "amend", n?: number }); fixes "true" or "false".
+// Emit place properties in mode, n order; omit n for append. C-UI-12 asserts literal strings.
+// Commit forwards the complete supplied Draft input; T-APP-19b reconciles typed input.
+// Discard has no tag until product rules on Appendix B; do not invent one (C-UI-08).
 // (`form.set` into the entry's card column, T-APP-02). buttons: Commit ("Commit puts it on the stack as T12"), Discard.
 // Make TODO is the Issue card's button that opens a Draft.
 ```
@@ -293,7 +298,7 @@ type TodoModel = {
 ```ts
 type ConfirmModel = {
   kind: "one_click" | "review_merge"
-  action: { tag: CatalogTag; verb: string }       // the button reads the verb
+  action: { tag: CatalogTag; verb: string }       // verb label only; never dispatch this initiating tag
   summary: string                                 // one line
   subject: { kind: "todo" | "branch" | "flow" | "agent" | "wiki"; ref: string; revision?: string }
                                                   // the A✓ commands (Appendix B legend); members, secrets
@@ -307,6 +312,9 @@ type ConfirmModel = {
   receipt?: { by: PersonRef; result: "done" | "cancelled" | "expired"; at: string; text?: string }   // "Steered T9"
 }
 // buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel 
+// Verb, Merge / Review & merge and Cancel dispatch their supplied actions[] entries, not model.action.tag.
+// T-APP-04 binds approve/deny with subject/revision in args. Product rules on Cancel
+// in Appendix B before the tag is added. C-UI-12 asserts literal approval/denial payloads.
 // Only the person who must press sees this card; other viewers see nothing (C-ACC-02).
 ```
 
@@ -335,6 +343,8 @@ type HomeModel = {
                      detail?: string; actions: Action[] }[]   // Retry and Dismiss on a failed run (B.4)
 }
 // buttons: Retry (main sync), Fix (refused sync, opens Settings), New TODO, each row's actions 
+// The 1 s clock uses useClock from @smthrs/ui/clock; no mainview useEffect import (C-UI-08).
+// T-APP-19b fixtures cover attention/background actions and owner/non-owner main.reset-to-github (C-UI-12).
 // HomeView reports onView({on_screen: boolean}) through an IntersectionObserver in a ref callback.
 // Container advances last look after 2 s on screen (C-J4-01).
 type HomeViewState = { on_screen?: boolean }
@@ -352,7 +362,21 @@ Private entries show the Draft "Only you" lock chip. A tombstone shows only the 
 // "earlier" is the single read-only node for legacy per-member conversations (spec §14.1.5).
 type BranchTreeNode = { id: string; name: string; kind: "main" | "item" | "scratch" | "earlier"
                         todo?: number; state?: TodoState; present: Actor[]; children: BranchTreeNode[]
-                        archive_count?: number }   // required for earlier: N in "Earlier · N" (C-UI-12)
+                        archive_count?: number; action?: Action }   // archive_count required for earlier (C-UI-12)
+type BranchTreeView = { selected_branch?: string }
+type BranchTreeProps = { nodes: BranchTreeNode[]; view: BranchTreeView
+                         onAction: CardProps<unknown>["onAction"]
+                         onView: (patch: Partial<BranchTreeView>) => void }
+// A node with action dispatches onAction(action.tag, action.args) and carries data-flow.
+// A node without action emits onView({ selected_branch: node.id }); no command (C-UI-12).
+type EarlierArchiveModel = { node: BranchTreeNode & { kind: "earlier"; archive_count: number }
+                             archives: { id: string; title: string; entries: React.ReactNode[] }[]
+                             read_only: true }
+type EarlierArchiveView = { selected_archive?: string }
+type EarlierArchiveProps = { model: EarlierArchiveModel; view: EarlierArchiveView
+                             onView: (patch: Partial<EarlierArchiveView>) => void }
+// Earlier has no mutation action or onAction. Selection emits selected_archive (C-UI-12).
+// React nodes are rendered slots, not serialized rpc fields. T-APP-19b schemas cover the data only.
 type EntryRowProps = {
   kind: "prompt" | "answer" | "card" | "event"
   author: Actor; title: string; summary?: string; tone: Tone; state?: TodoState
@@ -410,6 +434,7 @@ type FlowModel = {
                      | { id: "merge"; wait: true; signals: { on: "rebase" | "steer"; to: string }[] } )[] }[]
                                                   // TODO flow: clean rebase → check; resolved conflict → implement → check → review; steer → implement (§10.4.1)
 // added: relative to Active; adapter sets it, View marks it (C-J5-01).
+// The version chip selection uses React local state; it emits no view patch (C-UI-12).
 }
 // buttons: Source, Plan, Run, Edit
 ```
@@ -433,6 +458,9 @@ type FileBase = {                                 // `branch:<id>:files` (§14.3
   reveal?: { line: number; col?: number; to_line?: number } // a same-file definition, or a cited range
 }
 type FileView = { line?: number; compare?: boolean }         // the viewer's cursor line feeds presence {path, line} (§7.6)
+// CodeEditorView export: @smthrs/ui/adapters/code-editor (new in T-UI-11).
+// Before Ready, record exact direct @codemirror/* and compatible y-codemirror.next pins
+// with smithers-38 under §21.1; C-UI-12 records editor identity/binding compatibility.
 type CodeEditorViewProps = CardProps<FileModel, FileView, "hover" | "definition">
                          & { binding?: EditorBinding }       // present only when mode is live (T-UI-19)
 // Gestures: hover raises onAction(gestures.hover.tag, { path, line, col }); the container answers through
@@ -451,12 +479,17 @@ type DiffModel = {
   hunks: { old_start: number; new_start: number; lines: { op: " " | "+" | "-"; text: string }[] }[]
 }
 // buttons: Restore this file (against.kind burst only, §9.3.5)
+// DiffView reuses @smthrs/ui/adapters/pierre-diff-view; serialize hunks to its unified patch.
+// Count context/removal lines for the old range and context/addition lines for the new range;
+// preserve op/text and file paths, with /dev/null for added/deleted sides. C-UI-12 pins literal patches.
 ```
 
 ### T-UI-12 Run monitor and Inspect (`run:<id>` topic)
 
 ```ts
 type PhaseTone = "live" | "ok" | "fail" | "thrash" | "wait"
+// Run is the UI name; the schema is @smthrs/rpc/MonitorCard and fixtures are @smthrs/rpc/fixtures/Monitor.
+// T-APP-19b reconciles waits.settled, key/usage, engine, journal, replay and RunView (C-UI-08).
 type RunModel = {
   id: string; flow: string; version: string; title: string
   todo?: number; branch?: string
@@ -516,6 +549,9 @@ type AgentModel = {
   owner: boolean
 }
 // buttons: Change model (owner only), Edit instructions (opens a Draft TODO)
+// Product rules on Change model's Appendix B tag with smithers-38 review; no invented tag.
+// Edit instructions uses the supplied Draft-opening tag with prefilled text, never a TODO-commit
+// todo.new binding. T-APP-19b includes smithers-b8's Agent fixture correction (#3601); C-UI-12 proves it.
 ```
 
 ### T-UI-14 Commands (`/help`)

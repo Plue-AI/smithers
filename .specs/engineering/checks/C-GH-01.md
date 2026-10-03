@@ -9,6 +9,8 @@ Automation: W0: the disposable T-GH-01a form, recorded manually. S1: `apps/app/e
 - No `SMITHERS_GITHUB_APP_*` variable in the launchd environment. The setup token printed by `smthrs host start` is at hand.
 
 ## Steps
+- Adopted T-GH-12 boundary cases: Use production setup/callback routes and independent GitHub request counts. Expired and claim-invalidated durable setup sessions, foreign/replayed state and invalid origin each make zero outbound exchanges. Race two starts, crash after durable CAS and around callback conversion/local commit, and assert one begin, single-use state and all-or-none sealed credentials/configuration/completion/projection; restart preserves done and prevents overwrites
+
 1. Record `lsof -nP -iTCP -sTCP:LISTEN` for the host processes and the configured origins.
 2. On the Mac, open the setup URL on `http://localhost:4000`, choose the scratch repository, and start "Create GitHub App".
 3. On GitHub's App page, screenshot the prefilled form, then create the App.
@@ -24,6 +26,8 @@ Automation: W0: the disposable T-GH-01a form, recorded manually. S1: `apps/app/e
 W0 variant: steps 2–4 with the T-GH-01a HTML form, plus `POST /app-manifests/{code}/conversions` by hand. If GitHub refuses the localhost redirect, run the paste fallback instead: paste the App id, PEM and client id and secret, then step 6.
 
 ## Pass when
+- Commit the durable app-step CAS to running before beginning external App creation. Validate durable setup session, state and effective origin before any outbound exchange. Consume callback state durably before the remote exchange; do not claim remote/local atomicity. After successful exchange, commit sealed credentials, callback configuration, app-step completion and its projection in one local transaction. A failed transaction exposes no partial completion and never overwrites existing credentials
+
 - Steps 2–5 need no copy of any credential by hand (manifest path) and no public address.
 - The App's permissions equal §12.1.2 exactly, `workflows: write` and `administration: read` included, and its webhook is inactive.
 - The App's callback URLs are exactly the configured origins plus `http://localhost:4000`. Its owner is `smithers-mvp-canary`, since the repository belongs to the organization (§12.1.1).

@@ -5,20 +5,23 @@ Automation: `scripts/check-receipts.test.mjs` (new) · Runs in: CI (isolated fix
 
 ## Setup
 
-An isolated fixture checkout with a recorded commit and command logs. Stub remote writes only; execute the local production gate.
+An isolated fixture checkout with literal ticket/check inputs, full commit SHAs and an `origin/main` ancestry fixture. CI is the fixture check’s declared `Runs in` host; no msb is required. Stub remote writes only. Seed publication variables and issue-claim configuration in the parent to prove the check cannot access them.
 
 ## Steps
 
-1. Run a fixture check, inspect its receipt and recompute its log digest.
-2. Invoke the runner with absent automation and a to write declaration.
-3. Attempt close with no receipts, incomplete coverage, failed exit, different commit and altered log.
-4. Close a fixture ticket using passing receipts for every named check at its landed commit.
+1. Run a fixture check on its declared CI host. Inspect version-1 receipt fields and independently recompute the log digest. Assert all three publication variables absent and issue-claim configuration unreadable.
+2. Invoke the runner with absent, unwritten and unparsable Automation and an unavailable declared host. Run a failed fixture command.
+3. Attempt every close variant with no receipts, incomplete coverage, failed exit, different commit, altered log and malformed version/SHA/exit/time/digest fields. Assert literal refusal actions, per-check reasons and zero remote writes.
+4. Test missing --landed, non-full SHA, non-ancestor of origin/main, free-text --note, invented coverage, symlink receipts/logs/parent directories, .. components and realpath escape. Required check IDs come from the ticket.
+5. Close using passing receipts for every named ticket check with receipt.commit equal to --landed <sha>, verified as an ancestor of origin/main. Repeat without --release and with --force. Test a held claim separately.
 
 ## Pass when
 
-- Receipt fields equal the observed command, commit, layer, times, exit and log digest.
-- Absent or unwritten automation creates no passing receipt.
-- Every invalid receipt set exits 2 before closing; complete passing receipts permit exactly one close.
+- Literal receipt fields are `{version: 1, check, commit, layer, command, exit, started, ended, log_digest}`: full commit SHA, integer exit, ISO UTC timestamps and `sha256:<hex>`. Values match observed command, layer, time bounds and independently hashed logs.
+- Execution uses the declared host, no GH_TOKEN/GITHUB_TOKEN/SMITHERS_GITHUB_PROXY, and unreadable ~/.config/issue-claim. Publication credentials remain behind issue-claim write().
+- Absent, unwritten or unparsable Automation and unavailable hosts create no passing receipt. Failed commands remain failed evidence.
+- Invalid evidence exits 2 with `action: "evidence-refused"` and per-check `{check, receipt?, reason: missing|coverage|failed|commit|digest}` before comment, release or close writes. Held claims retain `action: "refused"`.
+- Landed ancestry, exact receipt.commit, ticket-derived coverage and receipt/log path confinement are enforced. Symlinks and .. are refused. Complete passing evidence permits exactly one close.
 
 ## Fail when
 

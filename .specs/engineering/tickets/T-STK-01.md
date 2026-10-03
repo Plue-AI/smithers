@@ -1,6 +1,6 @@
 # T-STK-01 TODO tables, state machine, events, the `activity` table and topic, projection
 
-Stage S1 · Size L · Depends on — · Unblocks T-ACC-02, T-ACC-05, T-ACC-06, T-APP-01, T-APP-02, T-APP-08, T-CAT-02, T-COL-02, T-FLW-04, T-FLW-11, T-GH-02, T-GH-03, T-GH-05, T-GH-09, T-GH-12, T-INS-04, T-MCH-04, T-MCH-14, T-REL-02, T-REL-03, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-09, T-STK-10, T-STK-12, T-STK-13, T-STK-14 · Issue: [#3433](https://github.com/smithersai/smithers/issues/3433)
+Stage S1 · Size L · Depends on — · Unblocks T-ACC-02, T-ACC-05, T-ACC-06, T-APP-01, T-APP-02, T-APP-08, T-CAT-02, T-COL-02, T-FLW-04, T-FLW-11, T-GH-02, T-GH-03, T-GH-05, T-GH-09, T-GH-12, T-INS-04, T-MCH-04, T-MCH-14, T-REL-02, T-REL-03, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-09, T-STK-10, T-STK-12, T-STK-13, T-STK-14, T-STK-16 · Issue: [#3433](https://github.com/smithersai/smithers/issues/3433)
 Spec: spec.md §2, §3, §3.1, §3.2, §3.3, §4.1, §4.1.0, §4.1.2a, §6.2, §6.3, §7.2, §8.1.1, §10.1, §15.1.5, §19.3 · Delta: delta.md §6 (Add tables, state machine), §4 (`activity` table [S1]) · Product: mvp.md §3 (TODO `T12`), §4.1, §6.6, J1.6, J2.3, M-07, M-16, E-07 (overview)
 
 ## Goal

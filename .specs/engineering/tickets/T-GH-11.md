@@ -15,12 +15,14 @@ Out:
 - Reopening frozen T-GH-01, polling/caching/budget (T-GH-02), outbound recovery (T-GH-09), setup card Views, general setup-step engine (T-INS-06), and claim policy (T-ACC-01).
 
 ## Changes
+- Use only `POST /api/install/setup/app` for App setup. INS-06 adopts the handler under its one `{step}` route; no `github_app` request alias is registered. Check: C-GH-01.
+
 - Gate the production App begin route on durable Address completion; return the setup-step refusal without conversion when Address is pending.
 - Split account choice, App conversion, owner sign-in and repository installation. Retain user/org action URLs and the organization-owner handoff link.
 - Wire T-ACC-01 OAuth to the sealed client before repository selection. GH-01 owns App internals; INS-06 consumes the resulting phases.
 
 ## Tests
-- Through the production router, call `POST /api/install/setup/github_app` before durable Address completion and require no GitHub request. Confirm Address, choose a user then organization in separate installs, and assert literal user/org action URLs. Read phase state through `GET /api/install`; complete claim through `/api/auth/github/callback` with its production session, origin and state middleware.
+- Through the production router, call `POST /api/install/setup/app` before durable Address completion and require no GitHub request. Confirm Address, choose a user then organization in separate installs, and assert literal user/org action URLs. Read phase state through `GET /api/install`; complete claim through `/api/auth/github/callback` with its production session, origin and state middleware.
 - With the real backend, real PostgreSQL and fake GitHub, convert the App without repository or installation, perform served OAuth claim, observe owner_unverified on a non-setup route, then select/install/verify the repository. Restart between phases. C-J1-02 records the same sequence in the real browser.
 - Use literal test fixtures and independent request logs. Never read spec files or derive expectations from production code at runtime.
 
@@ -38,5 +40,5 @@ Out:
 2. Exclusions: Scope explicitly excludes frozen GH-01 edits, polling, outbound recovery, setup Views, the general setup engine and claim policy; no new launcher, credential store or repository execution path.
 3. Boundary tests: C-GH-01 exercises the production setup/OAuth routes with real PostgreSQL and literal GitHub fixtures; C-J1-02 exercises the browser journey after its setup/UI prerequisites. No runtime spec or production-code oracle.
 4. Decisions: smithers-3f approves Go/store/route and security seams; smithers-b8 approves the public setup phase contract; smithers-8a accepts ordering fixtures; Will decides product exceptions.
-5. Owner pre-review before start: smithers-3f answers whether Address gating and claim are durable across restart, whether the sealed OAuth client works before installation, and whether provisional authorization blocks every non-setup route; smithers-b8 answers whether the account/claim/repository phases fit the launcher and setup API contract.
+5. Owner pre-review before start: smithers-3f answers whether Address gating and claim are durable across restart, whether the sealed OAuth client works before installation, and whether provisional authorization blocks every non-setup route; smithers-b8 answers whether the account/claim/repository phases fit the launcher and setup API contract. smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Security: smithers-3f reviews setup-session, origin/CSRF and OAuth state enforcement, server-derived installation identity and host-only sealed credentials. These routes execute shipped host code only; any downstream repository work stays in INS-02-isolated machines (M-29, C-SEC-02); C-GH-01 and C-SEC-04 prove the setup gates.

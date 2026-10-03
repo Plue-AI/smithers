@@ -1,7 +1,7 @@
 # C-UI-04 Edge map and timeline: shared entries, per-viewer actions, live summaries, toasts
 
-Proves: mvp.md §6.4 Toasts for events, Timeline, M-08, M-14 · spec.md §14.1, §14.4, §14.5, §10.8.3, §11.5a (`agent:fast`), §19.3 · Layer: e2e · Stage: S1 · Tickets: T-APP-07
-Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference host
+Proves: mvp.md §6.4 Toasts for events, Timeline, M-08, M-14 · spec.md §14.1, §14.4, §14.5, §10.8.3, §11.5a (`agent:fast`), §19.3 · Layer: e2e+integration · Stage: S1 · Tickets: T-APP-07
+Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference host · Added integration qualification: `packages/backend/internal/services/conversation_summaries_test.go` (production job worker, real PostgreSQL, controlled model endpoint)
 
 ## Setup
 - Install at the commit under test. The test `flows/todo/flow.ts` of C-J4-01 is Active, plus `EMIT`, which emits one step event per second for 60 s. None of these flows calls a model, so blocking the summarizer's `agent:fast` model affects nothing else.
@@ -16,8 +16,11 @@ Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference hos
 5. Click Maya's timeline line for the ASK TODO.
 6. Block the provider host and start another `EMIT` TODO; time it. Unblock and repeat once as the baseline.
 7. Start five `FAIL` TODOs at once.
+8. In the production summary worker integration harness with real PostgreSQL, roll back a subject/event transaction, then commit another and restart before the worker runs. Hold responses for two source revisions; return the newer one first. Repeat with a replaced run and attempt and with phase/cell summaries.
 
 ## Pass when
+
+- Step 8 admits no job on rollback and retains the committed job after restart. Only the current run, attempt and source revision can update the summary and its projection. Late results leave the accepted literal bytes and summary_rev unchanged. Phase and cell rows obey the same comparison. The shell mounts T-UI-08’s View through T-APP-07’s Containers and has no legacy ToastStack or ChatRunTimeline import.
 - Maya's EMIT entry pins to the top edge with the live tone; Alice, with no timeline, sees a "↑ 1 live above" pill.
 - During the 60 s of events, no event waits more than 30 s for a refresh, and the last event is summarized within 8 s (5 s debounce plus model time).
 - Title, summary, tone and state are identical for both members on every entry; they match the §14.5.2 table computed from `todos` at the same cursor.

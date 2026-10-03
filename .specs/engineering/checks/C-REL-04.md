@@ -22,13 +22,17 @@ Automation: `packages/backend/internal/services/scorecard_test.go` (new) · Runs
 3. Review separate annotated-session variants with medians exactly 15 (target fails) and 10 then 12 (rising, kill). Load the automated week-2 count variant 2 (kill). Changing only code-authorship share never changes the core-value conclusion. Missing annotations leave person-minutes unmeasured.
 4. Request as a maintainer and as a delegated credential.
 5. Request with a window whose boundaries fall at 23:30 in the install's time zone.
+6. Through the production scorecard route, test present-but-empty burst_files and presence_sessions with incomplete producer coverage, then complete coverage with no matching activity.
 
 ## Pass when
+
+- Read lifecycle evidence from existing wait/confirmation/burst rows with source_key equal to their ids; credit delegated participation only to confirming person. Existing step writers emit their own evidence; T-REL-03 reads only. Person-minutes remain manual sampled evidence. Production scorecard route refuses eligible delegated owner with 403 never/never and member with 403 permission/permission.
 - Step 1 equals the expectations field for field, each measure with value, target, kill signal and verdict: dogfood 52 merged in two weeks (pass, target 50) with 5 of 57 changes to `main` made outside Smithers (8.8 %, under the half kill line); activation 48 min (pass, ≤ 60); core value 30 accepted in each week (pass, ≥ 10/week); API person_minutes has source sampled_alpha_sessions and verdict manual; separate annotated-session evidence shows medians 12 then 10 (pass, < 15, not rising); no hand-written code 43/52 = 82.7 % (diagnostic only); terminal edits 6; flow revisions 2; multiplayer 4 sessions (pass, ≥ 3); retention 11 (pass, ≥ 10); self-improvement 1 learning-proposed change merged that measurably helps (3/5 → 0/5, pass). The definitions are spec §20.4's. Multiplayer passes only once presence intervals are persisted (T-REL-03 Open); until then it returns `source_missing`.
 - Step 2: multiplayer and terminal edits return `source_missing`, never 0 or `pass`; the TODO-based measures match step 1; person_minutes remains explicitly manual at every stage.
 - Step 3 matches each literal variant's target and kill result, independent of code authorship.
 - Step 4: 403 for both.
 - Step 5: week boundaries use UTC timestamps consistently; the result matches the expectation file's boundary case.
+- Step 6: incomplete lifecycle producer coverage returns source_missing even with present-but-empty tables. Only complete coverage with no matching activity returns 0; person_minutes remains explicitly manual.
 - No statement in the scorecard transaction writes (the transaction is read-only), and the result is the same with `$STATE/logs/` empty (product tables only).
 
 ## Fail when

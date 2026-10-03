@@ -7,6 +7,9 @@ Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, �
 `smthrs login <install origin>` (and `--agent claude-code`) yields a `delegated` credential that acts as the member under the `agent: run | confirm | never` rules. App-agent turns get the same kind of credential, minted on the host and never sent to a browser. Every write made with one is recorded as "Claude Code for Ben" or "Ben via Smithers".
 
 ## Scope
+In (adopted owner pre-review):
+- Backfill stored credential kind/profile metadata in both compositions, but change authorization only in the install composition. Update every credential classifier caller, including the Git HTTP proxy, to resolve install authority from immutable stored kind, actor class and scope profile; system_issued, scopes and userType cannot recreate person authority. Preserve Plue PAT outcomes. Set explicit finite expiries: CLI delegated credentials expire after 30 days; turn and terminal credentials expire after 1 hour. Renewal requires a fresh active-member and subject check and creates a new immutable credential identity. Revoke turn credentials on completion or cancellation; revoke terminal credentials within 5 s of close; suspension/removal immediately denies authorization and physically revokes credentials within 5 s. No renewal outlives the owning turn or terminal session. Check: C-ACC-01.
+
 Approved integration requirements (In):
 - The issuer binds delegated actor class to the stored credential: `smithers` is app_agent; `cli`, `claude-code`, `codex` and `terminal` are external_agent. Unknown issuer actor classes are refused. `Smithers-Via` is attribution only and cannot alter that binding or scope profile. Mint immutable credential identity and stored class/profile. Legacy sync/platform kinds have no implicit install authority. Checks: C-ACC-01, C-ACC-02, C-SEC-05.
 In:
@@ -28,9 +31,13 @@ Out:
 - Presence and activity actors (S2: T-COL-04, T-COL-06).
 
 ## Changes
+- Update the Git HTTP classifier at `packages/backend/internal/services/git_http_proxy.go:346` to use stored install kind/profile, not legacy scope inference. The install OAuth scope branch at `packages/backend/internal/services/auth.go:805` must remove approval authority while Plue behavior stays unchanged. Check: C-ACC-01, C-ACC-02.
+
+- Backfill stored credential kind/profile metadata in both compositions, but change authorization only in the install composition. Update every credential classifier caller, including the Git HTTP proxy, to resolve install authority from immutable stored kind, actor class and scope profile; system_issued, scopes and userType cannot recreate person authority. Preserve Plue PAT outcomes. Set explicit finite expiries: CLI delegated credentials expire after 30 days; turn and terminal credentials expire after 1 hour. Renewal requires a fresh active-member and subject check and creates a new immutable credential identity. Revoke turn credentials on completion or cancellation; revoke terminal credentials within 5 s of close; suspension/removal immediately denies authorization and physically revokes credentials within 5 s. No renewal outlives the owning turn or terminal session. Check: C-ACC-01.
+
 - `packages/backend/db/product/migrations/01NN_credential_kind.sql` (new) on `access_tokens` (`0001_product_baseline.sql:1536`).
   - Stores delegated/run/machine token kinds and via; the classifier also admits session cookies and memberless setup. Legacy sync/platform storage keeps compatibility but no implicit install authority. Check: C-ACC-01.
-  - Backfill: user-created tokens become `delegated`/`cli`; `system_issued` tokens become `run`, `sync` or `machine` by scopes (`0021_oauth2_grant_source.sql:14`).
+  - Backfill stores metadata only for Plue. In install mode, user-created tokens become `delegated`/`cli`; classify system tokens by their persisted issuer and subject bindings. Refuse unknown or unprovable bindings. Stored metadata grants no new Plue authority. Check: C-ACC-01.
   - Spec §3 names the logical table `credentials`. This ticket reshapes `access_tokens` in place and adds no parallel table.
 - `packages/backend/internal/middleware/run_credential.go:62-77`: `TokenCredentialKind` reads the stored kind. A token is never `person`; only a session is.
 - `packages/backend/internal/routes/auth.go:482-500` (`completeCLIOAuth`) and the `/api/auth/github/cli` start (`compose/router.go:932`):
@@ -49,6 +56,8 @@ Out:
 - Docs: `packages/smithers/docs/` login page covers `--agent`. Run `pnpm docs:sync`, `pnpm docs:check` and `smthrs docs //packages/smithers:docs`.
 
 ## Tests
+- Through production OAuth/token, command and Git HTTP routes with real PostgreSQL, migrate identical pre-existing install and Plue PAT fixtures. Install PATs lose approval authority; Plue fixtures retain their prior outcomes. Send expired, revoked, inactive-member and wrong-branch credentials and assert typed refusals before writes. Exercise turn completion/cancellation, terminal close and suspension/removal, measuring revocation and testing replacement identity isolation. Check: C-ACC-01.
+
 - Boundary: `compose/delegated_credential_integration_test.go` drives the actual composed OAuth start/callback, token exchange and `POST /api/user/tokens`, then sends the issued bearer through production command dispatch and reads persisted audit rows. CLI cases invoke the registered `smthrs login --agent` command through `makeCli`, not only an option parser. Use committed literal credential kinds, via values, response envelopes and audit fields; no runtime spec, catalog or implementation-derived oracle. T-APP-23 must prove turn-end revocation through its real runner; this ticket proves the mint/revoke API and that no HTTP route exposes a turn bearer.
 - Forge attribution headers without changing class/profile/scope. Equal class/profile/role/subject gives equal decisions; app-only terminal and external-only source co-edit differ. Replacement/session/delegated identities with equal member/key cannot reuse results. Inactive holders=401 permission/unauthenticated. Checks: C-ACC-01, C-ACC-02, C-SEC-05.
 - Integration, real PostgreSQL: `compose/delegated_credential_integration_test.go` (new).
@@ -85,5 +94,5 @@ Out:
 2. Exclusions: confirmation storage/dispatch, host turns, context preflight, terminal files, actor views, presence and Plue admin tokens are explicit; Plue PAT policy changes require a separate decision.
 3. Tests: real OAuth/token routes and production dispatcher, registered login command and audit persistence use fixed outcomes. Turn-runner lifetime cases remain pending for T-APP-23; no runtime spec or code oracle.
 4. Decisions: smithers-3f credential/schema/TTL/scopes, smithers-b8 public CLI/API, smithers-38 library seams, smithers-8a cross-composition contracts; Will alone decides product-policy changes.
-5. Owner pre-review before start: smithers-3f: Does backfill preserve Plue and restrict install tokens? Are active-member, branch scope, TTL and revocation enforced? smithers-b8: Do login, header and API contracts keep bearers out of browsers? smithers-38: Do actor/client consumers use one credential-first attribution contract?
+5. Owner pre-review before start: smithers-3f: Does backfill preserve Plue and restrict install tokens? Are active-member, branch scope, TTL and revocation enforced? smithers-b8: Do login, header and API contracts keep bearers out of browsers? smithers-38: Do actor/client consumers use one credential-first attribution contract? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered 18:23, ok.
 6. Security: no repository execution added; terminal/run consumers require §1.3/M-29 machines. smithers-3f reviews host-only turn minting, narrowed S1 terminal scopes and credential precedence under C-ACC-01/C-ACC-02/C-SEC-05.

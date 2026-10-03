@@ -8,6 +8,8 @@ Automation: `packages/backend/internal/services/conversations_db_test.go` (new),
 - For Earlier: a seeded browser store holding two legacy conversations of Ben's, and a journal behind `GET /api/agent/conversations` holding one more.
 
 ## Steps
+- Adopted T-APP-16 boundary cases: Drive concurrent appends and branch creation through production routes with real PostgreSQL. Inject failure after entry allocation, after projection insert and during branch creation; assert no orphan entry, projection or conversation, and no consumed committed sequence. Alice’s authenticated GET and snapshot omit Ben’s private entries and queued prompts. Foreign view-state GET/PUT/snapshot/subscription refuse without data disclosure
+
 1. Ben and Alice append 20 entries each to `smithers/t1` concurrently through the conversation service, and each posts one prompt.
 2. Post a private Draft entry for Alice and a private Confirm entry for Ben, then commit Alice's Draft.
 3. Alice subscribes to `view:<ben>:smithers/t1`; Ben subscribes to his own.
@@ -17,6 +19,8 @@ Automation: `packages/backend/internal/services/conversations_db_test.go` (new),
 7. Open Earlier as Ben, then as Alice.
 
 ## Pass when
+- Lock the conversation row in the append transaction, allocate seq from its transactional counter and enforce UNIQUE(conversation_id, seq). Advance the counter only with committed entries and projection rows; branch/conversation creation shares its caller transaction. GET, snapshots and live subscriptions authorize the conversation and filter private entries and queued prompts to their audience member. Foreign view-state reads/writes and snapshots are refused; SharedEntries excludes every private entry, including the reader’s own
+
 - Step 1: one entry list with a gap-free `seq`, identical on both subscribers; two `queued` `agent_turns` rows holding their prompt text, with no shared entry yet, each shown only on its author's `view:` topic.
 - Step 2: each private entry is published only on its member's `view:` topic; after the commit, Alice's Draft appears once on `conversation:smithers/t1`, already committed.
 - Step 3: Alice is refused; Ben receives his state.

@@ -18,6 +18,8 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
 - A owns T3, which has 5 `todo_events` rows.
 
 ## Steps
+- Adopted T-ACC-06 boundary cases: Drop NOTIFY delivery to a separate consumer, then remove/suspend through production routes/jobs. Measure state-commit-to-stream-close and guest-parent/child termination at no more than 5 s. Inject event insert/NOTIFY failure before commit and assert member state, credential changes and events roll back with no fanout. Crash after commit and verify durable catch-up closes every transport and guest process
+
 9. Suspend/remove A while persistent token cleanup is blocked: immediately call each run credential, then unblock cleanup and measure physical revocation from state commit. Restore A, take over a TODO and resume with a freshly minted O-sponsored run token. Force both serialized write/revocation orders with barriers.
 1. **Removal.** O calls `DELETE /api/members/A` and records the response time `t0`, then:
    - polls each of A's streams for close;
@@ -31,6 +33,8 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
 8. Trigger user-token 401/403 through `RefreshUserGitHubToken` callers in `github_user_repos.go`, `github_import.go` and `auth.go`, and through refreshing/non-refreshing proxy paths. Assert one shared reactive recheck without waiting for the hour.
 
 ## Pass when
+- Use NewTransactionalDBPublisher with queries bound to the member-revocation transaction. Commit member state, credential revocations and durable revocation events before the response. Rollback publishes no event; local fanout consumes only committed events. Set catch-up polling to at most 1 s and reserve the remaining budget for consumer work and guest child termination so commit-to-termination is at most 5 s, including lost NOTIFY
+
 - Step 9 subsequent run calls return 401 permission/unauthenticated immediately; every A-bound token, including pre-transfer tokens, is physically revoked within 5 s of state commit. Old tokens remain dead after restoration/takeover; resumed work uses a new O-sponsored identity and retained history. A machine token never continues the revoked member run. State-transition-first prevents writes with 401/no effect; write-first may stand under §5.2.1.
 - In step 1, every non-public request on A's old session, delegated and member-bound run credentials returns HTTP 401 permission/unauthenticated immediately after the committed state change, including the request right after t0.
 - In step 2, the maximum close time for each stream kind is ≤ 5.0 s over all 20 runs (monotonic clock, measured in the test process).

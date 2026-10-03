@@ -20,6 +20,8 @@ Automation: `packages/backend/internal/routes/install_serving_test.go` (new) · 
 10. On a second, empty database with bind `0.0.0.0` and origin `http://lan-a:4000` seeded the way `smthrs host start --bind --origin` seeds them, and no owner: `GET /api/install` at `http://lan-a:4000` without a setup session, then after exchanging the token there.
 
 ## Pass when
+
+- Pin Address {listen: mac|network, bind, origins: string[]} and scheme derived from origin strings. Assert Origin and CSRF refusals are 403 permission/origin and permission/csrf with no mutation.
 - Step 1: 403 for both; settings unchanged.
 - Step 2: each returns a typed `user` error naming the field; settings unchanged.
 - Step 3: 200; one `install_settings` change and one `projection_events` row on `install` per write; the process id never changes during steps 3 to 8.

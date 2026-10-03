@@ -29,14 +29,14 @@ Out:
 ## Changes
 - `packages/rpc/src/ProductActor.ts` (new): the wire schema, `toActor` and `actorName`, exported as `@smthrs/rpc/ProductActor`.
 - The S1 adapters in Scope call `toActor`; this is a no-op where those tickets already do.
-- `apps/app/lint/conformance/Rules.ts` (existing): card, adapter and toast source never builds " via " or ", for " by hand; every actor string comes from `actorName`.
+- `apps/app/lint/conformance/Rules.ts` (existing): card, adapter and toast source never builds " via " or " for " or "'s terminal" by hand; every actor string comes from `actorName`.
 
 ## Tests
 - Boundary (C-J6-01, S1 CLI portion): invoke `todo.steer` through the production CLI command→API dispatcher as a Claude Code delegated actor, read its recorded actor from the served TODO/conversation projection, decode it with `ProductActor`, and assert the literal label "Claude Code for Ben" in the production adapter. Repeat a session-cookie request with a forged `Smithers-Via` header and assert the literal person label "Ben". Broker, presence and terminal cases are S2 qualification. All expectations are checked-in literals; no test reads spec files or uses `actorName` to manufacture expected names.
 - Unit (`ProductActor.test.ts`): `toActor` and `actorName` for each wire shape and each known `via`: "Smithers for Ben", "Claude Code for Ben", "Codex for Ben", "Ben via SSH", "Ben's terminal", "Ben via CLI", "Coding agent for Ben", "Reviewer for Ben", "Smithers", "Smithers for Ben" for a system write with a requester, "@login" and "changed outside Smithers". An unknown agent `via` becomes an agent participant named verbatim. A removed member keeps their login (§5.6).
 - Unit, same file: a `session` credential's actor never becomes an agent participant, even when the request carried `Smithers-Via` (§6.4); a system write never becomes an agent participant.
 - Unit, same file: one agent acting for two people yields one participant id per session with each person's `for` and `color_index`; an agent acting for nobody gets index 6.
-- Unit (conformance): a card, adapter or toast that formats " via " or ", for " itself fails the lint.
+- Unit (conformance): a card, adapter or toast that formats " via " or " for " or "'s terminal" itself fails the lint.
 - e2e: the C-J6-01 script shows the Claude Code participant "for Ben" on the TODO Claude Code placed and on the answer it gave.
 - The chip's avatar, badge and lane colours are T-UI-01's.
 
@@ -58,5 +58,5 @@ Out:
 2. Exclusions: Out names credential issuance, authorization changes, process registration, avatar assets, presence, activity, terminals and later card adoption.
 3. Boundary tests: the S1 CLI/API dispatcher test exercises recorded attribution and the production adapter with literal names; C-J6-01 qualifies the external-agent journey. Unit fixtures cover every wire shape without spec-derived or production-derived expectations.
 4. Decisions: smithers-38 signs off the `ProductActor` public subpath and stable-id mapping before landing under §21.1; smithers-06 accepts the ActorChip seam and names; smithers-b8 accepts consumer adoption and lint coverage. smithers-3f accepts the wire interpretation against credential attribution. smithers-8a resolves seam disagreements; Will decides product wording changes.
-5. Before start: smithers-38: do ids stay stable per session/run and exports avoid an app dependency? smithers-06: does every actor map to the existing chip props and correct avatar/color? smithers-b8: does lint cover all S1 actor strings without changing dispatcher actors? smithers-3f: does the adapter preserve session versus delegated attribution and grant no authority?
+5. Before start: smithers-38: do ids stay stable per session/run and exports avoid an app dependency? smithers-06: does every actor map to the existing chip props and correct avatar/color? smithers-b8: does lint cover all S1 actor strings without changing dispatcher actors? smithers-3f: does the adapter preserve session versus delegated attribution and grant no authority? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Security: the adapter executes no repository code and grants no authorization rights. smithers-3f reviews credential-kind precedence and forged-header coverage before start; C-J6-01 and the session-header boundary test prove recorded attribution remains authoritative. Repository execution remains confined to machines (§1.3, M-29).

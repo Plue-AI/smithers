@@ -16,6 +16,8 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
 - T1 is `in_review` and first in stack order.
 
 ## Steps
+- Adopted T-ACC-05 boundary cases: Use production create/approve routes and real merge-consumer wiring with fixed GitHub outcomes. Change generation while the displayed head stays unchanged and assert stale refusal, zero merge sends and no approved row. Assert MergeReady and each definitive GitHub refusal leave pending; only independently confirmed merge marks approved. Retain these assertions in downstream T-STK-04 integration
+
 11. In isolated fixtures, call explicit create as session O/M/E, delegated O/M/E, run, machine and setup. Target member-level todo.new, maintainer-only Merge, person-only never and ordinary run-policy commands; include insufficient scope and terminal_s1. List own/other rows and decide as each kind.
 12. Retry same credential/key/canonical create, then change command/subject/payload. Reuse keys across session/delegated, replacement and run/machine bindings. Downgrade role or kill credentials before replay, expire/resolve a confirmation, and retry approval with same and distinct session credentials.
 13. Count one decision at create, each press and replay before row/effect/result disclosure. Remove the consumer and call delegated confirm dispatch. Race ordinary downgrade and serialized member revocation with writes; downgrade Merge approving-member authority before send.
@@ -31,6 +33,8 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
 10. Restore T1 to `in_review` at generation g with head `h1`. Create a merge confirmation with O-delegated. Steer T1 with E's session, so T1 turns `working` while its PR head stays `h1`. Approve with O's session. Then let T1's run propose generation g+1 with head `h3`, and approve again with O's session.
 
 ## Pass when
+- Store review_merge bindings as (generation, reviewed_pr_head_sha). Approval rereads both under the subject transaction and expires/refuses a stale binding before effects. Pass both to the merge consumer. MergeReady and definitive GitHub refusals leave the confirmation pending; only a confirmed merge settles approved. Missing handlers leave it unapproved
+
 - Explicit-create literals: live session O/M/E and run/machine/setup=403 permission/permission; eligible full-scope delegated O/M/E todo.new=202 without TODO; Merge delegated O/M=202 and E=permission; never target=403 never/never after role/scope; run target=permission; terminal_s1 explicit create=permission. Dead callers retain 401 permission/unauthenticated or setup_closed.
 - List is own-only session full rows or delegated id/state; run/machine refuses permission. Approve/deny requires the confirmation requester session, current bound-command role and exact revision; all non-session and other-member callers=403 permission/permission. Stored wait kinds cannot turn approval into answer.
 - No consumer=503 infra/confirmation_unavailable, zero row/handler effects. Each resolved create, press and replay obtains one fresh bound-action decision; there is no generic-create decision followed by a second command decision.

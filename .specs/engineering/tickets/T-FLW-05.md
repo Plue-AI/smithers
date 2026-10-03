@@ -17,17 +17,13 @@ In:
 
 Out:
 - Activation after merge (T-FLW-03); pinning, so the edit never runs its own change (T-FLW-04).
-- The Flow card and its Source, Plan and Run doors (T-APP-05).
+- The Flow card, shared Edit/Source handlers and Source/Plan/Run doors (T-APP-05).
 - Agent model choice, an owner setting (T-FLW-08, §11.5a).
 - Learning proposals with seed patches (T-FLW-06), which reuse the seed-patch step.
 - Direct writes to `main`, applying patches against the host tree and changes outside `flows/<name>/**`, including the app agent's instruction file (use a normal TODO for that file).
 
 ## Changes
-- `packages/backend/internal/services/flow_edit.go` (new) → resolve the base source from the mirror at `main` or from the packaged built-in composition text; ask the app agent (host, §15.1) for a unified diff; enforce that the diff touches only `flows/<name>/**`; store the patch as a blob; return the proposal for the Flow card. Built-in sources ship as data in the server bundle (T-INS-01), never loaded as code by the host.
-- `POST /api/flows` (`edit`) → handler, typed errors (§6.2.3), `Idempotency-Key` (§6.2.1); OpenAPI row in `docs/api/openapi/`.
-- Command `flow.edit` → registered in the one catalog (`packages/rpc/src/catalog/`, T-CAT-01) with slash `/flow.edit`, CLI path `smthrs flow edit`, group Flows, visibility `core`. **Make TODO** on the proposal is an `in-card` row.
-- TODO create path (T-STK-02) → accepts `seed_patch` and writes `todo_revisions.seed_patch_blob`.
-- The `todo` flow's implement step (T-FLW-11 composition, `flows/coding/implementation/flow.ts`) → apply the seed patch to the branch working copy before the agent's first turn, and record the result in branch activity attributed to the TODO's author. On a failed apply, give the agent the request and the failed hunks, and add "seed patch re-derived" to the attempt's evidence.
+- Consume T-APP-05's shared Edit/Source handlers and seed handoff; this ticket owns C-J5-01 re-derivation qualification and C-J11-02's later scratch journey. Do not add a second handler.
 
 ## Tests
 

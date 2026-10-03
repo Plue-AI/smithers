@@ -12,6 +12,8 @@ A client subscribed to `home` and `todo:T1` at cursors c1 and c2, while a writer
 3. Reconnect with a cursor older than retention.
 
 ## Pass when
+
+- Add client unit coverage: two Containers on same and different topics share one socket; one sub per topic, unsub only on last departure, and reconnect one sub per topic with its cursor.
 - After step 1, the deltas the client applied equal the committed events, with none missing and none duplicated (compared by seq).
 - After step 2, the client receives a fresh `snap` and the state matches the database.
 - After step 3, the client receives a `snap`, not a partial replay.

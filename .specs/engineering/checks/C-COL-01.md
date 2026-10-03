@@ -12,12 +12,17 @@ A backend with real PostgreSQL and one running workspace (microVM on the referen
 3. A writes `src/a.ts` with `base_digest = d0`.
 4. A writes without `base_digest`.
 4a. The coding agent's std `read` returns `src/a.ts`; B then writes it; the agent's `write`, `edit` and `apply_patch` each try to change it.
+4b. Through the real coding/edit-atom apply_patch binding, exercise add, delete, update and move in S1 and through the authenticated daemon in S2. Change each read source or destination externally, create a formerly absent destination, and try an unread existing destination. Submit a two-file patch whose later hunk is stale; repeat with an outside replacement at exchange.
 5. Open `/api/live` as A and subscribe to `doc:code:<branch>:src/a.ts` and `doc:wiki:<page>`.
 6. Render the File card for `src/a.ts` in the app's unit harness.
 6a. (S1 contract gate) Replay the literal daemon↔host and browser golden frames with Go, Rust and TS contract codecs. Assert stream kinds, all RPC schemas, typed unsupported, actor envelopes and outbox ack bytes. The fakes replay the same fixtures; production codecs re-run them when implemented.
 7. (S2 re-run) Exercise the real daemon framing, capture flush phase, change event and presence heartbeat. T-COL-03a and T-COL-03 prove the connection and flush; T-COL-04a and T-COL-04 prove post_digest; T-COL-06 proves coordinates.
 
 ## Pass when
+
+- Step 4b: every stale or unread affected path returns stale_read. Both move paths are validated; source removal is guarded. The later stale hunk leaves all earlier hunks byte-identical, no new destination and no removed source. Displaced-digest rollback preserves the outside writer’s bytes. No read-ledger or diagnostic update reports a successful refused patch.
+
+- T-APP-15 branch identity: two File cards for the same repository path on different branches receive only their own branch machine’s literal hover, diagnostics and definition answers, including when the shell selects the other branch.
 - Step 2 returns 200 and the file holds B's content.
 - Step 3 returns `409 {code: "stale", current_digest: d1}`, and the file still holds B's content byte for byte.
 - Step 4 returns 400.

@@ -11,6 +11,8 @@ Automation: `packages/backend/internal/services/branch_fork_integration_test.go`
 - TODO T3's branch is asleep with a captured head H3.
 
 ## Steps
+7. Exercise every retained hosted ForkWorkspace consumer and its served workspace fork route with the compatibility decision applied. Verify revision-based creation and the same source boot id, loop pid and no-stop timing assertions; a deleted route is explicitly absent rather than silently falling back to stop/snapshot.
+
 
 1. Record the source VM's boot id (`/proc/sys/kernel/random/boot_id`) and the counter loop's pid.
 2. Ben forks T2: `POST /api/branches {from: "T2", name: "try-retry"}`.
@@ -20,6 +22,8 @@ Automation: `packages/backend/internal/services/branch_fork_integration_test.go`
 6. Open a terminal on the scratch branch. `cat src/try.ts`, `jj log -r @-`.
 
 ## Pass when
+- Step 7: retained hosted callers use revision-based creation and preserve the no-stop guarantee. No caller can reach the old wake/stop/snapshot path.
+
 
 - Step 3: the boot id and loop pid are unchanged, and `forked_from.commit` equals C.
 - Step 4: no gap exceeds 1 s.

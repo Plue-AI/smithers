@@ -11,8 +11,11 @@ Committed literal fixtures for the §12.3 fact TSV, every TODO state, first/dupl
 1. Call `decideGitHubFact(fact, todo, item, now)` for every matrix cell.
 2. Deliver poll, review and foreign-push facts through their production consumer with real PostgreSQL.
 3. Repeat and reorder each delivery and inspect semantic events and activity.
+4. Crash each T-GH-05 inbound consumer before commit, after commit and after a keyed remote effect succeeds but before acknowledgement. Restart and replay through production polling. Exercise both merge and completion check callers against the synced-head fixtures.
 
 ## Pass when
+
+- Step 4: before-commit crash leaves no receipt, transition, projection or outbound intent. After-commit restart retains one complete atomic set. Replays and remote-success recovery add no effective close or comment. Merge and completion read synced facts with no second per-head REST path; the completion comment retains the literal named checks.
 - Every cell has one asserted `Events`, `Noop reason` or `Attention kind` result; an unknown cell fails.
 - Each consumer uses the pure decision, not a private mapping. Item mutation follows its events.
 - Duplicate and stale facts record no-ops without repeated merge, issue-close or learning effects.

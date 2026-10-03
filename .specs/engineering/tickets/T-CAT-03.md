@@ -10,18 +10,18 @@ Reject Appendix C tags marked Replaced once T-FLW-11 lands.
 ## Scope
 
 In:
-  - Flow tags: every `Flow.make`, `Action.make` and `AgentAction.make` tag registered in shipped flows and std tools has an Appendix C row (`.specs/product/actions.md`, 386 rows), and none is marked Cut or, from T-FLW-11's change on, Replaced. Defer and Internal ops rows pass. A ticket that adds a tag adds its row in the same change.
+  - Flow tags: every `Flow.make`, `Action.make` and `AgentAction.make` tag registered in shipped flows and std tools has an Appendix C row (`.specs/product/actions.md`, 386 rows), and none is marked Cut or, from T-FLW-11's change on, Replaced. Defer and Internal ops rows pass. A ticket that adds a tag adds its row in the same change. Assert a reviewed test-side literal Cut/Replaced policy over each host’s registered flow `_tag` list, not a registry constructor option. Check: C-CAT-01 step 8.
 
 Out:
 - The landed scope of T-CAT-01, command descriptors, CLI and skill generation, composition implementation (T-FLW-11), and public library API changes.
 
 ## Changes
 
-- Extend `packages/rpc/src/catalog/AppendixC.test.ts` with the conditional Replaced rejection from the scope.
+- Extend `packages/rpc/src/catalog/AppendixC.test.ts` with a test-side literal Cut/Replaced assertion over both hosts’ flow `_tag` lists. Enable Replaced rejection when T-FLW-11 lands. Do not add a constructor option or change the public API. Register `review/change` explicitly in its negative fixture; it has no shipped `Flow.make` declaration. Check: C-CAT-01 step 8.
 
 ## Tests
 
-- Unit: C-CAT-01 step 8 builds the production host-flow and coding-host registries, rejects `coding/Request`, `coding/Vibe`, `coding/Verify` and `review/change`, and retains Cut-tag rejection. Reviewed literal Appendix C fixtures supply expected tags, statuses and runtimes; tests never read spec/product Markdown or derive expected policy from runtime code. Register each forbidden tag in a negative fixture and assert rejection at registry construction; the shipped registries pass. Do not start a repository flow to inspect its tags.
+- Unit: C-CAT-01 step 8 builds the production host-flow and coding-host registries, rejects `coding/Request`, `coding/Vibe`, `coding/Verify` and `review/change`, and retains Cut-tag rejection. Reviewed literal Appendix C fixtures supply expected tags, statuses and runtimes; tests never read spec/product Markdown or derive expected policy from runtime code. Register each forbidden tag in an inert negative fixture, including explicit `review/change` registration, and assert rejection by the test-side literal policy over each host’s flow `_tag` list; the shipped registries pass. No constructor option or public API change implements this check. Do not start a repository flow to inspect its tags.
 
 ## Acceptance
 
@@ -37,6 +37,6 @@ Out:
 2. Exclusions: catalog generation, CLI/skill work, composition implementation and public API changes are out of scope.
 3. Boundary: C-CAT-01 checks both production registries against reviewed literal fixtures, including forbidden-tag refusal; no runtime Markdown expectations.
 4. Decisions: smithers-8a accepts cutover timing; smithers-38 approves any public TypeScript API diff under §21.1.
-5. Owner pre-review before start: smithers-38 asks: Does the literal fixture cover both shipped registries? Does rejection require a public API change? smithers-b8 asks: Does the host registry inspection avoid loading repository-provided modules?
+5. Owner pre-review before start: smithers-38: answered, BLOCKING edits applied (tech lead adopts). Assert test-side literal Cut/Replaced policy over both hosts’ flow `_tag` lists, with explicit `review/change` negative registration and no constructor option or public API change. smithers-b8 asks: Does the host registry inspection avoid loading repository-provided modules?
 6. Security: registry inspection loads only shipped modules and inert fixture declarations; repository code runs only in machines under M-29. smithers-b8 reviews the host inspection boundary; smithers-3f reviews any machine-execution seam before start. C-CAT-01 must not execute repository flows on the host.
 

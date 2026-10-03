@@ -2,7 +2,7 @@
 
 Stage S1 · Size M · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-APP-17, T-FLW-11, T-GH-03, T-GH-05, T-GH-09, T-MCH-08, T-REL-02, T-STK-02, T-STK-04, T-STK-06, T-STK-08, T-STK-15 · Issue: [#3533](https://github.com/smithersai/smithers/issues/3533)
 Spec: spec.md §4.1 (`working → in_review`, `in_review → in_review`), §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5, §10.5.3 · Delta: delta.md §6 (one `todo` run per attempt; PRs stay based on `main` as verified candidates) · Product: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), §6.10 PR card, Appendix B.5 (Stack: integrate, Stack: propose)
-Ready: 2026-10-02 smithers-8a sha256:f21352cdc175
+Ready: 2026-10-02 smithers-8a sha256:04eb071c3013
 
 ## Goal
 Every PR head Smithers writes has the exact tree of a persisted accepted generation. GitHub may show the previous accepted head while newer work is checked or its push settles. An edit, a steer, an amendment or a base move after the capture yields a new generation before anything is proposed, and a new item starts on whatever verified prefix exists.

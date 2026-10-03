@@ -8,6 +8,10 @@ Every TODO PR shows its GitHub checks by name, a blocked merge shows GitHub's ow
 
 ## Scope
 
+- `order.ok` requires an eligible maintainer person session. Eligible delegated credentials return HTTP 403, class and code `never`; lower roles return HTTP 403, class and code `permission`. A stale attention revision returns HTTP 409, class `conflict`, code `stale_attention`, without clearing attention. Check: C-STK-04.
+
+- Each inbound PR transition commits its consumed-fact/deduplication receipt, TODO/item changes, semantic events, projections and all keyed outbound intents in one PostgreSQL transaction. A rolled-back transition admits no effects; only committed intents reach GitHub. Recovery reconciles remote success before retrying a keyed write. Checks: C-GH-13, C-J10-08, C-STK-04.
+
 - Read required-review satisfaction from GitHub branch protection/rulesets and publish it as merge facts. `MergeReady` returns `review_required` until satisfied; T-ACC-03 owns role authorization. Check: C-STK-07.
 
 In:
@@ -23,12 +27,16 @@ Out: GitHub branch-protection or ruleset administration; GitHub App permission e
 
 ## Changes
 
+- Document definitive GitHub merge refusals as HTTP 405, 409 or 422 passed through with class `github`, code `github_refused`, and GitHub’s message. Preserve T-STK-04’s lookup and uncertainty rules. Check: C-STK-04.
+
+- Replace direct completion CloseIssue followed by SaveMythicalItem with the atomic inbound transition and T-GH-09 keyed outbound intents. Route every landingGitHubStatusError caller through the typed body-preserving error, including `packages/backend/internal/services/mythical_github.go:329`. Checks: C-GH-13, C-J10-08.
+
 - Owner smithers-3f: pure `decideGitHubFact(fact, todo, item, now) → Decision{Events | Noop reason | Attention kind}` in `github_inbound.go` owns the §12.3 fact TSV mapping. Set exactly one outcome. Derive item mutation from the decision; duplicate and stale facts record no-ops. Poll, review and foreign-push consumers have no private mapping. Checks: C-GH-13, C-STK-04.
 
 - `packages/backend/internal/services/github_inbound_pulls.go` (new) → the T-GH-02 consumer for PR state and checks of TODO PRs, reading the `github_synced_*` store (§3.0).
 - `mythical_items.go` (`follow`) consumes `decideGitHubFact`. Prove containment from the actually merged accepted head and immutable prefix manifest; stack position alone proves nothing. Apply S12–S16 attention, partial-proof and durable close effects. Check: C-STK-04.
 - `mythical_items.go:85` (`mythicalSettledStates`) → keep GitHub-closed TODOs followed for 7 days.
-- `packages/backend/internal/services/mythical_github.go:611` (`HeadChecks`) → build named results with `required` from the `pr-state` contexts (`isRequired`), with branch protection and rulesets naming the required set; delete its per-head REST reads; call it from the checks consumer, not only from `merge` (`mythical_items.go:2435`).
+- `packages/backend/internal/services/mythical_github.go` (`HeadChecks`): migrate both merge and completion callers to the synced PR-head checks and required-check configuration. Completion currently calls HeadChecks at `packages/backend/internal/services/mythical_items.go:3224`; preserve the completion comment’s named check evidence from the synced facts, with no second per-head REST path. Check: C-GH-13.
 - `packages/backend/internal/services/landing_github_pull.go:421-453` (`request`) and `:455-465` (`landingGitHubStatusError`) → parse the response body and carry `message` and `errors[].message` verbatim in the typed error (§6.2.3 class `github`).
 - `mythical_items.go:2455` ("CI failed on the approved head") and `:2532` ("GitHub refused the merge") → the named failing checks and GitHub's sentence.
 - `mythical_items.go:3168-3255` (`complete`, `completionBody`) → close the issue only when `todos.fixes_issue`, through T-GH-09's keyed close/comment adapters. This ticket owns the inbound close/reopen transaction: cancel the closed attempt through T-FLW-11, retain final capture through T-MCH-14, restore the last accepted generation and position through T-STK-02 on reopen, and leave no live run. T-STK-05 owns the subsequent input-triggered attempt. Check: C-J10-08.
@@ -36,6 +44,10 @@ Out: GitHub branch-protection or ruleset administration; GitHub App permission e
 - `packages/backend/docs/github-sync.md` → "Checks, merges and closes" section; docs gates as in T-GH-02.
 
 ## Tests
+
+- C-STK-04 integration uses the production OK route with delegated maintainer and owner credentials, lower roles and a stale displayed revision. Assert `403 never`, `403 permission`, `409 conflict/stale_attention` and no effects. Assert GitHub 405/409/422 `github/github_refused` envelopes through the production merge route.
+
+- Integration (C-GH-13, C-J10-08, C-STK-04): crash immediately before the inbound transaction commits, immediately after commit and after remote close/comment success before local acknowledgement. Replay the same fact through production polling. Assert zero transition/receipt/intents before commit; one transition, receipt, projection and keyed intent set after commit; and remote-success reconciliation without another effective close/comment after restart. Read literal named completion evidence from synced checks and assert no per-head REST request from either HeadChecks caller.
 
 - Required-check/protection tests use backfilled open PRs and fixed PR fixtures; PR-shape end-to-end cases run after T-GH-03. Check: C-STK-07.
 
@@ -75,5 +87,5 @@ Out: GitHub branch-protection or ruleset administration; GitHub App permission e
 2. Out excludes protection administration, App permission expansion, Views/Containers, approval replay, next-attempt launch, merge commands, rebase execution and non-squash methods.
 3. C-GH-13, C-J10-08 and C-STK-04 drive production polling and the OK route. Required-check fixtures assert literal names, required flags and refusal text; containment fixtures persist independently authored manifests, including partial/missing proof. No test reads spec files or computes expected values from production code at runtime. Downstream merge-route validation uses T-STK-04's real route after it lands.
 4. smithers-3f approves fact decisions, containment and close/reopen transactions; smithers-b8 signs off catalog/OpenAPI payloads; smithers-8a accepts the close/reopen ownership split and any mapping or proof-policy change. Checks: C-GH-13, C-STK-04, C-J10-08.
-5. Before start, smithers-3f: does the actual merged head's retained manifest prove each contained change; are close/reopen and outbound effects atomic and deduplicated; can restoration land without T-STK-04 or T-STK-05? smithers-b8: does OK bind the displayed revision and enforce maintainer sessions; do public errors retain GitHub's messages and statuses? smithers-38: do check facts and attention revisions fit the topic schemas? smithers-06: can existing Home/TODO Views display partial-proof attention and named checks without a new visual component?
+5. Before start, smithers-3f: does the actual merged head's retained manifest prove each contained change; are close/reopen and outbound effects atomic and deduplicated; can restoration land without T-STK-04 or T-STK-05? smithers-b8: does OK bind the displayed revision and enforce maintainer sessions; do public errors retain GitHub's messages and statuses? smithers-38: do check facts and attention revisions fit the topic schemas? smithers-06: can existing Home/TODO Views display partial-proof attention and named checks without a new visual component? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Host work reads GitHub facts and immutable repository objects with hooks/helpers disabled; it never evaluates fetched code. Final capture and any work triggered after reopen run through the machine boundary (§1.3, M-29), with no host fallback. smithers-3f reviews this boundary. C-J10-08 proves retained capture/restoration; C-SEC-02 proves machine-only execution.

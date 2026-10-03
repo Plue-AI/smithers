@@ -21,6 +21,7 @@ Out:
 - New wait storage or answer policy (T-STK-07), new launch/resume machinery, retry attempt allocation, changes to terminal precedence, UI Views/Containers and parsing spec prose at runtime.
 
 ## Changes
+- Reuse the shared primary-wait/state helper wired by T-STK-07 through todo_state.go; runtime attachment projection consumes its wait facts and introduces no second state formula or writer.
 
 - Persist `todo_attempts.run_id` at launch in the same transaction that enters `starting`. Add `attempt` to the projection payload. Accept run_attached only if both its attempt and Checkpoint.RunID match the current attempt row; stale or mismatched attachments change no TODO, event or projection. Fix the lane's FirstStep test so attachment resumes working without another first step. Fix migration 0105's `request_run_id=''` backfill: retain valid run bindings and refuse an attachment with no authoritative launch binding. Check: C-STK-01.
 - Replace ProjectFlowRuntime's non-transactional three-pass optimistic loop with `pgx.BeginFunc`. Read and guard the current attempt and mutate TODO state, primary wait, todo_events and projection_events in that transaction. Roll back every write on failure. Check: C-STK-01.

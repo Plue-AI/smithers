@@ -41,8 +41,7 @@ Out:
 
 ## Risks and notes
 
-- Layout A fails. libkrun's virtiofs passthrough runs as the macOS user, so a guest `chown` fails with `EPERM` or the new owner doesn't persist. Confirmed if `stat` after reboot shows the mount's default owner. The `uid=,gid=` mount options point that way, since they set one presented owner per mount.
-- Layout B passes but needs one mount per member at VM boot. A member added while a machine is awake has no home until that machine's next boot. Confirmed by adding a third mount without restarting. Escalate to the tech lead: either layout B with "home appears after the branch's next wake" (a spec change), or the per-machine fallback.
+- Layout A preserved ownership across reboot and the second VM; its root:root 0700 parent prevented traversal. Layout B passed the ownership matrix but failed concurrent mutable-state safety. Retain controlled lock classification separately from uncontrolled probes. Decision completion validates retained evidence and never converts the rejected hypothesis into PASS.
 - Accepted fallback (§8.7.1): homes are per-machine directories on the root disk; tool logins persist locally across sleep and wake, with no token copying (C-MCH-10). smithers-8a records the technical decision; Will decides any change to the product ruling. T-MCH-11 starts from this result, not a shared-home layout.
 - Two VMs writing one home at once (Ben on two branches) can corrupt tool state such as a SQLite login cache. Confirmed if a Claude Code or Codex login written in VM 1 and refreshed in VM 2 within 10 s is lost. Record it and don't fix it here.
 
@@ -52,5 +51,5 @@ Out:
 2. Exclusions: production shared homes, coherence repair, member-user provisioning, tool-login behavior and credential-store implementation are explicitly excluded.
 3. Boundary tests: C-SPK-02 runs `scripts/spikes/mch-02-virtiofs-homes/run.sh` through real `msb create` and guest commands. Fixture bytes, uid/gid, 0700 and cross-read outcomes are fixed in the harness; expectations never come from spec files or implementation values at runtime. Retain the NO evidence and record uncontrolled lock probes as uncontrolled.
 4. Decisions: smithers-8a accepts the evidence and technical fallback; Will alone changes product behavior. Neither an untested 0711 root nor an uncontrolled lock probe reverses the recorded decision.
-5. Owner pre-review: smithers-3f before any rerun. Does the pinned image exercise both layouts without production-state mounts? Does the evidence distinguish traversal failure from ownership failure and controlled results from uncontrolled probes?
+5. Owner pre-review: smithers-3f before any rerun. Does the pinned image exercise both layouts without production-state mounts? Does the evidence distinguish traversal failure from ownership failure and controlled results from uncontrolled probes? smithers-3f: answered, BLOCKING edits applied (tech lead adopts)
 6. Security: smithers-3f reviews the harness before any rerun. Repository code and probe payloads execute only inside disposable machines; host commands only provision, measure and collect evidence. Use synthetic credentials, no production homes or install secrets, and no member or agent sudo. C-SPK-02 checks cross-user isolation.

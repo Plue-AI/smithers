@@ -24,6 +24,8 @@ Automation: `packages/backend/internal/live/honest_state_integration_test.go` (n
 
 ## Pass when
 
+- T-COL-07 agent-write extension: apply_patch add, delete, update and move all use the guarded mutation boundary. A stale source or destination reports refused, never saved. A later stale hunk leaves every earlier hunk unchanged; no move source disappears and no destination is created.
+
 - Every delta's state has a committed `todo_events` row with that `to_state`. Delta order equals event `seq` order. Step 2 emits no delta.
 - During the hold (step 3):
   - the toast and card show only "requested", never "queued" or "working";

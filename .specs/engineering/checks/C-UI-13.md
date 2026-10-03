@@ -10,8 +10,8 @@ Automation: part A `apps/app/src/mainview/cards/containers/<Card>Container.integ
 ## Steps
 A1. Mount the card's Container on its topic as a member, and wait for the snapshot.
 A2. Parse the model the Container passes to its View with the card's schema.
-A3. Read the `actions[]` and `gestures` it passes, with the catalog tag of each. Repeat A1–A3 as a member whose role lacks one of the card's role-gated commands.
-A4. Commit one change to the topic's source rows and wait for the next model.
+A3. Read the `actions[]` and `gestures` it passes, including per-wait and row actions and bound args, with the catalog tag of each. Repeat A1–A3 as a member whose role lacks one role-gated command. For T-APP-04, approve/deny bindings carry subject/revision and never relaunch the initiating model.action tag. For T-APP-01, main.reset-to-github is absent for a non-owner. For T-FLW-08, Edit instructions opens a private Draft with prefilled text and creates no TODO until Commit; Change model requires an owner session. Check these effects through the production catalog/topic boundaries, not fixtures alone.
+A4. Commit one change to the topic's source rows and wait for the next model. Persist and reload supplied shell view patches (selected_branch, selected_archive, toast_hidden, jump_to, on_screen, timeline_visible) and Monitor selected/at state per member. Replay projection sends no write. Other-viewer Confirm privacy remains a production C-ACC-02 obligation of T-APP-04.
 B1. At a stage's exit, the lead engineer (smithers-22) runs the inventory test with that stage and attaches the log. CI runs it with that stage on every later commit.
 
 ## Pass when
@@ -21,6 +21,7 @@ B1. At a stage's exit, the lead engineer (smithers-22) runs the inventory test w
 - B1: every §14.3 row whose Stage is the stage under test or earlier has a View, a Container and a schema; every View in `cards/views/` renders a §14.3 row or a shell part; every retained card still renders through its owner's renderer (§14.3.0).
 
 ## Fail when
+- An approval relaunches its initiating command, a non-owner receives a reset/model-write action, Edit instructions commits a TODO before Commit, or a view patch writes outside its member scope.
 - A Container passes a model that fails its schema, or an action that `cardActions` didn't build.
 - At or after a stage's exit, a row of that stage lacks a View, a Container or a schema, or a View has no row.
 

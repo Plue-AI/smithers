@@ -8,11 +8,11 @@ In stage 1, with no Homebrew formula yet, `smthrs host start --bundle <dir>` run
 
 ## Scope
 In:
-- Service-mode setup handoff (smithers-b8): the launchd plist's ProgramArguments include `--setup-handoff=socket`; `smthrs host start` reads the setup line from `$STATE/run/host.sock` and prints it to the operator's terminal, never from log files. After the claim it prints "already set up".
+- Service-mode setup handoff (smithers-b8): the launchd plist's ProgramArguments include `--setup-handoff=socket`; `smthrs host start` reads the setup line from `$STATE/run/host.sock` and prints it to the operator's terminal, never from log files. After the claim it prints "already set up". The socket is mode 0600. Check: C-INS-06.
 - `smthrs host start [--bundle <dir>]` (§16.1.2):
   - resolves the bundle: `--bundle`, else the keg layout beside `smthrs` that T-INS-05 installs, else a refusal that names both paths;
   - verifies the bundle's `manifest.json` (T-INS-01) and refuses a missing file or a hash mismatch before touching the plist;
-  - writes the launchd plist: `UserName` = the installing user, `ProgramArguments` = the bundle's absolute `bin/smithers-server`, `RunAtLoad`, `KeepAlive`, stdout and stderr under `$STATE/logs/`;
+  - writes the launchd plist: `UserName` = the installing user, `ProgramArguments` = the bundle's absolute `bin/smithers-server` followed by `--setup-handoff=socket`, `RunAtLoad`, `KeepAlive`, stdout and stderr under `$STATE/logs/`; Check: C-INS-06.
   - bootstraps it, asking for `sudo` once for the LaunchDaemon, or installs the launchd agent fallback if T-INS-03 chose it;
   - waits for `/readyz` on loopback, then prints `http://localhost:4000` and each configured public origin, each with the one-time setup URL while no owner exists (§5.1.0; T-ACC-01 owns the token);
   - is idempotent: a second run with the same bundle starts no second backend and keeps the setup token. A run with another bundle rewrites the plist and restarts the service once; restore and upgrade use this (T-INS-07).
@@ -34,9 +34,13 @@ Out:
 - CLI reference for the `host` group in `packages/smithers/docs/reference/cli/`; run `pnpm docs:sync`, `pnpm docs:check` and `smthrs docs //packages/smithers:docs`.
 
 ## Tests
+- Through the real CLI and launchd service, assert `$STATE/run/host.sock` is mode 0600 and `host start` reads setup output only from that socket. Scan `$STATE/logs/*` and both launchd stdout/stderr files after initial start, repeat, restart and claim; none contains `setup?token=` or token bytes. After claim, `host start` prints "already set up". The registered host group preserves top-level up/status. Check: C-INS-06.
+
+- Extend the real-service receipt with effective UIDs for the launcher, backend, PostgreSQL and flow host before and after restart. Invoke the installer through sudo and verify the recorded installing user, LaunchDaemon UserName and all service UIDs match. Check: C-INS-06.
+
 - Boundary: `packages/smithers/test/host-service.integration.test.ts` (C-INS-06) invokes the production CLI registered by `makeCli`, the real launchd service and the bundled launcher. Use committed literal plist fields, URL prefixes, exit codes and timing limits; never read spec Markdown or compute expected results from production helpers. Also assert `host status` succeeds before T-INS-06 supplies install telemetry.
 - Security: C-INS-06 must start with working microVM isolation from T-INS-02. Disable `msb` and verify `host start` refuses and launches no repository process; retain C-SEC-02’s guest-only canary evidence.
-- unit `packages/smithers/test/HostCommands.test.ts` (new): plist content, including `UserName` and the resolved absolute bundle path; bundle resolution order and the refusal that names both paths; a manifest mismatch refuses before any plist is written; `start` twice leaves one daemon and the same setup token; exactly one privileged call (`sudo launchctl bootstrap system`) on a first start and none on a repeat; another `--bundle` rewrites the plist and restarts once; `status` exit code and one line per failing component with fake `launchctl`, `/readyz` and `msb doctor`; printed URLs equal the listeners and serving settings.
+- unit `packages/smithers/test/HostCommands.test.ts` (new): plist content, including `UserName` and the resolved absolute bundle path; bundle resolution order and the refusal that names both paths; a manifest mismatch refuses before any plist is written; `start` twice leaves one daemon and the same setup token; exactly one privileged call (`sudo launchctl bootstrap system`) on a first start and none on a repeat; another `--bundle` rewrites the plist and restarts once; `status` exit code and one line per failing component with fake `launchctl`, `/readyz` and `msb doctor`; printed URLs equal the listeners and serving settings. Pin the literal `--setup-handoff=socket` ProgramArguments entry. Check: C-INS-06.
 - integration: C-INS-06 on the reference host with the T-INS-01 bundle built from a clean checkout. Its reboot step needs a host that can reboot; the other steps also run on a macOS arm64 CI runner.
 
 ## Acceptance
@@ -60,5 +64,5 @@ Out:
 2. Exclusions: tap/bottles, serving flags, upgrade/backup/restore and setup identity are named under Out.
 3. Tests: C-INS-06 drives the production CLI, launchd and bundled launcher with literal outcomes; C-J1-04 is the S1 journey. Homebrew-only C-REL-02 and the R portion of C-J1-01 wait for T-INS-05.
 4. Decisions: smithers-3f approves service privilege/label, smithers-b8 the CLI/handoff, smithers-8a the spike outcome and check adaptation; Will decides product availability exceptions.
-5. Owner pre-review before start: smithers-b8: Does host registration preserve up/status semantics? Does socket handoff keep setup tokens out of logs? smithers-3f: Does launchd run every Smithers process as the installing user? Does a missing msb refuse startup?
+5. Owner pre-review before start: smithers-b8: Does host registration preserve up/status semantics? Does socket handoff keep setup tokens out of logs? smithers-3f: Does launchd run every Smithers process as the installing user? Does a missing msb refuse startup? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Security: T-INS-02 must enforce §1.3/M-29 before service start; only packaged host code runs on the Mac, repository code runs only in machines. smithers-3f reviews the refusal; C-INS-06 and C-SEC-02 prove it.

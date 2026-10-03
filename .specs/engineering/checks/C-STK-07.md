@@ -27,6 +27,8 @@ Approved-ruling fixtures below are independent cases on the same real-dependency
 
 ## Pass when
 
+- T-STK-04 Land-deletion gate: StackCard and ChangeCards render no legacy Land dispatch. AppController bindings, Flows import/policy rows, flow entries, TODO Land routes and their obsolete test expectations are removed. Source search and existing app type/flow-parity checks find no executable history.land/change.land door. TODO Merge/Confirm exercise the authorized merge route; Plue-only LandingService remains intact.
+
 - Required checks pass but protected reviews are unsatisfied: the readiness reason is `review_required`, the same route/confirmation/projection decision holds on identical facts, and no merge PUT occurs. Refreshing satisfied reviews permits the remaining draft and mergeability checks.
 
 

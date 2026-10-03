@@ -33,6 +33,10 @@ Out:
 - Disk-copy forks, source-machine stop/snapshot/resume, scratch pushes to GitHub, shared homes, credential copying, free-form history commands and edits to design-owned Views.
 
 ## Changes
+- `apps/app/src/mainview/flows/entries/` → add `branch.fork` and `branch.add-to-stack` flow entries. `TodoContainer` wires Fork and Add to stack through `cardActions` → `flowAction`; Fork sends `{from: Tn}`. Delegated Add to stack consumes `202 {confirmation: id, state: "pending"}` and renders T-APP-04’s private Confirm card; only the requesting person’s session press executes it. Checks: C-J7-02, C-UI-13.
+
+- Include the surviving `ForkWorkspace` caller at `packages/backend/internal/services/workspace_provisioning.go:855` and its served route at `packages/backend/internal/compose/router.go:541` in the hosted compatibility decision. Any retained caller must use revision-based creation and preserve the no-stop guarantee. Check: C-J7-02.
+
 
 - `packages/backend/internal/services/branch_fork.go` (new): resolve the source revision, create the `branches` row, record `forked_from`, write the activity entry.
 - `packages/backend/internal/services/workspace_runtime.go:502-675` `forkRuntimeWorkspace` and `forkRuntimeWorkspaceAuthorized`: delete the wake, stop, cold snapshot, resume and boot-from-snapshot path (from `:550`). The scratch workspace is created at the fork's commit through `CreateWorkspace`'s `SourceRef` path (`workspace_provisioning.go:658`, `:780`).
@@ -42,6 +46,8 @@ Out:
 - `docs/api/openapi/repositories.yaml` `POST …/workspaces/{id}/fork`: deleted with its route if no hosted consumer remains (see notes).
 
 ## Tests
+- Mount the real TODO Container and record production flow dispatch. Fork dispatches `branch.fork` with literal `{from: "T2"}` once. Add to stack dispatches `branch.add-to-stack`; a delegated request returns literal pending 202 and displays its private Confirm card through T-APP-04 without creating a TODO until the person presses it. Checks: C-J7-02, C-UI-13.
+
 
 - integration (real PostgreSQL, real jj, production catalog dispatcher and authenticated HTTP router): fork from `main` starts at the mirror tip; fork from T2 starts at T2's last verified head with 0 runtime operations on T2's workspace; `from` naming a scratch branch gets a typed `user`-class refusal until S2.
 - integration: Add to stack creates Tk after the forked-from item with a seed patch equal to `jj diff` from `forked_from.base` to the scratch head, which holds T2's paths. The same branch id is now `smithers/<slug>`, kind `item`, with the same workspace id. No second workspace exists.
@@ -76,5 +82,5 @@ Out:
 2. Exclusions: Replace, scratch Rebase now, Drop implementation beyond its hook, Branch card, disk-copy forks, scratch pushes, credential copying and design-owned Views are explicit.
 3. Boundary tests: C-J7-02 drives app/catalog/Confirm/Drop; C-MCH-08 enters the routed fork endpoint and additionally proves awake Add to stack capture. Integration uses real PostgreSQL/jj and the production dispatcher/router with fixed repository fixtures and literal results, never runtime spec or code-derived expectations.
 4. Decisions: smithers-8a accepts the stack-service and hosted-route compatibility decision; smithers-3f approves history/capture seams, smithers-b8 command and Container seams, smithers-38 catalog/schema public API under §21.1, and smithers-06 View props. Will decides product changes such as Replace or source interruption.
-5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers?
+5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
 6. Security: smithers-3f reviews launch, capture and credential boundaries before start. Repository code and scratch terminal commands run only in machines; host system flows call fixed stack-service operations and never load repository flows. SourceRef transfers a revision, not a disk, home or credentials; no member/agent sudo or provider keys in guests. C-J7-02/C-MCH-08 prove the actual runtime path.
