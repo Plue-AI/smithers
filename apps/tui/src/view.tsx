@@ -969,7 +969,7 @@ export function Approval(
 
 /**
  * The rows `ToastStack` takes in a column `columns` cells wide before its own
- * cap: each toast's wrapped text, its actions beside it, and its margin.
+ * cap: each notice's wrapped text, or a settle notice's one line, and its margin.
  */
 export const toastStackRows = (
   rows: ReadonlyArray<Toasts.Row>,
@@ -977,10 +977,11 @@ export const toastStackRows = (
   compact: boolean
 ): number =>
   rows.reduce((total, row) => {
-    // The bar, the padding and an open key leave this much for the text.
-    const text = Math.max(1, Math.min(60, columns) - 4 - (row.surface === undefined ? 0 : 2 + stringWidth("enter")))
-    return total + (compact ? 0 : 1) +
-      row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(stringWidth(line) / text)), 0)
+    // The bar and the padding leave this much for the text.
+    const text = Math.max(1, Math.min(60, columns) - 4)
+    return total + (compact ? 0 : 1) + (row.surface !== undefined
+      ? 1
+      : row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(stringWidth(line) / text)), 0))
   }, 0)
 
 /**

@@ -273,7 +273,7 @@ test("/flow <agent> before discovery persists and shows its request, then dispat
   await waitFor(() => bodies.length === 1)
   expect(tabs().at(-1)!.tab).toMatchObject({ prompt: "Check math.js", agent: { name: "review" } })
   expect(records().filter((record) => record.type === "run")).toEqual([])
-  await waitFor(() => frame().includes("Subagent"))
+  await waitFor(() => frame().includes("Back (ctrl+y)"))
   expect(frame()).not.toContain("Unknown run")
 })
 

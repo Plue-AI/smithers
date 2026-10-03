@@ -469,14 +469,14 @@ test.each(["/flow", "smithers.run", "extension key"] as const)(
             kind: "key",
             key: {
               id: "count",
-              key: "alt+w",
+              key: "alt+z",
               label: "Count",
               action: { kind: "flow", flow: "review", input: {} }
             }
           })
           await setImmediate()
         })
-        await key("w", { meta: true })
+        await key("z", { meta: true })
       }
     }
     await waitFor(() => starts.length === 1)

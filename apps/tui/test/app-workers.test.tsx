@@ -197,7 +197,7 @@ test("three background workers keep Chat at its original width with one strip co
   expect(frame().match(/Review one file/g)).toHaveLength(1)
   expect(frame().match(/Fix seat queue/g)).toHaveLength(1)
   expect(frame().match(/Refactor tab strip/g)).toHaveLength(1)
-  expect(frame().split("\n")[1]).toMatch(/◐3|◓3|◑3|◒3/)
+  expect(frame().split("\n").find((line) => line.includes("Summary"))).toContain("◐3")
   expect(frame()).not.toContain("Stop  Steer")
   expect(turns).toHaveLength(4)
 })
@@ -218,7 +218,7 @@ test("an off-screen settle reports one notice whose Enter opens the worker and c
   expect(notice()).toHaveLength(1)
   await key("y", { ctrl: true })
   await key("RETURN")
-  expect(frame()).toContain("Subagent · Review one file")
+  expect(frame()).toContain("Continue Review one file")
   expect(notice()).toHaveLength(0)
   await command("/chat")
   expect(notice()).toHaveLength(0)
@@ -248,8 +248,8 @@ test.each(["Summary", "Chat card"])("an off-screen settlement preserves Enter on
     await key("UP")
   }
   await key("RETURN")
-  expect(frame()).toContain("Subagent · Review one file")
-  expect(frame()).not.toContain("Subagent · Other file")
+  expect(frame()).toContain("Continue Review one file")
+  expect(frame()).not.toContain("Continue Other file")
 })
 
 test("a captured worker edit offers Undo only after concurrent work settles", async () => {
@@ -396,7 +396,7 @@ test("host settlement rewrites the request card with its worker answer while the
   await key("TAB")
   await key("RETURN")
   await render()
-  expect(frame()).toContain("Subagent · Review one file")
+  expect(frame()).toContain("Continue Review one file")
   const deadline = Date.now() + 2_000
   while (!frame().includes("Third answer line.") && Date.now() < deadline) {
     await act(async () => {

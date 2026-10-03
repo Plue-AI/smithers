@@ -3,6 +3,7 @@ import stringWidth from "string-width"
 import type * as RunCard from "./run-card.ts"
 import { summary } from "./run-card.ts"
 import { color } from "./theme.ts"
+import { TranscriptRail } from "./transcript-rail.tsx"
 import { bar } from "./view.tsx"
 
 /** One host card, updated in place from its run's actual state and receipts. */
@@ -49,7 +50,7 @@ export function RunCardView(props: {
           (card.result !== undefined || !card.settled)
         ? null :
         (
-          <box
+          <TranscriptRail
             style={{ border: ["left"], paddingLeft: 1 }}
             customBorderChars={{ ...bar, vertical: "▌" }}
             borderColor={props.lane}
@@ -77,7 +78,7 @@ export function RunCardView(props: {
                 </text>
               </box>
             )}
-          </box>
+          </TranscriptRail>
         )}
     </box>
   )

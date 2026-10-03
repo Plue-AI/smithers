@@ -87,7 +87,8 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
   ])
   expect(readFileSync(failed.file, "utf8")).toBe(firstBytes)
   const settlement = await tui.until(
-    (screen) => /✓ review: Check one file · \S+/.test(screen) && screen.includes("pong") && screen.includes("enter Open"),
+    (screen) =>
+      /✓ review: Check one file · \S+/.test(screen) && screen.includes("pong") && screen.includes("enter Open"),
     5_000,
     "settled card with answer and Open action"
   )
@@ -95,7 +96,8 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
   await tui.press(key.tab)
   await tui.press(key.enter)
   await tui.until(
-    (screen) => screen.includes("Subagent · review: Check one file") && screen.includes("Back (ctrl+y)")
+    (screen) =>
+      screen.includes("Back (ctrl+y)")
       && screen.includes("pong"),
     5_000,
     "settled card opens the repaired worker"

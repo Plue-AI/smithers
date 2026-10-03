@@ -29,7 +29,7 @@ it("opens a capped worker's host card, then raises its cap from the worker view"
     expect(tui.screen()).not.toContain("Raise cap")
     await tui.click("flaky seat queue")
     await tui.until(
-      (screen) => screen.includes("Subagent · flaky seat queue") && screen.includes("Raise cap"),
+      (screen) => screen.includes("Back (ctrl+y)") && screen.includes("Raise cap"),
       5_000,
       "the worker view"
     )

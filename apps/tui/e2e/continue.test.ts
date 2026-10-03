@@ -51,7 +51,7 @@ for (const status of ["done", "failed", "stopped"] as const) {
       await tui.type("/chat")
       await tui.press(key.enter)
       await tui.until(
-        (screen) => screen.includes("Review ·") && !screen.includes("Subagent · Review"),
+        (screen) => screen.includes("Review ·") && !screen.includes("Back (ctrl+y)"),
         5_000,
         "chat tab"
       )
