@@ -89,9 +89,9 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
                  T-INS-03 signing + Hypervisor from a launchd daemon   T-GH-01 manifest from a LAN laptop
 
  Stage 1         Thin path first, in three lanes; it passes C-J1-04 with stage-1 tickets only:
- skeleton          install  T-INS-01 → T-INS-02 → T-INS-08 (launchd service, smthrs host start)
- (J1 J2 J4 J5      access   T-ACC-01 (App credentials from env) → T-ACC-02 → T-ACC-03 → T-STK-04
-  J6.1–3 J7        stack    T-STK-01 → T-STK-12 → T-STK-04, and T-STK-01 → T-ACC-02 (projection writer)
+ skeleton        Built bundle: T-INS-01 → T-INS-02 → T-INS-08; first merge requires the literal closure below.
+ (J1 J2 J4 J5      access   T-ACC-01 → T-ACC-03 → T-STK-04; T-ACC-02 follows T-ACC-01 + T-STK-01
+                 Stack locks and waits: T-STK-01 → T-STK-12 / T-STK-07 → T-STK-04
   J11.1)         The longest chain is T-STK-01 → T-ACC-02 → T-ACC-03 → T-STK-04 (L + 2M + L, about 3–6
                  calendar weeks). It runs on today's four-run worker; T-MCH-14 → T-FLW-11 replaces that
                  path inside stage 1 and deletes it in the same change.
@@ -128,7 +128,7 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
                  Will's Mac mini, and issue-sweep stops pushing to main (target 50 merged in two weeks)
 ```
 
-Critical path: W0 spikes → T-MCH-04 ‖ T-MCH-11 → T-COL-03 → T-TRM-07 → T-COL-04 (stage 2 watcher) → T-COL-08 (stage 3 documents) → T-APP-14 → C-J3-04, with T-COL-01 → T-COL-10 fixing the contracts in stage 1. Will confirmed co-editing for the MVP on 2026-10-02. The second path, stage 1's stateful path, is T-STK-01 → T-MCH-14 → T-FLW-11 → T-STK-06 → T-GH-04 → C-J10-02. The skeleton path is the thin path above, which ends at C-J1-04. Product v2.5 deferred exact kernel attribution, so the fanotify spike is off the critical path. The UI port is on the stage-1 path: T-UI-01 → T-UI-02 → T-APP-03 → C-J1-02 gates J1, and T-UI-03/04/05 → T-APP-02/04 gate J2.
+Critical path: T-COL-10 (L) → T-COL-03a (L) → T-COL-03 (M) → T-TRM-07 (M) → T-COL-04 (M) → T-COL-08 (M) → T-APP-14 (M): 2L+5M ≈ 20–40 agent-days, with T-MCH-04 and T-MCH-11 in parallel. T-COL-03r precedes the Rust components; T-COL-04a, T-COL-08a, T-COL-08b and T-APP-14a must be ready at their integration seams. T-COL-01 fixes transport and T-COL-10 fixes contracts before Wave A. C-J3-04 gates stage-3 exit. Will confirmed co-editing for the MVP on 2026-10-02. The second path, stage 1's stateful path, is T-STK-01 → T-MCH-14 → T-FLW-11 → T-STK-06 → T-GH-04 → C-J10-02. The skeleton path is C-J1-04’s literal prerequisite closure in tickets/README.md; estimate that closure before scheduling. Product v2.5 deferred exact kernel attribution, so the fanotify spike is off the critical path. The UI port is on the stage-1 path: T-UI-01 → T-UI-02 → T-APP-03 → C-J1-02 gates J1, and T-UI-03/04/05 → T-APP-02/04 gate J2.
 
 ## Top risks
 
@@ -148,12 +148,12 @@ Retired: the virtiofs homes risk. T-MCH-02 showed shared homes lose data, so hom
 | Question | Owner | Blocks |
 | --- | --- | --- |
 | Default `parallel` when capacity is 2 (mvp.md §13); spec §10.3.1 defaults it to 1 until T-MCH-01's measurement | Product, after T-MCH-01 | T-STK-03 |
-| Reference host RAM. The host is "William's Mac mini" (Williams-Mac-mini.local, 10.0.0.59; confirmed by Will 2026-10-02), and this MacBook Pro M3 Max 64 GB is the second LAN laptop. Model and RAM come once Will authorizes SSH. If under 32 GB, the §8.2.1 capacity row and the dogfood capacity are re-run. | smithers-a6 (SSH key from Will) | T-MCH-01, C-PERF-*, dogfood capacity |
+| Reference host. "William's Mac mini" (Williams-Mac-mini.local, Mac16,11, 64 GiB, 10 performance cores, macOS 26.6.2) had 3.1 GiB free at 17:05 and 208 GiB free at 17:40 on 2026-10-02 (smithers-98). The §8.2.1 disk gate is cleared: capacity is 5 machines, the dogfood capacity row (M-37). Re-check free disk before J1, because §8.2.1 re-reads it before every grant. This MacBook Pro M3 Max 64 GB is the second LAN laptop. | smithers-2f (disk), smithers-a6 (facts) | J1 on the reference host, C-PERF-*, T-COL-11 rerun |
 
 Settled 2026-10-02 and recorded in spec.md: co-editing in the MVP (Will), Tailscale out of the product (Will), sizing from the detected host (Will), branch-shared conversations (Will), Return to Tn / Keep for now (product), the Docker image deleted (tech lead), billing and multi-repository hidden with code kept (product), #3377 not needed (tech lead).
 
 ## How to use these documents
 
-- **Engineer:** take tickets in [tickets/README.md](tickets/README.md) order. A ticket is done when its checks pass and the evidence is attached.
+- **Engineer:** take tickets in [tickets/README.md](tickets/README.md) order. A ticket is done when each phase’s checks pass and landed-commit receipts are attached (C-PRC-03).
 - **Reviewer:** check spec compliance and repo standards separately (CLAUDE.md). The checks are the spec-compliance gate.
 - **Product and design:** [spec.md §14.3](spec.md) lists each card's data contract, and [ui-components.md](ui-components.md) types it. A card field missing there is a spec bug.

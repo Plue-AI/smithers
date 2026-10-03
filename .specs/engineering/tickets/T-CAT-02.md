@@ -1,6 +1,6 @@
 # T-CAT-02 CLI doors for Appendix A; skill generated from the catalog
 
-Stage S1 · Size M · Depends on T-CAT-01 · Unblocks T-TRM-02 · Issue: [#3448](https://github.com/smithersai/smithers/issues/3448)
+Stage S1 · Size M · Depends on T-CAT-01 · Unblocks T-APP-23, T-REL-02, T-TRM-02 · Issue: [#3448](https://github.com/smithersai/smithers/issues/3448)
 Spec: spec.md §5.4, §6.1.1–§6.1.3, §6.4, §15.3 · Delta: delta.md §9 (CLI mount consumes descriptors; skill generator) · Product: mvp.md §2 rule 1, §6.13 "Smithers skill", "CLI", §8 (CLI and skill: Keep), J6.3–J6.4, M-21, Appendix A, Appendix B.6
 
 ## Goal
@@ -44,6 +44,9 @@ Out:
 - Regression: `test/OneCli.test.ts`, `SkillsInstall.test.ts` and `UnifiedMcp.test.ts` stay green.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-CAT-02](../checks/C-CAT-02.md): every Appendix A row open to external agents has a CLI path with flags equal to its payload schema; person card doors for secrets, members and settings expose no external-agent action.
 - [C-CAT-03](../checks/C-CAT-03.md): the Smithers skill lists exactly the Appendix A rows open to external agents.
 

@@ -1,6 +1,6 @@
 # T-INS-05 Homebrew tap and release bottles; delete the Docker image
 
-Stage R · Size M · Depends on T-INS-01, T-INS-03, T-INS-08 · Unblocks T-INS-07, T-DOC-01 · Issue: [#3460](https://github.com/smithersai/smithers/issues/3460)
+Stage R · Size M · Depends on T-INS-01, T-INS-03, T-INS-08 · Unblocks T-DOC-01, T-INS-07 · Issue: [#3460](https://github.com/smithersai/smithers/issues/3460)
 Spec: spec.md §16.1.0–§16.1.2 · Delta: delta.md §1 (Add: formula; Delete [R]: the Docker self-host image) · Product: mvp.md J1.1, §6.1 Install on a Mac, §12.5, M-09, M-10
 
 ## Goal
@@ -28,6 +28,11 @@ Out:
 - Journey: C-J1-01, C-REL-02.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): R part at its named layer.
+
+
+
 - [C-REL-02](../checks/C-REL-02.md): install and start on an erased Mac contact no Smithers-run host, need no Smithers account, and ask for `sudo` once.
 - [C-J1-01](../checks/C-J1-01.md): Homebrew install to the setup card, recorded.
 

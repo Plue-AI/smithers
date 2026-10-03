@@ -1,6 +1,6 @@
 # T-FLW-08 Agent card and owner model configuration restored from `5b77095672`
 
-Stage S1 · Size M · Depends on T-INS-06, T-ACC-03, T-UI-13, T-APP-19 · Unblocks — · Issue: [#3454](https://github.com/smithersai/smithers/issues/3454)
+Stage S1 · Size M · Depends on T-INS-06, T-ACC-03, T-UI-13, T-APP-19, T-APP-22 · Unblocks T-REL-02 · Issue: [#3454](https://github.com/smithersai/smithers/issues/3454)
 Spec: spec.md §3 (`flow_config`), §5.2 (install settings row), §6.1.2, §6.3 `/api/agents`, §7.2 `agents`, §11.5, §11.5a, §14.3, §14.5.3, §15.1, §15.1.4, §15.2, §16.2 step 4 · Delta: delta.md §1 (Restore model configuration row) · Product: mvp.md J11.4, §6.14 Configure an agent, §6.5 Models, M-23, Appendix A `/agents`, `/agent <name>`, Appendix B.2 (`agent.list`, `model.*`)
 
 ## Goal
@@ -42,6 +42,9 @@ Out:
 - Docs: restored `MODELS.md` trimmed of the composer, plus the roles and instruction files; `pnpm docs:sync`, `pnpm docs:check`.
 
 ## Tests
+
+- C-CUT-02: pinned `agents` rows decode live. Restored models render in Agent or Settings and never revive `models`; T-APP-22 owns the `model-call` tombstone.
+
 - Unit, `apps/app/src/mainview/cards/ModelCards.test.tsx` (restored): no Compose button; role rows and the last test render; a non-owner sees no write buttons.
 - Unit, `apps/app/src/mainview/flows/entries/model.test.ts` (restored): the composer entries aren't registered; every restored entry is absent from `/help`, and the writes from the agent's tool list.
 - Integration (real PostgreSQL), `packages/backend/internal/compose/model_routes_owner_test.go` (new): owner session writes succeed; maintainer, member, `delegated` and `run` credentials get 403 class `permission`; reads succeed for members.
@@ -52,9 +55,10 @@ Out:
 - e2e, `apps/app/e2e/real/agents.spec.ts` (extend), for [C-J11-03](../checks/C-J11-03.md).
 
 ## Acceptance
+
+
 - [C-J11-03](../checks/C-J11-03.md): the owner's model switch applies to the next run and turn with no TODO; instructions change through a merged TODO; non-owners can't change models.
 - [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
-- Risk: removing `model-call` from `Cards.ts` breaks decoding of saved conversations that hold one (AGENTS.md: old sessions stay readable). Confirmed if a stored conversation fixture with a `model-call` card fails to load. Keep a read-only tombstone decoder.
 - Risk: a repository `.smithers/coding-project.json` that declares `seats` wins field by field over install-stored config (§11.2), so it could override the owner's role model. Confirmed if a run records a model the Agent card doesn't show. The card shows the effective model and its source (`owner` or `repo`).

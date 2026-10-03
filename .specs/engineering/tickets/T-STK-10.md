@@ -1,12 +1,15 @@
 # T-STK-10 Evidence per attempt
 
-Stage S1 · Size S · Depends on T-STK-01, T-FLW-11 · Unblocks T-GH-03, T-FLW-06 · Issue: [#3464](https://github.com/smithersai/smithers/issues/3464)
+Stage S1 · Size S · Depends on T-STK-01, T-FLW-11 · Unblocks T-FLW-06, T-GH-03, T-REL-02 · Issue: [#3464](https://github.com/smithersai/smithers/issues/3464)
 Spec: spec.md §3 (`todo_attempts.evidence`), §10.4.1, §10.4.3, §11.4.1, §11.6.1, §12.5.1, §14.3 (TODO card), §15.2 · Delta: delta.md §6 (Retry with attempt rows), §7 (checks evidence) · Product: mvp.md J2.5, §4.1 Failed ("earlier attempts and evidence kept"), §6.10 PR card, §6.9 Model access
 
 ## Goal
 Every attempt of a TODO keeps its own evidence (diff stat, checks run on the machine with logs, the agent's review summary, GitHub checks, tokens and time, the flow version and the model access), readable on the TODO card and used by the PR body, and a later attempt never overwrites it.
 
 ## Scope
+
+- A read route serves a check log by blob digest; the card’s `log_url` targets it. Check: C-J2-04 step 3.
+
 In:
 - `todo_attempts.evidence` with one schema: `{diff_stat, checks[{name, outcome, duration_ms, log_blob}], review_summary, github_checks[{name, conclusion, required}], tokens, time_ms, flow{name, digest}, model_access}`. Each part carries the candidate `generation` it describes (§10.4.3), and the PR body and the card show the accepted generation's parts.
 - Writers: the attempt's one `todo` run (T-FLW-11) for machine checks, review and usage; the GitHub sync for checks on the attempt's PR head.
@@ -34,6 +37,11 @@ Out:
 - Integration with the fake GitHub server: check runs on the PR head land in `github_checks` of the attempt that pushed that head, not the latest attempt.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-J2-04](../checks/C-J2-04.md): the PR and the TODO card show the diff, machine checks, GitHub checks and the review summary.
 
 ## Risks and notes

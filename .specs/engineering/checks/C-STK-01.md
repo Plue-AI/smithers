@@ -9,6 +9,9 @@ Automation: `packages/backend/internal/services/todo_state_test.go` (new) · Run
 - States: `queued`, `starting`, `working`, `needs_you`, `paused`, `failed`, `in_review`, `merged`, `dropped`, plus the client-side `draft` as a source only.
 
 ## Steps
+
+1. Run `TestTransitionTableIsTheSpec` over every row and guard variant; refuse pairs outside the TSV and compare rendered §4.1 with it. In an isolated fixture mutate one destination; both gates fail without a Go edit.
+
 1. Write the projection table from spec §4.1.0 only: `queued`, `skipped` → queued; launched or re-admitted and not yet attached (`run_attached`) → starting; `running`, `delivering`, `integrating`, `verifying`, `proposing`, `waiting`, `retrying` → working; `proposed` → in_review; `landed` → merged; `blocked` → failed; `cancelled`, `rejected`, `declined` → dropped; for a non-terminal item state, the §4.1.0a ranks: any open wait → needs_you, else a set `paused_at` → paused, else `blocked` → failed; terminal states (`landed`, `cancelled`, `rejected`, `declined`) ignore waits and `paused_at`. With several open waits, `needs_you.kind` is the first in the order `moved_off`, `conflict`, `foreign_push`, `approval`, `question`, then the oldest.
 2. Call `ProjectItemState` for every input: 15 states × launched × the four wait sets × paused_at, skipping launched for non-launchable states. Compare with step 1.
 3. Write the transition table from spec §4.1 only:

@@ -1,6 +1,6 @@
 # T-UI-08 Toasts, edge map and timeline
 
-Stage S1 · Size M · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-07, T-APP-18 · Issue: to file
+Stage S1 · Size M · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-07, T-APP-18, T-REL-02 · Issue: [#3545](https://github.com/smithersai/smithers/issues/3545)
 Spec: spec.md §14.2.1, §14.4, §14.5.4, §14.6 · Delta: delta.md §9 · Product: mvp.md §6.4 · Props: [ui-components.md § T-UI-08](../ui-components.md)
 
 ## Goal
@@ -23,6 +23,9 @@ Out:
 
 ## Changes
 
+- Timeline, band, pins, pills, 1,180 px breakpoint, ToastStack replacement and Allow notifications. Check: C-UI-12.
+
+
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
@@ -33,9 +36,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-UI-03](../checks/C-UI-03.md): Hidden tab: Needs you, In review and Failed raise a browser notification on https and localhost; one permission ask by gesture; plain-HTTP origins show toasts only
-- [C-UI-04](../checks/C-UI-04.md): Edge map and timeline: tones, states, actions; summaries refresh while live; summarizer failure keeps the last
 
 ## Risks and notes
 

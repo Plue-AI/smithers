@@ -1,6 +1,6 @@
 # C-COL-04 Daemon confinement: paths, special files and identity
 
-Proves: mvp.md M-18, M-29, §9 Isolation, §6.8 Terminals ("tool credentials" stay the member's) · spec.md §5.5, §8.7.2, §9.5.1–9.5.3, §9.6.1 · Layer: integration · Stage: S2 · Tickets: T-COL-03, T-TRM-07, T-MCH-15, T-MCH-11
+Proves: mvp.md M-18, M-29, §9 Isolation, §6.8 Terminals ("tool credentials" stay the member's) · spec.md §5.5, §8.7.2, §9.5.1–9.5.3, §9.6.1 · Layer: integration · Stage: S2 · Tickets: T-COL-03, T-TRM-07, T-MCH-15, T-MCH-11, T-COL-03a
 Automation: `crates/smithers-machined/tests/confinement.rs` (new), `packages/backend/internal/machined/confinement_integration_test.go` (new) · Runs in: reference-host microVM (real users and cgroups) and CI on a Linux runner
 
 ## Setup

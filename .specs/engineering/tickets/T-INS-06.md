@@ -1,6 +1,6 @@
 # T-INS-06 Install setup backend: durable steps, model access API, squash check
 
-Stage S1 · Size M · Depends on T-INS-04, T-GH-01, T-ACC-01, T-MCH-10 · Unblocks T-FLW-08, T-APP-03, T-REL-03, T-REL-01 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
+Stage S1 · Size M · Depends on T-INS-04, T-GH-01, T-ACC-01, T-MCH-10 · Unblocks T-APP-03, T-FLW-08, T-REL-01, T-REL-02, T-REL-03 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
 Spec: spec.md §3 (`install_settings`, `github_app`), §3.1, §5.1.0, §6.2, §6.3 (`/api/install`), §7.2 (`install` topic), §8.6.3, §10.6.2, §11.5a, §12.1, §14.3 (Setup/Settings), §15.1, §15.2, §16.2, §17.4 · Delta: delta.md §1 (Add [S1] setup card backend) · Product: mvp.md J1.2–J1.5, §6.1, §6.5, §6.9 Model access, M-09, M-11
 
 ## Goal
@@ -8,9 +8,9 @@ An owner completes setup steps 0 to 6 from any known origin (`http://localhost:4
 
 ## Scope
 In:
-- `GET /api/install`: every step with state, progress and error, plus the §14.3 Setup model (Address `{bind, origins[]}`, "This Mac" with its limits, GitHub `{signed_in, app_installed, squash_allowed}`, repository, model access flags, source `{state, pct}`, machine `{state, pct}`). Before the claim it answers only to a setup session (§5.1.0), on any known origin (§16.3.3); afterwards only to the owner.
+- `GET /api/install`: every step with state, progress and error, plus the §14.3 Setup model (address, `steps[]` with ids, states and `pct`, This Mac, GitHub, repository, models[] per role with key state, and the ChatGPT flag). Before the claim it answers only to a setup session (§5.1.0), on any known origin (§16.3.3); afterwards only to the owner.
 - `POST /api/install/setup/{step}` for each step's action and Retry, under the same rule. Starting a step is a compare-and-set from `pending`, `failed` or `blocked` to `running`, so two setup sessions never run one step twice (§5.1.0). Quiesce (T-INS-07) and the scorecard (T-REL-03) share the resource. States: `pending`, `running`, `done`, `blocked{line, fix_url}`, `failed{class, message}` (§6.2.3 envelope).
-- Steps (§16.2):
+- Steps (§16.2): store and report each step by id: 0 `address`, 1 `app`, 2 `sign_in`, 3 `repository`, 4 `models`, 5 `source`, 6 `machine` (`setup.<id>` keys).
   0. Address: confirm the bind address and public origins (T-INS-04's settings), because the App's callback URLs are fixed at creation (§16.3.3).
   1. Create the GitHub App (T-GH-01).
   2. Owner sign-in and the claim (T-ACC-01).
@@ -37,13 +37,20 @@ Out:
 
 ## Tests
 - Unit `install_setup_test.go`: allowed step transitions; step 1 refused before step 0; Retry only from `failed` or `blocked`; a repeated POST with the same `Idempotency-Key` returns the first result (§6.2.1).
-- Integration (real PostgreSQL, fake GitHub): kill the host between steps 4 and 5; after restart `GET` shows the same states and step 5 resumes, not step 1. Squash disabled → `blocked` with the fix link; enabled → Retry → `done`. Model keys never appear in `GET`, logs or projection payloads. Step 5 `done` while step 6 `running` → `source.state = ready`, `machine.state = running`.
+- Integration (real PostgreSQL, fake GitHub): kill the host between steps 4 and 5; after restart `GET` shows the same states and step 5 resumes, not step 1. Squash disabled → `blocked` with the fix link; enabled → Retry → `done`. Model keys never appear in `GET`, logs or projection payloads. Step `source` done while `machine` runs → `GET` shows `source` done and `machine` running with its `pct`.
 - Integration: step 4 with all three keys stores `agent:fast`, `agent:coding` and `agent:jev`; without a fast key, `agent:fast` resolves to the coding model.
 - Integration: with the subscription setting off, a coding run never uses the ChatGPT pool; with it on and a sign-in present, a run records the subscription as its model access.
 - Integration: before the claim, a request without a setup session gets 403 on every known origin, and one with a setup session succeeds on a configured LAN origin too; two setup sessions that start the same step at once run it once; after the claim, a member's request gets 403.
 - e2e: C-J1-02, C-J1-03.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
+
+
+
+
 - [C-J1-02](../checks/C-J1-02.md): every setup step, Address first, durable and resumable; three model roles; Source ready and Machine ready separate; squash check blocks with its fix link.
 - [C-J1-03](../checks/C-J1-03.md): a question is answered with file cards after Source ready and before Machine ready.
 - [C-SEC-04](../checks/C-SEC-04.md), with T-ACC-01: concurrent setup sessions run each step once.

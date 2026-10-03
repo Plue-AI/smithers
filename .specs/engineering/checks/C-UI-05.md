@@ -1,6 +1,6 @@
 # C-UI-05 Honest state on the live channel
 
-Proves: mvp.md §2 rule 5, §9 Honesty · spec.md §3.1–3.2, §4.1, §6.2.1–6.2.2, §7.1.2, §7.2, §7.6 (row 1), §14.4, §19.3; AGENTS.md "Instant chat; slow work runs in the background" · Layer: integration+e2e · Stage: S1 · Tickets: T-COL-02, T-APP-08, T-STK-01, T-COL-10
+Proves: mvp.md §2 rule 5, §9 Honesty · spec.md §3.1–3.2, §4.1, §6.2.1–6.2.2, §7.1.2, §7.2, §7.6 (row 1), §14.4, §19.3; AGENTS.md "Instant chat; slow work runs in the background" · Layer: integration+e2e · Stage: S1 · Tickets: T-COL-02, T-APP-08, T-STK-01, T-COL-10, T-COL-07
 Automation: `packages/backend/internal/live/honest_state_integration_test.go` (new) and `apps/app/e2e/real/honest-state.spec.ts` (new) · Runs in: CI (integration, real PostgreSQL) and reference host (e2e)
 
 ## Setup

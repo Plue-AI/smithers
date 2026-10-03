@@ -1,10 +1,10 @@
 # T-ACC-04 Delegated credentials with `via`; `smthrs login --agent`; attribution
 
-Stage S1 · Size M · Depends on T-ACC-03 · Unblocks T-ACC-05, T-STK-04, T-COL-02, T-TRM-02, T-APP-09, T-APP-16 · Issue: to file
+Stage S1 · Size M · Depends on T-ACC-03 · Unblocks T-ACC-05, T-APP-09, T-APP-23, T-COL-02, T-REL-02, T-STK-04, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Add `delegated` + `via`; Add actor `via` on audit) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
 
 ## Goal
-`smthrs login <install origin>` (and `--agent claude-code`) yields a `delegated` credential that acts as the member under the `agent: run | confirm | never` rules. App-agent turns get the same kind of credential, minted on the host and never sent to a browser. Every write made with one is recorded as "Ben via Claude Code" or "Ben via Smithers".
+`smthrs login <install origin>` (and `--agent claude-code`) yields a `delegated` credential that acts as the member under the `agent: run | confirm | never` rules. App-agent turns get the same kind of credential, minted on the host and never sent to a browser. Every write made with one is recorded as "Claude Code for Ben" or "Ben via Smithers".
 
 ## Scope
 In:
@@ -58,6 +58,11 @@ Out:
 - Migration test: the backfill classifies a seeded user PAT, a run token and a workspace token correctly.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-ACC-02](../checks/C-ACC-02.md): delegated credentials can't merge or approve.
 - [C-J6-02](../checks/C-J6-02.md): laptop `smthrs login` gets a delegated credential (the merge-confirmation half needs T-ACC-05).
 - [C-ACC-01](../checks/C-ACC-01.md): Every permission-matrix row is enforced server-side for every credential kind

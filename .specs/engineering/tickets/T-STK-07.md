@@ -1,6 +1,6 @@
 # T-STK-07 Needs you: independent waits, precedence, first answer wins, `ask` bound for implementing seats
 
-Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-STK-04, T-STK-08, T-GH-05, T-GH-06, T-GH-07, T-FLW-11, T-COL-05 · Issue: [#3451](https://github.com/smithersai/smithers/issues/3451)
+Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-COL-05, T-FLW-11, T-GH-05, T-GH-06, T-GH-07, T-REL-02, T-STK-04, T-STK-08 · Issue: [#3451](https://github.com/smithersai/smithers/issues/3451)
 Spec: spec.md §4.1 (`working ↔ needs_you`, `in_review ↔ needs_you`), §4.1.0a, §4.1.2a, §5.2, §10.7.2a, §10.8, §10.8.0, §11.6.1, §14.4, §14.5.2 · Delta: delta.md §6 (Add Needs-you kinds and first-answer-wins answers) · Product: mvp.md §4.1 Needs you, J2.4, J3.6, J4.2, J6.3, M-14, §11 stage 1 item 4, Appendix B.3 (`ask`)
 
 ## Goal
@@ -42,6 +42,11 @@ Out:
 - Integration: a `needs_you` raised from `in_review` returns to `in_review` on an answer that needs no new work; an answer from a run credential to a `question` is refused with class `permission`; a delegated credential's `approval.approve` is refused with no confirmation path.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-J2-03](../checks/C-J2-03.md): agent question → Needs you to the owner and on the home card; first answer wins.
 - [C-STK-08](../checks/C-STK-08.md): independent waits give the §4.1.0a state; merges on GitHub close every wait.
 

@@ -1,6 +1,6 @@
 # T-REL-01 Performance benchmarks on the reference host
 
-Stage R · Size M · Depends on T-APP-01, T-COL-04, T-COL-08, T-APP-14, T-MCH-06, T-MCH-07, T-STK-11, T-INS-06 · Unblocks T-MNT-05 · Issue: to file
+Stage R · Size M · Depends on T-APP-01, T-COL-04, T-COL-08, T-APP-14, T-MCH-06, T-MCH-07, T-STK-11, T-INS-06 · Unblocks T-MNT-05 · Issue: [#3592](https://github.com/smithersai/smithers/issues/3592)
 Spec: spec.md §8.2.1 (host profile), §9.3.4, §18, §20.3, §21 (Performance row) · Delta: none (new) · Product: mvp.md §9 Quality bar, M-19
 
 ## Goal

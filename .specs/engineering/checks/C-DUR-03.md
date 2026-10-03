@@ -1,6 +1,6 @@
 # C-DUR-03 Killing the host during a GitHub write or push reconciles it without duplication
 
-Proves: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts) · spec.md §3 (`outbound_writes`), §12.4.1, §19.1, §19.2 · Layer: fault · Stage: S1, S2 · Tickets: T-GH-09, T-FLW-09
+Proves: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts) · spec.md §3 (`outbound_writes`), §12.4.1, §19.1, §19.2 · Layer: fault · Stage: S1, S2 · Tickets: T-GH-09, T-FLW-09, T-REL-04
 Automation: S1: `packages/backend/internal/compose/github_outbound_kill_test.go` (new). S2: `packages/smithers/test/faults/github-step-kill.test.ts` (new, T-FLW-09) · Runs in: CI
 
 ## Setup

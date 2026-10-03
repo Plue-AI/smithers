@@ -1,6 +1,6 @@
 # T-ACC-05 Person confirmations
 
-Stage S1 · Size M · Depends on T-ACC-04, T-CAT-01 · Unblocks T-MNT-01, T-MNT-03, T-STK-04, T-TRM-02, T-APP-04 · Issue: to file
+Stage S1 · Size M · Depends on T-ACC-04, T-CAT-01 · Unblocks T-APP-04, T-APP-23, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-TRM-02 · Issue: [#3494](https://github.com/smithersai/smithers/issues/3494)
 Spec: spec.md §5.4, §5.2 ("confirmation only"), §3 (`person_confirmations`), §6.3 (`/api/confirmations`), §7.2 (`confirmations` topic), §14.3 (Confirm card), §14.5.1, §15.1.3–§15.1.5 · Delta: delta.md §2 (Add `person_confirmations` + `/api/confirmations`; CLI `/merge` creates a confirmation) · Product: mvp.md §2 rule 6, §6.13 "CLI", J6.4, M-05, M-21, Appendix A closing note, Appendix B legend (A✓) and B.6
 
 ## Goal
@@ -57,6 +57,11 @@ Out:
 - Unit: the state machine table, every allowed and refused transition, for both kinds.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-ACC-02](../checks/C-ACC-02.md): a confirmation can be approved only from the member's session, bound to the revision.
 - [C-J6-02](../checks/C-J6-02.md): a laptop `smthrs merge` opens a confirmation.
 

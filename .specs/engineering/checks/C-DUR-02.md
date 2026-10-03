@@ -1,6 +1,6 @@
 # C-DUR-02 Killing a machine mid-run resumes the run or shows it interrupted
 
-Proves: mvp.md §6.1 Restart, §9 Durability and Honesty · spec.md §4.1 (`working → failed` on `uncertain`, `failed → queued`), §8.4 (disk outlives the VM), §11.4.2, §19.1, §19.2 · Layer: fault · Stage: S2 · Tickets: T-FLW-09
+Proves: mvp.md §6.1 Restart, §9 Durability and Honesty · spec.md §4.1 (`working → failed` on `uncertain`, `failed → queued`), §8.4 (disk outlives the VM), §11.4.2, §19.1, §19.2 · Layer: fault · Stage: S2 · Tickets: T-FLW-09, T-REL-04
 Automation: `packages/backend/flowhost/machine_kill_fault_test.go` (new), beside `workspace_crash_recovery_test.go` · Runs in: reference host (needs `msb` 0.6.16), nightly
 
 ## Setup

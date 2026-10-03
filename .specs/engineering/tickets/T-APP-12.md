@@ -1,6 +1,6 @@
 # T-APP-12 Terminal card ownership UI
 
-Stage S2 · Size S · Depends on T-TRM-01, T-UI-17, T-APP-19 · Unblocks — · Issue: to file
+Stage S2 · Size S · Depends on T-TRM-01, T-UI-17, T-APP-19 · Unblocks T-REL-02 · Issue: [#3557](https://github.com/smithersai/smithers/issues/3557)
 Spec: spec.md §2 (Terminal), §3 (`terminals`), §7.1, §7.5, §8.6.1, §8.11, §14.3 (Terminal), §14.6a, §15.1.5; overview.md E-05 · Delta: delta.md §5 (Modify [S2] owner-only input, read-only for others) · Product: mvp.md J3.3, J6.1, J6.5, §3.1, §6.8 Terminals, M-18, Appendix A `/terminal`
 
 ## Goal
@@ -8,7 +8,7 @@ A member's terminal card shows whose session it is and who watches it; the owner
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds every visual component and its styles: `TerminalCard` view: owner, watchers, running command, Watching state. Engineering wires them: the terminal stream client on the live channel and the owner-only input rule. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
+Design (smithers-06) builds the `TerminalView`, with the CSS, in T-UI-17. This ticket builds no View, CSS or editor presentation. It owns the topic decoder and golden fixture, the adapter, the Container and the commands in Changes ([card-kinds.md §1](../card-kinds.md)). The seam is the view model from T-APP-19 (spec §14.2.1).
 
 ## Scope
 In:
@@ -25,21 +25,26 @@ Out:
 - **Add to machine image**: an in-card control on Settings and on a failed step that names a missing tool (§8.6.1), not on the Terminal card. The mock's terminal offer (`Terminal.tsx:42-47`) isn't built.
 
 ## Changes
-- `apps/app/src/mainview/cards/TerminalCard.tsx` (new) and test, replacing the terminal facet of the deleted `WorkspaceCard.tsx` (T-APP-10) and reusing `tabs/TerminalView.tsx` and `@smthrs/ui/adapters/terminal`.
-- `packages/rpc/src/Cards.ts`: kind `terminal {id}`. `packages/rpc/src/Terminal.ts` (new): owner, watchers, running command, title.
+- `packages/rpc/src/topics/Terminal.ts` (new): the decoder of a terminal's metadata on `branch:<id>` (title, owner, watchers, running command). `packages/rpc/test/fixtures/topics/terminal.json` (new): the golden, compared by a Go golden test with T-TRM-01's builder.
+- `apps/app/src/mainview/cards/containers/terminalModel.ts` (new): `toTerminalModel(terminal, viewer)`: the owner through `toActor` (the coding participant for the agent's terminal), watchers, the running command, `frozen` while a rebase freezes it (§9.4.2), and `viewer_is_owner`, which is true for the owner, also on a session the owner's own agent runs, and false for every member on the coding agent's terminal.
+- `apps/app/src/mainview/cards/containers/TerminalContainer.tsx` (new): passes the stream prop `{onData, write?}` from T-TRM-01's live-channel terminal client; `write` is present only when `viewer_is_owner`, so a watcher's keys produce no input frame; renders `TerminalView` (T-UI-17), which reuses `tabs/TerminalView.tsx` and `@smthrs/ui/adapters/terminal`. This ticket opens no socket of its own.
+- `packages/rpc/src/Cards.ts`: kind `terminal {id}`. T-APP-10 moves `workspace`, whose terminal facet this card replaces, to `LEGACY_CARD_KINDS`.
 - `apps/app/src/mainview/flows/entries/box.ts`: `box.terminal` and `box.sessions` become `/terminal` (Appendix B.2).
 - `apps/app/e2e/playwright/citc.spec.ts`: terminal assertions move to the new card.
 
 ## Tests
-- Unit (`TerminalCard.test.tsx`): owner versus watcher rendering; the watcher's key events produce no `input` call on the client; the owner's own agent session accepts input; the coding agent's terminal renders "Agent" and accepts no input from anyone.
-- Unit: after a reload the card shows the ring replay before live output, with no duplicate lines.
-- Unit (conformance): no Ask to type, Allow or "Let others type" control exists in the card source.
-- e2e: the C-J3-02 script.
+- Unit (`terminalModel.test.ts`): owner versus watcher; the owner's own agent session is the owner's; the coding agent's terminal accepts input from nobody.
+- Unit (`TerminalContainer.test.tsx`, fake stream): a watcher's key events produce no `input` call; after a reload the ring replay arrives before live output with no duplicate lines; the running command clears within 1 s of the command's exit.
+- Unit (conformance): no Ask to type, Allow or "Let others type" action exists in the catalog or the adapter.
+- Unit: every `Action.label` and `disabled.reason` the adapter emits passes C-UI-02's `lintText` (engineering's copy; the View's copy is its T-UI ticket's).
+- e2e: the C-J3-02 script through `TerminalView`.
+- Focus behaviour (a watched terminal never takes input focus, and ⌘K still opens the palette) is T-UI-17's.
 
 ## Acceptance
+
+
 - [C-J3-02](../checks/C-J3-02.md): a member's terminal runs as that member; others watch read-only, and their keystrokes are dropped.
 - [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
-- Risk: a watcher's card takes keyboard focus through the control-focus spotlight and swallows shortcuts meant for the composer. Falsified if, with a watched terminal focused, ⌘K still opens the palette and no key event reaches the terminal client.
-- Risk: the running command shown for a terminal goes stale after the command exits. Falsified if the field clears within 1 s of the command's exit in the C-J3-02 recording.
+- Risk: the running command shown for a terminal goes stale after the command exits. The Container test falsifies it, and the C-J3-02 recording confirms it end to end.

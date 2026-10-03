@@ -1,6 +1,6 @@
 # T-MCH-05 Delete branch locks
 
-Stage S2 · Size M · Depends on T-MCH-04 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-MCH-04 · Unblocks T-REL-02 · Issue: [#3566](https://github.com/smithersai/smithers/issues/3566)
 Spec: spec.md §8.1.2, §6.2.4 · Delta: delta.md §3 (branch locks row), §10 · Product: mvp.md §8 (Branch locks: Cut), M-17
 
 ## Goal

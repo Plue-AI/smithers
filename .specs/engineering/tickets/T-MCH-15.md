@@ -1,6 +1,6 @@
 # T-MCH-15 Per-member credential store: tool logins carry across machines
 
-Stage S2 · Size M · Depends on T-MCH-11, T-COL-03 · Unblocks T-MNT-02 · Issue: to file
+Stage S2, R · Size M · Depends on S2: T-MCH-11, T-COL-03 · Unblocks T-MNT-02, T-REL-02 · Issue: [#3571](https://github.com/smithersai/smithers/issues/3571)
 Spec: spec.md §3 (`member_credentials`), §5.6, §8.7.2, §8.7.3, §9.1.2 (`seed_credentials`), §17.4 · Delta: delta.md §3 (per-member users row) · Product: mvp.md §6.8 Terminals, J6.1, M-18
 
 ## Goal
@@ -43,8 +43,8 @@ Out:
 - [C-COL-04](../checks/C-COL-04.md): step 3: credential reads and writes cannot follow symlinks or escape the member's home.
 
 
-- [C-MCH-10](../checks/C-MCH-10.md): log in once, use everywhere; refreshed tokens flow back; history stays local; revocation removes credentials.
-- [C-REL-05](../checks/C-REL-05.md): 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt
+- [C-MCH-10](../checks/C-MCH-10.md), S2: log in once, use everywhere; refreshed tokens flow back; history stays local; revocation removes credentials.
+- [C-REL-05](../checks/C-REL-05.md), R (owned by T-REL-02): 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt
 
 ## Risks and notes
 

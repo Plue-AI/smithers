@@ -20,6 +20,7 @@ Automation: `packages/smithers/test/host-service.integration.test.ts` (new) driv
 9. Change one byte of one file in a third copy of the bundle and start with it.
 
 ## Pass when
+- Service mode (T-INS-02/T-INS-08, smithers-b8): after setup, scan `$STATE/logs/` for both the first and the re-minted token (absent); `$STATE/run/host.sock` answers "already set up" after the claim.
 - Step 1: exactly one `sudo` prompt; `/readyz` within 60 s; the output shows `http://localhost:4000` with its setup URL; `launchctl print system/<label>` shows `UserName` = the installing user and the bundle's absolute `bin/smithers-server`.
 - Step 2: no prompt, the same backend pid and the same setup URL (the token didn't rotate).
 - Step 3: exit 0, one healthy line per process, and the bundle path.

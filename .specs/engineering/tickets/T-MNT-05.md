@@ -1,6 +1,6 @@
 # T-MNT-05 Ship the day-seven maintainer upgrade and journey
 
-Stage M · Size S · Depends on T-MNT-03, T-MNT-04, T-INS-07, T-REL-01, T-DOC-03 · Unblocks — · Issue: to file
+Stage M · Size S · Depends on T-MNT-03, T-MNT-04, T-INS-07, T-REL-01, T-DOC-03 · Unblocks — · Issue: [#3597](https://github.com/smithersai/smithers/issues/3597)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: none (maintainer extension) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
 
 ## Goal

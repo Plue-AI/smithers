@@ -1,6 +1,6 @@
 # T-CUT-02 Delete cut backend routes with their OpenAPI rows
 
-Stage S1 · Size M · Depends on T-CUT-01 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-CUT-01 · Unblocks T-REL-02 · Issue: [#3509](https://github.com/smithersai/smithers/issues/3509)
 Spec: spec.md §6.2.4, §6.3 (target surface), §17.5, §20.2 · Delta: delta.md §10 (Delete backend/OpenAPI row), §6 (Hide `history.bootstrap/backfill`) · Product: mvp.md §8 (Cut rows), §12 release item 3, §14 (kept machinery), M-09
 
 ## Goal
@@ -21,7 +21,7 @@ In: one decision per route, recorded in `packages/rpc/src/catalog/cuts.json` (fr
 | Cloud agent sessions | `/api/admin/agent-sessions*` and repo `agent-sessions` routes (`router.go:1349,1827-1828`) | Admin routes as the admin row; repo routes are deleted if only cut app code called them |
 
 Out:
-- `/api/agent/turn*` (`packages/rpc/src/AgentApiRoutes.ts:13-48`). This is the app agent's chat turn route and it stays, even though research listed it among the agent-session cuts.
+- `/api/agent/turn*` and `/api/agent/conversations*` (`packages/rpc/src/AgentApiRoutes.ts:13-48`). Research listed them among the agent-session cuts, but they are the app agent's turn routes. T-APP-23 deletes the write half (`/api/agent/turn`, `/cancel`, `/retire`) at the host-turn cutover and keeps the read half for the Earlier archive (spec §14.1.5).
 - Branch locks (T-MCH-05).
 - Billing routes (T-CUT-03).
 - **Hide** rows: `mythical/{bootstrap,backfill,config}` (`router.go:1118-1120`), `mirror-sync`, notifications and devtools keep running and stay documented.

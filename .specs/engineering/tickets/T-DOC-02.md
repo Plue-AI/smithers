@@ -1,6 +1,6 @@
 # T-DOC-02 ADR 0002: Mac install, multi-member, microVM-only, origin-agnostic
 
-Stage S1 · Size S · Depends on — · Unblocks — · Issue: [#3442](https://github.com/smithersai/smithers/issues/3442)
+Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3442](https://github.com/smithersai/smithers/issues/3442)
 Spec: spec.md §0, §1.1–§1.4, §5.1.0, §5.3, §8.1, §8.2.1, §16.1.0, §16.1.2, §16.3, §17 · Delta: delta.md §1 (Docs row), §11 (ADR 0001 row) · Product: mvp.md M-10, M-17, M-28, M-29, M-30, §6.1; overview.md E-01, E-02, E-03, E-09, E-13, E-17
 
 ## Goal

@@ -247,8 +247,10 @@ Today (`research/app-shell.md`, `research/cli-api-cuts.md`):
 
 | Action | Change | Spec |
 | --- | --- | --- |
-| Delete | App: SetupChecklist, RepositorySetupCard, setup/chores/ci/feature flows, SignupCards, onboarding/tutorial, Registration*, AdminCards + admin flows, BillingCards + billing flows, BurndownCard + issue-sweep entry, SubagentGrid, agent sessions, CommitCards, `change.split`. File list: `research/app-shell.md` "Cut surfaces". | mvp.md §8 |
-| Delete | Backend/OpenAPI: `/api/repository-setup/*`, repository-jobs setup paths (keep event admission and dispatch), `/api/admin/*` except owner health, billing routes (Defer: hide behind build flag or delete, T-CUT-03 decides per route), branch locks, `changes/{id}/split`, registration review. Delete the route and its OpenAPI row together (`openapi_conformance_test.go:220`). | §6.2.4 |
+| Delete | App: SetupChecklist, RepositorySetupCard, setup/chores/ci/feature flows, SignupCards, onboarding/tutorial, Registration*, AdminCards + admin flows, BurndownCard + issue-sweep entry, SubagentGrid, agent sessions, CommitCards, `change.split`. File list: `research/app-shell.md` "Cut surfaces". | mvp.md §8 |
+| Hide | Billing, Cloud, balance, plans and checkout: keep `flows/entries/billing.ts`, `cards/BillingCards.tsx`, `AnonymousCeilingCard.tsx`, `auth-billing.ts` and `phone-paywall.spec.ts` hidden (T-CUT-03). Keep multi-repository `repo.choose`, `repo.create`, `repo.select`, `repo.overview`, `repo.update` code hidden. | mvp.md §8, Appendix B.2; C-CUT-03 |
+| Delete | Backend/OpenAPI: `/api/repository-setup/*`, repository-jobs setup paths (keep event admission and dispatch), `/api/admin/*` except owner health, branch locks, `changes/{id}/split`, registration review. Delete the route and its OpenAPI row together (`openapi_conformance_test.go:220`). | §6.2.4 |
+| Hide | Keep deferred billing routes and OpenAPI definitions behind the T-CUT-03 composition gate. | mvp.md §8; C-CUT-03 |
 | Delete | `apps/review` (empty), `packages/smithers/create-app`. | AGENTS.md |
 | Defer | TUI: keep building; remove from launch docs, skill and release gate. | mvp.md §8 |
 | Modify | AGENTS.md "MVP scope boundaries": align with mvp.md §8 (the five jobs are cut as surfaces; admission and dispatch stay). | M-12 |

@@ -1,6 +1,6 @@
 # C-UI-11 Kept card capabilities: File-card code intelligence and the webpage reader
 
-Proves: mvp.md §8 ("Webpage reader card; code intelligence in file cards": Keep), §1.4 (the File card keeps code intelligence), Appendix B `code.hover`, `code.definition`, `code.diagnostics`, `browser.open`; AGENTS.md "Keep browser IDE code intelligence and the general webpage reader" · spec.md §7.6 (row 3), §8.4.4, §14.3 (File), §14.3.0 · Layer: e2e · Stage: S1, R · Tickets: T-APP-15, T-APP-11, T-UI-11
+Proves: mvp.md §8 ("Webpage reader card; code intelligence in file cards": Keep), §1.4 (the File card keeps code intelligence), Appendix B `code.hover`, `code.definition`, `code.diagnostics`, `browser.open`; AGENTS.md "Keep browser IDE code intelligence and the general webpage reader" · spec.md §7.6 (row 3), §8.4.4, §14.3 (File), §14.3.0 · Layer: e2e · Stage: S1, R · Tickets: T-APP-15, T-APP-11
 Automation: `apps/app/e2e/real/file-intelligence.spec.ts` (new) · Runs in: reference host, once on the S1 build and again on the release build with S2 and S3
 
 ## Setup

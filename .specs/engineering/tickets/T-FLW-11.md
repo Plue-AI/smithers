@@ -1,6 +1,6 @@
 # T-FLW-11 One `todo` run per attempt: composition flow over coding steps, the candidate handshake and the post-propose wait
 
-Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-STK-07, T-GH-09 · Unblocks T-STK-05, T-STK-06, T-STK-10, T-FLW-03, T-FLW-04, T-FLW-05 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
+Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-STK-07, T-GH-09 · Unblocks T-FLW-03, T-FLW-04, T-FLW-05, T-REL-02, T-STK-05, T-STK-06, T-STK-10 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
 Spec: spec.md §10.4.1, §10.4.1a, §10.4.4, §10.4.5, §11.1, §11.4 · Delta: delta.md §6 · Product: mvp.md §6.9, §6.12, J5, M-30
 
 ## Goal
@@ -27,6 +27,10 @@ Out:
 - `flows/repository/registry.ts` → register `todo` as overridable and `stack.candidate` and `stack.propose` as reserved (M-30).
 - Tests and fixtures under `flows/test/` that assume four runs → updated in the same change.
 
+- Reroute or delete every live legacy launcher: `apps/app/src/bun/controller/workflows.ts:993`, `controller/issueFlows.ts:103`, `flows/entries/issue.ts:40`, `cards/CodingPlanCard.tsx:67` and `.smithers/FACTORY.ts:69-71`. Retained TODO-start doors admit the same `todo` composition; delete doors whose commands are Replaced. Update the review entry at `flows/review/change/flow.mdx`, not a presumed TypeScript file. C-CAT-01 verifies removed registrations and C-STK-06 drives retained doors to one run.
+- Signals enter as durable queued jobs through the existing `flowdispatch` handler (`packages/backend/flowdispatch/handler.go:275`), not direct in-memory calls. T-GH-09 supplies the outbound writer used by `mythical_github.go` and `pushProposal`; this ticket consumes it for PR writes and restart recovery. C-STK-06 restarts between queued input, consumption and outbound dispatch and asserts one signal effect and one PR write.
+- Deployment uses drain-before-deploy. Freeze legacy admission and drain all old attempts before activating the one-run composition. Inventory `mythical_items.request_run_id`, `vibe_run_id` and `verify_run_id` (`models.go:1483-1485`), jobs keyed `mythical:<id>:<attempt>:<phase>:<gen>` and `flowdispatch` checkpoints for `coding/request`, `coding/vibe`, `coding/verify` and `review/change`. Keep the old executors available until those records reach terminal state and no old launch/delivery remains queued. Retain terminal records for audit; do not reinterpret an old checkpoint as a `todo` checkpoint. C-STK-06 must block activation if a live legacy record remains.
+
 ## Tests
 - Integration (real flow host, fake GitHub): a TODO runs end to end as one run id. A rebase signal re-enters `candidate` and check and re-proposes without a new run, an `edited` signal re-enters `candidate`, a steer re-enters implement, and `merged` ends the run.
 - Integration: C-STK-06 parts A-D on the real composition. An edit during check, an edit during capture, a steer during check and a `main` move during check each refuse `stack.propose`, and the run re-enters `candidate` or `implement` on the same run id.
@@ -34,7 +38,14 @@ Out:
 - Unit, `flows/test/todo-composition.test.ts` (new): assert the literal route → plan → implement → candidate → check → review → propose graph and literal event-loop edges. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 - Regression: every behavior the four runs had (correction rounds, one commit per item, now written by `stack.candidate`, verification after a rebase, read-only review) is covered by a named test in the new shape.
 
+- C-STK-06 adds a committed pre-change database/journal fixture with one running item, one verifying item, all legacy run-id fields, phase job keys and old flow checkpoints. Boot the old drain path on this fixture, drive inputs through production queued delivery and prove each item reaches terminal state with no lost or duplicate PR write. Attempt activation before drain and assert refusal, then activate after drain and admit a new attempt as exactly one `todo` run. Run this migration case separately from new-run composition tests.
+
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-CAT-01](../checks/C-CAT-01.md): the four Replaced entry points have no registrations.
 
 - [C-J5-01](../checks/C-J5-01.md): an overridden `todo` applies to TODOs started after activation, and running ones keep their version.
@@ -52,5 +63,5 @@ Out:
 2. Out explicitly names activation, pinning, editing, learning, host repository execution, image detection and public library changes.
 3. C-STK-06 enters production stack admission through `flowdispatch.Service.AdmitInTx` and the real coding host on a branch machine. Name the one-run, event-loop and restart cases in `todo_candidate_flow_db_test.go`; reserved operations use the production command dispatcher. C-STK-03 and C-J5-01 additionally need their control/activation tickets. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 4. smithers-8a decides the `/review` callable seam and any composition contract change. smithers-38 signs off any necessary public TypeScript API diff under §21.1 before landing.
-5. Before start, smithers-3f: does admission create one durable run and wake before signals; do candidate/propose and restart use the outbound writer? smithers-38: can the composition reuse existing exports; do previous durable records replay? Views are excluded.
+5. Before start, smithers-3f: Answered at 2026-10-02 23:39 UTC; tech lead ADOPTS all live-launcher reroutes/deletions, durable queued signals, the T-GH-09 writer and the flow.mdx review entry. smithers-38: Answered at 2026-10-02 23:39 UTC; tech lead ADOPTS drain-before-deploy with a pre-change running/verifying fixture and terminal-state activation gate. Views are excluded.
 6. T-INS-02 and T-FLW-01 must refuse missing microVM isolation before dispatch. TODO, overridden review and checks run only on the branch machine without sudo; the host runs packaged candidate/propose code only (§1.3, §17.3). smithers-3f reviews the boundary; C-SEC-02 and C-STK-06 prove it.

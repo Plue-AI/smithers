@@ -1,6 +1,6 @@
 # T-ACC-01 GitHub sign-in creates the owner; delete the single-owner password path
 
-Stage S1 · Size M · Depends on — · Unblocks T-INS-02, T-INS-06, T-ACC-02, T-ACC-03 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
+Stage S1 · Size M · Depends on — · Unblocks T-ACC-02, T-ACC-03, T-ACC-07, T-GH-11, T-INS-02, T-INS-06, T-REL-02 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
 Spec: spec.md §5.1.0–§5.1.2, §3 (`members`, `install_settings`), §16.2 step 3, §16.3.3 · Delta: delta.md §2 (Delete row, Add `members`) · Product: mvp.md J1.1, J1.2, J1.8, §6.2, M-05, M-17
 
 ## Goal
@@ -54,6 +54,7 @@ Out:
 ## Acceptance
 - [C-ACC-04](../checks/C-ACC-04.md): the owner-claim and refusal rows pass here; the roster rows pass with T-ACC-02.
 - [C-SEC-04](../checks/C-SEC-04.md): nobody without the setup token can claim the install, on any listener, and the token dies at the claim.
+- [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
 
 ## Risks and notes
 - The setup token replaces origin-based trust: a proxy or LAN bind in front of the install before setup can't claim it without the installer's terminal output (§5.1.0). Falsified if any claim path accepts a sign-in without the token.

@@ -1,6 +1,6 @@
 # T-ACC-06 Revocation on removal or suspension within 5 s
 
-Stage S1 · Size S · Depends on T-ACC-02, T-STK-01 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-ACC-02, T-STK-01 · Unblocks T-APP-02, T-APP-23, T-REL-02 · Issue: [#3495](https://github.com/smithersai/smithers/issues/3495)
 Spec: spec.md §5.6, §5.1.3, §8.11.1, §15.1.4, §17.2 · Delta: delta.md §2 (Modify: member removal publishes `collaborator_removed`; deletes sessions, PATs, SSH grants) · Product: mvp.md §6.15 "Members and maintainers" (removal ends sessions, terminals, SSH), M-05
 
 ## Goal
@@ -56,9 +56,15 @@ Out:
 - Unit: `RevokeMember` is idempotent. A second call publishes nothing new and returns success.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
+
+- [C-APP-01](../checks/C-APP-01.md): `todo.takeover` is maintainer-only and person-only.
+
 - [C-ACC-03](../checks/C-ACC-03.md): removal revokes every credential and stream within 5 s; suspension does the same after the hourly check.
 
 ## Risks and notes
-- Open (product): no Appendix A row or in-card control (§6.1.2) names the takeover, yet every card action runs a catalog command (§14.2). Until product names the door, the API exists with no member-facing door.
+- Resolved: Appendix B.4 `todo.takeover` is the door; T-APP-02 puts Take over on the TODO card (C-APP-01).
 - Bus delivery is asynchronous. If a consumer is slow under load, the 5 s budget fails. That shows up as a maximum over 5 s in the 20-run sample. Revocation metrics exist (`revocation/bus_metrics.go`); record them in the evidence.
 - `auth_sessions` deletion and bus publish must commit before the HTTP response. Otherwise a racing request on an old session can slip through. The integration test issues a request on the old cookie immediately after the response and must get `401`.

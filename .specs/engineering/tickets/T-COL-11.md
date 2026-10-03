@@ -1,6 +1,6 @@
-# T-COL-11 Spike: capture growth, versions commit, kernel probes and reference-host rerun
+# T-COL-11 Spike: reference-host rerun and the ADR 0003 topology decision; capture growth, versions commit, kernel probes
 
-Stage W0 · Size M · Depends on T-COL-01 · Unblocks — · Issue: to file
+Stage W0 · Size M · Depends on T-COL-01 · Unblocks T-COL-08 · Issue: [#3553](https://github.com/smithersai/smithers/issues/3553)
 Spec: spec.md §1.4, §7.1, §7.4.1–7.4.2, §7.6, §8.2.1, §9.1.1, §9.2.2, §18 · Delta: delta.md §4 (host relay, live channel) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 
 ## Goal
@@ -10,6 +10,8 @@ Measure capture storage and guest capabilities, and rerun the transport decision
 ## Scope
 
 In:
+- ADR 0003 "Live code co-editing: one live channel, documents addressed by topic, the daemon as disk authority", recording spec §7.6 and the measured numbers from T-COL-01. The contracts below are topology-neutral: a browser addresses a document only by its topic (`doc:code:<branch>:<path>`) and never learns where its Yrs authority lives (§7.4.2), so this ticket lands in stage 1 under either topology.
+- The topology decision, in ADR 0003, written only after T-COL-01 re-runs on an idle reference host with browsers on a second device. If relay p95 exceeds 20 ms for 4 KiB frames under guest load, or bridge keystroke p95 exceeds 1 s at 30 Hz, ADR 0003 adopts the host-side document mirror for fan-out, with the daemon kept as the disk authority; otherwise documents live in the daemon. The decision is recorded before T-COL-08 starts. Spec §7.4.6 and §9.2 hold under both.
 - jj snapshot latency (§9.1.2a): a VM with a clone of `smithersai/smithers` at `main`, dependencies installed under ignored paths. Time `jj util snapshot` after 1, 12 and 200 changed files, and with no change, each idle and with every guest vCPU busy. Captures and the overflow resync run one snapshot each (§9.1.3, §9.3.2), so this bounds them.
 - Growth (§9.1.2a): run 1,000 captures, each after 12 changed files, and record the growth of `.jj/` and `.git/` per capture; then `jj op abandon` everything older than the newest 100 operations plus `jj util gc` and record what it reclaims. Also time one burst's versions commit (12 blobs, one tree, one commit; §9.3.4), n ≥ 100.
 - Guest kernel probes for T-COL-03 and T-COL-08: `renameat2(RENAME_EXCHANGE)` and `RENAME_NOREPLACE` on the working-copy filesystem, `openat2` with `RESOLVE_BENEATH`, and cgroup v2 `cgroup.freeze` and `cgroup.kill`. Each is a recorded yes or no.
@@ -19,6 +21,7 @@ Out:
 
 ## Changes
 
+- `docs/architecture/0003-live-code-co-editing.md`: fill ADR 0003's topology section with the decision, the rejected alternatives (host-side documents through `PUT /files/content`; per-file `msb exec`), and the T-COL-01 latency results with their artifact path. T-COL-10 supplies the §7.6 contracts and creates the ADR. Checks: C-SPK-03, C-SPK-07.
 - Extend the disposable spike and retain its raw evidence in the existing check evidence directories.
 - `scripts/spikes/col-01/` (new): `run.sh` (one command), `relay-rtt/` (Go client), `echo/` (Rust guest server), `dochost/` (Rust Yrs host), `fanout/` (Go WebSocket fan-out), `keystrokes.spec.ts` (Playwright, two pages), `jj-snapshot/` (timing script run inside the VM). The prototype runs against `packages/backend/microsandbox/transport.go:67` (`DialWorkspacePort`) and `:126` (`startBridges`) without modifying them.
 - No change to `packages/`, `apps/` or `crates/`. Delete `scripts/spikes/col-01/` when ADR 0003 records the result. The evidence directory keeps the raw samples (AGENTS.md: benchmark methods and artifacts are retained).

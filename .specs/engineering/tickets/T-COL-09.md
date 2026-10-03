@@ -1,6 +1,6 @@
 # T-COL-09 Wiki co-editing on the live channel; delete POST+SSE
 
-Stage S3 · Size M · Depends on T-COL-08 · Unblocks — · Issue: to file
+Stage S3 · Size M · Depends on T-COL-08, T-APP-14a · Unblocks T-REL-02 · Issue: [#3587](https://github.com/smithersai/smithers/issues/3587)
 Spec: spec.md §2 (Live document), §6.2.4, §7.4.1–7.4.6, §7.6 (row 8), §13.1–13.2 · Delta: delta.md §4 (wiki row, Modify [S3]) · Product: mvp.md J8.2, §6.11 Pages and editing, M-02
 
 ## Goal
@@ -10,7 +10,7 @@ Two members editing one wiki page see each other's keystrokes within 1 s over `/
 ## Scope
 
 In:
-- The host service owns one Yrs document per open page on topic `doc:wiki:<page>` (§7.4.2). It speaks the same sync step 1/2, update and awareness frames as code documents (§7.4.1), and the browser uses the same `LiveDocProvider` (T-COL-08).
+- The host service owns one Yrs document per open page on topic `doc:wiki:<page>` (§7.4.2). It speaks the same sync step 1/2, update and awareness frames as code documents (§7.4.1), and the browser uses the same `LiveDocProvider` (T-APP-14a).
 - The text is `Y.Text("markdown")`, unchanged (§7.6 row 8), so existing page state in PostgreSQL loads as is.
 - Persistence (§7.4.2): the merged state plus the rendered Markdown are written to `wiki_pages`/`wiki_page_revisions` in one transaction after 2 s without an update, or 10 s after the oldest unpersisted update under continuous typing, not once per update. Writes keep today's revision check and conflict retry. The revision is attributed to the actors who edited in that period, from `Y.Map("authors")` (§7.4.4).
 - Acknowledgment (§7.4.6): only after that commit does the host send `saved{sv}`. The page loads from its stored state after a host restart, never reseeded from Markdown, so reconnecting clients merge without duplication.
@@ -59,6 +59,10 @@ Out:
 - integration: `packages/backend/internal/compose/openapi_conformance_test.go` passes with the deleted rows.
 
 ## Acceptance
+
+
+
+
 
 - [C-DUR-04](../checks/C-DUR-04.md) K8: a host kill loses no acknowledged wiki update and duplicates none.
 - [C-J8-02](../checks/C-J8-02.md) (S3 run): two people co-edit a page live in < 1 s p95. The POST and SSE routes return 404 and are absent from OpenAPI, and old revisions stay readable.

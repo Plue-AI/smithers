@@ -25,6 +25,8 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
 4. Repeat step 3, but return 403 on a call made with A's user token instead of advancing the clock.
 5. Switch A back to `write` and advance one tick.
 6. O takes over T3. Then E (another Member) attempts a takeover.
+7. Exercise permission lookups returning installation 401/403/404, expired installation token and an App that lost repository access. Assert `github_sync` health `refused` and byte-for-byte unchanged member access fields. Disambiguate permission 404 with `GET /users/{login}` fixtures for an existing user, unknown user and unresolved installation failure. Confirmed member `none`/`read` suspends; an installation failure never does.
+8. Trigger user-token 401/403 through `RefreshUserGitHubToken` callers in `github_user_repos.go`, `github_import.go` and `auth.go`, and through refreshing/non-refreshing proxy paths. Assert one shared reactive recheck without waiting for the hour.
 
 ## Pass when
 - In step 1, every request on A's old credentials returns 401 or 403, including the one sent immediately after `t0`.

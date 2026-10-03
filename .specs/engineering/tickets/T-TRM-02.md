@@ -1,11 +1,11 @@
 # T-TRM-02 Terminal auto sign-in and the Smithers skill on machines
 
-Stage S1, S2 · Size S · Depends on S1: T-ACC-04, T-CAT-02 · S2: T-MCH-11, T-TRM-01, T-ACC-05 · S2: T-MCH-11, T-TRM-01, T-ACC-05 · Unblocks — · Issue: to file
+Stage S1, S2 · Size S · Depends on S1: T-ACC-04, T-CAT-02 · S2: T-MCH-11, T-TRM-01, T-ACC-05 · Unblocks T-REL-02 · Issue: [#3537](https://github.com/smithersai/smithers/issues/3537)
 Spec: spec.md §5.3, §5.3.2, §6.4, §8.11.1, §15.3, §17.2 · Delta: delta.md §5 (terminal auto sign-in row) · Product: mvp.md J6.1–J6.3, §6.13 CLI and Attribution, M-18, M-21
 
 ## Goal
 
-A member who opens a terminal on a branch can run `claude` or `codex` there and use Smithers through the skill without logging in, and every action shows as "Ben via Claude Code".
+A member who opens a terminal on a branch can run `claude` or `codex` there and use Smithers through the skill without logging in, and every action shows as "Claude Code for Ben".
 
 ## Scope
 

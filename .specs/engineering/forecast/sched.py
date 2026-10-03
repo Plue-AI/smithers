@@ -25,13 +25,20 @@ P = json.load(open(sys.argv[1]))
 idx = open(f"{E}/tickets/README.md").read()
 cidx = open(f"{E}/checks/README.md").read()
 T = {}
-for m in re.finditer(r"^\| \[(T-[A-Z]+-\d+)\]\(\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$", idx, re.M):
+for m in re.finditer(r"^\| \[(T-[A-Z]+-\d+[a-z]?)\]\(\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$", idx, re.M):
     t, ti, st, sz, dp, ch = m.groups()
-    T[t] = dict(stage=st.split(",")[0].strip(), size=sz.strip(), deps=set(re.findall(r"T-[A-Z]+-\d+", dp)))
+    # A staged Depends ("S1: a · S2: b") names the deps each stage of the ticket needs. A stage-1
+    # forecast (scope != all) keeps only the segments for W0/S1 and unlabeled ones.
+    keep = []
+    for seg in dp.split("·"):
+        lab = re.match(r"\s*(W0|S\d|R|M)\s*:", seg)
+        if P.get("scope") == "all" or not lab or lab.group(1) in ("W0", "S1"):
+            keep.append(seg)
+    T[t] = dict(stage=st.split(",")[0].strip(), size=sz.strip(), deps=set(re.findall(r"T-[A-Z]+-\d+[a-z]?", " ".join(keep))))
 C = {}
 for m in re.finditer(r"^\| \[(C-[A-Z0-9]+-\d+)\]\(\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$", cidx, re.M):
     c, pr, ly, st, tx = m.groups()
-    C[c] = re.findall(r"T-[A-Z]+-\d+", tx)
+    C[c] = re.findall(r"T-[A-Z]+-\d+[a-z]?", tx)
 for dep, on in P.get("drop_edges", []):
     T[dep]["deps"].discard(on)
 if P.get("scope") == "all":
@@ -106,6 +113,8 @@ def sim():
     code = [0.0] * P["lanes"] + [float(o) for o, n in P.get("extra_lanes", []) for _ in range(n)]
     free = {"code": code, "design": [float(P.get("design_start_h", 0))] * P.get("design_lanes", 1)}
     remaining = set(work)
+    s1_done = None
+    s1set = set(P.get("_s1set", []))
     rev = [0.0] * P.get("review_lanes", 1)
     clock_ready = {}
     while remaining:
@@ -113,6 +122,8 @@ def sim():
         ready.sort(key=lambda t: -tail(t))
         t = ready[0]
         pool = "design" if t.startswith("T-UI-") else "code"
+        if "post_lanes" in P and s1_done is not None and pool == "code" and (T[t]["size"] != "L" or not P.get("m37", False)):
+            pool = "post"
         er = max([fin.get(d, 0.0) for d in T[t]["deps"] if d in need and d not in done] or [0.0])
         lane = min(range(len(free[pool])), key=lambda i: max(free[pool][i], er))
         s = max(free[pool][lane], er)
@@ -120,7 +131,12 @@ def sim():
         free[pool][lane] = work_end
         if "review_lanes" in P:
             rounds = 1
-            while random.random() > P["review_yield"]:
+            yv = P["review_yield"]
+            for until, yy in P.get("review_yield_schedule", []):
+                if work_end < until:
+                    yv = yy
+                    break
+            while random.random() > yv:
                 rounds += 1
             r_end = work_end
             for k in range(rounds):
@@ -132,7 +148,10 @@ def sim():
             work_end = r_end
         start[t], fin[t] = s, work_end
         remaining.discard(t)
-    end = (max(fin.values()) if fin else 0.0) + (INTEG() if INTEG else 0.0)
+        if "post_lanes" in P and s1_done is None and s1set and s1set <= set(fin) | done:
+            s1_done = max(fin[x] for x in s1set if x in fin) + (INTEG() if INTEG else 0.0)
+            free["post"] = [s1_done] * P["post_lanes"]
+    end = (max(fin.values()) if fin else 0.0) + (P.get("final_stage_h", 0.0)) + (INTEG() if INTEG and "post_lanes" not in P else 0.0)
     # critical chain: walk back from the last finisher through the latest-finishing dep
     t = max(fin, key=fin.get)
     chain = [t]

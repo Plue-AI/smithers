@@ -1,6 +1,6 @@
 # T-FLW-02 Install-stored default config: checks, wiki pages, seats
 
-Stage S1 · Size M · Depends on T-FLW-01, T-MCH-10 · Unblocks T-FLW-10 · Issue: [#3449](https://github.com/smithersai/smithers/issues/3449)
+Stage S1 · Size M · Depends on T-FLW-01, T-MCH-10 · Unblocks T-FLW-10, T-REL-02 · Issue: [#3449](https://github.com/smithersai/smithers/issues/3449)
 Spec: spec.md §3 (`flow_config`), §8.6.2, §11.2, §11.5a, §13.5 · Delta: delta.md §8 (install-stored config row) · Product: mvp.md J1.4, §6.9 Works TODOs, §6.11 Generated pages, §6.12 Default flows, M-11
 
 ## Goal
@@ -41,6 +41,13 @@ Out:
 - e2e: [C-J1-06](../checks/C-J1-06.md).
 
 ## Acceptance
+
+
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-J8-06](../checks/C-J8-06.md): on a repository with no declarations, a merge refreshes the package's generated page as a background run.
 
 - [C-J1-06](../checks/C-J1-06.md): a repository with no Smithers files runs a TODO whose evidence lists the detected checks, with no commit to `.smithers/` or `flows/`.

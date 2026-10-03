@@ -1,6 +1,6 @@
 # C-GH-09 Outbound writes: no duplicate at any crash point, and no replay over a newer action
 
-Proves: mvp.md §6.1 "Restart", §9 "Durability" · spec.md §3 (`outbound_writes`), §12.4.1, §12.4.1a, §12.4.1b, §12.5.2, §19.2 · Layer: fault · Stage: S1 · Tickets: T-GH-09
+Proves: mvp.md §6.1 "Restart", §9 "Durability" · spec.md §3 (`outbound_writes`), §12.4.1, §12.4.1a, §12.4.1b, §12.5.2, §19.2 · Layer: fault · Stage: S1 · Tickets: T-GH-09, T-GH-14
 Automation: `packages/backend/internal/services/github_outbound_fault_test.go` (new) · Runs in: CI
 
 ## Setup

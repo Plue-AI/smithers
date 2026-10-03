@@ -1,6 +1,6 @@
 # T-STK-03 Parallel setting clamped by capacity; admission in stack order
 
-Stage S2 · Size S · Depends on T-STK-02, T-MCH-06 · Unblocks — · Issue: to file
+Stage S2 · Size S · Depends on T-STK-02, T-MCH-06 · Unblocks T-REL-02 · Issue: [#3572](https://github.com/smithersai/smithers/issues/3572)
 Spec: spec.md §4.1.1, §8.2.1, §8.3, §8.4.2, §10.3.1 · Delta: delta.md §6 (Hide `history.parallel`; it becomes the owner setting), §3 (admission scheduler) · Product: mvp.md §6.6 Parallel work, §8 (lanes hidden; parallel is one owner setting), M-06, M-13, §13
 
 ## Goal

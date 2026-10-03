@@ -1,6 +1,6 @@
 # T-UI-01 Primitives: actor chip, state word, tone
 
-Stage S1 · Size S · Depends on T-APP-19 · Unblocks T-APP-09, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22 · Issue: to file
+Stage S1 · Size S · Depends on T-APP-19 · Unblocks T-AGT-03, T-APP-09, T-REL-02, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22 · Issue: [#3538](https://github.com/smithersai/smithers/issues/3538)
 Spec: spec.md §14.2.1, §14.6a, §14.5.2, §4.1 · Delta: delta.md §9 · Product: mvp.md §3, B.3 · Props: [ui-components.md § T-UI-01](../ui-components.md)
 
 ## Goal
@@ -23,6 +23,9 @@ Out:
 
 ## Changes
 
+- Actor chip replacing `cards/Actor.tsx`, with mock `mvp-avatar*` rules on Paper tokens and names from `actorName` (T-APP-09). Check: C-UI-12.
+
+
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
@@ -33,8 +36,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-J6-01](../checks/C-J6-01.md): Claude Code in a branch terminal is signed in with the skill; actions show "Ben via Claude Code"
 
 ## Risks and notes
 

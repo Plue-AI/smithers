@@ -1,6 +1,6 @@
 # T-INS-08 Launchd service and `smthrs host start/stop/status` from a built bundle
 
-Stage S1 · Size M · Depends on T-INS-01, T-INS-02, T-INS-03 · Unblocks T-INS-05, T-INS-07 · Issue: to file
+Stage S1 · Size M · Depends on T-INS-01, T-INS-02, T-INS-03 · Unblocks T-INS-05, T-INS-07, T-REL-02 · Issue: [#3523](https://github.com/smithersai/smithers/issues/3523)
 Spec: spec.md §1.1, §1.2, §5.1.0, §16.1.2, §20.1, §20.2 · Delta: delta.md §1 (Add: `smthrs host` group, launchd plist) · Product: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1, M-26
 
 ## Goal
@@ -8,6 +8,7 @@ In stage 1, with no Homebrew formula yet, `smthrs host start --bundle <dir>` run
 
 ## Scope
 In:
+- Service-mode setup handoff (smithers-b8): the launchd plist's ProgramArguments include `--setup-handoff=socket`; `smthrs host start` reads the setup line from `$STATE/run/host.sock` and prints it to the operator's terminal, never from log files. After the claim it prints "already set up".
 - `smthrs host start [--bundle <dir>]` (§16.1.2):
   - resolves the bundle: `--bundle`, else the keg layout beside `smthrs` that T-INS-05 installs, else a refusal that names both paths;
   - verifies the bundle's `manifest.json` (T-INS-01) and refuses a missing file or a hash mismatch before touching the plist;
@@ -36,6 +37,10 @@ Out:
 - integration: C-INS-06 on the reference host with the T-INS-01 bundle built from a clean checkout. Its reboot step needs a host that can reboot; the other steps also run on a macOS arm64 CI runner.
 
 ## Acceptance
+
+
+
+
 - [C-INS-06](../checks/C-INS-06.md): `smthrs host start` runs a built bundle as a launchd service that is up before anyone logs in, restarts after a crash, is idempotent and prints the setup URLs.
 - [C-J1-01](../checks/C-J1-01.md): Fresh Mac: built bundle at S1; Homebrew tap at R; setup card, no Smithers account
 - [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install

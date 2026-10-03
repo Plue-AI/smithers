@@ -1,6 +1,6 @@
 # T-APP-08 Seams move to the live channel; delete per-resource SSE
 
-Stage S1 · Size M · Depends on T-COL-02, T-STK-01 · Unblocks T-APP-01, T-APP-02, T-APP-07 · Issue: to file
+Stage S1 · Size M · Depends on T-COL-02, T-STK-01 · Unblocks T-APP-01, T-APP-02, T-APP-07, T-REL-02 · Issue: [#3502](https://github.com/smithersai/smithers/issues/3502)
 Spec: spec.md §7.1, §7.2, §6.2.2, §6.2.4, §14.2, §19.3; overview.md E-05, E-06 · Delta: delta.md §9 (Modify: seams move from per-resource SSE to live-channel topics) · Product: mvp.md §2 rule 5, §9 Honesty
 
 ## Goal
@@ -39,6 +39,9 @@ Out:
 - Perf: the client adds no buffering that pushes delta delivery past 1 s p95 (C-PERF-02, run by T-COL-02).
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-UI-05](../checks/C-UI-05.md): no state is shown before its event, and toasts settle only on terminal events, across a reconnect.
 
 ## Risks and notes

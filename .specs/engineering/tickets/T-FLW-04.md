@@ -1,6 +1,6 @@
 # T-FLW-04 Coding host loads the pinned closure by digest
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11 · Unblocks T-MNT-02, T-MNT-04 · Issue: to file
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11 · Unblocks T-MNT-02, T-MNT-04, T-REL-02 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
 Spec: spec.md §3 (`todos.flow_name`, `todos.flow_digest`), §4.1, §10.4.1, §11.3.0, §11.4 · Delta: delta.md §8 (pinning row), §11 (#3377 row) · Product: mvp.md J5.4, §6.12 Pinned versions
 
 ## Goal
@@ -40,6 +40,14 @@ Out:
 - Fault: kill the machine after v2 activates; the resumed run still pins v1 (shared harness with [C-DUR-02](../checks/C-DUR-02.md)).
 
 ## Acceptance
+
+
+
+- [C-J11-02](../checks/C-J11-02.md): S2, S3 qualification; does not block S1 completion.
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-J11-02](../checks/C-J11-02.md): Source opens the flow on the proposing TODO's branch, and a scratch-branch Run is a "draft version" that never proposes.
 
 - [C-J5-01](../checks/C-J5-01.md): a TODO running before activation and its retry keep v1; TODOs that reach Starting after activation pin v2; the TODO that edits the flow runs v1.

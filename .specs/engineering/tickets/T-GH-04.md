@@ -1,6 +1,6 @@
 # T-GH-04 Reviews and comments on TODO PRs become steers
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-06 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-GH-02, T-STK-06 · Unblocks T-REL-02 · Issue: [#3516](https://github.com/smithersai/smithers/issues/3516)
 Spec: spec.md §2, §3 (`activity`), §3.0, §4.1 (`in_review → working`), §10.4.1, §10.7.3, §12.3 (review rows), §12.5.3, §14.6a, §17.1, §17.5 · Delta: delta.md §7 "Inbound reviews…" · Product: mvp.md J10.2, §6.3 "A review or review comment on a TODO's PR", §6.10 "Line comments", M-22
 
 ## Goal
@@ -22,6 +22,9 @@ In:
 Out: in-app line comments and agent replies inside GitHub review threads ([D] §12.5.3); the steer delivery inside the run (T-STK-06); stacked bases ([D]); the Branch card that lists activity (T-APP-10, S2); `/review` on non-TODO PRs (unchanged).
 
 ## Changes
+
+- Consume `decideGitHubFact` from `github_inbound.go`; no private mapping. Unit fixtures cover fact/state/duplicate/reordered cells; DB integration proves this consumer calls the seam. Check: C-GH-13.
+
 - `packages/backend/internal/services/github_inbound_reviews.go` (new) → the consumer registered with the T-GH-02 dispatch: filter to TODO PRs, read the objects from the `github_synced_*` store (§3.0), map per the table above, write the activity entry and a delivery key, and call the steer path with the GitHub actor.
 - `packages/backend/internal/services/mythical_items.go:2827` (`ObserveGitHubEvent`) → no review or comment payload handling; webhook deliveries only request fetches (T-GH-02).
 - `packages/backend/internal/services/github_webhook.go:85-95` (`supportedGitHubWebhookEvents`) → add `pull_request_review_comment`.
@@ -39,6 +42,11 @@ Out: in-app line comments and agent replies inside GitHub review threads ([D] §
 - e2e: [C-J10-02](../checks/C-J10-02.md).
 
 ## Acceptance
+
+
+
+- [C-GH-13](../checks/C-GH-13.md): pure fact matrix and production consumers use one decision seam.
+
 - [C-J10-02](../checks/C-J10-02.md): a GitHub review comment becomes an attributed steer within 60 s, the TODO returns to Working, and the agent pushes a fix that updates the PR.
 
 ## Risks and notes

@@ -1,6 +1,6 @@
 # T-TRM-06 Spike: daemon sessions carry VS Code Remote; revocation in 5 s
 
-Stage W0 · Size M · Depends on — · Unblocks T-COL-03, T-TRM-07 · Issue: to file
+Stage W0 · Size M · Depends on — · Unblocks T-COL-03a, T-TRM-07 · Issue: [#3554](https://github.com/smithersai/smithers/issues/3554)
 Spec: spec.md §5.6, §8.10.3, §8.11, §9.5.3, §9.6 · Delta: delta.md §5 (session supervisor row) · Product: mvp.md §6.15 SSH into a branch, §6.8 Terminals, J3.2, J3.3, M-18, M-24, M-29
 
 ## Goal

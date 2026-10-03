@@ -1,6 +1,6 @@
 # C-MCH-07 All-branches secrets present in every session and the coding host; values never readable through the API
 
-Proves: mvp.md J1.8, §6.15 Secrets, M-25 · spec.md §8.8.1, §5.2 (Read secret values: nobody), §6.4 · Layer: e2e · Stage: S2 · Tickets: T-MCH-12, T-APP-13, T-UI-18
+Proves: mvp.md J1.8, §6.15 Secrets, M-25 · spec.md §8.8.1, §5.2 (Read secret values: nobody), §6.4 · Layer: e2e · Stage: S2 · Tickets: T-MCH-12, T-APP-13
 Automation: `apps/app/e2e/real/secrets-machines.spec.ts` (new) · Runs in: reference host
 
 ## Setup

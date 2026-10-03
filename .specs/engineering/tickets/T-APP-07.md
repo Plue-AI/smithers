@@ -1,6 +1,6 @@
 # T-APP-07 Edge toast map, timeline, conversation-entry and monitor summaries
 
-Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-16, T-UI-08, T-APP-19 · Unblocks T-APP-18 · Issue: to file
+Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-23, T-UI-08, T-APP-19 · Unblocks T-APP-18, T-REL-02 · Issue: [#3501](https://github.com/smithersai/smithers/issues/3501)
 Spec: spec.md §3 (`conversation_entries`, `member_conversation_state`), §4.1, §7.2 (`conversation:<branch>`), §10.8.3, §11.5a (`agent:fast`), §11.6.1, §14.1, §14.4, §14.5, §14.6, §19.3 · Delta: delta.md §8 (Add conversation-entry summarizer job), §9 (Add left-edge toast map + timeline; retire `ChatRunTimeline`) · Product: mvp.md §6.4 Toasts for events, Timeline, J4.3, M-08, M-14
 
 ## Goal
@@ -8,7 +8,7 @@ The left edge maps the branch conversation a member is viewing: live work in car
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds every visual component and its styles: the left-edge toast map, the timeline, the band and pills, and their CSS. Engineering wires them: `conversation_entries` projection, the summarizer job, the timeline-visible lease, toast routing and hiding. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
+Design (smithers-06) builds the `Timeline`, `EdgeMap` and `ToastStack` views, with the CSS, in T-UI-08. This ticket builds no View, CSS or editor presentation. It owns the topic decoder and golden fixture, the adapter, the Container and the commands in Changes ([card-kinds.md §1](../card-kinds.md)), plus the entry fields, the summarizer and the `timeline_visible` lease. The seam is the view model from T-APP-19 (spec §14.2.1).
 
 ## Scope
 In:
@@ -29,7 +29,7 @@ In:
 - Toasts (§14.4.1): Needs you, an approval, a PR ready for review, a failure, a rebase conflict, and the merge of the viewer's own TODO, each with its one action, on the shared toast stack with its 300 ms law (`state/controller/failures.ts:236-285`), at most three plus "+N more", settled only by the real terminal event (§14.4.3). A toast reaches the TODO's owner, anyone present on its branch from S2 (stage 1 has no presence, §10.8.3), and the prompter for their own runs. Each toast is also a timeline entry and stays one after the toast goes.
 - Hiding: `member_conversation_state.toasts_hidden` per conversation plus one global preference (§14.4.2), read from the member's own `view:<member>:<branch>` topic. Hiding never hides the entry, the edge map or the Home card.
 - Toast routing is derived in each client from the shared entry and the viewer: the TODO's owner, the prompter for their own runs, and from S2 a viewer present on the branch. No per-member toast row is published on a shared topic.
-- On-screen detection without `useEffect`: an `IntersectionObserver` attached in a ref callback (apps/app/AGENTS.md).
+- On-screen detection: the shell and timeline Views report the entries on screen and whether the timeline is visible through `onView({on_screen, timeline_visible})` (T-UI-07, T-UI-08, using an `IntersectionObserver` in a ref callback, apps/app/AGENTS.md). The Container turns that report into the `timeline_visible` lease.
 
 Out:
 - Conversation storage, per-member scroll and card view state, and the branch tree (T-APP-16); the Context line and Inspect preflight (T-APP-17).
@@ -39,29 +39,37 @@ Out:
 - `packages/backend/db/product/migrations/` (new, next free number): the entry columns above on T-APP-16's conversation-entry table.
 - `packages/backend/internal/services/conversation_entries.go` (new): derivation, `projection_events` row plus `NOTIFY` (§3.1), toast events.
 - `packages/backend/internal/services/conversation_summaries.go` (new): the summarizer on `packages/backend/jobs`, calling the model through `internal/services/model_proxy.go`.
-- `packages/rpc/src/ConversationEntry.ts` (new): the entry schema and the per-viewer action function.
-- `apps/app/src/mainview/Timeline.tsx` (new) and test; `App.tsx` mounts it in place of `ChatRunTimeline` (`App.tsx:49`, `:603`).
-- `apps/app/src/mainview/ToastStack.tsx` (113 lines): keep the stack and its cap (`VISIBLE = 3`, `:15`); add the hide preference; each toast links its timeline entry. Extend `e2e/playwright/toast-stack.spec.ts`.
-- Delete `ChatRunTimeline.tsx`, `ChatRunTimeline.test.tsx`, the `.chat-run-timeline*` rules (`styles/chat.css:951-961`), its row in `flows/parity.test.ts:344`, its use in `cards/fixtures/RunTraceBrowser.ts:10,141`, and the dock assertions in `e2e/playwright/chat-run-monitor.spec.ts:62` and `e2e/probes/run-trace-phase-strip.test.ts:46`.
+- `packages/rpc/src/ConversationEntry.ts` (new): the entry fields and `actionFor(entry, viewer)`, the one §14.5.2 function the Home adapter, the timeline and toast routing call.
+- `apps/app/src/mainview/cards/containers/timelineModel.ts` (new): `toTimelineModel(entries, view)` gives lines, the band, pins above and below, and the narrow pills; `toToasts(entries, viewer, hidden)` routes toasts to the TODO's owner, the prompter for their own runs and, from S2, a viewer present on the branch, and caps them at three plus `more`.
+- `apps/app/src/mainview/cards/containers/TimelineContainer.tsx` and `ToastContainer.tsx` (new): render `Timeline`, `EdgeMap` and `ToastStack` (T-UI-08). `App.tsx` mounts the TimelineContainer in place of `ChatRunTimeline` (`App.tsx:49`, `:603`). Hiding toasts is a `PUT …/view-state` patch. The toast collection keeps the shared stack's 300 ms law (`state/controller/failures.ts:236-285`).
+- Delete `ChatRunTimeline.tsx`, `ChatRunTimeline.test.tsx`, the `.chat-run-timeline*` rules (`styles/chat.css:951-961`), its row in `flows/parity.test.ts:344`, its use in `cards/fixtures/RunTraceBrowser.ts:10,141`, and the dock assertions in `e2e/playwright/chat-run-monitor.spec.ts:62` and `e2e/probes/run-trace-phase-strip.test.ts:46`. T-UI-08 replaces `ToastStack.tsx` (113 lines) with its View.
 
 ## Tests
-- Unit (`ConversationEntry.test.ts`): the action for every TODO state × `needs_you.kind` × first-in-order × role.
+
+- C-UI-04: In review has the quiet tone. Needs you and stack attention have the attention tone.
+
+- Unit (`ConversationEntry.test.ts`): `actionFor` for every TODO state × `needs_you.kind` × first in order × role.
 - Unit (Go, `conversation_entries_test.go`): tone and state for every TODO state, Starting included; two members' reads of one entry are byte-identical; the action exists only in the client.
 - Unit (Go, `conversation_summaries_test.go`, fake clock): with a `timeline_visible` lease held and events every 1 s from 0 to 60 s, no event waits more than 30 s for a refresh and the event at 60 s is summarized by 65 s; one event gives one refresh at 5 s. With no lease, the same run makes exactly one model call per state change. A lease that expires mid-run stops periodic refreshes within 30 s. A model error leaves summary and `summary_rev` unchanged; no refresh after the terminal one.
 - Integration (real PostgreSQL): with the model endpoint failing for 60 s, a run's steps finish with the same outcomes and the summarizer creates no `machine_requests` row.
 - Unit (Go, fake clock): a run with no `run:<id>` subscriber gets no phase or cell call; opening the monitor fills each finished phase with one call; a model error leaves `run_summaries` unchanged.
-- Unit (`Timeline.test.tsx`): pinning above and below the band, the pill counts, and an action button running its command with its args.
-- Unit (`ToastStack.test.tsx`, existing): a member who hides toasts gets none while the timeline entry still appears; "+N more" past three.
+- Unit (`timelineModel.test.ts`): pins above and below the band; the pill counts; a line's action carries its command and input; a member who hides toasts gets none while the line stays; three toasts plus `more` past three; routing to the owner, the prompter and, from S2, a present member.
+- Unit (`TimelineContainer.test.tsx`): an `onView({timeline_visible})` report sets the lease and renews it every 10 s; `onAction` runs `flowAction`.
+- Unit: every `Action.label` and `disabled.reason` the adapter emits passes C-UI-02's `lintText` (engineering's copy; the View's copy is its T-UI ticket's).
 - Integration: no toast settles before its terminal event (the C-UI-05 rule, run by T-APP-08).
-- e2e: the C-UI-04 script.
+- e2e: the C-UI-04 script through the T-UI-08 Views.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-UI-04](../checks/C-UI-04.md): shared tones, states and summaries; per-viewer actions; summaries refresh within the 5 s / 30 s rule while the timeline is on screen and once per state change otherwise; a summarizer failure keeps the last summary and does not slow the run; toasts hide per member.
 - [C-J11-01](../checks/C-J11-01.md) steps 8–9: phase titles stand alone while the summarizer is blocked, summaries arrive once it returns, and an uninspected run gets no summary call.
 - [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
-- Resolved: the timeline shows at widths of 1,180 px and up, matching the mock, until design changes it.
-- The mock gives In review the quiet tone (`Rail.tsx:78`); §14.5.2 gives it attention. The ticket follows the spec.
+- The timeline's 1,180 px breakpoint is T-UI-08's; the Container passes the same lines at every width.
 - Risk: summaries cost money per live run. Bounded by the on-screen rule: falsified if C-UI-04 records more than 2 model calls per run-minute while watched, or any call between state changes while nobody watches.
 - The `timeline_visible` lease is this ticket's mechanism for "on screen"; §14.5.3 states the rule, not the signal. A lost lease only drops to once per state change, never to no summary.

@@ -1,6 +1,6 @@
 # T-FLW-10 Plans cite wiki page revisions
 
-Stage S3 · Size S · Depends on T-FLW-02, T-APP-17 · Unblocks — · Issue: [#3465](https://github.com/smithersai/smithers/issues/3465)
+Stage S3 · Size S · Depends on T-FLW-02, T-APP-17 · Unblocks T-REL-02 · Issue: [#3465](https://github.com/smithersai/smithers/issues/3465)
 Spec: spec.md §10.4.1 (plan cites wiki revisions), §10.4.3, §13.4, §15.1.2 · Delta: delta.md §8 (no row; research/collab-terminals-wiki.md gap "cites page revisions") · Product: mvp.md J8.3, §6.9 Works TODOs, §6.11 One vault for both agents
 
 ## Goal
@@ -34,6 +34,10 @@ Out:
 - Integration: [C-J8-04](../checks/C-J8-04.md), with the real PostgreSQL wiki store and a real plan step.
 
 ## Acceptance
+
+
+
+
 - [C-J8-05](../checks/C-J8-05.md): after a decision page is edited, the next related plan cites the new revision and its change follows it.
 
 - [C-J8-04](../checks/C-J8-04.md): the plan receipt records `{slug, revision, digest}` for every cited page, and the digest matches the stored revision.

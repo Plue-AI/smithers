@@ -1,6 +1,6 @@
 # C-PERF-02 Projection delta reaches subscribers < 1 s
 
-Proves: mvp.md §9 Honesty, §6.4 Home card · spec.md §3.1, §7.1, §7.2.1, §18 · Layer: perf · Stage: S1 · Tickets: T-COL-02
+Proves: mvp.md §9 Honesty, §6.4 Home card · spec.md §3.1, §7.1, §7.2.1, §18 · Layer: perf · Stage: S1 · Tickets: T-COL-02, T-REL-01
 Automation: `scripts/perf/projection-delta.mjs` (new) · Runs in: reference host plus a second Mac on the same network
 
 ## Setup

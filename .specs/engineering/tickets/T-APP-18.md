@@ -1,6 +1,6 @@
 # T-APP-18 Browser notifications on secure origins
 
-Stage S2 · Size S · Depends on T-APP-07, T-UI-08, T-APP-19 · Unblocks — · Issue: to file
+Stage S2 · Size S · Depends on T-APP-07, T-UI-08, T-APP-19 · Unblocks T-REL-02 · Issue: [#3558](https://github.com/smithersai/smithers/issues/3558)
 Spec: spec.md §14.6, §14.4.1, §16.3.2 · Delta: delta.md §9 · Product: mvp.md §6.4 Browser notifications (v2.5), Appendix B.1 `notifications.allow`
 
 ## Goal
@@ -8,7 +8,7 @@ A member with Smithers in a background tab is notified by the browser when a TOD
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds every visual component and its styles: the Allow notifications toast and the notification text. Engineering wires them: the Notification API controller and secure-context detection. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
+Design (smithers-06) builds the Allow notifications toast variant, with the CSS, in T-UI-08. This ticket builds no View, CSS or editor presentation. It owns the Notification API controller, secure-context detection and the Allow action on the first Needs you toast. The seam is the view model from T-APP-19 (spec §14.2.1).
 
 ## Scope
 In:
@@ -22,12 +22,13 @@ Out:
 - Service workers and Web Push.
 
 ## Changes
-- `apps/app/src/mainview/state/controller/notifications.ts` (new) → subscribes to the member's toasts, which the shared toast collection already holds (`state/controller/failures.ts`), and raises `new Notification(title, {body, tag: entry id})` when hidden and permitted. One notification per entry (`tag` dedupes).
-- `apps/app/src/mainview/flows/entries/notifications.ts` → replace the hidden notifications-center entries with `notifications.allow` (person-only, `agent: never`). Delete the old notifications-center card and flows that §8 hides, in the same change.
-- `ToastStack.tsx` → the Allow action on the first Needs you toast when `window.isSecureContext` is true and permission is `default`.
+- `apps/app/src/mainview/state/controller/notifications.ts` (new): subscribes to the member's toasts, which the shared toast collection already holds (`state/controller/failures.ts`), and raises `new Notification(title, {body, tag: entry id})` when hidden and permitted. One notification per entry (`tag` dedupes). Titles and bodies come from `actorName` and the toast's title.
+- `apps/app/src/mainview/flows/entries/notifications.ts`: add `notifications.allow` (person-only, `agent: never`). T-CUT-01 deletes the notifications-center entries and card in the same file.
+- `apps/app/src/mainview/cards/containers/timelineModel.ts` (T-APP-07): `toToasts` adds the Allow action to the first Needs you toast when `window.isSecureContext` is true and permission is `default`. T-UI-08 renders the variant.
 
 ## Tests
-- Unit: a hidden tab with permission granted gets one notification per entry. A visible tab gets none, and a plain-HTTP context (`isSecureContext = false`) offers no Allow and raises nothing.
+- Unit (`notifications.test.ts`): a hidden tab with permission granted gets one notification per entry. A visible tab gets none, and a plain-HTTP context (`isSecureContext = false`) offers no Allow and raises nothing.
+- Unit (`timelineModel.test.ts`): the Allow action appears on the first Needs you toast only on a secure context with permission `default`.
 - Playwright (`apps/app/e2e/playwright/notifications.spec.ts`, new): grant permission in the browser context, hide the page, trigger Needs you, and assert one notification whose click opens the TODO card.
 - Unit: `notifications.allow` isn't in the agent's tool list.
 

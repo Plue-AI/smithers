@@ -1,6 +1,6 @@
 # T-FLW-05 `/flow.edit` with a seed patch
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11 · Unblocks T-FLW-06 · Issue: to file
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11 · Unblocks T-FLW-06, T-REL-02 · Issue: [#3513](https://github.com/smithersai/smithers/issues/3513)
 Spec: spec.md §3 (`todo_revisions.seed_patch_blob`), §6.1.2, §6.1.4, §6.3 `POST /api/flows edit{name, request}`, §10.2, §10.4.1a, §11.1, §11.5, §11.5b, §15.1.5 · Delta: delta.md §8 (`/flow.edit` row) · Product: mvp.md J5.1–J5.3, §6.12 Change the factory, Appendix A `/flow.edit <name>`, Appendix B.2 (`flow.edit`), M-04, M-11, M-30
 
 ## Goal
@@ -37,6 +37,11 @@ Out:
 - e2e: [C-J5-01](../checks/C-J5-01.md).
 
 ## Acceptance
+
+
+
+- [C-J11-02](../checks/C-J11-02.md): S2, S3 qualification; does not block S1 completion.
+
 - [C-J11-02](../checks/C-J11-02.md): Source opens the flow on the proposing TODO's branch, and a scratch-branch Run is a "draft version" that never proposes.
 
 - [C-J5-01](../checks/C-J5-01.md): "Every TODO must run `pnpm test` and update the changelog" in chat produces a diff, a TODO and a PR that adds `flows/todo/flow.ts`.

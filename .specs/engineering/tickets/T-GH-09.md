@@ -1,12 +1,15 @@
 # T-GH-09 Outbound writes: keys, per-target order, supersession and reconcile
 
-Stage S1 · Size M · Depends on T-GH-02 · Unblocks T-MNT-01, T-MNT-03, T-STK-04, T-GH-03, T-FLW-11, T-FLW-09 · Issue: to file
+Stage S1 · Size M · Depends on T-GH-01, T-STK-01 · Unblocks T-FLW-09, T-FLW-11, T-GH-03, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04 · Issue: [#3520](https://github.com/smithersai/smithers/issues/3520)
 Spec: spec.md §3 (`outbound_writes`), §12.4.1–§12.4.1b, §12.5.2, §19.1, §19.2 · Delta: delta.md §7 · Product: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts)
 
 ## Goal
 Killing the host at any point during a GitHub write leaves exactly one PR, comment, label, merge, close or pushed head on GitHub after restart, because every write is keyed before the call and looked up by key before any repeat. Writes to one target keep their order, a newer decision supersedes an unsent older one, and reconcile never replays a write that a newer action on GitHub has overtaken.
 
 ## Scope
+
+- Build keyed adapters with fixed write fixtures. UpdatePullBody, ready/draft and ClosePull caller integration belongs to each caller’s ticket. Check: C-GH-09.
+
 In:
 - The write kinds of §12.4.1: open PR (title = TODO title), update the PR body, mark ready or draft, push, merge, close a PR on Drop, close an issue on merge, add a label (with its "Committed as Tn" comment), revert a label, and comment. Each is recorded in `outbound_writes` with state `intended`, in its own committed transaction before the call, with `target`, `field`, `desired`, `precondition` and `seq` (§12.4.1).
 - Keys `<kind>:<target>:<revision>`: `pr:<branch>`; `body:<pr>:<body digest>`; `ready:<pr>:<event seq>` and `draft:<pr>:<event seq>`; `push:<branch>:<intended head>`; `merge:<pr>:<reviewed head sha>`; `close-pr:<pr>:<event seq>`; `close-issue:<issue>:<event seq>`; `label:<issue>:<label>:<event seq>`; `unlabel:<issue>:<label event id>`; `comment:<subject>:<purpose>:<revision>`. The event seq is the `todo_events` sequence, attention id or confirmation id of the action that asked for the write, so a TODO that is reopened and dropped again gets a new close key.
@@ -36,6 +39,9 @@ Out: reconcile of run steps (push, GitHub write and shell) inside the flow runti
 - Integration: a merge that GitHub applied but whose response was lost settles from `GET /pulls/{n}` without a second `PUT /merge`.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-GH-09](../checks/C-GH-09.md): no duplicate at any kill point inside the write path.
 - [C-DUR-03](../checks/C-DUR-03.md): SIGKILL of the host during each write kind and during a push reconciles without duplication (the S1 part).
 

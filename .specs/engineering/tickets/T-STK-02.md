@@ -1,6 +1,6 @@
 # T-STK-02 Placement: append, before, move, drop; stack order
 
-Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-STK-15, T-STK-03, T-FLW-05, T-MCH-08 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-APP-02, T-FLW-05, T-MCH-08, T-REL-02, T-STK-03, T-STK-15 · Issue: [#3528](https://github.com/smithersai/smithers/issues/3528)
 Spec: spec.md §3, §6.3, §10.2.2, §10.2.3, §10.3.2, §10.4.2, §10.5.1, §10.7.3, §15.1.5 · Delta: delta.md §6 (Add placement; items advance in stack order) · Product: mvp.md §4.2, §6.6, J4.2, J7.1, M-07, Appendix B.2
 
 ## Goal
@@ -40,6 +40,16 @@ Out:
 - Unit, `mythical_items_test.go` (existing): `advanceItems` launches in stack order with issue numbers deliberately reversed.
 
 ## Acceptance
+
+
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
+
+- [C-APP-02](../checks/C-APP-02.md): S1 part at its named layer.
+
 - [C-J7-01](../checks/C-J7-01.md): Before T3 lands between T2 and T3. The Amend assertions complete with T-STK-15 and are not this ticket's landing gate.
 - [C-J4-02](../checks/C-J4-02.md): the lead moves a ready item above a stuck one while chatting.
 

@@ -1,6 +1,6 @@
 # T-UI-20 Proposal view and lessons receipt
 
-Stage S3 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-FLW-06 · Issue: to file
+Stage S3 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-FLW-06, T-REL-02 · Issue: [#3590](https://github.com/smithersai/smithers/issues/3590)
 Spec: spec.md §14.2.1, §13, §14.3 (Proposal) · Delta: delta.md §9 · Product: mvp.md J5.3, J8, M-15 · Props: [ui-components.md § T-UI-20](../ui-components.md)
 
 ## Goal
@@ -33,9 +33,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-J5-03](../checks/C-J5-03.md): Learning proposal with evidence → TODO → merged → next TODO passes lint first time
-- [C-J8-01](../checks/C-J8-01.md): Learning writes a decision page linked to the change
 
 ## Risks and notes
 

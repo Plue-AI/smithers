@@ -1,6 +1,6 @@
 # T-FLW-09 Reconcile before retry for push, GitHub write and shell steps
 
-Stage S2 · Size M · Depends on T-GH-09 · Unblocks T-REL-04 · Issue: to file
+Stage S2 · Size M · Depends on T-GH-09 · Unblocks T-REL-02, T-REL-04 · Issue: [#3564](https://github.com/smithersai/smithers/issues/3564)
 Spec: spec.md §4.1 (`starting|working → failed` on `uncertain`, `failed → queued`), §6.2.3, §12.4.1, §19.1, §19.2, §19.3 · Delta: delta.md §8 (flows row; research gap 1–2) · Product: mvp.md §6.1 Restart, §9 Durability and Honesty
 
 ## Goal

@@ -1,12 +1,15 @@
 # T-TRM-05 The coding agent's `bash` runs in its own terminal session, shown in the Terminal card
 
-Stage S2 · Size M · Depends on T-TRM-01, T-COL-03, T-TRM-07 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-TRM-01, T-COL-03, T-TRM-07 · Unblocks T-REL-02 · Issue: [#3577](https://github.com/smithersai/smithers/issues/3577)
 Spec: spec.md §8.11.2a, §9.1.2, §9.3.2 · Delta: delta.md §5 · Product: mvp.md §11 stage 2 item 10, §3.1 (one card per flow, whoever runs it)
 
 ## Goal
 Every command the coding agent runs appears live in a Terminal card on its branch, exactly as a person's command would.
 
 ## Scope
+
+- M-34 participants have id, agent kind, avatar, run/session and optional `for_member`. Smithers, Coding agent, Claude Code, Codex and Reviewer each have their own avatar and show for Ben. The broker registers agent process lifetime; ordinary terminal commands remain person-channel activity. Adapt historical `via` actors. Participant ids grant no authorization rights. Checks: C-J3-04, C-J3-10.
+
 In:
 - The agent's `bash` tool executes through a daemon PTY session owned by `agent` (uid 19999), registered to the run (`register_run`).
 - One agent terminal per run, reused across its commands, titled after the TODO.
@@ -29,6 +32,8 @@ Out:
 - Unit: exit-status parsing for success, failure, a signal and output with no trailing newline.
 
 ## Acceptance
+
+
 - [C-J3-10](../checks/C-J3-10.md)
 
 ## Risks and notes

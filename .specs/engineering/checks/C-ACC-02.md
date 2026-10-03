@@ -1,6 +1,6 @@
 # C-ACC-02 Only a person's session merges or approves; confirmations are session-only and revision-bound
 
-Proves: mvp.md §2 rule 6, §6.10 "Agents can't merge", §6.13 "CLI", M-05, M-21, Appendix B legend (A✓) · spec.md §5.3, §5.4, §10.6.2, §10.6.2a, §10.6.2c, §15.1.4, §15.1.5 · Layer: integration · Stage: S1 · Tickets: T-ACC-04, T-ACC-05, T-STK-04, T-UI-05, T-APP-04
+Proves: mvp.md §2 rule 6, §6.10 "Agents can't merge", §6.13 "CLI", M-05, M-21, Appendix B legend (A✓) · spec.md §5.3, §5.4, §10.6.2, §10.6.2a, §10.6.2c, §15.1.4, §15.1.5 · Layer: integration · Stage: S1 · Tickets: T-ACC-04, T-ACC-05, T-STK-04, T-APP-04
 Automation: `packages/backend/internal/compose/confirmations_integration_test.go` (new) · Runs in: CI
 
 ## Setup
@@ -43,7 +43,7 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
 - A session cookie sent together with a delegated bearer is treated as a session.
 - Approve succeeds after the PR head moved.
 - Another member's session approves someone else's confirmation.
-- An agent response leaks the subject, the checks line or the approver.
+- An agent response leaks the subject, its checks or the approver.
 - A retried approve causes a second merge.
 
 ## Evidence

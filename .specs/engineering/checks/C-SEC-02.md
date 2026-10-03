@@ -1,6 +1,6 @@
 # C-SEC-02 The host never loads or executes repository flows
 
-Proves: mvp.md §9 Isolation, §6.12 Change the factory, M-29, M-30 · spec.md §1.3, §11.1, §17.3 · Layer: integration · Stage: S1 · Tickets: T-FLW-01, T-INS-02
+Proves: mvp.md §9 Isolation, §6.12 Change the factory, M-29, M-30 · spec.md §1.3, §11.1, §17.3 · Layer: integration · Stage: S1 · Tickets: T-FLW-01, T-INS-02, T-ACC-07
 Automation: `packages/backend/internal/compose/flow_isolation_integration_test.go` (new), with the process-tree sampler `scripts/checks/host-process-sampler.mjs` (new) · Runs in: reference host (needs `msb` 0.6.16 and libkrun), nightly
 
 ## Setup
@@ -19,6 +19,7 @@ Automation: `packages/backend/internal/compose/flow_isolation_integration_test.g
 5. Read `$HOME/.smithers-canary/` on the host. Inside the TODO's machine, read the same path through `msb exec`.
 6. Stop the install. In the disposable bundle, remove the actual configured `bin/msb`, then separately remove its configured libkrun library; start through the same launcher for each case. Restore the bundle between cases. Separately verify that unset or hostile shell isolation variables do not override the launcher’s microVM settings.
 7. Restart normally, start a TODO, and kill the `msb` process of its machine mid-run.
+8. In a separate fresh install, invoke the real bundled `bin/smithers-server` with real backend/PostgreSQL. Capture the backend stdout pipe and launcher terminal output at token mint; compare the single setup line byte-for-byte including newline. Seed literal stored origins `http://lan-a:4000` and `https://box.example`. Restart before claim, verify a new token and refusal of the old one through the served exchange. Claim through served OAuth with fake GitHub, then restart. Scan stdout outside the exact mint-line range, stderr and ordinary logs for both token values. This subcase enables no repository dispatch. No expectation is derived from spec files or launcher code at runtime.
 
 ## Pass when
 - The canary listener received 0 connections across steps 2–7.
@@ -27,6 +28,7 @@ Automation: `packages/backend/internal/compose/flow_isolation_integration_test.g
 - `merge` shows as refused with `reserved_name`, and no run of a repository `merge` flow exists.
 - Both configured-runtime failure starts exit non-zero within 30 s with a typed message naming the missing runtime dependency; no machine workspace is created and no backend or PostgreSQL child remains. Hostile shell isolation settings are ignored and normal starts still use the bundled microVM runtime.
 - After step 7 the run is resumed in a machine or shows `interrupted`; no host process picks up its steps.
+- Step 8: one structured mint line covers the literal loopback and configured origins; launcher bytes equal backend bytes without prefix or reconstruction. Pre-claim restart rotates and relays once; post-claim restart emits no setup line on either side. Neither token occurs in any other output or ordinary log. C-SEC-04 proves digest-only storage. Save redacted evidence, not raw tokens.
 
 ## Fail when
 - The canary listener or the host marker sees the nonce: the host imported repository code.

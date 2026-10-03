@@ -1,6 +1,6 @@
 # C-UI-13 Containers wire their cards, and every card of a stage is wired
 
-Proves: spec.md §14.2.1, §14.3.0 (inventory, Stage column, retained cards), §7.2, §7.2.1 · Layer: integration · Stage: S1, S2, S3 · Tickets: T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-20, T-APP-21, T-GH-08, T-STK-08, T-MCH-08, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-COL-05, T-CAT-01
+Proves: spec.md §14.2.1, §14.3.0 (inventory, Stage column, retained cards), §7.2, §7.2.1 · Layer: integration · Stage: S1, S2, S3 · Tickets: T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-20, T-APP-21, T-GH-08, T-STK-08, T-MCH-08, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-COL-05, T-CAT-01, T-APP-14a
 Automation: part A `apps/app/src/mainview/cards/containers/<Card>Container.integration.test.ts` (new, one per card); part B `apps/app/src/mainview/Inventory.test.ts` (new, takes `--stage S1|S2|S3`) · Runs in: CI with a real backend and PostgreSQL and a fake GitHub server (part A); CI from each stage's exit onward (part B)
 
 ## Setup

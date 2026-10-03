@@ -1,6 +1,6 @@
 # T-STK-06 Steers at every boundary of the TODO flow
 
-Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-STK-12 · Unblocks T-STK-15, T-GH-04 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-STK-12 · Unblocks T-COL-12, T-GH-04, T-REL-02, T-STK-15 · Issue: [#3531](https://github.com/smithersai/smithers/issues/3531)
 Spec: spec.md §2, §3 (`activity`), §4.1 (`in_review → working`), §5.2, §6.4, §7.2 (`branch:<id>:activity`), §10.4.1, §10.4.2, §10.7.3, §11.6.1, §15.1.5 · Delta: delta.md §6 (Add steer route; accept steers between implement turns), §4 (`activity` table [S1]) · Product: mvp.md §6.6 Steer, J3.6, J4.2, J6.3, M-21, Appendix B.2
 
 ## Goal
@@ -37,6 +37,11 @@ Out:
 - Integration, same file: a steer to `in_review` moves it to `working` and the run re-enters implement with the steer first; a steer to `queued` is delivered at run start; a steer from a run credential is refused.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-J3-05](../checks/C-J3-05.md): a steer appears with its author and the agent continues on the same working copy.
 - [C-STK-07](../checks/C-STK-07.md) steps 2-4: a steer before the fence refuses Merge; one during it is held and delivered only if the merge fails.
 

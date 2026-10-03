@@ -1,6 +1,6 @@
 # T-INS-09 Bundle references for the built-bundle host lifecycle
 
-Stage S1 · Size S · Depends on T-INS-01 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-INS-01 · Unblocks T-REL-02 · Issue: [#3524](https://github.com/smithersai/smithers/issues/3524)
 Spec: spec.md §1.2, §16.1.0, §16.1.1 · Delta: delta.md §1 (Restore→rewrite row) · Product: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1, §12.5, M-10
 
 ## Goal

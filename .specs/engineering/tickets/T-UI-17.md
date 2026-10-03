@@ -1,6 +1,6 @@
 # T-UI-17 Terminal view
 
-Stage S2 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-12 · Issue: to file
+Stage S2 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-12, T-REL-02 · Issue: [#3581](https://github.com/smithersai/smithers/issues/3581)
 Spec: spec.md §14.2.1, §14.3 (Terminal) · Delta: delta.md §9 · Product: mvp.md J3.3, J6 · Props: [ui-components.md § T-UI-17](../ui-components.md)
 
 ## Goal
@@ -23,6 +23,9 @@ Out:
 
 ## Changes
 
+- Watched terminals never take input focus; ⌘K opens the palette. No Ask to type or Add to machine image. Check: C-UI-12.
+
+
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
@@ -33,8 +36,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-J3-02](../checks/C-J3-02.md): Own terminal as own user; others watch read-only; their keystrokes are dropped
 
 ## Risks and notes
 

@@ -1,6 +1,6 @@
 # C-COL-03 The mutation lock: no writer loses a write or lands mid-rewrite
 
-Proves: mvp.md §4.2 Rebase ("first snapshots every writer's work and never runs during a write made through Smithers"), §6.8 No silent overwrite, M-27, M-32 · spec.md §7.6 (row 1), §9.2.2, §9.4.1, §9.4.2 · Layer: integration · Stage: S2, S3 · Tickets: T-COL-03, T-STK-11, T-COL-05, T-COL-08
+Proves: mvp.md §4.2 Rebase ("first snapshots every writer's work and never runs during a write made through Smithers"), §6.8 No silent overwrite, M-27, M-32 · spec.md §7.6 (row 1), §9.2.2, §9.4.1, §9.4.2 · Layer: integration · Stage: S2, S3 · Tickets: T-COL-03, T-STK-11, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a
 Automation: `crates/smithers-machined/tests/barrier.rs` (new) · Runs in: CI on a Linux runner with real jj, inotify and cgroup v2, and a reference-host microVM
 
 ## Setup

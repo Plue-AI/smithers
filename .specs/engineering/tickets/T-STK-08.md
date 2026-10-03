@@ -1,12 +1,15 @@
 # T-STK-08 Rebase now; rebase conflicts: agent once, then Needs you with Resolve (M-32)
 
-Stage S1 · Size M · Depends on T-STK-07, T-UI-04, T-APP-19 · Unblocks T-STK-11 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-07, T-UI-23, T-APP-19 · Unblocks T-REL-02, T-STK-11 · Issue: [#3532](https://github.com/smithersai/smithers/issues/3532)
 Spec: spec.md §4.1, §8.5.0, §10.4.1, §10.5.1, §10.5.2, §10.5.3, §10.5.4, §10.8, §11.2, §14.5.2, §15.1.5 · Delta: delta.md §6 (Modify rebase: conflicts → agent once → Needs you with Resolve) · Product: mvp.md §4.2 Rebase, J7.4, J10.4, M-32, §11 stage 1 item 7a, Appendix A `/branch.rebase`
 
 ## Goal
 Anyone on a branch can rebase it now, and the stack service performs the rebase exactly and records it as "Smithers, for Ben". When an item's rebase conflicts, the coding agent gets exactly one attempt to resolve it and shows what it did; if that fails, the TODO shows Needs you with the conflicted paths and a Resolve action, and nothing retries silently.
 
 ## Scope
+
+- A clean rebase reruns checks only. Agent-resolved rebase conflicts are new work: implement → check → review (§10.4.1). Check: C-J7-03.
+
 In:
 - **Rebase now** (§8.5.0, §8.5.2a, M-32): a stage-1 system flow of the stack service, the only writer of branch history. Doors: `/branch.rebase` (Appendix A) and the in-card control `branch.rebase-now` (Appendix B.4). Both are `agent: run` (§15.1.5, Appendix B), so a person, the app agent or an external agent invokes it with the member's rights. `POST /api/branches/{b} {rebase}` (§6.3).
 - On an item branch it runs the branch's `rebase_pending` rebase through the stack engine at once, instead of at the run's next durable boundary (§10.5.2).
@@ -45,6 +48,8 @@ Out:
 - Unit, `mythical_items_test.go` (existing): `conflictAttempts = 0` raises Needs you with no agent attempt.
 
 ## Acceptance
+
+
 - [C-J7-03](../checks/C-J7-03.md): conflict on rebase; agent resolves once, else Needs you with Resolve.
 - [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 

@@ -1,6 +1,6 @@
 # T-UI-02 Setup and Settings views
 
-Stage S1 · Size M · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-03 · Issue: to file
+Stage S1 · Size M · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-03, T-FLW-12, T-REL-02 · Issue: [#3539](https://github.com/smithersai/smithers/issues/3539)
 Spec: spec.md §14.2.1, §12.1.1, §14.3 (Setup / Settings), §8.2.1 · Delta: delta.md §9 · Product: mvp.md J1, §6.1 · Props: [ui-components.md § T-UI-02](../ui-components.md)
 
 ## Goal
@@ -23,6 +23,9 @@ Out:
 
 ## Changes
 
+- Setup and Settings rows, unencrypted mark, This Mac, Obsidian row and Add to machine image. Check: C-UI-12.
+
+
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
@@ -33,8 +36,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-J1-02](../checks/C-J1-02.md): Setup card: App manifest, repository, squash check, owner sign-in, model access; Source ready and Machine ready separate
 
 ## Risks and notes
 

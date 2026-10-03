@@ -21,6 +21,9 @@ Automation: `apps/app/src/mainview/flows/catalog-allowlist.test.ts`, `packages/r
 8. Match every registered tag against Appendix C, separately for the host flow runtime's registry and the coding host's registry.
 
 ## Pass when
+
+- Committed reviewed literal fixtures encode product Appendices B and C. Runtime tests treat `catalog.mvp.json` as input and never parse spec or product Markdown or derive expected policy from implementation code.
+
 - Step 2: each Appendix A row maps to one `core` or `advanced` descriptor, and each B.4 control to one `in-card` descriptor. No `core` or `advanced` descriptor lacks an Appendix A row, and no `in-card` descriptor lacks a B.1 or B.4 row.
 - Step 3: the files are equal. Every row has slash, CLI path, journey, group, visibility (`core`, `advanced`, `in-card` or `hidden`), actor eligibility, minimum role and `agent` (`run`, `confirm` or `never`). The CLI path is `null` exactly for rows that don't list `external_agent`, the UI-only rows (⌘K, `/help`, `/stop`, `/theme`) among them.
 - Step 4, with repository-flow doors excluded:

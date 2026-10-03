@@ -1,6 +1,6 @@
 # T-UI-23 TODO view: conflict, moved-off and outside-push forms; Fork and Add to stack
 
-Stage S1 · Size M · Depends on T-UI-04, T-APP-19 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-UI-04, T-APP-19 · Unblocks T-GH-06, T-MCH-08, T-REL-02, T-STK-08 · Issue: [#3552](https://github.com/smithersai/smithers/issues/3552)
 Spec: spec.md §14.2.1, §4.1.0a, §8.5, §9.3.8, §10.5.4, §12.3, §14.3 (TODO) · Delta: delta.md §9 · Product: mvp.md J7, J10.3, M-32, M-33 · Props: [ui-components.md § T-UI-23](../ui-components.md)
 
 ## Goal
@@ -37,7 +37,10 @@ Out:
 
 ## Acceptance
 
-- [C-UI-12](../checks/C-UI-12.md) for these `TodoView` fixtures, with T-APP-19's fixtures. It needs no Container: T-STK-08 (C-J7-03), T-MCH-08 (C-J7-02) and T-GH-06 (C-J10-03) prove the card end to end.
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
+- [C-UI-12](../checks/C-UI-12.md): every View fixture passes visual and copy review.
 
 ## Risks and notes
 

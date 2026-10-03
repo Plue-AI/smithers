@@ -1,6 +1,6 @@
 # T-GH-06 Outside push to a TODO branch: hold the agent's push; Needs you with Bring in or Discard (M-33)
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-07 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-GH-02, T-STK-07, T-UI-23 · Unblocks T-REL-02 · Issue: [#3518](https://github.com/smithersai/smithers/issues/3518)
 Spec: spec.md §4.1 (`in_review → needs_you`, `needs_you → working` on Bring in, `needs_you → in_review` on Discard), §6.1.2 (in-card), §9.4, §10.5.4, §10.8.1, §10.8.2, §12.3 (push row), §12.4.1, §12.5.2, §14.5.2 · Delta: delta.md §7 "Foreign push…" · Product: mvp.md J10.3, §6.3 "Someone pushes to a TODO's branch from a laptop", M-33
 
 ## Goal
@@ -19,6 +19,9 @@ In:
 Out: merging laptop pushes into the live working copy outside a checkpoint ([D] §12.3); **Open on a machine** for teammates' own branches ([D]); pushes to `main` (T-GH-07); pushes to branches that belong to no TODO (ignored); conflict resolution itself (T-STK-08).
 
 ## Changes
+
+- Consume `decideGitHubFact` from `github_inbound.go`; no private mapping. Unit fixtures cover fact/state/duplicate/reordered cells; DB integration proves this consumer calls the seam. Check: C-GH-13.
+
 - `packages/backend/internal/services/github_inbound_pushes.go` (new) → the T-GH-02 consumer: compare, resolve `by`, fetch the commit, raise the Needs you through T-STK-07's API.
 - `packages/backend/internal/services/mythical_items.go:2066-2079` (`pushProposal`) → refuse to push while a `foreign_push` Needs you is open; after Discard the lease target is the observed foreign sha, after Bring in the brought-in head, else the recorded head.
 - Bring in → signal the TODO's `todo` run with `bring_in{sha}`; the run's next checkpoint rebases onto it through the engine's rebase path (T-STK-08), and one `activity` row records the brought-in commit with the pusher as actor.
@@ -42,6 +45,11 @@ Out: merging laptop pushes into the live working copy outside a checkpoint ([D] 
 - e2e: [C-J10-03](../checks/C-J10-03.md).
 
 ## Acceptance
+
+
+
+- [C-GH-13](../checks/C-GH-13.md): pure fact matrix and production consumers use one decision seam.
+
 - [C-J10-03](../checks/C-J10-03.md): a push from a laptop to a TODO branch, in review or working, holds the agent's push and shows Needs you; Bring in rebases onto it; Discard keeps it in history.
 - [C-STK-08](../checks/C-STK-08.md): Independent waits: question + foreign push, pause + conflict, Stop with open waits, resume after step 1, and merges on GitHub during a steer, a question or a pause each give the §4.1.0a state
 

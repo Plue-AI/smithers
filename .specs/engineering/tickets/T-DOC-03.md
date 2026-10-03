@@ -1,6 +1,6 @@
 # T-DOC-03 Replace `docs/mvp/*` with the approved specs (M-12)
 
-Stage R · Size S · Depends on T-CUT-01 · Unblocks T-MNT-05 · Issue: to file
+Stage R · Size S · Depends on T-CUT-01 · Unblocks T-MNT-05 · Issue: [#3591](https://github.com/smithersai/smithers/issues/3591)
 Spec: none (process; spec.md is one of the approved documents) · Delta: delta.md §10 (Replace row) · Product: mvp.md M-12, §13 (reconcile standing strategy)
 
 ## Goal

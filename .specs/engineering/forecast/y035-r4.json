@@ -1,11 +1,11 @@
 {
- "start": "2026-10-02T16:25",
+ "start": "2026-10-02T16:50",
  "lanes": 6,
  "design_lanes": 1,
- "design_start_h": 15.6,
+ "design_start_h": 15.2,
  "extra_lanes": [
   [
-   26,
+   25.2,
    6
   ]
  ],

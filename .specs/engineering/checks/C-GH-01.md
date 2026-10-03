@@ -1,6 +1,6 @@
 # C-GH-01 The App manifest flow completes from localhost with no public address
 
-Proves: mvp.md J1.2, §6.3 "GitHub App setup", M-03, M-28 · spec.md §3 (`github_app`), §5.1.0, §12.1, §16.2 steps 1–2, §16.3.3, §17.4 · Layer: e2e · Stage: W0, S1 · Tickets: T-GH-01
+Proves: mvp.md J1.2, §6.3 "GitHub App setup", M-03, M-28 · spec.md §3 (`github_app`), §5.1.0, §12.1, §16.2 steps 1–2, §16.3.3, §17.4 · Layer: e2e · Stage: W0, S1 · Tickets: T-GH-01, T-GH-10, T-GH-11, T-GH-12, T-GH-13, T-GH-14
 Automation: W0: the disposable T-GH-01a form, recorded manually. S1: `apps/app/e2e/real/github-j10/app-manifest.spec.ts` (new), driving a signed-in GitHub profile · Runs in: recorded manual (W0), reference host (S1)
 
 ## Setup

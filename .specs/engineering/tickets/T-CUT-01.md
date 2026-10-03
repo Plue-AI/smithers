@@ -1,6 +1,6 @@
 # T-CUT-01 Delete cut app surfaces; align AGENTS.md scope
 
-Stage S1 · Size L · Depends on — · Unblocks T-CUT-02, T-DOC-03 · Issue: [#3435](https://github.com/smithersai/smithers/issues/3435)
+Stage S1 · Size L · Depends on — · Unblocks T-CUT-02, T-CUT-04, T-DOC-03, T-REL-02 · Issue: [#3435](https://github.com/smithersai/smithers/issues/3435)
 Spec: spec.md §6.1.2, §6.1.3, §14.2 · Delta: delta.md §10 (Delete app rows; Modify AGENTS.md), §11 (AGENTS.md conflicts) · Product: mvp.md §8 (Cut rows), Appendix B (B.1, B.2 Cut rows), §12 release item 3, M-12, §13 (strategy reconciliation)
 
 ## Goal
@@ -34,7 +34,7 @@ In (app, `apps/app/src/mainview/` unless noted). Delete each surface with its te
   - `flows/entries/agentSession.ts`, `state/AgentSession*.test.ts` and `e2e/playwright/agent-sessions.spec.ts`.
 - **Splitting and squashing:** `change.split` in `flows/entries/change.ts`.
 - **Other Appendix B Cut rows** (the allowlist fails while any is registered): `chat.clear`, `tab.*`, `world.*`, the retired surfaces row (`subagents`, `connect`, `smithers.who`, `workspace.rename`, …), `search.targets`, `search.boxes`, `box.select`, `files.add`, `change.request`, `change.revert`, `prs.create`, `issues.fix|verify|set`, `issues.comment.react|retry`, `wiki.ask`, `runs.takeover|release|handoff`, `notifications.list|read`. The `billing.*`, `cloud.*` and `repo.*` rows go with T-CUT-03.
-- **Matching rows:** update `CardRenderers.tsx`, `CardFamily.ts`, `packages/rpc/src/Cards.ts` and `e2e/real/coverage/deferrals/*.ts`.
+- **Matching rows:** update `CardRenderers.tsx`, `CardFamily.ts` and `e2e/real/coverage/deferrals/*.ts`. Delete a cut card kind's option from `CurrentCardSchema` (`packages/rpc/src/Cards.ts`) only in the same change that adds the kind to `LEGACY_CARD_KINDS` (T-APP-22); until T-APP-22 lands, leave the option in place for T-CUT-04, so conversations that hold the kind keep decoding (AGENTS.md: old sessions and recorded events remain readable).
 - **AGENTS.md (root):**
   - "MVP scope boundaries", first bullet: replace "Retain all five maintenance jobs" with mvp.md §8's line. The setup UI and the CI, Feature and Chores jobs are cut. Event admission, dispatch, reproduction, review and approvals stay for the maintainer release.
   - "Instant chat": drop the tutorial and onboarding sentences, which describe cut surfaces, and re-point "Reference implementation" from `state/controller/repositorySetup.ts` to the TODO controller T-APP-02 creates (delta.md §11).

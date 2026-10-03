@@ -1,12 +1,18 @@
 # T-STK-11 Presence-aware rebase: Rebase pending, Rebase now, write hold
 
-Stage S2 · Size M · Depends on T-STK-08, T-COL-06, T-COL-03, T-COL-04, T-MCH-04, T-MCH-07 · Unblocks T-APP-10, T-REL-04, T-REL-01 · Issue: to file
+Stage S2 · Size M · Depends on T-STK-08, T-COL-06, T-COL-03, T-COL-04, T-MCH-04, T-MCH-07 · Unblocks T-APP-10, T-REL-01, T-REL-02, T-REL-04 · Issue: [#3573](https://github.com/smithersai/smithers/issues/3573)
 Spec: spec.md §7.3, §7.6, §8.4.4, §8.5.0, §9.1.2 (`rebase(onto)`, `write_file`), §9.3.4, §9.4.1, §10.5.1, §10.5.2, §10.5.3, §10.5.5, §18 (rebase hold) · Delta: delta.md §6 (Modify rebase: presence-aware scheduling and Rebase now, via `smithers-machined` §9.4) · Product: mvp.md §4.2 Rebase, J10.4, J7.4, M-32
 
 ## Goal
 When `main` or an earlier item moves, a branch with only the coding agent rebases at the run's next durable boundary. A branch with people on it shows "Rebase pending" until they leave or someone there selects **Rebase now**, and the rebase never runs during a write made through Smithers.
 
 ## Scope
+
+- A clean rebase reruns checks only. Agent-resolved rebase conflicts are new work: implement → check → review (§10.4.1). Check: C-J7-03.
+
+
+- Publish `rebase {state: pending|rebasing|conflict, onto, paths?}` on `branch:<id>`, busy writer `{actor, terminal}` with requesting member, and each terminal’s `frozen` flag for the freeze. Check: C-COL-03.
+
 - Rebase freeze UI (§9.4.2): everyone sees "Rebasing…" on the branch and each frozen terminal. Activity records "Rebased onto Tn" (or `main`). If the freeze cannot finish in 1 s, keep "Rebase pending", retry automatically and show the presser why, for example "Waiting for a write in Ben's terminal". Checks: C-COL-03, C-J10-04.
 
 In:

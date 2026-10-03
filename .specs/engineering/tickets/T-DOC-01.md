@@ -1,6 +1,6 @@
 # T-DOC-01 Quickstart and flows reference as in-app pages; one install page on the site
 
-Stage R · Size M · Depends on T-INS-05, T-APP-20 · Unblocks T-DOC-04 · Issue: [#3458](https://github.com/smithersai/smithers/issues/3458)
+Stage R · Size M · Depends on T-INS-05, T-APP-20 · Unblocks — · Issue: [#3458](https://github.com/smithersai/smithers/issues/3458)
 Spec: spec.md §16.3.4 and §17.6 (the quickstart documents Tailscale serve and Caddy and recommends HTTPS in front), §16.1.2 (the launchd fallback); content follows §1.4, §5.1.0, §5.3.1, §8.10.5, §11, §16 · Delta: delta.md §10 (Add: public docs) · Product: mvp.md M-35 (docs in the app), §12.4, §6.13 API, §8 (CLI and Smithers skill row), J1, J5, M-11, M-28, M-30
 
 ## Goal
@@ -19,12 +19,13 @@ In:
 - The website's only docs page is the install page: requirements, `brew install smithersai/tap/smithers`, `smthrs host start` and the setup link. It links to nothing else on the site. Every other page under `apps/site/src/content/docs/docs/` is deleted (the inventory goes in the change description); the API reference is the exception below.
 
 Out:
-- The 50 generated library sites (`apps/docs/shared/manifest.mjs`): libraries stay published (mvp.md §8).
+- The generated library docs sites: M-35 and T-DOC-04 delete them; package `docs/` stays the source.
 - ADR 0002 (T-DOC-02); `docs/mvp/` (T-DOC-03); TUI docs (deferred).
 
 ## Changes
 - `apps/app/src/docs/pages/quickstart.md` and `apps/app/src/docs/pages/flows.md` (new, frontmatter `title` and `summary`), listed in `apps/app/src/docs/toc.ts` (T-APP-20). The docs lanes own the content.
-- `apps/site/src/content/docs/docs/install.mdx` (new, from `apps/site/docs/install.mdx` through `apps/site/scripts/sync-support-docs.mjs`): the one site page. Every other page in that tree is deleted except the API reference; the sidebar config lists only the install page.
+- `apps/site/docs/installation.mdx`, projected to `/docs/installation/`: the one site page. Every other page in that tree is deleted except the API reference, and the 53 deleted URLs redirect to `/docs/installation/`. The sidebar config lists only the install page.
+- `apps/site/scripts/install-page.test.mjs`: the install page may name a planned command only through an expiring exception tied to its ticket (T-INS-05 `brew`, T-INS-08 `host start`, T-INS-04 LAN flags, T-ACC-01 owner claim); product allowed this for the install page only. The in-app pages carry no exceptions. (Reconciled with the implementing lane, smithers-e8, 2026-10-02.)
 - `apps/site/src/content/docs/docs/self-hosting.mdx` (Docker) is deleted with the image by T-INS-05.
 - CLI text quoted from the generated CLI data (`//apps/site:cliData`, `apps/site/scripts/gen-cli-data.mjs`) so a renamed command fails lint.
 - Gates: `pnpm docs:sync`, `pnpm docs:check`, `smthrs lint //apps/site:supportDocs`, `smthrs docs //packages/smithers:docs`.
@@ -39,6 +40,9 @@ The in-app quickstart's HTTPS section has the fixed heading "Put HTTPS in front"
 - journey: the C-J1-04 operator at stage R uses only the install page and the in-app quickstart.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): R part at its named layer.
+
 - [C-REL-01](../checks/C-REL-01.md): the in-app docs are one quickstart plus the flows reference, the site keeps one install page, every quoted command resolves, and docs gates pass.
 
 ## Risks and notes

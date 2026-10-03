@@ -1,6 +1,6 @@
 # C-PERF-03 Keystroke reaches a remote File card < 1 s
 
-Proves: mvp.md §6.8 Live co-editing, §9 Live updates, M-02 · spec.md §7.4, §7.6, §9.2, §18 · Layer: perf · Stage: S3 · Tickets: T-COL-08
+Proves: mvp.md §6.8 Live co-editing, §9 Live updates, M-02 · spec.md §7.4, §7.6, §9.2, §18 · Layer: perf · Stage: S3 · Tickets: T-COL-08, T-COL-08a, T-COL-08b, T-REL-01
 Automation: `scripts/perf/keystroke.mjs` (new) · Runs in: reference host plus a second Mac on the same network
 
 ## Setup

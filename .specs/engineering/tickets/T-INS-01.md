@@ -1,6 +1,6 @@
 # T-INS-01 Server bundle assembler from the `build-native.ts` stages at `5b77095672`
 
-Stage S1 · Size M · Depends on — · Unblocks T-INS-02, T-INS-08, T-INS-05, T-INS-09 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
+Stage S1 · Size M · Depends on — · Unblocks T-ACC-07, T-INS-02, T-INS-05, T-INS-08, T-INS-09, T-REL-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
 Spec: spec.md §1.2, §16.1.0, §16.1.1 · Delta: delta.md §1 (Restore→rewrite row) · Product: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1, §12.5, M-10
 
 ## Goal
@@ -36,6 +36,7 @@ Out:
 
 ## Acceptance
 - [C-INS-05](../checks/C-INS-05.md): a clean checkout's build output starts with no hand-assembled file and no tool from nvm or Homebrew.
+- [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
 
 ## Risks and notes
 - The jj stage compiles from a git revision with cargo. Observation that confirms the risk: the macOS build exceeds 30 min. Cache the jj binary by revision.

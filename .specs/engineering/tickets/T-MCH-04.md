@@ -1,6 +1,6 @@
 # T-MCH-04 One machine per branch: drop `user_id` from the 0084 key; the agent attaches
 
-Stage S2 · Size L · Depends on T-ACC-03, T-STK-01 · Unblocks T-STK-11, T-MCH-05, T-MCH-06, T-MCH-07, T-MCH-08, T-COL-03, T-COL-05 · Issue: to file
+Stage S2 · Size L · Depends on T-ACC-03, T-STK-01 · Unblocks T-COL-03, T-COL-05, T-MCH-05, T-MCH-06, T-MCH-07, T-MCH-08, T-REL-02, T-STK-11 · Issue: [#3565](https://github.com/smithersai/smithers/issues/3565)
 Spec: spec.md §2 (Branch, Machine), §3 (`branches`, `machines`), §4.2, §7.6 (one machine per branch), §8.1, §17.2 · Delta: delta.md §3 (identity row), §6 (`branches` in S1) · Product: mvp.md J3, §6.7 One live branch, §11 item 9, M-17
 
 ## Goal

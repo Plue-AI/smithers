@@ -1,6 +1,6 @@
 # T-MCH-08 Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2)
 
-Stage S1, S2 · Size M · Depends on S1: T-STK-02, T-UI-04, T-APP-19 · S2: T-COL-03, T-MCH-04 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10 · Issue: to file
+Stage S1, S2 · Size M · Depends on S1: T-STK-02, T-UI-23, T-APP-19 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10, T-REL-02 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
 Spec: spec.md §8.1.1, §8.5, §10.2, §6.3 (`/api/branches`) · Delta: delta.md §3 (fork row) · Product: mvp.md J7.2, J7.3, §6.7 Fork, Appendix A (`/branch.fork`, `/branch.add-to-stack`), M-22
 
 ## Goal
@@ -51,6 +51,11 @@ Out:
 - integration, S2 (reference host, real microVM): C-MCH-08.
 
 ## Acceptance
+
+
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 
 - [C-J7-02](../checks/C-J7-02.md), S1: fork T2 to scratch, Add to stack as a new TODO after T2, drop T2.
 - [C-MCH-08](../checks/C-MCH-08.md), S2: fork never stops the source machine and starts from the captured revision.

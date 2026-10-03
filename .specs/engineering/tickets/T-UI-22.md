@@ -1,6 +1,6 @@
 # T-UI-22 Debug API view
 
-Stage S2 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-21 · Issue: to file
+Stage S2 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-21, T-REL-02 · Issue: [#3584](https://github.com/smithersai/smithers/issues/3584)
 Spec: spec.md §14.2.1 · Delta: delta.md §9 · Product: mvp.md M-36 · Props: [ui-components.md § T-UI-22](../ui-components.md)
 
 ## Goal
@@ -29,6 +29,9 @@ Out:
 - unit (C-UI-12): every fixture of the card renders with its actions and shows its `expect` strings, in light and dark at 1280 and 390 px; each press calls `onAction` or `onView` once. The View-seam rule passes on the View's file (C-UI-08).
 
 ## Acceptance
+
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
 
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
 

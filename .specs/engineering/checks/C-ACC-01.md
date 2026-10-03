@@ -15,20 +15,22 @@ Automation: `packages/backend/internal/compose/access_matrix_integration_test.go
 - Fixture data: T1 (`needs_you{kind: conflict}`, branch b1, the run token’s own conflict), T2 (`in_review`, PR head `h2`, branch b2, first merge candidate), an unrelated question wait and secret `S`. Merge requests use T2 at `h2`; run conflict answers use T1.
 
 ## Steps
-1. Load the literal `catalog.mvp.json` artifact, whose equality with product Appendices B and C is proved by C-CAT-01. Read actor eligibility, minimum role and agent policy for every retained command and in-card action. Never parse spec Markdown at runtime.
+1. Load committed, reviewed literal request/result fixtures for every retained command, role and credential kind. Treat `catalog.mvp.json` as an input under test. Never derive expected decisions from catalog descriptors, spec Markdown or implementation code at runtime. Enumerate routes and catalog ids only to detect missing coverage.
 2. Exercise every catalog command through its served route and dispatch doors for session-O/M/E, delegated-O/M/E, run and machine. Give each command a valid subject and payload; do not collapse commands into one representative per §5.2 row. Record unimplemented commands as pending with their owner ticket.
 3. For each cell, send the request once with a fresh `Idempotency-Key` and record status, `class` and `fix`.
 4. For the run column, also send the scoped cases:
    - answer T1’s own conflict versus T2 or an unrelated question wait;
    - a join on b1 vs on another branch b2.
 5. Compose the install router and list every served `/api` route with its declared action.
+6. Exercise workspace head, workspace children and provider-pool routes with a real workspace-restricted system token on its own workspace and another workspace. Exercise the 12 non-router person gates listed in T-ACC-03. Send distinct body command ids through `/workflows/{name}/dispatch`, including a forbidden id and a route/body mismatch; assert authorization precedes side effects.
 
 ## Pass when
 - `main.reset-to-github` succeeds only from the Owner's session; maintainer, member and every delegated credential are refused and post no confirmation. GitHub App changes require the Owner's session.
 - Every cell follows §5.2.1: insufficient role or credential scope returns 403 `permission`; an eligible delegated `never` returns 403 `never`; eligible `run` executes; eligible `confirm` returns `202 {confirmation: id, state: "requested"}` without executing the command.
   - Explicit cases: `todo.amend` posts a one-click confirmation; `todo.steer`, move, stop, retry, terminal open, sleep and wake execute with no row. Member-delegated Discard returns 403 `permission` and posts nothing; maintainer-delegated Discard posts a confirmation approved only by that maintainer’s session. Settings, approvals, members and secrets never create confirmations.
 - `run` succeeds only on the two scoped cases, its own conflict and its own branch.
-- `machine` is refused on every row (§5.2: it has no row).
+- `machine` is refused on every person-command row (§5.2). Its workspace head, children and provider-pool actions succeed only with its own workspace as subject; another workspace returns 403 `permission` with no effects.
+- `/workflows/{name}/dispatch` authorizes the body command id and subject. A permitted route name never admits a forbidden body command. Unknown or mismatched bindings refuse before dispatch; all 12 non-router person gates enforce the same catalog policy.
 - No refused cell causes a side effect. The fake GitHub has zero merge calls from refused cells, and no row changed in `members`, `secrets` or `todos`.
 - No secrets route returns a value field.
 - Every served `/api` route has exactly one declared action, so the unmapped list is empty.

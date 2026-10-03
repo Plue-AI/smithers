@@ -1,6 +1,6 @@
 # T-REL-03 Alpha scorecard instrumentation (mvp.md §10)
 
-Stage S1, S2, S3 · Size M · Depends on S1: T-STK-01, T-INS-06 · S2: T-COL-04, T-COL-06 · S3: T-FLW-06 · S2: T-COL-04, T-COL-06 · S3: T-FLW-06 · Unblocks — · Issue: to file
+Stage S1, S2, S3 · Size M · Depends on S1: T-STK-01, T-INS-06 · S2: T-COL-04, T-COL-06 · S3: T-FLW-06 · Unblocks T-REL-02 · Issue: [#3527](https://github.com/smithersai/smithers/issues/3527)
 Spec: spec.md §20.4 (scorecard definitions), §6.3 (`GET /api/install/scorecard`), §3 (`todos`, `todo_events`, `todo_attempts`, `activity`, `burst_files`, `conversation_entries`, `flow_activations`, `proposals`, `install_settings`), §3.0 (GitHub synced store), §20.3 · Delta: none (new) · Product: mvp.md §10 Success and kill criteria, §12.2 dogfood, M-22, M-31
 
 ## Goal

@@ -18,7 +18,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | J1.2 Address, App, owner sign-in, model access, squash check | P0 | §16.2, §12.1, §1.4, §11.5a | T-INS-06, T-GH-01, T-APP-03, T-UI-02 | C-J1-02; C-GH-01; C-ACC-04 |
 | J1.3 mirror; questions work once source is readable | P0 | §8.6.3, §16.2 step 7 | T-INS-06 | C-J1-02 (Source ready); C-J1-03 |
 | J1.4 Source ready and Machine ready apart; no declarations needed | P0 | §8.6, §11.2 | T-MCH-10, T-FLW-02 | C-J1-02; C-J1-06 |
-| J1.5 answer with file cards | P0 | §15.1, §7.6 | T-APP-16, T-APP-15 | C-J1-03 |
+| J1.5 answer with file cards | P0 | §15.1, §7.6 | T-APP-16, T-APP-23, T-APP-15 | C-J1-03 |
 | J1.6 first TODO gets branch, machine, agent and a PR with evidence | P0 | §10.4, §12.5.1 | T-FLW-11, T-GH-03, T-STK-10 | C-J1-04; C-J10-01; C-J2-04 |
 | J1.7 review and merge in the app | P0 | §10.6 | T-STK-04, T-APP-04 | C-J1-04; C-J4-03 |
 | J1.8 members, public address, secrets | P0 | §5.1.4, §16.3, §8.8 | T-ACC-02, T-APP-06, T-INS-04, T-APP-13 | C-J1-05; C-INS-01; C-INS-03; C-MCH-07 |
@@ -42,7 +42,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | J5.5 learning proposal → merged → next TODO passes lint | P0 | §11.8 | T-FLW-06 | C-J5-03 |
 | J6.1 terminal signed in to Smithers with the skill; own subscription | P0 | §5.3.2, §8.11.1, §8.7.3 | T-TRM-02, T-MCH-15 | C-J6-01 (steps 1–2); C-SEC-05; C-MCH-10 |
 | J6.2 its edits land in the shared working copy, live | P0 | §9.3.1 | T-COL-04 | C-J3-03 (a terminal tool's writes, attributed and live); C-PERF-04 |
-| J6.3 skill reads the wiki, answers, places a TODO as "Ben via Claude Code" | P0 | §6.4, §14.6a, §15.3 | T-TRM-02, T-APP-09, T-CAT-02 | C-J6-01 (step 4); C-CAT-03 |
+| J6.3 skill reads the wiki, answers, places a TODO as "Claude Code for Ben" | P0 | §6.4, §14.6a, §15.3 | T-TRM-02, T-APP-09, T-CAT-02 | C-J6-01 (step 4); C-CAT-03 |
 | J6.4 laptop `smthrs login` | P1 | §5.3.1 | T-ACC-04 | C-J6-02 |
 | J6.5 teammates watch but can't use the login | P1 | §8.11.2, §5.5.4 | T-TRM-01, T-MCH-11 | C-J3-02; C-MCH-06 |
 | J7.1 insert before T3; amend T2 "+1" | P0 | §10.2.2 | T-STK-02 | C-J7-01 |
@@ -85,7 +85,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | --- | --- | --- | --- |
 | Install on a Mac | §1, §16.1 | T-INS-01, T-INS-02, T-INS-03, T-INS-05 | C-INS-05; C-SPK-06; C-REL-02; C-J1-01 |
 | Reaching the install | §1.4, §16.3 | T-INS-04 | C-INS-01; C-INS-03 |
-| Machine image without declarations | §8.6, §11.2 | T-MCH-10, T-FLW-02 | C-J1-06 |
+| Machine image without declarations | §8.6, §11.2 | T-MCH-10, T-FLW-02, T-APP-03 | C-J1-06; C-APP-03 |
 | Restart | §19 | T-FLW-09, T-GH-09, T-REL-04 | C-DUR-01..04; C-GH-09 |
 
 ### 6.2 Access
@@ -125,7 +125,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | --- | --- | --- | --- |
 | Home card | §14.3 Home | T-APP-01, T-UI-06 | C-J4-01; C-PERF-02 |
 | Home card: background runs with Retry and Dismiss | §14.3 Home, §3 (`background_dismissals`) | T-APP-01 | C-J4-01 (step 10: Retry runs again and Dismiss removes it for every member, after a reload); C-J8-06 (a failed wiki refresh) |
-| Branch conversations | §14.1, §14.5.1 | T-APP-16, T-UI-07 | C-UI-06 |
+| Branch conversations | §14.1, §14.5.1 | T-APP-16, T-UI-07 | C-UI-06; C-APP-04 |
 | No chat between people | §14.1.3 | T-APP-16 | C-UI-06 |
 | Commands | §6.1 | T-CAT-01, T-UI-14, T-CUT-01..03 | C-CAT-01; C-CUT-01 |
 | Toasts for events | §14.4 | T-APP-07, T-UI-08 | C-UI-04; C-UI-05 |
@@ -138,17 +138,17 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | Row | Spec | Owner, other tickets | Check: assertion |
 | --- | --- | --- | --- |
 | Models | §11.5a, §16.2 step 5 | T-INS-06, T-FLW-08 | C-J1-02; C-J11-03 (steps 2 and 7: the turn records F, then the coding-model fallback) |
-| Answers | §15.1 | T-APP-16 | C-J1-03; C-J9-01 |
+| Answers | §15.1 | T-APP-16, T-APP-23 | C-J1-03; C-J9-01 |
 | Context preflight | §15.1.2 | T-APP-17 | C-UI-07; C-PERF-01 |
-| Private entries never enter a turn; a removed author's turns stop | §15.1.2a, §15.1.4a, §14.5.1 | T-APP-16, T-APP-17 | C-UI-06 (steps 11–12); C-UI-07 |
-| Drives the app | §15.1.4, §6.1.4 | T-APP-16, T-CAT-01 | C-UI-06; C-ACC-02 |
+| Private entries never enter a turn; a removed author's turns stop | §15.1.2a, §15.1.4a, §14.5.1 | T-APP-16, T-APP-23, T-APP-17 | C-UI-06 (steps 11–12); C-UI-07 |
+| Drives the app | §15.1.4, §6.1.4 | T-APP-16, T-APP-23, T-CAT-01 | C-UI-06; C-ACC-02 |
 
 ### 6.6 TODOs and the stack
 
 | Row | Spec | Owner, other tickets | Check: assertion |
 | --- | --- | --- | --- |
 | Create (chat, issue, label; Append, Before, Amend) | §10.2, §14.3 Draft | T-STK-02, T-STK-09, T-APP-02 | C-J2-01; C-J7-01; C-J9-01 |
-| TODO card (prompt editable while Queued = Amend, §10.2.2) | §14.3 TODO | T-APP-02, T-UI-04 | C-J4-02; C-J2-04; C-J7-01 |
+| TODO card (prompt editable while Queued = Amend, §10.2.2) | §14.3 TODO | T-APP-02, T-UI-04 | C-J4-02; C-J2-04; C-J7-01; C-APP-02 |
 | Parallel work | §10.3 | T-STK-03 | C-STK-02 |
 | Order | §10.2.3, §10.6.1 | T-STK-02, T-STK-04 | C-J4-02; C-J4-03 |
 | Steer | §10.7.3 | T-STK-06 | C-J3-05; C-J10-02 |
@@ -242,7 +242,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 
 | Row | Spec | Owner, other tickets | Check: assertion |
 | --- | --- | --- | --- |
-| Members and maintainers (Take over) | §5.1.4, §5.6 | T-ACC-02, T-ACC-06, T-APP-06 | C-J1-05; C-ACC-03 |
+| Members and maintainers (Take over) | §5.1.4, §5.6 | T-ACC-02, T-ACC-06, T-APP-06, T-APP-02 | C-J1-05; C-ACC-03; C-APP-01 |
 | Roles | §5.2 | T-ACC-03 | C-ACC-01 |
 | Secrets | §8.8 | T-MCH-12, T-APP-13 | C-MCH-07; C-SEC-01 |
 | SSH into a branch | §8.10 | T-TRM-03, T-TRM-04 | C-J3-06 |

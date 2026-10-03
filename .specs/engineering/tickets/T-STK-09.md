@@ -1,6 +1,6 @@
 # T-STK-09 Make TODO from an issue; the `todo` label freezes revision 1
 
-Stage S1 · Size M · Depends on T-STK-01, T-ACC-02, T-GH-02 · Unblocks T-MNT-01 · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
+Stage S1 · Size M · Depends on T-STK-01, T-ACC-02, T-GH-02 · Unblocks T-MNT-01, T-REL-02 · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
 Spec: spec.md §3 (`todo_revisions`), §3.0, §5.2, §6.1.2b, §10.2.1–§10.2.1b, §10.4.2, §12.3 (issue labeled `todo`), §12.4.1, §14.5.1, §15.1.5, §17.5 · Delta: delta.md §6 (Modify admission from GitHub; `FileTodo` no longer creates an issue), §7 · Product: mvp.md J2.2, §6.3 (label and Make TODO rows), §14 trust rules, M-16, M-22, Appendix B.2 (`issue.implement`)
 
 ## Goal
@@ -45,6 +45,10 @@ Out:
 - Unit, `mythical_items_test.go` (existing, `fakeMythicalGitHub` at `:36`): `ObserveIssue` never rewrites the prompt of an existing TODO.
 
 ## Acceptance
+
+
+
+
 - [C-J2-01](../checks/C-J2-01.md): Make TODO drafts from the discussion, is edited, placed and committed; the issue is labeled and commented.
 - [C-J2-02](../checks/C-J2-02.md): the label door freezes revision 1, ignores later edits and deduplicates deliveries.
 - [C-SEC-03](../checks/C-SEC-03.md): issue admission by issue text, role and door; an issue with outsider text becomes a TODO only by a maintainer; later outsider text never reaches the run.

@@ -1,6 +1,6 @@
 # T-UI-04 TODO view: states, questions, failure, evidence, PR and merge
 
-Stage S1 · Size L · Depends on T-UI-01, T-APP-19 · Unblocks T-STK-08, T-MCH-08, T-APP-02, T-UI-23 · Issue: to file
+Stage S1 · Size L · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-02, T-REL-02, T-UI-23 · Issue: [#3541](https://github.com/smithersai/smithers/issues/3541)
 Spec: spec.md §14.2.1, §4.1, §10.5.4, §10.6.4, §12.5.1, §14.3 (TODO) · Delta: delta.md §9 · Product: mvp.md J2, J4, J7, J10, M-32, M-33 · Props: [ui-components.md § T-UI-04](../ui-components.md)
 
 ## Goal
@@ -23,6 +23,9 @@ Out:
 
 ## Changes
 
+- Removed-owner chip, Take over, inline Edit with prefilled inputs, and Add to machine image. Check: C-UI-12.
+
+
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
@@ -33,12 +36,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-J2-01](../checks/C-J2-01.md): Make TODO from an issue: drafted from the discussion, edited, placed, committed, issue labeled and commented
-- [C-J4-02](../checks/C-J4-02.md): Answer, merge next, move up, retry with steer, all while chatting
-- [C-J7-03](../checks/C-J7-03.md): Conflict on rebase: agent resolves once, else Needs you with Resolve
-- [C-J9-01](../checks/C-J9-01.md): Ask the repository: answer with file and wiki cards; Make TODO and Save to wiki
-- [C-J11-04](../checks/C-J11-04.md): Thrashing: the same failing check 3× in one attempt with no edit in between shows on the TODO card and the Inspect phase; an edit clears it
 
 ## Risks and notes
 

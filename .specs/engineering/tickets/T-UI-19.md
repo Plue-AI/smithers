@@ -1,6 +1,6 @@
 # T-UI-19 Co-editing visuals
 
-Stage S3 · Size M · Depends on T-UI-01, T-APP-19 · Unblocks T-MNT-02, T-MNT-04, T-APP-14 · Issue: to file
+Stage S3 · Size M · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-14a, T-MNT-02, T-MNT-04, T-REL-02 · Issue: [#3589](https://github.com/smithersai/smithers/issues/3589)
 Spec: spec.md §14.2.1, §7.3, §7.6, §14.3 (File S3) · Delta: delta.md §9 · Product: mvp.md J3.2, J8, §6.8 · Props: [ui-components.md § T-UI-19](../ui-components.md)
 
 ## Goal
@@ -23,6 +23,9 @@ Out:
 
 ## Changes
 
+- Author colours, gutter flags, saved text, outside flag and too large to co-edit; no `.cm-ySelection`. Check: C-UI-12.
+
+
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
@@ -33,8 +36,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-J3-04](../checks/C-J3-04.md): Two people co-edit one file, including typing on the same line (both apply): < 1 s, author colours, name flags, saved within 1 s; an outside save merges in, or on overlap shows "Changed outside Smithers · Compare" with the outside version kept, whichever comes first, the watcher or the save
 
 ## Risks and notes
 

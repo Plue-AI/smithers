@@ -24,7 +24,7 @@ Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui
 - Tags are opaque to the View. The lists below name the buttons by label.
 - Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the three-way rule above instead. Parity moves to the Container: every `*Container.tsx` builds `actions[]` and `gestures` through `cardActions`, which binds each tag to `flowAction`, so the three-door and agent-parity rules hold, because every flow launch goes through (1).
 - A field the View needs but this page lacks is a spec change. Raise it with the tech lead, who updates §14.3, this page and T-APP-19 together. A field here cites the spec section, check or mock card that needs it.
-- Copy follows §14.6b: product words, card lines of 12 words or fewer, no explanatory sentences.
+- Copy follows §14.6b: product words, body blocks of 12 words or fewer, one sentence at most, and no explanatory sentences. Visual wrapping does not count. Check: C-UI-02.
 
 ## Completion gates
 
@@ -92,10 +92,12 @@ type PersonRef = { login: string; name: string; avatar_url: string }
 type Actor = ( | { kind: "person"; login: string; name: string; avatar_url: string
                    via?: "ssh" | "terminal" | "cli" }           // "Maya via SSH", "Ben's terminal", "Ben via CLI"
                | { kind: "agent"; id: string                    // participant id, stable per session or run (§14.6a.1)
-                   agent: "coding" | "reviewer" | "claude-code" | "codex" | "external"
+                   agent: "smithers" | "coding" | "reviewer" | "claude-code" | "codex" | "external"
+                   avatar_url: string; session_id?: string; run_id?: string
+                   for_member?: PersonRef                       // no added authorization rights
                    name?: string                                // a step's agent ("planner") or an external agent's name
-                   for?: PersonRef; todo?: number }             // "Claude Code, for Ben"; the TODO when ambiguous
-               | { kind: "system"; for?: PersonRef }            // Smithers, the app agent and the install: "Smithers, for Ben"
+                   todo?: number }                               // "Claude Code for Ben"; TODO when ambiguous
+               | { kind: "system" }                            // install event; Smithers is an agent participant
                | { kind: "github"; login: string }              // "@login" with the GitHub mark
                | { kind: "outside" } )                          // "Changed outside Smithers"
              & { color_index: number }
@@ -118,9 +120,9 @@ type Merge = {                                  // §10.6.2a; one object on TODO
   // a required check still running). blocked: a person must act (state, attention, stale_head,
   // a failed required check, github). merging: the merge fence is set. done: merged.
   reason?: "state" | "order" | "attention" | "merging" | "rechecking" | "pending_work"
-         | "stale_head" | "checks" | "github"   // MergeReady's first failing row; absent when ready or done
+         | "stale_head" | "checks" | "review_required" | "github"   // MergeReady's first failing row; absent when ready or done
   detail?: string                               // Tn for order, the check's name for checks, GitHub's text for github
-  on_github: boolean                            // the block is GitHub's (stale_head, checks, github): the control links to the PR
+  on_github: boolean                            // the block is GitHub's (stale_head, checks, review_required, github): the control links to the PR
 }
 
 type EvidenceItem =                             // §10.4.3, T-STK-10
@@ -213,7 +215,7 @@ type SettingsModel = SetupModel & {
 // Setup buttons: each step's one control, Retry on a failed step. Settings buttons: Change (models), Repair (GitHub),
 // the two steppers, the Obsidian folder field, and "Notifications need HTTPS ↗" (the `docs` action with
 // args { page: "quickstart#put-https-in-front" }, C-UI-09 step 3; absent until `/docs` ships at S2).
-// Copy lines use copyText.
+// Add to machine image (image.add: a package field; opens a Draft, C-APP-03). Copy lines use copyText.
 ```
 
 ### T-UI-03 Draft
@@ -240,7 +242,8 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 
 ```ts
 type TodoModel = {
-  n: number; title: string; state: TodoState; owner: PersonRef
+  n: number; title: string; state: TodoState; owner: PersonRef 
+  owner_removed?: boolean                         // Take over (§5.6, C-APP-01)
   place?: number                                  // 1 is next to merge; absent once merged or dropped
   queue?: { reason: "machine" | "merge_order" | "rebase"; after?: number; position: number }  // View renders the copy (spec §4.1.1)
   rebase_pending?: { onto: string }               // "Rebase pending onto T2" (§4.2)
@@ -263,7 +266,8 @@ type TodoModel = {
            actions: Action[] }[]                  // every open wait, primary first (§4.1.0a), each with its own action
   first_answer?: { by: Actor; text: string; at: string }   // "Ben answered" after the latest question settled
   steers: { text: string; by: Actor; at: string }[]        // authored steers, in order (§10.7.3, C-J3-05)
-  failure?: { step: string; class: string; message: string; retryable: boolean }
+  failure?: { step: string; class: string; message: string; retryable: boolean
+              missing_tool?: { name: string; file: string } }   // Add to machine image (§8.6.2, C-APP-03)
   evidence: Evidence[]                            // one per attempt that has any, oldest first (§10.4.3, C-J2-04)
   pr?: { number: number; url: string; head: string; draft: boolean; draft_after?: number
          included_items: number[] }               // "Includes T3, T4 until they merge" (§12.5.1)
@@ -273,7 +277,8 @@ type TodoModel = {
   lessons?: number                                // absent while learning runs
 }
 // buttons by state (T-UI-04): Answer, Send as steer, Steer, Stop, Resume, Retry, Retry with the current flow,
-// Drop, Amend, Merge, Review & merge, Rebase now, Open branch, Inspect. A late answer's 409 keeps the typed text
+// Drop, Amend, Edit (Queued: todo.amend with prefilled inputs), Take over, Add to machine image,
+// Merge, Review & merge, Rebase now, Open branch, Inspect. A late answer's 409 keeps the typed text
 // in local state behind Send as steer. T-UI-23 builds Resolve, Done (conflict), Bring in, Discard, Fork, Add to stack.
 ```
 
@@ -295,7 +300,8 @@ type ConfirmModel = {
              merge: Merge }                       // review_merge only
   receipt?: { by: PersonRef; result: "done" | "cancelled" | "expired"; at: string; text?: string }   // "Steered T9"
 }
-// buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel
+// buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel 
+// Only the person who must press sees this card; other viewers see nothing (C-ACC-02).
 ```
 
 ### T-UI-06 Home (`home` topic)
@@ -322,10 +328,16 @@ type HomeModel = {
   background_runs: { id: string; title: string; state: "queued" | "running" | "waiting" | "failed"
                      detail?: string; actions: Action[] }[]   // Retry and Dismiss on a failed run (B.4)
 }
-// buttons: Retry (main sync), Fix (refused sync, opens Settings), New TODO, each row's actions
+// buttons: Retry (main sync), Fix (refused sync, opens Settings), New TODO, each row's actions 
+// HomeView reports onView({on_screen: boolean}) through an IntersectionObserver in a ref callback.
+// Container advances last look after 2 s on screen (C-J4-01).
+type HomeViewState = { on_screen?: boolean }
+type HomeViewProps = CardProps<HomeModel, HomeViewState>
 ```
 
 ### T-UI-07 Conversation shell
+
+[S2, M-38] T-AGT-03 supplies existing chat components with normalized message/tool/error parts plus `origin: "external"`, `agent_kind: "claude-code" | "codex"`, `format_version: string`, `source_id: string`, `session_id: string`, `actor: Actor` and `read_only: true`. Tool calls/results retain their correlation id; edit reports retain path and reported outcome. Mutation action lists are empty. Copy, disclosure and navigation use existing handlers. smithers-06 owns presentation in T-UI-07 and T-UI-01; smithers-b8 owns binding. No new View or card is introduced. Check: C-AGT-02.
 
 ```ts
 // Open branches only; a closed branch's conversation opens from its merged TODO.
@@ -350,7 +362,10 @@ type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["conte
 type Toast = { id: string; title: string; detail?: string; tone: Tone; action?: Action; entry_id: string
                kind: "needs_you" | "approval" | "in_review" | "failed" | "conflict" | "merged"
                    | "progress" | "allow_notifications" }
-type ShellView = { toast_hidden?: string; jump_to?: string }   // per-member view state (§14.4.2, §14.5.4)
+type ShellView = { toast_hidden?: string; jump_to?: string
+                   on_screen?: [first: string, last: string]; timeline_visible?: boolean }
+// Shell reports its visible entry band; Timeline reports its visibility.
+// T-APP-07 turns patches into the timeline_visible lease and band (C-UI-04).   // per-member view state (§14.4.2, §14.5.4)
 type ToastStackProps = { toasts: Toast[]; more: number; onAction: CardProps<unknown>["onAction"]
                          onView: (patch: ShellView) => void }   // Hide: onView({ toast_hidden: id })
 type EdgeMapProps = { above: Toast[]; below: Toast[]; narrow: boolean   // two rows max plus a count
@@ -379,9 +394,10 @@ type FlowModel = {
   name: string; source: { builtin: true } | { path: string }   // "flows/<name>/flow.ts"
   versions: { id: string; state: "active" | "proposed" | "merged-syncing" | "merged-failed" | "previous"
               todo?: number; error?: string
-              steps: ( { id: string; label: string; detail?: string; agent?: string }
+              steps: ( { id: string; label: string; detail?: string; agent?: string; added?: boolean }
                      | { id: "merge"; wait: true; signals: { on: "rebase" | "steer"; to: string }[] } )[] }[]
-                                                  // TODO flow: rebase → check, steer → implement (spec §10.4.1)
+                                                  // TODO flow: clean rebase → check; resolved conflict → implement → check → review; steer → implement (§10.4.1)
+// added: relative to Active; adapter sets it, View marks it (C-J5-01).
 }
 // buttons: Source, Plan, Run, Edit
 ```
@@ -631,3 +647,5 @@ type DebugApiView = { selected?: string }         // picking an operation: onVie
 // Add to stack actions (§8.5, §9.3.8, §10.5.4, §12.3).
 // buttons: Done and, from S2, Resolve (conflict); Resolve (moved_off); Bring in and Discard (foreign_push); Fork; Add to stack
 ```
+
+**Merge blocker tones (design G12, 2026-10-02).** A failed required check is ember (`failed`). Gold (`attention`) is only for blockers where a person must act (`review_required`, a question, an approval). System or order waits (`order`, `machine`, `rebase`, `merging`) are neutral (`quiet`).

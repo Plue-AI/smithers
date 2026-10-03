@@ -18,19 +18,17 @@ Automation: `scripts/spikes/homebrew-hypervisor/run.sh` (new, disposable; delete
 5. `brew uninstall smithers-spike`; pour variant B; repeat steps 1 to 4.
 6. Log out, log back in, repeat step 3 for B.
 
-## Pass when (daemon context)
-- The same signed binary boots a microVM when started by a launchd daemon with `UserName` set to the installing user (`launchctl bootstrap system/…`), before any GUI login, and the plist install needs exactly one `sudo`. If this fails, record it and the T-INS-05 fallback (launchd agent plus automatic login) is chosen.
-
 ## Pass when
-- For A and for B: the entitlements include `com.apple.security.hypervisor` = true; `Signature=adhoc`; no `com.apple.quarantine` attribute; step 2 prints 0.6.16; step 3 prints `ok`; step 4 reports ready.
-- The screen recording shows no Gatekeeper, privacy or password prompt in steps 1 to 6.
-- The ticket records one line per variant: "A: yes|no, B: yes|no", plus the formula lines that produced the passing variant.
+- The issue records each attempted variant’s entitlement, signature, runtime version, resolved library path, boot/doctor result, prompts and failure evidence.
+- A negative result completes the spike with a tested selected alternative: A-only, post_install re-signing, or Developer ID signing plus notarization.
+- Record daemon yes/no and the selected LaunchDaemon or LaunchAgent plus automatic-login path. smithers-8a records the T-INS-08 fallback on #3471.
+- T-INS-08’s C-INS-06 gates the selected S1 bundle’s boot/lifecycle. T-INS-05’s C-REL-02 gates the selected Homebrew distribution on a fresh user. An intentionally rejected variant need not pass.
 
 ## Fail when
-- The poured `msb` lacks the entitlement and the boot fails with `HV_DENIED` or an `hv_vm_create` refusal.
-- The VM boots through another `msb` (the command line in step 3 points outside `/opt/homebrew`).
-- `libkrunfw` resolves from outside the keg.
-- The variant passes only for the macOS user who built the bottle.
+- For the selected shipping variant: The poured `msb` lacks the entitlement and the boot fails with `HV_DENIED` or an `hv_vm_create` refusal.
+- For the selected shipping variant: The VM boots through another `msb` (the command line in step 3 points outside `/opt/homebrew`).
+- For the selected shipping variant: `libkrunfw` resolves from outside the keg.
+- For the selected shipping variant: The variant passes only for the macOS user who built the bottle.
 
 ## Evidence
 `.artifacts/checks/C-SPK-06/<UTC timestamp>/`: `codesign-A.txt`, `codesign-B.txt`, `xattr.txt`, `boot-A.log`, `boot-B.log`, `doctor-A.json`, `doctor-B.json`, the formula file, `brew config`, `sw_vers`, the screen recording, the commit of `smithers-backend`.

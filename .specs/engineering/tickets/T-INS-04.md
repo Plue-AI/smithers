@@ -1,6 +1,6 @@
 # T-INS-04 Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency
 
-Stage S1 · Size M · Depends on T-INS-02 · Unblocks T-INS-06, T-COL-02, T-TRM-03 · Issue: to file
+Stage S1 · Size M · Depends on T-INS-02 · Unblocks T-COL-02, T-GH-11, T-GH-12, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
 Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 
 ## Goal
@@ -51,6 +51,9 @@ Out:
 - e2e: C-INS-01. Integration: C-INS-03.
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-INS-01](../checks/C-INS-01.md): the app works on localhost, on a plain-HTTP LAN origin and behind an HTTPS proxy, with no secure-context API.
 - [C-INS-03](../checks/C-INS-03.md): bind address and public origins are owner settings, applied without a restart and reflected in CORS, cookies and the SSH line.
 

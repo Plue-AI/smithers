@@ -1,6 +1,6 @@
 # T-COL-06 Presence map and heartbeats
 
-Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-10 · Unblocks T-STK-11, T-APP-10, T-REL-03 · Issue: to file
+Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-10 · Unblocks T-AGT-02, T-APP-10, T-REL-02, T-REL-03, T-STK-11 · Issue: [#3563](https://github.com/smithersai/smithers/issues/3563)
 Spec: spec.md §2 (Presence, actor notation), §5.6, §7.1 (`presence` frame), §7.3.1–7.3.2, §7.4.5, §7.6 (row 4), §8.4.1, §8.10.4, §14.3 (Branch) · Delta: delta.md §4 (presence row; `BranchPresence` reference) · Product: mvp.md J3.2–J3.3, §6.8 Presence, M-17
 
 ## Goal
@@ -8,6 +8,9 @@ Spec: spec.md §2 (Presence, actor notation), §5.6, §7.1 (`presence` frame), �
 The `branch:<id>` topic lists everyone on a branch with where each one is: people in the app, members over SSH or in terminals, and the coding agent. Entries vanish 30 s after their last heartbeat, and nothing treats a branch as empty during the 30 s after a host start.
 
 ## Scope
+
+- M-34 participants have id, agent kind, avatar, run/session and optional `for_member`. Smithers, Coding agent, Claude Code, Codex and Reviewer each have their own avatar and show for Ben. The broker registers agent process lifetime; ordinary terminal commands remain person-channel activity. Adapt historical `via` actors. Participant ids grant no authorization rights. Checks: C-J3-04, C-J3-10.
+
 
 In:
 - An in-memory presence map in the host service, keyed `(branch, actor, session)`, with a 30 s TTL. It uses the lease semantics of `packages/smithers/flows/sync/src/BranchPresence.ts:84` (`defaultLeaseMs = 30_000`), reimplemented in Go. Presence itself is never persisted; only the coarse rows below are.
@@ -50,6 +53,13 @@ Out:
 - contract: append the §7.6 row-4 assertion (a heartbeat's `where.file` is `{path, line}` in document line coordinates) to `packages/backend/internal/compose/cocontracts_test.go` (T-COL-10). It re-runs C-COL-01's stage-2 rows.
 
 ## Acceptance
+
+- [C-COL-01](../checks/C-COL-01.md): S1 qualification; does not block S2 completion.
+
+
+
+
+
 
 - [C-J3-01](../checks/C-J3-01.md): the Branch card shows the people, the coding agent and "Maya via SSH", each with where, and a person watching a terminal.
 - [C-J3-06](../checks/C-J3-06.md): an SSH session from another machine shows as "Maya via SSH" on the Branch card, with where she last wrote.

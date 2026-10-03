@@ -1,6 +1,6 @@
 # C-UI-04 Edge map and timeline: shared entries, per-viewer actions, live summaries, toasts
 
-Proves: mvp.md §6.4 Toasts for events, Timeline, M-08, M-14 · spec.md §14.1, §14.4, §14.5, §10.8.3, §11.5a (`agent:fast`), §19.3 · Layer: e2e · Stage: S1 · Tickets: T-APP-07, T-UI-08
+Proves: mvp.md §6.4 Toasts for events, Timeline, M-08, M-14 · spec.md §14.1, §14.4, §14.5, §10.8.3, §11.5a (`agent:fast`), §19.3 · Layer: e2e · Stage: S1 · Tickets: T-APP-07
 Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference host
 
 ## Setup
@@ -21,7 +21,7 @@ Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference hos
 - Maya's EMIT entry pins to the top edge with the live tone; Alice, with no timeline, sees a "↑ 1 live above" pill.
 - During the 60 s of events, no event waits more than 30 s for a refresh, and the last event is summarized within 8 s (5 s debounce plus model time).
 - Title, summary, tone and state are identical for both members on every entry; they match the §14.5.2 table computed from `todos` at the same cursor.
-- ASK shows attention (gold) and Answer for both; FAIL shows failed (ember) and Retry; the first In review item shows attention, with Merge for Maya and no action for Alice.
+- ASK shows attention (gold) and Answer for both; FAIL shows failed (ember) and Retry; the first In review item shows quiet, with Merge for Maya and no action for Alice.
 - In step 3 the Needs you and failure toasts reach the TODO's owner and prompter, Maya, and not Alice (§14.4.1); presence-based recipients start in S2 (§10.8.3). Each toast is also a timeline entry, and the entry stays after the toast settles.
 - While a TODO is between admission and its first step, its entry's state reads Starting for both members (§4.1).
 - After step 4 Alice gets no toast for her own failure, but its timeline entry appears; Maya gets the toast for hers. Alice's choice is stored in her `member_conversation_state.toasts_hidden` only.

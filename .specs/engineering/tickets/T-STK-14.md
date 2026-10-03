@@ -1,6 +1,6 @@
 # T-STK-14 Existing-item backfill and Plue confirmation
 
-Stage S1 · Size M · Depends on T-STK-01 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-REL-02 · Issue: [#3535](https://github.com/smithersai/smithers/issues/3535)
 Spec: spec.md §3, §4.1.0 · Delta: delta.md §6 · Product: mvp.md M-16, M-31
 
 ## Goal

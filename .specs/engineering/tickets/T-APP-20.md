@@ -1,6 +1,6 @@
 # T-APP-20 `/docs` flow: in-app docs from one Markdown source per page
 
-Stage S2 · Size M · Depends on T-APP-19, T-UI-21, T-CAT-01 · Unblocks T-DOC-01 · Issue: to file
+Stage S2 · Size M · Depends on T-APP-19, T-UI-21, T-CAT-01 · Unblocks T-DOC-01, T-REL-02 · Issue: [#3481](https://github.com/smithersai/smithers/issues/3481)
 Spec: spec.md §6.1, §14.2.1 · Delta: delta.md §10 (docs move into the app) · Product: mvp.md M-35, §12.4
 
 ## Goal
@@ -9,7 +9,7 @@ Spec: spec.md §6.1, §14.2.1 · Delta: delta.md §10 (docs move into the app) �
 
 ## Ownership (Will, 2026-10-02)
 
-Owner: smithers-b8 (frontend lead): containers and flows. Design (smithers-06) builds the `DocsView` (T-UI-21): toc rail and page view. Content comes from smithers-e8's docs lanes (T-DOC-01).
+Owner: smithers-b8 (frontend lead): containers and flows. Design (smithers-06) builds the `DocsView` (T-UI-21): toc rail and page view. Content comes from smithers-e8's docs lanes (T-DOC-01). This ticket owns the Docs view model, `packages/rpc/src/DocsCard.ts`, because Docs joined the card list after T-APP-19 ([card-kinds.md §1](../card-kinds.md)).
 
 ## Scope
 
@@ -18,7 +18,7 @@ In:
 - Content: one Markdown file per page at `apps/app/src/docs/pages/<slug>.md`, flat, with frontmatter `title` and `summary` only, bundled at build time (Vite `?raw` glob). No backend route and no runtime fetch, so docs always match the installed version.
 - Order: `apps/app/src/docs/toc.ts`. Every toc slug has a page and every page is in the toc.
 - Anchors: headings get stable slugs, and `docs quickstart#put-https-in-front` scrolls to that heading. Relative `.md` links become in-app navigation.
-- The DocsContainer maps content to `DocsModel {toc[{slug, title}], page {slug, title, summary, markdown}, anchor?}` (ui-components.md) and binds navigation to the `docs` flow. Rendering reuses the wiki's read-only Markdown renderer (`MarkdownEditorSurface` with `readOnly`). Until T-UI-21 lands, the container renders that existing surface directly; the View then wraps it.
+- The DocsContainer maps content to `DocsModel {toc[{slug, title}], page {slug, title, summary, markdown}, anchor?}` (ui-components.md) and binds navigation to the `docs` flow. `DocsView` (T-UI-21) renders it, reusing the wiki's read-only Markdown renderer (`MarkdownEditorSurface` with `readOnly`). The Container never renders Markdown itself.
 
 Out:
 - Page content (T-DOC-01). Search, versioning and editing in the app.
@@ -29,7 +29,7 @@ Out:
 
 ## Tests
 
-- unit: every toc slug has a page and every page is in the toc; every page link and anchor resolves; an unknown page opens the first page with a not-found state; Markdown renders through the sanitizer (no raw HTML or script survives).
+- unit: every toc slug has a page and every page is in the toc; every page link and anchor resolves; an unknown page opens the first page with a not-found state; the model carries each page's Markdown verbatim. Sanitized rendering (no raw HTML or script survives) is T-UI-21's test.
 - unit (parity): `docs` and `docs.read` are reachable from slash, button and agent (`flows/parity.test.ts`).
 - build: the built app bundle contains every page.
 - e2e: `docs quickstart#put-https-in-front` from the composer and from the Settings link land on that heading; the app agent answers a "how do I" question citing `docs.read` (C-UI-09).

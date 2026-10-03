@@ -1,6 +1,6 @@
 # T-STK-15 Amend a TODO through the durable steer path
 
-Stage S1 · Size M · Depends on T-STK-02, T-STK-06 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-STK-02, T-STK-06 · Unblocks T-REL-02 · Issue: [#3536](https://github.com/smithersai/smithers/issues/3536)
 Spec: spec.md §3, §10.2.2, §10.4.2, §10.7.3, §15.1.5 · Delta: delta.md §6 · Product: mvp.md §4.2, J7.1, Appendix B.2
 
 ## Goal
@@ -26,6 +26,8 @@ Out:
 - C-ACC-01 tests delegated confirmation and session commit; C-STK-07 tests fenced Amend refusal with no revision write.
 
 ## Acceptance
+
+
 - C-J7-01 Amend assertions pass: +1, no new TODO, branch or PR, and one attributed steer on the same run.
 - C-ACC-01 and C-STK-07 pass for the Amend command.
 

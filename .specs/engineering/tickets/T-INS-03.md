@@ -1,6 +1,6 @@
 # T-INS-03 Spike: Homebrew ad-hoc signing and Hypervisor.framework from a launchd daemon
 
-Stage W0 · Size S · Depends on — · Unblocks T-INS-02, T-INS-08, T-INS-05 · Issue: [#3471](https://github.com/smithersai/smithers/issues/3471)
+Stage W0 · Size S · Depends on — · Unblocks T-INS-02, T-INS-05, T-INS-08 · Issue: [#3471](https://github.com/smithersai/smithers/issues/3471)
 Spec: spec.md §16.1.1 · Delta: delta.md §1 (Add: formula in a `smithersai/homebrew-tap` repository) · Product: mvp.md §6.1, §12.5, M-10; overview.md E-01
 
 ## Goal
@@ -33,7 +33,10 @@ Known before the spike, read on the maintainer's Mac: the upstream `@superradcom
 - Daemon steps, recorded on the issue with the same evidence layout: after a reboot to the login window, the daemon's VM runs `echo ok`, `smithers-backend microvm doctor` under the daemon reports ready, and `launchctl print system/<label>` shows the installing user. Then repeat after a log-in and log-out cycle.
 
 ## Acceptance
-- [C-SPK-06](../checks/C-SPK-06.md): for each variant, the installed `msb` shows the entitlement, boots a VM that runs `echo ok`, and `smithers-backend microvm doctor` reports ready, with no Gatekeeper prompt.
+
+- [C-J1-04](../checks/C-J1-04.md): S1, R qualification; does not block W0 completion.
+
+- [C-SPK-06](../checks/C-SPK-06.md): evidenced variant and daemon decisions and the selected shipping path, including a negative result and tested fallback.
 - The daemon answer and the T-INS-08 path (LaunchDaemon or launchd agent plus automatic login) are recorded on the issue.
 
 ## Risks and notes

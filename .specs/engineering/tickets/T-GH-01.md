@@ -1,6 +1,6 @@
 # T-GH-01 App manifest flow from localhost; sealed App credentials
 
-Stage W0, S1 · Size M · Depends on W0: — · S1: T-INS-02 · Unblocks T-INS-06, T-GH-02 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
+Stage W0, S1 · Size M · Depends on W0: — · S1: T-INS-02 · Unblocks T-GH-02, T-GH-09, T-GH-10, T-GH-11, T-GH-12, T-GH-13, T-GH-14, T-INS-06, T-REL-02 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
 Spec: spec.md §3 (`github_app`), §5.1.0, §5.1.1, §6.3 (`/api/install`), §12.1, §16.2 steps 1–2, §16.3.3, §17.4 · Delta: delta.md §1 (App credentials are not launcher settings), §7 · Product: mvp.md J1.2, §6.3 "GitHub App setup", M-03, §11 item 7
 
 ## Goal
@@ -14,9 +14,9 @@ In:
 - The manifest's `redirect_url` and `setup_url` use the origin the setup page is served from (§12.1.1). It's a browser redirect, so no public address is needed.
 - Manifest: permissions exactly as §12.1.2 (including `workflows: write` and `administration: read`); the webhook created inactive (`hook_attributes.active = false`); callback URLs = the configured origins plus `http://localhost:4000` (§12.1.2, §16.3.3).
 - Callback URLs are fixed at creation, and GitHub has no API to edit them (§16.3.3). The install records them. When a configured origin is missing from them, the `install` model carries the manual fix: the App settings URL and the exact URL to add. T-APP-03 renders it in Settings.
-- A single-use `state` token per attempt, checked on the callback (CSRF). Before an owner exists, the setup steps need the setup token (§5.1.0, §6.3 `POST /api/install/setup/{step}`).
+- SECURITY EXCEPTION to the freeze (smithers-3f reviewed, smithers-8a routed, 2026-10-02 17:35): a single-use `state` token per attempt (≥128 random bits, stored only as its SHA-256 digest, compared in constant time, TTL 10 min) is bound to the initiating setup-session digest and effective origin, with expires_at and used_at. The production callback requires the same unexpired setup session and effective origin, and atomically consumes state (`UPDATE … SET used_at = now() WHERE digest = $1 AND used_at IS NULL AND expires_at > now() RETURNING …`) before exchanging the code. Missing, foreign, used or expired state or session is refused with a typed error, no GitHub exchange, no credential write, and no state value in logs. The setup-session cookie is SameSite=Lax, so it survives GitHub's top-level redirect back to the install. Before the claim, the setup steps need a setup session (§5.1.0, §6.3 `POST /api/install/setup/{step}`, C-GH-01).
 - Code exchange, then seal and store the credentials in `github_app` (§3, §12.1.1, §17.4). One App per install: a second conversion is refused once one exists.
-- Installation id from the `setup_url` redirect, with `GET /app/installations` under the App JWT as the fallback. Setup confirms the repository is in the installation (§12.1.3).
+- Installation id from `GET /repos/{owner}/{repo}/installation` under the App JWT; the `setup_url` redirect only triggers that read, and its `installation_id` parameter is never trusted (§5.1.0, C-GH-01). Setup confirms the repository is in the installation (§12.1.3).
 - One credential interface that every App caller reads, with two adapters chosen by composition: the sealed store for the install, and env credentials for Plue. Until this ticket lands, the install's thin path (T-ACC-01) reads App credentials from env; afterwards the install composition never reads them.
 
 Out: the Setup card UI (T-APP-03); step sequencing including step 0, model access and the squash check (T-INS-06); bind and origin settings (T-INS-04); owner sign-in through the App's user authorization (T-ACC-01); polling (T-GH-02); webhook delivery to a public URL (optional, §12.2.4).
@@ -31,20 +31,22 @@ Out: the Setup card UI (T-APP-03); step sequencing including step 0, model acces
 - `packages/backend/internal/config/config.go` → `webhook.github_app_secret` (`:384,559,716`) and `auth.github_client_id`/secret (`:362-365`, read by T-ACC-01's thin path) move behind the env adapter; the install composition reads `WebhookSecret()` and `OAuthClient()` from the store.
 - `packages/smithers/src/internal/backend/Repositories.ts:270` → delete the hard-coded install URL fallback.
 - `apps/app/src/bun/NativeBackendProcess.ts:62-72` → pass no `SMITHERS_GITHUB_APP_*` variable; App credentials are not launcher settings (delta.md §1).
-- `packages/backend/internal/githubfake/` (new) → fake GitHub server: `POST /app-manifests/{code}/conversions`, `GET /app`, `GET /app/installations`, installation tokens, and an append-only write log. T-GH-02 extends it.
+- `packages/backend/internal/githubfake/` (new) → fake GitHub server: `POST /app-manifests/{code}/conversions`, `GET /app`, `GET /repos/{owner}/{repo}/installation`, installation tokens, and an append-only write log. T-GH-02 extends it.
 - `docs/api/openapi/` → rows for every new `/api` route; re-bundle with `pnpm exec smithers-build run '//:openapiBundle'`. `packages/backend/docs/github-app.md` (new); `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/backend:docs`.
 
 ## Tests
+- Security (exception above): two concurrent callbacks carrying one `state` produce exactly one GitHub code exchange; a foreign setup session, a different effective origin, a used state and an expired state are each refused with a typed error, no exchange and no credential write; the state value never appears in logs; the database holds only its digest.
 - Unit, `github_app_manifest_test.go` (new): the manifest's permissions equal §12.1.2 exactly (golden file); the webhook is inactive; callback URLs equal the configured origins plus `http://localhost:4000`; the redirect and setup URLs use the requesting setup origin, localhost or LAN; the App name fits GitHub's 34-character limit; the user or organization action URL follows the repository owner.
 - Unit: a used, expired or foreign `state` is refused, and the code is never exchanged.
 - Unit: an origin added after creation produces the fix `{settings_url, add_url}`; an origin already registered produces none.
 - Integration, real PostgreSQL + `githubfake` (`github_app_credentials_integration_test.go`, new): conversion stores sealed values; a `pg_dump` contains no `BEGIN RSA PRIVATE KEY` and no client secret; a restart reloads the store; a second conversion is refused.
-- Integration: before an owner exists, a setup step request without the setup token is refused on every listener.
+- Integration: before the claim, a setup step request without a setup session is refused on every listener (C-GH-01).
 - Integration: the install composition with `SMITHERS_GITHUB_APP_*` set still reads the store; the Plue composition reads env.
 - e2e and spike: [C-GH-01](../checks/C-GH-01.md).
 
 ## Acceptance
 - [C-GH-01](../checks/C-GH-01.md): from a fresh install on the reference host, the manifest flow (or the recorded fallback) completes from `http://localhost:4000` and from a LAN origin with no public address, and the stored App matches §12.1.2.
+- [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
 
 ## Risks and notes
 - Risk: GitHub refuses `http://localhost` or a plain-HTTP LAN host as a manifest `redirect_url`. Confirmed by the spike's GitHub error page. Then ship the paste fallback for that origin; the tech lead updates overview.md.

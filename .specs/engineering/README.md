@@ -8,8 +8,8 @@ Owner: the engineering agent (smithers-8a, tech lead). Product: [../product/mvp.
 | [spec.md](spec.md) | The target system, independent of today's code: topology, data model, state machines, protocols, budgets | Before designing anything |
 | [delta.md](delta.md) | Today's `main` → spec, per subsystem, with paths: keep, modify, add, delete, restore | Before touching code |
 | [ui-components.md](ui-components.md) | The props contract between design's Views and engineering's Containers, in order of need | Before building or wiring any card |
-| [tickets/](tickets/README.md) | 145 tickets (T-UI-* are design's) in stage order with dependencies, sizes and checks | To pick work |
-| [checks/](checks/README.md) | 137 acceptance checks: layer, steps, pass/fail, evidence. QA gates them per [../qa/validation-plan.md](../qa/validation-plan.md) | To prove work |
+| [tickets/](tickets/README.md) | 170 tickets (T-UI-* are design's) in stage order with dependencies, sizes and checks | To pick work |
+| [checks/](checks/README.md) | 149 acceptance checks: layer, steps, pass/fail, evidence. QA gates them per [../qa/validation-plan.md](../qa/validation-plan.md) | To prove work |
 | [research/](research/) | Cited findings about `main` on 2026-10-02 (10 reports) | To verify a claim in delta.md |
 | [reviews/](reviews/) | Fable and Codex Astra reviews of the core docs, tickets and checks, and how each finding was resolved | To see why the spec says what it says |
 

@@ -1,6 +1,6 @@
 # C-COL-05 Watcher completeness: per-file versions, metadata watches, overflow resync
 
-Proves: mvp.md §6.8 External changes and Save and recovery guarantees (Capture, Restore), M-27 · spec.md §9.1.4, §9.3.1–9.3.5, §9.3.8 · Layer: integration · Stage: S2 · Tickets: T-COL-04, T-COL-05
+Proves: mvp.md §6.8 External changes and Save and recovery guarantees (Capture, Restore), M-27 · spec.md §9.1.4, §9.3.1–9.3.5, §9.3.8 · Layer: integration · Stage: S2 · Tickets: T-COL-04, T-COL-05, T-COL-04a
 Automation: `crates/smithers-machined/tests/versions.rs`, `crates/smithers-machined/tests/overflow.rs` (new), `packages/backend/internal/machined/events_integration_test.go` · Runs in: CI on a Linux runner with real inotify, cgroup v2, jj and a real host store
 
 ## Setup

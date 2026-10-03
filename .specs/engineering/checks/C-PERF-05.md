@@ -1,6 +1,6 @@
 # C-PERF-05 Warm wake < 5 s
 
-Proves: mvp.md §9 Branch wake, §6.7 Sleep · spec.md §4.2, §8.2.1, §8.3, §8.4, §18 · Layer: perf · Stage: S2 · Tickets: T-MCH-06
+Proves: mvp.md §9 Branch wake, §6.7 Sleep · spec.md §4.2, §8.2.1, §8.3, §8.4, §18 · Layer: perf · Stage: S2 · Tickets: T-MCH-06, T-REL-01
 Automation: `scripts/perf/warm-wake.mjs` (new) · Runs in: reference host
 
 ## Setup

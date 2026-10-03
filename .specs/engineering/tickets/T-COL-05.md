@@ -1,6 +1,6 @@
 # T-COL-05 Moved off the item: detect; Return to Tn; Keep for now
 
-Stage S2 · Size M · Depends on T-COL-04, T-STK-07, T-MCH-04, T-UI-15, T-APP-19 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-COL-04, T-STK-07, T-MCH-04, T-UI-15, T-APP-19 · Unblocks T-REL-02 · Issue: [#3562](https://github.com/smithersai/smithers/issues/3562)
 Spec: spec.md §3 (`branches.moved_off`), §4.1 (working → needs_you), §6.1.2 (`in-card`), §9.1.2 (`return_to_item`), §9.3.2–9.3.4, §9.3.8, §9.4.2, §10.8, §14.5.2 · Delta: delta.md §4 (moved-off detection) · Product: mvp.md §6.8 External changes, M-27, M-14
 
 ## Goal
@@ -44,6 +44,8 @@ Out:
 - e2e: C-J3-09.
 
 ## Acceptance
+
+
 
 - [C-COL-05](../checks/C-COL-05.md): metadata watches and the overflow resync raise every move.
 - [C-J3-09](../checks/C-J3-09.md): `git checkout main` over SSH shows Needs you with Return to Tn and Keep for now. Return restores the item, Keep holds Needs you until the working copy is back, and the agent writes nothing while moved off.

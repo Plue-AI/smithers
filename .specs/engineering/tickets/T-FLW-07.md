@@ -1,6 +1,6 @@
 # T-FLW-07 Monitor: `/monitor`, cost, waits since, interrupted state, no fork filter
 
-Stage S1 · Size M · Depends on T-COL-02, T-UI-12, T-APP-19 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-COL-02, T-UI-12, T-APP-19, T-APP-22 · Unblocks T-REL-02 · Issue: [#3514](https://github.com/smithersai/smithers/issues/3514)
 Spec: spec.md §7.2 `run:<id>`, §11.6, §19.1 · Delta: delta.md §8 (monitor and runtime-event rows) · Product: mvp.md J11.1, §6.14 Monitor and Signals and approvals, Appendix A `/monitor`, `/run.inspect <id>`; AGENTS.md MVP scope (no fork or rewind controls)
 
 ## Goal
@@ -11,6 +11,9 @@ From any run card, Inspect opens a monitor that shows the graph with live step s
 Design (smithers-06) builds every visual component and its styles: the monitor views: graph, step I/O, timeline, waits with since, tokens/time/cost, the collapsed Engine row, the scrubber. Engineering wires them: run event projections, Appendix C labels, `/monitor` and `run.inspect` commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
+
+- The `run:<id>` projection follows T-UI-12: `attempts[].steps[]` keyed per step instance, usage only for model calls, stable `phases[].cells[]` ids, and waits with `settled {by, at}`. Load journal on tab open; `replay {at, last}` projects a sequence with reads only. Render `presentation` in `custom`. Check: C-J11-04.
+
 In:
 - Stage 1. T-COL-02 builds the base `run:<id>` topic (run summary and steps) in S1. This ticket adds cost, waits, labels, the Engine row, the journal, the custom view and the interrupted state to it.
 - `/monitor` lists every run, background runs included, each with its state and its Inspect door. `/run.inspect <id>` opens one run's monitor. Both are `agent: run` (Appendix B.2).
@@ -43,6 +46,9 @@ Out:
 - Docs: gateway `docs/` updated; `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/smithers/gateway:docs`.
 
 ## Tests
+
+- C-CUT-02: pinned `run-trace` rows decode live; map legacy `forks` filter to `all` (card-kinds.md L4).
+
 - Unit, `packages/smithers/gateway/test/RunTrace.test.ts` (extend): phase titles and cell labels are a pure function of the event sequence. A journal replayed twice gives identical strings with no model call; a check phase with 2 failures is titled "Ran checks · 2 failed". Check: C-J11-01.
 
 - Unit, `packages/backend/internal/services/run_thrash_test.go` (new, beside `run_thrash.go`): a table over event sequences. The same test id failing 3× with no edit gives thrash; an edit to a named file between failures resets the count; 3 different test ids give none; error signatures differing only in paths or line numbers count as the same; 3 failures split across two attempts give none; a passing run clears the indicator. A property test asserts the detector is a pure function of the event sequence. (C-J11-04)
@@ -54,6 +60,13 @@ Out:
 - e2e, `apps/app/e2e/real/run-inspection.spec.ts` (extend), for [C-J11-01](../checks/C-J11-01.md).
 
 ## Acceptance
+
+
+
+- [C-J11-02](../checks/C-J11-02.md): S2, S3 qualification; does not block S1 completion.
+
+
+
 - [C-J11-02](../checks/C-J11-02.md): a flow's custom view and a draft-version run's graph live in the monitor.
 
 - [C-J11-01](../checks/C-J11-01.md): Inspect shows the graph with Appendix C labels and one Engine row, step I/O, transcript, retries, waits with since, and tokens, time and cost per step, with no fork filter.

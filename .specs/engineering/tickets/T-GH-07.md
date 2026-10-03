@@ -1,6 +1,6 @@
 # T-GH-07 Force-push to `main` becomes Needs you for the owner
 
-Stage S1 · Size S · Depends on T-GH-02, T-STK-07 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-GH-02, T-STK-07 · Unblocks T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
 Spec: spec.md §4.1.2a, §6.1.2 (in-card), §10.1, §10.5.1, §10.8.1, §11.3.1, §12.3 (`main` rewritten row), §14.5.2 · Delta: delta.md §7 "Force-push to `main`…" · Product: mvp.md §6.3 "`main` rewritten on GitHub", M-22
 
 ## Goal
@@ -33,6 +33,8 @@ Out: rebase execution and its conflicts (T-STK-08, T-STK-11); the Home card row 
 - Fault, `github_main_pull_db_test.go` (existing): the host dies inside `ResetToGitHub`. After restart the mirror's `main` is either `old` with the attention row still open, or `new` with it settled; never a third value.
 
 ## Acceptance
+
+
 - [C-J10-07](../checks/C-J10-07.md): a force-push to `main` gives the owner a confirmation on the Home card, and nothing changes before the confirm.
 
 ## Risks and notes

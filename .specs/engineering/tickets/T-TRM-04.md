@@ -1,6 +1,6 @@
 # T-TRM-04 Import GitHub SSH keys
 
-Stage S2 · Size S · Depends on T-ACC-02 · Unblocks — · Issue: to file
+Stage S2 · Size S · Depends on T-ACC-02 · Unblocks T-REL-02 · Issue: [#3576](https://github.com/smithersai/smithers/issues/3576)
 Spec: spec.md §8.10.2, §12.2 (members' rows, conditional requests), §5.6 · Delta: delta.md §5 (GitHub key import row) · Product: mvp.md J3.2, §6.15 SSH into a branch, M-24
 
 ## Goal
@@ -36,6 +36,8 @@ Out:
 - e2e: C-J3-06 step 1 (no manual key added).
 
 ## Acceptance
+
+
 
 - [C-J3-06](../checks/C-J3-06.md): the SSH step uses only the member's GitHub key, imported at sign-in.
 

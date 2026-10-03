@@ -1,6 +1,6 @@
 # T-MNT-04 Review outside PRs with the shared review step
 
-Stage M · Size M · Depends on T-MNT-01, T-FLW-01, T-FLW-04, T-MCH-06, T-UI-19, T-APP-19 · Unblocks T-MNT-05 · Issue: to file
+Stage M · Size M · Depends on T-MNT-01, T-FLW-01, T-FLW-04, T-MCH-06, T-UI-19, T-APP-19 · Unblocks T-MNT-05 · Issue: [#3596](https://github.com/smithersai/smithers/issues/3596)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: none (maintainer extension) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
 
 ## Goal

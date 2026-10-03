@@ -1,6 +1,6 @@
 # T-UI-14 Commands view (/help)
 
-Stage S1 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-CAT-01 · Issue: to file
+Stage S1 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-CAT-01, T-REL-02 · Issue: [#3551](https://github.com/smithersai/smithers/issues/3551)
 Spec: spec.md §14.2.1, §6.1 · Delta: delta.md §9 · Product: mvp.md Appendix B · Props: [ui-components.md § T-UI-14](../ui-components.md)
 
 ## Goal
@@ -33,8 +33,10 @@ Out:
 
 ## Acceptance
 
+- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
+
+
 - [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
-- [C-UI-02](../checks/C-UI-02.md): Product words and minimal text: no banned terms or explanatory paragraphs in cards
 
 ## Risks and notes
 

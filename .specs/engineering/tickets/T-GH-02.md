@@ -1,6 +1,6 @@
 # T-GH-02 Poll scheduler: streams, ETags, token cache, budget, 30–120 s cadences
 
-Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-ACC-02 · Unblocks T-MNT-01, T-STK-04, T-STK-09, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-GH-09, T-FLW-03 · Issue: to file
+Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-ACC-02 · Unblocks T-FLW-03, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-MNT-01, T-REL-02, T-STK-04, T-STK-09 · Issue: [#3515](https://github.com/smithersai/smithers/issues/3515)
 Spec: spec.md §3 (`github_sync`), §3.0, §4.4, §6.2.3, §12.2, §19.4 · Delta: delta.md §7 · Product: mvp.md J10.6, §6.3 "No public address", §9 "GitHub freshness", M-03
 
 ## Goal
@@ -45,6 +45,9 @@ Out: health states and `/api/github/sync` (T-GH-08); inbound effects (T-GH-04..0
 - e2e: [C-GH-07](../checks/C-GH-07.md).
 
 ## Acceptance
+
+- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
+
 - [C-GH-07](../checks/C-GH-07.md): p95 freshness of PR, checks and `main` ≤ 60 s and issues ≤ 5 min on a real repository with ten pending TODO PRs, with webhooks off and then dropped.
 - [C-GH-08](../checks/C-GH-08.md): at most 1,000 charged and 1,500 raw requests in each simulated hour with 10 pending TODO PRs and 100 issues, including a stress hour in which every response changes; every repeat REST read conditional.
 

@@ -1,6 +1,6 @@
 # T-APP-21 `/debug-api` playground: call the documented API from the app
 
-Stage S2 · Size M · Depends on T-APP-19, T-UI-22, T-CAT-01, T-ACC-03 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-APP-19, T-UI-22, T-CAT-01, T-ACC-03 · Unblocks T-REL-02 · Issue: [#3559](https://github.com/smithersai/smithers/issues/3559)
 Spec: spec.md §5.2, §6.2, §6.3 · Delta: delta.md §9 · Product: mvp.md M-36 (advanced primitive), §6.13 API
 
 ## Goal
@@ -9,7 +9,7 @@ An advanced user opens `/debug-api`, picks a documented endpoint, fills its type
 
 ## Ownership (Will, 2026-10-02)
 
-Owner: smithers-b8 (frontend lead): container and flow. Design (smithers-06) builds the `DebugApiView` (T-UI-22): operation list, schema-generated request form, response pane.
+Owner: smithers-b8 (frontend lead): container and flow. Design (smithers-06) builds the `DebugApiView` (T-UI-22): operation list, schema-generated request form, response pane. This ticket owns the Debug API view model, `packages/rpc/src/DebugApiCard.ts`, because it joined the card list after T-APP-19 ([card-kinds.md §1](../card-kinds.md)).
 
 ## Scope
 
