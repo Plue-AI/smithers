@@ -4,7 +4,7 @@ Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-STK-12, T-ACC-04, T-ACC-0
 Spec: spec.md §4.1, §4.1.2a, §5.2, §5.3, §6.2.4, §10.4.5, §10.6.1, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.6.3, §12.1.2, §12.3 (TODO PR merged), §12.5, §16.4 · Delta: delta.md §6 (Modify merge; Delete `change.land` path) · Product: mvp.md §4.2 Merging, §6.10, J1.7, J2.6, M-01, M-05, rule 6, Appendix B.4 (Stack: merge)
 
 ## Goal
-Only an owner or maintainer signed in with a browser session can merge, and only while the one merge predicate holds: the first unmerged item, in review, at its accepted generation with no pending work, rebase or open wait, and at exactly the PR head the person reviewed. A moved head, a pending edit or steer, a rebase, a reorder or an out-of-order request merges nothing.
+A merge happens only by Review & merge from an owner or maintainer signed in with a browser session, or by a maintainer's standing pre-approval (M-39, T-STK-16, which reuses this ticket's `DecideMerge`), and only while the one merge predicate holds: the first unmerged item, in review, at its accepted generation with no pending work, rebase or open wait, and at exactly the PR head the person reviewed (Review & merge) or at the current head with required checks green (pre-approval, which is not revision-bound). A moved head, a pending edit or steer, a rebase, a reorder or an out-of-order request merges nothing.
 
 ## Scope
 

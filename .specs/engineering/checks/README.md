@@ -13,7 +13,9 @@ Layers:
 
 The reference host is the team's 64 GB Apple Silicon Mac mini (10 performance cores) (mvp.md §9), where the performance budgets are measured (C-PERF-01..06). Limits are separate: every install derives them from its detected host (spec §8.2.1, C-MCH-04), and every perf artifact records the host profile. The browsers run on a second Mac on the same network. The scratch repository is `smithers-mvp-canary/<date>` on GitHub, made fresh per journey run. A 32 GB host’s p95 is not measured until tested (C-PERF-01–06).
 
-Evidence goes to `.artifacts/checks/<check-id>/<UTC timestamp>/`. `scripts/check-run.mjs` executes named automation and writes `receipt.json` with `{check, commit, layer, command, exit, started, ended, log_digest}`. It refuses absent automation and `to write`. Closure verifies successful receipts for every phase check at the landed commit and their log digests; prose PASS claims are insufficient (C-PRC-03). The issue links the directory and its logs, screenshots or video.
+Evidence goes to .artifacts/checks/<check-id>/<UTC timestamp>/. scripts/check-run.mjs executes an approved Automation mapping on the declared Runs in host with publication credentials excluded and issue-claim configuration unreadable. It writes receipt.json with {version: 1, check, commit, layer, command, exit, started, ended, log_digest}; commit is a full SHA, exit an integer, times ISO UTC and log_digest sha256:<hex>. Closure requires --landed <sha>, origin/main ancestry, ticket-derived check coverage, exact receipt commit and confined receipt/log paths without symlinks or ..; prose PASS claims are insufficient. Check: C-PRC-03. The issue links the directory and its logs, screenshots or video.
+
+A ticket closes only with passing machine-written receipts for every named check, bound to the landed commit with verified log digests. Reports list receipt paths. Missing or unwritten Automation blocks closure; prose PASS and --force do not waive evidence (T-PRC-03, C-PRC-03).
 
 ## Index
 
@@ -58,7 +60,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-J3-10](C-J3-10.md) | The coding agent's commands appear in a Terminal card that members can watch read-only | e2e | S2 | T-TRM-05, T-REL-02 |
 | [C-J3-08](C-J3-08.md) | File deleted or renamed while open: the card says so; Restore and Follow work | e2e | S2 | T-APP-11, T-REL-02 |
 | [C-J3-09](C-J3-09.md) | Hand-run `git checkout main` or `jj new main` → Needs you through the metadata watch; Return to Tn and Keep for now | e2e | S2 | T-COL-05 |
-| [C-J4-01](C-J4-01.md) | Home card counts, filters, merged since last look, sync time, machines vs capacity; a failed background run's Retry and Dismiss act for every member | e2e | S1 | T-APP-01, T-REL-02 |
+| [C-J4-01](C-J4-01.md) | Home card counts, filters, merged since last look, sync time, machines vs capacity; a failed background run's Retry and Dismiss act for every member | e2e | S1, S2 | T-APP-01, T-REL-02 |
 | [C-J4-02](C-J4-02.md) | Answer, merge next, move up, retry with steer, all while chatting | e2e | S1 | T-STK-02, T-STK-05, T-APP-02 |
 | [C-J4-03](C-J4-03.md) | Only the next item merges; later items say "Merges after Tn" | integration+e2e | S1 | T-STK-04, T-REL-02 |
 | [C-J5-01](C-J5-01.md) | Flow edit from chat → TODO → merged → Active after sync; running TODOs keep their version, including a retry after a lockfile change | e2e | S1 | T-FLW-03..05, T-FLW-11, T-APP-05, T-FLW-04, T-FLW-05, T-REL-02 |
@@ -72,9 +74,9 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-J10-06](C-J10-06.md) | Sync health: "synced Ns ago", gold past 120 s on network loss, Retry | e2e | S1 | T-GH-08 |
 | [C-J10-07](C-J10-07.md) | Force-push to `main` → owner Needs you; nothing changes before confirm | integration | S1 | T-GH-07, T-ACC-03 |
 | [C-J10-08](C-J10-08.md) | PR closed on GitHub → Dropped with actor; reopen restores the generation with no run; a later review comment starts a new attempt that merges; duplicate reopen is a no-op | integration | S1 | T-GH-05, T-STK-05, T-MCH-14 |
-| [C-J10-09](C-J10-09.md) | `/review` on a teammate's PR runs the Active review flow in an ephemeral background machine at the PR head and writes nothing to GitHub; an outsider's PR is refused | e2e | S1, S2 | T-FLW-13, T-MCH-06, T-FLW-01, T-REL-02 |
+| [C-J10-09](C-J10-09.md) | `/review` on a teammate's PR runs the Active review flow in an ephemeral background machine at the PR head and writes nothing to GitHub; an outsider's PR is refused | e2e | S1, S2 | T-FLW-13, T-MCH-06, T-REL-02 |
 | **Journeys (P0: J6 steps 1–3, J7, J8, J11; P1: J6 steps 4–5, J9; mvp.md §5)** | | | | |
-| [C-J6-01](C-J6-01.md) | Claude Code in a branch terminal is signed in with the skill; actions show "Ben via Claude Code" | e2e | S1 | T-TRM-02, T-APP-09, T-REL-02 |
+| [C-J6-01](C-J6-01.md) | Claude Code in a branch terminal is signed in with the skill; actions show "Claude Code for Ben" | e2e | S1 | T-TRM-02, T-APP-09, T-REL-02 |
 | [C-J6-02](C-J6-02.md) | Laptop `smthrs login` gets a delegated credential that can't merge; merge opens a confirmation | integration | S1 | T-ACC-04, T-ACC-05, T-REL-02 |
 | [C-J7-01](C-J7-01.md) | Insert before #3; amend #2 shows "+1" with no new TODO | e2e | S1 | T-STK-02, T-STK-15, T-REL-02 |
 | [C-J7-02](C-J7-02.md) | Fork T2 to scratch, Add to stack as a new TODO after T2, drop T2; the new TODO keeps T2's change | e2e | S1 | T-MCH-08, T-STK-05 |
@@ -175,7 +177,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-UI-06](C-UI-06.md) | Two members on one branch see the same entries, keep their own scroll and card state; a prompt runs with its author's rights; UI-only flows touch only the author's screen; no private entry reaches any turn; removing a member cancels their queued and running turns; a queued prompt stays its author's to edit until it starts | e2e | S1 | T-APP-16, T-APP-23 |
 | [C-UI-07](C-UI-07.md) | Every answer has a stored context list and a Context line; Inspect shows preflight first; only selected context and shared entries reach the answer step, never a private entry | integration | S1 | T-APP-17 |
 | [C-APP-01](C-APP-01.md) | A maintainer takes over a removed member's TODO from the TODO card; members and agents can't; a working run continues | e2e | S1 | T-ACC-06, T-APP-02 |
-| [C-APP-02](C-APP-02.md) | A Queued TODO's prompt is edited from the card as one new revision, and the run starts on it; the agent's amend waits for a confirmation | e2e | S1 | T-APP-02, T-STK-02 |
+| [C-APP-02](C-APP-02.md) | A Queued TODO's prompt is edited from the card as one new revision, and the run starts on it; the agent's amend waits for a confirmation | e2e | S1 | T-APP-02, T-STK-15 |
 | [C-APP-03](C-APP-03.md) | Add to machine image from Settings and from a failed step drafts a TODO whose seed adds only the package; after merge the retried step passes | e2e | S1 | T-APP-02, T-APP-03, T-MCH-10 |
 | [C-APP-04](C-APP-04.md) | Shared conversation storage: ordered, append-only entries; private entries only on their member's topics; view state per member; Earlier readable for its member only | integration | S1 | T-APP-16 |
 | [C-APP-05](C-APP-05.md) | Host-turn cutover: tools run on the host with the author's credential, legacy turn writes answer 404, legacy conversations stay readable | integration | S1 | T-APP-23 |

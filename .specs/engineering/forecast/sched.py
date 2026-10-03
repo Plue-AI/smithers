@@ -16,11 +16,12 @@ params.json: {
 }
 Prints P50/P90 finish times and the most frequent critical chain.
 """
-import json, math, random, re, sys
+import json, math, os, random, re, sys
 from collections import Counter
 from datetime import datetime, timedelta
 
-E = "/Users/williamcory/smithers/.specs/engineering"
+# The spec tree this script lives in (forecast/ sits inside .specs/engineering/).
+E = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 P = json.load(open(sys.argv[1]))
 idx = open(f"{E}/tickets/README.md").read()
 cidx = open(f"{E}/checks/README.md").read()
@@ -44,7 +45,11 @@ for dep, on in P.get("drop_edges", []):
 if P.get("scope") == "all":
     roots = {t for t in T if T[t]["stage"] in ("W0", "S1", "S2", "S3", "R")}
 else:
-    roots = {t for c in C if re.match(r"C-J[12]-\d+$", c) for t in C[c] if T.get(t, {}).get("stage") in ("W0", "S1")}
+    # s1_checks narrows stage 1 to named J1/J2 checks (what-if for product's step cuts); s1_check_tickets
+    # overrides one check's ticket list (e.g. C-J1-04 trimmed to the day-1 path).
+    over = P.get("s1_check_tickets", {})
+    chosen = P.get("s1_checks") or [c for c in C if re.match(r"C-J[12]-\d+$", c)]
+    roots = {t for c in chosen for t in over.get(c, C.get(c, [])) if T.get(t, {}).get("stage") in ("W0", "S1")}
 need, st = set(), list(roots)
 while st:
     u = st.pop()
@@ -122,7 +127,9 @@ def sim():
         ready.sort(key=lambda t: -tail(t))
         t = ready[0]
         pool = "design" if t.startswith("T-UI-") else "code"
-        if "post_lanes" in P and s1_done is not None and pool == "code" and (T[t]["size"] != "L" or not P.get("m37", False)):
+        # M-37 (revised 2026-10-02): after stage 1 every ticket runs as a TODO on the install unless it is a
+        # named exception (owner, reason, expiry recorded on the ticket), listed here in post_exceptions.
+        if "post_lanes" in P and s1_done is not None and pool == "code" and t not in P.get("post_exceptions", []):
             pool = "post"
         er = max([fin.get(d, 0.0) for d in T[t]["deps"] if d in need and d not in done] or [0.0])
         lane = min(range(len(free[pool])), key=lambda i: max(free[pool][i], er))

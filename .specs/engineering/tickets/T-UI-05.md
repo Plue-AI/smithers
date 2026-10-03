@@ -20,13 +20,13 @@ In:
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
 Out:
-- No confirmation path for Members, Secrets or Settings. No relaunch of the initiating command, audience filtering, approval persistence or expiry timers in the View. Product rules on Cancel; T-APP-04 owns private delivery and authorization. Check: C-UI-08, C-UI-13.
+- No confirmation path for Members, Secrets or Settings. No relaunch of the initiating command, audience filtering, approval persistence or expiry timers in the View. Product approved `confirm.cancel` (P only, no agent path); T-APP-04 owns private delivery and authorization. Check: C-UI-08, C-UI-13.
 - Topic subscriptions, Containers, command dispatch, permission decisions and product copy changes. Will decides copy changes; smithers-06 reviews their presentation (§14.6b).
 - Confirmation creation, audience filtering, session/role authorization, expiry timers, approval persistence, subject revision checks and merge execution. T-APP-04 owns those effects. Do not add agent confirmation paths for Members, Secrets or Settings.
 
 ## Changes
 
-- The verb, Merge / Review & merge and Cancel controls dispatch their supplied actions[] entries, with T-APP-04's approve/deny bindings and subject/revision in args. model.action supplies only the verb label. Never dispatch model.action.tag to confirm; that relaunches the command. Cancel needs a product Appendix B ruling. Check: C-UI-12.
+- The verb, Merge / Review & merge and Cancel controls dispatch their supplied actions[] entries, with T-APP-04's approve/deny bindings and subject/revision in args. model.action supplies only the verb label. Never dispatch model.action.tag to confirm; that relaunches the command. Cancel binds `confirm.cancel` with `{confirmation, revision}` and cancels a pending confirmation; there is no agent path (product 79eb1a66). Check: C-UI-12.
 
 - Both Confirm kinds and receipts render supplied props. T-APP-04 proves that other viewers receive no private card, placeholder or subject at the production confirmation/topic boundary (C-ACC-02). Check for this View: C-UI-12.
 
@@ -36,7 +36,7 @@ Out:
 
 ## Tests
 
-- Press actions[] approval, merge and Cancel controls. Assert literal bound subject/revision arguments and one approve/deny callback; give model.action a different initiating tag and assert it never dispatches. Cover expired receipts and stale approvals separately. C-UI-08 rejects secret/member/settings subjects. C-UI-12 proves the controls; C-UI-13 proves T-APP-04 bindings.
+- Press actions[] approval, merge and Cancel controls. Assert literal bound subject/revision arguments and one approve/deny callback; give model.action a different initiating tag and assert it never dispatches. Assert Cancel emits `confirm.cancel` once with the literal `{confirmation, revision}`. Cover expired receipts and stale approvals separately. C-UI-08 rejects secret/member/settings subjects. C-UI-12 proves the controls; C-UI-13 proves T-APP-04 bindings.
 
 - C-UI-12, named case `ConfirmView renders exact subjects, stale approvals and receipts`: render the production exports in `apps/app/src/mainview/cards/views/Views.test.tsx` and `apps/app/e2e/playwright/view-stories.spec.ts` (new harnesses), in light and dark at 1280 and 390 px; each supplied action carries `data-flow`, disabled controls show their supplied reason and do not dispatch, and each enabled press calls only its agreed callback once. Cover one_click and review_merge, exact sent text, stale approved revision, every merge state and done/cancelled/expired receipts. Press the supplied verb, Cancel and merge controls and compare literal tags and subject/revision arguments. An absent approval action has no approval control. Other-viewer privacy is a production confirmation/topic test in T-APP-04 (C-ACC-02), not a fixture-only claim.
 - Commit reviewed literal expected strings, tags, argument objects, patches and tone token names independently of the implementation. No test reads `.specs/` or derives expectations from schemas, action arrays, rendering helpers or other production code at runtime. C-UI-08 checks the production presentation files and seeded seam violations.

@@ -246,7 +246,7 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 // place JSON.stringify({ mode: "append" | "before" | "amend", n?: number }); fixes "true" or "false".
 // Emit place properties in mode, n order; omit n for append. C-UI-12 asserts literal strings.
 // Commit forwards the complete supplied Draft input; T-APP-19b reconciles typed input.
-// Discard binds draft.discard {draft: DraftId}; person or app agent, author only. The runtime strict z.object accepts only draft; the server policy enforces authorship (C-CAT-01, C-UI-12).
+// Discard binds draft.discard {draft: DraftId}; person or app agent, author only. It deletes the author’s uncommitted private Draft, never a TODO. The runtime strict z.object accepts only draft; the server policy enforces authorship (C-CAT-01, C-UI-12).
 // It deletes the author's uncommitted private Draft and never drops a TODO (C-CAT-01, C-UI-12).
 // (`form.set` into the entry's card column, T-APP-02). buttons: Commit ("Commit puts it on the stack as T12"), Discard.
 // Make TODO is the Issue card's button that opens a Draft.
@@ -278,7 +278,7 @@ type TodoModel = {
                                                   // "Thrashing: TestRetryBackoff failed 3×" (spec §11.6.4)
   waits: { id: string; kind: NeedsYouKind; prompt: string; since: string
            paths?: string[]                       // conflict
-           ssh_line?: string                      // S1 conflict only; Container supplies it
+           ssh_line?: string                      // conflict view, S1; supplied by the Container (§10.5.4)
            by?: Actor; sha?: string               // foreign_push, moved_off
            actions: Action[] }[]                  // every open wait, primary first (§4.1.0a), each with its own action
   first_answer?: { by: Actor; text: string; at: string }   // "Ben answered" after the latest question settled
@@ -293,7 +293,6 @@ type TodoModel = {
   merged_via?: number                             // "Merged · in T15's commit"
   lessons?: number                                // absent while learning runs
 }
-type TodoViewSlots = { conflictTerminals?: Readonly<Record<string, React.ReactNode>> } // keyed by wait id; supplied by the Container, never serialized by rpc
 // buttons by state (T-UI-04): Answer, Send as steer, Steer, Stop, Resume, Retry, Retry with the current flow,
 // Drop, Amend, Edit (Queued: todo.amend with prefilled inputs), Take over, Add to machine image,
 // Merge, Review & merge, Rebase now, Open branch, Inspect. A late answer's 409 keeps the typed text
@@ -321,7 +320,7 @@ type ConfirmModel = {
 // buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel 
 // Verb, Merge / Review & merge and Cancel dispatch their supplied actions[] entries, not model.action.tag.
 // T-APP-04 binds approve/deny with subject/revision in args. Cancel binds confirm.cancel
-// with {confirmation, revision}; person only, pending confirmations only (C-ACC-02, C-UI-12). Use the existing Confirm revision schema; stale revision returns typed stale (C-ACC-02, C-UI-12).
+// with {confirmation, revision}; person only, no agent path, pending confirmations only (C-ACC-02, C-UI-12). Use the existing Confirm revision schema; stale revision returns typed stale (C-ACC-02, C-UI-12).
 
 // T-STK-04 owns the prs.land handler and merge route; T-APP-04 binds the control only (C-STK-04, C-ACC-02).
 // C-UI-12 asserts literal approval, denial and cancellation payloads.
@@ -707,6 +706,7 @@ type DebugApiView = { selected?: string }         // picking an operation: onVie
 ### T-UI-23 TODO repair forms
 
 ```ts
+type TodoRepairSlots = { conflictTerminal?: React.ReactNode } // rendered by the Container for the selected conflict; never part of TodoCard or imported by packages/rpc
 // No model of its own: TodoModel (§ T-UI-04). It renders the waits[] of kind conflict (paths; the S1 conflict
 // view with the terminal and SSH line), moved_off (by) and foreign_push (by, sha), and the card's Fork and
 // Add to stack actions (§8.5, §9.3.8, §10.5.4, §12.3).

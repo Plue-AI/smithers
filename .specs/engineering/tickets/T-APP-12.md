@@ -12,7 +12,7 @@ Design (smithers-06) builds the `TerminalView`, with the CSS, in T-UI-17. This t
 
 ## Scope
 In:
-- Terminal card on the terminal stream plus `branch:<id>`: the title (`terminals.title`, §3), branch chip, the owner (T-APP-09 actor, so "Ben via Smithers" when Ben's app agent opened it for him), watchers with a watching mark, the running command, and the output with ring replay after a reload (§8.11.3).
+- Terminal card on the terminal stream plus `branch:<id>`: the title (`terminals.title`, §3), branch chip, the owner (T-APP-09 actor, so "Smithers for Ben" when Ben's app agent opened it for him), watchers with a watching mark, the running command, and the output with ring replay after a reload (§8.11.3).
 - Owner: the card takes keyboard input and the control-focus spotlight. A session the owner's own agent runs (`via` of the same person) is still the owner's to type into (mock `cards/Terminal.tsx:19-20`).
 - Watcher: the card shows "Watching", never takes keyboard focus for input, and sends no input frames. The server drops any that arrive anyway (§7.5).
 - The coding agent's terminal (T-TRM-05) renders with owner "Agent" and is read-only for every member (§8.11.2a): one Terminal card, whoever runs the command (mvp.md §3.1).

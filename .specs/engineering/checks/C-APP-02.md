@@ -1,6 +1,6 @@
 # C-APP-02 Edit a Queued TODO's prompt from the TODO card
 
-Proves: mvp.md §6.6 TODO card ("The prompt is editable while Queued"), Appendix A `/todo.amend` · spec.md §10.2.2, §15.1.5, §6.2.1 · Layer: e2e · Stage: S1 · Tickets: T-APP-02, T-STK-02
+Proves: mvp.md §6.6 TODO card ("The prompt is editable while Queued"), Appendix A `/todo.amend` · spec.md §10.2.2, §15.1.5, §6.2.1 · Layer: e2e · Stage: S1 · Tickets: T-APP-02, T-STK-15
 Automation: `apps/app/e2e/real/todo-edit-queued.spec.ts` (new) · Runs in: reference host
 
 ## Setup

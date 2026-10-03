@@ -14,14 +14,14 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-APP-02 and revi
 ## Scope
 
 In:
-- Use the reconciled Draft fields and command input for title, prompt, acceptance, place, issue fixes and read-only seed. Discard requires a product Appendix B ruling; do not invent its catalog tag. Check: C-UI-12.
+- Use the reconciled Draft fields and command input for title, prompt, acceptance, place, issue fixes and read-only seed. Discard binds `draft.discard` with `{draft: DraftId}` for the author only (P, A). It deletes the author’s uncommitted private Draft and never drops a TODO. Check: C-UI-12.
 - Until Commit, render a small "Only you" lock chip in the Draft header, using the Confirm card treatment. Check: C-UI-12.
 - `DraftView`, the §14.3 Draft model: title, prompt, acceptance, the linked issue with its fixes toggle, the place picker (Append, Before Tn, Amend Tn), a read-only seed, Commit and Discard; a private marker until Commit, then the committed receipt.
 - Props exactly as `ui-components.md` § T-UI-03 with the zod type reconciled by T-APP-19b from `packages/rpc/src/<Card>Card.ts`.
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
 Out:
-- No piecemeal rpc or catalog edits. Product rules on Discard before T-APP-19b lands; T-APP-02 owns string decoding and TODO admission. Check: C-UI-08.
+- No piecemeal rpc or catalog edits. Product approved `draft.discard` in Appendix B.4 (79eb1a66); T-APP-02 owns string decoding and TODO admission. Check: C-UI-08.
 - Topic subscriptions, Containers, command dispatch, permission decisions and product copy changes. Will decides copy changes; smithers-06 reviews their presentation (§14.6b).
 - TODO admission or amendment, placement calculation, seed patch application or execution, idempotency storage, audience filtering and publishing private drafts. T-APP-02 owns those runtime effects. The seed stays read-only.
 
@@ -39,7 +39,7 @@ Out:
 
 ## Tests
 
-- Assert literal blur payloads: acceptance value '["passes checks","keeps edits"]', place value '{"mode":"before","n":12}', append value '{"mode":"append"}', and fixes value "true"/"false". Commit forwards the full supplied Draft input once, including issue fixes and seed; Discard forwards only its product-approved supplied action. No seed executes. Check: C-UI-12.
+- Assert literal blur payloads: acceptance value '["passes checks","keeps edits"]', place value '{"mode":"before","n":12}', append value '{"mode":"append"}', and fixes value "true"/"false". Commit forwards the full supplied Draft input once, including issue fixes and seed; Discard forwards `draft.discard` once with the literal expected `{draft: DraftId}` and never emits a TODO-drop action. No seed executes. Check: C-UI-12.
 
 - Assert the header lock chip before Commit and its absence on the committed receipt. Retain read-only seed previews (J5 s2) and "+1" amendment receipts (J7 s3–4). Check: C-UI-12.
 

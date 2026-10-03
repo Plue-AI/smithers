@@ -22,6 +22,8 @@ Automation: `packages/backend/internal/services/todo_control_db_test.go` (new) ย
 5. Send `retry` with the steer "use the helper in lib/retry.ts".
 6. Read `todo_attempts`, and the attempt 2 run's first message, first step and flow digest.
 
+7. In a separate failed TODO pinned to D, activate a literal fixture version D2, then invoke the served Retry with the current flow action.
+
 ## Pass when
 - Stop succeeds with a live held-review run, unless a question/approval is open; the PR stays open. An in-flight packaged operation settles one durable result before paused opens. Resume restores the prior stack wait or next unfinished boundary, preserving s1/s2 counters and not replaying effects.
 - Held starting/resumed steer is consumed once at the next unfinished boundary after run_attached and before model_turn_started. Question steer persists context and steer_received without settling the wait; replacement retains wait identity. Answer and steer consume the committed prefix once.
@@ -34,13 +36,15 @@ Automation: `packages/backend/internal/services/todo_control_db_test.go` (new) ย
 - Step 6: two `todo_attempts` rows. Attempt 1's run id, outcome and evidence are unchanged. Attempt 2 has a new run id that started at `s1` (re-running finished steps is intended for Retry, ยง4.1), digest D, and the steer as its first message.
 - Every transition has a `todo_events` row with actor Will.
 
+- Step 7 starts a new attempt on D2 with the same TODO identity; the prior attempt, digest D and evidence remain unchanged. Expectations use committed fixture identities, not production pinning code.
+
 ## Fail when
 - Stop is unavailable during held review, pause appears before an operation settles, resumed starting input repeats s1, or a terminal merge/drop flashes paused.
 - External cancellation drops/closes the TODO, typed-stop Retry is delegated, counters reset on Resume, or token exhaustion shows generic failure, omits its owner or resumes without capacity.
 - `paused` is shown before the run parks (ยง19.3), or Stop is lost after a host restart.
 - Stop cancels the run, so Resume starts a new run id.
 - Resume re-executes `s1` or `s2` (a counter reaches 2).
-- Retry overwrites attempt 1 (today's `request_run_id` overwrite) or loads a newer flow version than D.
+- Retry overwrites attempt 1 (today's `request_run_id` overwrite) or loads a newer flow version than D without an explicit Retry with the current flow action.
 - The steer is delivered after the first model turn of attempt 2.
 
 ## Evidence

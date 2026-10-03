@@ -1,6 +1,6 @@
 # Stage 1 forecast: method
 
-Version 2026-10-02 17:50 PT · Owner: engineering (smithers-8a)
+Version 2026-10-02 19:00 PT · Owner: engineering (smithers-8a)
 
 The date for "stage 1 passes J1 and J2" comes from a Monte Carlo list scheduler over the real dependency graph in `tickets/README.md`, not from judgement.
 
@@ -8,7 +8,7 @@ The date for "stage 1 passes J1 and J2" comes from a Monte Carlo list scheduler 
 python3 .specs/engineering/forecast/sched.py .specs/engineering/forecast/plan-of-record.json
 ```
 
-**Scope.** The transitive dependency closure of the W0/S1 tickets that C-J1-01..06 and C-J2-01..05 name: 71 tickets at 17:50, up from 50 at 16:50. The integration pass made every check list the tickets whose Acceptance cites it, and 22 more S1 tickets cite a J1 or J2 check. A staged Depends (`S1: a · S2: b`) contributes only its W0/S1 segments to this forecast; before 17:50 the model followed every segment and wrongly pulled the S2 co-edit chain into stage 1.
+**Scope.** The transitive dependency closure of the W0/S1 tickets that C-J1-01..06 and C-J2-01..05 name: 86 tickets at 19:00, up from 71 at 17:50 and 50 at 16:50. The Ready wave made every ticket name its landing preconditions, and T-STK-16 (M-39) joined. A staged Depends (`S1: a · S2: b`) contributes only its W0/S1 segments.
 
 **Inputs.** All inputs were measured on 2026-10-02 unless marked as a prior.
 - First-pass hours per size (P50/P90): S 0.75/1.5, M 1.5/3.5, L 4/9. Source: smithers-22's lanes. In-flight tickets are censored at their elapsed hours.
@@ -18,27 +18,37 @@ python3 .specs/engineering/forecast/sched.py .specs/engineering/forecast/plan-of
 - First end-to-end integration debugging takes 10/30 h (QA's prior).
 - Lanes: 6 local, plus 6 GKE from Sat Oct 3 18:00. Design is 1 lane from Sat Oct 3 08:00.
 
-**Results (2026-10-02 16:50 start, closure as of 17:50).**
+**Results (closure as of 19:00; 2026-10-02 start).**
 
 | Scenario | Review yield | Reviewers | P50 | P90 |
 | --- | --- | --- | --- | --- |
-| Today's trajectory | 0.2 | 2 | Thu Oct 15 | Sat Oct 17 |
-| Two reviewers | 0.35 | 2 | Sat Oct 10 | Sun Oct 11 |
-| **Plan of record** (product, 17:55) | 0.35 | 4 | Wed Oct 7 | Thu Oct 8 |
-| Higher yield | 0.5 | 4 | Tue Oct 6 | Wed Oct 7 |
+| Today's trajectory | 0.2 | 2 | Mon Oct 19 | Thu Oct 22 |
+| Observed yield, more reviewers | 0.2 | 4 | Thu Oct 15 | Sat Oct 17 |
+| Two reviewers | 0.35 | 2 | Tue Oct 13 | Wed Oct 14 |
+| **Plan of record** (product, 17:55) | 0.35 | 4 | Sun Oct 11 | Mon Oct 12 |
+| Higher yield | 0.5 | 4 | Fri Oct 9 | Sat Oct 10 |
 
-Product made 4 concurrent reviewers the plan of record at 17:55; `y035-r4.json` is that scenario and `plan-of-record.json` keeps the 2-reviewer inputs. At 16:50 the 2-reviewer scenario gave Thu Oct 8. The 21 added tickets cost two days with 2 reviewers and nothing with 4: review concurrency absorbs them.
+At 17:50 the plan of record gave Wed Oct 7 / Thu Oct 8. The four-day slip is the 15 added closure tickets, not new estimates.
 
-**Launch-ready tickets (M-37).** After stage 1, all sizes run as TODOs on the install by default. Each outside exception is recorded per ticket with an owner, reason and expiry; every outside merge and its effort is reported daily (C-REL-04). The existing launch forecast files exempt L tickets and must be regenerated before use; ticket size grants no exception.
+**Review yield is the risk.** First-pass yield so far is 0 of 6. Reaching the plan's 0.35 over the first ten needs all four of the next first passes to succeed; one more failure makes the plan of record unreachable and the "observed yield" row the working forecast (Will's org review, 18:5x).
 
-| Install machines | P50 | P90 |
-| --- | --- | --- |
-| 2 | Wed Oct 14 | Fri Oct 16 |
-| 5 (reference host: 64 GiB, 10 performance cores, 208 GiB free) | Wed Oct 14 | Fri Oct 16 |
+**Launch-ready tickets (M-37, revised 2026-10-02).** `launch-5m-*.json` schedule every W0–R ticket. After stage 1, every ticket runs as a TODO on the install's 5 machines (reference host: 64 GiB, 10 performance cores); a ticket runs outside only when it is listed in `post_exceptions` with an owner, a reason and an expiry recorded on the ticket. There is no size exemption.
 
-Machines are not the constraint after M-31; review is. Launch is bounded by stage 1 plus 14 days of dogfood (M-31): about Oct 21–22 on this model. Fable's independent estimate is Nov 13.
+| Review yield | Reviewers | All tickets landed P50 | P90 |
+| --- | --- | --- | --- |
+| 0.2 | 2 | Mon Nov 2 | Thu Nov 5 |
+| 0.2 | 4 | Wed Oct 21 | Sat Oct 24 |
+| 0.2 for 48 h, then 0.35 | 4 | Fri Oct 16 | Sun Oct 18 |
 
-**Finding.** Review yield and review concurrency set the date. Dropping to 4 local lanes moves nothing, and all accepted critical-path cuts together save under one day.
+**Launch** is the later of "all tickets landed" and "stage 1 + 14 days of dogfood" (M-31):
+
+| Scenario | Stage 1 P50 | + 14 days | All landed P50 | Launch P50 |
+| --- | --- | --- | --- | --- |
+| Plan of record (0.35, 4 reviewers) | Oct 11 | Oct 25 | Oct 16 | **Sun Oct 25** |
+| Observed yield, 4 reviewers | Oct 15 | Oct 29 | Oct 21 | **Thu Oct 29** |
+| Observed yield, 2 reviewers | Oct 19 | Nov 2 | Nov 2 | **Mon Nov 2** |
+
+The dogfood bound sets launch in every scenario except the last. Fable's independent estimate is Nov 13. M-39 removes human merge latency from our own TODOs; the model never charged it, so the dates don't move.
 
 **Not modeled.** Each of these is a gate tracked elsewhere: the canary org and test accounts, main CI red (#3071), and mid-flight scope changes, which the freeze rule now prevents.
 

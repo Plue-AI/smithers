@@ -26,6 +26,8 @@ Before starting a ticket, claim its GitHub issue with `node scripts/issue-claim.
 
 **First tickets.** T-ACC-01 starts on day 1 in parallel. The first-merge slice includes install/setup, identity, TODO execution/merge, catalog/live data, app Containers and their S1 View dependencies. Its resolved prerequisite closure is: T-ACC-01, T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-08, T-APP-09, T-APP-15, T-APP-16, T-APP-17, T-APP-19, T-APP-19b, T-APP-22, T-APP-23, T-CAT-01, T-CAT-02, T-COL-02, T-COL-07, T-COL-10, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-11, T-GH-01, T-GH-02, T-GH-05, T-GH-09, T-INS-01, T-INS-02, T-INS-03, T-INS-04, T-INS-06, T-INS-08, T-MCH-08, T-MCH-10, T-MCH-14, T-STK-01, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-10, T-STK-12, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-14, T-UI-23. C-J1-04’s S1 recording starts from a built bundle through T-INS-08 and proves setup, drafting, execution and merge. Estimate this complete closure before scheduling; the former 3–6 week backend-chain estimate does not estimate this journey. Bootstrap App credentials come only from T-GH-01’s setup flow into sealed PostgreSQL.
 
+A ticket closes only with passing machine-written receipts for every named check, bound to the landed commit with verified log digests. Reports list receipt paths. Missing or unwritten Automation blocks closure; prose PASS and --force do not waive evidence (T-PRC-03, C-PRC-03).
+
 ## Index
 
 Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` and one owner (C-PRC-02). Assign numbers at landing through `scripts/renumber-migration.mjs`; the default Go gate runs without PostgreSQL. Landing runs the five-target drift set from §21.2 before push (C-PRC-01). Closing requires receipts for every named phase check at the landed commit (C-PRC-03).
@@ -66,6 +68,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-STK-01](T-STK-01.md) | TODO tables, state machine, events, the `activity` table and topic, projection | S1 | L | — | C-J1-04, C-STK-01, C-UI-05 |
 | [T-STK-02](T-STK-02.md) | Placement: append, before, move, drop; stack order | S1 | M | T-STK-01, T-STK-12, T-ACC-05 | C-APP-02, C-J1-04, C-J4-02, C-J7-01 |
 | [T-STK-04](T-STK-04.md) | Merge: person session, one predicate and an in-flight fence, sha-bound, squash | S1 | L | T-STK-01, T-ACC-03, T-STK-12, T-ACC-04, T-ACC-05, T-STK-07, T-GH-02, T-GH-05, T-GH-09, T-INS-02 | C-ACC-02, C-J1-04, C-J2-05, C-J4-03, C-STK-07 |
+| [T-STK-16](T-STK-16.md) | Pre-approved TODOs merge when ready (M-39) | S1 | M | T-STK-04, T-GH-09, T-ACC-05, T-STK-01 | C-STK-13 |
 | [T-STK-05](T-STK-05.md) | Stop, resume, Retry and Retry with the current flow, drop, reopen | S1 | M | T-STK-01, T-FLW-11, T-FLW-03, T-STK-04, T-STK-02, T-MCH-08 (S1), T-FLW-04, T-STK-13 | C-J1-04, C-J10-08, C-J4-02, C-J7-02, C-STK-03, C-STK-08 |
 | [T-STK-06](T-STK-06.md) | Steers at every boundary of the TODO flow | S1 | M | T-STK-01, T-FLW-11, T-STK-12, T-STK-05 | C-J1-04, C-J3-05, C-STK-07 |
 | [T-STK-07](T-STK-07.md) | Needs you: independent waits, precedence, first answer wins, `ask` bound for implementing seats | S1 | M | T-STK-01, T-ACC-04, T-MCH-14 | C-J1-04, C-J2-03, C-STK-08 |
@@ -217,7 +220,6 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-PRC-01](T-PRC-01.md) | Declared-input existence in //:targetIndex and the drift set at landing | S1 | S | — | C-PRC-01 |
 | [T-PRC-02](T-PRC-02.md) | DB-free migration gate and planned table ownership at Ready | S1 | S | — | C-PRC-02 |
 | [T-PRC-03](T-PRC-03.md) | Check receipts required to close a ticket | S1 | S | — | C-PRC-03 |
-| [T-STK-16](T-STK-16.md) | Pre-approved TODOs merge when ready (M-39) | S1 | M | T-STK-04, T-GH-09, T-ACC-05, T-STK-01 | C-STK-13 |
 
 ## Deferred
 
@@ -259,3 +261,5 @@ Spec: spec.md §… · Delta: delta.md §… · Product: mvp.md J…, §…, M-�
 ## Acceptance          the checks that must pass (link checks/…)
 ## Risks and notes     falsifiable risks; decisions this ticket must not make alone
 ```
+
+At Ready, reserve new tables in packages/backend/db/ownership.csv with planned:<ticket> and one named engineering owner in status, preserving target_owner. smithers-8a accepts reservations; smithers-3f approves the encoding. Assign numbers only to unlanded migrations at landing; preserve landed history (T-PRC-02, C-PRC-02).

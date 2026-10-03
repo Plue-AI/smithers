@@ -20,11 +20,15 @@ Out:
 
 ## Changes
 
+- Generate and validate the CLI reference from the registered `definitions` in `packages/smithers/src/internal/backend/Definitions.ts` after T-INS-08 adds the `host` command group. Never derive the reference or expected registered contract from T-INS-08’s ticket text. The current contract has no `host` command group; `host` occurs only as an option or argument. Check: C-CAT-01.
+
 - `apps/app/scripts/README.md` and the host CLI reference under `packages/smithers/docs/reference/cli/` must name T-INS-08’s real built-bundle start/stop/status behavior. Do not rewrite T-INS-01’s header or scope. Document only implemented S1 commands; the pre-install site page may label the R lifecycle commands planned until release (§16.1.2, M-35). Generate the CLI reference from the exported `definitions` in `packages/smithers/src/internal/backend/Definitions.ts` after T-INS-08 registers the host group. Never generate the reference from T-INS-08’s ticket prose. Checks: documentation gates, C-CAT-01.
 
 - The S1 CLI reference and `apps/app/scripts/README.md` list only `smthrs host start|stop|status`, registered by T-INS-08 through makeCli. Document `upgrade|backup|restore` only on the smithers.sh pre-install page, explicitly labeled planned until release (M-35, T-INS-07). The launchd service runs this bundle’s `bin/smithers-server`. Checks: documentation gates, C-CAT-01.
 
 ## Tests
+
+- Generate and validate the CLI reference from the registered `definitions` in `packages/smithers/src/internal/backend/Definitions.ts` after T-INS-08 adds the `host` command group. Never derive the reference or expected registered contract from T-INS-08’s ticket text. The current contract has no `host` command group; `host` occurs only as an option or argument. Check: C-CAT-01.
 - After T-INS-08 registers the host group, generate the reference from the real `definitions` registry and assert host start/stop/status are registered and documented. A missing registry entry fails the gate even if ticket prose lists it. Checks: documentation gates, C-CAT-01.
 
 
