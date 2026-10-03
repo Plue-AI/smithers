@@ -1,0 +1,529 @@
+{
+  "header": {
+    "source": "spec.md §14.3.0, hand-transcribed from origin/main",
+    "specCommit": "4a36b0cfb3256b226440f12d5ef5c8528a85aa98",
+    "review": "Approved by tech lead smithers-8a 2026-10-03 (typed stage refusal; spec digest gate scripts/repo-contract/spec-transcriptions.test.mjs)",
+    "reviewFindings": {
+      "kind": "change",
+      "owner": "T-FLW-11",
+      "schemas": [
+        "ChangeReviewSchema",
+        "ChangeFindingSchema"
+      ],
+      "file": "packages/rpc/src/Changes.ts"
+    },
+    "spec": {
+      "file": ".specs/engineering/spec.md",
+      "start": "14.3.0 ",
+      "commit": "4ee8150ea7bc2cf195efdda60701b56de02d521e",
+      "sha256": "004220ac06286cdada9dc2478c17d11509206947b2c1170f337ff6940f667f7c"
+    }
+  },
+  "cards": [
+    {
+      "card": "Home",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/HomeView.tsx",
+        "export": "HomeView"
+      },
+      "container": {
+        "file": "cards/HomeContainer.tsx",
+        "export": "HomeContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/HomeCard.ts",
+        "export": "HomeCardSchema"
+      }
+    },
+    {
+      "card": "TODO",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/TodoView.tsx",
+        "export": "TodoView"
+      },
+      "container": {
+        "file": "cards/TodoContainer.tsx",
+        "export": "TodoContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/TodoCard.ts",
+        "export": "TodoCardSchema"
+      }
+    },
+    {
+      "card": "Branch",
+      "stage": "S2",
+      "view": {
+        "file": "cards/views/BranchView.tsx",
+        "export": "BranchView"
+      },
+      "container": {
+        "file": "cards/BranchContainer.tsx",
+        "export": "BranchContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/BranchCard.ts",
+        "export": "BranchCardSchema"
+      }
+    },
+    {
+      "card": "File",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/CodeEditorView.tsx",
+        "export": "CodeEditorView"
+      },
+      "container": {
+        "file": "cards/FileContainer.tsx",
+        "export": "FileContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/FileCard.ts",
+        "export": "FileCardSchema"
+      }
+    },
+    {
+      "card": "Diff",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/DiffView.tsx",
+        "export": "DiffView"
+      },
+      "container": {
+        "file": "cards/DiffContainer.tsx",
+        "export": "DiffContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/DiffCard.ts",
+        "export": "DiffCardSchema"
+      }
+    },
+    {
+      "card": "Terminal",
+      "stage": "S2",
+      "view": {
+        "file": "cards/views/TerminalView.tsx",
+        "export": "TerminalView"
+      },
+      "container": {
+        "file": "cards/TerminalContainer.tsx",
+        "export": "TerminalContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/TerminalCard.ts",
+        "export": "TerminalCardSchema"
+      }
+    },
+    {
+      "card": "Flow",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/FlowView.tsx",
+        "export": "FlowView"
+      },
+      "container": {
+        "file": "cards/FlowContainer.tsx",
+        "export": "FlowContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/FlowCard.ts",
+        "export": "FlowCardSchema"
+      }
+    },
+    {
+      "card": "Members",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/MembersView.tsx",
+        "export": "MembersView"
+      },
+      "container": {
+        "file": "cards/MembersContainer.tsx",
+        "export": "MembersContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/MembersCard.ts",
+        "export": "MembersCardSchema"
+      }
+    },
+    {
+      "card": "Secrets",
+      "stage": "S2",
+      "view": {
+        "file": "cards/views/SecretsView.tsx",
+        "export": "SecretsView"
+      },
+      "container": {
+        "file": "cards/SecretsContainer.tsx",
+        "export": "SecretsContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/SecretsCard.ts",
+        "export": "SecretsCardSchema"
+      }
+    },
+    {
+      "card": "Setup",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/SetupView.tsx",
+        "export": "SetupView"
+      },
+      "container": {
+        "file": "cards/SetupContainer.tsx",
+        "export": "SetupContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/SetupCard.ts",
+        "export": "SetupCardSchema"
+      }
+    },
+    {
+      "card": "Settings",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/SettingsView.tsx",
+        "export": "SettingsView"
+      },
+      "container": {
+        "file": "cards/SettingsContainer.tsx",
+        "export": "SettingsContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/SettingsCard.ts",
+        "export": "SettingsCardSchema"
+      }
+    },
+    {
+      "card": "Proposal",
+      "stage": "S3",
+      "view": {
+        "file": "cards/views/ProposalView.tsx",
+        "export": "ProposalView"
+      },
+      "container": {
+        "file": "cards/ProposalContainer.tsx",
+        "export": "ProposalContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/ProposalCard.ts",
+        "export": "ProposalCardSchema"
+      }
+    },
+    {
+      "card": "Draft",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/DraftView.tsx",
+        "export": "DraftView"
+      },
+      "container": {
+        "file": "cards/DraftContainer.tsx",
+        "export": "DraftContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/DraftCard.ts",
+        "export": "DraftCardSchema"
+      }
+    },
+    {
+      "card": "Commands",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/CommandsView.tsx",
+        "export": "CommandsView"
+      },
+      "container": {
+        "file": "cards/CommandsContainer.tsx",
+        "export": "CommandsContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/CommandsCard.ts",
+        "export": "CommandsCardSchema"
+      }
+    },
+    {
+      "card": "Run",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/RunView.tsx",
+        "export": "RunView"
+      },
+      "container": {
+        "file": "cards/RunContainer.tsx",
+        "export": "RunContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/MonitorCard.ts",
+        "export": "MonitorCardSchema"
+      }
+    },
+    {
+      "card": "Agent",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/AgentView.tsx",
+        "export": "AgentView"
+      },
+      "container": {
+        "file": "cards/AgentContainer.tsx",
+        "export": "AgentContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/AgentCard.ts",
+        "export": "AgentCardSchema"
+      }
+    },
+    {
+      "card": "Confirm",
+      "stage": "S1",
+      "view": {
+        "file": "cards/views/ConfirmView.tsx",
+        "export": "ConfirmView"
+      },
+      "container": {
+        "file": "cards/ConfirmContainer.tsx",
+        "export": "ConfirmContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/ConfirmCard.ts",
+        "export": "ConfirmCardSchema"
+      }
+    },
+    {
+      "card": "Docs",
+      "stage": "S2",
+      "view": {
+        "file": "cards/views/DocsView.tsx",
+        "export": "DocsView"
+      },
+      "container": {
+        "file": "cards/DocsContainer.tsx",
+        "export": "DocsContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/DocsCard.ts",
+        "export": "DocsCardSchema"
+      }
+    },
+    {
+      "card": "Debug API",
+      "stage": "S2",
+      "view": {
+        "file": "cards/views/DebugApiView.tsx",
+        "export": "DebugApiView"
+      },
+      "container": {
+        "file": "cards/DebugApiContainer.tsx",
+        "export": "DebugApiContainer"
+      },
+      "schema": {
+        "file": "../../../../packages/rpc/src/DebugApiCard.ts",
+        "export": "DebugApiCardSchema"
+      }
+    }
+  ],
+  "shellViews": [
+    {
+      "file": "cards/views/ShellView.tsx",
+      "export": "ShellView"
+    },
+    {
+      "file": "cards/views/ConversationView.tsx",
+      "export": "ConversationView"
+    },
+    {
+      "file": "cards/views/TimelineLineView.tsx",
+      "export": "Line"
+    },
+    {
+      "file": "cards/views/ToastNoticeView.tsx",
+      "export": "Notice"
+    },
+    {
+      "file": "cards/views/HomeRowView.tsx",
+      "export": "HomeRowView"
+    },
+    {
+      "file": "cards/views/HomeActionView.tsx",
+      "export": "HomeActionView"
+    },
+    {
+      "file": "cards/views/TodoActionView.tsx",
+      "export": "TodoActionView"
+    },
+    {
+      "file": "cards/views/FlowActionView.tsx",
+      "export": "FlowActionView"
+    },
+    {
+      "file": "cards/views/CommandActionView.tsx",
+      "export": "CommandActionView"
+    },
+    {
+      "file": "cards/views/MembersActionView.tsx",
+      "export": "MemberAction"
+    },
+    {
+      "file": "cards/views/EdgeGroupView.tsx",
+      "export": "Edge"
+    },
+    {
+      "file": "cards/views/EdgeRowView.tsx",
+      "export": "EdgeRow"
+    },
+    {
+      "file": "cards/views/HomeRowView.tsx",
+      "export": "HomeFilterView"
+    }
+  ],
+  "shellComponents": [
+    "ActorChip",
+    "BranchNode"
+  ],
+  "retained": [
+    {
+      "kind": "issue",
+      "owner": "T-GH-02",
+      "file": "cards/IssueCards.tsx",
+      "family": "issueCardFamily",
+      "renderer": "IssueCardBody"
+    },
+    {
+      "kind": "issue-list",
+      "owner": "T-GH-02",
+      "file": "cards/IssueCards.tsx",
+      "family": "issueCardFamily",
+      "renderer": "IssueListCardBody"
+    },
+    {
+      "kind": "pr",
+      "owner": "T-GH-03",
+      "file": "cards/LandingCards.tsx",
+      "family": "landingCardFamily",
+      "renderer": "LandingCardBody"
+    },
+    {
+      "kind": "pr-list",
+      "owner": "T-GH-03",
+      "file": "cards/LandingCards.tsx",
+      "family": "landingCardFamily",
+      "renderer": "LandingListCardBody"
+    },
+    {
+      "kind": "change",
+      "owner": "T-GH-03",
+      "file": "cards/ChangeCards.tsx",
+      "family": "changeCardFamily",
+      "renderer": "ChangeCardBody"
+    },
+    {
+      "kind": "world",
+      "owner": "T-COL-09",
+      "file": "cards/ConversationCards.tsx",
+      "family": "conversationCardFamily",
+      "renderer": "WorldCardBody"
+    },
+    {
+      "kind": "wiki-history",
+      "owner": "T-COL-09",
+      "file": "cards/WikiCards.tsx",
+      "family": "wikiCardFamily",
+      "renderer": "WikiHistoryCardBody"
+    },
+    {
+      "kind": "wiki-links",
+      "owner": "T-COL-09",
+      "file": "cards/WikiCards.tsx",
+      "family": "wikiCardFamily",
+      "renderer": "WikiLinksCardBody"
+    },
+    {
+      "kind": "wiki-graph",
+      "owner": "T-COL-09",
+      "file": "cards/WikiCards.tsx",
+      "family": "wikiCardFamily",
+      "renderer": "WikiGraphCardBody"
+    },
+    {
+      "kind": "flow-form",
+      "owner": "T-CAT-01",
+      "file": "cards/FlowFormCards.tsx",
+      "family": "flowFormCardFamily",
+      "renderer": "FlowFormCardBody"
+    },
+    {
+      "kind": "browser",
+      "owner": "T-APP-15",
+      "file": "cards/ConversationCards.tsx",
+      "family": "conversationCardFamily",
+      "renderer": "BrowserCardBody"
+    },
+    {
+      "kind": "flow-plan",
+      "owner": "T-APP-05",
+      "file": "cards/FlowPlanCard.tsx",
+      "family": "flowPlanCardFamily",
+      "renderer": "FlowPlanCardBody"
+    },
+    {
+      "kind": "run-list",
+      "owner": "T-FLW-07",
+      "file": "cards/RunsCards.tsx",
+      "family": "runsCardFamily",
+      "renderer": "RunListCardBody"
+    },
+    {
+      "kind": "search-results",
+      "owner": "T-APP-16",
+      "file": "cards/SearchResultsCard.tsx",
+      "family": "searchResultsCardFamily",
+      "renderer": "SearchResultsCardBody"
+    },
+    {
+      "kind": "approval",
+      "owner": "T-STK-07",
+      "file": "cards/ApprovalCard.tsx",
+      "family": "approvalCardFamily",
+      "renderer": "ApprovalCardBody"
+    },
+    {
+      "kind": "file-list",
+      "owner": "T-APP-15",
+      "file": "cards/FileCards.tsx",
+      "family": "fileCardFamily",
+      "renderer": "FileListCardBody"
+    },
+    {
+      "kind": "workflow-list",
+      "owner": "T-APP-05",
+      "file": "cards/WorkflowCards.tsx",
+      "family": "workflowCardFamily",
+      "renderer": "WorkflowListCardBody"
+    },
+    {
+      "kind": "plan",
+      "owner": "T-APP-16",
+      "file": "cards/TurnCards.tsx",
+      "family": "turnCardFamily",
+      "renderer": "PlanCardBody"
+    },
+    {
+      "kind": "status",
+      "owner": "T-APP-16",
+      "file": "cards/TurnCards.tsx",
+      "family": "turnCardFamily",
+      "renderer": "StatusCardBody"
+    },
+    {
+      "kind": "change",
+      "owner": "T-FLW-11",
+      "file": "cards/ChangeCards.tsx",
+      "family": "changeCardFamily",
+      "renderer": "ChangeCardBody",
+      "card": "Review findings"
+    }
+  ]
+}
