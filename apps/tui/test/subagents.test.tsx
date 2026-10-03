@@ -111,6 +111,27 @@ describe("run receipts", () => {
     expect(check("if test -f a; then\n  echo a\nfi", 0)).toEqual({ command: "if test -f a; then echo a; fi", exit: 0 })
   })
 
+  it("keeps a version-control validation or failure as the check, and drops only a state display", () => {
+    const check = (command: string, exitCode: number) =>
+      Subagents.result(cell(Transcript.empty, 10, "", [
+        { flow: "bash", input: { command: "npm test" }, exitCode: 0 },
+        { flow: "bash", input: { command }, exitCode }
+      ])).check
+    expect(check("git diff --check", 2)).toEqual({ command: "git diff --check", exit: 2 })
+    expect(check("git diff --check -- src", 0)).toEqual({ command: "git diff --check -- src", exit: 0 })
+    expect(check("git diff --check && git status --porcelain", 0)).toEqual({
+      command: "git diff --check && git status --porcelain",
+      exit: 0
+    })
+    expect(check("git diff --exit-code", 1)).toEqual({ command: "git diff --exit-code", exit: 1 })
+    expect(check("git status && npm test", 0)).toEqual({ command: "git status && npm test", exit: 0 })
+    expect(check("git commit -m fix", 0)).toEqual({ command: "git commit -m fix", exit: 0 })
+    expect(check("git status", 128)).toEqual({ command: "git status", exit: 128 })
+    for (const shown of ["git status --porcelain; git diff", "git diff -- src", "jj st", "git log --oneline | head"]) {
+      expect(check(shown, 0)).toEqual({ command: "npm test", exit: 0 })
+    }
+  })
+
   it("keeps result evidence for files retained after a partial undo of one call", () => {
     const worker = cell(Transcript.empty, 10, "", [
       { flow: "bash", input: { command: "npm test" }, value: { exitCode: 0 } }

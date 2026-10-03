@@ -26,8 +26,14 @@ export const oneLine = (command: string): string =>
       ? `${joined} ${line}`
       : `${joined}; ${line}`, "")
 
-/** A command that shows version control's state (`git diff`, `jj st`) checks nothing about the work. */
-const inspects = (command: string): boolean => /^\s*(?:git|jj)\b/.test(command)
+const showsState = /^(?:git|jj)\s+(?:status|st|diff|log|show|blame)\b(?!.*\s--(?:check|exit-code|quiet)\b)/
+/**
+ * A command that only shows version control's state (`git status`, `jj diff`) checks nothing about the
+ * work; one that validates (`git diff --check`), does anything else, or fails is a check.
+ */
+const inspects = (command: string, exit: number): boolean =>
+  exit === 0 &&
+  command.split(/\s*(?:&&|\|\||;)\s*/).every((segment) => segment === "" || showsState.test(segment))
 
 /**
  * A worker's result from its transcript: files summed per path in first-seen order, undone changes left
@@ -40,7 +46,7 @@ export const result = (transcript: Transcript.Transcript): Result => {
     if (item.kind !== "cell") continue
     for (const call of item.calls) {
       const command = oneLine(call.subject)
-      if (call.exit !== undefined && !inspects(command)) check = { command, exit: call.exit }
+      if (call.exit !== undefined && !inspects(command, call.exit)) check = { command, exit: call.exit }
       for (const patch of call.patches ?? []) {
         if (patch.undone === true) continue
         const counts = SubagentCard.diffCounts(patch.patch)

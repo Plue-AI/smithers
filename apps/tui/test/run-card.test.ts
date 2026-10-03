@@ -107,6 +107,19 @@ test("a multiline command is one step and one receipt", () => {
   expect(settled.receipts).toEqual(["node -e \"process.exit(7)\"; node -e \"process.exit(0)\" exit 0"])
 })
 
+test("a failed git validation is the receipt; a state display after the check is not", () => {
+  const checked = (last: Transcript.Call) =>
+    RunCard.worker(
+      { ...tab, status: "done", endedAt: 6_000 },
+      transcript([{ flow: "bash", subject: "node check.mjs", status: "ok", exit: 0, startedAt: 3_000 }, last]),
+      9_000
+    ).receipts
+  expect(checked({ flow: "bash", subject: "git diff --check", status: "ok", exit: 2, startedAt: 4_000 }))
+    .toEqual(["git diff --check exit 2"])
+  expect(checked({ flow: "bash", subject: "git status --porcelain", status: "ok", exit: 0, startedAt: 4_000 }))
+    .toEqual(["node check.mjs exit 0"])
+})
+
 test("an undone patch remains inspectable and cannot be undone twice", () => {
   const undone = RunCard.worker(
     { ...tab, status: "done", endedAt: 6_000 },
