@@ -212,6 +212,19 @@ const codingSources = [
   Smithers.file("//pnpm-lock.yaml")
 ]
 const codingDependencies = [...codingBackend, codingScripts, codingWiki]
+// Internal brief stays unregistered. The app filegroup covers the production
+// slash/navigation boundaries inspected by its Bun child process.
+const ceo = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//flows/ceo/ceo.test.ts")]),
+  srcs: [
+    ...codingSources,
+    Smithers.file("//.smithers/factory.json"),
+    Smithers.file("//packages/backend/internal/services/flow_catalog.go")
+  ],
+  deps: [...codingDependencies, Smithers.Filegroup({ cwd: "apps/app", srcs: [Smithers.glob("src/**")] })],
+  cwd,
+  cache: false
+})
 const codingHostInputs = Smithers.Filegroup({ srcs: [...codingFiles, ...codingDependencies] })
 // The repository config test reads every wiki page's document and inputs too.
 // Declare them so both runtime targets track changes outside their TS sources.
@@ -678,6 +691,7 @@ const securityReview = Smithers.SecurityReview({
 
 export const Package = Smithers.Package({
   targets: {
+    ceo,
     codingHostInputs,
     coding,
     codingPolicy,
