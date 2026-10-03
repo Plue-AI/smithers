@@ -25,6 +25,12 @@ import type { Encoded } from "./Encoded.ts"
 import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import { type Declarations, makeExecute } from "./Trampoline.ts"
 
+/** Recursive admission violates the registration ownership invariant. */
+class RegistrationFault extends Schema.TaggedError<RegistrationFault>()("@smthrs/engine/RegistrationFault", {
+  flowName: Schema.String,
+  message: Schema.String
+}) {}
+
 const CurrentRegistrations = Context.Reference<ReadonlyArray<{ readonly owner: object; readonly name: string }>>(
   "@smthrs/engine/CurrentRegistrations",
   { defaultValue: () => [] }
@@ -47,12 +53,8 @@ const CurrentRegistrations = Context.Reference<ReadonlyArray<{ readonly owner: o
  * @since 0.1.0
  */
 export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"] => {
-  /**
-   * The declarations this engine has been told about, by tag. A handoff names
-   * its target by tag — it is serializable data that crossed a journal — so
-   * following the lineage needs the declaration back to decode the next
-   * round's payload and to read its round budget.
-   */
+  // A handoff crosses the journal by tag; retain its declaration to decode
+  // the next round's payload and read its round budget.
   const declarations: Declarations = new Map()
   const registrationGates = new Map<string, { readonly semaphore: Semaphore.Semaphore; users: number }>()
   const withRegistrationGate = <A, E, R>(name: string, effect: Effect.Effect<A, E, R>) =>
@@ -60,7 +62,10 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
       CurrentRegistrations,
       (ancestors) =>
         ancestors.some((entry) => entry.owner === registrationGates && entry.name === name)
-          ? Effect.die(new Error(`Flow ${name} cannot recursively register itself while admission is in progress`))
+          ? Effect.die(new RegistrationFault({
+            flowName: name,
+            message: `Flow ${name} cannot recursively register itself while admission is in progress`
+          }))
           : Effect.acquireUseRelease(
             Effect.sync(() => {
               let gate = registrationGates.get(name)

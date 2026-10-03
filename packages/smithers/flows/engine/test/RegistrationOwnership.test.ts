@@ -67,9 +67,11 @@ describe("flow registration ownership", () => {
           expect(Exit.isFailure(refused)).toBe(true)
           if (Exit.isFailure(refused)) {
             expect(Cause.hasDies(refused.cause)).toBe(true)
-            expect(Cause.squash(refused.cause)).toEqual(
-              new Error(`Flow ${flow._tag} cannot recursively register itself while admission is in progress`)
-            )
+            expect(Cause.squash(refused.cause)).toMatchObject({
+              _tag: "@smthrs/engine/RegistrationFault",
+              flowName: flow._tag,
+              message: `Flow ${flow._tag} cannot recursively register itself while admission is in progress`
+            })
           }
           yield* expectUnregistered(flow, "recursive-refused")
           yield* runtime.register(flow, () => Effect.succeed("retry"), { ifAbsent: true })

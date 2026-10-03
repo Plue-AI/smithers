@@ -54,6 +54,10 @@ For a per-export reference with field-level tables, see the
 The runtime. It implements `FlowRuntime` over the `Encoded` seam a store
 supplies.
 
+Recursive admission of the same flow during registration dies with the tagged
+`@smthrs/engine/RegistrationFault` defect and its `flowName`. After refusal,
+a fresh registration can retry.
+
 ### Layers and constructors
 
 | Export         | Signature                                                                                                        | Meaning                                                                                                                                                                 |

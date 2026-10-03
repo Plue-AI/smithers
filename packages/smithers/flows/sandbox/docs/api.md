@@ -303,6 +303,9 @@ See [Return work from a sandbox](./guides/return-work-from-a-sandbox.md) for the
 
 ## SandboxConformance
 
+Conformance fixture scripts that exit unsuccessfully report a typed
+`ProviderError` with code `unknown` and the exit status and stderr in its message.
+
 ```ts
 import { SandboxConformance } from "@smthrs/sandbox"
 

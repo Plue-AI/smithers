@@ -528,7 +528,9 @@ describe("SandboxConformance", () => {
         }))
         const violations = yield* SandboxConformance.check(gitless, workOptions("trial-work-gitless"))
         expect(workNames(violations)).toEqual(["captures-its-work", "captures-no-work"])
-        expect(violations.find(({ check }) => check === "captures-no-work")?.actual).toContain("exit 127")
+        const actual = violations.find(({ check }) => check === "captures-no-work")?.actual
+        expect(actual).toContain("exit 127")
+        expect(actual).toContain("@smthrs/sandbox/RemoteChildProcessSpawner/ProviderError")
       }), 120_000)
   })
 })

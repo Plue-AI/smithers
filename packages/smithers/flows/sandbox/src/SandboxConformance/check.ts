@@ -179,7 +179,7 @@ const script = (
   live: Session,
   command: string,
   env: Record<string, string>
-): Effect.Effect<string, ProviderError | string> =>
+): Effect.Effect<string, ProviderError> =>
   Effect.scoped(Effect.flatMap(
     live.spawn(command, { env: { ...workFixture.env, ...env } }),
     (process) =>
@@ -192,7 +192,10 @@ const script = (
           ],
           { concurrency: "unbounded" }
         ),
-        ([stdout, stderr, code]) => code === 0 ? Effect.succeed(stdout) : Effect.fail(`exit ${code}: ${stderr.trim()}`)
+        ([stdout, stderr, code]) =>
+          code === 0
+            ? Effect.succeed(stdout)
+            : Effect.fail(new ProviderError({ code: "unknown", message: `exit ${code}: ${stderr.trim()}` }))
       )
   ))
 
