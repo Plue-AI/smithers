@@ -157,7 +157,13 @@ test("Setup and Settings forms dispatch edited values, fixes and write-only retr
   ])
   await page.goto("/view-stories.html?story=SettingsView/Address%20apply%20failed%3B%20the%20previous%20bind%20remains%20active")
   await expect(page.locator('[role="alert"]')).toHaveText("Address already in use")
-  await expect(page.locator(".setup-settings")).toContainText("0.0.0.0:8080 → 0.0.0.0:9090")
+  const row = page.locator(".setup-settings dd").first()
+  await expect(row).toContainText("In effect: 0.0.0.0:8080")
+  await row.getByLabel("Address", { exact: true }).fill("0.0.0.0:9091")
+  await row.getByRole("button", { name: "Retry" }).click()
+  expect(await page.evaluate(() => (window as unknown as { storyCalls: unknown[] }).storyCalls)).toEqual([
+    { kind: "action", value: { tag: "settings", args: { step: "address", bind: "0.0.0.0:9091" } } }
+  ])
 })
 
 for (const native of ["unavailable", "refused"]) test(`Settings Copy uses the fallback when native clipboard is ${native}`, async ({ page }) => {

@@ -514,7 +514,7 @@ for (const [id, story] of Object.entries(setup)) test(`Setup ${id}`, () => {
 for (const [id, story] of Object.entries(settings)) test(`Settings ${id}`, () => {
   const host = render(<SettingsView {...story} onAction={() => {}} onView={() => {}} />)
   for (const text of story.expect) expect(host.textContent).toContain(text)
-  expect(host.textContent).toContain("734003200 bytes")
+  expect(host.textContent).toContain("700 MB")
 })
 test("Address submits literal bound step and edited fields once", () => {
   const calls: unknown[] = []
@@ -579,7 +579,11 @@ test("Failed address keeps the live bind and shows the attempted bind and reason
   const host = render(<SettingsView {...settings.address_failed} onAction={() => {}} onView={() => {}} />)
   const failed = settings.address_failed.model.address.failed!
   expect(host.textContent).toContain(settings.address_failed.model.address.bind)
-  expect(host.textContent).toContain(`${failed.from} → ${failed.to}`)
+  const row = host.querySelector(".setup-settings dd")!
+  expect(row.textContent).toContain("In effect: 0.0.0.0:8080")
+  expect(row.querySelector<HTMLInputElement>('input[id$="-bind"]')?.value).toBe("0.0.0.0:9090")
+  expect(row.querySelector('button[type="submit"]')?.textContent).toBe("Retry")
+  expect([...host.querySelectorAll("dt")].map(dt => dt.textContent)).not.toContain("Address")
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(failed.reason.message)
 })
 

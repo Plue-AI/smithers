@@ -40,3 +40,5 @@
 @media (max-width: 480px) { .setup-view { padding: 16px 12px; } .setup-settings { grid-template-columns: minmax(0, 1fr); gap: 6px; } .setup-settings dd { margin-bottom: 10px; } }
 .setup-actions:empty { display: none; }
 .setup-body > .setup-actions { margin-top: 0; width: 100%; }
+.setup-address-failed { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.setup-address-failed .setup-actions { margin-top: 0; }

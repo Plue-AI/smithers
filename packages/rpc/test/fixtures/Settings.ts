@@ -74,7 +74,7 @@ export const fixtures = {
         }
       }
     },
-    { actions: owner, expect: ["0.0.0.0:8080", "0.0.0.0:9090", "Address already in use"] }
+    { actions: [{ tag: "settings", label: "Retry", args: { step: "address" }, input: [{ name: "bind", label: "Address", kind: "text", required: true, value: "0.0.0.0:9090" }] }, ...owner], expect: ["In effect: 0.0.0.0:8080", "Address already in use", "Retry"] }
   ),
   notifications_need_https: story(
     "Notifications need HTTPS on a plain-HTTP origin",
