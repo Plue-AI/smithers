@@ -6,9 +6,10 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
 
   exec            run one command in its own cgroup as the workspace user;
                   the request is one JSON document on stdin (or --request FILE)
+  root-recipe DIGEST run only a binary-pinned system recipe as root
   kill ID         kill every process of one command cgroup
   kill-all        kill every command cgroup (backend restart recovery)
-  fs read|write|list|remove ROOT PATH [ARG]
+  fs USER read|write|list|remove ROOT PATH [ARG]
                   root-confined file operations as the workspace user
   relay PORT      bridge stdin/stdout to guest TCP 127.0.0.1:PORT
   bridge PORT HOST
@@ -23,6 +24,7 @@ import hashlib
 import json
 import os
 import pwd
+import re
 import secrets
 import select
 import signal
@@ -47,59 +49,88 @@ def fail(code, message):
 
 
 def valid_id(value):
-    return 0 < len(value) <= 96 and all(c.isalnum() or c in "-_." for c in value) and not value.startswith(".")
+    return isinstance(value, str) and value.isascii() and 0 < len(value) <= 96 and all(c.isalnum() or c in "-_." for c in value) and not value.startswith(".")
 
 
 def base_environment():
     try:
-        with open(ENV_FILE, "r", encoding="utf-8") as handle:
-            loaded = json.load(handle)
-        return {str(k): str(v) for k, v in loaded.items()}
+        fd = os.open(ENV_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                fail(3, "environment is not regular")
+            body = handle.read(65537)
+        if len(body) > 65536:
+            fail(3, "environment exceeds limit")
+        loaded = json.loads(body)
+        allowed = set(HOME_LINKS) | set(GO_SETTINGS) | {"PATH", "PYTHONPATH", "HOME", "USER", "npm_config_cache", "YARN_CACHE_FOLDER", "BUN_INSTALL_CACHE_DIR", "UV_CACHE_DIR", "PIP_CACHE_DIR", "npm_config_store_dir", "UV_PYTHON_DOWNLOADS", "PIP_FIND_LINKS", "PIP_TARGET", "RUSTUP_HOME", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "CI", "LANG"}
+        if not isinstance(loaded, dict) or set(loaded) - allowed:
+            fail(3, "invalid environment keys")
+        if any(not isinstance(v, str) or "\x00" in v or "\n" in v or len(v) > 4096 for v in loaded.values()):
+            fail(3, "invalid environment values")
+        for name in HOME_LINKS:
+            if name in loaded and (not loaded[name].startswith(("/var/cache/smithers/", "/opt/smithers/")) or ".." in loaded[name].split("/")):
+                fail(3, "invalid cache target")
+        return loaded
     except FileNotFoundError:
         return {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 
 
 def cgroup_kill(path):
-    """Kill every process in a command cgroup, wait until it is empty, remove it."""
+    """Only fixed root-owned cgroups can be addressed, through held descriptors."""
+    name = os.path.basename(path)
+    if os.path.dirname(path) != CGROUP_ROOT or not valid_id(name):
+        fail(3, "invalid cgroup path")
     try:
-        mode = os.stat(path).st_mode
+        parent = safe_directory(CGROUP_ROOT, trusted=True, create=False)
     except FileNotFoundError:
         return
-    if not stat.S_ISDIR(mode):
-        raise RuntimeError("command cgroup is not a directory")
+    group = None
     try:
-        with open(os.path.join(path, "cgroup.kill"), "w") as handle:
-            handle.write("1")
-    except OSError:
-        pass
-    deadline = time.monotonic() + 10
-    while True:
         try:
-            with open(os.path.join(path, "cgroup.events"), "r") as handle:
-                if "populated 0" in handle.read():
-                    break
+            group = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
         except FileNotFoundError:
+            return
+        info = os.fstat(group)
+        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+            fail(3, "untrusted command cgroup")
+        try:
+            fd = os.open("cgroup.kill", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group)
+            with os.fdopen(fd, "w") as handle:
+                handle.write("1")
+        except OSError:
+            pass
+        deadline = time.monotonic() + 10
+        while True:
             try:
-                os.stat(path)
-            except FileNotFoundError:
-                return
-            raise RuntimeError("command cgroup termination could not be confirmed")
-        except OSError as error:
-            raise RuntimeError("command cgroup termination could not be confirmed") from error
-        if time.monotonic() >= deadline:
-            raise RuntimeError("command cgroup remains populated after cancellation")
-        time.sleep(0.02)
-    try:
-        os.rmdir(path)
-    except OSError:
-        # An empty cgroup proves termination even if directory cleanup fails.
-        pass
+                fd = os.open("cgroup.events", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=group)
+                with os.fdopen(fd, "r") as handle:
+                    if "populated 0" in handle.read(4096):
+                        break
+            except OSError as error:
+                raise RuntimeError("command cgroup termination could not be confirmed") from error
+            if time.monotonic() >= deadline:
+                raise RuntimeError("command cgroup remains populated after cancellation")
+            time.sleep(0.02)
+        try:
+            os.rmdir(name, dir_fd=parent)
+        except OSError:
+            pass
+    finally:
+        if group is not None:
+            os.close(group)
+        os.close(parent)
 
 
 def drop_to(user):
-    if user in ("", "root"):
-        return None
+    if user != "agent":
+        fail(125, "invalid guest identity")
     entry = pwd.getpwnam(user)
+    if entry.pw_uid != 1500 or entry.pw_gid != 1500:
+        fail(125, "invalid guest account")
+    if os.geteuid() == entry.pw_uid:
+        if os.getegid() != entry.pw_gid or os.getgroups():
+            fail(125, "invalid guest groups")
+        return entry
     os.setgroups([])
     os.setgid(entry.pw_gid)
     os.setuid(entry.pw_uid)
@@ -107,39 +138,45 @@ def drop_to(user):
 
 
 def run_exec(request):
-    exec_id = str(request.get("id", ""))
-    argv = request.get("argv") or []
-    if not valid_id(exec_id) or not argv or not all(isinstance(a, str) for a in argv):
-        fail(125, "invalid exec request")
-    env = base_environment()
-    for key, value in (request.get("env") or {}).items():
-        if not key or "=" in key or "\x00" in key or "\x00" in str(value):
-            fail(125, "invalid environment variable %r" % key)
-        env[key] = str(value)
-    cwd = request.get("cwd") or "/"
-    root = request.get("root")
-    if root:
-        real_root = os.path.realpath(root)
-        resolved = os.path.realpath(cwd)
-        if resolved != real_root and not resolved.startswith(real_root + "/"):
-            fail(125, "command directory resolves outside the workspace root")
-        if not os.path.isdir(resolved):
-            fail(125, "command directory is not a directory")
-        cwd = resolved
-    user = request.get("user") or ""
+    if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin"}:
+        fail(125, "invalid exec envelope")
+    exec_id = request.get("id", "")
+    if not valid_id(exec_id) or request.get("user") != "agent":
+        fail(125, "invalid exec envelope")
+    user = "agent"
     group = os.path.join(CGROUP_ROOT, exec_id)
-    os.makedirs(group, exist_ok=True)
+    group_fd = safe_directory(group, trusted=True)
 
     child = os.fork()
     if child == 0:
         try:
-            with open(os.path.join(group, "cgroup.procs"), "w") as handle:
+            fd = os.open("cgroup.procs", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group_fd)
+            with os.fdopen(fd, "w") as handle:
                 handle.write(str(os.getpid()))
+            os.close(group_fd)
+            drop_to(user)
             if request.get("stdin") != "inherit":
                 null = os.open(os.devnull, os.O_RDONLY)
                 os.dup2(null, 0)
                 os.close(null)
-            drop_to(user)
+            argv = request.get("argv") or []
+            if not argv or not all(isinstance(a, str) for a in argv):
+                fail(125, "invalid exec request")
+            env = base_environment()
+            for key, value in (request.get("env") or {}).items():
+                if not key or "=" in key or "\x00" in key or "\x00" in str(value):
+                    fail(125, "invalid environment variable %r" % key)
+                env[key] = str(value)
+            cwd = request.get("cwd") or "/"
+            root = request.get("root")
+            if root:
+                real_root = os.path.realpath(root)
+                resolved = os.path.realpath(cwd)
+                if resolved != real_root and not resolved.startswith(real_root + "/"):
+                    fail(125, "command directory resolves outside the workspace root")
+                if not os.path.isdir(resolved):
+                    fail(125, "command directory is not a directory")
+                cwd = resolved
             os.chdir(cwd)
             os.execvpe(argv[0], argv, env)
         except FileNotFoundError as error:
@@ -151,6 +188,8 @@ def run_exec(request):
         except BaseException as error:  # noqa: BLE001 - the child must never return
             sys.stderr.write("smithers-guest: %s\n" % error)
             os._exit(126)
+
+    os.close(group_fd)
 
     def terminate(signum, _frame):
         cgroup_kill(group)
@@ -168,6 +207,43 @@ def run_exec(request):
     sys.stdout.flush()
     os.write(2, EXIT_TRAILER % code)
     return code
+
+
+def run_root_recipe(digest, request):
+    pins = globals().get("ROOT_RECIPE_DIGESTS", {})
+    kind = pins.get(digest)
+    if kind not in ("apt", "marker") or not isinstance(request, dict):
+        fail(125, "unapproved root recipe digest")
+    script = request.get("script")
+    if not isinstance(script, str) or hashlib.sha256(script.encode()).hexdigest() != digest:
+        fail(125, "root recipe digest mismatch")
+    argv = ["/bin/bash", "-c", script, "root-recipe"]
+    if kind == "apt":
+        if set(request) != {"script"}:
+            fail(125, "invalid apt envelope")
+    else:
+        if set(request) != {"script", "marker"}:
+            fail(125, "invalid marker envelope")
+        marker = request["marker"]
+        if not isinstance(marker, dict) or set(marker) != {"kind", "key", "name"}:
+            fail(125, "invalid marker")
+        if marker["kind"] not in ("toolchain", "dependencies"):
+            fail(125, "invalid marker kind")
+        if not isinstance(marker["key"], str) or not re.fullmatch("[a-f0-9]{64}", marker["key"]):
+            fail(125, "invalid marker key")
+        if not valid_id(marker["name"]):
+            fail(125, "invalid marker name")
+        argv.extend([marker["kind"], json.dumps(marker)])
+    if os.geteuid() != 0:
+        fail(125, "root recipe requires root")
+    import subprocess
+    # Never merge the agent-writable env.json or request environment.
+    result = subprocess.run(argv, cwd="/", env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": "/root", "TMPDIR": "/var/tmp", "DEBIAN_FRONTEND": "noninteractive",
+        "PYTHONPATH": ""})
+    sys.stdout.flush()
+    os.write(2, EXIT_TRAILER % result.returncode)
+    return result.returncode
 
 
 def resolve_inside(root, requested, allow_missing_leaf):
@@ -323,6 +399,9 @@ def pump(source, sink):
 
 
 def relay(port):
+    if not 1 <= port <= 65535:
+        fail(3, "invalid relay port")
+    drop_to("agent")
     connection = socket.create_connection(("127.0.0.1", port), timeout=10)
     connection.settimeout(None)
     stdin = sys.stdin.buffer.raw
@@ -342,6 +421,9 @@ def relay(port):
 
 
 def bridge(port, host):
+    if host != "host.microsandbox.internal" or not 1 <= port <= 65535:
+        fail(3, "invalid bridge endpoint")
+    drop_to("agent")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", port))
@@ -373,25 +455,49 @@ def bridge(port, host):
 
 
 def setup(user, uid, directories):
+    if user != "agent" or uid != 1500:
+        fail(3, "invalid setup identity")
+    if any(path not in ("/workspace", "/home/agent", "/var/lib/smithers/state", "/var/tmp/smithers", "/var/cache/smithers") for path in directories):
+        fail(3, "invalid setup destination")
     try:
         pwd.getpwnam(user)
     except KeyError:
-        os.system("useradd --create-home --uid %d --shell /bin/bash %s >/dev/null 2>&1 || true" % (uid, user))
+        import subprocess
+        fd = safe_directory("/home/agent")
+        os.close(fd)
+        subprocess.run(["/usr/sbin/useradd", "--uid", "1500", "--shell", "/bin/bash", "agent"], check=True, env={"PATH": "/usr/bin:/bin"})
     entry = pwd.getpwnam(user)
-    os.makedirs(CGROUP_ROOT, exist_ok=True)
-    # Tools that download into $HOME on first run were run once in the
-    # dependency layer with HOME at the shared tool home; link what they left.
-    if os.path.isdir(TOOL_HOME):
-        for name in os.listdir(TOOL_HOME):
-            link = os.path.join(entry.pw_dir, name)
-            if not os.path.lexists(link):
-                os.symlink(os.path.join(TOOL_HOME, name), link)
-                os.lchown(link, entry.pw_uid, entry.pw_gid)
+    cgroup_fd = safe_directory(CGROUP_ROOT, trusted=True)
+    os.close(cgroup_fd)
+    if user != "agent" or uid != 1500 or entry.pw_uid != uid or entry.pw_gid != uid or entry.pw_dir != "/home/agent":
+        fail(3, "invalid setup identity")
+    home_fd = safe_directory(entry.pw_dir)
+    try:
+        os.fchown(home_fd, entry.pw_uid, entry.pw_gid)
+        os.fchmod(home_fd, 0o700)
+        try:
+            tool_fd = safe_directory(TOOL_HOME, create=False)
+        except FileNotFoundError:
+            tool_fd = None
+        if tool_fd is not None:
+            names = os.listdir(tool_fd)
+            os.close(tool_fd)
+            for name in names:
+                try:
+                    os.symlink(os.path.join(TOOL_HOME, name), name, dir_fd=home_fd)
+                    os.chown(name, entry.pw_uid, entry.pw_gid, dir_fd=home_fd, follow_symlinks=False)
+                except FileExistsError:
+                    pass
+    finally:
+        os.close(home_fd)
     home_defaults(entry)
     for directory in directories:
-        os.makedirs(directory, exist_ok=True)
-        os.chown(directory, entry.pw_uid, entry.pw_gid)
-        os.chmod(directory, 0o755)
+        fd = safe_directory(directory)
+        try:
+            os.fchown(fd, entry.pw_uid, entry.pw_gid)
+            os.fchmod(fd, 0o700 if directory == entry.pw_dir else 0o755)
+        finally:
+            os.close(fd)
 
 
 def install_coding_binding(config, etc="/etc"):
@@ -545,32 +651,107 @@ GO_SETTINGS = ("GOTOOLCHAIN", "GOPROXY", "GOFLAGS", "GOMODCACHE", "GOCACHE")
 
 
 def home_defaults(entry):
+    for relative in (".cache", ".config", ".config/go", ".local", ".local/share", ".local/share/pnpm"):
+        try:
+            fd = safe_directory(os.path.join(entry.pw_dir, relative), create=False)
+            os.close(fd)
+        except FileNotFoundError:
+            pass
     if not os.path.exists(ENV_FILE):
         return
     environment = base_environment()
 
-    def owned(path):
-        # Create the missing parents of path as the user's own directories.
-        directory = entry.pw_dir
-        for part in os.path.relpath(os.path.dirname(path), entry.pw_dir).split("/"):
-            directory = os.path.join(directory, part)
-            if not os.path.isdir(directory):
-                os.mkdir(directory, 0o755)
-                os.chown(directory, entry.pw_uid, entry.pw_gid)
+    home = safe_directory(entry.pw_dir)
+    try:
+        for name, relative in HOME_LINKS.items():
+            target = environment.get(name)
+            if target:
+                parent, leaf = home_parent(home, relative, entry)
+                try:
+                    try:
+                        os.symlink(target, leaf, dir_fd=parent)
+                        os.chown(leaf, entry.pw_uid, entry.pw_gid, dir_fd=parent, follow_symlinks=False)
+                    except FileExistsError:
+                        pass
+                finally:
+                    os.close(parent)
+        settings = ["%s=%s\n" % (name, environment[name]) for name in GO_SETTINGS if environment.get(name)]
+        if settings:
+            parent, leaf = home_parent(home, ".config/go/env", entry)
+            try:
+                fd = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+                with os.fdopen(fd, "w") as handle:
+                    info = os.fstat(handle.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (0, entry.pw_uid):
+                        fail(3, "home defaults target is not regular")
+                    os.fchown(handle.fileno(), entry.pw_uid, entry.pw_gid)
+                    handle.truncate(0)
+                    handle.writelines(settings)
+            finally:
+                os.close(parent)
+    finally:
+        os.close(home)
 
-    for name, relative in HOME_LINKS.items():
-        target, link = environment.get(name), os.path.join(entry.pw_dir, relative)
-        if target and not os.path.lexists(link):
-            owned(link)
-            os.symlink(target, link)
-            os.lchown(link, entry.pw_uid, entry.pw_gid)
-    settings = ["%s=%s\n" % (name, environment[name]) for name in GO_SETTINGS if environment.get(name)]
-    if settings:
-        path = os.path.join(entry.pw_dir, ".config/go/env")
-        owned(path)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.writelines(settings)
-        os.chown(path, entry.pw_uid, entry.pw_gid)
+
+def safe_directory(path, trusted=False, create=True):
+    if not path.startswith("/") or ".." in path.split("/"):
+        fail(3, "invalid setup directory")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in filter(None, path.split("/")):
+            if create:
+                try:
+                    os.mkdir(part, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            if trusted:
+                info = os.fstat(child)
+                if info.st_uid != 0 or info.st_mode & 0o022:
+                    os.close(child)
+                    fail(3, "untrusted directory ancestor")
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def home_parent(home, relative, entry):
+    fd = os.dup(home)
+    try:
+        parts = relative.split("/")
+        for part in parts[:-1]:
+            try:
+                os.mkdir(part, 0o755, dir_fd=fd)
+                os.chown(part, entry.pw_uid, entry.pw_gid, dir_fd=fd, follow_symlinks=False)
+            except FileExistsError:
+                pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd, parts[-1]
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def protected_requests():
+    fd = safe_directory(REQUEST_DIR, trusted=True)
+    info = os.fstat(fd)
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        os.close(fd)
+        fail(3, "untrusted request directory")
+    os.fchmod(fd, 0o700)
+    return fd
+
+
+def read_request(handle):
+    body = handle.read(1048577)
+    if len(body) > 1048576:
+        fail(125, "request exceeds limit")
+    return json.loads(body)
 
 
 def main(args):
@@ -590,23 +771,41 @@ def main(args):
             fail(3, "coding binding exceeds its limit")
         install_coding_binding(json.loads(body))
         return
+    if command == "root-recipe" and len(args) == 2:
+        sys.exit(run_root_recipe(args[1], read_request(sys.stdin.buffer)))
     if command == "exec":
         if len(args) == 3 and args[1] == "--request" and valid_id(args[2]):
-            path = os.path.join(REQUEST_DIR, args[2] + ".json")
-            with open(path, "rb") as handle:
-                request = json.load(handle)
-            os.unlink(path)
+            parent = protected_requests()
+            try:
+                fd = os.open(args[2] + ".json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                with os.fdopen(fd, "rb") as handle:
+                    info = os.fstat(handle.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+                        fail(3, "untrusted request")
+                    request = read_request(handle)
+                os.unlink(args[2] + ".json", dir_fd=parent)
+            finally:
+                os.close(parent)
         else:
-            request = json.loads(sys.stdin.buffer.read())
+            request = read_request(sys.stdin.buffer)
         sys.exit(run_exec(request))
     if command == "put-request" and len(args) == 2 and valid_id(args[1]):
-        os.makedirs(REQUEST_DIR, mode=0o700, exist_ok=True)
-        path = os.path.join(REQUEST_DIR, args[1] + ".json")
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(sys.stdin.buffer.read())
+        body = sys.stdin.buffer.read(1048577)
+        if len(body) > 1048576:
+            fail(125, "request exceeds limit")
+        parent = protected_requests()
+        try:
+            fd = os.open(args[1] + ".json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(body)
+        finally:
+            os.close(parent)
         return
     if command == "probe" and len(args) == 2:
+        port = int(args[1])
+        if not 1 <= port <= 65535:
+            fail(3, "invalid probe port")
+        drop_to("agent")
         try:
             socket.create_connection(("127.0.0.1", int(args[1])), timeout=2).close()
         except OSError:
@@ -616,20 +815,28 @@ def main(args):
         cgroup_kill(os.path.join(CGROUP_ROOT, args[1]))
         return
     if command == "kill-all":
-        if os.path.isdir(CGROUP_ROOT):
-            for name in os.listdir(CGROUP_ROOT):
-                path = os.path.join(CGROUP_ROOT, name)
-                if os.path.isdir(path):
-                    cgroup_kill(path)
+        try:
+            parent = safe_directory(CGROUP_ROOT, trusted=True, create=False)
+        except FileNotFoundError:
+            return
+        try:
+            for name in os.listdir(parent):
+                if valid_id(name) and stat.S_ISDIR(os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode):
+                    cgroup_kill(os.path.join(CGROUP_ROOT, name))
+        finally:
+            os.close(parent)
         return
-    if command == "fs" and len(args) >= 4:
-        user = os.environ.get("SMITHERS_GUEST_USER", "")
-        drop_to(user)
-        operation, root, path = args[1], args[2], args[3]
+    if command == "fs" and len(args) >= 5:
+        user = args[1]
+        if user != "agent":
+            fail(125, "invalid fs identity")
+        if os.geteuid() == 0:
+            drop_to(user)
+        operation, root, path = args[2], args[3], args[4]
         if operation == "read":
-            fs_read(root, path, int(args[4]))
+            fs_read(root, path, int(args[5]))
         elif operation == "write":
-            fs_write(root, path, int(args[4], 8))
+            fs_write(root, path, int(args[5], 8))
         elif operation == "list":
             fs_list(root, path)
         elif operation == "remove":

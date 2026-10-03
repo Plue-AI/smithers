@@ -41,7 +41,7 @@ else:
             ready()
     sys.addaudithook(audit)
 
-sys.argv = [script, "fs", "remove", root, "victim"]
+sys.argv = [script, "fs", "agent", "remove", root, "victim"]
 runpy.run_path(script, run_name="__main__")
 `
 
@@ -184,7 +184,7 @@ func TestGuestRemoveInitiallyMissing(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, python, filepath.Join("guest", "smithers-guest.py"), "fs", "remove", root, tc.path)
+			cmd := exec.CommandContext(ctx, python, filepath.Join("guest", "smithers-guest.py"), "fs", "agent", "remove", root, tc.path)
 			cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
 			output, err := cmd.CombinedOutput()
 			tc.check(t, root)

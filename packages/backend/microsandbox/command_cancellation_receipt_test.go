@@ -86,13 +86,20 @@ if scenario != 'missing':
     with open(os.path.join(group, 'cgroup.events'), 'w') as target:
         target.write('populated 1' if scenario == 'populated1' else 'populated 0')
 real_rmdir = os.rmdir
-def fake_rmdir(path):
+def fake_rmdir(path, **kwargs):
+    path = os.path.join(base, path)
     if scenario == 'populated1':
         raise AssertionError('still-populated group must not be removed')
     os.unlink(os.path.join(path, 'cgroup.kill'))
     os.unlink(os.path.join(path, 'cgroup.events'))
     real_rmdir(path)
-namespace['os'] = types.SimpleNamespace(path=os.path, stat=os.stat, rmdir=fake_rmdir)
+namespace['CGROUP_ROOT'] = base
+class OS:
+    def __getattr__(self, name): return getattr(os, name)
+    rmdir = staticmethod(fake_rmdir)
+namespace['os'] = OS()
+namespace['ROOT_UID'] = os.getuid()
+namespace['safe_directory'] = lambda path, **kwargs: os.open(path, os.O_RDONLY | os.O_DIRECTORY)
 ticks = [0]
 def monotonic():
     ticks[0] += 1

@@ -621,7 +621,8 @@ func (r *Runtime) OpenWorkspaceTerminal(ctx context.Context, workspaceID string,
 	if _, err := r.guest(ctx, ws.Machine, encoded, "put-request", request.ID); err != nil {
 		return nil, err
 	}
-	args := []string{"exec", "-t", ws.Machine, "--", "python3", guestHelperPath, "exec", "--request", request.ID}
+	args := guestArgs(ws.Machine, nil, false, "exec", "--request", request.ID)
+	args = append(args[:1], append([]string{"-t"}, args[1:]...)...)
 	cmd := r.cli.command(args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}

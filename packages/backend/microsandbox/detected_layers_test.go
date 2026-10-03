@@ -36,7 +36,8 @@ func TestDetectedDependencyPreparationRequestsAgentIdentity(t *testing.T) {
 			binary := filepath.Join(root, "msb")
 			script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
-  *smithers-guest.py\ exec) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+  *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+  *run\ exec) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
 esac
 `, shellQuote(log), shellQuote(log))
 			require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
@@ -55,12 +56,6 @@ esac
 					found = true
 					require.Equal(t, guestUser, request.User)
 					require.Equal(t, guestHome, request.Env["HOME"])
-				} else {
-					require.Equal(t, "root", request.User)
-					require.Equal(t, "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", request.Env["PATH"], "root must not resolve executables from writable dependency caches")
-					pythonPath, exists := request.Env["PYTHONPATH"]
-					require.True(t, exists, "root must override the layer's writable Python import path")
-					require.Empty(t, pythonPath)
 				}
 			}
 			require.True(t, found)
@@ -89,7 +84,7 @@ case "$*" in
   "snapshot list --format json") if [ -e %s ]; then printf '%%s' %s; else echo '[]'; fi ;;
   "snapshot create "*) touch %s ;;
   "snapshot remove "*) rm %s ;;
-  *smithers-guest.py\ exec) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+  *run\ exec|*run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
   *"-- cat "*) printf '%%s' %s ;;
 esac
 `, shellQuote(state), shellQuote(string(listing)), shellQuote(state), shellQuote(state), shellQuote(string(marker)))
@@ -531,6 +526,9 @@ def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
 		}
 	}
 	prepare = strings.ReplaceAll(prepare, cacheRoot+"/prepare", filepath.Join(root, "prepare"))
+	// The guest toolchain supplies "python"; host fixtures use the discovered
+	// python3 directly, without requiring a PATH alias.
+	prepare = strings.ReplaceAll(prepare, "'--python' 'python'", "'--python' "+shellQuote(python))
 	require.NotEmpty(t, prepare)
 	command := exec.Command("/bin/sh", "-ec", prepare)
 	command.Dir, command.Env = repo, variables

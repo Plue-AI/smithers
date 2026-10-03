@@ -26,7 +26,7 @@ func (r *Runtime) fileOperation(ctx context.Context, workspaceID, root string, s
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	args := guestArgs(ws.Machine, map[string]string{"SMITHERS_GUEST_USER": guestUser}, false, append([]string{"fs", operation[0], root}, operation[1:]...)...)
+	args := guestArgs(ws.Machine, nil, false, append([]string{"fs", guestUser, operation[0], root}, operation[1:]...)...)
 	output, err := r.cli.run(callCtx, stdin, args...)
 	if err == nil {
 		return output, nil

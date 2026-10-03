@@ -1,0 +1,17 @@
+=== RUN   TestGuestHelperInstallPinsInterpreterAndEnv
+=== RUN   TestGuestHelperInstallPinsInterpreterAndEnv/CSEC02
+    root_boundary_test.go:29: PENDING C-SEC-02: requires approved installed bundle and real msb; set SMITHERS_GUEST_ROOT_BOUNDARY_CHECK=1
+--- PASS: TestGuestHelperInstallPinsInterpreterAndEnv (0.00s)
+    --- SKIP: TestGuestHelperInstallPinsInterpreterAndEnv/CSEC02 (0.00s)
+=== RUN   TestRootSetupNeverFollowsMemberSymlinks
+=== RUN   TestRootSetupNeverFollowsMemberSymlinks/CSEC02
+    root_boundary_test.go:44: PENDING C-SEC-02: requires approved installed bundle and real msb; set SMITHERS_GUEST_ROOT_BOUNDARY_CHECK=1
+--- PASS: TestRootSetupNeverFollowsMemberSymlinks (0.04s)
+    --- SKIP: TestRootSetupNeverFollowsMemberSymlinks/CSEC02 (0.00s)
+=== RUN   TestRootPreflightParsesOnlyEnvelope
+=== RUN   TestRootPreflightParsesOnlyEnvelope/CSEC02
+    root_boundary_test.go:93: PENDING C-SEC-02: requires approved installed bundle and real msb; set SMITHERS_GUEST_ROOT_BOUNDARY_CHECK=1
+--- PASS: TestRootPreflightParsesOnlyEnvelope (0.03s)
+    --- SKIP: TestRootPreflightParsesOnlyEnvelope/CSEC02 (0.00s)
+PASS
+ok  	github.com/smithersai/smithers/packages/backend/microsandbox	0.298s

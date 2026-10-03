@@ -561,7 +561,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		return nil, fmt.Errorf("build %s layer %s: %w", record.Kind, record.Key[:12], err)
 	}
 	inventory := parseInventory(output)
-	if _, err := e.runRoot(buildCtx, machine, markerScript(record)+"\nsync"); err != nil {
+	if _, err := e.runRoot(buildCtx, machine, rootMarkerScript, record); err != nil {
 		return nil, err
 	}
 	if err := e.runtime.stopMachine(buildCtx, machine); err != nil {
@@ -576,10 +576,23 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 	return inventory, nil
 }
 
-// runRoot runs a shell script as root through the exec helper and returns
+// runRoot runs only a binary-pinned script through the root-recipe helper and returns
 // its stdout, failing with the tail of its output when it exits nonzero.
-func (e *environments) runRoot(ctx context.Context, machine, script string) (string, error) {
-	return e.runRecipe(ctx, machine, script, "root", "/root")
+func (e *environments) runRoot(ctx context.Context, machine, script string, records ...layerRecord) (string, error) {
+	if script != playwrightSystemPackages && script != rootMarkerScript {
+		return "", fmt.Errorf("unapproved root recipe digest")
+	}
+	request := map[string]any{"script": script}
+	if script == rootMarkerScript {
+		if len(records) != 1 {
+			return "", fmt.Errorf("marker requires one record")
+		}
+		request["marker"] = map[string]string{"kind": records[0].Kind, "key": records[0].Key, "name": records[0].Name}
+	} else if len(records) != 0 {
+		return "", fmt.Errorf("apt accepts no record")
+	}
+	body, _ := json.Marshal(request)
+	return e.runPreparation(ctx, machine, body, "root-recipe", scriptDigest(script))
 }
 
 func preparationEnvironment(user, home string) map[string]string {
@@ -599,7 +612,11 @@ func (e *environments) runRecipe(ctx context.Context, machine, script, user, hom
 	// no custom marshalers or cyclic values, so JSON encoding cannot fail.
 	request, _ := json.Marshal(execRequest{ID: newExecID(), Argv: []string{"/bin/bash", "-c", script}, Cwd: "/", User: user,
 		Env: preparationEnvironment(user, home)})
-	cmd := e.runtime.cli.command(guestArgs(machine, nil, false, "exec")...)
+	return e.runPreparation(ctx, machine, request, "exec")
+}
+
+func (e *environments) runPreparation(ctx context.Context, machine string, request []byte, subcommand ...string) (string, error) {
+	cmd := e.runtime.cli.command(guestArgs(machine, nil, false, subcommand...)...)
 	cmd.Stdin = bytes.NewReader(request)
 	stdout := &limitedBuffer{limit: 16 << 20}
 	stderr := &limitedBuffer{limit: 16 << 20}
@@ -631,10 +648,8 @@ func tail(text string) string {
 	return text
 }
 
-func markerScript(record layerRecord) string {
-	marker, _ := json.Marshal(map[string]string{"kind": record.Kind, "key": record.Key, "name": record.Name})
-	return fmt.Sprintf("mkdir -p %s && printf '%%s' %s > %s/%s.json", layerMarkerDir, shellQuote(string(marker)), layerMarkerDir, record.Kind)
-}
+// Only data parameters vary; the executable bytes have one binary-pinned digest.
+const rootMarkerScript = `set -e; mkdir -p /opt/smithers/layers; printf '%s' "$2" > "/opt/smithers/layers/$1.json"; sync`
 
 // verify boots a fresh offline VM from the layer and checks its marker: the
 // quarry's rule that a captured base must still hold what was prepared.

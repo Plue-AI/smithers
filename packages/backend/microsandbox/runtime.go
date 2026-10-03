@@ -381,7 +381,7 @@ func (r *Runtime) recover(ctx context.Context) error {
 		case !ok:
 			ws.State = string(workspaceapi.WorkspaceRecoveryRequired)
 		case status == "running":
-			if _, err := r.guest(ctx, ws.Machine, nil, "kill-all"); err != nil {
+			if err := r.cleanupGuest(ctx, ws.Machine); err != nil {
 				errs = append(errs, fmt.Errorf("clean previous command groups in %s: %w", ws.Machine, err))
 			}
 			ws.State = string(workspaceapi.WorkspaceStopped)
@@ -725,7 +725,7 @@ func (r *Runtime) startMachine(ctx context.Context, ws *workspace) error {
 			return fmt.Errorf("%w: start workspace microVM: %v", ErrUnavailable, err)
 		}
 	}
-	if _, err := r.guest(ctx, ws.Machine, nil, "kill-all"); err != nil {
+	if err := r.cleanupGuest(ctx, ws.Machine); err != nil {
 		return err
 	}
 	return r.prepareGuest(ctx, ws)

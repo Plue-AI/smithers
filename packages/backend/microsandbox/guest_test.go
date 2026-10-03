@@ -21,7 +21,7 @@ func TestGuestFSRemoveCLI(t *testing.T) {
 	}
 	root := t.TempDir()
 	remove := func(path string) (string, error) {
-		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "remove", root, path)
+		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "agent", "remove", root, path)
 		cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
 		output, err := cmd.CombinedOutput()
 		return string(output), err
@@ -85,7 +85,7 @@ func TestGuestFSRemoveCLI(t *testing.T) {
 		info, err := os.Lstat(path)
 		require.NoError(t, err)
 		require.NotZero(t, info.Mode()&os.ModeSocket)
-		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "remove", shortRoot, "socket")
+		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "agent", "remove", shortRoot, "socket")
 		cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(output))
@@ -132,7 +132,7 @@ spec = importlib.util.spec_from_file_location("guest", sys.argv[1])
 guest = importlib.util.module_from_spec(spec); spec.loader.exec_module(guest)
 guest.ENV_FILE = sys.argv[2]
 me = pwd.getpwuid(os.getuid())
-entry = pwd.struct_passwd((me.pw_name, "x", me.pw_uid, me.pw_gid, "", sys.argv[3], "/bin/sh"))
+entry = pwd.struct_passwd((me.pw_name, "x", me.pw_uid, me.pw_gid, "", os.path.realpath(sys.argv[3]), "/bin/sh"))
 guest.home_defaults(entry)
 guest.home_defaults(entry)  # idempotent across restarts
 `
