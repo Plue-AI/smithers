@@ -614,7 +614,7 @@ func (s *workflowRunService) isCurrentRefHeadPush(ctx context.Context, input Dis
 	if err != nil || strings.TrimSpace(head) == "" {
 		return false, pkgerrors.Internal("failed to resolve workflow ref head for push").WithCause(err)
 	}
-	return commit == strings.TrimSpace(head), nil
+	return workflowPushHeadIsFresh(ctx, s.bookmarkResolver, input.RepositoryID, head, commit)
 }
 
 func (s *workflowRunService) createRunForDefinition(

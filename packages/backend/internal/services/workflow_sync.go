@@ -257,7 +257,7 @@ func (s *WorkflowSyncService) LoadDefinitionsFromCommit(ctx context.Context, rep
 
 // PersistDefinitions persists valid definitions and deactivates stale or invalid
 // ones, preserving existing state for files that could not be read.
-func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int64, result WorkflowLoadResult) error {
+func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int64, result WorkflowLoadResult, pushRef ...string) error {
 	if repoID <= 0 {
 		return fmt.Errorf("repository id must be positive")
 	}
@@ -269,16 +269,19 @@ func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int
 	}
 	s.persistLocks.acquire(repoID)
 	defer s.persistLocks.release(repoID)
+	// The optional ref binds a push snapshot to the default ref; ordinary loads
+	// retain strict head equality. During receive-pack, jj may still report
+	// an ancestor of the event's new value.
 	// Loading/parsing may take minutes. Re-read the head here so a snapshot
 	// overtaken during discovery cannot re-arm definitions deleted by a push.
-	current, err := s.isDefaultHeadCommit(ctx, repoID, result.commitSHA)
+	current, err := s.isDefaultHeadCommit(ctx, repoID, result.commitSHA, pushRef...)
 	if err != nil || !current {
 		return err
 	}
 	return s.persistCurrentDefinitions(ctx, repoID, result)
 }
 
-func (s *WorkflowSyncService) isDefaultHeadCommit(ctx context.Context, repoID int64, commitSHA string) (bool, error) {
+func (s *WorkflowSyncService) isDefaultHeadCommit(ctx context.Context, repoID int64, commitSHA string, pushRef ...string) (bool, error) {
 	if repoID <= 0 {
 		return false, fmt.Errorf("repository id must be positive")
 	}
@@ -295,6 +298,12 @@ func (s *WorkflowSyncService) isDefaultHeadCommit(ctx context.Context, repoID in
 	head, err := s.ResolveBookmarkCommit(ctx, repoID, repository.DefaultBookmark)
 	if err != nil {
 		return false, err
+	}
+	if len(pushRef) > 0 {
+		if len(pushRef) != 1 || normalizeBranchRef(strings.TrimSpace(pushRef[0])) != strings.TrimSpace(repository.DefaultBookmark) {
+			return false, nil
+		}
+		return workflowPushHeadIsFresh(ctx, s, repoID, head, commitSHA)
 	}
 	return strings.TrimSpace(commitSHA) == head, nil
 }
@@ -507,4 +516,41 @@ func (s *WorkflowSyncService) listWorkflowFilesAtChange(
 		}
 	}
 	return nil, nil
+}
+
+// IsAncestor uses Git's immutable commit graph, which already contains received
+// objects even while the jj bookmark import is pending.
+func (s *WorkflowSyncService) IsAncestor(ctx context.Context, repoID int64, ancestor, descendant string) (bool, error) {
+	client, ok := s.repoHost.(interface {
+		IsAncestor(context.Context, string, string, string, string) (bool, error)
+	})
+	if !ok {
+		return false, fmt.Errorf("repo-host ancestry lookup is unavailable")
+	}
+	repository, err := s.queries.GetRepoByID(ctx, repoID)
+	if err != nil {
+		return false, err
+	}
+	owner, err := s.resolveRepoOwner(ctx, repository)
+	if err != nil {
+		return false, err
+	}
+	return client.IsAncestor(ctx, owner, repository.Name, ancestor, descendant)
+}
+
+func workflowPushHeadIsFresh(ctx context.Context, resolver WorkflowBookmarkCommitResolver, repoID int64, head, commit string) (bool, error) {
+	head, commit = strings.TrimSpace(head), strings.TrimSpace(commit)
+	if head == "" || commit == "" {
+		return false, nil
+	}
+	if head == commit {
+		return true, nil
+	}
+	ancestry, ok := resolver.(interface {
+		IsAncestor(context.Context, int64, string, string) (bool, error)
+	})
+	if !ok {
+		return false, nil
+	}
+	return ancestry.IsAncestor(ctx, repoID, head, commit)
 }

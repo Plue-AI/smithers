@@ -118,7 +118,7 @@ func (s *pushHookHWorkflowSync) LoadDefinitionsFromCommit(context.Context, int64
 	return services.WorkflowLoadResult{Definitions: []services.LoadedWorkflowDefinition{{Name: "ci"}}}, s.loadErr
 }
 
-func (s *pushHookHWorkflowSync) PersistDefinitions(context.Context, int64, services.WorkflowLoadResult) error {
+func (s *pushHookHWorkflowSync) PersistDefinitions(context.Context, int64, services.WorkflowLoadResult, ...string) error {
 	return s.persistErr
 }
 

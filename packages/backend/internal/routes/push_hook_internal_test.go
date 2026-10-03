@@ -356,7 +356,7 @@ func (m *mockPushHookWorkflowSyncer) LoadDefinitionsFromCommit(ctx context.Conte
 	return services.WorkflowLoadResult{}, nil
 }
 
-func (m *mockPushHookWorkflowSyncer) PersistDefinitions(ctx context.Context, repoID int64, result services.WorkflowLoadResult) error {
+func (m *mockPushHookWorkflowSyncer) PersistDefinitions(ctx context.Context, repoID int64, result services.WorkflowLoadResult, pushRef ...string) error {
 	if m.persistCalls != nil {
 		m.persistCalls <- result
 	}

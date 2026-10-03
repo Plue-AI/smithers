@@ -95,7 +95,7 @@ func (s *pushHookCovWorkflowSync) LoadDefinitionsFromCommit(context.Context, int
 	return services.WorkflowLoadResult{Definitions: []services.LoadedWorkflowDefinition{{Name: "ci", Path: ".smithers/workflows/ci.ts"}}}, nil
 }
 
-func (s *pushHookCovWorkflowSync) PersistDefinitions(context.Context, int64, services.WorkflowLoadResult) error {
+func (s *pushHookCovWorkflowSync) PersistDefinitions(context.Context, int64, services.WorkflowLoadResult, ...string) error {
 	s.persistCalled = true
 	return nil
 }

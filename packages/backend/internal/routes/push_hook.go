@@ -55,7 +55,7 @@ type PushHookRepoResolver interface {
 // PushHookWorkflowSyncer discovers and syncs workflow definitions after a push.
 type PushHookWorkflowSyncer interface {
 	LoadDefinitionsFromCommit(ctx context.Context, repoID int64, commitSHA string) (services.WorkflowLoadResult, error)
-	PersistDefinitions(ctx context.Context, repoID int64, result services.WorkflowLoadResult) error
+	PersistDefinitions(ctx context.Context, repoID int64, result services.WorkflowLoadResult, pushRef ...string) error
 }
 
 // PushHookWorkflowRunner dispatches workflow runs for push events.
@@ -346,7 +346,7 @@ func (h *InternalPushHookHandler) handleWorkflowsForPush(ctx context.Context, re
 			slog.Error("workflow load failed after push", "repo_id", repoID, "commit_sha", req.CommitSHA, "error", err)
 		} else {
 			if h.shouldPersistDefinitions(ctx, repoID, req.Ref) {
-				if err := h.WorkflowSync.PersistDefinitions(ctx, repoID, result); err != nil {
+				if err := h.WorkflowSync.PersistDefinitions(ctx, repoID, result, req.Ref); err != nil {
 					slog.Error("workflow persistence failed after push", "repo_id", repoID, "commit_sha", req.CommitSHA, "error", err)
 				}
 			}

@@ -245,6 +245,7 @@ func (s *Server) Handler() http.Handler {
 			r.Method(http.MethodGet, "/repos/{id}/bookmarks/{name}", s.withAppError(s.getBookmark))
 			r.Method(http.MethodDelete, "/repos/{id}/bookmarks/{name}", s.withAppError(s.deleteBookmark))
 			r.Method(http.MethodGet, "/repos/{id}/changes", s.withAppError(s.listChanges))
+			r.Method(http.MethodGet, "/repos/{id}/commits/ancestry", s.withAppError(s.commitAncestry))
 			r.Method(http.MethodGet, "/repos/{id}/changes/count", s.withAppError(s.countChanges))
 			r.Method(http.MethodGet, "/repos/{id}/changes/{change_id}", s.withAppError(s.getChange))
 			r.Method(http.MethodPost, "/repos/{id}/changes/{change_id}/backout", s.withAppError(s.backoutChange))
