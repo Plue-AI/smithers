@@ -1,0 +1,30 @@
+/* PORT: .specs/design/mock/src/css/code.css, read-only File and contextual Diff. */
+.code-file-view, .code-diff-view { min-width: 0; }
+.code-file-view .smithers-card-title, .code-diff-view .smithers-card-title { font-family: var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+.code-writer { margin-left: auto; }
+.code-editor { min-width: 0; }
+.code-editor .cm-content:focus-visible, .code-actions button:focus-visible, .code-file-size a:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.code-file-size { color: var(--text-muted); margin: 0; overflow-wrap: anywhere; }
+.code-file-size a { color: inherit; }
+.code-diagnostics { list-style: none; padding: 0; margin: 8px 0 0; font-size: var(--fs-caption); overflow-wrap: anywhere; }
+.code-diagnostics [data-severity="error"] { color: var(--danger); }
+.code-diagnostics [data-severity="warning"] { color: var(--attention); }
+.code-diff-base { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); margin-bottom: 8px; }
+.code-diff-base time { margin-left: auto; }
+.code-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.code-actions button { border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); color: var(--text); padding: 5px 10px; font: inherit; cursor: pointer; }
+.code-diff-view .sui-pierre-diff-frame { max-width: 100%; overflow: hidden; }
+.code-file-view, .code-diff-view { box-sizing: border-box; }
+/* Pierre's inherited override seam keeps diff chrome on Paper's accessible tokens. */
+.code-diff-view diffs-container {
+  --diffs-deletion-color-override: var(--danger);
+  --diffs-addition-color-override: var(--success);
+  --diffs-fg-number-override: var(--text-muted);
+  --diffs-bg-context-override: var(--surface);
+  --diffs-bg-context-gutter-override: var(--surface-2);
+  --diffs-bg-deletion-emphasis-override: var(--danger-soft);
+  --diffs-bg-addition-emphasis-override: var(--success-soft);
+  --diffs-bg-deletion-override: var(--danger-soft);
+  --diffs-bg-addition-override: var(--success-soft);
+  --diffs-bg-separator-override: var(--surface-2);
+}

@@ -34,6 +34,11 @@ for (const path of paths) {
       const mountedStory = await mounted(story)
       const { host, onAction, onView } = mountedStory
       try {
+        // Pierre renders asynchronously into a shadow root; read the production surface.
+        if (path === "DiffView.stories.tsx" && host.querySelector("diffs-container")) {
+          const deadline = Date.now() + 4000
+          while (!host.querySelector("diffs-container")?.shadowRoot?.querySelector("[data-column-number]") && Date.now() < deadline) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+        }
         if (story.name.startsWith("state-")) expect(host.textContent).toBe(story.expect[0])
         // T-UI-10 / C-UI-12: fixture copy spans locally selected versions.
         const displays = [host.textContent]
@@ -49,8 +54,9 @@ for (const path of paths) {
           if (story.name.startsWith("actor-")) {
             const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
             for (const chip of chips) expect(story.name === "actor-fixture-system" ? chip.getAttribute("data-kind") : chip.getAttribute("aria-label")).toContain(text)
-          } else expect([...displays, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
+          } else expect([...displays, host.querySelector("diffs-container")?.shadowRoot?.textContent ?? "", ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
         }
+        // Layout and virtualized hunk controls are covered by the production Chromium stories.
         if (story.interactionSuite === "TODO") {
           const fixture = todoStories[story.name as keyof typeof todoStories]
           const supplied = [...fixture.actions, ...fixture.model.waits.flatMap(wait => wait.actions)]
@@ -143,14 +149,14 @@ for (const path of paths) {
           covered.add(control as HTMLButtonElement)
           onAction.mockClear(); onView.mockClear()
           const gesture = interaction.gesture ? story.gestures?.[interaction.gesture] : undefined
-          const expectedAction = interaction.action ?? (gesture ? { tag: gesture.tag, args: gesture.args ?? {} } : undefined)
+          const expectedAction = interaction.action === null ? undefined : interaction.action ?? (gesture ? { tag: gesture.tag, args: gesture.args ?? {} } : undefined)
           await act(async () => {
             if (interaction.value !== undefined) {
               const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype
               Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(control, interaction.value)
             }
             control!.dispatchEvent(interaction.event === "keydown"
-              ? new KeyboardEvent("keydown", { key: interaction.key, bubbles: true })
+              ? new KeyboardEvent("keydown", { key: interaction.key, ctrlKey: interaction.gesture === "hover", bubbles: true })
               : new Event(interaction.event ?? "click", { bubbles: true }))
           })
           expect(onAction).toHaveBeenCalledTimes(expectedAction ? 1 : 0)
@@ -1292,4 +1298,55 @@ test("Flow failed version without diagnostics has no disclosure", () => {
     expect(host.querySelector(".flow-failure details")).toBeNull()
     expect(host.textContent).not.toContain("undefined")
   }
+})
+
+import { unifiedPatch } from "./DiffView"
+import { CodeEditorView } from "./CodeEditorView"
+import { fixtures as files } from "@smthrs/rpc/fixtures/File"
+import { fixtures as diffs } from "@smthrs/rpc/fixtures/Diff"
+// T-UI-11 Changes: literal file headers, context/removal/addition counts, zero ranges.
+test("Diff supplied hunks serialize exact modified, added, deleted and renamed patches", () => {
+  expect(unifiedPatch(diffs.item_base.model)).toBe('diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n@@ -2,2 +2,2 @@\n export default Flow.make("todo", {\n-  description: "Build",\n+  description: "Complete one TODO",\n')
+  expect(unifiedPatch(diffs.fork.model)).toBe('diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n--- /dev/null\n+++ b/flows/todo/flow.ts\n@@ -0,0 +1,1 @@\n+export const repro = true\n')
+  expect(unifiedPatch(diffs.deleted.model)).toBe('diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n--- a/flows/todo/flow.ts\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-export const legacy = true\n')
+  expect(unifiedPatch(diffs.renamed.model)).toBe('diff --git a/flows/todo/flow.ts b/flows/todo-next/flow.ts\nrename from flows/todo/flow.ts\nrename to flows/todo-next/flow.ts\n--- a/flows/todo/flow.ts\n+++ b/flows/todo-next/flow.ts\n')
+  expect(unifiedPatch({ ...diffs.item_base.model, path: 'x.ts', hunks: [{ old_start: 0, new_start: 1, lines: [{ op: '+', text: 'one' }] }, { old_start: 4, new_start: 5, lines: [{ op: ' ', text: 'same' }, { op: '-', text: 'old' }] }] })).toBe('diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -0,0 +1,1 @@\n+one\n@@ -4,2 +5,1 @@\n same\n-old\n')
+})
+test("File sizes and supplied GitHub links have no editor", () => {
+  for (const [fixture, bytes, literal] of [[files.binary, 1_200_000, "Binary file · 1.2 MB"], [files.too_large, 4_100_000, "Too large to show · 4.1 MB"]] as const) {
+    const host = render(<CodeEditorView {...fixture} model={{ ...fixture.model, content: fixture.model.content.kind === "binary" ? { kind: "binary", bytes } : { kind: "too_large", bytes, text: "hidden" } }} onAction={() => {}} onView={() => {}} />)
+    expect(host.getAttribute('data-digest') ?? host.querySelector('[data-digest]')!.getAttribute('data-digest')).toBe('sha256:9f2c41')
+    expect(host.querySelector('[data-mode]')!.getAttribute('data-mode')).toBe('read_only')
+    expect(host.querySelector('.code-file-size')!.textContent).toContain(literal)
+    expect(host.querySelector('a')!.getAttribute('href')).toBe(fixture.model.github_url!)
+    expect(host.querySelector('.cm-editor')).toBeNull()
+  }
+})
+
+import { DiffView } from "./DiffView"
+test("Diff Restore binds the supplied burst; removing it leaves no control", () => {
+  const calls: unknown[] = []
+  const host = render(<DiffView {...diffs.burst} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  act(() => host.querySelector<HTMLButtonElement>('button[data-flow="file.restore"]')!.click())
+  expect(calls).toEqual([["file.restore", { path: "flows/todo/flow.ts", revision: "burst-17" }]])
+  act(() => root!.render(<DiffView {...diffs.burst} actions={[]} onAction={() => {}} onView={() => {}} />))
+  expect(host.querySelector('button')).toBeNull()
+})
+test("Diff bases, binary sizes and disabled reason render without inventing controls", () => {
+  for (const fixture of [diffs.item_base, diffs.fork, diffs.binary]) {
+    const host = render(<DiffView {...fixture} onAction={() => {}} onView={() => {}} />)
+    expect(host.querySelector('button')).toBeNull()
+    expect(host.querySelector('[data-against]')!.getAttribute('data-against')).toBe(fixture.model.against.kind)
+    if (fixture === diffs.binary) expect(host.textContent).toContain('Binary file · 18.2 kB → 19.7 kB')
+  }
+  const calls: unknown[] = []
+  const host = render(<DiffView {...diffs.burst} actions={[{ tag: 'file.restore', label: 'Restore this file', disabled: { reason: 'Revision changed' } }]} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  act(() => host.querySelector<HTMLButtonElement>('button')!.click())
+  expect(calls).toEqual([])
+  expect(host.textContent).toContain('Revision changed')
+})
+
+import { fileStories } from "./CodeEditorView.stories"
+test("reference paint fixture is exactly one MiB of UTF-8", () => {
+  expect(new TextEncoder().encode(fileStories.one_mib.model.content.text).byteLength).toBe(1_048_576)
 })

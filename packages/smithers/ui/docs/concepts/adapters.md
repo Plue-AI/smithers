@@ -96,3 +96,29 @@ accident.
 
 The task-shaped version of this page is the guide
 [Use a heavy renderer](../guides/use-a-heavy-renderer.md).
+
+## Read-only code editor
+
+`@smthrs/ui/adapters/code-editor` exports `CodeEditorView` and its generic
+`CodeEditorViewProps<Tag>`, `EditorPosition`, `EditorGesture<Tag>` and
+`minimalChange` types/helper. It uses CodeMirror 6 with Paper tokens, line
+numbers, diagnostics, supplied hover results and reveal positions. TypeScript,
+JavaScript, Go, Rust and Python grammars run locally; no language server starts.
+
+Supply `text`, `path`, `language`, `diagnostics`, `onAction` and `onView`.
+Optional `gestures.hover` and `gestures.definition` carry caller-bound tags and
+arguments. Ctrl-hover or Ctrl+Space requests hover; F12 requests definition.
+Coordinates are 1-based lines and UTF-16 columns, encoded as strings in action
+arguments. Neither gesture moves the cursor. Hover Markdown stays inert text.
+`onView({line})` records a cursor move. `reveal` selects or scrolls to a supplied
+range. Changed text replaces only the differing span in the existing editor,
+preserving its cursor and scroll position.
+
+The adapter always renders read-only. Non-text file states belong to the
+caller's File wrapper; hunks use the existing Pierre diff adapter. Direct
+CodeMirror dependencies use exact version pins. `y-codemirror.next` 0.3.6 and
+Yjs 13.6.32 reserve the approved later binding; this editor imports neither.
+
+`PierreDiffView.unsafeCSS` accepts trusted static host CSS for its shadow
+surface. Keep repository content out of this styling input. The File/Diff host
+uses it to apply Paper contrast and focus tokens to Pierre’s rendered spans.

@@ -107,6 +107,8 @@ export function patchToCodeViewItems(patch: string, selectedPath?: string | null
 }
 
 export type PierreDiffViewProps = {
+  /** Trusted, static host CSS for the shadow surface; never supplied repository content. */
+  unsafeCSS?: string;
   /** A unified diff (git-style) patch string. */
   patch: string;
   /** Side-by-side (`split`, default) or unified (`inline`) rendering. */
@@ -129,6 +131,7 @@ export type PierreDiffViewProps = {
 
 export function PierreDiffView({
   patch,
+  unsafeCSS,
   layout = "split",
   mode,
   palette,
@@ -173,6 +176,7 @@ export function PierreDiffView({
         disableWorkerPool
         items={items}
         options={{
+          unsafeCSS,
           collapsedContextThreshold: 12,
           diffIndicators: "bars",
           diffStyle: diffStyleForLayout(layout),

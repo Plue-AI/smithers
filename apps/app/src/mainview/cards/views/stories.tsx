@@ -4,7 +4,7 @@ export type StoryAction = { tag: string; label: string; args?: Record<string, st
 export type StoryCallbacks = { onAction: (tag: string, args?: Record<string, string>) => void; onView: (patch: Record<string, unknown>) => void }
 export type StoryInteraction = {
   selector: string; gesture?: string; event?: "click" | "input" | "change" | "keydown"; value?: string; key?: string;
-  action?: { tag: string; args: Record<string, string> }; patch?: Record<string, unknown>
+  action?: { tag: string; args: Record<string, string> } | null; patch?: Record<string, unknown>
 }
 export type ViewStory = {
   interactionSuite?: "TODO";

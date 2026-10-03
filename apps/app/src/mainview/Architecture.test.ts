@@ -43,14 +43,15 @@ const runtimeDependencies = (source: string): string[] => {
   return dependencies
 }
 
-const authorityModule = (path: string): boolean =>
+// CodeMirror’s approved cursor keymap is presentation, not the product command catalog (T-UI-11).
+const authorityModule = (path: string): boolean => path !== "@codemirror/commands" && (
   /(?:^|[/@._-])(?:topics?|stores?|controllers?|commands?)(?:[/._-]|$)/i.test(path) ||
   /(?:AppStore|AppController|RpcClient|RPCClient|TopicClient|FlowAction|FlowArgs|Flows|FlowRegistry)(?:\.[cm]?[jt]sx?)?$/
     .test(path) ||
   /(?:^|\/)[A-Za-z]*(?:Client|Store|Controller|Commands?)(?:\.[cm]?[jt]sx?)?$/.test(path) ||
   /@tanstack\/(?:react-query|query-core|react-db|db)(?:\/|$)/.test(path) ||
   /@electric-sql\/(?:client|react)(?:\/|$)/.test(path) ||
-  /(?:^|[/._-])(?:rpc|api)[/_-]client(?:[/._-]|$)/i.test(path)
+  /(?:^|[/._-])(?:rpc|api)[/_-]client(?:[/._-]|$)/i.test(path))
 
 const directAuthorityCalls = (source: string): string[] => {
   const tree = ts.createSourceFile("view.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -197,6 +198,13 @@ describe("props-only View imports (C-UI-08)", () => {
       "./store",
       "./controller"
     ])
+  })
+
+  test("CodeMirror cursor keymaps are presentation; command lookalikes and resolved authority stay forbidden", () => {
+    expect(viewAuthorityViolations("View", () => 'import { defaultKeymap } from "@codemirror/commands"', () => undefined)).toEqual([])
+    expect(viewAuthorityViolations("View", () => 'import { run } from "@codemirror/commands/controller"', () => undefined)).toEqual(["View → @codemirror/commands/controller"])
+    expect(viewAuthorityViolations("View", () => 'import { run } from "@codemirror/commands"', () => "/app/state/AppStore.ts")).toEqual(["View → @codemirror/commands"])
+    expect(viewAuthorityViolations("View", () => 'import { run } from "./commands"', () => undefined)).toEqual(["View → ./commands"])
   })
 
   test("a harmless import alias is rejected when resolution reaches an authority module", () => {
