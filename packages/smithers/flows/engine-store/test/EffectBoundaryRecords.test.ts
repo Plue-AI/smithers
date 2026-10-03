@@ -11,7 +11,9 @@ import { FlowEngine } from "@smthrs/engine"
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
 import { type Ownership, RunStore } from "@smthrs/run-store"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Logger } from "effect"
+import * as Cause from "effect/Cause"
+import * as References from "effect/References"
 import * as ActionPersistence from "../src/internal/ActionPersistence.ts"
 import * as EffectRecords from "../src/internal/EffectRecords.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
@@ -43,6 +45,7 @@ const dispatch = (options: {
   readonly tier: "sealed" | "irreversible"
   readonly idempotencyKey?: string
   readonly execute: Effect.Effect<unknown, unknown>
+  readonly failUnknownBoundary?: boolean
 }) =>
   withCrypto(
     Effect.gen(function*() {
@@ -53,6 +56,8 @@ const dispatch = (options: {
       const claim = yield* runs.claim(options.runId, snapshot, owner, 1)
       if (claim._tag !== "Claimed") return yield* Effect.die(new Error("claim lost"))
       yield* runs.activate(options.runId, owner, claim.claimedAtMs, snapshot)
+      const journal = yield* Journal.Journal
+      const injected = new Journal.JournalError({ code: "sink_failed", message: "unknown boundary unavailable" })
       const exit = yield* Effect.exit(
         ActionPersistence.make({
           runId: options.runId,
@@ -65,9 +70,15 @@ const dispatch = (options: {
           attempt: 1,
           key: `${options.runId}-key`,
           tier: options.tier
-        })
+        }).pipe(Effect.provideService(Journal.Journal, {
+          ...journal,
+          emitDurable: (input, claimant) =>
+            options.failUnknownBoundary && input.eventType === EffectRecords.eventType &&
+              (input.payload as { readonly effect: { readonly status: string } }).effect.status === "unknown"
+              ? Effect.fail(injected)
+              : journal.emitDurable(input, claimant)
+        }))
       )
-      const journal = yield* Journal.Journal
       yield* journal.flush
       const page = yield* journal.entries({ runId: options.runId as never, limit: 20 })
       return { exit, entries: page.entries }
@@ -236,3 +247,32 @@ describe("effect-boundary records", () => {
     ])
   })
 })
+
+it.effect("warns when unknown boundary persistence fails and preserves the provider failure", () =>
+  Effect.gen(function*() {
+    const logs: Array<{ level: string; message: unknown; annotations: unknown }> = []
+    const primary = new Journal.JournalError({ code: "unknown", message: "provider refused" })
+    const result = yield* dispatch({
+      runId: "boundary-warning",
+      action: { name: "billing/Charge" },
+      tier: "irreversible",
+      execute: Effect.fail(primary),
+      failUnknownBoundary: true
+    }).pipe(Effect.provide(Logger.layer([Logger.make((options) => {
+      logs.push({
+        level: options.logLevel,
+        message: Cause.pretty(options.cause),
+        annotations: options.fiber.getRef(References.CurrentLogAnnotations)
+      })
+    })])))
+    expect(result.exit._tag).toBe("Failure")
+    if (result.exit._tag === "Failure") expect(Cause.squash(result.exit.cause)).toBe(primary)
+    expect(boundaries(result.entries).map((effect) => effect.status)).toEqual(["intended"])
+    expect(logs).toEqual([
+      expect.objectContaining({
+        level: "Warn",
+        annotations: expect.objectContaining({ runId: "boundary-warning", step: "boundary-warning-key" })
+      })
+    ])
+    expect(String(logs[0]?.message)).toContain("unknown boundary unavailable")
+  }))

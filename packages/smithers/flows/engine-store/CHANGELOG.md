@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Failed unknown effect-boundary appends now warn with their cause, run ID, and
+  action key while preserving the primary outcome. Missing completed-lineage
+  flow registration now exposes the tagged `FlowEngine.FlowNotRegistered` defect.
+
 - Durable engine-state JSON codec and missing first-writer row defects now
   expose `EngineStateFault` with typed reasons, optional field, and cause.
 

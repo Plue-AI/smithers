@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Failed rewind/recovery audit updates and unknown effect-boundary appends now
+  warn with their cause and identifiers while preserving the primary outcome.
+
 ## [1.0.0-rc.0]
 
 ### Added

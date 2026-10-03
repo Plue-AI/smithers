@@ -2800,7 +2800,10 @@ export const make = (
                 // codec here, even when another worker executed that flow.
                 // This is the typed Trampoline's fail-fast wiring contract:
                 // terminal work has no future wake to justify Suspended.
-                return Effect.die(new Error(`Flow ${state.flowName} is not registered`))
+                return Effect.die(new FlowEngine.FlowNotRegistered({
+                  flowName: state.flowName,
+                  message: `Flow ${state.flowName} is not registered`
+                }))
               }
               return (Schema.decodeUnknownEffect(
                 Schema.toCodecJson(Flow.Result({
@@ -2861,7 +2864,10 @@ export const make = (
         yield* Effect.annotateCurrentSpan({ executionId: options.executionId, flow: flow._tag })
         if (!registrations.has(flow._tag)) {
           return yield* Effect.die(
-            new Error(`Flow ${flow._tag} is not registered`)
+            new FlowEngine.FlowNotRegistered({
+              flowName: flow._tag,
+              message: `Flow ${flow._tag} is not registered`
+            })
           )
         }
         // Cycle rejection happens atomically inside `ensureRun`'s call to

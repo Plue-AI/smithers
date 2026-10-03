@@ -1482,3 +1482,12 @@ surviving attempt row when a retention job pruned attempt 1.
 Full model: [Cache admission](./concepts/cache-admission.md). See also
 [Run durably over SQLite](/docs/tutorials/first-flow/#6-run-durably-over-sqlite)
 and [Content addressing](/docs/concepts/content-addressing/).
+
+## Durable failure warnings
+
+If an unsuccessful irreversible action cannot append its `unknown` boundary
+record, the engine logs at Warning with the append cause, `runId`, and the
+action key as `step`. The action's original failure or interruption remains
+the primary outcome. Reading a completed trampoline lineage whose terminal
+flow is unregistered dies with `FlowEngine.FlowNotRegistered`, carrying the
+missing `flowName`, so callers can classify the registration defect.

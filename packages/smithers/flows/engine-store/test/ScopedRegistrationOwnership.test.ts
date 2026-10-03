@@ -1,5 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { describe, expect, it } from "@effect/vitest"
+import { FlowEngine } from "@smthrs/engine"
 import { EngineStore, StepBoundary } from "@smthrs/engine-store"
 import * as TestStores from "@smthrs/engine-store/test/TestStores"
 import { Flow, FlowRuntime } from "@smthrs/flow"
@@ -58,7 +59,8 @@ const expectMissing = (flow: ReturnType<typeof makeFlow>, executionId: string) =
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
       expect(Cause.hasDies(exit.cause)).toBe(true)
-      expect(Cause.squash(exit.cause)).toEqual(new Error(`Flow ${flow._tag} is not registered`))
+      expect(Cause.squash(exit.cause)).toBeInstanceOf(FlowEngine.FlowNotRegistered)
+      expect(Cause.squash(exit.cause)).toMatchObject({ flowName: flow._tag })
     }
   })
 

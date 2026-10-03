@@ -12,7 +12,9 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
+import * as References from "effect/References"
 import { TestClock } from "effect/testing"
 import * as EffectBoundary from "../src/EffectBoundary.ts"
 import type { LineageEdge } from "../src/Frame.ts"
@@ -276,6 +278,7 @@ describe("Rewind protocol fault matrix", () => {
   ) {
     it.effect(`restores ownership and history after the ${scenario.failAt} store fault`, () =>
       Effect.gen(function*() {
+        const logs: Array<{ level: string; message: unknown; annotations: unknown }> = []
         const initialRecords = [stored(0, "baseline", {}), stored(1, "suffix", {})]
         const store = MemoryTimeTravelStore.make({ records: initialRecords, failAt: scenario.failAt })
         const runs = makeRuns(runRow())
@@ -290,7 +293,13 @@ describe("Rewind protocol fault matrix", () => {
                 auditId: `audit-${scenario.failAt}`
               }),
               { store, runs, jj: makeJj().service }
-            )
+            ).pipe(Effect.provide(Logger.layer([Logger.make((options) => {
+              logs.push({
+                level: options.logLevel,
+                message: Cause.pretty(options.cause),
+                annotations: options.fiber.getRef(References.CurrentLogAnnotations)
+              })
+            })])))
           )
         )
 
@@ -298,6 +307,19 @@ describe("Rewind protocol fault matrix", () => {
           code: "unknown",
           message: `injected failure at ${scenario.failAt}`
         })
+        if (scenario.failAt === "updateAudit") {
+          expect(logs).toEqual([
+            expect.objectContaining({
+              level: "Warn",
+              annotations: expect.objectContaining({
+                runId: "run",
+                auditId: "audit-updateAudit",
+                step: "terminal_failure"
+              })
+            })
+          ])
+          expect(String(logs[0]?.message)).toContain("injected failure at updateAudit")
+        } else expect(logs).toEqual([])
         expect(runs.state()).toEqual(runRow())
         expect(store.state().records).toEqual(initialRecords)
         expect(store.state().archived).toEqual([])
@@ -842,6 +864,12 @@ describe("Rewind protocol fault matrix", () => {
         ]
       ) {
         const store = MemoryTimeTravelStore.make({ records: [stored(0, "baseline", {}), stored(1, "suffix", {})] })
+        const logs: Array<{ level: string; message: unknown; annotations: unknown }> = []
+        const updateAudit = store.updateAudit
+        store.updateAudit = (id, patch) =>
+          (patch.detail as Rewind.AuditDetail | undefined)?.failure !== undefined
+            ? Effect.fail(error("unknown", "postcommit audit unavailable"))
+            : updateAudit(id, patch)
         const runs = makeRuns(runRow(), { transitionOwned: scenario.transition })
         const jj = makeJj()
 
@@ -850,10 +878,27 @@ describe("Rewind protocol fault matrix", () => {
             provide(
               Rewind.rewind({ runId: "run", frame, owner, auditId: `audit-${scenario.message}` }),
               { store, runs, jj: jj.service }
-            )
+            ).pipe(Effect.provide(Logger.layer([Logger.make((options) => {
+              logs.push({
+                level: options.logLevel,
+                message: Cause.pretty(options.cause),
+                annotations: options.fiber.getRef(References.CurrentLogAnnotations)
+              })
+            })])))
           )
         )
 
+        expect(logs).toEqual([
+          expect.objectContaining({
+            level: "Warn",
+            annotations: expect.objectContaining({
+              runId: "run",
+              auditId: `audit-${scenario.message}`,
+              step: "archive_committed"
+            })
+          })
+        ])
+        expect(String(logs[0]?.message)).toContain("postcommit audit unavailable")
         expect(failure.message).toBe(scenario.message)
         expect(store.state().records.map((record) => record.seq)).toEqual([0])
         expect(store.state().archived.map((record) => record.seq)).toEqual([1])

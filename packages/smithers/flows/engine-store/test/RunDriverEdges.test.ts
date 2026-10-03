@@ -1736,3 +1736,45 @@ describe("RunDriver atomic waiting markers", () => {
     }
   }
 })
+
+it.effect("dies with FlowNotRegistered when a completed nested lineage lacks its terminal codec", () =>
+  withCrypto(provideJournal(Effect.gen(function*() {
+    const store = yield* RunStore.RunStore
+    yield* store.create("codec-parent", stateJson(EdgeFlow._tag))
+    yield* store.create("codec-root", stateJson(EdgeFlow._tag), { lineageId: "codec-root", roundOrdinal: 0 })
+    yield* store.create(
+      "codec-terminal",
+      JSON.stringify({
+        version: 1,
+        flowName: OtherFlow._tag,
+        payload: {},
+        capabilityCeilings: [],
+        result: { _tag: "Complete", exit: { _tag: "Success", value: "done" } }
+      }),
+      { lineageId: "codec-root", roundOrdinal: 1, parentRunId: "codec-root" }
+    )
+    for (const runId of ["codec-root", "codec-terminal"]) {
+      const row = yield* store.get(runId)
+      const expected = { status: row.status, owner: row.owner, heartbeatAtMs: row.heartbeatAtMs }
+      const claim = yield* store.claim(runId, expected, owner, 1)
+      expect(claim._tag).toBe("Claimed")
+      if (claim._tag === "Claimed") {
+        yield* store.activate(runId, owner, claim.claimedAtMs, expected)
+        yield* store.transitionOwned(runId, owner, "completed")
+      }
+    }
+    const driver = yield* makeDriver()
+    yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
+    const exit = yield* driver.execute(EdgeFlow, {
+      executionId: "codec-root",
+      payload: {},
+      discard: false,
+      follow: true,
+      parent: FlowEngine.makeInstance(EdgeFlow, "codec-parent")
+    }).pipe(Effect.exit)
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(Cause.squash(exit.cause)).toBeInstanceOf(FlowEngine.FlowNotRegistered)
+      expect(Cause.squash(exit.cause)).toMatchObject({ flowName: OtherFlow._tag })
+    }
+  }))))

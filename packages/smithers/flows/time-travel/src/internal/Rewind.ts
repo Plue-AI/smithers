@@ -1138,7 +1138,13 @@ const settleFailure = (
       // An interrupt can precede the protocol's audit update even when the
       // local flag is set. Keep this audit recoverable after commit.
       progress.detail = { ...progress.detail, phase: "archive_committed", failure: failure.message }
-      yield* Effect.ignore(store.updateAudit(auditId, { detail: progress.detail }))
+      yield* store.updateAudit(auditId, { detail: progress.detail }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("time-travel: failed to persist rewind audit", cause).pipe(
+            Effect.annotateLogs({ auditId, runId: options.runId, step: "archive_committed" })
+          )
+        )
+      )
     }
 
     if (!progress.archiveCommitted) {
@@ -1236,11 +1242,15 @@ const settleFailure = (
           failure: failureMessage,
           ...(rollbackFailure === undefined ? {} : { rollbackFailure: String(rollbackFailure) })
         }
-        yield* Effect.ignore(
-          store.updateAudit(auditId, {
-            status: "failed",
-            detail: progress.detail
-          })
+        yield* store.updateAudit(auditId, {
+          status: "failed",
+          detail: progress.detail
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("time-travel: failed to persist rewind audit", cause).pipe(
+              Effect.annotateLogs({ auditId, runId: options.runId, step: "terminal_failure" })
+            )
+          )
         )
         if (Exit.isFailure(rollbackExit)) {
           return yield* Effect.fail(

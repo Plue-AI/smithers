@@ -637,3 +637,12 @@ After a successful archive transaction, `SqlTimeTravelStore.archiveAndTruncate`
 invalidates cached journal identities and allocation floors for the parent and
 attached descendants. All live `SqlJournal` instances sharing its SQL client
 observe the reset, so archived lossy source identities can be emitted again.
+
+## Durable failure warnings
+
+If a rewind or recovery cannot persist its failure audit, it logs at Warning
+with the storage cause and `runId`, `auditId`, and `step` annotations. The
+original failure or recovery outcome remains unchanged. An unsuccessful
+`EffectBoundary.guard` whose `unknown` boundary record cannot be appended
+logs the append cause with `runId` and the effect ID as `step`, then preserves
+the action's original failure or interruption.

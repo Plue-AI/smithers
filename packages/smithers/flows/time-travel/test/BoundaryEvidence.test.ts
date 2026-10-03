@@ -11,10 +11,14 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Journal from "@smthrs/journal/Journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
+import * as References from "effect/References"
 import * as EffectBoundary from "../src/EffectBoundary.ts"
 import type { EffectRecord } from "../src/EffectBoundary.ts"
+import { error } from "../src/TimeTravelError.ts"
 
 const record = (
   overrides: Partial<EffectRecord> & Pick<EffectRecord, "id" | "seq" | "status">
@@ -175,4 +179,56 @@ describe("EffectBoundary golden vector", () => {
       ])
       expect(reversed).toEqual(folded)
     }))
+})
+
+describe("boundary persistence warnings", () => {
+  for (const interrupted of [false, true]) {
+    it.effect(`preserves ${interrupted ? "interruption" : "the provider failure"} when the unknown record cannot be written`, () =>
+      Effect.gen(function*() {
+        const logs: Array<{ level: string; message: unknown; annotations: unknown }> = []
+        const storageFailure = new Journal.JournalError({ code: "sink_failed", message: "boundary unavailable" })
+        const primary = error("unknown", "provider refused")
+        let writes = 0
+        const journal = Journal.makeNoop({
+          emitDurable: () =>
+            ++writes === 1
+              ? Effect.succeed({ _tag: "Accepted", seq: 1 as JournalEvent.Seq, sourceSeq: 0 as JournalEvent.SourceSeq })
+              : Effect.fail(storageFailure)
+        })
+        const exit = yield* EffectBoundary.guard({
+          id: "warning-effect",
+          kind: "mail.send",
+          tier: "irreversible",
+          runId: "warning-run",
+          lineageId: "warning-run/root",
+          sourceId: "adapter",
+          sourceSeq: 0,
+          owner: { hostId: "test", pid: 1, nonce: "owner" },
+          idempotencyKey: "send-1"
+        }, interrupted ? Effect.interrupt : Effect.fail(primary)).pipe(
+          Effect.exit,
+          Effect.provide(Layer.succeed(Journal.Journal, journal)),
+          Effect.provide(Logger.layer([Logger.make((options) => {
+            logs.push({
+              level: options.logLevel,
+              message: Cause.pretty(options.cause),
+              annotations: options.fiber.getRef(References.CurrentLogAnnotations)
+            })
+          })]))
+        )
+        expect(exit._tag).toBe("Failure")
+        if (exit._tag === "Failure") {
+          if (interrupted) expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+          else expect(Cause.squash(exit.cause)).toBe(primary)
+        }
+        expect(writes).toBe(2)
+        expect(logs).toEqual([
+          expect.objectContaining({
+            level: "Warn",
+            annotations: expect.objectContaining({ runId: "warning-run", step: "warning-effect" })
+          })
+        ])
+        expect(String(logs[0]?.message)).toContain("boundary unavailable")
+      }))
+  }
 })

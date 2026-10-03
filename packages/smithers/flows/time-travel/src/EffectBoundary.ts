@@ -269,7 +269,13 @@ export const guard = <A, E, R>(
           yield* emit(journal, validated, "succeeded", actionExit.value)
           return actionExit.value
         }
-        yield* Effect.ignore(emit(journal, validated, "unknown"))
+        yield* emit(journal, validated, "unknown").pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("time-travel: failed to persist unknown effect boundary", cause).pipe(
+              Effect.annotateLogs({ runId: validated.runId, step: validated.id })
+            )
+          )
+        )
         return yield* Effect.failCause(actionExit.cause)
       })
     )

@@ -29,7 +29,7 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["engine-store/src/StepBoundary.ts", 3, wrappedCause],
   ["engine-store/src/internal/ActionPersistence.ts", 1, invariantDefect],
   ["engine-store/src/internal/ExecutionSnapshotRead.ts", 1, wrappedCause],
-  ["engine-store/src/internal/RunDriver.ts", 3, invariantDefect],
+  ["engine-store/src/internal/RunDriver.ts", 1, invariantDefect],
   ["engine/src/FlowEngine/Placed.ts", 1, invariantDefect],
   ["engine/src/PlacedAction.ts", 1, invariantDefect],
   [

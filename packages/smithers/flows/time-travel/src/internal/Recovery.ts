@@ -289,7 +289,11 @@ const terminalFailure = (
         failure: failure.message
       }
   }).pipe(
-    Effect.ignore,
+    Effect.catchCause((cause) =>
+      Effect.logWarning("time-travel: failed to persist recovery audit", cause).pipe(
+        Effect.annotateLogs({ auditId: audit.id, runId: audit.runId, step: "terminal_failure" })
+      )
+    ),
     Effect.as({ _tag: "Failed" as const, auditId: audit.id, error: failure })
   )
 

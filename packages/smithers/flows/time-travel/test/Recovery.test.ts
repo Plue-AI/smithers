@@ -8,10 +8,13 @@ import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { RunStore } from "@smthrs/run-store"
 import * as Ownership from "@smthrs/run-store/Ownership"
 import type { OwnerId } from "@smthrs/run-store/Ownership"
+import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
+import * as References from "effect/References"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { EffectRecord } from "../src/EffectBoundary.ts"
@@ -899,3 +902,38 @@ describe("Recovery", () => {
       ])
     }))
 })
+
+it.effect("warns when a failed recovery audit cannot be persisted without replacing its outcome", () =>
+  Effect.gen(function*() {
+    const store = MemoryTimeTravelStore.make({ failAt: "updateAudit" })
+    seed(store, { ...audit("audit_written"), detail: { version: 99 } })
+    const logs: Array<{ level: string; message: unknown; annotations: unknown }> = []
+    const outcomes = yield* runRecovery(store, makeRuns(), Jj.makeNoop({}), EffectHandlerRegistry.makeNoop(), true)
+      .pipe(
+        Effect.provide(Logger.layer([Logger.make((options) => {
+          logs.push({
+            level: options.logLevel,
+            message: Cause.pretty(options.cause),
+            annotations: options.fiber.getRef(References.CurrentLogAnnotations)
+          })
+        })]))
+      )
+    expect(outcomes).toEqual([
+      expect.objectContaining({
+        _tag: "Failed",
+        auditId: "audit-audit_written",
+        error: expect.objectContaining({
+          code: "unknown",
+          message: "audit audit-audit_written has no recoverable protocol detail"
+        })
+      })
+    ])
+    expect(store.state().audits[0]?.status).toBe("in_progress")
+    expect(logs).toEqual([
+      expect.objectContaining({
+        level: "Warn",
+        annotations: expect.objectContaining({ runId: "run", auditId: "audit-audit_written", step: "terminal_failure" })
+      })
+    ])
+    expect(String(logs[0]?.message)).toContain("injected failure at updateAudit")
+  }))

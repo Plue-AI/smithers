@@ -2429,7 +2429,13 @@ export const make = (deps: Dependencies) => {
                     (isPark) =>
                       isPark
                         ? recordCrossing("parked", {})
-                        : Effect.ignore(emitLifecycle(EffectRecords.boundary(effect, "unknown")))
+                        : emitLifecycle(EffectRecords.boundary(effect, "unknown")).pipe(
+                          Effect.catchCause((cause) =>
+                            Effect.logWarning("engine-store: failed to persist unknown effect boundary", cause).pipe(
+                              Effect.annotateLogs({ runId: deps.runId, step: input.key })
+                            )
+                          )
+                        )
                   )
                 return yield* exit
               })
