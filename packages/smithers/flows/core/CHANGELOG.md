@@ -5,7 +5,7 @@
 ### Removed
 
 - Removed the object-form `Flow.make(options)` and `Flow.MakeOptions` under
-  [RELEASE_SUPPORT.md §21.1 item 8](../../../../RELEASE_SUPPORT.md#mvp-compatibility-changes).
+  [RELEASE_SUPPORT.md (MVP compatibility changes)](../../../../RELEASE_SUPPORT.md#mvp-compatibility-changes).
   Replace executable declarations with `Flow.make("tag", { payload, success, body })`
   from `@smthrs/flow`. For host handlers, pass a plain `FlowBinding` record with
   `name`, `input`, `output`, `capabilities` and `effects`. `Flow.isFlow` and

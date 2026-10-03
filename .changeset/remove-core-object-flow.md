@@ -20,7 +20,7 @@ Bound declarations now expose schema/metadata records rather than implicit
 Core actions and executable wrappers. Filesystem invokers and evaluation
 targets consume those records; memory policy inheritance retains their schemas.
 
-This public removal follows RELEASE_SUPPORT.md (§21.1 item 8). The metadata
+This public removal follows RELEASE_SUPPORT.md (MVP compatibility changes). The metadata
 `Flow.isFlow` and `Flow.TypeId` exports remain for Markdown lowering.
 
 ```ts

@@ -23,7 +23,7 @@ to a flow.
 
 ### D-003 — How a canvas edit becomes a TypeScript edit. OPEN — central risk
 Kestra round-trips for free because YAML is structurally editable. Our flows are
-TypeScript + Effect. `Flow.make({...})` is already a declarative manifest
+TypeScript + Effect. `Flow.make(tag, {...})` from `@smthrs/flow` declares the executable graph; a record checked with `satisfies FlowBinding.Declared` is a delegating manifest
 (description, input, output, capabilities, flows, effects) which is promising,
 but `Action` wiring is arbitrary Effect code.
 Candidate answers, none chosen:
@@ -1039,7 +1039,7 @@ residuals it names are properties of the shape, not of one implementation.
 Will's design intent, in his words: the file-based flow API "is supposed to
 just be an ergonomic wrapper around" the low-level flow. They were siblings.
 Discovery and `Executable.loadModule` admitted one shape — a `@smthrs/core`
-`Flow.make({ description, input, output, flows, effects })` default export,
+`Flow.make({ description, input, output, flows, effects })` default export (historical constructor; now a plain record checked with `satisfies FlowBinding.Declared`),
 whose whole lowering is ONE node delegating to a flow the host registered —
 while `flows/create-flow/scaffold/flow.mdx` told an authoring agent to write a
 `@smthrs/flow` `Flow.make("<tag>", { payload, success, body })` graph at
@@ -1137,7 +1137,7 @@ A manifest still lowers to a single delegating node built by
 `Executable.fromDescriptor`, and a graph still lowers to itself; the shared
 part is discovery's literal-metadata rule and the descriptor, not the runtime.
 
-What the full change would be: `@smthrs/core` `Flow.make({ … })` returns a
+Historical proposal, superseded by the constructor removal: `@smthrs/core` `Flow.make({ … })` would return a
 `@smthrs/flow` flow whose body is the delegating node the bridge builds today,
 carrying the manifest's declarations as annotations. Then there is ONE
 executable shape, `Executable.delegate` goes away again rather than becoming

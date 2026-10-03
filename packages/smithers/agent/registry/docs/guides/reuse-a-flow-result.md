@@ -21,8 +21,8 @@ derives.
 "use server"
 
 import { Annotations } from "@smthrs/core"
-import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 export default ({
@@ -40,7 +40,8 @@ export default ({
     tier: "sealed"
   },
   annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, {
-    ttlMs: 60_000, scope: "shared"
+    ttlMs: 60_000,
+    scope: "shared"
   })
 } satisfies FlowBinding.Declared)
 ```

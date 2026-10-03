@@ -12,7 +12,8 @@ projection (D-020) and the duration predictor (D-030).
 ## Ground truth — the authoring side
 
 - `Flow.make(tag, { description, payload, success, capabilities, effects, body })` is
-  already a declarative manifest — `flows/coding/flow.ts:5`.
+  the executable graph API from `@smthrs/flow` — `flows/coding/flow.ts:5`.
+  Delegating modules use a plain record checked with `satisfies FlowBinding.Declared`.
 - `Action.make(name, { payload, success, error, nondeterministic })` and
   `AgentAction.make(...)` give every node a typed payload/success/error contract
   — `flows/coding/atoms.ts:12`.

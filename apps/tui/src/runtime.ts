@@ -1,12 +1,10 @@
 /** Agent-facing runtime UI and delegation use the harness's existing flow catalog. */
 import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
-import { Flow } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Sandbox from "@smthrs/harness/Sandbox"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
-import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
 import * as Agents from "./agents.ts"
 import * as Extension from "./extension.ts"
@@ -79,8 +77,8 @@ export const publicError = (error: Error): string => {
   return `${tag}${typeof code === "string" ? ` (${code})` : ""}: ${error.message}`
 }
 /**
- * One runtime flow. `Flow.make` only names it: its empty payload is never
- * decoded. `input` is the call's schema (`FlowBinding.make` decodes `flow.input`),
+ * One typed declaration bound to its handler.
+ * `input` is the call's schema (`FlowBinding.make` decodes `flow.input`),
  * and it may be any schema, as `ui.publish` takes a union.
  */
 const bind = <I extends Schema.Top & Schema.ConstraintDecoder<unknown, never>>(
@@ -92,18 +90,12 @@ const bind = <I extends Schema.Top & Schema.ConstraintDecoder<unknown, never>>(
   capabilities: ReadonlyArray<string> = [],
   interruptible = false
 ): FlowBinding.Binding => {
-  const flow = Flow.make(name, {
-    description,
-    payload: Schema.Struct({}),
-    success: Schema.Unknown,
-    body: () => Node.succeed(undefined)
-  })
   return FlowBinding.make({
     flow: {
-      ...flow,
-      name: flow._tag,
+      name,
+      description,
       input,
-      output: flow.successSchema,
+      output: Schema.Unknown,
       capabilities,
       effects: { reads: [], writes: [], tier: "irreversible", mode: "expected", onConflict: "serialize" }
     },
