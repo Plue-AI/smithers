@@ -2,7 +2,7 @@ import { chromium } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 const setup = ['fresh','app','sign_in','choosing_repository','squash_blocked','models_validating','models_failed','source_running','machine_failed','no_capacity','done']
-const settings = ['ready','notifications_need_https','github_stale','github_limited','github_refused','degraded','obsidian','obsidian_error','no_capacity','parallel_s2','raised_daily_admissions','member_view']
+const settings = ['ready','notifications_need_https','github_stale','github_limited','github_refused','degraded','obsidian','obsidian_error','no_capacity','parallel_s2','raised_daily_admissions','member_view','address_failed']
 const directory = `${homedir()}/design-lanes/shots/T-UI-02`
 mkdirSync(directory, { recursive: true })
 const browser = await chromium.launch()
