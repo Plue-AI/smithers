@@ -25,7 +25,7 @@ const event = (type: "diagnostics" | "waiting" | "closed"): CloudLspEvent => {
   if (type === "waiting") return { ...scope, type, paths: ["index.ts"], note: "Previous account private failure" }
   return { ...scope, type, paths: ["index.ts"], code: 1008, reason: "Previous account private close" }
 }
-const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; missingFile?: boolean; startingAfterMs?: number } = {}) => {
+const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; missingFile?: boolean; startingAfterMs?: number; validatedGuestExecution?: () => boolean | undefined; guestValidationAbsent?: boolean } = {}) => {
   const data = new Map<string, string>()
   const store = await createAppStore({ kind: "localStorage", storage: { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) } } })
   stores.push(store)
@@ -45,6 +45,7 @@ const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; mis
   const ctx = { store, baseUrl: "", actor: () => "user" as const, nextOrdinal: () => 1, dispatch: store.dispatch,
     isDisposed: () => disposed, http: async () => { throw new Error("Unexpected HTTP") } }
   const seamOptions: CodeIntelSeamOptions = {
+    ...(options.guestValidationAbsent ? {} : { validatedGuestExecution: () => options.validatedGuestExecution ? options.validatedGuestExecution() === true : true }),
     startingAfterMs: options.startingAfterMs ?? 60_000,
     readFile: async (...args) => { calls.readFile++; return options.readFile?.(...args) },
     createCloudLsp: () => {
@@ -423,3 +424,16 @@ test("a selected box that is not running refuses; only with no box selected does
   expect(typeof await seam.hover("index.ts", 1, 1, "owner/repo")).not.toBe("string")
   expect(calls.hover).toBe(1)
 })
+
+for (const missing of [true, false]) {
+  test(`unvalidated guest execution refuses every request before reads, transport or observations (absent=${missing})`, async () => {
+    const fixture = await setup({ missingFile: true, guestValidationAbsent: missing, validatedGuestExecution: () => false })
+    const before = await fixture.store.eventHistory()
+    for (const pending of [fixture.seam.hover("index.ts", 1, 1, "owner/repo"), fixture.seam.definition("index.ts", 1, 1, "owner/repo"), fixture.seam.diagnostics("index.ts", "owner/repo")]) {
+      await expect(pending).rejects.toMatchObject({ code: "unavailable", class: "infra", message: "Code intelligence is unavailable" })
+    }
+    expect(fixture.clients).toEqual([])
+    expect(fixture.calls).toEqual({ hover: 0, definition: 0, diagnostics: 0, readFile: 0 })
+    expect((await fixture.store.eventHistory()).head).toEqual(before.head)
+  })
+}

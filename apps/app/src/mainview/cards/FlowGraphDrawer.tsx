@@ -28,9 +28,9 @@
  * so this component still reads nothing and holds nothing.
  */
 import { memoryWords, type RunInputs } from "./RunInputs"
-import { Suspense, useContext } from "react"
+import { Suspense } from "react"
 import { CodeSurface } from "../ViewModules"
-import { ControllerContext } from "../ControllerContext"
+import { fileModel } from "./FileCards"
 import { ViewSkeleton } from "../ViewSkeleton"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
@@ -496,31 +496,16 @@ export const fileFor = (
  * drawer is not a second one. A file whose bytes are not text is stated by
  * the card that read it and is not printed here either.
  */
-const DrawerCode = ({ file, line, onRunCommand }: {
+const DrawerCode = ({ file, line }: {
   readonly file: DrawerFile
   readonly line: number
   readonly onRunCommand: RunCommand
 }) => {
-  /*
-   * The gestures follow the catalog (THE THREE-DOOR LAW), exactly as
-   * FileCards.tsx reads it: a host that does not register `code.hover` arms
-   * nothing. Without a controller — a component test — the caller's
-   * `onRunCommand` is the whole door.
-   */
-  const controller = useContext(ControllerContext)
-  /*
-   * A language server answers about the file on disk. This file is a
-   * revision, which is not on disk, so the gestures that would ask about it
-   * are not armed: an answer about the working tree is not an answer about
-   * these bytes (D-068).
-   */
-  const codeIntel = file.ref === undefined &&
-    (controller === null || controller.commands.find("code.hover") !== undefined)
   if (file.binary === true) return null
   return (
     <div className="flow-graph-code-file" data-line={line}>
       <Suspense fallback={<ViewSkeleton />}>
-        <CodeSurface payload={{ ...file, line }} codeIntel={codeIntel} onRunCommand={onRunCommand} />
+        <CodeSurface model={fileModel({ ...file, line })} view={{ maximized: false }} actions={[]} gestures={{}} onAction={() => {}} onView={() => {}} />
       </Suspense>
     </div>
   )

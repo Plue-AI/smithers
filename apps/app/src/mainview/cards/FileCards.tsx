@@ -1,9 +1,7 @@
-import { ViewSkeleton } from "../ViewSkeleton"
-import { MarkdownEditorSurface, CodeSurface } from "../ViewModules"
+import { CodeSurface } from "../ViewModules"
+import { cardActions } from "../flows/cardActions"
 import { flowAction } from "../flows/FlowAction"
 import { fileArgs } from "../flows/FileArgs"
-import { flowArgs } from "../flows/FlowArgs"
-import { headingLine, resolveMarkdownLink } from "./MarkdownLinks"
 /*
  * The repo file cards: a directory listing ("file-list") whose rows open
  * /files.list or /files.read, and a file view ("file") rendered as a fenced
@@ -13,9 +11,9 @@ import { headingLine, resolveMarkdownLink } from "./MarkdownLinks"
  */
 import { Button } from "@smthrs/ui"
 import { FileText, Folder } from "lucide-react"
-import { Component, Suspense, useContext, useRef } from "react"
+import { Component, Suspense, useContext } from "react"
 import type { ReactNode } from "react"
-import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
+import type { FileCard } from "@smthrs/rpc/FileCard"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { Card } from "../state/AppState"
 import { shortId } from "../state/ids"
@@ -23,21 +21,6 @@ import type { AppController } from "../state/AppController"
 import { ControllerContext } from "../ControllerContext"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
-
-/*
- * A markdown file renders through the shared WYSIWYG editor the World notes
- * use (will, 2026-09-01), read only: nothing writes a repository file back.
- * The adapter is heavy, so it loads only when a markdown card is on screen.
- */
-
-
-/*
- * Code intelligence L1 (docs/code-intel/PLAN.md §1): a code file renders
- * through `@pierre/diffs` `File` (Shiki underneath) behind this boundary, so
- * pierre and the grammars land in an async chunk that never imports the
- * entry. The plain block is the complete first state while the chunk loads.
- */
-
 
 /*
  * A lazy viewer whose chunk fails to load (an old tab after a deploy, or the
@@ -49,101 +32,6 @@ class LazyViewerBoundary extends Component<{ readonly fallback: ReactNode; reado
   override state: { readonly failed: boolean } = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
   override render() { return this.state.failed ? this.props.fallback : this.props.children }
-}
-
-/** Markdown by extension: the editor renders these; code goes through the code view; the rest is a plain block. */
-export const isMarkdownPath = (path: string): boolean => /\.(md|mdx|markdown)$/i.test(path)
-
-/*
- * The language word the header shows (docs/code-intel/PLAN.md §5), by
- * extension, in the grammar's own name. Only the languages the app meets
- * are named; a file outside the table shows no word, which is a complete
- * state. The header renders without the lazy surface, so the table lives
- * here rather than behind the adapter's grammar registry.
- */
-const LANGUAGE_WORDS: Readonly<Record<string, string>> = {
-  ts: "TypeScript",
-  mts: "TypeScript",
-  cts: "TypeScript",
-  tsx: "TSX",
-  js: "JavaScript",
-  mjs: "JavaScript",
-  cjs: "JavaScript",
-  jsx: "JSX",
-  json: "JSON",
-  md: "Markdown",
-  mdx: "Markdown",
-  markdown: "Markdown",
-  rs: "Rust",
-  go: "Go",
-  py: "Python",
-  css: "CSS",
-  html: "HTML",
-  yml: "YAML",
-  yaml: "YAML",
-  toml: "TOML",
-  sh: "Shell",
-  bash: "Shell",
-  zsh: "Shell"
-}
-export const languageWord = (path: string): string | null => {
-  const extension = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase()
-  return extension === undefined ? null : LANGUAGE_WORDS[extension] ?? null
-}
-
-/**
- * The count line under the header, present only once the server answered:
- * errors and warnings, as the mockup counts them — of the rows the card
- * holds, so when the host's cap cut the publication the line says how many
- * of the total it counted rather than passing the cap off as the total.
- */
-const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`
-export const diagnosticsCount = (items: ReadonlyArray<{ readonly severity: string }>, total?: number): string =>
-  `${plural(items.filter((item) => item.severity === "error").length, "error")} · ${
-    plural(items.filter((item) => item.severity === "warning").length, "warning")
-  }${total !== undefined && total > items.length ? ` · ${items.length} of ${total} shown` : ""}`
-
-/*
- * The language server as the card knows it (payload.intel), stated only when
- * there is something to state: a missing server with its install line
- * verbatim, a host refusal with the host's message, the spawn in progress,
- * and a ready server's one-line note when the seam left one (a definition
- * that lies outside the repository). `ready` with no note renders nothing —
- * absence is the state.
- */
-const CodeIntelNote = ({ intel, language }: {
-  readonly intel: NonNullable<Extract<Card, { kind: "file" }>["payload"]["intel"]>
-  readonly language: string | null
-}) => {
-  const server = `${language === null ? "" : `${language} `}language server`
-  if (intel.state === "ready") return intel.note === undefined ? null : <p className="code-intel-note" data-intel="ready">{intel.note}</p>
-  if (intel.state === "starting") return <p className="code-intel-note" data-intel="starting">Starting the {server}…</p>
-  if (intel.state === "missing") {
-    return (
-      <p className="code-intel-note" data-intel="missing">
-        Hover and definitions: no {server} on this machine.
-        {intel.note === undefined ? null : (
-          <>
-            <br />
-            Install: <code>{intel.note}</code>
-          </>
-        )}
-      </p>
-    )
-  }
-  return <p className="code-intel-note" data-intel="unavailable">Hover and definitions: {intel.note ?? "the language server is unavailable"}</p>
-}
-
-/*
- * The editor reseeds its document only when resetKey changes (the adapter's
- * contract), so the key follows the CONTENT: a re-read after a same-length
- * edit must not show the old text. djb2 over the string is cheap at the card
- * cap and distinct enough for a key.
- */
-export const contentKey = (content: string): string => {
-  let hash = 5381
-  for (let index = 0; index < content.length; index += 1) hash = ((hash << 5) + hash + content.charCodeAt(index)) | 0
-  return `${content.length}:${(hash >>> 0).toString(36)}`
 }
 
 export interface FileCardActions {
@@ -328,125 +216,34 @@ export const FileListCardBody = ({
   )
 }
 
-/*
- * A click on a link in a markdown file card (#3132). A relative link opens
- * its target from the same source the card was read from: the box's files for
- * a box read, else the repository (the same working copy and revision). A
- * `#anchor` scrolls to its heading in this document. Web links stay the
- * browser's (false); everything else is handled here, even when it goes
- * nowhere, so the app never navigates to its own 404.
- */
-export const followMarkdownLink = (
-  payload: Extract<Card, { kind: "file" }>["payload"],
-  href: string,
-  onRunCommand: RunCommand,
-  editor: MarkdownEditorHandle | null
-): boolean => {
-  const link = resolveMarkdownLink(payload.path, href)
-  if (link.kind === "external") return false
-  if (link.kind === "fragment") {
-    const line = headingLine(payload.content, link.fragment)
-    if (line !== undefined) editor?.scrollToLine(line)
-  } else if (link.kind === "file" || link.kind === "directory") {
-    const scope = payload.localRepoId ?? payload.repo
-    const at = link.path === "" ? "/" : link.path
-    if (payload.workspaceId !== undefined) {
-      if (link.kind === "file") onRunCommand("box.file", fileArgs(link.path, payload.workspaceId))
-      else onRunCommand("box.files", fileArgs(at, payload.workspaceId))
-    } else if (link.kind === "file") {
-      onRunCommand("files.read", flowArgs("files.read", { path: link.path, repo: scope, ...(payload.ref === undefined ? {} : { ref: payload.ref }) }))
-    } else onRunCommand("files.list", fileArgs(at, scope))
+/** Legacy journal data maps to S1 props without granting execution authority. */
+export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): FileCard => {
+  return {
+    path: payload.path, branch: payload.ref ?? payload.repo, language: "", digest: "",
+    content: { kind: "text", text: payload.content }, mode: "read_only",
+    diagnostics: (payload.diagnostics ?? []).flatMap(item => item.severity === "error" || item.severity === "warning"
+      ? [{ line: item.line, col: item.character - 1, severity: item.severity, message: item.message }] : []),
+    ...(payload.hover == null ? {} : { hover: { line: payload.hover.line, col: payload.hover.character - 1, markdown: payload.hover.contents } }),
+    ...(payload.line === undefined ? {} : { reveal: { line: payload.line, ...(payload.column === undefined ? {} : { col: payload.column - 1 }) } }),
+    authors: [], editors: []
   }
-  return true
 }
 
-export const FileCardBody = ({
-  card,
-  onRunCommand
-}: { readonly card: Extract<Card, { kind: "file" }> } & FileCardActions) => {
-  const language = languageWord(card.payload.path)
-  /*
-   * The gestures follow the catalog (THE THREE-DOOR LAW): the surface binds
-   * code.hover / code.definition only where this host registers them. A host
-   * without the workspace language-server tunnel (`cloud.terminal`) arms no
-   * gesture and an absent capability renders nothing. Without a controller (a
-   * component test) the caller's onRunCommand is the whole door.
-   */
-  const controller = useContext(ControllerContext)
-  const codeIntel = controller === null || controller.commands.find("code.hover") !== undefined
-  const intel = card.payload.intel
-  const editor = useRef<MarkdownEditorHandle | null>(null)
-  return (
-    /*
-     * Ask 6 (will, 2026-09-02): the body is a PANEL — capped height, its own
-     * scrollbar (styles/cards.css `.world-card-panel`) — so a long file scrolls
-     * inside the card instead of turning the transcript into the file.
-     */
-    <div className="world-card-list world-card-panel" data-line={card.payload.line}>
-      <FileCardHeader
-        repo={card.payload.repo}
-        localRepoId={card.payload.localRepoId}
-        path={card.payload.path}
-        address={card.payload.address}
-        readAt={card.payload.readAt}
-        refreshCommand="files.read"
-        onRunCommand={onRunCommand}
-        trailing={language === null ? undefined : <span data-slot="code-language">{language}</span>}
-      />
-      {/* Code intelligence (docs/code-intel/PLAN.md §5): the count once the server answered; the server's state when it is not ready. */}
-      {card.payload.diagnostics === undefined ? null : (
-        <p
-          className="code-diagnostics-count"
-          data-slot="code-diagnostics-count"
-          data-errors={card.payload.diagnostics.filter((item) => item.severity === "error").length}
-        >
-          {diagnosticsCount(card.payload.diagnostics, card.payload.diagnosticsTotal)}
-        </p>
-      )}
-      {intel === undefined ? null : intel.state === "missing" || intel.state === "unavailable" ? (
-        <details className="world-card-path"><summary>Code navigation</summary><CodeIntelNote intel={intel} language={language} /></details>
-      ) : <CodeIntelNote intel={intel} language={language} />}
-      {card.payload.binary === true ?
-        (
-          <p className="world-card-empty">
-            This file is binary, so its bytes are not shown here — open it in the repository.
-          </p>
-        ) :
-        isMarkdownPath(card.payload.path) ?
-        (
-          <div className="world-card-doc" data-file-markdown="">
-            <LazyViewerBoundary fallback={<pre className="world-card-path" data-viewer-fallback="">{card.payload.content}</pre>}>
-              <Suspense fallback={<ViewSkeleton />}>
-                <MarkdownEditorSurface
-                  value={card.payload.content}
-                  resetKey={`${card.id}:${contentKey(card.payload.content)}`}
-                  label={`${card.payload.path} in ${card.payload.repo}`}
-                  readOnly
-                  onEditor={(handle) => { editor.current = handle }}
-                  onLinkClick={(href) => followMarkdownLink(card.payload, href, onRunCommand, editor.current)}
-                />
-              </Suspense>
-            </LazyViewerBoundary>
-          </div>
-        ) :
-        /*
-         * A cut file is still code (will, 2026-09-03: a 16 KiB TypeScript file
-         * rendered monochrome was the complaint). The prefix is highlighted and
-         * the truncation line below states the cut; at most the last token is
-         * split, and the language server reads the file from disk, not the card.
-         */
-        (
-          <LazyViewerBoundary fallback={<pre className="world-card-path" data-viewer-fallback="">{card.payload.content}</pre>}>
-            <Suspense fallback={<pre className="world-card-path">{card.payload.content}</pre>}>
-              <CodeSurface payload={card.payload} codeIntel={codeIntel} onRunCommand={onRunCommand} />
-            </Suspense>
-          </LazyViewerBoundary>
-        )}
-      {card.payload.truncated ?
-        <p className="world-card-empty">Truncated — the full file stays in the repository.</p> :
-        null}
-    </div>
-  )
+export const FileCardBody = ({ card }: { readonly card: Extract<Card, { kind: "file" }> } & FileCardActions) => {
+  const payload = card.payload
+  const bindings = cardActions<"hover" | "definition">(() => {}, [])
+  // Old binary cards carry no byte count. Do not invent one.
+  if (payload.binary) return <p className="code-file-size">Binary file</p>
+  const model = fileModel(payload)
+
+  return <div className="world-card-panel" data-line={payload.line}>
+    <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
+      <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
+        <CodeSurface model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
+      </Suspense>
+    </LazyViewerBoundary>
+    {payload.truncated ? <p className="world-card-empty">Truncated</p> : null}
+  </div>
 }
 
 export const fileCardFamily: CardFamily<"file-list" | "file"> = {

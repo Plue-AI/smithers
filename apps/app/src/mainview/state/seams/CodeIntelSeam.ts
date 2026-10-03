@@ -49,6 +49,8 @@ export interface CodeIntelSeam {
 }
 
 export interface CodeIntelSeamOptions {
+  /** Host-owned T-INS-02 isolation and T-SEC-01 guest validation receipt. Absent fails closed. */
+  readonly validatedGuestExecution?: () => boolean
   /**
    * Creates one workspace language-server client per account owner. The seam
    * closes it when that owner retires. Absent where this host
@@ -197,6 +199,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     ]
   }
   const watchCloud = (): CloudLspClient => {
+    requireGuestExecution()
     if (cloudWatch.current?.() === false) retire()
     if (cloudWatch.client !== undefined) return cloudWatch.client
     const owner = captureCloudOwner(ctx)
@@ -237,6 +240,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
 
   /** Run one request; past the 300 ms mark a card that never saw the server answer states "starting". */
   const request = async <T>(prepared: Prepared, work: () => Promise<LspAnswer<T>>): Promise<LspAnswer<T>> => {
+    requireGuestExecution()
     const { id } = prepared
     const timer = setTimeout(() => {
       if (prepared.current() && prepared.canPublish() && fileCard(id)?.payload.intel?.state !== "ready") patch(id, { intel: { state: "starting" } })
@@ -366,8 +370,15 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   const current = (prepared: Prepared): boolean =>
     fileCard(prepared.id)?.payload.content === prepared.document.content
 
+  const requireGuestExecution = () => {
+    if (options.validatedGuestExecution?.() !== true) {
+      throw Object.assign(new Error("Code intelligence is unavailable"), { code: "unavailable", class: "infra" })
+    }
+  }
+
   return {
     hover: async (pathArg, line, column, repoArg) => {
+      requireGuestExecution()
       const target = targetFor(pathArg, repoArg)
       if (typeof target === "string") return target
       // Claim the card before file preparation; user and agent calls share it.
@@ -405,6 +416,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     },
 
     definition: async (pathArg, line, column, repoArg) => {
+      requireGuestExecution()
       const prepared = await prepare(pathArg, repoArg, { line, column })
       if (typeof prepared === "string") return prepared
       if (!prepared.current()) return SIGN_OUT_REFUSAL
@@ -446,6 +458,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     },
 
     diagnostics: async (pathArg, repoArg) => {
+      requireGuestExecution()
       const prepared = await prepare(pathArg, repoArg)
       if (typeof prepared === "string") return prepared
       if (!prepared.current()) return SIGN_OUT_REFUSAL

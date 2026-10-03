@@ -1,119 +1,58 @@
-/*
- * The highlighted file body (docs/code-intel/PLAN.md §1, §5): `@pierre/diffs`
- * `File` through `@smthrs/ui/adapters/code-view`, Shiki underneath. The
- * adapter is heavy, so FileCards loads this module lazily: it is the async
- * chunk boundary and stays the only place in the app graph that imports the
- * adapter. A file no grammar claims keeps the card's own plain block.
- *
- * Code intelligence rides the same surface and the payload alone: the
- * diagnostics the seam wrote render under their lines, the last hover
- * answer renders under its line, and the two pointer gestures are command
- * bindings through onRunCommand — a pointer at rest on a token runs
- * `code.hover <path>:<line>:<col> <repo>`, ⌘/Ctrl-click runs
- * `code.definition` with the same position — the same door every row in
- * FileCards.tsx uses, so the slash and the agent tool run the identical act.
- * The gestures bind only where those flows exist (`codeIntel`, the card's
- * reading of the catalog): a host without the workspace language-server
- * tunnel (`cloud.terminal`) renders the same highlighted file with no dead
- * gesture. Nothing here is component state; the one ref is the position last
- * asked, so a pointer that stays put asks once.
- */
-import { fileArgs } from "../flows/FileArgs"
-import { LSP_HOVER_CAP_CHARS } from "@smthrs/rpc/LocalLsp"
-import { Markdown } from "@smthrs/ui"
-import { CodeFileView, languageForFile } from "@smthrs/ui/adapters/code-view"
-import type { CodeLineAnnotation, CodeTokenPosition } from "@smthrs/ui/adapters/code-view"
 import { useMemo, useRef } from "react"
-import type { Card } from "../state/AppState"
-import type { RunCommand } from "./CardFamily"
-import { flowGestureProps } from "../flows/FlowAction"
+import { Markdown } from "@smthrs/ui"
+import { CodeFileView } from "@smthrs/ui/adapters/code-view"
+import type { CodeLineAnnotation, CodeTokenPosition } from "@smthrs/ui/adapters/code-view"
+import type { CodeEditorViewProps } from "@smthrs/rpc/FileCard"
+import { ActorChip, actorName } from "./views/ActorChip"
+import { formatBytes } from "./views/formatBytes"
 
-type FilePayload = Extract<Card, { kind: "file" }>["payload"]
-type Diagnostic = NonNullable<FilePayload["diagnostics"]>[number]
-
-/** The mark before a diagnostic's message; the mockup's `✖` for an error, its counterpart for a warning, a dot for the rest. */
-const SEVERITY_GLYPH: Readonly<Record<Diagnostic["severity"], string>> = { error: "✖", warning: "▲", information: "·", hint: "·" }
-
-const DiagnosticRow = ({ item }: { readonly item: Diagnostic }) => {
-  const origin = [item.source, item.code].filter((part): part is string => part !== undefined).join(" ")
-  return (
-    <p className="code-diagnostic" data-slot="code-diagnostic" data-severity={item.severity}>
-      <span className="code-diagnostic-glyph" aria-hidden="true">{SEVERITY_GLYPH[item.severity]}</span>
-      <span className="code-diagnostic-message">{item.message}</span>
-      {origin === "" ? null : <span className="code-diagnostic-origin">({origin})</span>}
-    </p>
-  )
-}
-
-/** The modifier the definition gesture takes on this machine, as the hover box names it. */
-const activateKey = (): string => (typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘-click" : "Ctrl-click")
-
-/** The host cut the server's text at its cap: the box says so rather than ending mid-sentence as if complete. */
-const HOVER_CUT = `(cut at ${LSP_HOVER_CAP_CHARS / 1024} KiB)`
-
-const HoverBox = ({ contents, truncated }: { readonly contents: string; readonly truncated: boolean }) => (
-  <div className="code-hover" data-slot="code-hover">
-    <Markdown className="code-hover-body" content={contents} />
-    {truncated ? <span className="code-hover-hint" data-slot="code-hover-cut">{HOVER_CUT}</span> : null}
-    <span className="code-hover-hint">{activateKey()}: definition</span>
-  </div>
-)
-
-export const CodeSurface = ({
-  payload,
-  codeIntel,
-  onRunCommand
-}: {
-  readonly payload: FilePayload
-  /** Whether this host registers the code.* flows (FileCards reads the catalog); false binds no gesture. */
-  readonly codeIntel: boolean
-  readonly onRunCommand: RunCommand
-}) => {
-  const { path, content, line, repo, hover, diagnostics, intel } = payload
-
-  const annotations = useMemo<ReadonlyArray<CodeLineAnnotation>>(
-    () => [
-      ...(diagnostics ?? []).map((item, index) => ({ key: `diagnostic-${index}`, line: item.line, node: <DiagnosticRow item={item} /> })),
-      ...(hover == null ? [] : [{ key: "hover", line: hover.line, node: <HoverBox contents={hover.contents} truncated={hover.truncated === true} /> }])
-    ],
-    [diagnostics, hover]
-  )
-
-  /*
-   * One hover in flight: the position last asked, with the payload it was
-   * asked against. The same position is not asked again until the payload
-   * has moved (the answer landed, or anything else patched the card); a
-   * position the payload already answers is never asked.
-   */
-  const asked = useRef<{ readonly key: string; readonly payload: FilePayload } | null>(null)
-  const position = (token: CodeTokenPosition): string => fileArgs(`${path}:${token.line}:${token.column}`, payload.localRepoId ?? repo)
-  const onTokenRest = (token: CodeTokenPosition): void => {
-    const key = `${token.line}:${token.column}`
-    if (hover != null && hover.line === token.line && hover.character === token.column) return
-    if (asked.current !== null && asked.current.key === key && asked.current.payload === payload) return
-    asked.current = { key, payload }
-    onRunCommand("code.hover", position(token))
+/** S1 File presentation. The card supplies authority; content changes keep the same CodeFileView instance. */
+export const CodeSurface = ({ model, view, gestures, onAction }: CodeEditorViewProps) => {
+  const asked = useRef<{ key: string; text: string } | null>(null)
+  const annotations = useMemo<readonly CodeLineAnnotation[]>(() => [
+    ...model.diagnostics.map((item, index) => ({ key: `diagnostic-${index}`, line: item.line,
+      node: <p className="code-diagnostic" data-slot="code-diagnostic" data-severity={item.severity}>{item.message}</p> })),
+    ...(model.hover ? [{ key: "hover", line: model.hover.line,
+      node: <div className="code-hover"><Markdown className="code-hover-body" content={model.hover.markdown} /></div> }] : [])
+  ], [model.diagnostics, model.hover])
+  const position = (token: CodeTokenPosition) => ({ path: model.path, line: String(token.line), col: String(token.column - 1) })
+  const hover = (token: CodeTokenPosition) => {
+    const key = `${model.path}:${model.digest}:${token.line}:${token.column}`
+    const text = model.content.kind === "text" ? model.content.text : ""
+    if ((asked.current?.key === key && asked.current.text === text) || (model.hover?.line === token.line && model.hover.col === token.column - 1)) return
+    asked.current = { key, text }
+    if (gestures.hover) onAction(gestures.hover.tag, position(token))
   }
-  const onTokenActivate = (token: CodeTokenPosition): void => onRunCommand("code.definition", position(token))
-
-  if (languageForFile(path) === null) return <pre className="world-card-path">{content}</pre>
-  /*
-   * A host without the flows, or a card that already knows there is no
-   * server to ask (the note under the header states it, with the install
-   * line), binds no gesture: every rest would be one more refusal — or, on
-   * a host that drops an unregistered name, nothing at all.
-   */
-  const bound = codeIntel && intel?.state !== "missing" && intel?.state !== "unavailable"
-  return (
-    <div className="code-surface" {...(bound ? flowGestureProps("code.hover", "code.definition") : {})}>
-      <CodeFileView
-        name={path}
-        contents={content}
-        line={line}
-        annotations={annotations}
-        onTokenRest={bound ? onTokenRest : undefined}
-        onTokenActivate={bound ? onTokenActivate : undefined}
-      />
+  const definition = (token: CodeTokenPosition) => {
+    if (gestures.definition) onAction(gestures.definition.tag, position(token))
+  }
+  return <section className="smithers-card code-file-view" data-kind="file" data-keyboard-pane="File" data-digest={model.digest || undefined} data-mode="read_only" aria-label={model.path}>
+    <header className="smithers-card-header"><h2 className="smithers-card-title">{model.path}</h2><span className="mvp-branch-chip">{model.branch}</span>
+      {model.last_writer ? <span className="code-writer" title={actorName(model.last_writer)}><ActorChip actor={model.last_writer} size="s" /></span> : null}
+    </header>
+    <div className="smithers-card-body">
+      {model.content.kind !== "text" ? <p className="code-file-size">{model.content.kind === "binary" ? "Binary file" : "Too large to show"} · {formatBytes(model.content.bytes, "decimal")} {model.github_url ? <a href={model.github_url} target="_blank" rel="noreferrer">on GitHub ↗</a> : null}</p> :
+        <div className="code-surface" tabIndex={gestures.hover || gestures.definition ? 0 : undefined}
+          data-flow={gestures.hover?.tag} data-flow-activate={gestures.definition?.tag}
+          onKeyDown={event => {
+            if (!((event.key === "F12" && gestures.definition) || (event.key === "F10" && event.shiftKey && gestures.hover))) return
+            // Selection remains untouched. Prefer its token, otherwise the supplied reveal position.
+            const selection = window.getSelection()
+            const element = selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement
+            const token = element?.closest<HTMLElement>("[data-char]")
+            const row = token?.closest<HTMLElement>("[data-line]")
+            const surface = event.currentTarget.querySelector("diffs-container")
+            const selected = token?.getRootNode() === surface?.shadowRoot
+            const at = { line: selected ? Number(row?.dataset.line) : model.reveal?.line ?? view.line ?? 1,
+              column: selected ? Number(token?.dataset.char) + 1 : (model.reveal?.col ?? 0) + 1, text: "" }
+            if (!Number.isInteger(at.line) || at.line < 1 || !Number.isInteger(at.column) || at.column < 1) return
+            event.preventDefault()
+            if (event.key === "F12") definition(at)
+            else hover(at)
+          }}>
+          <CodeFileView name={model.path} contents={model.content.text} line={model.reveal?.line ?? view.line}
+            annotations={annotations} onTokenRest={gestures.hover ? hover : undefined} onTokenActivate={gestures.definition ? definition : undefined} />
+        </div>}
     </div>
-  )
+  </section>
 }
