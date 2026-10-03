@@ -206,6 +206,8 @@ export interface EntryProps {
   readonly program?: boolean
   /** Beneath an answer whose turn ran a program: `ctrl+o program · 11s`. */
   readonly hint?: string
+  /** Chat: a failed read is one faint row with its reason. */
+  readonly chat?: boolean
 }
 
 /** Whether a row draws the clock: an unfinished cell or call, or a shell command still running. */
@@ -227,7 +229,7 @@ const sameStep = (a: Scrubber.Step | undefined, b: Scrubber.Step | undefined): b
  */
 export const sameEntry = (a: EntryProps, b: EntryProps): boolean =>
   a.item === b.item && a.expanded === b.expanded && a.selected === b.selected && a.tone === b.tone &&
-  a.program === b.program && a.hint === b.hint &&
+  a.program === b.program && a.hint === b.hint && a.chat === b.chat &&
   sameStep(a.step, b.step) && (!ticking(b.item) || (a.now === b.now && a.tick === b.tick))
 
 export const Entry = memo(EntryView, sameEntry)
@@ -249,6 +251,7 @@ function EntryView(props: EntryProps) {
           selected={props.selected === true}
           program={props.program === true}
           step={props.step ?? { notes: [] }}
+          chat={props.chat === true}
         />
       )
     case "shell":
@@ -475,6 +478,8 @@ function CellView(props: {
   readonly selected: boolean
   readonly program: boolean
   readonly step: Scrubber.Step
+  /** Chat: a failed read is one faint row, and a step that only read keeps its failure under ctrl+o. */
+  readonly chat: boolean
 }) {
   const { cell, step } = props
   const [folded, setFolded] = useState(false)
@@ -498,13 +503,24 @@ function CellView(props: {
     if (cell.status === "rejected" || (rows.length === 0 && cell.error === undefined && notes.length === 0 && !live)) {
       return null
     }
+    // In Chat a read is the coordinator's own look at the code: one that fails is
+    // a faint row with its reason, and a step that only read keeps its failure under ctrl+o.
+    const read = (call: Transcript.Call) => props.chat && Transcript.coordinatorFlows.includes(call.flow)
+    const quiet = (call: Transcript.Call) => read(call) && call.status === "failed"
     return (
       <box style={{ paddingLeft: 1, marginBottom: 1 }}>
         {live && rows.length === 0 ? <text fg={color.faint}>{props.tick} working</text> : null}
-        {rows.map((call, index) => (
-          <CallView key={index} call={call} now={props.now} tick={props.tick} expanded={false} timed={false} />
-        ))}
-        {cell.error === undefined
+        {rows.map((call, index) =>
+          quiet(call)
+            ? (
+              <text key={index} fg={color.faint} wrapMode="none">
+                ✗ {call.verb?.failure ?? call.flow} {call.subject.split("\n")[0]}
+                {Failures.readReason(call.message) === "" ? "" : ` · ${Failures.readReason(call.message)}`}
+              </text>
+            )
+            : <CallView key={index} call={call} now={props.now} tick={props.tick} expanded={false} timed={false} />
+        )}
+        {cell.error === undefined || (rows.length > 0 && rows.every(read))
           ? null
           : (
             <FailureLine

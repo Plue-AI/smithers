@@ -452,6 +452,9 @@ const onlyDone = (cell: CellItem): boolean =>
   cell.calls.length === 0 && cell.printed === "" && cell.error === undefined &&
   /^(?:return\s+)?(?:await\s+)?ctx\.done\([\s\S]*\)\s*;?$/.test(cell.source.trim())
 
+/** What the Chat coordinator runs itself: it reads, and delegates anything that writes or runs a command. */
+export const coordinatorFlows: ReadonlyArray<string> = ["read", "grep", "ls"]
+
 /** Folds one harness event, observed at `at` milliseconds, into the transcript. */
 export const apply = (transcript: Transcript, event: Activity.Observed, at: number): Transcript => {
   if (event._tag === "seat-failed-over") {

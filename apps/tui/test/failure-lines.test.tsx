@@ -29,11 +29,14 @@ const cell = (change: Partial<Extract<Transcript.Item, { kind: "cell" }>>): Tran
   ...change
 })
 
-const frame = async (item: Transcript.Item, expanded: boolean): Promise<string> => {
-  setup = await testRender(<View.Entry item={item} now={1_000} tick="." expanded={expanded} />, {
-    width: 100,
-    height: 14
-  })
+const frame = async (item: Transcript.Item, expanded: boolean, chat?: boolean): Promise<string> => {
+  setup = await testRender(
+    <View.Entry item={item} now={1_000} tick="." expanded={expanded} {...(chat === undefined ? {} : { chat })} />,
+    {
+      width: 100,
+      height: 14
+    }
+  )
   await setup.renderOnce()
   const text = setup.captureCharFrame()
   await act(async () => {
@@ -93,6 +96,73 @@ describe("a failed call", () => {
     expect(collapsed).toContain("Not approved.")
     expect(collapsed).not.toContain("ctrl+o")
     expect(collapsed).not.toContain("Denied:")
+  })
+})
+
+describe("a failed read in Chat", () => {
+  const read = (change: Partial<Transcript.Call>): Transcript.Call => ({
+    flow: "read",
+    subject: "src/math.js",
+    status: "failed",
+    message: "File not found: src/math.js. The working directory holds: math.js, check.mjs.",
+    verb: { pending: "reading", success: "read", failure: "failed to read" },
+    startedAt: 0,
+    endedAt: 500,
+    ...change
+  })
+  const { message: _message, ...readOk } = read({ status: "ok", subject: "math.js" })
+  const rows = (text: string) => text.split("\n").map((row) => row.trim()).filter((row) => row !== "")
+
+  it("is one faint row with its reason, and the step it failed stays under ctrl+o", async () => {
+    const item = cell({ error: "TypeError: undefined is not an object", calls: [read({})] })
+    expect(rows(await frame(item, false, true))).toEqual(["✗ failed to read src/math.js · no such file"])
+    const expanded = await frame(item, true, true)
+    expect(expanded).toContain("This step failed.")
+    expect(expanded).toContain("TypeError: undefined is not an object")
+  })
+
+  it("keeps the failure of a step that only read under ctrl+o", async () => {
+    const item = cell({ error: "TypeError: cannot read property 'message' of undefined", calls: [readOk] })
+    expect(rows(await frame(item, false, true))).toEqual(["→ read math.js"])
+    expect(await frame(item, true, true)).toContain("This step failed.")
+  })
+
+  it("names a refusal, and keeps every other row of the step", async () => {
+    const item = cell({
+      status: "done",
+      calls: [
+        read({ subject: "../secret.txt", message: "../secret.txt: outside this repository" }),
+        readOk,
+        read({
+          flow: "grep",
+          subject: "price",
+          message: "src/loop: too many symlinks",
+          verb: { pending: "searching", success: "searched", failure: "failed to search" }
+        })
+      ]
+    })
+    expect(rows(await frame(item, false, true))).toEqual([
+      "✗ failed to read ../secret.txt · outside this repository",
+      "→ read math.js",
+      "✗ failed to search price · too many symlinks"
+    ])
+  })
+
+  it("leaves a worker's failed read and Chat's other failed calls as they were", async () => {
+    const worker = await frame(cell({ status: "done", calls: [read({})] }), false)
+    expect(worker).toContain("This action failed. · ctrl+o")
+    const shell = await frame(
+      cell({ status: "done", calls: [read({ flow: "bash", subject: "node check.mjs", message: RAW })] }),
+      false,
+      true
+    )
+    expect(shell).toContain("This action failed. · ctrl+o")
+    const ran = await frame(
+      cell({ error: RAW, calls: [readOk, { ...readOk, flow: "bash", subject: "node check.mjs" }] }),
+      false,
+      true
+    )
+    expect(ran).toContain("This step failed. · ctrl+o")
   })
 })
 

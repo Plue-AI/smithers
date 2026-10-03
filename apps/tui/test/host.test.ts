@@ -1164,7 +1164,7 @@ describe("coordinatorSources", () => {
       Host.coordinatorSources(services, "/repo").map((source) => Effect.runPromise(source.bindings()))
     )).flat()
     expect(bindings.map((binding) => binding.descriptor.name).sort()).toEqual(["grep", "ls", "read"])
-    expect(Host.coordinatorFlows).toEqual(["read", "grep", "ls"])
+    expect(Transcript.coordinatorFlows).toEqual(["read", "grep", "ls"])
     // Pinned with the standard catalog, so no relevance reading withholds them.
     expect(Host.coordinatorSources(services, "/repo").map((source) => source.name)).toEqual(["std/filesystem"])
   })

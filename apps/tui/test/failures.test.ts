@@ -239,3 +239,27 @@ it.each([
 ])("remote flow copy safely classifies %j", (message, expected) => {
   expect(Failures.remoteFlowFailure(message!)).toBe(expected!)
 })
+
+it.each([
+  ["../secret.txt: outside this repository", "outside this repository"],
+  ["src/loop: too many symlinks", "too many symlinks"],
+  ["src/link.txt: changed while it was read", "changed while it was read"],
+  ["File not found: src/math.js. The working directory holds: math.js.", "no such file"],
+  ["Flow grep failed: Path not found: src", "no such file"],
+  ["Flow read failed: something new", "something new"],
+  ["Directory not found: lib", "no such file"],
+  ["Path not found: lib", "no such file"],
+  ["Cannot read a directory: src", "a directory"],
+  ["Cannot list a file: math.js", "not a directory"],
+  ["Cannot read binary file: logo.png", "not text"],
+  ["File is not valid UTF-8: data.bin", "not text"],
+  ["Cannot search binary file: logo.png", "not text"],
+  ["big.log is 70000000 bytes, over the 67108864-byte read limit; search it with grep", "too large"],
+  ["Permission denied: locked.txt", "permission denied"],
+  ["Line offset 90 is outside math.js", "past the end"],
+  ["Entry offset 9 is outside src, which has 2 entries", "past the end"],
+  ["Unsupported ripgrep pattern.\nUse printable ASCII.", "Unsupported ripgrep pattern."],
+  [undefined, ""]
+])("a failed read of %j reads as %j", (message, reason) => {
+  expect(Failures.readReason(message)).toBe(reason)
+})

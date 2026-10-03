@@ -876,9 +876,6 @@ export const workerSources = (
 const search = (services: ServiceContext.Context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>) =>
   Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)
 
-/** What the coordinator runs itself: it reads, and delegates anything that writes or runs a command. */
-export const coordinatorFlows: ReadonlyArray<string> = ["read", "grep", "ls"]
-
 /**
  * The coordinator's catalog: `read`, `grep` and `ls`, refused outside `cwd`
  * (`Reads`), so a one-hop question about the code answers in Chat without a
@@ -895,7 +892,7 @@ export const coordinatorSources = (
     Reads.inWorkspace(
       only(
         StandardFlows.filesystem(confined, native === undefined ? undefined : Reads.rechecked(native, cwd)),
-        new Set(coordinatorFlows)
+        new Set(Transcript.coordinatorFlows)
       ),
       cwd
     )

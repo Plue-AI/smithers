@@ -3047,6 +3047,7 @@ export function App(props: AppProps) {
                                 expanded={expanded}
                                 selected={row.key === jumpTarget}
                                 program={Timeline.program(filter)}
+                                chat
                                 {...(step === undefined ? {} : { step })}
                                 {...(programHints.has(row.item.id) ? { hint: programHints.get(row.item.id)! } : {})}
                               />

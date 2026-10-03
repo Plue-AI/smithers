@@ -211,6 +211,8 @@ cell with no such row, only `agent.delegate`, `ui.publish`, `tab.read`,
 nothing. Ctrl+O, the Cells filter, or selecting a step, draws the whole cell as
 a left bar colored by status: code and each call's duration, with what it
 printed under Ctrl+O. A request's cell then sits above its run card.
+A failed Chat read is one faint row with its reason:
+`✗ failed to read src/math.js · no such file`.
 A turn ends `✗ failed: <cause>` or `■ stopped`.
 The Summary view keeps cell code behind expandable rows. Panels, dialogs, and the
 completion menu follow opencode's shapes; fuzzy matching is pi's.

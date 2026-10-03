@@ -311,6 +311,26 @@ export const callFailure = (call: { readonly denied?: true; readonly message: st
     ? { fault: "user", sentence: "Not approved.", actions: [], tag: "denied", detail: call.message }
     : { ...step("bug", "This action failed."), tag: null, detail: call.message }
 
+/** A failed `read`, `grep` or `ls` message, by what it says, as the few words its Chat row ends with. */
+const readReasons: ReadonlyArray<readonly [RegExp, string]> = [
+  [/: outside this repository$/, "outside this repository"],
+  [/: too many symlinks$/, "too many symlinks"],
+  [/: changed while it was read$/, "changed while it was read"],
+  [/^(?:File|Directory|Path) not found\b/, "no such file"],
+  [/^Cannot read a directory\b/, "a directory"],
+  [/^Cannot list a file\b/, "not a directory"],
+  [/^(?:Cannot read binary file|File is not valid UTF-8|Cannot search binary file)\b/, "not text"],
+  [/-byte read limit\b/, "too large"],
+  [/^Permission denied\b/, "permission denied"],
+  [/^(?:Line|Entry) offset \d+ is outside\b/, "past the end"]
+]
+
+/** Why a read failed, in a few words: its flow's message by what it says, else that message's first line. */
+export const readReason = (message: string | undefined): string => {
+  const said = (message ?? "").replace(/^Flow \S+ failed: /, "")
+  return readReasons.find(([pattern]) => pattern.test(said))?.[1] ?? said.split("\n")[0]!
+}
+
 /** Whether a failure's copy quotes a host's own setup text: a seat to sign in to, a key to set, a judge to opt in to. */
 const instructs = (error: unknown): boolean => {
   const seen = new Set<unknown>()
