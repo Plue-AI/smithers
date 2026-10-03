@@ -100,7 +100,7 @@ export type BranchCard = z.infer<typeof BranchCardSchema>
  * @since 1.0.0
  * @category models
  */
-export type BranchViewProps = CardProps<BranchCard>
+export type BranchViewProps = CardProps<BranchCard, {}, "item" | "file" | "terminal">
 
 /**
  * Typed catalog callbacks for Branch.

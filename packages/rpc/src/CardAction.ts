@@ -161,6 +161,8 @@ export interface CardCommandInput {
   readonly "file.restore-deleted": { readonly path: string }
   readonly "file.follow-rename": { readonly path: string }
   readonly "todo.retry-current-flow": { readonly n: number }
+  readonly "box.suspend": { readonly branch: string }
+  readonly "box.resume": { readonly branch: string }
   readonly "branch.rebase-now": { readonly branch: string }
   readonly "learning.accept": { readonly id: string }
   readonly "learning.dismiss": { readonly id: string }

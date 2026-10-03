@@ -3159,8 +3159,9 @@ from main down to the last item. */
 
 /* BranchView (T-UI-15): machine, shared presence and branch activity. */
 .branch-view { min-width: 0; }
+.branch-view, .branch-view * { box-sizing: border-box; }
 .branch-view .smithers-card-header { flex-wrap: wrap; }
-.branch-view .smithers-card-header h2 { overflow-wrap: anywhere; }
+.branch-view .smithers-card-header h2 { margin: 0; font-size: var(--fs-body); font-weight: 600; overflow-wrap: anywhere; }
 .branch-view .branch-machine { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--text-muted); font-size: var(--fs-caption); }
 .branch-view .branch-machine[data-state="awake"], .branch-view [data-tone="live"], .branch-view .branch-frozen { color: var(--brand); }
 .branch-view .branch-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
@@ -3208,3 +3209,6 @@ from main down to the last item. */
   .branch-view .branch-location { margin-left: 30px; flex-basis: calc(100% - 30px); }
   .branch-view .branch-tabs button { padding-inline: 7px; }
 }
+.branch-view .branch-link { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.branch-view .branch-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.branch-view[data-machine="asleep"] .branch-item, .branch-view[data-machine="closed"] .branch-item { color: var(--text-muted); }

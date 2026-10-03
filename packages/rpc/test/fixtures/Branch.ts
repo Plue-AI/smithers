@@ -7,6 +7,7 @@ import {
   github_user,
   outside,
   person,
+  ssh_person,
   reviewer,
   smithers_for_ben,
   system,
@@ -112,6 +113,16 @@ export const fixtures = {
       expect: ["Ben"]
     }
   ),
+  queued_item: story("Queued item", { ...base, item: { ...base.item!, state: "queued", step: undefined } }, { expect: ["Card model contracts"] }),
+  starting_item: story("Starting item", { ...base, item: { ...base.item!, state: "starting", step: undefined } }, { expect: ["Card model contracts"] }),
+  needs_you_item: story("Item needs you", { ...base, item: { ...base.item!, state: "needs_you", step: undefined } }, { expect: ["Card model contracts"] }),
+  paused_item: story("Paused item", { ...base, item: { ...base.item!, state: "paused", step: undefined } }, { expect: ["Card model contracts"] }),
+  failed_item: story("Failed item", { ...base, item: { ...base.item!, state: "failed", step: undefined } }, { expect: ["Card model contracts"] }),
+  review_item: story("Item in review", { ...base, item: { ...base.item!, state: "in_review", step: undefined } }, { expect: ["Card model contracts"] }),
+  dropped_item: story("Dropped item", { ...base, item: { ...base.item!, state: "dropped", step: undefined } }, { expect: ["Card model contracts"] }),
+  scratch_ready: story("Scratch conflict ready to finish", { ...scratch, rebase: { state: "conflict", onto: "main", paths: ["packages/rpc/src/HomeCard.ts"] } }, {
+    actions: [{ tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" } }], expect: ["packages/rpc/src/HomeCard.ts"]
+  }),
   answered: story("Answer the coding agent", { ...base, presence: [{ actor: person, where: { kind: "branch" } }] }, {
     actions: [{ tag: "todo.answer", label: "Answer", args: { n: "12", wait: "question-1" }, primary: true, input: [{ name: "text", label: "Answer the coding agent", kind: "text", required: true }] }, steer], expect: ["todo/12"]
   }),
@@ -120,7 +131,7 @@ export const fixtures = {
     {
       ...base,
       presence: [
-        { actor: person, where: { kind: "file", path: "flows/todo/flow.ts", line: 12 }, watching: "terminal-2" },
+        { actor: ssh_person, where: { kind: "file", path: "flows/todo/flow.ts", line: 12 }, watching: "terminal-2" },
         { actor: agent, where: { kind: "file", path: "packages/rpc/src/TodoCard.ts" } },
         { actor: claude_code, where: { kind: "terminal", id: "terminal-1" } },
         { actor: reviewer, where: { kind: "step", label: "Check" } },
@@ -214,6 +225,7 @@ export const fixtures = {
     },
     {
       actions: [fork, newTerminal, steer],
+      gestures: { file: { tag: "file", label: "Open file", args: { branch: "todo/12" } }, terminal: { tag: "terminal.watch", label: "Open terminal" }, item: { tag: "todo", label: "Open TODO" } },
       expect: ["Implement card projections", "Pushed a commit", "Checks", "flows/todo/instructions/implementer.md"]
     }
   )

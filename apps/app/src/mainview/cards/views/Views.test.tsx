@@ -1267,9 +1267,15 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
   const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
   try {
     await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
-    expect([...host.querySelectorAll("button[data-flow]")].map(button => button.textContent)).toEqual(["Diff", "Diff", "Fork", "New terminal", "Steer"])
+    expect([...host.querySelectorAll(".branch-actions button[data-flow], .branch-activity button[data-flow]")].map(button => button.textContent)).toEqual(["Diff", "Diff", "Fork", "New terminal", "Steer"])
     await act(async () => host.querySelectorAll<HTMLButtonElement>('button[data-flow="diff"]')[1]!.click())
     expect(onAction.mock.calls).toEqual([["diff", { branch: "todo/12", burst: "burst-6" }]])
+    onAction.mockClear()
+    await act(async () => host.querySelector<HTMLButtonElement>('.branch-location button[data-flow="file"]')!.click())
+    expect(onAction.mock.calls).toEqual([["file", { branch: "todo/12", path: "flows/todo/flow.ts", line: "12" }]])
+    onAction.mockClear()
+    await act(async () => host.querySelector<HTMLButtonElement>('.branch-muted button[data-flow="terminal.watch"]')!.click())
+    expect(onAction.mock.calls).toEqual([["terminal.watch", { id: "terminal-2" }]])
     const input = host.querySelector<HTMLInputElement>('input[aria-label="Steer"]') ?? host.querySelector<HTMLInputElement>("input")!
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Check cancellation")
@@ -1279,7 +1285,7 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
     await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
     expect(onAction.mock.calls).toEqual([["todo.steer", { n: "12", text: "Check cancellation" }]])
     expect(onView).toHaveBeenCalledTimes(0)
-    await act(async () => root.render(<BranchView {...branchFixtures.active} actions={[]} model={{ ...branchFixtures.active.model, activity: [] }} onAction={onAction} onView={onView} />))
+    await act(async () => root.render(<BranchView {...branchFixtures.active} actions={[]} gestures={{}} model={{ ...branchFixtures.active.model, activity: [] }} onAction={onAction} onView={onView} />))
     expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
     expect(host.textContent).toContain("flows/todo/flow.ts:12")
     expect(host.textContent).toContain("watching Implement")

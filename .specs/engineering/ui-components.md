@@ -605,3 +605,6 @@ Scratch Done carries conflict_change and onto_revision in its supplied args
 (§8.5.2b). Sleep/Wake/Retry use the retained box.suspend/box.resume controls.
 Copy SSH uses the shared clipboard helper. Presence has no local state.
 BranchView is pending T-APP-10/T-COL-05/T-REL-02 and remains unmounted.
+Named gestures are `item`, `file` and `terminal`. Each optional supplied action
+opens the TODO, file (path and optional line) or terminal (id); bound args are
+retained. No gesture means plain text. Renamed files open renamed_to.
