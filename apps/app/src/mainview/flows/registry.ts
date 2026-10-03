@@ -141,7 +141,7 @@ export const itemOf = (entry: FlowEntry): CatalogItem => ({
   name: nameOf(entry),
   ...entry.metadata,
   acceptsArgs: entry.input.ast._tag !== "Objects" ||
-    entry.input.ast.propertySignatures.length > 0 || entry.input.ast.indexSignatures.length > 0
+    entry.input.ast.propertySignatures.length > 0 || entry.input.ast.indexSignatures.some(signature => signature.type._tag !== "Never")
 })
 
 /** A door a flow may name in `runtimeAny`: a host capability from the bootstrap. */
