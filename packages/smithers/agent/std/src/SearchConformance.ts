@@ -138,14 +138,12 @@ export const plan = (options: {
   const next = random(options.seed)
   const fileCount = options.files ?? 12
   const callCount = options.calls ?? 12
-  const paths = new Set<string>()
   const files: Array<GeneratedFile> = []
   for (let index = 0; index < fileCount; index++) {
     const directory = pick(next, directories)
+    // The index makes every generated path unique, including repeated random picks.
     const name = `${pick(next, stems)}${index}${pick(next, extensions)}`
     const path = directory === "" ? name : `${directory}/${name}`
-    if (paths.has(path)) continue
-    paths.add(path)
     const body: Array<string> = []
     for (let line = 0; line < 1 + Math.floor(next() * 8); line++) body.push(pick(next, lines))
     files.push({ path, content: `${body.join("\n")}${chance(next, 0.8) ? "\n" : ""}` })

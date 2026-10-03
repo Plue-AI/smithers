@@ -40,7 +40,7 @@ const declaration =
 
 const closer = /^[ \t]*[)}\]]/
 
-const indentOf = (line: string): number => (/^[ \t]*/.exec(line)?.[0] ?? "").length
+const indentOf = (line: string): number => /^[ \t]*/.exec(line)![0].length
 
 const blank = (line: string): boolean => line.trim() === ""
 
@@ -71,7 +71,7 @@ export const enclosing = (lines: ReadonlyArray<string>, line: number): Symbol | 
     parsed = found
     break
   }
-  if (start < 0 || parsed === null) return undefined
+  if (parsed === null) return undefined
   const opening = indentOf(lines[start]!)
   let end = lines.length - 1
   for (let candidate = start + 1; candidate < lines.length; candidate++) {

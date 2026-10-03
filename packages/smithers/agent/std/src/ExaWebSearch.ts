@@ -68,17 +68,13 @@ export const layer = (
             ))
             const now = yield* Clock.currentTimeMillis
             const request = HttpClientRequest.setHeaders(
-              yield* HttpClientRequest.bodyJson(HttpClientRequest.post("https://api.exa.ai/search"), {
+              HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.post("https://api.exa.ai/search"), {
                 query: input.query,
                 numResults: Math.min(input.numResults ?? 8, maxResults),
                 ...(input.freshness === undefined
                   ? {}
                   : { startPublishedDate: new Date(now - freshnessDays[input.freshness] * 86_400_000).toISOString() })
-              }).pipe(
-                Effect.mapError(() =>
-                  new StdError.StdError({ code: "request_failed", message: "Exa search request could not be encoded" })
-                )
-              ),
+              }),
               { "authorization": `Bearer ${Redacted.value(secret)}`, "content-type": "application/json" }
             )
             const response = yield* http.execute(request).pipe(

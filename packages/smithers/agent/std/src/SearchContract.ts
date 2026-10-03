@@ -88,13 +88,14 @@ export const validatePattern = (pattern: string, fixedStrings: boolean): StdErro
   try {
     new RegExp(pattern, "u")
   } catch (error) {
-    return invalidPattern(pattern, malformed(pattern) ?? engineReason(error))
+    return invalidPattern(pattern, malformed(pattern) ?? engineReason(error as Error))
   }
   try {
     LinearRegex.compile(pattern, false)
     return undefined
   } catch (error) {
-    return invalidPattern(pattern, error instanceof Error ? error.message : "pattern compilation exceeds its budget")
+    // LinearRegex.compile throws Error for its nesting and state budgets.
+    return invalidPattern(pattern, (error as Error).message)
   }
 }
 
@@ -124,7 +125,6 @@ const malformed = (pattern: string): string | undefined => {
     if (character === "[") {
       let end = index + 1
       if (pattern[end] === "^") end++
-      if (pattern[end] === "]") end++
       while (end < pattern.length && pattern[end] !== "]") end += pattern[end] === "\\" ? 2 : 1
       if (end >= pattern.length) return `${at} is never closed; write \\[ for a literal bracket`
       index = end
@@ -164,10 +164,9 @@ const malformed = (pattern: string): string | undefined => {
 }
 
 /** The JavaScript engine's reason, without its prefix or its echo of the pattern. */
-const engineReason = (error: unknown): string => {
-  const message = error instanceof Error ? error.message : ""
-  const reason = message.replace(/^Invalid regular expression: (\/.*\/[a-z]*: )?/, "").trim()
-  return reason === "" ? "invalid Smithers Ripgrep ASCII v1 expression" : `invalid expression: ${reason}`
+const engineReason = (error: Error): string => {
+  const reason = error.message.replace(/^Invalid regular expression: (\/.*\/[a-z]*: )?/, "").trim()
+  return `invalid expression: ${reason}`
 }
 
 /**
@@ -270,7 +269,7 @@ const expandBraces = (pattern: string): ReadonlyArray<string> => {
 const globExpression = (pattern: string): RegExp => {
   let source = ""
   for (let index = 0; index < pattern.length; index++) {
-    const character = pattern[index]
+    const character = pattern[index]!
     const next = pattern[index + 1]
     if (
       character === "*" && next === "*" &&
@@ -281,7 +280,7 @@ const globExpression = (pattern: string): RegExp => {
       index += pattern[index + 2] === "/" ? 2 : 1
     } else if (character === "*") source += "[^/]*"
     else if (character === "?") source += "[^/]"
-    else source += character?.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&") ?? ""
+    else source += character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
   }
   return new RegExp(`^${source}$`)
 }

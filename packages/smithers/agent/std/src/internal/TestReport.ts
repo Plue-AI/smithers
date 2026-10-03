@@ -38,15 +38,14 @@ const unique = (ids: ReadonlyArray<string>): ReadonlyArray<string> => [...new Se
 const collect = (text: string, pattern: RegExp): ReadonlyArray<string> => {
   const found: Array<string> = []
   for (const match of text.matchAll(pattern)) {
-    const id = match[1]
-    if (id !== undefined) found.push(id)
+    found.push(match[1]!)
   }
   return found
 }
 
 const count = (text: string, pattern: RegExp): number | undefined => {
   const match = pattern.exec(text)
-  return match?.[1] === undefined ? undefined : Number(match[1])
+  return match === null ? undefined : Number(match[1])
 }
 
 /**
@@ -65,7 +64,7 @@ const pytest = (text: string): Report | undefined => {
   const failed = unique([...summaryFailed, ...verboseFailed])
   // Only a terminal pytest summary can certify completion. Earlier diagnostic
   // lines (including test stdout) are not runner tallies.
-  const lastLine = text.trimEnd().split("\n").at(-1) ?? ""
+  const lastLine = text.trimEnd().split("\n").at(-1)!
   const summary = /^(?:=+[ \t]*)?(\d+ [a-z]+(?:,[ \t]*\d+ [a-z]+)*) in \d+(?:\.\d+)?s(?: \([^)]*\))?[ \t]*(?:=+)?$/
     .exec(lastLine)?.[1]
   const tally = summary === undefined ? undefined : count(summary, /\b(\d+) passed\b/)
@@ -78,7 +77,7 @@ const pytest = (text: string): Report | undefined => {
     passed: tally ?? verbosePassed,
     failed,
     reportedFailed,
-    parsed: hasTally && reportedFailed !== undefined && failed.length === reportedFailed
+    parsed: hasTally && failed.length === reportedFailed
   }
 }
 
@@ -128,7 +127,7 @@ const tap = (text: string): Report | undefined => {
     return {
       ok: match[1] === "ok",
       id: match[2]!.slice(0, directive?.index).trim(),
-      directive: directive?.[1]?.toUpperCase()
+      directive: directive === null ? undefined : directive[1]!.toUpperCase()
     }
   })
   const failures = outcomes.filter((outcome) => !outcome.ok && outcome.directive === undefined)
@@ -154,7 +153,7 @@ const tap = (text: string): Report | undefined => {
 export const parse = (text: string): Report => {
   const hasTap = /^(?:TAP version \d+|1\.\.\d+|not ok\b|ok\b)/m.test(text)
   const hasUnittest = /^Ran \d+ tests?\b/m.test(text)
-  const lastLine = text.trimEnd().split("\n").at(-1) ?? ""
+  const lastLine = text.trimEnd().split("\n").at(-1)!
   const hasPytest = /^(?:=+[ \t]*)?\d+ [a-z]+(?:,[ \t]*\d+ [a-z]+)* in \d+(?:\.\d+)?s(?: \([^)]*\))?[ \t]*(?:=+)?$/
     .test(lastLine)
   // Two runner completion signatures in one capture cannot establish which

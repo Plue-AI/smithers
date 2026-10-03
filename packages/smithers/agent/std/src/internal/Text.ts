@@ -105,7 +105,9 @@ export const truncateBytes = (
   }
   let start = options.keep === "head" ? 0 : bytes.byteLength - maxBytes
   let end = options.keep === "head" ? maxBytes : bytes.byteLength
-  for (let adjustment = 0; adjustment <= 3; adjustment++) {
+  // TextEncoder produces valid UTF-8. Moving a cut inward reaches a scalar
+  // boundary after at most three continuation bytes, so decoding must succeed.
+  while (true) {
     try {
       const decoded = fatalDecoder.decode(bytes.subarray(start, end))
       const keptBytes = end - start
@@ -116,12 +118,10 @@ export const truncateBytes = (
         droppedBytes: bytes.byteLength - keptBytes
       }
     } catch {
-      if (adjustment === 3) break
       if (options.keep === "head") end--
       else start++
     }
   }
-  return { text: "", truncated: true, keptBytes: 0, droppedBytes: bytes.byteLength }
 }
 
 /**

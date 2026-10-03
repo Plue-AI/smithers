@@ -34,6 +34,30 @@ const failure = (method: string, path: string) =>
   }))
 
 describe("atomic replacement", () => {
+  it("propagates an initial metadata failure without writing", async () => {
+    const error = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "stat",
+      pathOrDescriptor: "/denied",
+      description: "metadata denied"
+    })
+    await Effect.runPromise(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      let writes = 0
+      const result = yield* Preserve.writeFileString({
+        ...fs,
+        stat: () => Effect.fail(error),
+        writeFileString: () =>
+          Effect.sync(() => {
+            writes++
+          })
+      }, "/denied", replacement).pipe(Effect.flip)
+      expect(result).toBe(error)
+      expect(writes).toBe(0)
+    }).pipe(Effect.provide(NodeFileSystem.layer)))
+  })
+
   it.each(["text", "bytes"] as const)("creates an absent file from %s and removes its staged sibling", async (kind) => {
     await Effect.runPromise(
       Effect.scoped(Effect.gen(function*() {

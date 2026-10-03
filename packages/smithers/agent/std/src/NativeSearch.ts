@@ -171,7 +171,7 @@ const executeFiles = (
       batch.push(target)
       size += bytes
     }
-    if (batch.length > 0) batches.push(batch)
+    batches.push(batch)
     let stdout = ""
     let stderr = ""
     let stdoutBytes = 0

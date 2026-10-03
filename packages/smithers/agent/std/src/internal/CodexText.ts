@@ -59,19 +59,19 @@ interface Split {
 }
 
 /** A UTF-8 continuation byte is `10xxxxxx`; every other byte starts a character. */
-const isContinuation = (byte: number | undefined): boolean => byte !== undefined && (byte & 0b1100_0000) === 0b1000_0000
+const isContinuation = (byte: number): boolean => (byte & 0b1100_0000) === 0b1000_0000
 
 /** The last character boundary at or before `offset`. */
 const boundaryAtOrBefore = (bytes: Uint8Array, offset: number): number => {
   let at = Math.min(offset, bytes.byteLength)
-  while (at > 0 && at < bytes.byteLength && isContinuation(bytes[at])) at--
+  while (at > 0 && at < bytes.byteLength && isContinuation(bytes[at]!)) at--
   return at
 }
 
 /** The first character boundary at or after `offset`. */
 const boundaryAtOrAfter = (bytes: Uint8Array, offset: number): number => {
   let at = Math.max(offset, 0)
-  while (at < bytes.byteLength && isContinuation(bytes[at])) at++
+  while (at < bytes.byteLength && isContinuation(bytes[at]!)) at++
   return at
 }
 
@@ -86,13 +86,12 @@ const boundaryAtOrAfter = (bytes: Uint8Array, offset: number): number => {
  * capture can hand this function.
  */
 const splitString = (s: string, beginningBytes: number, endBytes: number): Split => {
-  if (s === "") return { removedChars: 0, before: "", after: "" }
   const bytes = encoder.encode(s)
   const tailStartTarget = Math.max(bytes.byteLength - endBytes, 0)
   const prefixEnd = boundaryAtOrBefore(bytes, beginningBytes)
   const suffixStart = boundaryAtOrAfter(bytes, Math.max(tailStartTarget, prefixEnd))
   let removedChars = 0
-  for (let at = prefixEnd; at < suffixStart; at++) if (!isContinuation(bytes[at])) removedChars++
+  for (let at = prefixEnd; at < suffixStart; at++) if (!isContinuation(bytes[at]!)) removedChars++
   return {
     removedChars,
     before: decoder.decode(bytes.subarray(0, prefixEnd)),

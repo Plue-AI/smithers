@@ -14,7 +14,6 @@ const dropSkipped = (html: string): string => {
   let cursor = 0
   let match: RegExpExecArray | null
   while ((match = opening.exec(html)) !== null) {
-    if (match.index < cursor) continue
     output += html.slice(cursor, match.index)
     const marker = `</${match[1]!.toLowerCase()}`
     let close = lower.indexOf(marker, opening.lastIndex)
@@ -37,12 +36,10 @@ const decode = (value: string): string =>
   value.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
     if (entity[0] === "#") {
       const number = Number.parseInt(
-        entity.slice(entity[1]?.toLowerCase() === "x" ? 2 : 1),
-        entity[1]?.toLowerCase() === "x" ? 16 : 10
+        entity.slice(entity[1]!.toLowerCase() === "x" ? 2 : 1),
+        entity[1]!.toLowerCase() === "x" ? 16 : 10
       )
-      return Number.isInteger(number)
-          && number >= 0
-          && number <= 0x10ffff
+      return number <= 0x10ffff
           && !(number >= 0xd800 && number <= 0xdfff)
         ? String.fromCodePoint(number)
         : match

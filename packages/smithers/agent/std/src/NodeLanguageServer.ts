@@ -165,8 +165,12 @@ interface ChunkBuffer {
   readonly length: number
   readonly push: (chunk: Uint8Array) => void
   readonly indexOf: (needle: Uint8Array) => number
-  readonly take: (length: number) => Uint8Array
-  readonly discard: (length: number) => void
+  // Counts come from delimiter offsets or validated Content-Length values.
+  // A reader can only be acquired for an available, nonnegative prefix.
+  readonly prefix: (length: number) => {
+    readonly take: () => Uint8Array
+    readonly discard: () => void
+  } | undefined
 }
 
 const makeChunkBuffer = (): ChunkBuffer => {
@@ -189,9 +193,8 @@ const makeChunkBuffer = (): ChunkBuffer => {
   const consume = (count: number, output?: Uint8Array): void => {
     let remaining = count
     let outputOffset = 0
-    while (remaining > 0) {
-      const chunk = chunks[head]
-      if (chunk === undefined) throw new RangeError("Chunk buffer underflow")
+    for (const chunk of chunks.slice(head)) {
+      if (remaining === 0) break
       const available = chunk.byteLength - headOffset
       const consumed = Math.min(available, remaining)
       if (output !== undefined) {
@@ -215,15 +218,15 @@ const makeChunkBuffer = (): ChunkBuffer => {
     },
     push: (chunk) => {
       if (chunk.byteLength === 0) return
-      chunks.push(chunk)
+      // Own the bytes so caller mutation or resizing cannot change buffered lengths.
+      chunks.push(chunk.slice())
       length += chunk.byteLength
     },
     indexOf: (needle) => {
       let absolute = 0
       let matched = 0
       for (let chunkIndex = head; chunkIndex < chunks.length; chunkIndex++) {
-        const chunk = chunks[chunkIndex]
-        if (chunk === undefined) continue
+        const chunk = chunks[chunkIndex]!
         const start = chunkIndex === head ? headOffset : 0
         for (let index = start; index < chunk.byteLength; index++) {
           const byte = chunk[index]
@@ -235,15 +238,16 @@ const makeChunkBuffer = (): ChunkBuffer => {
       }
       return -1
     },
-    take: (count) => {
-      if (count < 0 || count > length) throw new RangeError("Chunk buffer underflow")
-      const output = new Uint8Array(count)
-      consume(count, output)
-      return output
-    },
-    discard: (count) => {
-      if (count < 0 || count > length) throw new RangeError("Chunk buffer underflow")
-      consume(count)
+    prefix: (count) => {
+      if (count > length) return undefined
+      return {
+        take: () => {
+          const output = new Uint8Array(count)
+          consume(count, output)
+          return output
+        },
+        discard: () => consume(count)
+      }
     }
   }
 }
@@ -267,15 +271,16 @@ const makeFrameDecoder = (): FrameDecoder => {
         if (resynchronizing) {
           const nextHeader = pending.indexOf(contentLengthPrefix)
           if (nextHeader < 0) {
-            pending.discard(Math.max(0, pending.length - contentLengthPrefix.byteLength + 1))
+            pending.prefix(Math.max(0, pending.length - contentLengthPrefix.byteLength + 1))!.discard()
             break
           }
-          pending.discard(nextHeader)
+          pending.prefix(nextHeader)!.discard()
           resynchronizing = false
         }
         if (bodyLength !== undefined) {
-          if (pending.length < bodyLength) break
-          const body = new TextDecoder().decode(pending.take(bodyLength))
+          const reader = pending.prefix(bodyLength)
+          if (reader === undefined) break
+          const body = new TextDecoder().decode(reader.take())
           bodyLength = undefined
           try {
             events.push({ _tag: "Message", value: JSON.parse(body) as unknown })
@@ -298,7 +303,7 @@ const makeFrameDecoder = (): FrameDecoder => {
                 `Language server frame header exceeded ${maximumHeaderBytes} bytes`
               )
             })
-            pending.discard(1)
+            pending.prefix(1)!.discard()
             resynchronizing = true
             continue
           }
@@ -309,12 +314,12 @@ const makeFrameDecoder = (): FrameDecoder => {
             _tag: "Failure",
             error: failure("request_failed", `Language server frame header exceeded ${maximumHeaderBytes} bytes`)
           })
-          pending.discard(delimiter + headerEnd.byteLength)
+          pending.prefix(delimiter + headerEnd.byteLength)!.discard()
           resynchronizing = true
           continue
         }
-        const header = new TextDecoder().decode(pending.take(delimiter))
-        pending.discard(headerEnd.byteLength)
+        const header = new TextDecoder().decode(pending.prefix(delimiter)!.take())
+        pending.prefix(headerEnd.byteLength)!.discard()
         const match = /(?:^|\r\n)Content-Length:\s*(\d+)(?:\r\n|$)/i.exec(header)
         if (match === null) {
           events.push({
@@ -694,13 +699,11 @@ const makeClient = (
           ? Queue.offer(input, frame(message)).pipe(
             Effect.asVoid,
             Effect.timeout(timeoutMs),
-            Effect.mapError((cause) =>
-              cause instanceof StdError.StdError
-                ? cause
-                : failure(
-                  "timeout",
-                  `Language server stdin is not being drained; frame offer exceeded ${timeoutMs}ms`
-                )
+            Effect.mapError(() =>
+              failure(
+                "timeout",
+                `Language server stdin is not being drained; frame offer exceeded ${timeoutMs}ms`
+              )
             )
           )
           : Effect.fail(terminalError)

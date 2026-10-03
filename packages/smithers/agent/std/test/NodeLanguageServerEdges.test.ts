@@ -1,5 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { Effect } from "effect"
+import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
+import { Effect, Sink, Stream } from "effect"
+import type * as ChildProcess from "effect/unstable/process/ChildProcess"
+import { makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import { describe, expect, it } from "vitest"
 import * as LanguageServer from "../src/LanguageServer.ts"
 import * as NodeLanguageServer from "../src/NodeLanguageServer.ts"
@@ -60,6 +63,49 @@ const withServer = <A>(
   )
 
 describe("NodeLanguageServer real protocol boundaries", () => {
+  it("retains a frame when the caller shrinks an emitted resizable buffer", async () => {
+    const backing = new ArrayBuffer(1, { maxByteLength: 8 })
+    const opening = new Uint8Array(backing)
+    opening[0] = "{".charCodeAt(0)
+    const encode = (text: string) => new TextEncoder().encode(text)
+    const initialized = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { capabilities: {} } })
+    const stdout = Stream.make(encode("Content-Length: 2\r\n\r\n")).pipe(
+      Stream.concat(Stream.make(opening)),
+      Stream.concat(Stream.fromEffect(Effect.sync(() => backing.resize(0))).pipe(Stream.drain)),
+      Stream.concat(Stream.make(encode("}"))),
+      Stream.concat(Stream.make(encode(`Content-Length: ${initialized.length}\r\n\r\n${initialized}`))),
+      Stream.concat(Stream.never)
+    )
+    const spawner = ChildProcessSpawner.makeNoop({
+      spawn: (command) => {
+        const standard = command as ChildProcess.StandardCommand
+        const stdin = (standard.options.stdin as ChildProcess.StdinConfig).stream as Stream.Stream<Uint8Array>
+        const replies = stdin.pipe(Stream.flatMap(() => stdout))
+        return Effect.succeed(makeHandle({
+          pid: ProcessId(1),
+          exitCode: Effect.never,
+          isRunning: Effect.succeed(true),
+          kill: () => Effect.void,
+          stdin: Sink.drain,
+          stdout: replies,
+          stderr: Stream.empty,
+          all: replies,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void)
+        }))
+      }
+    })
+    const result = await Effect.runPromise(
+      Effect.scoped(NodeLanguageServer.make({ command: "host-lsp", cwd: "/workspace" })).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+      )
+    )
+    // An intact {} is ignored; malformed JSON would fail the pending initialize.
+    expect(result).toHaveProperty("hover")
+    expect(opening.byteLength).toBe(0)
+  })
+
   it.each(
     [
       ["definition", "textDocument/definition", positionParams],

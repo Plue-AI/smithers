@@ -27,6 +27,13 @@ const syntaxCases = [
 ] as const
 
 describe("SearchContract author-facing refusal and ignore diagnostics", () => {
+  it("rejects a trailing regex escape while retaining it in fixed-string searches", () => {
+    expect(() => SearchContract.expression("\\", false, false)).toThrow(SyntaxError)
+    const literal = SearchContract.expression("\\", true, false)
+    expect(literal.test("before \\ after")).toBe(true)
+    expect(literal.test("no escape")).toBe(false)
+  })
+
   it.each([
     ["", "glob patterns must not be empty"],
     ["   ", "glob patterns must not be empty"],

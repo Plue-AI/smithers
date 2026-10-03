@@ -145,7 +145,7 @@ export const presentation = {
 
 // localeCompare changes with host locale and ICU data. Code-unit comparisons
 // keep journalled directory listings identical on every host.
-const byText = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0)
+const byText = (left: string, right: string): number => (left < right ? -1 : Number(left > right))
 
 /**
  * Lists a directory deterministically. A file supplied as `path` is reported

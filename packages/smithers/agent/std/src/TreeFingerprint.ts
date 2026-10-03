@@ -169,8 +169,8 @@ export const script = (options: {
 export const parse = (stdout: string): Measurement | undefined => {
   const lines = stdout.trim().split("\n").map((line) => line.trim())
   if (lines.length !== 2) return undefined
-  const checksum = /^(\d+) (\d+)$/.exec(lines[0] ?? "")
-  const count = /^(\d+)$/.exec(lines[1] ?? "")
+  const checksum = /^(\d+) (\d+)$/.exec(lines[0]!)
+  const count = /^(\d+)$/.exec(lines[1]!)
   if (checksum === null || count === null) return undefined
   const paths = Number(count[1])
   const bounded = paths > maxPaths

@@ -117,8 +117,7 @@ export const files = (
       scopes: []
     }]
     while (directories.length > 0) {
-      const next = directories.pop()
-      if (next === undefined) continue
+      const next = directories.pop()!
       const { directory } = next
       let scopes = next.scopes
       const children: ReadonlyArray<string> = yield* fileSystem.readDirectory(directory).pipe(
@@ -169,8 +168,8 @@ export const files = (
       }
       const links = yield* symbolicLinks(fileSystem, nested)
       for (let index = 0; index < nested.length; index++) {
-        const candidate = nested[index]
-        if (candidate !== undefined && links[index] !== true) directories.push({ directory: candidate, scopes })
+        const candidate = nested[index]!
+        if (links[index] !== true) directories.push({ directory: candidate, scopes })
       }
     }
     return { explicitFile: false, files: files.sort(), ignored: excluded }
