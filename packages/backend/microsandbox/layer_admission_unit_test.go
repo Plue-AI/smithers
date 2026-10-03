@@ -239,9 +239,13 @@ func TestMicrosandboxUnitLayerInputsPreserveDeterministicRegularFiles(t *testing
 		require.NoError(t, err)
 		require.True(t, info.Mode().IsRegular())
 	}
-	for _, name := range []string{"../escape", "/escape", "a/../b", ".", "a\\b"} {
-		_, err := dependencyInputScript(map[string][]byte{name: {}})
-		require.Error(t, err)
+	for _, name := range []string{"../escape", "/escape", "a/../b", ".", "a\\b", "a\nb", "a\rb"} {
+		script, err := dependencyInputScript(map[string][]byte{name: {}})
+		var refusal *RecipeError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, "invalid_dependency_input", refusal.Code)
+		require.Equal(t, "user", refusal.Class)
+		require.Empty(t, script)
 	}
 	require.Equal(t, map[string]string{"node": "26.5.0", "rustc": "1.89.0 (build details)"},
 		parseInventory("noise\n inventory node 26.5.0 \ninventory rustc 1.89.0 (build details)\ninventory missing\n"))

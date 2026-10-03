@@ -68,27 +68,25 @@ func TestOwnerRootRecipeTransport(t *testing.T) {
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellQuote(log)+"\ncat >/dev/null\nprintf '\\000SMITHERS-EXIT 0\\000' >&2\n"), 0700))
 	e := environments{runtime: &Runtime{cli: &cli{binary: binary, home: dir}}}
 
-	for _, script := range []string{playwrightSystemPackages, rootSyncScript} {
-		_, err := e.runRoot(t.Context(), "machine", script)
-		require.NoError(t, err)
-		args, err := os.ReadFile(log)
-		require.NoError(t, err)
-		require.Contains(t, string(args), "root-recipe\n"+scriptDigest(script)+"\n")
-		require.NotContains(t, strings.TrimSpace(string(args)), "run\nexec")
-	}
-	_, err := e.runRoot(t.Context(), "machine", "id")
+	script := rootSyncScript
+	_, err := e.runRoot(t.Context(), "machine", script)
+	require.NoError(t, err)
+	args, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "root-recipe\n"+scriptDigest(script)+"\n")
+	require.NotContains(t, strings.TrimSpace(string(args)), "run\nexec")
+	_, err = e.runRoot(t.Context(), "machine", playwrightSystemPackages)
+	require.ErrorContains(t, err, "unapproved root recipe")
+	_, err = e.runRoot(t.Context(), "machine", "id")
 	require.ErrorContains(t, err, "unapproved root recipe")
 }
 
 // Root credential and process boundaries are instrumented; these tests never
 // execute privileged commands on the host.
 func TestOwnerRootRecipeGuestPins(t *testing.T) {
-	for _, script := range []string{playwrightSystemPackages, rootSyncScript} {
-		kind := "apt"
-		if script == rootSyncScript {
-			kind = "sync"
-		}
-		boundaryPython(t, fmt.Sprintf(`
+	script := rootSyncScript
+	kind := "sync"
+	boundaryPython(t, fmt.Sprintf(`
 import subprocess
 script=%s
 digest=%s
@@ -96,6 +94,7 @@ scope={}
 exec(%s,scope)
 g.ROOT_RECIPE_DIGESTS=scope['ROOT_RECIPE_DIGESTS']
 assert g.ROOT_RECIPE_DIGESTS[digest]==%s
+assert 'apt' not in g.ROOT_RECIPE_DIGESTS.values()
 calls=[]
 g.os.geteuid=lambda: 0
 g.os.write=lambda fd,body: calls.append(('trailer',body))
@@ -126,20 +125,16 @@ for user in ('root','other'):
  except SystemExit: pass
  else: raise AssertionError('ordinary privileged exec accepted')
 `, strconv.Quote(script), strconv.Quote(scriptDigest(script)), strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(kind)))
-	}
 }
 
 func TestOwnerRootRecipeRejectsAlteredPinnedBytesBeforeExecution(t *testing.T) {
-	for _, pinned := range []string{playwrightSystemPackages, rootSyncScript} {
-		name := "apt"
-		digest := scriptDigest(pinned)
-		if pinned == rootSyncScript {
-			name = "sync"
-		}
-		t.Run(name, func(t *testing.T) {
-			sentinel := filepath.Join(t.TempDir(), "executed")
-			altered := pinned + "; touch " + shellQuote(sentinel)
-			boundaryPython(t, fmt.Sprintf(`
+	pinned := rootSyncScript
+	name := "sync"
+	digest := scriptDigest(pinned)
+	t.Run(name, func(t *testing.T) {
+		sentinel := filepath.Join(t.TempDir(), "executed")
+		altered := pinned + "; touch " + shellQuote(sentinel)
+		boundaryPython(t, fmt.Sprintf(`
 import contextlib,io,json
 import subprocess
 exec(%s,globals())
@@ -171,9 +166,8 @@ except SystemExit as error:
 else: raise AssertionError('unapproved digest accepted')
 assert 'unapproved root recipe digest' in stderr.getvalue(),stderr.getvalue()
 assert not os.path.exists(%s),'unapproved recipe executed'
-		`, strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(sentinel), strconv.Quote(sentinel), strconv.Quote(altered), strconv.Quote(digest), strconv.Quote(sentinel), strconv.Quote(pinned), strconv.Quote(strings.Repeat("f", 64)), strconv.Quote(sentinel)))
-		})
-	}
+	`, strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(sentinel), strconv.Quote(sentinel), strconv.Quote(altered), strconv.Quote(digest), strconv.Quote(sentinel), strconv.Quote(pinned), strconv.Quote(strings.Repeat("f", 64)), strconv.Quote(sentinel)))
+	})
 }
 
 // T-MCH-10 + T-SEC-01: privileged code is pinned; main's package rows are

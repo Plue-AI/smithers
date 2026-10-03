@@ -560,19 +560,14 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 			return nil, fmt.Errorf("plant layer inputs: %w", err)
 		}
 	}
-	user, systemScript := recipePreparation(value)
-	home := "/root"
-	if user == guestUser {
-		home = guestHome
-	}
-	if systemScript != "" {
+	if toolchain, ok := value.(toolchainLayer); ok {
 		// Only shipped apt argv has root authority. Browser installers and
 		// repository-selected JavaScript execute below as agent.
-		if _, err := e.runSystemRecipe(buildCtx, machine, value, systemScript); err != nil {
+		if _, err := e.runToolchainRecipe(buildCtx, machine, toolchain); err != nil {
 			return nil, err
 		}
 	}
-	output, err := e.runRecipe(buildCtx, machine, value.script(), user, home)
+	output, err := e.runRecipe(buildCtx, machine, value.script(), guestUser, guestHome)
 	if err != nil {
 		return nil, fmt.Errorf("build %s layer %s: %w", record.Kind, record.Key[:12], err)
 	}
@@ -600,7 +595,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 // runRoot runs only a binary-pinned script through the root-recipe helper and returns
 // its stdout, failing with the tail of its output when it exits nonzero.
 func (e *environments) runRoot(ctx context.Context, machine, script string) (string, error) {
-	if script != playwrightSystemPackages && script != rootSyncScript {
+	if script != rootSyncScript {
 		return "", fmt.Errorf("unapproved root recipe digest")
 	}
 	body, _ := json.Marshal(map[string]any{"script": script})
@@ -716,7 +711,7 @@ func dependencyInputScript(files map[string][]byte) (string, error) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if name == "." || path.IsAbs(name) || path.Clean(name) != name || hasParentComponent(name) || strings.ContainsAny(name, "\\\x00") {
+		if name == "." || path.IsAbs(name) || path.Clean(name) != name || hasParentComponent(name) || strings.ContainsAny(name, "\\\x00\n\r") {
 			return "", &RecipeError{Code: "invalid_dependency_input", Class: "user", Message: "Invalid dependency input: " + name}
 		}
 		destination := cacheRoot + "/prepare/src/" + name
@@ -993,15 +988,12 @@ chmod 0644 /opt/smithers/env.json
 
 func (t toolchainLayer) systemScript() string { return toolchainSystemScript }
 
-func (e *environments) runSystemRecipe(ctx context.Context, machine string, value recipe, script string) (string, error) {
-	if t, ok := value.(toolchainLayer); ok {
-		body, err := json.Marshal(map[string]any{"script": toolchainSystemScript, "toolchain": map[string]any{"packages": t.Packages, "postgres": t.Postgres, "environment": t.environment()}})
-		if err != nil {
-			return "", err
-		}
-		return e.runPreparation(ctx, machine, body, "root-recipe", scriptDigest(toolchainSystemScript))
+func (e *environments) runToolchainRecipe(ctx context.Context, machine string, t toolchainLayer) (string, error) {
+	body, err := json.Marshal(map[string]any{"script": toolchainSystemScript, "toolchain": map[string]any{"packages": t.Packages, "postgres": t.Postgres, "environment": t.environment()}})
+	if err != nil {
+		return "", err
 	}
-	return e.runRoot(ctx, machine, script)
+	return e.runPreparation(ctx, machine, body, "root-recipe", scriptDigest(toolchainSystemScript))
 }
 
 func (t toolchainLayer) environment() map[string]string {

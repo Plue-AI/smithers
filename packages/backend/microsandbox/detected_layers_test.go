@@ -855,6 +855,9 @@ esac
 // Dispatch security gate: branch bytes cross only the agent boundary. The CLI
 // fake observes transport, while a real npm process tests lifecycle suppression.
 func TestBranchDependencyInputsOnlyReachAgentWithScriptsDisabled(t *testing.T) {
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is absent: dependency lifecycle-script isolation requires the real npm executable")
+	}
 	root := t.TempDir()
 	log := filepath.Join(root, "calls")
 	binary := filepath.Join(root, "msb")

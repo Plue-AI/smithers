@@ -133,9 +133,8 @@ func scriptDigest(script string) string {
 
 func pinnedGuestBootstrap() string {
 	pins, _ := json.Marshal(map[string]string{
-		scriptDigest(playwrightSystemPackages): "apt",
-		scriptDigest(rootSyncScript):           "sync",
-		scriptDigest(toolchainSystemScript):    "toolchain",
+		scriptDigest(rootSyncScript):        "sync",
+		scriptDigest(toolchainSystemScript): "toolchain",
 	})
 	return "import json\nROOT_RECIPE_DIGESTS=json.loads(" + strconv.Quote(string(pins)) + ")\n" + guestBootstrap
 }

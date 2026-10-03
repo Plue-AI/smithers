@@ -216,13 +216,13 @@ def run_exec(request):
 def run_root_recipe(digest, request):
     pins = globals().get("ROOT_RECIPE_DIGESTS", {})
     kind = pins.get(digest)
-    if kind not in ("apt", "sync", "toolchain") or not isinstance(request, dict):
+    if kind not in ("sync", "toolchain") or not isinstance(request, dict):
         fail(125, "unapproved root recipe digest")
     script = request.get("script")
     if not isinstance(script, str) or hashlib.sha256(script.encode()).hexdigest() != digest:
         fail(125, "root recipe digest mismatch")
     argv = ["/bin/bash", "-c", script, "root-recipe"]
-    if kind in ("apt", "sync"):
+    if kind == "sync":
         if set(request) != {"script"}:
             fail(125, "invalid system envelope")
     elif kind == "toolchain":
