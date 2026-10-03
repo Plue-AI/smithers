@@ -132,7 +132,7 @@ test.each([{ key: "y", choice: "once" }, { key: "n", choice: "deny" }, { key: "a
 )
 
 test("a pending approval counts beside Summary until it is answered", async () => {
-  await waitFor(() => frame().includes("y allow"))
+  await waitFor(() => frame().includes("y Allow once"))
   expect(frame()).toContain("Summary ◆1")
   await press("y")
   await waitFor(() => !frame().includes("◆1"))
