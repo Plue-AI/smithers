@@ -1,6 +1,6 @@
 # T-TRM-05 The coding agent's `bash` runs in its own terminal session, shown in the Terminal card
 
-Stage S2 · Size M · Depends on T-TRM-01, T-COL-03, T-TRM-07 · Unblocks T-COL-08, T-REL-02 · Issue: [#3577](https://github.com/smithersai/smithers/issues/3577)
+Stage S2 · Size M · Depends on T-TRM-01, T-COL-03, T-TRM-07 · Unblocks T-APP-10, T-COL-08, T-REL-02 · Issue: [#3577](https://github.com/smithersai/smithers/issues/3577)
 Spec: spec.md §8.11.2a, §9.1.2, §9.3.2 · Delta: delta.md §5 · Product: mvp.md §11 stage 2 item 10, §3.1 (one card per flow, whoever runs it)
 
 ## Goal

@@ -33,14 +33,14 @@ Depends on uses `first merge: …; rest of S1: …`. Only first-merge edges gate
 A ticket closes only with passing machine-written receipts for every named check, bound to the landed commit with verified log digests. Reports list receipt paths. Missing or unwritten Automation blocks closure; prose PASS and --force do not waive evidence (T-PRC-03, C-PRC-03).
 
 <!-- ready-frontier:start (generated; tech lead) -->
-**Ready frontier** (2026-10-03 15:31 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
+**Ready frontier** (2026-10-03 15:46 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
 
 - W0: 4 stamped, 2 pending. T-MCH-02 `4893ba410226`, T-COL-01 `97d2f3b1853f`, T-MCH-01 `aedc2e74b21f`, T-COL-11 `640f6dcf1015`
-- S1: 14 stamped, 59 pending. T-INS-04 `78cb92746bf6`, T-ACC-02 `0b777a1a8e00`, T-ACC-03 `74efdb200985`, T-ACC-04 `f6a141bb8388`, T-STK-02 `548e81546943`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
+- S1: 14 stamped, 59 pending. T-INS-04 `78cb92746bf6`, T-ACC-02 `ea914f6880c0`, T-ACC-03 `74efdb200985`, T-ACC-04 `f6a141bb8388`, T-STK-02 `548e81546943`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
 - S2: 4 stamped, 36 pending. T-AGT-01 `29aa84c2e61e`, T-AGT-02 `0435c9e09b24`, T-AGT-03 `ee2088b0987c`, T-APP-18 `d93ce26dfe3d`
 - S3: 2 stamped, 8 pending. T-COL-08 `3141eb3f61a0`, T-COL-09 `396865c1ddf6`
 - R: 3 stamped, 4 pending. T-INS-03 `bae4217452ca`, T-INS-05 `237c8a6ecce9`, T-INS-07 `72846defd558`
-- M: 6 stamped, 0 pending. T-MNT-01 `2747b5025504`, T-MNT-02 `4e33abac31fd`, T-MNT-03 `29ed6d68adde`, T-MNT-04 `13f022f8fd75`, T-MNT-05 `15a4a9ef5945`, T-AGT-04 `ee5f585f9ed4`
+- M: 6 stamped, 0 pending. T-MNT-01 `2747b5025504`, T-MNT-02 `4e33abac31fd`, T-MNT-03 `29ed6d68adde`, T-MNT-04 `13f022f8fd75`, T-MNT-05 `15a4a9ef5945`, T-AGT-04 `155216495e88`
 <!-- ready-frontier:end -->
 
 ## Index
@@ -199,7 +199,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-APP-16](T-APP-16.md) | Branch conversations: storage, topics, view state, branch tree, Earlier archive | S1 | L | T-COL-02, T-ACC-02, T-ACC-04, T-UI-07, T-APP-22, T-APP-09, T-CAT-01, T-INS-02, T-FLW-08 | C-APP-04, C-J1-04, C-UI-13 |
 | [T-APP-24](T-APP-24.md) | Settings HTTPS hint opens the quickstart page | S2 | S | T-APP-20, T-APP-03 | C-UI-09 |
 | [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-16, T-UI-07, T-FLW-07, T-INS-06, T-STK-12, T-FLW-08, T-FLW-07 | C-J1-04, C-UI-07, C-UI-13 |
-| [T-APP-10](T-APP-10.md) | Branch card: presence, activity, machine state, terminals, SSH line | S2 | L | T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-08, T-UI-15, T-APP-11, T-APP-12, T-APP-22 | C-J3-01, C-J3-03, C-UI-13 |
+| [T-APP-10](T-APP-10.md) | Branch card: presence, activity, machine state, terminals, SSH line | S2 | L | T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-08, T-UI-15, T-APP-11, T-APP-12, T-APP-22, T-COL-05, T-MCH-06, T-MCH-07, T-TRM-03, T-TRM-05, T-STK-01, T-STK-06, T-CAT-01, T-ACC-03, T-APP-04, T-CUT-03 | C-J3-01, C-J3-03, C-UI-13, C-ACC-01, C-J3-09, C-J10-04, C-J7-03 |
 | [T-APP-11](T-APP-11.md) | File and Diff cards reload on change; deleted/renamed states; Restore this file; language server on the daemon | S2 | M | T-COL-04, T-APP-15, T-UI-16, T-APP-22 | C-J3-08, C-PERF-04, C-UI-11, C-UI-13 |
 | [T-APP-12](T-APP-12.md) | Terminal card ownership UI | S2 | S | T-TRM-01, T-UI-17 | C-J3-02, C-UI-13 |
 | [T-APP-13](T-APP-13.md) | Secrets card | S2 | S | T-MCH-12, T-UI-18, T-APP-22 | C-MCH-07, C-UI-13 |

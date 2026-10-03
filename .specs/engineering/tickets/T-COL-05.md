@@ -1,6 +1,6 @@
 # T-COL-05 Moved off the item: detect; Return to Tn; Keep for now
 
-Stage S2 · Size M · Depends on T-COL-04, T-STK-01, T-MCH-04, T-UI-15 · Unblocks T-COL-08, T-REL-02 · Issue: [#3562](https://github.com/smithersai/smithers/issues/3562)
+Stage S2 · Size M · Depends on T-COL-04, T-STK-01, T-MCH-04, T-UI-15 · Unblocks T-APP-10, T-COL-08, T-REL-02 · Issue: [#3562](https://github.com/smithersai/smithers/issues/3562)
 Spec: spec.md §3 (`branches.moved_off`), §4.1 (working → needs_you), §6.1.2 (`in-card`), §9.1.2 (`return_to_item`), §9.3.2–9.3.4, §9.3.8, §9.4.2, §10.8, §14.5.2 · Delta: delta.md §4 (moved-off detection) · Product: mvp.md §6.8 External changes, M-27, M-14
 
 ## Goal
