@@ -559,7 +559,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           const callback = resolveName(expression, name)?.parent
           const child = resolveName(node.tagName, node.tagName.text)
           let owner: ts.Node | undefined = node.parent
-          while (owner && !ts.isFunctionLike(owner)) owner = owner.parent
+          while (owner && owner !== callback?.parent?.parent?.parent) owner = owner.parent
           if (callback && ts.isBindingElement(callback) && ts.isObjectBindingPattern(callback.parent) &&
             ts.isParameter(callback.parent.parent) && callback.parent.parent.parent === owner &&
             (callback.propertyName?.getText(tree) ?? callback.name.getText(tree)) === name &&
@@ -782,6 +782,11 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     ["shadowed child", 'import { ActorChip } from "./ActorChip"; function View({ onAction }) { const ActorChip = () => <button />; return <ActorChip onAction={onAction} /> }'],
   ]) test(`View forwarding rejects ${name}`, () => {
     expect(viewSeamViolations(source!).length).toBeGreaterThan(0)
+  })
+
+  test("nested row callbacks resolve the enclosing View prop without accepting shadows", () => {
+    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction }) { return items.map(item => item.rows.map(row => <ActorChip onAction={onAction} />)) }')).toEqual([])
+    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction }) { return items.map(onAction => <ActorChip onAction={onAction} />) }').length).toBeGreaterThan(0)
   })
 
   test("onAction forwards the action's opaque tag and optional form input", () => {

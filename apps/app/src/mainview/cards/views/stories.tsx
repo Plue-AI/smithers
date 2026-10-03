@@ -7,6 +7,7 @@ export type StoryInteraction = {
   action?: { tag: string; args: Record<string, string> }; patch?: Record<string, unknown>
 }
 export type ViewStory = {
+  interactionSuite?: "TODO";
   name: string; expect: readonly string[]; actions?: readonly StoryAction[]; gestures?: Partial<Record<string, StoryAction>>;
   render: (callbacks: StoryCallbacks, actions?: readonly StoryAction[]) => ReactNode;
   interactions?: readonly StoryInteraction[]

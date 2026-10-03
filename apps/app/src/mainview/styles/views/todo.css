@@ -1,6 +1,4 @@
 .todo-view {
-  --attention: var(--warning);
-  --attention-text: var(--warning);
   font: 13px/1.45 var(--font-ui);
   color: var(--text);
   background: var(--surface);
@@ -35,28 +33,9 @@
   height: 26px;
   border-radius: 50%;
 }
-.todo-state {
-  font-size: 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: 20px;
-  padding: 3px 8px;
-  white-space: nowrap;
-}
-.todo-view [data-tone="live"],
-.todo-live,
-.todo-add {
-  color: var(--brand);
-}
-.todo-view [data-tone="attention"],
-.todo-attention {
-  color: var(--attention-text);
-}
-.todo-view [data-tone="failed"],
-.todo-failed,
-.todo-failure,
-.todo-view [data-check="failed"] {
-  color: var(--danger);
-}
+.todo-live, .todo-add { color: var(--brand); }
+.todo-attention { color: var(--attention-text); }
+.todo-failed, .todo-failure, .todo-view [data-check="failed"] { color: var(--danger); }
 .todo-meta {
   display: flex;
   flex-wrap: wrap;
@@ -144,21 +123,6 @@
   gap: 8px;
   margin: 8px 0;
 }
-.todo-actor {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-}
-.todo-actor img {
-  width: 20px;
-  height: 20px;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-}
-.todo-actor img[data-kind="agent"] {
-  border-radius: 5px;
-}
 .todo-wait {
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
@@ -241,6 +205,7 @@
   font: 11px var(--font-mono);
 }
 .todo-merge-reason {
+  color: var(--tone);
   margin-top: 12px;
   text-align: right;
 }

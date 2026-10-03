@@ -25,6 +25,10 @@ export const todoStories = {
     model: { ...fixtures.working.model, present: Object.values(actors).map((story) => story.model.actor) },
   },
 };
-export function TodoStory({ name }: { name: keyof typeof todoStories }) {
-  return <TodoView {...todoStories[name]} onAction={() => {}} onView={() => {}} />;
-}
+import type { ViewStory } from "./stories";
+export const stories: ViewStory[] = Object.entries(todoStories).map(([name, fixture]) => ({
+  name, expect: fixture.expect,
+  render: ({ onAction, onView }) => <TodoView {...fixture} onAction={onAction} onView={onView} />,
+  // The shared unit harness exercises supplied forms as well as the named TODO race and removal cases.
+  interactionSuite: "TODO",
+}));

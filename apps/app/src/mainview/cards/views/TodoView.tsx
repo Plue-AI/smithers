@@ -1,146 +1,10 @@
 import { useState } from "react";
-import type { Action } from "@smthrs/rpc/CardAction";
-import type { Actor, EvidenceItem } from "@smthrs/rpc/CardPrimitives";
+import { TodoActionView } from "./TodoActionView";
+import type { EvidenceItem } from "@smthrs/rpc/CardPrimitives";
 import type { TodoViewProps } from "@smthrs/rpc/TodoCard";
 
-export const todoActorName = (actor: Actor): string => {
-  if (actor.kind === "person") return actor.name + (actor.via ? ` via ${actor.via.toUpperCase()}` : "");
-  if (actor.kind === "github") return actor.login;
-  if (actor.kind === "system") return "Install";
-  if (actor.kind === "outside") return "Changed outside Smithers";
-  const name =
-    actor.name ??
-    {
-      smithers: "Smithers",
-      coding: "Coding agent",
-      reviewer: "Reviewer",
-      "claude-code": "Claude Code",
-      codex: "Codex",
-      external: "Agent",
-    }[actor.agent];
-  return name + (actor.for_member ? ` for ${actor.for_member.name}` : "");
-};
-// Local primitive until T-UI-01 lands.
-export const TodoActor = ({ actor }: { actor: Actor }) => (
-  <span
-    className="todo-actor"
-    title={todoActorName(actor)}
-    style={{
-      color: `var(${actor.color_index < 6 ? `--lane-${actor.color_index}` : actor.color_index === 6 ? "--brand" : "--text-muted"})`,
-    }}
-  >
-    {"avatar_url" in actor ? (
-      <img src={actor.avatar_url} alt="" data-kind={actor.kind} />
-    ) : (
-      <span aria-hidden="true">▪</span>
-    )}
-    {todoActorName(actor)}
-  </span>
-);
-const states = {
-  queued: "Queued",
-  starting: "Starting",
-  working: "Working",
-  needs_you: "Needs you",
-  paused: "Paused",
-  failed: "Failed",
-  in_review: "In review",
-  merged: "Merged",
-  dropped: "Dropped",
-};
-function ActionControl({
-  action,
-  onAction,
-  drafts,
-  setDrafts,
-}: {
-  action: Action;
-  onAction: TodoViewProps["onAction"];
-  drafts: Record<string, string>;
-  setDrafts: (drafts: Record<string, string>) => void;
-}) {
-  const key = `${action.tag}:${action.args?.wait ?? "card"}`;
-  const draft = Object.fromEntries(
-    (action.input ?? []).map((field) => [
-      field.name,
-      drafts[`${key}:${field.name}`] ??
-        (action.label === "Send as steer" && field.name === "text" ? drafts["late-answer"] : undefined) ??
-        field.value ??
-        "",
-    ]),
-  );
-  const setDraft = (next: Record<string, string>) =>
-    setDrafts({
-      ...drafts,
-      ...Object.fromEntries(Object.entries(next).map(([name, value]) => [`${key}:${name}`, value])),
-      ...(action.tag === "todo.answer" && next.answer !== undefined ? { "late-answer": next.answer } : {}),
-    });
-  if (action.disabled) return <span className="todo-disabled">{action.disabled.reason}</span>;
-  const fields = action.input ?? [];
-  if (!fields.length)
-    return (
-      <button
-        type="button"
-        data-flow={action.tag}
-        data-primary={action.primary}
-        onClick={() => onAction(action.tag, { ...action.args })}
-      >
-        {action.label}
-      </button>
-    );
-  return (
-    <form
-      className="todo-form"
-      data-flow={action.tag}
-      onSubmit={(event) => {
-        event.preventDefault();
-        onAction(action.tag, {
-          ...action.args,
-          ...Object.fromEntries(fields.map((field) => [field.name, draft[field.name] ?? field.value ?? ""])),
-        });
-      }}
-    >
-      {fields.map((field) => (
-        <label key={field.name}>
-          <span className="todo-sr">{field.label}</span>
-          {field.kind === "choice" ? (
-            <select
-              aria-label={field.label}
-              required={field.required}
-              value={draft[field.name] ?? field.value ?? ""}
-              onChange={(event) => setDraft({ ...draft, [field.name]: event.target.value })}
-            >
-              <option value="" />
-              {field.choices?.map((choice) => (
-                <option key={choice}>{choice}</option>
-              ))}
-            </select>
-          ) : field.multiline ? (
-            <textarea
-              aria-label={field.label}
-              placeholder={field.label}
-              required={field.required}
-              value={draft[field.name] ?? field.value ?? ""}
-              onChange={(event) => setDraft({ ...draft, [field.name]: event.target.value })}
-            />
-          ) : (
-            <input
-              aria-label={field.label}
-              placeholder={field.label}
-              type={field.kind === "secret" ? "password" : "text"}
-              required={field.required}
-              value={draft[field.name] ?? field.value ?? ""}
-              onChange={(event) => setDraft({ ...draft, [field.name]: event.target.value })}
-            />
-          )}
-        </label>
-      ))}
-      <button type="submit" data-flow={action.tag} data-primary={action.primary}>
-        {action.label}
-      </button>
-    </form>
-  );
-}
+import { ActorChip, actorName } from "./ActorChip";
+import { StateWord } from "./StateWord";
 function EvidenceLine({ item }: { item: EvidenceItem }) {
   switch (item.kind) {
     case "diff":
@@ -182,14 +46,6 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
 }
 export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const tone =
-    todo.state === "failed"
-      ? "failed"
-      : todo.state === "needs_you"
-        ? "attention"
-        : ["starting", "working"].includes(todo.state)
-          ? "live"
-          : "quiet";
   const mergeAction = actions.find((action) => action.tag === "merge");
   const mergeReason =
     mergeAction?.disabled?.reason ??
@@ -212,9 +68,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
         <h2>
           <span className="todo-ref">T{todo.n}</span> {todo.title}
         </h2>
-        <span className="todo-state" data-tone={tone}>
-          {states[todo.state]}
-        </span>
+        <StateWord state={todo.state} />
         <img className="todo-owner" src={todo.owner.avatar_url} alt={todo.owner.name} />
       </header>
       <div className="todo-meta">
@@ -258,7 +112,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           <summary>+{todo.prompt_revisions.length - 1}</summary>
           {todo.prompt_revisions.slice(1).map((revision, index) => (
             <div className="todo-authored" key={index}>
-              <TodoActor actor={revision.by} />
+              <ActorChip size="s" actor={revision.by} />
               <span>{revision.text}</span>
               <ul>
                 {revision.acceptance.map((text) => (
@@ -288,7 +142,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       {todo.waits.map((wait) => (
         <section className="todo-wait" key={wait.id} data-wait-id={wait.id}>
           <div className="todo-authored">
-            {wait.by && <TodoActor actor={wait.by} />}
+            {wait.by && <><ActorChip size="s" actor={wait.by} /><span>{actorName(wait.by)}</span></>}
             <b>{wait.prompt}</b>
           </div>
           {wait.paths?.map((path) => (
@@ -298,12 +152,12 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           {wait.sha && <code>{wait.sha}</code>}
           <div className="todo-actions">
             {wait.actions.map((action, index) => (
-              <ActionControl
+              <TodoActionView
                 key={`${action.tag}-${index}`}
                 action={action}
                 onAction={onAction}
                 drafts={drafts}
-                setDrafts={setDrafts}
+                onView={(next) => setDrafts(next)}
               />
             ))}
           </div>
@@ -314,7 +168,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           <b>
             {todo.first_answer.by.kind === "person"
               ? todo.first_answer.by.name.split(" ")[0]
-              : todoActorName(todo.first_answer.by)}{" "}
+              : actorName(todo.first_answer.by)}{" "}
             answered
           </b>
           <span>{todo.first_answer.text}</span>
@@ -322,7 +176,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       )}
       {todo.steers.map((steer, index) => (
         <div className="todo-authored" key={index}>
-          <TodoActor actor={steer.by} />
+          <ActorChip size="s" actor={steer.by} />
           <span>{steer.text}</span>
         </div>
       ))}
@@ -400,12 +254,12 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       <div className="todo-actions">
         {actions.map((action, index) =>
           action.tag === "merge" && (todo.merge.state !== "ready" || action.disabled) ? null : (
-            <ActionControl
+            <TodoActionView
               key={`${action.tag}-${index}`}
               action={action}
               onAction={onAction}
               drafts={drafts}
-              setDrafts={setDrafts}
+              onView={(next) => setDrafts(next)}
             />
           ),
         )}
@@ -437,7 +291,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       {todo.present.length > 0 && (
         <div className="todo-presence">
           {todo.present.map((actor, index) => (
-            <TodoActor actor={actor} key={index} />
+            <ActorChip size="s" actor={actor} key={index} />
           ))}
         </div>
       )}

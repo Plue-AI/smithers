@@ -112,3 +112,22 @@ test("Confirm disabled, absent actions and stale approval", async ({ page }) => 
   await expect(page.locator(".confirm-stale")).toHaveText("You approved 1b2c3d4. Review 9e8f7a6.")
   await expect(page.locator('[data-flow="merge.confirm"]')).toHaveCount(0)
 })
+test("answer and late draft use their supplied actions", async ({ page }) => {
+  await page.goto("/view-stories.html?story=TodoView/needs_you");
+  await page.evaluate(() => window.addEventListener("story-callback", (event) => document.body.setAttribute("data-last-action", JSON.stringify((event as CustomEvent).detail.value))));
+  await page.getByRole("textbox", { name: "Answer", exact: true }).fill("Yes, optional");
+  await page.getByRole("button", { name: "Answer", exact: true }).click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-last-action",
+    JSON.stringify({ tag: "todo.answer", args: { n: "12", wait: "wait-question-1", answer: "Yes, optional" } }),
+  );
+  await page.goto("/view-stories.html?story=TodoView/late_answer");
+  await page.evaluate(() => window.addEventListener("story-callback", (event) => document.body.setAttribute("data-last-action", JSON.stringify((event as CustomEvent).detail.value))));
+  await page.getByRole("textbox", { name: "Steer", exact: true }).fill("Keep my answer");
+  await page.getByRole("button", { name: "Send as steer" }).click();
+  await expect(page.getByRole("textbox", { name: "Steer", exact: true })).toHaveValue("Keep my answer");
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-last-action",
+    JSON.stringify({ tag: "todo.steer", args: { n: "12", text: "Keep my answer" } }),
+  );
+});
