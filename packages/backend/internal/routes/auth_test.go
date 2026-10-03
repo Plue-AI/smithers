@@ -74,7 +74,7 @@ func (m mockAuthService) Logout(ctx context.Context, sessionKey string) error {
 	return m.logoutFn(ctx, sessionKey)
 }
 
-func (m mockAuthService) StartGitHubOAuth(ctx context.Context, stateVerifier string) (string, error) {
+func (m mockAuthService) StartGitHubOAuth(ctx context.Context, stateVerifier, _ string) (string, error) {
 	if m.startGitHubOAuthFn != nil {
 		return m.startGitHubOAuthFn(ctx, stateVerifier)
 	}
@@ -85,7 +85,7 @@ func (m mockAuthService) StartGitHubOAuthWithScopes(ctx context.Context, stateVe
 	if m.startGitHubScopesFn != nil {
 		return m.startGitHubScopesFn(ctx, stateVerifier, rawScopes)
 	}
-	return m.StartGitHubOAuth(ctx, stateVerifier)
+	return m.StartGitHubOAuth(ctx, stateVerifier, "")
 }
 
 func (m mockAuthService) CompleteGitHubOAuth(ctx context.Context, code, state, stateVerifier string) (services.OAuthCallbackResult, error) {

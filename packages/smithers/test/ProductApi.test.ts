@@ -91,13 +91,14 @@ describe("the generated product API client", () => {
     // Reviewed MVP inventory: 534 operations minus 28 Pair, 6 marketplace and 4
     // third-party OAuth application operations, plus the two install App setup
     // operations added by T-GH-01, minus two repository-setup operations.
+    // T-INS quiesce adds two operations; ACC-01 removes five local-auth operations.
     // Exact equality above remains
     // independent of this count and every retained operation is exercised below.
-    expect(expected).toHaveLength(498)
+    expect(expected).toHaveLength(495)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
-    ).sort()).toEqual(["GET /api/install", "POST /api/install/setup/app_manifest"])
+    ).sort()).toEqual(["DELETE /api/install/quiesce", "GET /api/install", "POST /api/install/quiesce", "POST /api/install/setup/app_manifest"])
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
     }

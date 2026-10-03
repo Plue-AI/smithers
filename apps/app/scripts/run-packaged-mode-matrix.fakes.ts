@@ -20,7 +20,7 @@ const closes: string[] = []
 const failClose = process.env.MATRIX_FAKES_FAIL_CLOSE === "1"
 const modeConfig = (mode: string) => ({
   mode, origin: "http://127.0.0.1:3000", endpoint: "http://127.0.0.1:3000",
-  auth: { kind: "owner-session", environment: "MATRIX_TEST_AUTH" }, executionReceipt: "receipt.json"
+  auth: { kind: "owner-token", environment: "MATRIX_TEST_AUTH" }, executionReceipt: "receipt.json"
 })
 
 process.on("exit", () => {

@@ -6,7 +6,6 @@ export interface NativeBackendConfig {
   readonly rendererOrigin: string
   readonly target: ApplicationTargetDocument
   readonly token: string | null
-  readonly bootstrapToken: string | null
 }
 
 const origin = (name: string, value: string | undefined): string => {
@@ -59,7 +58,6 @@ export const nativeBackendConfig = (
   return {
     rendererOrigin,
     target: document,
-    token,
-    bootstrapToken: backend.mode === "own" ? backend.bootstrapToken ?? null : null
+    token
   }
 }

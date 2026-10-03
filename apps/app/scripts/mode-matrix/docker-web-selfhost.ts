@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
+import { ownerSeed } from "./owner-seed"
 
 export type CommandStatus = "passed" | "failed"
 
@@ -160,12 +161,9 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
   const commands: LaunchCommandReceipt[] = []
   const readiness: ReadinessObservation[] = []
   const databasePassword = randomUUID()
-  const ownerPassword = `${randomUUID()}-Aa1!`
-  const bootstrapToken = randomUUID()
-  const authEnvironment = options.authEnvironment ?? "SMITHERS_SELFHOST_OWNER_SESSION"
-  const runtimeEnvironment = {
-    [authEnvironment]: JSON.stringify({ username: "matrix-owner", password: ownerPassword, bootstrapToken })
-  }
+  const owner = ownerSeed("matrix-owner")
+  const authEnvironment = options.authEnvironment ?? "SMITHERS_SELFHOST_OWNER_TOKEN"
+  const runtimeEnvironment = { [authEnvironment]: owner.token }
   const databaseURL = `postgres://smithers:${encodeURIComponent(databasePassword)}@${resources.postgresContainer}:5432/${resources.database}?sslmode=disable`
   const expectedOrigin = `http://127.0.0.1:${resources.hostPort}`
   const persistenceMarker = randomUUID()
@@ -183,8 +181,7 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
   let appContainerCreated = false
   const redact = (value: string): string => value
     .replaceAll(databasePassword, "[redacted]")
-    .replaceAll(ownerPassword, "[redacted]")
-    .replaceAll(bootstrapToken, "[redacted]")
+    .replaceAll(owner.token, "[redacted]")
 
   const report = (extra: Partial<Pick<WebSelfhostLaunchReport, "finishedAt" | "teardownFailures">> = {}): void => writeJson(reportPath, {
     mode: "web-selfhost",
@@ -350,7 +347,7 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
       "docker", "run", "--detach", "--name", resources.appContainer, "--network", resources.network,
       "--add-host", "host.docker.internal:host-gateway",
       "--publish", `127.0.0.1:${resources.hostPort}:4000`, "--env", `SMITHERS_DATABASE_URL=${databaseURL}`,
-      "--env", "SMITHERS_AUTH_MODE=selfhost", "--env", `SMITHERS_AUTH_BOOTSTRAP_TOKEN=${bootstrapToken}`,
+      "--env", "SMITHERS_AUTH_MODE=selfhost",
       ...(options.subscriptionConnections === true ? ["--env", "SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS=true"] : []),
 	  "--env", `AI_GATEWAY_API_KEY=matrix-flow-${randomUUID()}`,
       "--env", `SMITHERS_PUBLIC_URL=${expectedOrigin}`,
@@ -361,6 +358,10 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
     if (port !== resources.hostPort) throw new Error(`Docker published unexpected product port ${port}; expected ${resources.hostPort}`)
     origin = expectedOrigin
     await observeReadiness(origin)
+    await run("seed matrix owner", [
+      "docker", "exec", resources.postgresContainer, "psql", "-U", "smithers", "-d", resources.database,
+      "-v", "ON_ERROR_STOP=1", "-Atqc", owner.sql
+    ])
 
     const beforeDatabase = markerFrom((await run("write database restart marker", [
       "docker", "exec", resources.postgresContainer, "psql", "-U", "smithers", "-d", resources.database, "-Atqc",
@@ -406,7 +407,7 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
       modeConfig: {
         mode: "web-selfhost",
         origin, endpoint: origin,
-        auth: { kind: "owner-session", environment: authEnvironment },
+        auth: { kind: "owner-token", environment: authEnvironment },
         executionReceipt: receiptPath
       },
       close: cleanup

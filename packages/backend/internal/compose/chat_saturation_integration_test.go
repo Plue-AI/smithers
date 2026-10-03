@@ -90,8 +90,8 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	q := db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "saturated", LowerUsername: "saturated", DisplayName: "saturated"})
 	require.NoError(t, err)
-	// The single trusted owner of this installation.
-	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES ($1)`, owner.ID)
+	// The install's owner.
+	_, err = pool.Exec(ctx, `INSERT INTO members (user_id, github_user_id, login, role) VALUES ($1, 1, 'saturated', 'owner')`, owner.ID)
 	require.NoError(t, err)
 	token, _ := isolationToken(t, q, owner, "saturated-all")
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "busy", LowerName: "busy", DefaultBookmark: "main"})

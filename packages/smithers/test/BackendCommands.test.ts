@@ -80,7 +80,7 @@ const homeFixture = async (
   return {
     home,
     close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
-    run: async (args: string[]) => {
+    run: async (args: string[], overrides: Record<string, string> = {}) => {
       let output = "", error = "", code = 0
       const signals = new EventEmitter()
       // Incur reads skill-sync metadata from process.env, not the CLI host's env.
@@ -89,7 +89,7 @@ const homeFixture = async (
       try {
         await main({
           argv: [...args, "--audience", "human"],
-          env: { ...environment },
+          env: { ...environment, ...overrides },
           stdout: {
             isTTY: true,
             columns: 80,
@@ -699,25 +699,25 @@ describe("one-login authentication", () => {
     )
     if (code !== 503) expect(exit).toHaveBeenCalledWith(1)
   })
-  it.each(["login", "bootstrap"])("obtains one owner session through local %s", async (action) => {
-    const { c, request } = await fixture({
-      SMITHERS_AUTH_USERNAME: "owner",
-      SMITHERS_AUTH_PASSWORD: "password",
-      SMITHERS_AUTH_BOOTSTRAP_TOKEN: "bootstrap",
-      SMITHERS_TOKEN: ""
+  it.each(["login", "bootstrap"])("refuses retired local %s without requesting or replacing a session", async (action) => {
+    let requests = 0
+    const f = await homeFixture((_request, response) => {
+      requests++
+      response.writeHead(200, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({ token: "obsolete-owner-token", user: { username: "owner" }, token_id: 7 }))
     })
-    request.mockResolvedValue({ token: "owner-token", user: { username: "owner" }, token_id: 7 })
-    expect(await auth[`auth local ${action}`]!(c, {}, {})).toMatchObject({ user: "owner", token_id: 7 })
-    expect((await c.session.require())?.token).toBe("owner-token")
-    expect(request).toHaveBeenCalledWith(
-      "POST",
-      "/api/auth/local/token",
-      expect.objectContaining({ username: "owner", password: "password" }),
-      expect.objectContaining({ anonymous: true })
-    )
-    if (action === "bootstrap") {
-      expect(request.mock.calls[0]![3]).toMatchObject({ headers: { "X-Smithers-Bootstrap-Token": "bootstrap" } })
-    }
+    try {
+      const before = await readFile(join(f.home, "auth.json"), "utf8")
+      const result = await f.run(["auth", "local", action], {
+        SMITHERS_AUTH_USERNAME: "owner", SMITHERS_AUTH_PASSWORD: "password",
+        SMITHERS_AUTH_BOOTSTRAP_TOKEN: "bootstrap"
+      })
+      expect(result.code).toBe(1)
+      expect(result.output + result.error).toContain("local")
+      expect(result.output + result.error).not.toContain("home-session-secret")
+      expect(requests).toBe(0)
+      expect(await readFile(join(f.home, "auth.json"), "utf8")).toBe(before)
+    } finally { await f.close() }
   })
   it.each([
     {

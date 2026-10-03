@@ -139,9 +139,9 @@ func buildRouter(
 		extras.Catalog = routes.NewPublicRepositoryCatalog(queries)
 	}
 	r := chi.NewRouter()
-	var ownerBoundary identity.OwnerAuthorizer
+	var memberBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg.Auth) {
-		ownerBoundary = identity.NewSingleOwnerBoundary(queries)
+		memberBoundary = identity.NewMemberBoundary(queries)
 	}
 	allowedOrigins := apiAllowedOrigins(cfg)
 	if authHandler != nil {
@@ -236,7 +236,7 @@ func buildRouter(
 		ticketAuth := middleware.SSETicketAuth(
 			sseTicketService,
 			sseTicketMetrics,
-			ownerBoundary,
+			memberBoundary,
 		)
 		// Ticket auth installs its principal after authLoader's guard has
 		// already run, so the guard must run again behind it or a ticket's
@@ -934,13 +934,6 @@ func buildRouter(
 			r.With(middleware.AuthRateLimit(queries)).Get("/auth/key/nonce", authHandler.GetKeyAuthNonce)
 			r.With(middleware.AuthRateLimit(queries)).Post("/auth/key/verify", authHandler.PostKeyAuthVerify)
 			r.With(middleware.AuthRateLimit(queries)).Post("/auth/key/token", authHandler.PostKeyAuthToken)
-		}
-		if config.IsSingleOwner(cfg.Auth) && authHandler.LocalService != nil {
-			r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/local/status", authHandler.GetLocalIdentityStatus)
-			r.With(middleware.AuthRateLimit(queries)).Post("/auth/local/bootstrap", authHandler.PostLocalBootstrap)
-			r.With(middleware.AuthRateLimit(queries)).Post("/auth/local/login", authHandler.PostLocalLogin)
-			r.With(middleware.AuthRateLimit(queries)).Post("/auth/local/token", authHandler.PostLocalToken)
-			r.With(middleware.AuthRateLimit(queries), middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/auth/local/password", authHandler.PostLocalPassword)
 		}
 		// Direct GitHub App OAuth (browser sign-in / connect + CLI login).
 		// These interactive routes use the looser "auth_interactive" scope

@@ -26,17 +26,17 @@ type mockGitHTTPProxyQuerier struct {
 	getRepoByOwnerAndLowerNameFn    func(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
 	listAllProtectedBookmarksFn     func(ctx context.Context, repositoryID int64) ([]db.ProtectedBookmark, error)
 	getWorkflowRunByRunIDFn         func(ctx context.Context, runID int64) (db.WorkflowRun, error)
-	getSelfHostOwnerFn              func(ctx context.Context) (db.User, error)
+	authorizeMemberUserFn           func(ctx context.Context, userID int64) (bool, error)
 	getAuthInfoByTokenHashCall      int
 	updateLastUsedCall              int
 	getRepoByOwnerAndLowerNameCalls int
 }
 
-func (m *mockGitHTTPProxyQuerier) GetSelfHostOwner(ctx context.Context) (db.User, error) {
-	if m.getSelfHostOwnerFn != nil {
-		return m.getSelfHostOwnerFn(ctx)
+func (m *mockGitHTTPProxyQuerier) AuthorizeMemberUser(ctx context.Context, userID int64) (bool, error) {
+	if m.authorizeMemberUserFn != nil {
+		return m.authorizeMemberUserFn(ctx, userID)
 	}
-	return db.User{}, pgx.ErrNoRows
+	return false, nil
 }
 
 func (m *mockGitHTTPProxyQuerier) GetWorkflowRunByRunID(ctx context.Context, runID int64) (db.WorkflowRun, error) {
@@ -188,7 +188,7 @@ func TestGitHTTPProxyService_InfoRefs_PublicReadWithoutToken_Allowed(t *testing.
 	assert.Equal(t, 0, q.updateLastUsedCall)
 }
 
-func TestGitHTTPProxyService_SelfhostRejectsForeignUserToken(t *testing.T) {
+func TestGitHTTPProxyService_SelfhostRejectsNonMemberToken(t *testing.T) {
 	t.Parallel()
 
 	q := &mockGitHTTPProxyQuerier{
@@ -197,8 +197,8 @@ func TestGitHTTPProxyService_SelfhostRejectsForeignUserToken(t *testing.T) {
 				ID: 8, Username: "foreign", TokenID: 33, TokenScopes: "read:repository",
 			}, nil
 		},
-		getSelfHostOwnerFn: func(context.Context) (db.User, error) {
-			return db.User{ID: 7, Username: "owner"}, nil
+		authorizeMemberUserFn: func(_ context.Context, userID int64) (bool, error) {
+			return userID == 7, nil
 		},
 	}
 	repoHost := &mockGitHTTPRepoHostClient{}
@@ -206,12 +206,12 @@ func TestGitHTTPProxyService_SelfhostRejectsForeignUserToken(t *testing.T) {
 		q,
 		&mockGitHTTPAuthorizer{},
 		repoHost,
-		WithGitHTTPSingleOwnerBoundary(q),
+		WithGitHTTPMemberBoundary(q),
 	)
 
 	_, err := svc.ProxyInfoRefs(context.Background(), "owner", "repo", "git-upload-pack", "foreign-token", &bytes.Buffer{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "installation owner")
+	assert.Contains(t, err.Error(), "not a member")
 	assert.Zero(t, repoHost.infoRefsCalls)
 	assert.Zero(t, q.updateLastUsedCall, "rejected foreign tokens must not record authenticated use")
 }

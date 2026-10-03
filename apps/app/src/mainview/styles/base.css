@@ -111,19 +111,3 @@ textarea {
 .session-identity { position: absolute; right: 12px; top: 0; height: var(--session-strip); display: flex; align-items: center; }
 .session-identity .chrome-action { width: auto; }
 .session-identity .chrome-action:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.local-auth-dialog {
-	position: fixed;
-	top: calc(var(--session-strip) + var(--sp-2));
-	right: var(--sp-3);
-	z-index: 80;
-	width: min(24rem, calc(100vw - 2 * var(--sp-3)));
-	box-sizing: border-box;
-	padding: var(--sp-3);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--r-3);
-	background: var(--surface);
-	box-shadow: var(--shadow-2);
-}
-.local-auth-loading,
-.local-auth-error { color: var(--muted-foreground); font-size: var(--fs-small); }
-.local-auth-error { color: var(--danger); }

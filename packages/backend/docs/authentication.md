@@ -23,3 +23,26 @@ authenticate as a user. Legacy
 
 LFS grants, Worker exchange credentials, OAuth client Basic credentials, and
 build-cache read tokens are checked by their own route gates.
+
+## Install sign-in
+
+People sign in to an install with GitHub only. There is no password and no
+local account route.
+
+- **Claim.** While the install has no owner, every start prints
+  `Setup URL: <origin>/setup?token=<token>` and stores only the token's
+  SHA-256 digest. The first GitHub sign-in that carries the token
+  (`GET /api/auth/github?setup_token=<token>`) becomes the owner, on any
+  listener. Setup claims the owner before the owner picks the repository, so
+  the claim checks push access only when a repository is already recorded.
+  The claim deletes the token; a restart before the claim prints a new one. A
+  sign-in without the current token is refused with `setup_token_invalid`.
+- **Later sign-ins.** The person must be on the roster (`members`, not
+  removed) and have push access or higher to the install's repository, read
+  live from GitHub with an installation token. Refusals: `not_a_member`,
+  `needs_github_access`, and `github_unavailable` when GitHub does not answer
+  (the sign-in fails closed). Until setup records the repository only the
+  owner signs in; anyone else gets `install_repository_unset`.
+- **Every request.** Sessions, tokens, SSE tickets and Git over HTTP pass one
+  member check; a credential whose user is not a member gets 403
+  `not_a_member`.

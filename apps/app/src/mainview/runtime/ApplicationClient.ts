@@ -4,24 +4,10 @@ import {
   APPLICATION_TOKEN_SCOPES,
   AUTHENTICATED_USER_PATH,
   ApplicationUserSchema,
-  BOOTSTRAP_TOKEN_HEADER_NAME,
   CSRF_COOKIE_NAME,
   CSRF_HEADER_NAME,
-  LOCAL_AUTH_BOOTSTRAP_PATH,
-  LOCAL_AUTH_LOGIN_PATH,
-  LOCAL_AUTH_STATUS_PATH,
-  LocalBootstrapRequestSchema,
-  LocalCredentialSchema,
-  LocalIdentityStatusSchema,
-  LocalLoginResponseSchema,
   SOCKET_TICKET_PATH,
   SocketTicketResponseSchema
-} from "@smthrs/rpc/ApplicationAuth"
-import type {
-  LocalBootstrapRequest,
-  LocalCredential,
-  LocalIdentityStatus,
-  LocalLoginResponse
 } from "@smthrs/rpc/ApplicationAuth"
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import { clientRefusal, refusalOf, retryAfterHeader } from "@smthrs/rpc/Refusal"
@@ -81,12 +67,6 @@ export interface ApplicationRequestOptions extends RequestInit {
   readonly expect?: "json" | "empty"
 }
 
-export interface LocalIdentityClient {
-  readonly status: (signal?: AbortSignal) => Promise<LocalIdentityStatus>
-  readonly login: (credentials: LocalCredential, signal?: AbortSignal) => Promise<LocalLoginResponse>
-  readonly bootstrap: (request: LocalBootstrapRequest, signal?: AbortSignal) => Promise<LocalLoginResponse>
-}
-
 export interface ApplicationIdentity {
   readonly username: string
   /** The trimmed profile name, absent when the backend sends none. */
@@ -107,7 +87,6 @@ export interface ApplicationClient {
   readonly request: <T = unknown>(path: string, init?: ApplicationRequestOptions) => Promise<T>
   /** Authenticated streaming request; the caller owns and cancels the response body. */
   readonly stream: (path: string, init?: RequestInit) => Promise<Response>
-  readonly localIdentity: LocalIdentityClient
   readonly identity: ApplicationIdentityClient
   /** Mint a fresh one-use ticket and append it only to a socket on this target's origin. */
   readonly authorizeWebSocket: (url: string, signal?: AbortSignal) => Promise<string>
@@ -282,51 +261,6 @@ export const createApplicationClient = (
     }
   }
 
-  const requireOwner = (): void => {
-    if (target.ownership !== "owner") {
-      throw new ApplicationClientError("invalid-target", "Local owner credentials cannot be sent to a Plue backend.")
-    }
-  }
-
-  const localIdentity: ApplicationClient["localIdentity"] = {
-    status: async (signal) => {
-      requireOwner()
-      const body = await request(LOCAL_AUTH_STATUS_PATH, { signal })
-      const parsed = LocalIdentityStatusSchema.safeParse(body)
-      if (!parsed.success) throw invalidResponse("Backend returned an invalid local identity status.", parsed.error)
-      return parsed.data
-    },
-    login: async (credentials, signal) => {
-      requireOwner()
-      const input = LocalCredentialSchema.parse(credentials)
-      const body = await request(LOCAL_AUTH_LOGIN_PATH, {
-        method: "POST",
-        signal,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input)
-      })
-      const parsed = LocalLoginResponseSchema.safeParse(body)
-      if (!parsed.success) throw invalidResponse("Backend returned an invalid local login response.", parsed.error)
-      return parsed.data
-    },
-    bootstrap: async (bootstrap, signal) => {
-      requireOwner()
-      const input = LocalBootstrapRequestSchema.parse(bootstrap)
-      const body = await request(LOCAL_AUTH_BOOTSTRAP_PATH, {
-        method: "POST",
-        signal,
-        headers: {
-          "content-type": "application/json",
-          [BOOTSTRAP_TOKEN_HEADER_NAME]: input.bootstrapToken
-        },
-        body: JSON.stringify({ username: input.username, password: input.password, ...(input.email === undefined ? {} : { email: input.email }) })
-      })
-      const parsed = LocalLoginResponseSchema.safeParse(body)
-      if (!parsed.success) throw invalidResponse("Backend returned an invalid local bootstrap response.", parsed.error)
-      return parsed.data
-    }
-  }
-
   const identity: ApplicationClient["identity"] = {
     current: async (signal) => {
       let body: unknown
@@ -378,5 +312,5 @@ export const createApplicationClient = (
     return socket.toString()
   }
 
-  return { target, baseUrl: target.baseUrl, fetch: authenticatedFetch, request, stream, localIdentity, identity, authorizeWebSocket }
+  return { target, baseUrl: target.baseUrl, fetch: authenticatedFetch, request, stream, identity, authorizeWebSocket }
 }

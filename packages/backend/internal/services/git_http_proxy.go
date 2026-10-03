@@ -36,19 +36,19 @@ type GitHTTPRepoHostClient interface {
 
 // GitHTTPProxyService handles authn/authz and proxy dispatch for git smart HTTP routes.
 type GitHTTPProxyService struct {
-	queries       GitHTTPProxyQuerier
-	authorizer    SSHAuthorizer
-	repoHost      GitHTTPRepoHostClient
-	ownerBoundary identity.OwnerAuthorizer
+	queries        GitHTTPProxyQuerier
+	authorizer     SSHAuthorizer
+	repoHost       GitHTTPRepoHostClient
+	memberBoundary identity.MemberAuthorizer
 }
 
 type GitHTTPProxyServiceOption func(*GitHTTPProxyService)
 
-// WithGitHTTPSingleOwnerBoundary applies the installation-owner invariant to
-// Git smart HTTP, whose token resolver intentionally lives outside AuthLoader.
-func WithGitHTTPSingleOwnerBoundary(queries identity.OwnerQuerier) GitHTTPProxyServiceOption {
+// WithGitHTTPMemberBoundary applies the install's member boundary to Git
+// smart HTTP, whose token resolver intentionally lives outside AuthLoader.
+func WithGitHTTPMemberBoundary(queries identity.MemberQuerier) GitHTTPProxyServiceOption {
 	return func(s *GitHTTPProxyService) {
-		s.ownerBoundary = identity.NewSingleOwnerBoundary(queries)
+		s.memberBoundary = identity.NewMemberBoundary(queries)
 	}
 }
 
@@ -324,8 +324,8 @@ func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 		CreatedAt:     authRow.CreatedAt,
 		UpdatedAt:     authRow.UpdatedAt,
 	}
-	if s.ownerBoundary != nil {
-		if err := s.ownerBoundary.AuthorizeOwner(ctx, user.ID); err != nil {
+	if s.memberBoundary != nil {
+		if err := s.memberBoundary.AuthorizeMember(ctx, user.ID); err != nil {
 			return gitHTTPCredential{}, err
 		}
 	}

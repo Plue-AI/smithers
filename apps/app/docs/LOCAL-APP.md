@@ -55,11 +55,9 @@ tokens and `SMITHERS_*` exports in the shell never reach it.
 | Launcher network policy, copied by name | `HTTP_PROXY` `HTTPS_PROXY` `NO_PROXY` `ALL_PROXY` (and lowercase) `SSL_CERT_FILE` `SSL_CERT_DIR` |
 | `PATH` | the packaged `bin` directory, then the launcher's `PATH` or the system directories |
 | Git | `GIT_EXEC_PATH` `GIT_TEMPLATE_DIR` (packaged), `GIT_CONFIG_NOSYSTEM=1` `GIT_CONFIG_GLOBAL=/dev/null` |
-| Set by the app | `SMITHERS_AUTH_MODE` `SMITHERS_AUTH_BOOTSTRAP_TOKEN` `SMITHERS_NATIVE_POSTGRES_*` `SMITHERS_NATIVE_STATE_DIR` `SMITHERS_DATA_ROOT` `SMITHERS_SERVER_ADDR` `SMITHERS_PUBLIC_URL` `SMITHERS_WEB_ROOT` `SMITHERS_FLOW_HOST_MANIFEST` `SMITHERS_WORKSPACE_*` `SMITHERS_MODEL_HOST_BUNDLE` `SMITHERS_NODE_BINARY` `SMITHERS_JJ_PATH` `SMITHERS_FFI_LIBRARY_PATH` |
+| Set by the app | `SMITHERS_AUTH_MODE` `SMITHERS_NATIVE_POSTGRES_*` `SMITHERS_NATIVE_STATE_DIR` `SMITHERS_DATA_ROOT` `SMITHERS_SERVER_ADDR` `SMITHERS_PUBLIC_URL` `SMITHERS_WEB_ROOT` `SMITHERS_FLOW_HOST_MANIFEST` `SMITHERS_WORKSPACE_*` `SMITHERS_MODEL_HOST_BUNDLE` `SMITHERS_NODE_BINARY` `SMITHERS_JJ_PATH` `SMITHERS_FFI_LIBRARY_PATH` |
 
-The first-owner token comes from `config/secrets.json` in the state directory,
-or is generated on first launch. Model credentials come from the owner
-credential store. At spawn the app logs `owned backend env: <names>` to stderr,
+Model credentials come from the owner credential store. At spawn the app logs `owned backend env: <names>` to stderr,
 with names only. An owned target always authenticates by session and ignores
 `SMITHERS_API_TOKEN`.
 

@@ -112,7 +112,7 @@ type Auth0Client interface {
 type AuthQuerier interface {
 	CreateOAuthState(ctx context.Context, arg db.CreateOAuthStateParams) (db.OauthState, error)
 	ConsumeOAuthState(ctx context.Context, arg db.ConsumeOAuthStateParams) (int64, error)
-	ConsumeOAuthStateWithScopes(ctx context.Context, arg db.ConsumeOAuthStateWithScopesParams) ([]string, error)
+	ConsumeOAuthStateWithScopes(ctx context.Context, arg db.ConsumeOAuthStateWithScopesParams) (db.ConsumeOAuthStateWithScopesRow, error)
 	CreateAuthNonce(ctx context.Context, arg db.CreateAuthNonceParams) (db.AuthNonce, error)
 	ConsumeAuthNonce(ctx context.Context, arg db.ConsumeAuthNonceParams) (int64, error)
 	GetUserByWalletAddress(ctx context.Context, walletAddress pgtype.Text) (db.User, error)
@@ -168,6 +168,8 @@ type AuthService struct {
 	// githubRefreshLocker extends that serialization across replicas. Optional;
 	// see WithAuthGitHubRefreshLocker.
 	githubRefreshLocker GitHubRefreshLocker
+	// signIn admits GitHub sign-ins on the install (single-owner mode).
+	signIn SignInGate
 }
 
 // userLockRegistry hands out per-key mutexes that are dropped from the map as
@@ -311,6 +313,12 @@ func NewAuthService(q AuthQuerier, cfg config.AuthConfig, keyAuthVerifier KeyAut
 	return s
 }
 
+// SetSignInGate checks every GitHub sign-in on the install against the
+// roster and GitHub push permission, and lets the setup token claim the owner.
+func (s *AuthService) SetSignInGate(gate SignInGate) {
+	s.signIn = gate
+}
+
 // SetAuth0Client sets the Auth0 client for Auth0 OAuth flows.
 // This is called during server startup when Auth0 credentials are configured.
 func (s *AuthService) SetAuth0Client(client Auth0Client) {
@@ -409,11 +417,11 @@ func (s *AuthService) VerifyKeyAuth(ctx context.Context, message, signature stri
 	}, nil
 }
 
-func (s *AuthService) StartGitHubOAuth(ctx context.Context, stateVerifier string) (string, error) {
+func (s *AuthService) StartGitHubOAuth(ctx context.Context, stateVerifier, setupToken string) (string, error) {
 	// GitHub connect/sign-in always goes DIRECT to the GitHub App now — WorkOS is
 	// removed. (Routing through WorkOS made it reject the worker's rewritten
 	// redirect_uri: "This is not a valid redirect URI".)
-	return s.startGitHubOAuthDirect(ctx, stateVerifier, nil)
+	return s.startGitHubOAuthDirect(ctx, stateVerifier, nil, setupToken)
 }
 
 // StartGitHubOAuthWithScopes starts the first-party CLI/browser OAuth flow and
@@ -424,16 +432,30 @@ func (s *AuthService) StartGitHubOAuthWithScopes(ctx context.Context, stateVerif
 	if err != nil {
 		return "", err
 	}
-	return s.startGitHubOAuthDirect(ctx, stateVerifier, scopes)
+	return s.startGitHubOAuthDirect(ctx, stateVerifier, scopes, "")
 }
 
-func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier string, requestedScopes []string) (string, error) {
+// startGitHubOAuthDirect records the one-time OAuth state. A sign-in started
+// from the install's setup URL carries the setup token: it is checked now,
+// and its digest rides in the state so the callback can claim the owner.
+func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier string, requestedScopes []string, setupToken string) (string, error) {
 	githubAuthClient, ok := s.githubClient.(GitHubAuthClient)
 	if !ok {
 		return "", pkgerrors.Internal("github oauth is not configured")
 	}
 	if strings.TrimSpace(stateVerifier) == "" {
 		return "", pkgerrors.BadRequest("invalid oauth state")
+	}
+	var setupTokenDigest pgtype.Text
+	if setupToken != "" {
+		verifier, ok := s.signIn.(setupTokenVerifier)
+		if !config.IsSingleOwner(s.cfg) || !ok {
+			return "", pkgerrors.BadRequest("setup_token is only accepted by an install")
+		}
+		if err := verifier.VerifySetupToken(ctx, setupToken); err != nil {
+			return "", err
+		}
+		setupTokenDigest = pgtype.Text{String: SetupTokenDigest(setupToken), Valid: true}
 	}
 
 	state := s.generateState()
@@ -452,6 +474,11 @@ func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier 
 	}
 
 	return authURL, nil
+}
+
+// setupTokenVerifier checks a setup token without consuming it.
+type setupTokenVerifier interface {
+	VerifySetupToken(ctx context.Context, token string) error
 }
 
 // StartAuth0OAuth initiates the Auth0 OAuth flow. It creates a state verifier,
@@ -488,7 +515,7 @@ func (s *AuthService) CompleteGitHubOAuth(ctx context.Context, code, state, stat
 	// lookup) were written under that label, so changing it would orphan those
 	// accounts and force re-onboarding. The WorkOS service itself is gone — this
 	// is just the historical row key.
-	return s.completeOAuthWithClient(ctx, s.githubClient, "workos", code, state, stateVerifier)
+	return s.completeOAuthWithClient(ctx, s.githubClient, githubOAuthProvider, code, state, stateVerifier)
 }
 
 // CompleteAuth0OAuth completes the Auth0 OAuth flow. It uses the Auth0 client
@@ -518,10 +545,11 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 		return OAuthCallbackResult{}, pkgerrors.Unauthorized("invalid oauth state")
 	}
 
-	requestedScopes, err := s.queries.ConsumeOAuthStateWithScopes(ctx, db.ConsumeOAuthStateWithScopesParams{
+	consumed, err := s.queries.ConsumeOAuthStateWithScopes(ctx, db.ConsumeOAuthStateWithScopesParams{
 		State:       state,
 		ContextHash: hashOAuthStateVerifier(stateVerifier),
 	})
+	requestedScopes := consumed.RequestedScopes
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
 			return OAuthCallbackResult{}, pkgerrors.Unauthorized("invalid oauth state")
@@ -541,7 +569,7 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 		return OAuthCallbackResult{}, pkgerrors.BadRequest("failed to exchange oauth code")
 	}
 
-	user, err := s.resolveOAuthUser(ctx, client, provider, tokenResult.AccessToken, tokenResult.RefreshToken, tokenResult.ExpiresIn)
+	user, err := s.resolveOAuthUser(ctx, client, provider, tokenResult.AccessToken, tokenResult.RefreshToken, tokenResult.ExpiresIn, consumed.SetupTokenDigest.String)
 	if err != nil {
 		return OAuthCallbackResult{}, err
 	}
@@ -569,8 +597,10 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 // provider's API, never from the caller's claim), finds or creates the local
 // user, and upserts the oauth_accounts row (encrypted token) plus the primary email address.
 // It is shared by the browser OAuth callback flow and the trusted worker
-// token-exchange flow.
-func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient, provider, accessToken, refreshToken string, expiresIn int64) (db.User, error) {
+// token-exchange flow. On the install, the sign-in gate decides the user:
+// setupTokenDigest, set when the sign-in started from the setup URL, lets the
+// first sign-in claim the owner.
+func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient, provider, accessToken, refreshToken string, expiresIn int64, setupTokenDigest string) (db.User, error) {
 	profile, err := client.FetchUser(ctx, accessToken)
 	if err != nil {
 		return db.User{}, oauthFetchError("profile", err)
@@ -586,64 +616,61 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 		Provider:       provider,
 		ProviderUserID: providerUserID,
 	})
+	accountFound := err == nil
+	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+		return db.User{}, pkgerrors.Internal("failed to query oauth account").WithCause(err)
+	}
+	// Validate that the stored access token is still decryptable before proceeding.
+	// If a non-empty ciphertext is present but fails to decrypt, abort rather than
+	// silently overwriting with the new token — this surfaces key-rotation issues early.
+	if accountFound && len(account.AccessTokenEncrypted) > 0 {
+		if _, decryptErr := s.DecryptOAuthAccessToken(account.AccessTokenEncrypted); decryptErr != nil {
+			return db.User{}, pkgerrors.Internal("failed to decrypt existing oauth access token").WithCause(decryptErr)
+		}
+	}
 
 	var user db.User
-	if err == nil {
-		// Validate that the stored access token is still decryptable before proceeding.
-		// If a non-empty ciphertext is present but fails to decrypt, abort rather than
-		// silently overwriting with the new token — this surfaces key-rotation issues early.
-		if len(account.AccessTokenEncrypted) > 0 {
-			if _, decryptErr := s.DecryptOAuthAccessToken(account.AccessTokenEncrypted); decryptErr != nil {
-				return db.User{}, pkgerrors.Internal("failed to decrypt existing oauth access token").WithCause(decryptErr)
-			}
+	switch {
+	case config.IsSingleOwner(s.cfg):
+		if provider != githubOAuthProvider || s.signIn == nil {
+			return db.User{}, pkgerrors.Forbidden("sign in with GitHub")
 		}
+		user, err = s.signIn.AdmitSignIn(ctx, GitHubSignIn{
+			GitHubUserID:     profile.ID,
+			Login:            profile.Login,
+			Name:             profile.Name,
+			Email:            pickVerifiedEmail(emails),
+			SetupTokenDigest: setupTokenDigest,
+		})
+		if err != nil {
+			return db.User{}, err
+		}
+	case accountFound:
 		user, err = s.queries.GetUserByID(ctx, account.UserID)
 		if err != nil {
 			return db.User{}, pkgerrors.Internal("failed to load oauth user").WithCause(err)
 		}
-		if config.IsSingleOwner(s.cfg) {
-			localQueries, localErr := s.localIdentityQueries()
-			if localErr != nil {
-				return db.User{}, localErr
-			}
-			owner, ownerErr := localQueries.GetSelfHostOwner(ctx)
-			if ownerErr != nil || owner.ID != user.ID {
-				return db.User{}, pkgerrors.Forbidden("external identity is not linked to the installation owner")
-			}
-			user = owner
-		}
-	} else {
-		if !stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.User{}, pkgerrors.Internal("failed to query oauth account")
-		}
-		if config.IsSingleOwner(s.cfg) {
-			// Never infer that a previously unseen external identity owns this
-			// installation. Provider/repository connections are authorized by an
-			// existing owner session through their dedicated routes; they are not
-			// an alternate self-host account-provisioning path.
-			return db.User{}, pkgerrors.Forbidden("external identity is not linked to the installation owner")
-		} else {
-			// Only a GitHub-verified address may become users.email: an
-			// unverified one would squat the real owner's address on
-			// uq_users_lower_email and block their signup.
-			email := pickVerifiedEmail(emails)
-			emailText := pgtype.Text{String: email, Valid: email != ""}
-			user, err = s.queries.CreateUser(ctx, db.CreateUserParams{
-				Username:      profile.Login,
-				LowerUsername: strings.ToLower(profile.Login),
-				Email:         emailText,
-				LowerEmail:    pgtype.Text{String: strings.ToLower(email), Valid: email != ""},
-				DisplayName:   firstNonEmpty(profile.Name, profile.Login),
-			})
-			if err != nil {
-				if isUniqueViolation(err) {
-					if isUsernameUniqueViolation(err) {
-						return db.User{}, pkgerrors.Conflict("username is already in use")
-					}
-					return db.User{}, pkgerrors.Conflict("email address is already in use")
+	default:
+		// Only a GitHub-verified address may become users.email: an
+		// unverified one would squat the real owner's address on
+		// uq_users_lower_email and block their signup.
+		email := pickVerifiedEmail(emails)
+		emailText := pgtype.Text{String: email, Valid: email != ""}
+		user, err = s.queries.CreateUser(ctx, db.CreateUserParams{
+			Username:      profile.Login,
+			LowerUsername: strings.ToLower(profile.Login),
+			Email:         emailText,
+			LowerEmail:    pgtype.Text{String: strings.ToLower(email), Valid: email != ""},
+			DisplayName:   firstNonEmpty(profile.Name, profile.Login),
+		})
+		if err != nil {
+			if isUniqueViolation(err) {
+				if isUsernameUniqueViolation(err) {
+					return db.User{}, pkgerrors.Conflict("username is already in use")
 				}
-				return db.User{}, pkgerrors.Internal("failed to create oauth user").WithCause(err)
+				return db.User{}, pkgerrors.Conflict("email address is already in use")
 			}
+			return db.User{}, pkgerrors.Internal("failed to create oauth user").WithCause(err)
 		}
 	}
 
@@ -797,7 +824,7 @@ func (s *AuthService) ExchangeGitHubToken(ctx context.Context, githubAccessToken
 	// A non-empty githubRefreshToken (freshly minted this login) is newer by
 	// construction and overwrites any stored one; an empty one preserves
 	// whatever a prior browser OAuth login already stored (today's behavior).
-	user, err := s.resolveOAuthUser(ctx, s.githubClient, "workos", githubAccessToken, githubRefreshToken, githubTokenExpiresIn)
+	user, err := s.resolveOAuthUser(ctx, s.githubClient, githubOAuthProvider, githubAccessToken, githubRefreshToken, githubTokenExpiresIn, "")
 	if err != nil {
 		return ExchangeGitHubTokenResult{}, err
 	}

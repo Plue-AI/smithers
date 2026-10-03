@@ -410,9 +410,9 @@ func (h *InternalPushHookHandler) handleSearchIndexForPush(ctx context.Context, 
 }
 
 // handleWorkflowsForPush syncs workflow definitions and config, then
-// dispatches runs. Dispatch verifies the trigger tree independently and fails
-// closed if it cannot be read. Only a dispatch failure fails the step: retrying
-// the whole step after a successful dispatch would duplicate runs.
+// dispatches runs. Only a dispatch failure fails the step: a load or
+// persistence failure falls back to persisted definitions as before, and
+// retrying the whole step after a successful dispatch would duplicate runs.
 func (h *InternalPushHookHandler) handleWorkflowsForPush(ctx context.Context, repoID int64, req PushHookEventRequest) error {
 	ctx, cancel := context.WithTimeout(ctx, pushWorkflowSyncTimeout)
 	defer cancel()
@@ -422,11 +422,18 @@ func (h *InternalPushHookHandler) handleWorkflowsForPush(ctx context.Context, re
 	}
 	defer release()
 
+	var loadResult services.WorkflowLoadResult
+	loadAttempted := false
+	loadedDefinitions := false
+
 	if h.WorkflowSync != nil && req.CommitSHA != "" {
+		loadAttempted = true
 		result, err := h.WorkflowSync.LoadDefinitionsFromCommit(ctx, repoID, req.CommitSHA)
 		if err != nil {
 			slog.Error("workflow load failed after push", "repo_id", repoID, "commit_sha", req.CommitSHA, "error", err)
 		} else {
+			loadResult = result
+			loadedDefinitions = true
 			if h.shouldPersistDefinitions(ctx, repoID, req.Ref) {
 				if err := h.WorkflowSync.PersistDefinitions(ctx, repoID, result, req.Ref); err != nil {
 					slog.Error("workflow persistence failed after push", "repo_id", repoID, "commit_sha", req.CommitSHA, "error", err)
@@ -474,6 +481,12 @@ func (h *InternalPushHookHandler) handleWorkflowsForPush(ctx context.Context, re
 				CommitSHA: req.CommitSHA,
 			},
 			SystemPush: !middleware.ParseCredentialKind(req.PusherCredential).Reviewed(),
+		}
+		if loadedDefinitions {
+			input.UseLoadedDefinitions = true
+			input.LoadedDefinitions = loadResult.Definitions
+		} else if loadAttempted {
+			slog.Info("workflow dispatch falling back to persisted definitions", "repo_id", repoID, "commit_sha", req.CommitSHA)
 		}
 		if _, err := h.WorkflowRun.DispatchForEvent(ctx, input); err != nil {
 			return fmt.Errorf("workflow dispatch: %w", err)

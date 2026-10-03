@@ -144,3 +144,31 @@ test("coding-account acceptance requires an explicit opt-in recorded in the rece
     expect(report.subscriptionConnections).toBe(subscriptionConnections === true)
   }
 })
+
+test("the owner is seeded into the launch's PostgreSQL after readiness, never through a bootstrap credential", async () => {
+  const outputDir = temporary()
+  let appArguments: readonly string[] = []
+  let seed: readonly string[] = []
+  const executor: CommandExecutor = async args => {
+    if (args.includes("inspect")) return { exitCode: 1, stdout: "", stderr: `Error: No such ${args[1]}: ${args.at(-1)}` }
+    if (args.includes("SMITHERS_AUTH_MODE=selfhost")) appArguments = args
+    if (args[1] === "port") {
+      const published = appArguments[appArguments.indexOf("--publish") + 1]!
+      return { exitCode: 0, stdout: `${published.split(":").slice(0, 2).join(":")}\n`, stderr: "" }
+    }
+    if (args.includes("psql")) {
+      seed = args
+      return { exitCode: 17, stdout: "", stderr: "stop after seeding the owner" }
+    }
+    return { exitCode: 0, stdout: "created\n", stderr: "" }
+  }
+  const fetcher = async () => Response.json({ host: "cloud", capabilities: [] })
+  await expect(startPackagedWebSelfhost({ rootDir: outputDir, revision, outputDir, executor, fetcher, wait: async () => {} }))
+    .rejects.toThrow("seed matrix owner failed")
+  expect(appArguments.some(arg => arg.includes("BOOTSTRAP"))).toBe(false)
+  const sql = seed.at(-1)!
+  expect(sql).toContain("INSERT INTO members (user_id, github_user_id, login, role)")
+  expect(sql).toContain("'matrix-owner', 'owner'")
+  expect(sql).toMatch(/INSERT INTO access_tokens .*'mode-matrix', '[0-9a-f]{64}', '[0-9a-f]{8}'/)
+  expect(sql).not.toContain("smithers_")
+})

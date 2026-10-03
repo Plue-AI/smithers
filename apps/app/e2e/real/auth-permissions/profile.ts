@@ -4,7 +4,6 @@ import { access, link, readFile, realpath, unlink, writeFile } from "node:fs/pro
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { BrowserContext, BrowserType, Page } from "@playwright/test"
-import { OwnerSessionCookies, withOwnerAuthRetry, type OwnerSessionScope } from "./owner-session"
 import { expect, test as realTest } from "../support/test"
 import { appEntryPath, awaitBoot } from "../support"
 
@@ -22,41 +21,14 @@ type ProfileLease = { readonly release: () => Promise<void> }
 type LockRecord = { readonly pid?: unknown; readonly nonce?: unknown }
 type AuthenticatedProfileOptions = { readonly profileEnvironment: string | undefined }
 type AuthenticatedProfileFixtures = { readonly _authenticatedReady: void }
-type RealAuthKind = "browser-profile" | "owner-session" | "application-token"
-type OwnerCredentials = { readonly username: string; readonly password: string; readonly bootstrapToken: string }
+type RealAuthKind = "browser-profile" | "owner-token" | "application-token"
 
 const realAuthKind = (): RealAuthKind => {
   const configured = process.env.SMITHERS_REAL_AUTH_KIND?.trim()
-  if (configured === "browser-profile" || configured === "owner-session" || configured === "application-token") return configured
+  if (configured === "browser-profile" || configured === "owner-token" || configured === "application-token") return configured
   if (configured !== undefined && configured !== "") throw new Error(`Unsupported SMITHERS_REAL_AUTH_KIND: ${configured}`)
   return "browser-profile"
 }
-
-const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
-  const name = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
-  if (!name || !/^[A-Z][A-Z0-9_]+$/.test(name)) {
-    throw new Error("SMITHERS_REAL_AUTH_ENVIRONMENT must name the owner credential environment variable.")
-  }
-  const raw = process.env[name]?.trim()
-  if (!raw) throw new Error(`${name} is required for this real owner-session scenario.`)
-  let value: unknown
-  try { value = JSON.parse(raw) } catch { throw new Error(`${name} must contain a JSON owner credential envelope.`) }
-  if (typeof value !== "object" || value === null) throw new Error(`${name} must contain a JSON owner credential envelope.`)
-  const candidate = value as { readonly username?: unknown; readonly password?: unknown; readonly bootstrapToken?: unknown }
-  if (typeof candidate.username !== "string" || candidate.username.trim() === "" ||
-      typeof candidate.password !== "string" || candidate.password.length < 12 ||
-      typeof candidate.bootstrapToken !== "string" || candidate.bootstrapToken.trim() === "") {
-    throw new Error(`${name} must contain non-empty username, password, and bootstrapToken fields.`)
-  }
-  return { username: candidate.username.trim(), password: candidate.password, bootstrapToken: candidate.bootstrapToken.trim() }
-}
-
-const ownerSessions = new OwnerSessionCookies()
-const ownerSessionScope = (baseURL: string): OwnerSessionScope => ({
-  appOrigin: new URL(baseURL).origin,
-  apiOrigin: new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin,
-  ...ownerCredentialsFromEnvironment()
-})
 
 const profileFromEnvironment = (requiredEnvironment?: string): string => {
   if (requiredEnvironment !== undefined) {
@@ -143,69 +115,24 @@ export const parseAuthenticatedUser = (status: number, body: SessionBody | undef
   return { login: body.username, admin: body.is_admin ?? false }
 }
 
+/** The configured token for token auth kinds; a browser profile carries cookies instead. */
+const configuredToken = (authKind: RealAuthKind): string | undefined => {
+  if (authKind === "browser-profile") return undefined
+  const environment = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
+  const token = environment ? process.env[environment]?.trim() : undefined
+  if (!token) throw new Error(`${environment ?? authKind} is required.`)
+  return token
+}
+
 const readSessionAtOrigin = async (context: BrowserContext, origin: string): Promise<AuthenticatedSession | undefined> => {
   const authKind = realAuthKind()
-  const environment = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
-  const token = authKind === "application-token" && environment ? process.env[environment]?.trim() : undefined
-  if (authKind === "application-token" && !token) throw new Error(`${environment ?? "application token"} is required.`)
+  const token = configuredToken(authKind)
   const apiOrigin = process.env.SMITHERS_REAL_API_ORIGIN ?? origin
   const response = await context.request.get(new URL("/api/user", apiOrigin).toString(), {
-    ...(token ? { headers: { authorization: `Bearer ${token}` } } : {})
+    ...(token ? { headers: { authorization: `${authKind === "owner-token" ? "token" : "Bearer"} ${token}` } } : {})
   })
   const body = await response.json().catch(() => undefined) as SessionBody | undefined
   return parseAuthenticatedUser(response.status(), body)
-}
-
-const establishOwnerSession = async (context: BrowserContext, page: Page, baseURL: string): Promise<AuthenticatedSession> => {
-  const origin = new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin
-  const credentials = ownerCredentialsFromEnvironment()
-  const scope = ownerSessionScope(baseURL)
-  const existing = await readSessionAtOrigin(context, baseURL)
-  if (existing !== undefined) {
-    if (existing.login !== credentials.username) throw new Error("The cached owner session belongs to a different user.")
-    const startedAt = performance.now()
-    await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
-    await awaitBoot(page, "navigate", startedAt)
-    return existing
-  }
-  // A revoked/expired session is never treated as an authenticated fixture.
-  ownerSessions.forget(scope)
-  const statusResponse = await context.request.get(new URL("/api/auth/local/status", origin).toString())
-  const status = await statusResponse.json().catch(() => undefined) as {
-    readonly enabled?: unknown
-    readonly initialized?: unknown
-    readonly username?: unknown
-  } | undefined
-  if (statusResponse.status() !== 200 || status?.enabled !== true || typeof status.initialized !== "boolean") {
-    throw new Error(`Owner identity status preflight failed: HTTP ${statusResponse.status()}.`)
-  }
-  if (status.initialized && status.username !== undefined && status.username !== credentials.username) {
-    throw new Error(`The initialized owner ${String(status.username)} does not match the configured matrix owner.`)
-  }
-  const path = status.initialized ? "/api/auth/local/login" : "/api/auth/local/bootstrap"
-  // Authenticate in the renderer's cookie jar. APIRequestContext can race the
-  // browser's jar when the app is simultaneously booting and reading identity.
-  const login = await withOwnerAuthRetry(() => page.evaluate(async ({ path, credentials, status }) => {
-    const response = await fetch(path, { method: "POST", credentials: "include", headers: {
-      "Content-Type": "application/json",
-      ...(status.initialized ? {} : { "X-Smithers-Bootstrap-Token": credentials.bootstrapToken })
-    }, body: JSON.stringify({ username: credentials.username, password: credentials.password }) })
-    return { status: response.status, retryAfter: response.headers.get("retry-after") }
-  }, { path, credentials, status }))
-  if (login.status !== 200) throw new Error(`Owner authentication failed at ${path}: HTTP ${login.status}.`)
-  const observed = await page.evaluate(async () => {
-    const response = await fetch("/api/user", { credentials: "include" })
-    return { status: response.status, body: await response.json().catch(() => undefined) }
-  })
-  const session = parseAuthenticatedUser(observed.status, observed.body)
-  if (session === undefined || session.login !== credentials.username) {
-    throw new Error("Owner authentication returned without the configured authenticated session.")
-  }
-  ownerSessions.remember(scope, await context.cookies(origin))
-  const startedAt = performance.now()
-  await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
-  await awaitBoot(page, "navigate", startedAt)
-  return session
 }
 
 export const readAuthenticatedSession = async (page: Page): Promise<AuthenticatedSession | undefined> => {
@@ -328,19 +255,20 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
   context: async ({ playwright, browserName, context: inheritedContext, profileEnvironment }, use, testInfo) => {
     const authKind = realAuthKind()
     const chromiumProfile = authKind === "browser-profile" ||
-      (authKind === "application-token" && Boolean(process.env.SMITHERS_E2E_PROFILE?.trim())) ||
-      (authKind === "owner-session" && Boolean(process.env.SMITHERS_REAL_OWNER_PROFILE_DIR?.trim()))
+      (authKind === "application-token" && Boolean(process.env.SMITHERS_E2E_PROFILE?.trim()))
     if (browserName !== "chromium" && chromiumProfile) {
       throw new Error("Persisted Chromium profiles require Chromium.")
     }
     const baseURL = testInfo.project.use.baseURL
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
 
-    if (realAuthKind() === "application-token") {
-      const environment = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
-      const token = environment ? process.env[environment]?.trim() : undefined
-      if (!token) throw new Error(`${environment ?? "application token"} is required.`)
-      const useGithubProfile = Boolean(process.env.SMITHERS_E2E_PROFILE?.trim())
+    if (authKind === "application-token" || authKind === "owner-token") {
+      const token = configuredToken(authKind)!
+      // An owner token selects the owner backend that serves this page; an application token selects Plue.
+      const target = authKind === "owner-token"
+        ? { apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "token" }, cors: "same-origin", developerExternal: false }
+        : { apiVersion: 1, mode: "web-plue", apiOrigin: "", auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false }
+      const useGithubProfile = authKind === "application-token" && Boolean(process.env.SMITHERS_E2E_PROFILE?.trim())
       const profile = useGithubProfile ? await acquireAuthenticatedProfile("SMITHERS_E2E_PROFILE") : undefined
       let context: BrowserContext | undefined
       try {
@@ -350,14 +278,11 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
             })
           : inheritedContext
         const origin = new URL(baseURL).origin
-        await context.addInitScript(({ origin, token }) => {
+        await context.addInitScript(({ origin, target, token }) => {
           if (location.origin !== origin) return
-          sessionStorage.setItem("smithers.backend-target", JSON.stringify({
-            apiVersion: 1, mode: "web-plue", apiOrigin: "", auth: { kind: "bearer" },
-            cors: "same-origin", developerExternal: false
-          }))
+          sessionStorage.setItem("smithers.backend-target", JSON.stringify(target))
           sessionStorage.setItem("smithers.backend-token", token)
-        }, { origin, token })
+        }, { origin, target, token })
         await use(context)
       } finally {
         if (profile) {
@@ -366,37 +291,8 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
       }
       return
     }
-    if (realAuthKind() === "owner-session") {
-      const ownerProfile = process.env.SMITHERS_REAL_OWNER_PROFILE_DIR?.trim()
-      if (ownerProfile) {
-        const context = await playwright.chromium.launchPersistentContext(ownerProfile, {
-          baseURL, headless: process.env.SMITHERS_REAL_HEADED !== "1", viewport: { width: 1280, height: 900 }
-        })
-        const cookieCache = join(ownerProfile, "owner-session-cookies.json")
-        try {
-          try {
-            const cached = JSON.parse(await readFile(cookieCache, "utf8")) as Awaited<ReturnType<BrowserContext["cookies"]>>
-            await context.addCookies(cached)
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-          }
-          await use(context)
-        } finally {
-          // Local sessions are browser-session cookies; Chromium does not keep
-          // them when Playwright closes the context between scenario files.
-          try { await writeFile(cookieCache, JSON.stringify(await context.cookies(baseURL)), { mode: 0o600 }) }
-          finally { await context.close() }
-        }
-        return
-      }
-      // The base fixture owns browser selection, WebKit's isolated OPFS
-      // profile, and teardown. Authentication only adds the owner's cookies.
-      await inheritedContext.addCookies(ownerSessions.read(ownerSessionScope(baseURL)))
-      await use(inheritedContext)
-      return
-    }
     if (process.env.SMITHERS_REAL_E2E_HOST !== "production") {
-      throw new Error("The authenticated persistent-profile fixture is production-only unless owner-session auth is selected.")
+      throw new Error("The authenticated persistent-profile fixture is production-only unless token auth is selected.")
     }
     const requiredEnvironment = profileEnvironment
     if (requiredEnvironment !== undefined && !process.env[requiredEnvironment]?.trim()) {
@@ -460,15 +356,9 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
     void request
     const baseURL = testInfo.project.use.baseURL
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
-    if (realAuthKind() === "owner-session") {
-      await establishOwnerSession(context, page, baseURL)
-      testInfo.annotations.push({ type: "real-authenticated-owner", description: "local-session-established-after-lifecycle" })
-      await use()
-      return
-    }
-    if (realAuthKind() === "application-token") {
+    if (realAuthKind() !== "browser-profile") {
       const session = await readAuthenticatedSession(page)
-      if (session === undefined) throw new Error("The application token did not authenticate GET /api/user.")
+      if (session === undefined) throw new Error(`The ${realAuthKind()} did not authenticate GET /api/user.`)
       testInfo.annotations.push({ type: "real-authenticated-token", description: "token-verified-after-lifecycle" })
       await use()
       return

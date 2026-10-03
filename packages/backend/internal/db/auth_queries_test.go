@@ -127,7 +127,7 @@ func TestConsumeOAuthStateWithScopes_ReturnsRequestedScopesOnce(t *testing.T) {
 		ContextHash: "ctx-hash-scoped",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, want, got)
+	assert.Equal(t, want, got.RequestedScopes)
 
 	_, err = q.ConsumeOAuthStateWithScopes(context.Background(), ConsumeOAuthStateWithScopesParams{
 		State:       "oauth-state-scoped",

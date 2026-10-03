@@ -123,6 +123,10 @@ const (
 const (
 	CodeGitHubReconnectRequired Code = "github_reconnect_required"
 	CodeGitHubForbiddenAction   Code = "FORBIDDEN_ACTION"
+	CodeNotAMember              Code = "not_a_member"
+	CodeNeedsGitHubAccess       Code = "needs_github_access"
+	CodeSetupTokenInvalid       Code = "setup_token_invalid"
+	CodeInstallRepositoryUnset  Code = "install_repository_unset"
 )
 
 // Desktop observe/input verdicts. See docs/specs/workspaces.md.
@@ -372,6 +376,19 @@ var registry = map[Code]Entry{
 	// SCREAMING_CASE spelling kept for the clients that already branch on
 	// it.
 	CodeGitHubForbiddenAction: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The GitHub proxy refuses this action for the caller's grant. Legacy SCREAMING_CASE spelling kept for the clients that already branch on it."},
+	// The GitHub account is not on the install's roster: it is neither the
+	// owner nor a member a maintainer added.
+	CodeNotAMember: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The person is not a member of this install."},
+	// The person lacks push access to the install's repository on GitHub.
+	// Access is granted on GitHub, not in Smithers.
+	CodeNeedsGitHubAccess: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The person needs push access to the install's repository on GitHub."},
+	// Before the install has an owner, only a sign-in carrying the one-time
+	// setup token may claim it; the token was missing, wrong or already used.
+	CodeSetupTokenInvalid: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "Claiming the install needs the one-time setup token printed when it started; the token was missing, wrong or already used."},
+	// Sign-in checks push access on the install's repository, and setup has
+	// not recorded one yet or the GitHub App is not installed on it. Only the
+	// owner signs in before setup records the repository.
+	CodeInstallRepositoryUnset: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The install has no GitHub repository with the GitHub App installed yet; until setup records one only the owner may sign in."},
 	// The box is up but its desktop helpers have not finished linking; the
 	// same request works seconds later.
 	// The box is suspended, failed, or has no VM. Observe and input never

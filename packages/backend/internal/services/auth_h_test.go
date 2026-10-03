@@ -94,7 +94,7 @@ func TestAuth_H_ResolveOAuthUserFailureBranches(t *testing.T) {
 			return db.OauthAccount{UserID: 5, AccessTokenEncrypted: []byte("not ciphertext")}, nil
 		},
 	}, cfg, nil, client)
-	_, err := svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0)
+	_, err := svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0, "")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -108,7 +108,7 @@ func TestAuth_H_ResolveOAuthUserFailureBranches(t *testing.T) {
 			return db.User{ID: 6, Username: "octo"}, nil
 		},
 	}, cfg, nil, client)
-	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0)
+	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0, "")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -125,7 +125,7 @@ func TestAuth_H_ResolveOAuthUserFailureBranches(t *testing.T) {
 		},
 	}
 	svc = NewAuthService(authHInterfaceQuerier{AuthQuerier: base}, cfg, nil, client)
-	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0)
+	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0, "")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 }
@@ -165,13 +165,13 @@ func TestAuth_H_ResolveOAuthUserMarshalAndEncryptSeams(t *testing.T) {
 		authEncrypt = oldEncrypt
 	})
 	authJSONMarshal = func(any) ([]byte, error) { return nil, errors.New("marshal failed") }
-	_, err := NewAuthService(base(), cfg, nil, client).resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0)
+	_, err := NewAuthService(base(), cfg, nil, client).resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0, "")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 	authJSONMarshal = oldMarshal
 
 	authEncrypt = func([]byte, []byte) ([]byte, error) { return nil, errors.New("encrypt failed") }
-	_, err = NewAuthService(base(), cfg, nil, client).resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0)
+	_, err = NewAuthService(base(), cfg, nil, client).resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0, "")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -183,7 +183,7 @@ func TestAuth_H_ResolveOAuthUserMarshalAndEncryptSeams(t *testing.T) {
 		}
 		return oldEncrypt(key, plaintext)
 	}
-	_, err = NewAuthService(base(), cfg, nil, client).resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0)
+	_, err = NewAuthService(base(), cfg, nil, client).resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0, "")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 	authEncrypt = oldEncrypt

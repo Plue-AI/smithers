@@ -16,7 +16,7 @@ const fakes = join(import.meta.dir, "run-packaged-mode-matrix.fakes.ts")
 const dirs: string[] = []
 const modeConfig = (mode: string) => ({
   mode, origin: "http://127.0.0.1:3000", endpoint: "http://127.0.0.1:3000",
-  auth: { kind: "owner-session", environment: "MATRIX_TEST_AUTH" }, executionReceipt: "receipt.json"
+  auth: { kind: "owner-token", environment: "MATRIX_TEST_AUTH" }, executionReceipt: "receipt.json"
 })
 
 const runCli = (dir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}) => {

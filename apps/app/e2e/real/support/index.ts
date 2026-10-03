@@ -20,15 +20,17 @@ export type RealScenarioMetadata = {
 const selectedApiOrigin = (page: Page): string =>
   new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? page.url()).origin
 
+/** A Plue application token is a bearer; an owner token uses the owner backend's `token` scheme. */
 const applicationAuthorization = (): string | undefined => {
-  if (process.env.SMITHERS_REAL_AUTH_KIND !== "application-token") return undefined
+  const kind = process.env.SMITHERS_REAL_AUTH_KIND
+  if (kind !== "application-token" && kind !== "owner-token") return undefined
   const name = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
   if (!name || !/^[A-Z][A-Z0-9_]+$/.test(name)) {
-    throw new Error("Application-token auth requires SMITHERS_REAL_AUTH_ENVIRONMENT.")
+    throw new Error(`${kind} auth requires SMITHERS_REAL_AUTH_ENVIRONMENT.`)
   }
   const token = process.env[name]?.trim()
-  if (!token) throw new Error(`${name} is required for application-token auth.`)
-  return `Bearer ${token}`
+  if (!token) throw new Error(`${name} is required for ${kind} auth.`)
+  return `${kind === "owner-token" ? "token" : "Bearer"} ${token}`
 }
 
 const requireSameOrigin = (page: Page, target: URL): void => {
@@ -59,7 +61,6 @@ export const realApi = async (
   const csrf = mutation
     ? (await page.context().cookies(target.origin)).find((cookie) => cookie.name === "__csrf")?.value
     : undefined
-  if (mutation && process.env.SMITHERS_REAL_AUTH_KIND === "owner-session" && !csrf) throw new Error("Owner session has no CSRF cookie for the requested mutation.")
   return page.context().request.fetch(target.toString(), {
     method,
     ...(token || authorization || csrf ? { headers: {
@@ -313,7 +314,7 @@ export const test = base.extend<RealFixtures>({
       testInfo.annotations.push({ type: "real-build-sha", description: body.buildSha })
     }
     if (verifiedHost === "local" && !token &&
-      process.env.SMITHERS_REAL_AUTH_KIND !== "owner-session" &&
+      process.env.SMITHERS_REAL_AUTH_KIND !== "owner-token" &&
       process.env.SMITHERS_REAL_AUTH_KIND !== "application-token") {
       throw new Error("Local real host preflight found no configured authentication.")
     }

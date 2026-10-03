@@ -201,7 +201,7 @@ describe("deployment mode matrix", () => {
       const buildSha = mode === "web-plue" ? deployed : revision
       const config = parseMatrixConfig({ revision, modes: [{
         mode, origin: "https://example.test", endpoint: "https://example.test",
-        auth: { kind: mode === "web-plue" ? "browser-profile" : "owner-session", environment: "AUTH" },
+        auth: { kind: mode === "web-plue" ? "browser-profile" : "owner-token", environment: "AUTH" },
         executionReceipt: writeReceipt(receipt(mode, descriptor.requiredProcessRoles, buildSha))
       }] }).modes[0]!
       const digests: string[] = []
@@ -300,13 +300,13 @@ describe("deployment mode matrix", () => {
       modes: [{
         mode: "local-own",
         origin: "https://example.test", endpoint: "https://example.test",
-        auth: { kind: "owner-session", environment: "SMITHERS_OWNER_SESSION" },
+        auth: { kind: "owner-token", environment: "SMITHERS_OWNER_TOKEN" },
         executionReceipt: "/tmp/native-own.json"
       }]
     }).modes[0]).toEqual({
       mode: "local-own",
       origin: "https://example.test", endpoint: "https://example.test",
-      auth: { kind: "owner-session", environment: "SMITHERS_OWNER_SESSION" },
+      auth: { kind: "owner-token", environment: "SMITHERS_OWNER_TOKEN" },
       executionReceipt: "/tmp/native-own.json"
     })
     expect(() => parseMatrixConfig({ revision, modes: [{
@@ -364,23 +364,6 @@ describe("deployment mode matrix", () => {
     }))
     expect(result.status).toBe("failed")
     expect(result.reasons).toEqual([`bootstrap host local does not match ${mode} provider plue`])
-  })
-
-  test("an owner session cannot enter readiness without an owner-credentials bootstrap contract", async () => {
-    const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
-    roots.push(root)
-    const path = join(root, "receipt.json")
-    writeFileSync(path, JSON.stringify(receipt("local-own", ["local-ui", "app", "postgres"])))
-    const config = parseMatrixConfig({ revision, modes: [{
-      mode: "local-own", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "owner-session", environment: "OWNER" }, executionReceipt: path
-    }] }).modes[0]!
-    const fetcher = (async () => Response.json({
-      apiVersion: 1, host: "local", version: "test", buildSha: revision,
-      capabilities: [], authFlow: "none", sandbox: null
-    }))
-    const result = await probeMode(config, revision, { OWNER: "configured" }, fetcher)
-    expect(result.status).toBe("failed")
-    expect(result.reasons).toContain("bootstrap authFlow none does not advertise owner credentials")
   })
 
   test("rejects invented launcher roles", () => {
@@ -506,7 +489,7 @@ describe("deployment mode matrix", () => {
 
   test("selfhost readiness still requires health and the checkout build", async () => {
     const config = parseMatrixConfig({ revision, modes: [{
-      mode: "local-own", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "owner-session", environment: "OWNER" },
+      mode: "local-own", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "owner-token", environment: "OWNER" },
       executionReceipt: writeReceipt(receipt("local-own", ["local-ui", "app", "postgres"]))
     }] }).modes[0]!
     const bootstrap = (buildSha: string) => ({
@@ -525,7 +508,7 @@ describe("deployment mode matrix", () => {
     const descriptor = MODE_DESCRIPTORS[mode]
     const config = parseMatrixConfig({ revision, modes: [{
       mode, origin: "https://example.test", endpoint: "https://example.test",
-      auth: { kind: "owner-session", environment: "OWNER" },
+      auth: { kind: "owner-token", environment: "OWNER" },
       executionReceipt: writeReceipt(receipt(mode, descriptor.requiredProcessRoles)),
     }] }).modes[0]!
     // The shared Go backend's self-hosted response: cloud is the API surface, not its deployment provider.

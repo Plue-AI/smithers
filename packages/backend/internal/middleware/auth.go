@@ -106,8 +106,9 @@ func RequireAuth(next http.Handler) http.Handler {
 // live session, continue anonymously. Presented user credentials with an
 // unrecognized format or no matching token return 401. Route-specific LFS,
 // Worker, OAuth client, and build-cache credentials pass to their own gates.
-// Suspended owners return 403; a credential store outage returns 503.
-func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...identity.OwnerAuthorizer) func(http.Handler) http.Handler {
+// Suspended users and, on the install, non-members return 403; a credential
+// store outage returns 503.
+func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...identity.MemberAuthorizer) func(http.Handler) http.Handler {
 	sessionCookieName := strings.TrimSpace(cfg.SessionCookieName)
 	if sessionCookieName == "" {
 		sessionCookieName = "smithers_session"
@@ -124,14 +125,14 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 	}
 
 	cookieSecure := cfg.CookieSecure
-	var ownerBoundary identity.OwnerAuthorizer
+	var memberBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg) {
 		if len(boundaries) > 0 {
-			ownerBoundary = boundaries[0]
-		} else if ownerQueries, ok := queries.(identity.OwnerQuerier); ok {
-			ownerBoundary = identity.NewSingleOwnerBoundary(ownerQueries)
+			memberBoundary = boundaries[0]
+		} else if memberQueries, ok := queries.(identity.MemberQuerier); ok {
+			memberBoundary = identity.NewMemberBoundary(memberQueries)
 		} else {
-			ownerBoundary = identity.NewSingleOwnerBoundary(nil)
+			memberBoundary = identity.NewMemberBoundary(nil)
 		}
 	}
 
@@ -165,7 +166,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					errors.WriteError(w, errors.Unauthorized("invalid or expired token"))
 					return
 				}
-				if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
+				if !authorizeInstallMember(w, r, authInfo, memberBoundary) {
 					return
 				}
 				if !allowWorkspaceRestrictedToken(w, r, authInfo) {
@@ -187,7 +188,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					return
 				}
 				if authInfo != nil {
-					if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
+					if !authorizeInstallMember(w, r, authInfo, memberBoundary) {
 						return
 					}
 					refreshedSession, sessionExpiresAt, refreshErr := refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
@@ -270,11 +271,11 @@ func writeInvalidToken(w http.ResponseWriter, message string) {
 	errors.WriteError(w, errors.New(errors.CodeInvalidToken, message))
 }
 
-func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo *AuthInfo, boundary identity.OwnerAuthorizer) bool {
+func authorizeInstallMember(w http.ResponseWriter, r *http.Request, authInfo *AuthInfo, boundary identity.MemberAuthorizer) bool {
 	if boundary == nil || authInfo == nil || authInfo.User == nil {
 		return true
 	}
-	if err := boundary.AuthorizeOwner(r.Context(), authInfo.User.ID); err != nil {
+	if err := boundary.AuthorizeMember(r.Context(), authInfo.User.ID); err != nil {
 		errors.WriteError(w, err)
 		return false
 	}

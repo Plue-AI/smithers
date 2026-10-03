@@ -135,7 +135,6 @@ describe("native backend ownership", () => {
         SMITHERS_BACKEND_BINARY: runtime.backend,
         SMITHERS_POSTGRES_BUNDLE_DIR: join(runtime.postgresBin, "..")
       },
-      bootstrapToken: "native-bootstrap",
       spawn: (_, options) => {
         env = options.env
         return {
@@ -153,7 +152,6 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_DATA_ROOT).toBe(runtime.state)
     expect(env.SMITHERS_PUBLIC_URL).toBe("http://127.0.0.1:4000")
     expect(env.SMITHERS_AUTH_MODE).toBe("selfhost")
-    expect(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toBe("native-bootstrap")
     expect(env.SMITHERS_FFI_LIBRARY_PATH).toBe(join(runtime.root,
       process.platform === "darwin" ? "libsmithers_ffi.dylib" : process.platform === "linux" ? "libsmithers_ffi.so" : "smithers_ffi.dll"
     ))
@@ -170,7 +168,6 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_FFI_LIBRARY).toBeUndefined()
     expect(env.SMITHERS_CODING_HOST_PATH).toBeUndefined()
     expect(instance.origin).toBe("http://127.0.0.1:4000")
-    expect(instance.bootstrapToken).toBe("native-bootstrap")
     await instance.stop()
     expect(await instance.failure).toBeUndefined()
     expect(signals).toEqual(["SIGTERM"])
@@ -267,7 +264,6 @@ describe("native backend ownership", () => {
       "HOME",
       "HTTPS_PROXY",
       "PATH",
-      "SMITHERS_AUTH_BOOTSTRAP_TOKEN",
       "SMITHERS_AUTH_MODE",
       "SMITHERS_DATA_ROOT",
       "SMITHERS_FFI_LIBRARY_PATH",
@@ -311,20 +307,6 @@ describe("native backend ownership", () => {
       expect(env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
     })
 
-  test("the first-owner token comes from the owned state, never the launcher", async () => {
-    const runtime = packagedRuntime()
-    mkdirSync(join(runtime.state, "config"), { recursive: true })
-    writeFileSync(
-      join(runtime.state, "config", "secrets.json"),
-      JSON.stringify({ version: 1, values: { SMITHERS_AUTH_BOOTSTRAP_TOKEN: "persisted-owner-token" } }),
-      { mode: 0o600 }
-    )
-    const env = await ownedEnvironment(runtime, { SMITHERS_AUTH_BOOTSTRAP_TOKEN: "shell-export" })
-    expect(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toBe("persisted-owner-token")
-    const fresh = await ownedEnvironment(packagedRuntime(), { SMITHERS_AUTH_BOOTSTRAP_TOKEN: "shell-export" })
-    expect(fresh.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toMatch(/^[0-9a-f]{64}$/)
-  })
-
   test("the spawn log names the backend environment without its values", async () => {
     const lines: Array<string> = []
     const log = spyOn(console, "error").mockImplementation((line: unknown) => { lines.push(String(line)) })
@@ -332,7 +314,6 @@ describe("native backend ownership", () => {
       const env = await ownedEnvironment(packagedRuntime(), { HOME: "/Users/owner" })
       expect(lines).toEqual([`owned backend env: ${Object.keys(env).sort().join(" ")}`])
       expect(lines[0]).not.toContain("/Users/owner")
-      expect(lines[0]).not.toContain(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN)
     } finally {
       log.mockRestore()
     }

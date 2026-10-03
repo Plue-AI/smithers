@@ -80,7 +80,7 @@ func (m *mockRouterAuthService) VerifyKeyAuth(ctx context.Context, message, sign
 	}, nil
 }
 
-func (m *mockRouterAuthService) StartGitHubOAuth(ctx context.Context, stateVerifier string) (string, error) {
+func (m *mockRouterAuthService) StartGitHubOAuth(ctx context.Context, stateVerifier, _ string) (string, error) {
 	return "https://example.com/oauth", nil
 }
 

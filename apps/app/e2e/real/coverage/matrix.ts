@@ -167,7 +167,7 @@ export interface ModeConfig {
   readonly mode: DeploymentMode
   readonly origin: string
   readonly endpoint: string
-  readonly auth: { readonly kind: "browser-profile" | "owner-session" | "application-token"; readonly environment: string }
+  readonly auth: { readonly kind: "browser-profile" | "owner-token" | "application-token"; readonly environment: string }
   readonly executionReceipt: string
 
 }
@@ -252,8 +252,8 @@ export const parseMatrixConfig = (value: unknown): MatrixConfig => {
     }
     if (seen.has(entry.mode)) throw new Error(`duplicate matrix mode ${entry.mode}`)
     seen.add(entry.mode)
-    if ((entry.auth.kind !== "browser-profile" && entry.auth.kind !== "owner-session" && entry.auth.kind !== "application-token") || typeof entry.auth.environment !== "string" || !/^[A-Z][A-Z0-9_]+$/.test(entry.auth.environment)) {
-      throw new Error(`${entry.mode} auth must name a browser-profile, owner-session, or application-token environment variable`)
+    if ((entry.auth.kind !== "browser-profile" && entry.auth.kind !== "owner-token" && entry.auth.kind !== "application-token") || typeof entry.auth.environment !== "string" || !/^[A-Z][A-Z0-9_]+$/.test(entry.auth.environment)) {
+      throw new Error(`${entry.mode} auth must name a browser-profile, owner-token, or application-token environment variable`)
     }
     if (!entry.executionReceipt.trim()) throw new Error(`${entry.mode} executionReceipt is required`)
     return {
@@ -333,9 +333,6 @@ export const probeMode = async (
     if (!bootstrap.ok) reasons.push(`bootstrap returned HTTP ${bootstrap.status}`)
     else {
       const body: unknown = await bounded(bootstrap.json())
-      if (config.auth.kind === "owner-session" && (!isObject(body) || body.authFlow !== "credentials")) {
-        reasons.push(`bootstrap authFlow ${isObject(body) ? String(body.authFlow) : "unknown"} does not advertise owner credentials`)
-      }
       const parsed = AppBootstrapSchema.safeParse(body)
       if (!parsed.success) reasons.push(`bootstrap contract is invalid: ${parsed.error.message}`)
       else {

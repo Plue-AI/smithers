@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
 import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
@@ -12,8 +12,6 @@ interface Child {
 export interface NativeBackend {
   readonly mode: NativeBackendMode
   readonly origin: string | undefined
-  /** Trusted main-process handoff for first-owner setup; never sent over HTTP. */
-  readonly bootstrapToken: string | undefined
   readonly failure: Promise<Error | undefined> | undefined
   readonly stop: () => Promise<void>
 }
@@ -23,8 +21,6 @@ export interface NativeBackendOptions {
   /** The built SPA the owned backend serves at its public origin. */
   readonly webRoot: string
   readonly env?: Readonly<Record<string, string | undefined>>
-  /** Replaces the persisted or generated first-owner token; tests only. */
-  readonly bootstrapToken?: string
   readonly fromDir?: string
   readonly spawn?: (
     argv: ReadonlyArray<string>,
@@ -264,35 +260,13 @@ const checksummedExecutable = (path: string, label: string): string => {
   return path
 }
 
-const nativeBootstrapToken = (stateDir: string): string => {
-  const path = resolve(stateDir, "config", "secrets.json")
-  if (!existsSync(path)) return randomBytes(32).toString("hex")
-  const info = statSync(path)
-  if (!info.isFile() || (info.mode & 0o077) !== 0) {
-    throw new Error(`Owned backend secrets are not a private regular file: ${path}`)
-  }
-  let decoded: unknown
-  try {
-    decoded = JSON.parse(readFileSync(path, "utf8"))
-  } catch {
-    throw new Error(`Owned backend secrets are invalid: ${path}`)
-  }
-  const token = isRecord(decoded) && decoded.version === 1 && isRecord(decoded.values)
-    ? decoded.values.SMITHERS_AUTH_BOOTSTRAP_TOKEN
-    : undefined
-  if (typeof token !== "string" || token.trim() === "") {
-    throw new Error(`Owned backend secrets contain no bootstrap token: ${path}`)
-  }
-  return token
-}
-
 export const startNativeBackend = async (
   options: NativeBackendOptions
 ): Promise<NativeBackend> => {
   const env = options.env ?? Bun.env
   const mode = nativeBackendMode(env)
   if (mode === "plue") {
-    return { mode, origin: undefined, bootstrapToken: undefined, failure: undefined, stop: async () => {} }
+    return { mode, origin: undefined, failure: undefined, stop: async () => {} }
   }
 
   const fromDir = options.fromDir ?? import.meta.dir
@@ -353,7 +327,6 @@ export const startNativeBackend = async (
   const origin = localOrigin(
     setting(env, "SMITHERS_OWNED_BACKEND_ORIGIN") ?? "http://127.0.0.1:4000"
   )
-  const bootstrapToken = options.bootstrapToken ?? nativeBootstrapToken(options.stateDir)
   const launcherPath = setting(env, "PATH") ?? SYSTEM_PATH
   const environment: Record<string, string> = Object.fromEntries(
     LAUNCHER_PASSTHROUGH.flatMap((name) => {
@@ -367,7 +340,6 @@ export const startNativeBackend = async (
   environment.GIT_CONFIG_NOSYSTEM = "1"
   environment.GIT_CONFIG_GLOBAL = "/dev/null"
   environment.SMITHERS_AUTH_MODE = "selfhost"
-  environment.SMITHERS_AUTH_BOOTSTRAP_TOKEN = bootstrapToken
   environment.SMITHERS_NATIVE_POSTGRES_BIN = postgres
   environment.SMITHERS_NATIVE_POSTGRES_MAJOR = "18"
   environment.SMITHERS_NATIVE_STATE_DIR = options.stateDir
@@ -431,7 +403,7 @@ export const startNativeBackend = async (
       if (exitCode !== undefined) {
         throw new Error(`Owned backend exited before readiness with code ${exitCode}.`)
       }
-      if (response?.ok) return { mode, origin, bootstrapToken, failure, stop }
+      if (response?.ok) return { mode, origin, failure, stop }
       await sleep(Math.min(50, remaining))
     }
     throw new Error("Owned backend did not become ready before its startup deadline.")

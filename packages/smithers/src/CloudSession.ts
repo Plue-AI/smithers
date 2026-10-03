@@ -27,8 +27,17 @@ export interface Cloud {
   readonly origin: string
   /** GETs `path` (starting `/api/`) as the signed-in person; resolves the parsed JSON body. */
   readonly get: (path: string, signal?: AbortSignal) => Promise<unknown>
-  /** POSTs the JSON `body` to `path` (starting `/api/`) as the signed-in person; resolves the parsed JSON body. */
-  readonly post: (path: string, body: unknown, signal?: AbortSignal) => Promise<unknown>
+  /**
+   * POSTs the JSON `body` to `path` (starting `/api/`) as the signed-in
+   * person, with any extra `headers` (an `Idempotency-Key`); resolves the
+   * parsed JSON body. Extra headers never replace the credential.
+   */
+  readonly post: (
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+    headers?: Readonly<Record<string, string>>
+  ) => Promise<unknown>
 }
 
 /**
@@ -47,7 +56,13 @@ export const signedIn = async (env: Readonly<Record<string, string | undefined>>
   }
   if (resolved === undefined) return undefined
   const { api_url: origin, token } = resolved
-  const call = async (method: "GET" | "POST", path: string, body: unknown, signal?: AbortSignal): Promise<unknown> => {
+  const call = async (
+    method: "GET" | "POST",
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+    extra: Readonly<Record<string, string>> = {}
+  ): Promise<unknown> => {
     // Only a path on this origin: the token never goes to another host.
     if (!path.startsWith("/") || path.startsWith("//")) {
       throw new CliError.Refused({
@@ -57,12 +72,17 @@ export const signedIn = async (env: Readonly<Record<string, string | undefined>>
       })
     }
     const timeout = AbortSignal.timeout(timeoutMs)
+    const fixed: Record<string, string> = {
+      authorization: `token ${token}`,
+      accept: "application/json",
+      ...(method === "POST" ? { "content-type": "application/json" } : {})
+    }
     const response = await fetch(origin + path, {
       method,
+      // Header names ignore case: an extra header named like a fixed one is dropped, never merged.
       headers: {
-        authorization: `token ${token}`,
-        accept: "application/json",
-        ...(method === "POST" ? { "content-type": "application/json" } : {})
+        ...Object.fromEntries(Object.entries(extra).filter(([key]) => !Object.hasOwn(fixed, key.toLowerCase()))),
+        ...fixed
       },
       ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
       redirect: "error",
@@ -98,7 +118,7 @@ export const signedIn = async (env: Readonly<Record<string, string | undefined>>
   return {
     origin,
     get: (path, signal) => call("GET", path, undefined, signal),
-    post: (path, body, signal) => call("POST", path, body, signal)
+    post: (path, body, signal, headers) => call("POST", path, body, signal, headers)
   }
 }
 

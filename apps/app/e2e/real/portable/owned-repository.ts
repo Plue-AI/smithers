@@ -8,7 +8,6 @@ import type { APIRequestContext, Page, Response } from "@playwright/test"
 import { expect, realApi } from "../support/test"
 import { finishFirstVisit } from "../support/first-visit"
 import { runSlash } from "../issues/local"
-import { withOwnerAuthRetry } from "../auth-permissions/owner-session"
 import { readAuthenticatedSession } from "../auth-permissions/profile"
 import { repositoryApiPath } from "../repositories-github/production"
 
@@ -81,33 +80,19 @@ const runGit = async (cwd: string, args: readonly string[], token?: string): Pro
   })
 }
 
-const gitToken = async (page: Page, request: APIRequestContext): Promise<string> => {
-  if (process.env.SMITHERS_REAL_AUTH_KIND === "application-token") {
-    const name = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
-    const token = name ? process.env[name] : undefined
-    if (!token) throw new Error("application token is unavailable for the local git fixture")
-    return token
-  }
+/** Git pushes authenticate with the run's configured token: an owner token or a Plue application token. */
+const gitToken = (): string => {
+  const kind = process.env.SMITHERS_REAL_AUTH_KIND
+  if (kind !== "owner-token" && kind !== "application-token") throw new Error(`the local git fixture needs token auth, not ${kind ?? "browser-profile"}`)
   const name = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
-  const raw = name ? process.env[name] : undefined
-  if (!raw) throw new Error("owner credential envelope is unavailable for the local git fixture")
-  const credentials = JSON.parse(raw) as { readonly username: string; readonly password: string }
-  const tokenName = fixtureProtocolId(`matrix-git-${randomUUID().slice(0, 8)}`)
-  const { response } = await withOwnerAuthRetry(async () => {
-    const response = await realApi(page, request, "POST", "/api/auth/local/token", {
-      username: credentials.username, password: credentials.password, name: tokenName
-    })
-    return { status: response.status(), retryAfter: response.headers()["retry-after"] ?? null, response }
-  })
-  expect(response.status()).toBe(200)
-  const body = await response.json() as { readonly token?: unknown }
-  if (typeof body.token !== "string" || body.token === "") throw new Error("owner token endpoint returned no token")
-  return body.token
+  const token = name ? process.env[name] : undefined
+  if (!token) throw new Error(`${kind} is unavailable for the local git fixture`)
+  return token
 }
 
 /** Commit `files` on `branch` (created from main unless it is main) and push it; `changeId` stamps jj's change-id header and force-pushes a new revision of that change. */
 const pushFiles = async (
-  page: Page, request: APIRequestContext, repo: OwnedRepository, branch: string, message: string,
+  page: Page, _request: APIRequestContext, repo: OwnedRepository, branch: string, message: string,
   files: Readonly<Record<string, string>>, changeId?: string
 ): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "smithers-matrix-git-"))
@@ -115,7 +100,7 @@ const pushFiles = async (
   try {
     const origin = process.env.SMITHERS_REAL_GIT_ORIGIN ?? process.env.SMITHERS_REAL_API_ORIGIN ?? new URL(page.url()).origin
     const url = new URL(`/${repo.fullName}.git`, origin).toString()
-    const token = await gitToken(page, request)
+    const token = gitToken()
     await runGit(root, ["clone", url, work], token)
     if (branch !== "main") await runGit(work, ["checkout", "-b", branch])
     for (const [path, content] of Object.entries(files)) {

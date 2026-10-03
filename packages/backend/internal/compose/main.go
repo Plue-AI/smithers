@@ -183,7 +183,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if !options.Duties.valid() {
 		return fmt.Errorf("unsupported backend duties %q", options.Duties)
 	}
-	_ = stdout
 	// `smithers-backend migrate [apply|status]` is a server-free schema
 	// migration path: it applies the embedded product baseline and exits (non-zero on
 	// failure) WITHOUT booting the HTTP server or loading/validating the full
@@ -332,8 +331,19 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	runtimeStores := resolveProductRuntimeStores(options.RuntimeStores, queries)
-	if err := services.ValidateLocalIdentityStartup(ctx, queries, cfg.Auth); err != nil {
-		return fmt.Errorf("validate local identity startup: %w", err)
+	if config.IsSingleOwner(cfg.Auth) && options.topology.servesHTTP() {
+		// Until the owner claims the install, every start issues a one-time
+		// setup token and prints its URL for the launcher (spec §5.1.0).
+		// Only the digest is stored, and the token never reaches the log.
+		setupToken, err := services.MintSetupToken(ctx, queries)
+		if err != nil {
+			return fmt.Errorf("issue setup token: %w", err)
+		}
+		if setupToken != "" {
+			if _, err := fmt.Fprintf(stdout, "Setup URL: %s/setup?token=%s\n", strings.TrimRight(config.PublicOrigin(cfg), "/"), setupToken); err != nil {
+				return fmt.Errorf("print setup URL: %w", err)
+			}
+		}
 	}
 	// One shared broker multiplexes every SSE stream type (notifications,
 	// workspaces, workflow-run logs, agent sessions, releases) over a SINGLE
@@ -398,7 +408,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	sshAuthzService := services.NewSSHAuthorizationService(queries)
 	var gitHTTPOptions []services.GitHTTPProxyServiceOption
 	if config.IsSingleOwner(cfg.Auth) {
-		gitHTTPOptions = append(gitHTTPOptions, services.WithGitHTTPSingleOwnerBoundary(queries))
+		gitHTTPOptions = append(gitHTTPOptions, services.WithGitHTTPMemberBoundary(queries))
 	}
 	gitHTTPProxyService := services.NewGitHTTPProxyService(queries, sshAuthzService, repoHostClient, gitHTTPOptions...)
 	billingPolicy := options.Admission
@@ -535,6 +545,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithGitHubUserReposSyncedStore(gitHubSyncedRepoService),
 	)
 	repoConnectionService.SetGitHubRepoAccessVerifier(gitHubUserReposService)
+	if config.IsSingleOwner(cfg.Auth) {
+		authService.SetSignInGate(services.NewMemberService(pool, services.NewSettingsInstallRepository(queries, gitHubUserReposService)))
+	}
 	// github-sync writes to GitHub with the platform token; a mirror is bound
 	// and advertised only while its binding user can push with their own
 	// GitHub credential.
@@ -963,9 +976,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		AuditService: auditService,
 		// Login is a free warm of the per-user GitHub repo listing cache.
 		RepoListingWarmer: gitHubUserReposService,
-	}
-	if config.IsSingleOwner(cfg.Auth) {
-		authHandler.LocalService = authService
 	}
 	userHandler := &routes.UserHandler{
 		TokenService:   authService,

@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "7d05c0708281fe0da11c253f75fc2673cf455fd63572dcc988c593ec55cae92b"
   },
-  "closure": "d4ee09647567d41882e7be5aea7f9d9a7507b5d45fa40fb9ba85fa6467cb1c51",
+  "closure": "5150814d7a62147fdaf0e041fde1fc8b6adbb76825f9b09160d4b3ca78cdca02",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -17,7 +17,7 @@
     },
     {
       "path": "packages/backend/db/product/queries/github_app.sql",
-      "digest": "c7028c1f6b8954e391c26202ceeace5ffb8614d63dabfe34f41602de9848c85a"
+      "digest": "d6a9c55f67b55991e0cfae98f2d8257e2ebdfbaed4e7be76c317b979bb5a2eb4"
     },
     {
       "path": "packages/backend/internal/middleware/effective_origin.go",
@@ -25,7 +25,7 @@
     },
     {
       "path": "packages/backend/internal/routes/github_app_setup.go",
-      "digest": "69869908a32dc0d6230dd33579aad3cc701e6e843ff8ddc3dd93ef05ccde4a5c"
+      "digest": "a72ee990d25966da1619789f3c4c884769045d05f471e79768c96ca5224b8032"
     },
     {
       "path": "packages/backend/internal/services/github_app_credentials.go",
@@ -37,7 +37,7 @@
     },
     {
       "path": "packages/backend/internal/services/install_setup_session.go",
-      "digest": "600dd92a5e74ce8ec6344b67f29f28bc35e534298488ed428aac8a362f254fd3"
+      "digest": "d9c704549d1340a154c72d58858c9e82d81da63f1e24a0695a8a6e2ecdf3c971"
     }
   ]
 }

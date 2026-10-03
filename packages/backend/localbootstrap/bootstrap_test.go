@@ -169,3 +169,60 @@ func TestConcurrentSecretCreationKeepsOneIdentity(t *testing.T) {
 		}
 	}
 }
+
+// A secrets file written while the password owner existed still holds the
+// bootstrap token. It reopens with the same secrets and without the token.
+func TestConfigureDropsTheRetiredBootstrapToken(t *testing.T) {
+	clearBootstrapEnvironment(t)
+	root := t.TempDir()
+	if _, err := configure(root); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "config", "secrets.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted secretFile
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	initial := map[string]string{}
+	for name, value := range persisted.Values {
+		initial[name] = value
+	}
+	persisted.Values[retiredSecretName] = "old-bootstrap-token"
+	data, err = json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clearBootstrapEnvironment(t)
+	if _, err := configure(root); err != nil {
+		t.Fatalf("a secrets file holding the retired token must reopen: %v", err)
+	}
+	for _, name := range secretNames {
+		if got := os.Getenv(name); got != initial[name] {
+			t.Fatalf("%s changed across reopen", name)
+		}
+	}
+	if _, ok := os.LookupEnv(retiredSecretName); ok {
+		t.Fatalf("%s is exported", retiredSecretName)
+	}
+	values, err := readSecrets(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(values, initial) {
+		t.Fatalf("secrets file = %v, want %v", values, initial)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("secrets permissions: %o", info.Mode().Perm())
+	}
+}

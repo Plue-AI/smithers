@@ -6,6 +6,7 @@ import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
 import { executeCommand } from "./docker-web-selfhost"
+import { ownerSeed } from "./owner-seed"
 
 export interface LocalOwnSession {
   readonly modeConfig: ModeConfig
@@ -80,6 +81,16 @@ const request = async (origin: string, path: string, init?: RequestInit): Promis
   return JSON.parse(body) as Record<string, unknown>
 }
 
+/** Seed the owner into the backend's own PostgreSQL (packages/backend/postgres): loopback TCP, user smithers, database postgres. */
+const seedNativeOwner = async (postgresBin: string, stateDir: string, sql: string): Promise<void> => {
+  const port = readFileSync(join(stateDir, "data", "postmaster.pid"), "utf8").split("\n")[3]?.trim()
+  if (!port || !/^\d+$/.test(port)) throw new Error("local-own PostgreSQL has no listening port")
+  const child = Bun.spawn([join(postgresBin, "psql"), "-h", "127.0.0.1", "-p", port, "-U", "smithers", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-Atqc", sql], {
+    env: { ...process.env, PGPASSWORD: readFileSync(join(stateDir, "password"), "utf8") }, stdin: "ignore", stdout: "pipe", stderr: "pipe"
+  })
+  if (await child.exited !== 0) throw new Error(`seed local-own owner failed: ${(await new Response(child.stderr).text()).slice(-2_000)}`)
+}
+
 const stop = async (child: ReturnType<typeof Bun.spawn> | undefined): Promise<void> => {
   if (child === undefined || child.exitCode !== null) return
   child.kill("SIGTERM")
@@ -129,9 +140,8 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const webPort = await availablePort()
     const backendOrigin = `http://127.0.0.1:${backendPort}`
     const origin = `http://127.0.0.1:${webPort}`
-    const bootstrapToken = randomUUID()
-    const username = `matrix${randomUUID().replaceAll("-", "").slice(0, 12)}`
-    const password = `${randomUUID()}-Aa1!`
+    const owner = ownerSeed(`matrix${randomUUID().replaceAll("-", "").slice(0, 12)}`)
+    const username = owner.login
     const gatewayApiKey = fixtureProtocolId(`matrix-flow-${randomUUID()}`)
     const backendEnv = {
       ...process.env,
@@ -144,7 +154,6 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       AI_GATEWAY_API_KEY: gatewayApiKey,
       SMITHERS_FFI_LIBRARY_PATH: ffiLibrary,
       SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dirname(ffiLibrary), "smithers-jj-export"),
-      SMITHERS_AUTH_BOOTSTRAP_TOKEN: bootstrapToken,
       SMITHERS_PUBLIC_URL: origin
     }
     const startBackend = async (): Promise<void> => {
@@ -152,15 +161,8 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       await waitFor(`${backendOrigin}/readyz`, backend)
     }
     await startBackend()
-    await request(backendOrigin, "/api/auth/local/bootstrap", {
-      method: "POST", headers: { "content-type": "application/json", "x-smithers-bootstrap-token": bootstrapToken },
-      body: JSON.stringify({ username, email: `${username}@example.test`, password })
-    })
-    const token = (await request(backendOrigin, "/api/auth/local/token", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username, password, name: "local-matrix" })
-    })).token
-    if (typeof token !== "string" || !token) throw new Error("local-own did not issue an owner token")
+    await seedNativeOwner(postgresBin, join(dataRoot, "postgres"), owner.sql)
+    const token = owner.token
     const repository = fixtureProtocolId(`matrix-${randomUUID().slice(0, 8)}`)
     await request(backendOrigin, "/api/user/repos", {
       method: "POST", headers: { "content-type": "application/json", authorization: `token ${token}` },
@@ -190,10 +192,10 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       observedAt: new Date().toISOString()
     }
     writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 })
-    const authEnvironment = "SMITHERS_LOCAL_OWNER_SESSION"
+    const authEnvironment = "SMITHERS_LOCAL_OWNER_TOKEN"
     return {
-      modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-session", environment: authEnvironment }, executionReceipt: receiptPath },
-      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, password, bootstrapToken }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
+      modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-token", environment: authEnvironment }, executionReceipt: receiptPath },
+      runtimeEnvironment: { [authEnvironment]: owner.token, SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
     }
   } catch (error) {
     await close()

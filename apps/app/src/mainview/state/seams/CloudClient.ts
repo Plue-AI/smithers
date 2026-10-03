@@ -83,7 +83,10 @@ export const fallbackSentence = (method: string, label: string | undefined, stat
     ? `Reading ${label ?? "from Smithers Cloud"} failed (${status})`
     : `The request ${label === undefined ? "to Smithers Cloud" : `for ${label}`} failed (${status})`
 
-/** Domain seams share transport; authorization, DTOs, and retry decisions remain in the seam. */
+/**
+ * Domain seams share transport; authorization, DTOs, and retry decisions remain in the seam.
+ * A write's `headers` ride beside its JSON body (a create's `Idempotency-Key`).
+ */
 export const createCloudClient = (ctx: Pick<SeamContext, "http" | "baseUrl">) => {
   const url = (path: string): string => `${ctx.baseUrl}/api${path}`
   const request = async (
@@ -91,7 +94,8 @@ export const createCloudClient = (ctx: Pick<SeamContext, "http" | "baseUrl">) =>
     path: string,
     body?: Record<string, unknown>,
     label?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    headers?: Readonly<Record<string, string>>
   ): Promise<CloudResult> => {
     let response: Response
     try {
@@ -100,7 +104,7 @@ export const createCloudClient = (ctx: Pick<SeamContext, "http" | "baseUrl">) =>
         method === "GET" ? (signal === undefined ? undefined : { signal }) : {
           method,
           ...(signal === undefined ? {} : { signal }),
-          ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+          ...(body === undefined ? {} : { headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) })
         }
       )
     } catch (error) {

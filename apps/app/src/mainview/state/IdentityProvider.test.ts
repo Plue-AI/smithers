@@ -15,8 +15,7 @@ const servicesFor = (mode: "owner" | "bearer" | "github"): AppServices => ({
   bootstrap: { apiVersion: 1, host: mode === "owner" ? "local" : "cloud", version: "test", buildSha: "test", capabilities: ["identity", "agent"], authFlow: mode === "owner" ? "credentials" : "redirect", sandbox: null },
   ...(mode === "github" ? {} : {
     applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: mode === "owner" ? "web-selfhost" : "web-plue", apiOrigin: "", auth: { kind: mode === "owner" ? "session" : "bearer" }, cors: "same-origin", developerExternal: false }, "https://owner.test"),
-    applicationIdentity: { current: async () => null },
-    ...(mode === "owner" ? { localIdentity: { status: async () => ({ enabled: true, initialized: true }), login: async ({ username }: { username: string }) => ({ user: { id: 1, username } }), bootstrap: async ({ username }: { username: string }) => ({ user: { id: 1, username } }) } } : {})
+    applicationIdentity: { current: async () => null }
   }),
   fetchImpl: async () => Response.json({}, { status: 404 })
 })

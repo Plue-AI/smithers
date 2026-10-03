@@ -112,7 +112,7 @@ describe("mode readiness deadline", () => {
       "/api/health": "hang"
     })
     const config = parseMatrixConfig({ revision, modes: [{
-      mode: "local-own", origin: server.origin, endpoint: server.origin, auth: { kind: "owner-session", environment: "OWNER" },
+      mode: "local-own", origin: server.origin, endpoint: server.origin, auth: { kind: "owner-token", environment: "OWNER" },
       executionReceipt: receipt("local-own", server.origin, revision)
     }] }).modes[0]!
     const result = await probeMode(config, revision, { OWNER: "configured" }, fetch, deadlineMs)

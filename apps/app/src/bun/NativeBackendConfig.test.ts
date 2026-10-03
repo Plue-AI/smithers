@@ -3,9 +3,9 @@ import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { nativeBackendConfig } from "./NativeBackendConfig"
 import type { NativeBackend } from "./NativeBackendProcess"
 
-const backend = (mode: NativeBackend["mode"], origin?: string, bootstrapToken?: string) => {
+const backend = (mode: NativeBackend["mode"], origin?: string) => {
   let stops = 0
-  const value: NativeBackend = { mode, origin, bootstrapToken, failure: undefined, stop: async () => { stops++ } }
+  const value: NativeBackend = { mode, origin, failure: undefined, stop: async () => { stops++ } }
   return { value, stops: () => stops }
 }
 
@@ -14,7 +14,6 @@ describe("native backend handshake", () => {
     expect(nativeBackendConfig({}, {
       mode: "own",
       origin: "http://127.0.0.1:4400",
-      bootstrapToken: "native-bootstrap",
       failure: undefined,
       stop: async () => {}
     }))
@@ -28,14 +27,13 @@ describe("native backend handshake", () => {
           cors: "same-origin",
           developerExternal: false
         },
-        token: null,
-        bootstrapToken: "native-bootstrap"
+        token: null
       })
   })
 
   test("own never adopts a Plue bearer exported in the launcher shell", () => {
     const config = nativeBackendConfig({ SMITHERS_API_TOKEN: "plue-pat" }, {
-      mode: "own", origin: "http://127.0.0.1:4400", bootstrapToken: "setup", failure: undefined, stop: async () => {}
+      mode: "own", origin: "http://127.0.0.1:4400", failure: undefined, stop: async () => {}
     })
     expect(config.token).toBeNull()
     expect(config.target.auth).toEqual({ kind: "session" })
@@ -43,12 +41,12 @@ describe("native backend handshake", () => {
 
   test("owned backend uses the packaged renderer proxy for its API", () => {
     const config = nativeBackendConfig({}, {
-      mode: "own", origin: "http://127.0.0.1:4400", bootstrapToken: "setup", failure: undefined, stop: async () => {}
+      mode: "own", origin: "http://127.0.0.1:4400", failure: undefined, stop: async () => {}
     }, "http://127.0.0.1:5100")
     expect(config).toEqual({
       rendererOrigin: "http://127.0.0.1:5100",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://127.0.0.1:5100", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: "setup"
+      token: null
     })
   })
 
@@ -57,33 +55,33 @@ describe("native backend handshake", () => {
       SMITHERS_API_ORIGIN: "https://plue.example.test",
       SMITHERS_RENDERER_ORIGIN: "http://127.0.0.1:5173",
       SMITHERS_API_TOKEN: "secret"
-    }, { mode: "plue", origin: undefined, bootstrapToken: undefined, failure: undefined, stop: async () => {} })
+    }, { mode: "plue", origin: undefined, failure: undefined, stop: async () => {} })
     expect(config).toEqual({
       rendererOrigin: "http://127.0.0.1:5173",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "https://plue.example.test", auth: { kind: "bearer" }, cors: "credentialed", developerExternal: false },
-      token: "secret", bootstrapToken: null
+      token: "secret"
     })
   })
 
   test("missing supervisor and remote origins fail before opening the app", () => {
     expect(() => nativeBackendConfig({}, {
-      mode: "own", origin: "", bootstrapToken: undefined, failure: undefined, stop: async () => {}
+      mode: "own", origin: "", failure: undefined, stop: async () => {}
     })).toThrow("owned backend origin is required")
     expect(() => nativeBackendConfig({}, {
-      mode: "plue", origin: undefined, bootstrapToken: undefined, failure: undefined, stop: async () => {}
+      mode: "plue", origin: undefined, failure: undefined, stop: async () => {}
     })).toThrow("SMITHERS_API_ORIGIN is required")
   })
 })
 
 describe("pure native configuration topology and precedence", () => {
   test("owner handshake ignores malformed remote origin, token, and unrelated launcher settings", () => {
-    const instance = backend("own", "http://127.0.0.1:4400", "setup-token")
-    const env = { SMITHERS_API_ORIGIN: "not a URL", SMITHERS_API_TOKEN: "remote-token", SMITHERS_AUTH_BOOTSTRAP_TOKEN: "wrong-token", UNRELATED: "ignored" }
+    const instance = backend("own", "http://127.0.0.1:4400")
+    const env = { SMITHERS_API_ORIGIN: "not a URL", SMITHERS_API_TOKEN: "remote-token", UNRELATED: "ignored" }
     const before = { ...env }
     expect(nativeBackendConfig(env, instance.value)).toEqual({
       rendererOrigin: "http://127.0.0.1:4400",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://127.0.0.1:4400", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: "setup-token"
+      token: null
     })
     expect(env).toEqual(before)
     expect(instance.value.origin).toBe("http://127.0.0.1:4400")
@@ -97,27 +95,27 @@ describe("pure native configuration topology and precedence", () => {
     expect(nativeBackendConfig({ SMITHERS_RENDERER_ORIGIN: renderer }, instance.value)).toEqual({
       rendererOrigin: "http://127.0.0.1:4400",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://127.0.0.1:4400", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: null
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
 
-  test("explicit external renderer leaves owner API and setup credentials on the owned handshake", () => {
-    const instance = backend("own", "http://127.0.0.1:4400", "setup-token")
+  test("explicit external renderer leaves the owner API on the owned handshake", () => {
+    const instance = backend("own", "http://127.0.0.1:4400")
     expect(nativeBackendConfig({ SMITHERS_RENDERER_ORIGIN: " https://shell.example.test/ " }, instance.value)).toEqual({
       rendererOrigin: "https://shell.example.test",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://127.0.0.1:4400", auth: { kind: "session" }, cors: "credentialed", developerExternal: false },
-      token: null, bootstrapToken: "setup-token"
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
 
-  test("packaged owner renderer overrides an invalid env renderer and keeps the trusted setup token", () => {
-    const instance = backend("own", "http://127.0.0.1:4400", "setup-token")
+  test("packaged owner renderer overrides an invalid env renderer", () => {
+    const instance = backend("own", "http://127.0.0.1:4400")
     expect(nativeBackendConfig({ SMITHERS_RENDERER_ORIGIN: "invalid", SMITHERS_API_ORIGIN: "invalid", SMITHERS_API_TOKEN: "ignored" }, instance.value, "http://127.0.0.1:5100")).toEqual({
       rendererOrigin: "http://127.0.0.1:5100",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://127.0.0.1:5100", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: "setup-token"
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
@@ -129,7 +127,7 @@ describe("pure native configuration topology and precedence", () => {
     expect(nativeBackendConfig({ SMITHERS_API_ORIGIN: " https://plue.example.test/ ", SMITHERS_API_TOKEN: token }, instance.value)).toEqual({
       rendererOrigin: "https://plue.example.test",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "https://plue.example.test", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: null
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
@@ -139,7 +137,7 @@ describe("pure native configuration topology and precedence", () => {
     expect(nativeBackendConfig({ SMITHERS_API_ORIGIN: "https://plue.example.test", SMITHERS_RENDERER_ORIGIN: " https://plue.example.test/ ", SMITHERS_API_TOKEN: " \tremote-token\n" }, instance.value)).toEqual({
       rendererOrigin: "https://plue.example.test",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "https://plue.example.test", auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false },
-      token: "remote-token", bootstrapToken: null
+      token: "remote-token"
     })
     expect(instance.stops()).toBe(0)
   })
@@ -149,7 +147,7 @@ describe("pure native configuration topology and precedence", () => {
     expect(nativeBackendConfig({ SMITHERS_API_ORIGIN: "https://plue.example.test", SMITHERS_RENDERER_ORIGIN: "invalid", SMITHERS_API_TOKEN: " remote-token " }, instance.value, "http://127.0.0.1:5100")).toEqual({
       rendererOrigin: "http://127.0.0.1:5100",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "https://plue.example.test", auth: { kind: "bearer" }, cors: "credentialed", developerExternal: false },
-      token: "remote-token", bootstrapToken: null
+      token: "remote-token"
     })
     expect(instance.stops()).toBe(0)
   })
@@ -159,7 +157,7 @@ describe("pure native configuration topology and precedence", () => {
     expect(nativeBackendConfig({ SMITHERS_API_ORIGIN: "http://127.0.0.1:5100", SMITHERS_RENDERER_ORIGIN: "invalid" }, instance.value, "http://127.0.0.1:5100")).toEqual({
       rendererOrigin: "http://127.0.0.1:5100",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "http://127.0.0.1:5100", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: null
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
@@ -226,12 +224,12 @@ describe("native origin normalization contract", () => {
   ]
   for (const boundary of ["handshake", "renderer env", "packaged renderer"] as const) {
     test.each(ownerOrigins)(`${boundary} normalizes owner $name`, ({ raw, normalized }) => {
-      const instance = backend("own", boundary === "handshake" ? raw : normalized, "setup-token")
+      const instance = backend("own", boundary === "handshake" ? raw : normalized)
       const config = nativeBackendConfig(boundary === "renderer env" ? { SMITHERS_RENDERER_ORIGIN: raw } : {}, instance.value, boundary === "packaged renderer" ? raw : undefined)
       expect(config).toEqual({
         rendererOrigin: normalized,
         target: { apiVersion: 1, mode: "native-own", apiOrigin: normalized, auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-        token: null, bootstrapToken: "setup-token"
+        token: null
       })
       // A compatibility check follows the independent output oracle; it does
       // not manufacture the expected config from the shared implementation.
@@ -256,7 +254,7 @@ describe("native origin normalization contract", () => {
       expect(config).toEqual({
         rendererOrigin: normalized,
         target: { apiVersion: 1, mode: "native-plue", apiOrigin: normalized, auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false },
-        token: "remote-token", bootstrapToken: null
+        token: "remote-token"
       })
       expect(resolveApplicationTarget(config.target, config.rendererOrigin)).toMatchObject({ shell: "native", ownership: "plue", launch: "none", baseUrl: "" })
       expect(instance.stops()).toBe(0)
@@ -271,7 +269,7 @@ describe("native origin normalization contract", () => {
     expect(nativeBackendConfig({}, instance.value, owner)).toEqual({
       rendererOrigin: "http://127.0.0.1:5100",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://127.0.0.1:5100", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: null
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
@@ -284,17 +282,17 @@ describe("native origin normalization contract", () => {
     expect(nativeBackendConfig({ SMITHERS_API_ORIGIN: "https://plue.example.test" }, instance.value, raw)).toEqual({
       rendererOrigin: "https://plue.example.test",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "https://plue.example.test", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: null
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
 
   test("expanded IPv6 loopback handshake normalizes its host while preserving a nondefault port", () => {
-    const instance = backend("own", "http://[0:0:0:0:0:0:0:1]:4400/", "setup-token")
+    const instance = backend("own", "http://[0:0:0:0:0:0:0:1]:4400/")
     expect(nativeBackendConfig({}, instance.value)).toEqual({
       rendererOrigin: "http://[::1]:4400",
       target: { apiVersion: 1, mode: "native-own", apiOrigin: "http://[::1]:4400", auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: "setup-token"
+      token: null
     })
     expect(instance.stops()).toBe(0)
   })
@@ -313,7 +311,7 @@ describe("native origin normalization contract", () => {
     expect(config).toEqual({
       rendererOrigin: normalized,
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: normalized, auth: { kind: "session" }, cors: "same-origin", developerExternal: false },
-      token: null, bootstrapToken: null
+      token: null
     })
     // Empty delimiters and dot segments leave no normalized query/fragment/path;
     // the nonempty denial matrix above continues to exercise actual exclusions.
@@ -326,7 +324,7 @@ describe("native origin normalization contract", () => {
     expect(nativeBackendConfig({ SMITHERS_API_ORIGIN: "https://bücher.example/", SMITHERS_RENDERER_ORIGIN: "https://xn--bcher-kva.example", SMITHERS_API_TOKEN: "remote-token" }, instance.value)).toEqual({
       rendererOrigin: "https://xn--bcher-kva.example",
       target: { apiVersion: 1, mode: "native-plue", apiOrigin: "https://xn--bcher-kva.example", auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false },
-      token: "remote-token", bootstrapToken: null
+      token: "remote-token"
     })
     expect(instance.stops()).toBe(0)
   })

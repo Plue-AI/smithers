@@ -86,11 +86,11 @@ func TestRunWaitsForRevocationCursorBeforeAdmittingConsumers(t *testing.T) {
 			})
 			require.NoError(t, err)
 			_, err = writerPool.Exec(context.Background(),
-				`INSERT INTO self_host_owners (singleton, user_id) VALUES (TRUE, $1)`, user.ID)
+				`INSERT INTO members (user_id, github_user_id, login, role) VALUES ($1, $1, $2, 'owner')`, user.ID, userName)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				_, _ = writerPool.Exec(context.Background(),
-					`DELETE FROM self_host_owners WHERE user_id = $1`, user.ID)
+					`DELETE FROM members WHERE user_id = $1`, user.ID)
 			})
 			makeCredential := func(name string) (string, int64, string) {
 				t.Helper()

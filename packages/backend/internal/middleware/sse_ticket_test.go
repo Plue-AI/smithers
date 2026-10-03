@@ -20,9 +20,9 @@ type mockSSETicketValidator struct {
 	validateFn func(ctx context.Context, rawTicket string) (*SSETicketPrincipal, error)
 }
 
-type ownerAuthorizerFunc func(context.Context, int64) *errors.APIError
+type memberAuthorizerFunc func(context.Context, int64) *errors.APIError
 
-func (f ownerAuthorizerFunc) AuthorizeOwner(ctx context.Context, userID int64) *errors.APIError {
+func (f memberAuthorizerFunc) AuthorizeMember(ctx context.Context, userID int64) *errors.APIError {
 	return f(ctx, userID)
 }
 
@@ -97,15 +97,15 @@ func TestSSETicketAuth_ValidTicket_SetsContext(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestSSETicketAuth_RejectsForeignSingleOwnerPrincipal(t *testing.T) {
+func TestSSETicketAuth_RejectsNonMemberPrincipal(t *testing.T) {
 	t.Parallel()
 
 	validator := &mockSSETicketValidator{validateFn: func(context.Context, string) (*SSETicketPrincipal, error) {
 		return &SSETicketPrincipal{User: &db.User{ID: 42, Username: "foreign"}}, nil
 	}}
-	boundary := ownerAuthorizerFunc(func(_ context.Context, userID int64) *errors.APIError {
+	boundary := memberAuthorizerFunc(func(_ context.Context, userID int64) *errors.APIError {
 		assert.Equal(t, int64(42), userID)
-		return errors.Forbidden("credential does not belong to the installation owner")
+		return errors.New(errors.CodeNotAMember, "not a member of this install")
 	})
 	nextCalled := false
 	handler := SSETicketAuth(validator, nil, boundary)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

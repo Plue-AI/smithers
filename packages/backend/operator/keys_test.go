@@ -134,7 +134,7 @@ func TestKeysRotateReplacesTheDataRootKeyThroughProductDatabase(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0o700))
 	values := map[string]string{}
 	for _, name := range []string{"SMITHERS_AUTH_SESSION_SECRET", "SMITHERS_LFS_SIGNING_SECRET", "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY",
-		"SMITHERS_REPO_HOST_AUTH_TOKEN", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN", "SMITHERS_AUTH_BOOTSTRAP_TOKEN"} {
+		"SMITHERS_REPO_HOST_AUTH_TOKEN", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN"} {
 		values[name] = "file-" + strings.ToLower(name)
 	}
 	encoded, err := json.Marshal(map[string]any{"version": 1, "values": values})

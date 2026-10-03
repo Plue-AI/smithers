@@ -86,7 +86,6 @@ func baseRunEnv(t *testing.T) map[string]string {
 		"SMITHERS_DATABASE_URL":                  testDatabaseURL(t),
 		"SMITHERS_BLOB_DATA_DIR":                 t.TempDir(),
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "test-bootstrap-token",
 		"SMITHERS_AUTH_SESSION_SECRET":           "test-secret",
 		"SMITHERS_LFS_SIGNING_SECRET":            "test-lfs-signing-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "test-webhook-key",

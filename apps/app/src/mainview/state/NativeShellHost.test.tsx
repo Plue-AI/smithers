@@ -67,11 +67,6 @@ const webSelfhost = resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhos
 const ownerSeams = (bootstrap: AppBootstrap): AppServices => ({
   bootstrap,
   applicationTarget: webSelfhost,
-  localIdentity: {
-    status: async () => ({ enabled: true, initialized: true, username: "owner" }),
-    login: async () => { throw new Error("not signed in by this test") },
-    bootstrap: async () => { throw new Error("not bootstrapped by this test") }
-  },
   applicationIdentity: { current: async () => null },
   cloudSocketUrl: () => undefined,
   cloudLspSocketUrl: () => undefined
@@ -86,11 +81,10 @@ const openSignedOut = async (bootstrap: AppBootstrap) => {
 }
 
 describe("a self-host bootstrap never enables native-shell UI", () => {
-  test("the sign-in door is the owner's credentials on every web origin that has them, and GitHub only behind the redirect", () => {
+  test("a self-host origin reads its selected backend identity, and GitHub only behind the redirect", () => {
     expect(nativeShell(SELF_HOST)).toBe(false)
     expect(identityProviderFor(ownerSeams(SELF_HOST))).toBe("local")
     // The Worker's page resolves the same default owner target; its redirect is what makes it the hosted GitHub session.
-    expect(identityProviderFor({ ...ownerSeams(WORKER), localIdentity: undefined })).toBe("github")
     expect(identityProviderFor(ownerSeams(WORKER))).toBe("github")
   })
 

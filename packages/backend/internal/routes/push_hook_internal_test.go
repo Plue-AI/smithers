@@ -557,8 +557,8 @@ func TestInternalPushHookHandler_PostPushEvent_LoadsPersistsAndDispatchesDefault
 		assert.Equal(t, "refs/heads/main", call.event.Ref)
 		assert.Equal(t, "abc123", call.event.CommitSHA)
 		assert.Equal(t, int64(42), call.userID)
-		assert.False(t, call.useLoadedSnapshot)
-		assert.Zero(t, call.loadedDefinitions)
+		assert.True(t, call.useLoadedSnapshot)
+		assert.Equal(t, 1, call.loadedDefinitions)
 	case <-time.After(2 * time.Second):
 		t.Fatal("workflow dispatch was not called")
 	}
@@ -643,7 +643,7 @@ func TestInternalPushHookHandler_PostPushEvent_NonAdminPusherSkipsConfigSync(t *
 	}
 }
 
-func TestInternalPushHookHandler_PostPushEvent_NonDefaultBookmarkSkipsPersistenceAndDispatchesPushForVerification(t *testing.T) {
+func TestInternalPushHookHandler_PostPushEvent_NonDefaultBookmarkSkipsPersistenceButDispatchesLoadedSnapshot(t *testing.T) {
 	t.Parallel()
 
 	resolver := &mockPushHookRepoResolver{
@@ -716,8 +716,8 @@ func TestInternalPushHookHandler_PostPushEvent_NonDefaultBookmarkSkipsPersistenc
 
 	select {
 	case call := <-runner.calls:
-		assert.False(t, call.useLoadedSnapshot)
-		assert.Zero(t, call.loadedDefinitions)
+		assert.True(t, call.useLoadedSnapshot)
+		assert.Equal(t, 1, call.loadedDefinitions)
 		assert.Equal(t, "refs/heads/feature/test", call.event.Ref)
 	case <-time.After(2 * time.Second):
 		t.Fatal("workflow dispatch was not called")
