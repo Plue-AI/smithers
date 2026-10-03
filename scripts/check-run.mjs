@@ -33,7 +33,7 @@ try {
   const layer = /\bLayer: ([a-z]+)\b/.exec(doc)?.[1]
   const mappings = JSON.parse(gitRead(root, ['show', `${landed}:scripts/check-commands.json`]))
   const mapping = mappings.version === 1 && mappings.checks[id]
-  if (mapping?.approvedBy === 'smithers-22' && !mapping.status && !('target' in mapping)) throw new Error('argv mappings are not executable; map the check to a smthrs target')
+  if (mapping && !mapping.status && !('target' in mapping)) throw new Error('argv mappings are not executable; map the check to a smthrs target')
   if (!layer || !validMapping(mapping) || mapping.status || mapping.automation !== declaration[1] || mapping.runsIn !== declaration[2]) throw new Error('no reviewed executable mapping')
   // CI already ran the label at `landed`: read its record, execute nothing (#3663).
   const repo = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(gitRead(root, ['remote', 'get-url', 'origin']))?.[1]
