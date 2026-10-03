@@ -19,6 +19,7 @@ it takes an explicit props bag instead.
 | Specifier                              | Contents                                                      | Heavy dependency |
 | -------------------------------------- | ------------------------------------------------------------- | ---------------- |
 | `@smthrs/ui`                           | Everything on this page except the adapter sections           | None             |
+| `@smthrs/ui/copy` | `copyText`, `CopyResult`, `CopyFailureCode` (clipboard only) | None |
 | `@smthrs/ui/status`                    | [The status vocabulary](#the-status-vocabulary)               | None             |
 | `@smthrs/ui/time`                      | [Time](#time)                                                 | None             |
 | `@smthrs/ui/calendar`                  | [Calendar](#calendar)                                         | None             |
@@ -685,3 +686,7 @@ the human confirms.
 - [The adapters boundary](./concepts/adapters.md): what the six adapter
   subpaths cost.
 - [Troubleshooting](./troubleshooting.md): symptoms and fixes.
+
+## Clipboard (`@smthrs/ui/copy`)
+
+This isolated entry point exports `copyText`, `CopyResult`, and `CopyFailureCode` without importing Vault or autosave. Views import `copyText` from this subpath. The root export remains available. See [clipboard contracts](./reference/contracts.md#clipboard).

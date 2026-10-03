@@ -18,7 +18,7 @@ message into the UI.
 
 ### Copy affordances
 
-`copyText` is a public export from `@smthrs/ui` (implemented in
+`copyText` is a public export from `@smthrs/ui` and `@smthrs/ui/copy` (implemented in
 `src/internal/copyToClipboard.ts`), the one copy path behind `CodeBlock`,
 `Snippet`, and `SecretField`. It awaits either the caller's `onCopy` or
 `navigator.clipboard.writeText`, falling back to `document.execCommand("copy")`

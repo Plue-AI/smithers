@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, expect, mock, test } from "bun:test"
-import { copyText } from "@smthrs/ui"
+import { copyText } from "@smthrs/ui/copy"
 
 GlobalRegistrator.register()
 afterAll(() => GlobalRegistrator.unregister())

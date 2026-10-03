@@ -4,7 +4,7 @@ import { resolve, join } from "node:path"
 import { createRequire } from "node:module"
 const require = createRequire(resolve(process.cwd(), "package.json"))
 const axePath = require.resolve("axe-core/axe.min.js")
-const shots = process.env.SMITHERS_VIEW_SHOTS ?? resolve(import.meta.dirname, "../../../../.artifacts/checks/C-UI-12", new Date().toISOString().replace(/[:.]/g, "-"))
+const shots = process.env.SMITHERS_VIEW_SHOTS ?? resolve(process.cwd(), "../../.artifacts/checks/C-UI-12", new Date().toISOString().replace(/[:.]/g, "-"))
 test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "C-UI-12 requires Chromium")
   test.setTimeout(600_000)

@@ -132,3 +132,5 @@ console.log(html.includes("sui-button")) // true
 - [API reference](./api.md): every public export.
 - [`@smthrs/cli`](/api/cli): the `smthrs` command line these surfaces report
   on, and the package the rest of Smithers sits under.
+
+For clipboard-only consumers, use `import { copyText } from "@smthrs/ui/copy"`. This entry point excludes Vault and autosave.

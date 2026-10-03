@@ -103,6 +103,11 @@
       "types": "./src/notification-policy.ts",
       "import": "./src/notification-policy.ts",
       "default": "./src/notification-policy.ts"
+    },
+    "./copy": {
+      "types": "./src/copy.ts",
+      "import": "./src/copy.ts",
+      "default": "./src/copy.ts"
     }
   },
   "files": [

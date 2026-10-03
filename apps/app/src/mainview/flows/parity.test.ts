@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 
@@ -233,12 +233,13 @@ const unwrap = (expression: ts.Expression): ts.Expression => {
 }
 
 /** Compare the tag expression itself: a neighbouring action's tag is not parity. */
-const viewSeamViolations = (source: string): string[] => {
+const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/CardView.tsx", import.meta.url)): string[] => {
   const tree = ts.createSourceFile("CardView.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const violations: string[] = []
   const declarations = new Map<string, ts.Expression | ts.FunctionDeclaration>()
   // `copyText` from @smthrs/ui is the one clipboard effect a View handler may call (ui-components.md Rules 3).
   const clipboard = new Set<string>()
+  const viewChildren = new Set<string>()
   const collect = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       declarations.set(node.name.text, node.initializer)
@@ -255,6 +256,19 @@ const viewSeamViolations = (source: string): string[] => {
             clipboard.add(element.name.text)
           }
         }
+      }
+    }
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text.startsWith(".") && !node.importClause?.isTypeOnly) {
+      const childUrl = new URL(node.moduleSpecifier.text, sourceUrl)
+      const viewsUrl = new URL("../cards/views/", import.meta.url)
+      if (childUrl.href.startsWith(viewsUrl.href) && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
+        ["", ".tsx", ".ts"].some(ext => /\.tsx?$/.test(childUrl.pathname + ext) && existsSync(fileURLToPath(new URL(childUrl.href + ext))))) {
+        const bindings = node.importClause?.namedBindings
+        if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
+          if (!element.isTypeOnly) viewChildren.add(element.name.text)
+        }
+        if (node.importClause?.name) viewChildren.add(node.importClause.name.text)
       }
     }
     ts.forEachChild(node, collect)
@@ -386,8 +400,18 @@ const viewSeamViolations = (source: string): string[] => {
     if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) || ts.isFunctionDeclaration(expression)) {
       if (!expression.body) return undefined
       if (ts.isBlock(expression.body)) {
-        if (expression.body.statements.length !== 1) return undefined
-        const statement = expression.body.statements[0]!
+        const statements = [...expression.body.statements]
+        while (statements.length > 1) {
+          const first = statements[0]!
+          if (!ts.isExpressionStatement(first) || !ts.isCallExpression(first.expression)) return undefined
+          const call = first.expression
+          if (!ts.isPropertyAccessExpression(call.expression) || call.arguments.length !== 0 ||
+            !/^(?:event|e)$/.test(call.expression.expression.getText(tree)) ||
+            !/^(?:preventDefault|stopPropagation)$/.test(call.expression.name.text)) return undefined
+          statements.shift()
+        }
+        if (statements.length !== 1) return undefined
+        const statement = statements[0]!
         if (ts.isExpressionStatement(statement) || ts.isReturnStatement(statement)) {
           return calledTag(statement.expression, seen)
         }
@@ -526,10 +550,13 @@ const viewSeamViolations = (source: string): string[] => {
           continue
         }
         const name = attribute.name.getText(tree)
-        if (!/^on[A-Z]/.test(name)) continue
+        if (!/^on[A-Z]/.test(name) && name !== "gestures") continue
         const expression = attribute.initializer && ts.isJsxExpression(attribute.initializer)
           ? attribute.initializer.expression
           : undefined
+        if (["onAction", "onView", "gestures"].includes(name) && expression && ts.isIdentifier(expression) &&
+          expression.text === name && ts.isIdentifier(node.tagName) && viewChildren.has(node.tagName.text)) continue
+        if (name === "gestures") continue
         const tag = calledTag(expression)
         if (!tag && !presentationHandler(expression)) {
           violations.push(`${name} must call onAction(action.tag) or change presentation`)
@@ -705,7 +732,7 @@ describe("View and Container catalog seam (C-UI-08)", () => {
       .filter((entry) => entry.split("\\").join("/").startsWith("views/") && /\.tsx?$/.test(entry) && !/\.(test|stories)\.tsx?$/.test(entry))
     for (const name of ["ActorChip.tsx", "StateWord.tsx", "actorName.ts"]) expect(files).toContain(`views/${name}`)
     expect(
-      files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`)).map((violation) => `${file}: ${violation}`))
+      files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`), new URL(`../cards/${file}`, import.meta.url)).map((violation) => `${file}: ${violation}`))
     ).toEqual([])
   })
 
@@ -722,10 +749,23 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     }
     expect(files.length).toBeGreaterThan(0)
     const found = Object.fromEntries(
-      files.map((file) => [file, viewSeamViolations(readFileSync(`${root}${file}`, "utf8"))] as const)
+      files.map((file) => [file, viewSeamViolations(readFileSync(`${root}${file}`, "utf8"), new URL(`file://${root}${file}`))] as const)
         .filter(([, violations]) => violations.length > 0)
     )
     expect(found).toEqual(SHARED_VIEW_VIOLATIONS)
+  })
+
+  test("event suppression preserves accepted calls and scanned View forwarding", () => {
+    for (const call of ["onAction(action.tag)", "onView({ open: true })", "setOpen(true)", "copyText(model.text)"]) {
+      expect(viewSeamViolations(`import { copyText } from "@smthrs/ui/copy"; const [open, setOpen] = useState(false); const view = <button data-flow={action.tag} onClick={event => { event.preventDefault(); event.stopPropagation(); ${call} }} />`)).toEqual([])
+    }
+    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; const view = <ActorChip onAction={onAction} onView={onView} gestures={gestures} />')).toEqual([])
+    for (const source of [
+      '<button onClick={event => { event.preventDefault(); runCommand("run") }} />',
+      'import { ActorChip } from "./ActorChip"; const view = <ActorChip onAction={() => run()} />',
+      'import { Child } from "../Child"; const view = <Child onAction={onAction} />',
+      '<button onClick={event => { event.preventDefault(); onAction(action.tag); onAction(action.tag) }} />',
+    ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
   })
 
   test("onAction forwards the action's opaque tag and optional form input", () => {
@@ -797,7 +837,7 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     for (
       const source of [
         "import { copyText } from \"@smthrs/ui\"; const view = <button onClick={() => copyText(model.text)} />",
-        "import { copyText as copy } from \"@smthrs/ui/clipboard\"; const view = <button onClick={() => copy(model.ssh_line)} />",
+        "import { copyText as copy } from \"@smthrs/ui/copy\"; const view = <button onClick={() => copy(model.ssh_line)} />",
         "import { copyText } from \"@smthrs/ui\"; const [copied, setCopied] = useState(false); const view = <button onClick={() => { copyText(model.text); setCopied(true) }} />"
       ]
     ) expect(viewSeamViolations(source)).toEqual([])
