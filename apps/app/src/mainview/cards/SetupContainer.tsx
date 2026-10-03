@@ -15,7 +15,7 @@ export interface SetupContainerProps {
   readonly onView: CardProps<SetupCard>["onView"]
 }
 const labels = { address: "Address", app: "Create GitHub App", sign_in: "Sign in", repository: "Repository",
-  models: "Model access", source: "Source ready", machine: "Machine ready" } as const
+  models: "Model access", source: "Mirror", machine: "Build image" } as const
 
 export const SetupContainer = ({ View, install, dispatch, allowed, view, onView }: SetupContainerProps) => {
   const snapshot = useSyncExternalStore(install.subscribe, install.get, install.get)

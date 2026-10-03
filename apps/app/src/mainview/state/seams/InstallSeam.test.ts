@@ -101,7 +101,7 @@ describe("T-APP-03 install seam", () => {
   })
   test("Retry launches once; the toast waits for the terminal machine event", async () => {
     const model = installFixture(); model.steps[6]!.state = "failed"; model.machine = { state: "failed", pct: 60 }
-    const started = structuredClone(model); started.steps[6]!.state = "running"; started.machine = { state: "running", pct: 61 }
+    const started = structuredClone(model); started.steps[6]!.state = "done"; started.machine = { state: "running", pct: 61 }
     const h = await harness((_path, init) => Response.json(init?.method === "POST" ? started : model))
     await h.seam.readInstall()
     h.seam.setupStep({ step: "machine" }); h.seam.setupStep({ step: "machine" }); await tick()

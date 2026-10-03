@@ -91,11 +91,11 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     }
     receive(result)
   }
-  const background = (key: string, title: string, work: () => Promise<boolean | string>) => {
+  const background = (key: string, title: string, work: () => Promise<boolean | string>, doneTitle = "Saved") => {
     if (!current()) return "Install is closed"
     if (!shared.pending.has(key)) {
       // Register before work begins, including synchronous fake transports.
-      const job = Promise.resolve().then(() => current() ? withToast(`install:${key}`, title, "Saved", work) : false)
+      const job = Promise.resolve().then(() => current() ? withToast(`install:${key}`, title, doneTitle, work) : false)
       shared.pending.set(key, job)
       void job.catch(() => publish({ ...shared.snapshot, error: error("request_failed", "Install request failed") }))
         .finally(() => { if (shared.pending.get(key) === job) shared.pending.delete(key) })
@@ -113,7 +113,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const running = shared.snapshot.model.steps.find(step => step.state === "running")
     if (kind === "setup" && running) return await waitStep(running.id)
     return true
-  })
+  }, kind === "setup" ? "Setup" : "Settings")
   const write = (key: string, path: string, body: unknown, setup = false) => {
     const model = shared.snapshot.model
     if (!model || (!setup && !model.github.signed_in)) { publish({ error: permission }); return permission.message }
@@ -147,7 +147,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         if (setup) return await waitStep(path.split("/").at(-1) as InstallStepId)
         return true
       } finally { release() }
-    })
+    }, setup ? path.endsWith("/source") ? "Source ready" : path.endsWith("/machine") ? "Machine ready" : "Setup" : "Saved")
   }
   const waitStep = (id: InstallStepId): Promise<boolean | string> => new Promise(resolve => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -167,7 +167,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       if (!current()) return cancel()
       if (shared.snapshot.error || step?.state === "failed" || step?.state === "blocked") {
         cleanup(); resolve(shared.snapshot.error?.message ?? step?.error?.message ?? step?.blocked?.line ?? "Setup failed")
-      } else if (step?.state === "done") { cleanup(); resolve(true) }
+      } else if (step?.state === "done" && ((id !== "source" && id !== "machine") || shared.snapshot.model?.[id].state === "ready")) {
+        cleanup(); resolve(true)
+      }
     }
     shared.listeners.add(check); shared.cancel.add(cancel); check()
     if (shared.listeners.has(check) && !shared.stop) poll()

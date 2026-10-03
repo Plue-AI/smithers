@@ -79,6 +79,15 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(h.setup()!.model.steps.find(step => step.id === "source")!.state === "done").toBe(state === "ready")
     expect(h.setup()!.model.steps.find(step => step.id === "machine")).toMatchObject({ state: "running", pct: 5 })
   })
+  test("Source and machine launch controls do not claim readiness", () => {
+    for (const id of ["source", "machine"] as const) {
+      const model = installFixture(); model.steps.find(step => step.id === id)!.state = "pending"
+      model[id] = { state: "pending", pct: 0 }
+      const h = harness({ model }); h.renderSetup()
+      expect(h.setup()!.actions[0]!.label).toBe(id === "source" ? "Mirror" : "Build image")
+      expect(h.setup()!.actions[0]!.label).not.toContain("ready")
+    }
+  })
   test("model key actions strip values and preserve only role/provider for the write-only form", () => {
     const model = installFixture(); model.steps[4]!.state = "pending"
     const h = harness({ model }); h.renderSetup(); h.renderSettings()
