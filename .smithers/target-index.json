@@ -13633,6 +13633,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/web/package.json"
+      },
+      {
+        "kind": "file",
         "path": "evals/agent/package.json"
       },
       {
@@ -14240,6 +14244,10 @@
       {
         "kind": "file",
         "path": "apps/tui/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/package.json"
       },
       {
         "kind": "file",
@@ -16158,6 +16166,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/web/package.json"
+      },
+      {
+        "kind": "file",
         "path": "evals/agent/package.json"
       },
       {
@@ -16872,6 +16884,148 @@
     ],
     "source": {
       "file": "apps/tui/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/web:build",
+    "package": "apps/web",
+    "name": "build",
+    "rule": "ToolBuild",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/web/src/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/index.html"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/tsconfig.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/vite.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [
+      "apps/web/dist"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "apps/web/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/web:check",
+    "package": "apps/web",
+    "name": "check",
+    "rule": "Typecheck",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/web/src/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/index.html"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/tsconfig.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/vite.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/tsconfig.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/web/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/web:test",
+    "package": "apps/web",
+    "name": "test",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/web/test/home.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/web/src/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/index.html"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/tsconfig.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/vite.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "apps/web/test/home.test.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//apps/web:build"
+    ],
+    "source": {
+      "file": "apps/web/PACKAGE.ts"
     }
   },
   {
