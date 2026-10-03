@@ -1,0 +1,40 @@
+.setup-view { box-sizing: border-box; max-width: 900px; padding: 20px 24px; border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface); color: var(--text); font: 14px/1.5 var(--font-ui); }
+.setup-view * { box-sizing: border-box; }
+.setup-view h2 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
+.setup-view code { font: 12.5px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.setup-muted, .setup-mac > span, .setup-reason { color: var(--text-muted); }
+.setup-mac { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.setup-capacity { flex-basis: 100%; font-size: 11px; white-space: nowrap; }
+.setup-steps { display: flex; flex-direction: column; margin: 8px 0 0; padding: 0; list-style: none; }
+.setup-steps > li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
+.setup-steps > li + li { border-top: 1px solid var(--border); }
+.setup-mark { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--border-strong); color: var(--text-muted); font-weight: 600; }
+[data-state="running"] > .setup-mark, [data-state="validating"] .setup-key-state { color: var(--brand); }
+[data-state="failed"] > .setup-mark, .setup-error, [data-state="failed"] .setup-key-state { color: var(--danger); }
+.setup-blocked { color: var(--warning); }
+.setup-body { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
+.setup-models { display: flex; width: 100%; flex-direction: column; gap: 10px; container-type: inline-size; }
+.setup-model { display: grid; grid-template-columns: 112px 100px minmax(80px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
+.setup-model > .setup-error { grid-column: 2 / -1; }
+.setup-view input, .setup-view select { width: 100%; min-width: 0; height: 30px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; }
+.setup-model[data-state="failed"] input { border-color: var(--danger); }
+.setup-model[data-state="saved"] input { background: transparent; border-color: var(--border); }
+.setup-key-state { font-size: 12px; color: var(--text-muted); }
+.setup-settings { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: start; gap: 12px; margin: 0; }
+.setup-settings dt { color: var(--text-muted); font-weight: 500; }
+.setup-settings dd { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; margin: 0; }
+.setup-settings .setup-mac strong { display: none; }
+.setup-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.setup-action { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.setup-action label { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
+.setup-view button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.setup-view button:hover:not(:disabled) { background: var(--hover); }
+.setup-view button:disabled { opacity: .6; cursor: default; }
+.setup-view button[data-primary] { color: var(--on-action-primary); background: var(--action-primary); border-color: var(--action-primary); }
+.setup-view :is(input, select, button, a):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+.setup-copy { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--code-bg); }
+.setup-copy code { flex: 1; min-width: 0; }
+.setup-stepper { display: inline-flex; align-items: center; gap: 12px; }
+.setup-view progress { width: 100%; height: 6px; accent-color: var(--brand); }
+@container (max-width: 470px) { .setup-model { grid-template-columns: 112px minmax(0, 1fr) auto; } .setup-model > span:first-child { grid-column: 1 / 3; } .setup-key-state { grid-area: 1 / 3; } .setup-model input { grid-area: 2 / 2 / auto / -1; } .setup-model > .setup-error { grid-column: 1 / -1; } }
+@media (max-width: 480px) { .setup-view { padding: 16px 12px; } .setup-settings { grid-template-columns: minmax(0, 1fr); gap: 6px; } .setup-settings dd { margin-bottom: 10px; } }
