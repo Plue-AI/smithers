@@ -25,7 +25,7 @@ Keys: Space plays or pauses, ← and → step, T switches the theme, and 1–9 p
 | J3 Join a branch | Two people and a coding agent on one branch: live co-editing, a watched terminal, SSH, outside changes |
 | J4 The team's work | The stack as the morning view: answer, merge, reorder, retry |
 | J5 Teach the factory | A flow edit as a TODO, versions, a learning proposal |
-| J6 Bring your own agent | Claude Code in a Smithers terminal, acting as "Ben via Claude Code" |
+| J6 Bring your own agent | Claude Code in a Smithers terminal, its own participant: "Claude Code for Ben" |
 | J7 Plan and fork | Insert, amend, fork a scratch branch, add it to the stack, drop, rebase |
 | J8 Memory | A learning run writes a wiki decision; two people co-edit it; the next plan cites that revision |
 | J11 Under the hood | Inspect a merged run, edit the flow's source, run it on a scratch branch, change an agent's model |
@@ -66,12 +66,14 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 | Actor | Looks like | Example |
 | --- | --- | --- |
 | A person | A circle in their lane color | Alice |
-| Smithers (the app agent and the stack service, M-34) | An ink square with "S", a participant like anyone: presence, activity, line flags, chat | Smithers · reading retry.ts:14 |
-| Smithers acting for a person | The same square with the person's color on its corner | Smithers for Ben |
-| A branch's coding agent | A teal rounded square | Coding agent |
-| A person's own agent in their terminal | The person's circle with an agent badge | Ben via Claude Code |
+| Smithers, undelegated (the stack service, M-34) | An ink rounded square with "S", a participant like anyone: presence, activity, line flags, chat | Smithers · Placed T12 after T9 |
+| Smithers acting for a person (the app agent) | The same square in that person's lane color | Smithers for Ben |
+| A branch's coding agent | A rounded square with the bot glyph, in its TODO owner's lane color; teal only when it acts for nobody | Coding agent for Ben |
+| An agent a person runs (Claude Code, Codex) | Its own rounded square with its initial, in that person's lane color (M-34) | Claude Code for Ben |
 | A person over SSH | The person's circle with a terminal badge | Maya via SSH |
 | An unattributable outside write | A neutral square | Changed outside Smithers · 3 files |
+
+- **Shape says what, color says for whom.** Agents are squares and people are circles. An agent or Smithers acting for a member takes that member's color (ui-components `Actor.color_index`). Status colors (teal live, gold needed, ember failed) are a separate channel.
 
 - **The coding agent renders like a teammate** (mvp.md B.3):
   - reads are a "Read" line whose files open the File card;
@@ -81,7 +83,8 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
   - a question is Needs you.
 - **The app agent** acts with the person's authority, as "Smithers for Ben".
   - **Runs at once:** reads, steer, answer, stop, resume, retry, rebase, fork, run a flow, and wiki writes.
-  - **One-click confirmation (A✓):** commit or drop a TODO, add to stack, delete a wiki page, and propose a flow or agent edit. Only the asker can press it, with ⏎.
+  - **One-click confirmation (A✓):** commit, amend or drop a TODO, add to stack, Bring in or Discard a foreign push, delete a wiki page, propose a flow or agent edit, and `/review`. Any agent acting for a person (Smithers, Claude Code) posts a private Confirm card with the exact command and who asked; only that person sees it and presses it, with ⏎. Everyone else sees "Needs Ben" on the TODO, then the shared receipt (product, 2026-10-02).
+  - **A Draft is not a confirmation.** The app agent may draft a TODO; the person's own Commit on their draft is their own act.
   - **Merge:** it opens the person's own Review & merge.
   - **Members, secrets and settings:** it has no path to them.
 
@@ -93,8 +96,9 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
   - An answer that arrives after the machine was released → Queued.
   - Dropped is a person's act.
 - **One attempt is one durable run:** Plan → Implement → Verify → Review → Propose, then a calm, dashed wait for merge. A rebase signal loops the run back to Verify. Every card's step strip ends in that wait.
-- **Evidence is bound to a revision.** A rebase or push reruns the checks and the review; while they run, the strip is back at Verify, and the old review shows only as history. An earlier approval no longer applies.
-- **One merge rule** (`mergeReadiness` in `mock/src/world.ts`), read by the Home row, the TODO card and Review & merge: role ("A maintainer merges"), then stack order ("Merges after T8"), then this revision's checks and review, then GitHub's rule in its own words. The reason is text beside where Merge would be, never a disabled button.
+- **Evidence is bound to a revision** (spec §10.4.3). A clean rebase reruns the checks only; the earlier review stands, labelled "Reviewed 8b1e204 · same change". New code or a resolved conflict reruns the review too, and the earlier review is not shown. Any rebase clears an approval.
+- **One merge rule** (`mergeReadiness` in `mock/src/world.ts`, spec §10.6.2a's MergeReady), read by the Home row, the TODO card and Review & merge. The first failing row is the reason: in review ("Needs you"), stack order ("Merges after T8"), rechecking on the machine ("Checks running on c41a9e0"), then required GitHub checks and GitHub's rule in its own words, with a link to the PR. The reason is text beside where Merge would be, never a disabled button. Role is not a row: a member gets no Merge and reads the same reason, or "Ready · a maintainer merges".
+- **Stop is not offered while a question or approval waits** (spec §10.7.1).
 - **Run monitor.** Phase titles are deterministic, from the step and its output ("Ran tests · 1 failed ×3"). The one-line summary under each and every cell's explanation are the fast model's, marked with a small sparkle; without one, the title stands alone. Answer settles a question; Steer never does.
 - **Refs never reorder.** A TODO keeps its T number from commit; a new one takes the next number above every existing ref.
 - **Merging is in stack order.** Later items' PRs are GitHub drafts ("Draft · merges after T8"). They are based on main and list the earlier items they include. An item merged out of order on GitHub reads "Merged · in T15's commit".
@@ -144,7 +148,7 @@ The port follows [`../engineering/ui-components.md`](../engineering/ui-component
 - Agents never approve or merge.
 - A late answer reads "Ben answered" and keeps the draft as Send as steer.
 - Flow versions are Active, Proposed, "Merged · active after sync" and "Merged · not active". System flows are read-only.
-- Roles are Owner, Maintainer (merges, people, secrets) and Member. A member sees "A maintainer merges".
+- Roles are Owner, Maintainer (merges, people, secrets) and Member. A member never gets Merge.
 - There is no sudo on a machine. A missing system package offers "Add to machine image", a reviewed change.
 - Deferred features are listed in the "Not in this release" reel, not hidden by their absence.
 

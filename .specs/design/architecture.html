@@ -164,6 +164,11 @@ h1{margin:0 0 8px;font-size:28px;line-height:1.2}
 .av .badge.ssh{background:var(--ink-700);color:#fffefa}
 .av .badge svg{width:78%;height:78%}
 .av.s16{--size:16px}.av.s20{--size:20px}.av.s28{--size:28px}
+/* an agent or Smithers acting for a member: its own square, in that member's color (M-34) */
+.av.dlg{background:var(--who);color:var(--avatar-ink)}
+/* a design proposal the normative specs don't fix yet */
+.prop{display:inline-flex;align-items:center;height:17px;padding:0 6px;margin-left:6px;border-radius:5px;border:1px dashed color-mix(in srgb,var(--muted) 70%,transparent);background:var(--surface);color:var(--muted);font:600 10.5px/1 var(--mono);letter-spacing:.02em;white-space:nowrap;vertical-align:1px}
+h3 .prop,.sub .prop,.g-k .prop{margin-left:4px}
 .gh{display:inline-flex;align-items:center;gap:5px;font-size:13px}
 .gh svg{width:15px;height:15px}
 /* a line flag in the editor gutter (code.css .mvp-code-flag) */
@@ -259,14 +264,14 @@ svg.d{font-family:var(--sans)}
 }
 
 /* ── 02 seam ── */
-.seam-code{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;margin-top:14px;align-items:start}
+.seam-code{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin-top:14px;align-items:start}
 pre.code{margin:0;padding:12px 14px;background:var(--code-bg);border-radius:10px;overflow-x:auto;font:12px/1.55 var(--mono)}
 pre.code code{background:none;padding:0;font-size:inherit}
-.notes{margin:0;display:grid;gap:8px;font-size:13px}
+.notes{margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;font-size:13px}
 .notes div{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px}
 .notes dt{color:var(--faint);font-size:12.5px}
 .notes dd{margin:0}
-@media (max-width:760px){.seam-code{grid-template-columns:minmax(0,1fr)}.notes div{grid-template-columns:minmax(0,1fr);gap:0}}
+@media (max-width:760px){.notes{grid-template-columns:minmax(0,1fr)}.notes div{grid-template-columns:minmax(0,1fr);gap:0}}
 
 /* ── 03 shell ── */
 .shell-row{display:grid;grid-template-columns:270px 300px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}
@@ -351,11 +356,23 @@ table.rt{width:100%;border-collapse:collapse;font-size:13px}
 .who{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 18px;margin-top:14px}
 .who > div{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px;align-items:center;font-size:12.5px;color:var(--muted)}
 .who .pill{justify-self:start}
+.waits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.waits > div{border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px;font-size:13px;display:grid;gap:6px;align-content:start}
+.waits h3{margin:0;font-size:13.5px}
+.waits ol,.waits ul{margin:0;padding-left:20px}
+.waits li{margin:2px 0}
+.waits .note{font-size:12.5px;color:var(--muted)}
+@media (max-width:760px){.waits{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:980px){.who{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:640px){.who{grid-template-columns:minmax(0,1fr)}}
 
 /* ── 08 run ── */
-.mirror{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:6px}
+.mirror{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:6px}
+.loops{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+.loops th{text-align:left;font-size:12px;font-weight:600;color:var(--faint);padding:0 10px 6px 0;border-bottom:1px solid var(--line)}
+.loops td{padding:7px 10px 7px 0;border-bottom:1px solid var(--border);vertical-align:top}
+.loops tr:last-child td{border-bottom:0}
+@media (max-width:640px){.loops thead{display:none}.loops,.loops tbody,.loops tr,.loops td{display:block;width:100%}.loops tr{padding:6px 0;border-bottom:1px solid var(--border)}.loops td{border:0;padding:1px 0}.loops td:first-child{font-weight:600}.loops td[data-l]::before{content:attr(data-l) " ";color:var(--faint)}}
 .mi{border:1px solid var(--border-strong);border-radius:10px;padding:10px 12px 12px}
 .mi-l{display:block;margin-bottom:10px;font-size:12.5px;color:var(--muted)}
 .ph{display:grid;gap:8px;font-size:13px}
@@ -397,6 +414,11 @@ table.rt{width:100%;border-collapse:collapse;font-size:13px}
 .warn{color:var(--attention-text);font-weight:500}
 .checks{display:flex;flex-wrap:wrap;gap:4px 10px}
 .checks span{display:inline-flex;gap:4px;align-items:center}
+.mr-pre{display:grid;gap:4px;margin:0 0 12px;padding:9px 12px;border:1px dashed var(--border-strong);border-radius:9px;font-size:12.5px;color:var(--muted)}
+.mr-pre b{color:var(--text);font-weight:600}
+.mr-pred{margin:0 0 6px;font-size:12px;color:var(--faint)}
+.ms{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;background:var(--surface-2);font:500 11px var(--mono);color:var(--muted)}
+.ms.blk{background:var(--attention-wash);color:var(--attention-text)}
 @media (max-width:900px){.mr{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:560px){.gate{grid-template-columns:minmax(0,1fr) auto}.g-k{grid-column:1 / -1}.g-out{grid-column:1 / -1;padding-left:14px}.g-y::after{content:""}}
 
@@ -473,7 +495,8 @@ pre.tree .o{color:var(--action)}
     <p class="eyebrow">Smithers MVP · design</p>
     <h1>Design architecture</h1>
     <p class="lede">Twelve diagrams that answer the recurring design questions. Link one by its anchor, for example <code>architecture.html#merge-rule</code>.</p>
-    <p class="meta-line">Read on 2026-10-02 from <code>.specs/product/mvp.md</code> (decisions M-01 to M-36), <code>.specs/engineering/spec.md</code>, <code>.specs/engineering/ui-components.md</code> v0.3, <code>apps/app/AGENTS.md</code>, the design <code>README.md</code> and <code>mock/src/</code>.</p>
+    <p class="meta-line">Read on 2026-10-02 from <code>.specs/product/mvp.md</code> (decisions M-01 to M-36), <code>.specs/engineering/spec.md</code>, <code>.specs/engineering/ui-components.md</code> v0.4, <code>.specs/engineering/tickets/README.md</code>, <code>apps/app/AGENTS.md</code>, the design <code>README.md</code> and <code>mock/src/</code>.</p>
+    <p class="meta-line"><span class="prop" style="margin-left:0">Proposed</span> marks a design proposal that the specs don't fix yet. Everything else is contract.</p>
   </div>
   <button class="theme" type="button" id="theme">Dark</button>
 </header>
@@ -520,7 +543,7 @@ pre.tree .o{color:var(--action)}
         <div class="lay-what">
           <span class="chip m">ActorChip</span>
           <span class="av s20" style="--who:var(--lane-1)">AP</span>
-          <span class="av s20 agent"><svg><use href="#i-bot"/></svg></span>
+          <span class="av s20 agent dlg" style="--who:var(--lane-0)" title="Coding agent for Ben"><svg><use href="#i-bot"/></svg></span>
           <span class="av s20 sm">S</span>
           <span class="chip m">StateWord</span>
           <span class="pill" data-s="working"><span class="dot" data-s="working"></span>Working · Implement</span>
@@ -532,7 +555,7 @@ pre.tree .o{color:var(--action)}
       <div class="lay-band" style="grid-row:5">
         <div class="lay-name"><b>Card Views</b><code>cards/views/&lt;Card&gt;View.tsx</code><span class="lay-own-sm">Design</span></div>
         <div class="lay-what">
-          <span class="chip m">HomeView</span><span class="chip m">TodoView</span><span class="chip m">DraftView</span><span class="chip m">ConfirmView</span><span class="chip m">BranchView</span><span class="chip m">CodeEditorView</span><span class="chip m">DiffView</span><span class="chip m">TerminalView</span><span class="chip m">RunView</span><span class="chip m">FlowView</span><span class="chip m">AgentView</span><span class="chip m">SetupView</span><span class="chip m">SettingsView</span><span class="chip m">MembersView</span><span class="chip m">SecretsView</span><span class="chip m">CommandsView</span><span class="chip m">ProposalView</span>
+          <span class="chip m">HomeView</span><span class="chip m">TodoView</span><span class="chip m">TodoView repair parts</span><span class="chip m">DraftView</span><span class="chip m">ConfirmView</span><span class="chip m">BranchView</span><span class="chip m">CodeEditorView</span><span class="chip m">DiffView</span><span class="chip m">TerminalView</span><span class="chip m">RunView</span><span class="chip m">FlowView</span><span class="chip m">AgentView</span><span class="chip m">SetupView</span><span class="chip m">SettingsView</span><span class="chip m">MembersView</span><span class="chip m">SecretsView</span><span class="chip m">CommandsView</span><span class="chip m">DocsView</span><span class="chip m">DebugApiView</span><span class="chip m">ProposalView</span>
         </div>
       </div>
       <div class="lay-link" style="grid-row:6">embedded in the conversation; Maximize shows the same View larger</div>
@@ -542,11 +565,11 @@ pre.tree .o{color:var(--action)}
           <span class="chip">conversation of cards</span><span class="chip">timeline rail and notices</span><span class="chip">crumbs and branch tree</span><span class="chip">composer ⌘K</span><span class="chip">maximize overlay</span>
         </div>
       </div>
-      <div class="lay-link" style="grid-row:8">↑ props: <code>CardProps&lt;M&gt;</code> &nbsp; ↓ <code>onAction(tag)</code> · <code>onView(patch)</code></div>
+      <div class="lay-link" style="grid-row:8">↑ props: <code>CardProps&lt;M,V,G&gt;</code> &nbsp; ↓ <code>onAction(tag, {...args, ...input})</code> · <code>onView(patch)</code></div>
       <div class="lay-band" style="grid-row:9">
         <div class="lay-name"><b>Containers</b><code>&lt;Card&gt;Container · T-APP-nn</code><span class="lay-own-sm">Frontend lead (b8)</span></div>
         <div class="lay-what">
-          <span class="chip">subscribe to topics</span><span class="chip">map to <code>CardProps&lt;M&gt;</code></span><span class="chip">filter <code>actions[]</code> for the viewer</span><span class="chip m">cardActions → flowAction</span><span class="chip">view state per member</span><span class="chip">frames and URL</span>
+          <span class="chip">subscribe to topics</span><span class="chip">map to <code>CardProps&lt;M,V,G&gt;</code></span><span class="chip">filter <code>actions[]</code> and <code>gestures</code> for the viewer</span><span class="chip">bind <code>args</code></span><span class="chip m">cardActions → flowAction</span><span class="chip">view state per member</span><span class="chip">frames and URL</span>
         </div>
       </div>
       <div class="lay-link" style="grid-row:10">↑ topic deltas &nbsp; ↓ <code>flowAction</code> runs a catalog command</div>
@@ -556,110 +579,134 @@ pre.tree .o{color:var(--action)}
           <span class="chip m">home</span><span class="chip m">todo:&lt;n&gt;</span><span class="chip m">branch:&lt;id&gt;</span><span class="chip m">run:&lt;id&gt;</span><span class="chip m">conversation:&lt;branch&gt;</span><span class="chip m">confirmations:&lt;member&gt;</span><span class="chip m">catalog.mvp.json</span><span class="chip m">/todo.answer</span><span class="chip m">/merge</span>
         </div>
       </div>
-      <div class="lay-own" style="grid-row:1 / 8"><b>Design</b><span>tokens through shell visuals</span><span>T-UI-01 … T-UI-20</span></div>
+      <div class="lay-own" style="grid-row:1 / 8"><b>Design</b><span>tokens through shell visuals</span><span>T-UI-01 … T-UI-23,</span><span>TODO repair parts included</span></div>
       <div class="lay-own" style="grid-row:9"><b>Frontend lead (b8)</b><span>containers, state, routing</span></div>
       <div class="lay-own" style="grid-row:11"><b>Engineering</b><span>topics and commands</span></div>
     </div>
   </figure>
   <ul class="rules">
     <li>Design builds every visual piece; engineering wires data and actions (Will, 2026-10-02).</li>
-    <li>The seam is one zod view model per card, <code>packages/rpc/src/&lt;Card&gt;Card.ts</code> (T-APP-19). Until it lands, Views build against ui-components.md with local fixtures.</li>
+    <li>The seam is one zod view model per card, <code>packages/rpc/src/&lt;Card&gt;Card.ts</code> (T-APP-19). Until it lands, Views build against ui-components.md with local fixtures. Local fixtures are provisional; acceptance uses T-APP-19 schema fixtures.</li>
     <li>A View exists only for a spec.md §14.3 row. Retained cards (Issue, PR, Review findings, Wiki, flow Form) keep their schemas.</li>
   </ul>
-  <p class="src"><strong>Source</strong> spec.md §14.2.1, §14.3.0, §7.2, §6.1; mvp.md §2 (rules 1 and 4), §6.4; ui-components.md v0.3 (opening diagram, Order of need); <code>apps/app/src/mainview/styles/tokens.css</code>. <a class="eng" href="../engineering/review.html#arch">Engineering view ↗</a></p>
+  <p class="src"><strong>Source</strong> spec.md §14.2.1, §14.3, §14.3.0, §7.2, §6.1; mvp.md §2 (rules 1 and 4), §6.4, M-35, M-36; ui-components.md v0.4 (opening diagram, Rules, Order of need, Completion gates); <code>apps/app/src/mainview/styles/tokens.css</code>. <a class="eng" href="../engineering/review.html#arch">Engineering view ↗</a></p>
 </section>
 
 <!-- ═════════════════ 02 SEAM ═════════════════ -->
 <section class="dia" id="seam" aria-labelledby="h-seam">
   <div class="dia-h"><span class="dia-n">02</span><h2 id="h-seam">The View/Container seam: data comes in as props, gestures leave as catalog tags</h2><a class="dia-a" href="#seam">#seam</a></div>
   <figure class="fig">
+    <p class="sub">Example: Answer on T9, a shared-state action</p>
     <div class="scroll" style="--min:720px">
-      <svg class="d" viewBox="0 0 1000 330" role="img" aria-labelledby="seam-t">
-        <title id="seam-t">A live topic feeds a Container, which maps it to props for a View. The View's callbacks return to the Container, which runs a catalog command through flowAction; the command commits state and the topic sends a delta. Only props and callbacks cross the C-UI-08 line.</title>
+      <svg class="d" viewBox="0 0 1000 350" role="img" aria-labelledby="seam-t">
+        <title id="seam-t">Example of a shared-state action, Answer on T9. A live topic feeds a Container, which maps it to CardProps for a View and binds each action's args. The View has three action sources: buttons, row actions and gestures. Its handler calls onAction with the action's tag and its args merged with the form input; the Container runs the catalog command through flowAction; the command commits state and the topic sends a delta. onView patches go to this member's private view state. Local state, focus and the clipboard never leave the View. Only props and callbacks cross the C-UI-08 line.</title>
         <defs><marker id="ah-seam" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
         <rect class="bx" x="16" y="24" width="210" height="112" rx="10"/>
         <text class="b t13" x="32" y="50">Live topic</text>
         <text class="m" x="32" y="76">todo:&lt;n&gt; · home</text>
         <text class="m" x="32" y="94">branch:&lt;id&gt; · run:&lt;id&gt;</text>
         <text class="s" x="32" y="122">engineering · spec.md §7.2</text>
-        <rect class="bx" x="16" y="196" width="210" height="112" rx="10"/>
-        <text class="b t13" x="32" y="222">Catalog command</text>
-        <text class="m" x="32" y="246">/todo.answer T9</text>
-        <text class="s" x="32" y="268">slash, button and agent run it</text>
-        <text class="s" x="32" y="294">engineering · spec.md §6.1</text>
-        <rect class="bx" x="330" y="24" width="280" height="284" rx="10"/>
+        <rect class="bx" x="16" y="214" width="210" height="112" rx="10"/>
+        <text class="b t13" x="32" y="240">Catalog command</text>
+        <text class="m" x="32" y="264">/todo.answer T9</text>
+        <text class="s" x="32" y="286">slash, button and agent run it</text>
+        <text class="s" x="32" y="312">engineering · spec.md §6.1</text>
+        <rect class="bx" x="330" y="24" width="280" height="302" rx="10"/>
         <text class="b m t13" x="348" y="52">&lt;Card&gt;Container</text>
         <text class="s" x="348" y="72">frontend lead (b8)</text>
-        <text x="348" y="106">subscribes to its topics</text>
-        <text x="348" y="132">maps them to CardProps&lt;M&gt;</text>
-        <text x="348" y="158">filters actions[] for the viewer</text>
-        <text class="m" x="348" y="184">cardActions → flowAction</text>
-        <text x="348" y="210">stores onView state per member</text>
-        <text class="s" x="348" y="294">spec.md §14.2.1, §14.1.2</text>
-        <line class="ed dash" x1="670" y1="10" x2="670" y2="320"/>
-        <rect class="mask" x="614" y="140" width="112" height="46" rx="6"/>
-        <text class="b" x="670" y="159" text-anchor="middle">C-UI-08</text>
-        <text class="s" x="670" y="176" text-anchor="middle">only these cross</text>
-        <rect class="bx" x="730" y="24" width="254" height="284" rx="10"/>
+        <text x="348" y="104">subscribes to its topics</text>
+        <text x="348" y="128">maps them to CardProps&lt;M,V,G&gt;</text>
+        <text x="348" y="152">filters actions[] and gestures</text>
+        <text class="m" x="348" y="176">binds args: { n: "9" }</text>
+        <text class="m" x="348" y="200">cardActions → flowAction</text>
+        <text x="348" y="236">stores onView patches</text>
+        <text class="s" x="348" y="254">per member, private (§14.1.2)</text>
+        <text class="s" x="348" y="312">spec.md §14.2.1, §14.1.2</text>
+        <line class="ed dash" x1="670" y1="10" x2="670" y2="340"/>
+        <rect class="mask" x="614" y="270" width="112" height="46" rx="6"/>
+        <text class="b" x="670" y="289" text-anchor="middle">C-UI-08</text>
+        <text class="s" x="670" y="306" text-anchor="middle">only these cross</text>
+        <rect class="bx" x="730" y="24" width="254" height="302" rx="10"/>
         <text class="b m t13" x="748" y="52">&lt;Card&gt;View</text>
         <text class="s" x="748" y="72">design (T-UI-nn)</text>
-        <text x="748" y="106">props only</text>
-        <text x="748" y="132">renders actions[] in order</text>
-        <text class="m" x="748" y="158">onAction(action.tag, input?)</text>
-        <text class="m" x="748" y="184">data-flow={action.tag}</text>
-        <text class="m" x="748" y="210">onView(patch)</text>
-        <text class="s" x="748" y="228">maximize, tab, filter</text>
-        <text class="s m" x="748" y="294">cards/views/&lt;Card&gt;View.tsx</text>
+        <text x="748" y="100">props only</text>
+        <text class="s" x="748" y="122">buttons: actions[], in order</text>
+        <text class="s" x="748" y="140">rows: each row's own actions</text>
+        <text class="s" x="748" y="158">gestures: gestures[name]</text>
+        <g class="nbm"><circle cx="756" cy="186" r="8"/><text x="756" y="189.5">1</text></g>
+        <text class="m" x="770" y="190">onAction(action.tag,</text>
+        <text class="m" x="770" y="206">{...action.args, ...input})</text>
+        <text class="s m" x="770" y="222">data-flow={action.tag}</text>
+        <g class="nbm"><circle cx="756" cy="246" r="8"/><text x="756" y="249.5">2</text></g>
+        <text class="m" x="770" y="250">onView(patch)</text>
+        <text class="s" x="770" y="266">maximize, tab, scroll: private</text>
+        <g class="nbm"><circle cx="756" cy="286" r="8"/><text x="756" y="289.5">3</text></g>
+        <text class="s" x="770" y="290">local only: state, focus, clipboard</text>
+        <text class="s m" x="748" y="316">cards/views/&lt;Card&gt;View.tsx</text>
         <path class="ed" d="M226 80H326" marker-end="url(#ah-seam)"/>
         <text class="s" x="276" y="72" text-anchor="middle">subscribe</text>
-        <path class="ed" d="M330 262H230" marker-end="url(#ah-seam)"/>
-        <text class="s m" x="280" y="254" text-anchor="middle">flowAction</text>
-        <text class="s" x="280" y="280" text-anchor="middle">tag, input</text>
-        <path class="ed" d="M121 196V140" marker-end="url(#ah-seam)"/>
-        <text class="s" x="131" y="164">state commits;</text>
-        <text class="s" x="131" y="179">delta ≤ 1 s</text>
+        <path class="ed" d="M330 270H230" marker-end="url(#ah-seam)"/>
+        <text class="s m" x="280" y="262" text-anchor="middle">flowAction</text>
+        <text class="s m" x="280" y="288" text-anchor="middle">{n: 9, text}</text>
+        <path class="ed" d="M121 214V140" marker-end="url(#ah-seam)"/>
+        <text class="s" x="131" y="172">state commits;</text>
+        <text class="s" x="131" y="187">delta ≤ 1 s</text>
         <path class="ed" d="M610 104H726" marker-end="url(#ah-seam)"/>
         <text class="s" x="640" y="96" text-anchor="middle">props</text>
-        <path class="ed" d="M730 244H614" marker-end="url(#ah-seam)"/>
-        <text class="s" x="700" y="236" text-anchor="middle">callbacks</text>
+        <path class="ed" d="M730 202H614" marker-end="url(#ah-seam)"/>
+        <rect class="mask" x="619" y="181" width="100" height="15" rx="3"/>
+        <g class="nbm"><circle cx="630" cy="188" r="7"/><text x="630" y="191.5">1</text></g>
+        <text class="s" x="642" y="192">args + input</text>
+        <path class="ed" d="M730 252H614" marker-end="url(#ah-seam)"/>
+        <rect class="mask" x="619" y="231" width="86" height="15" rx="3"/>
+        <g class="nbm"><circle cx="630" cy="238" r="7"/><text x="630" y="241.5">2</text></g>
+        <text class="s" x="642" y="242">view patch</text>
       </svg>
     </div>
     <div class="seam-code">
 <pre class="code"><code>type Action = {                 // filtered for the viewer by the container
   tag: CatalogTag               // the catalog's tag type (T-CAT-01), opaque to the View
   label: string                 // "Answer", "Merge", "Retry"
+  args?: Record&lt;string, string&gt; // bound by the container, e.g. { n: "12" }; the View passes them back unchanged
   primary?: boolean
   disabled?: { reason: string } // e.g. "Waiting for T8"
   input?: FormField[]           // present when the action needs a form
 }
-type CardProps&lt;M&gt; = {
+type BaseView = { maximized: boolean; tab?: string; filter?: string }
+type CardProps&lt;M, V = {}, G extends string = never&gt; = {
   model: M
-  actions: Action[]
+  actions: Action[]                             // buttons, in order
+  gestures: Partial&lt;Record&lt;G, Action&gt;&gt;          // non-button gestures by name
   onAction: (tag: CatalogTag, input?: Record&lt;string, string&gt;) =&gt; void
-  view: { maximized: boolean; tab?: string; filter?: string }
-  onView: (patch: Partial&lt;CardProps&lt;M&gt;["view"]&gt;) =&gt; void
-}</code></pre>
+  view: BaseView &amp; V                            // this member's view state (§14.1.2)
+  onView: (patch: Partial&lt;BaseView &amp; V&gt;) =&gt; void
+}
+// handler 1: onAction(action.tag, {...action.args, ...input})</code></pre>
       <dl class="notes">
+        <div><dt><code>args</code></dt><dd>Bound by the Container, e.g. <code>{ n: "9" }</code>. The View passes them back unchanged.</dd></div>
+        <div><dt><code>gestures</code></dt><dd>Non-button gestures by name: hover, go to definition, a docs link. A missing one does nothing.</dd></div>
         <div><dt><code>disabled.reason</code></dt><dd>Shows as text in place of the button (<a href="#card">#card</a>).</dd></div>
         <div><dt><code>input</code></dt><dd>A form for exactly the missing fields, never a usage sentence (FORM LAW).</dd></div>
+        <div><dt><code>onView</code></dt><dd>This member's view state: maximize, tab, filter, scroll, selection. Private; never shared state.</dd></div>
+        <div><dt>Handlers</dt><dd>Each does one of three: 1 <code>onAction</code>, 2 <code>onView</code>, 3 local state, DOM focus or the clipboard (<code>copyText</code>).</dd></div>
         <div><dt>Three doors</dt><dd>A slash command, a button and the agent run the same command (THREE-DOOR LAW).</dd></div>
-        <div><dt><code>onView</code></dt><dd>UI-only gestures. They change one person's screen and never shared state.</dd></div>
       </dl>
     </div>
   </figure>
   <ul class="rules">
-    <li>A missing action means no button. The Container filters <code>actions[]</code> for the viewer; the View never decides who may act.</li>
-    <li>Tags are opaque. The View hands back <code>action.tag</code>, and the control carries <code>data-flow={action.tag}</code>.</li>
+    <li>A missing action means no button; a missing gesture does nothing. The Container filters <code>actions[]</code> and <code>gestures</code> for the viewer; the View never decides who may act.</li>
+    <li>Tags are opaque. The View hands back <code>action.tag</code> with <code>{...action.args, ...input}</code>, and the control carries <code>data-flow={action.tag}</code>.</li>
+    <li>Handler 3 never leaves the View: roving tabindex, Escape to close, controlled inputs, disclosures that don't persist, Copy.</li>
     <li>A field the View needs but the props lack is a spec change. Raise it with the tech lead (8a), who updates spec.md §14.3, ui-components.md and T-APP-19 together.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §2 (rule 1), Appendix A (three doors); ui-components.md v0.3 (Rules, Shared types); spec.md §14.2.1, §14.1.2, §14.1.4, §6.1, §6.1.4, §7.2, §7.2.1; check C-UI-08; apps/app/AGENTS.md (THREE-DOOR LAW, FORM LAW); <code>apps/app/src/mainview/cards/CardActions.ts</code> (<code>cardActions</code>), <code>apps/app/src/mainview/flows/FlowAction.ts</code> (<code>flowAction</code>).</p>
+  <p class="src"><strong>Source</strong> mvp.md §2 (rule 1), Appendix A (three doors); ui-components.md v0.4 (Rules: three handler kinds, gestures; Shared types: <code>Action</code>, <code>BaseView</code>, <code>CardProps&lt;M,V,G&gt;</code>); spec.md §14.2.1, §14.1.2, §14.1.4, §6.1, §6.1.4, §7.2, §7.2.1; check C-UI-08; apps/app/AGENTS.md (THREE-DOOR LAW, FORM LAW); <code>apps/app/src/mainview/cards/CardActions.ts</code> (<code>cardActions</code>), <code>apps/app/src/mainview/flows/FlowAction.ts</code> (<code>flowAction</code>).</p>
 </section>
 
 <!-- ═════════════════ 03 SHELL ═════════════════ -->
 <section class="dia" id="shell" aria-labelledby="h-shell">
   <div class="dia-h"><span class="dia-n">03</span><h2 id="h-shell">Shell anatomy: one conversation per branch, a timeline rail on desktop, pills on narrow screens</h2><a class="dia-a" href="#shell">#shell</a></div>
   <figure class="fig">
-    <p class="sub">Desktop (shell 1180 px or wider), Alice's screen in retry-webhooks</p>
+    <p class="sub">Desktop, Alice's screen in retry-webhooks. Desktop from 1180 px<span class="prop">Proposed</span></p>
     <div class="scroll" style="--min:760px">
       <svg class="d" viewBox="0 0 1000 626" role="img" aria-labelledby="sh-d-t">
         <title id="sh-d-t">Desktop shell. Crumbs and the open branch tree at the top. The timeline rail on the left with a top pinned edge, the band of entries on screen, the list, a bottom pinned edge and docked notices. The conversation of cards in the middle. Chat ⌘K at the bottom right.</title>
@@ -726,9 +773,8 @@ type CardProps&lt;M&gt; = {
         <circle class="f-lane0" cx="222" cy="191" r="7"/>
         <text class="xs b" x="234" y="195">Ben</text>
         <text x="234" y="213">Why does T9 wait 30 s before each retry?</text>
-        <rect class="f-text" x="215" y="229" width="14" height="14" rx="3"/>
-        <text class="tx-surface b" x="222" y="240" text-anchor="middle" style="font-size:8.5px">S</text>
-        <circle class="f-lane0" cx="229" cy="243" r="3.6"/>
+        <rect class="f-lane0" x="215" y="229" width="14" height="14" rx="4"/>
+        <text class="tx-avatar b" x="222" y="240" text-anchor="middle" style="font-size:8.5px">S</text>
         <text class="xs b" x="234" y="240">Smithers for Ben</text>
         <text x="234" y="258">deliver() sleeps a fixed 30 s before each retry.</text>
         <rect class="bx" x="234" y="266" width="84" height="18" rx="9"/>
@@ -769,7 +815,7 @@ type CardProps&lt;M&gt; = {
         <text class="xs" x="560" y="463" text-anchor="middle">Review</text>
         <text class="xs" x="660" y="463" text-anchor="middle">Propose</text>
         <text class="xs" x="760" y="463" text-anchor="middle">Merge</text>
-        <rect class="f-brand" x="222" y="474" width="14" height="14" rx="4"/>
+        <rect class="f-lane0" x="222" y="474" width="14" height="14" rx="4"/>
         <use href="#i-bot" x="224" y="476" width="10" height="10" class="gl-avatar"/>
         <text x="244" y="485" style="font-size:11.5px">Each retry waits 30 s, so the retry test times out…</text>
         <rect class="bx" x="244" y="494" width="474" height="20" rx="6"/>
@@ -783,9 +829,9 @@ type CardProps&lt;M&gt; = {
         <circle class="f-lane1" cx="230" cy="572" r="8"/>
         <text class="tx-avatar b" x="230" y="575" text-anchor="middle" style="font-size:7.5px">AP</text>
         <text class="b" x="244" y="576" style="font-size:11.5px">Alice</text><text class="s" x="280" y="576">editing retry.ts:10</text>
-        <rect class="f-brand" x="222" y="590" width="16" height="16" rx="5"/>
+        <rect class="f-lane0" x="222" y="590" width="16" height="16" rx="5"/>
         <use href="#i-bot" x="224" y="592" width="12" height="12" class="gl-avatar"/>
-        <text class="b" x="244" y="602" style="font-size:11.5px">Coding agent</text><text class="s" x="332" y="602">at Implement</text>
+        <text class="b" x="244" y="602" style="font-size:11.5px">Coding agent for Ben</text><text class="s" x="380" y="602">at Implement</text>
         <!-- Chat control -->
         <rect class="bx" x="914" y="592" width="74" height="24" rx="6"/>
         <text x="951" y="608" text-anchor="middle" style="font-size:11px">Chat ⌘K</text>
@@ -799,13 +845,13 @@ type CardProps&lt;M&gt; = {
         <circle class="dt-needs" cx="223" cy="92" r="4"/>
         <text class="m xs" x="236" y="95" style="fill:var(--text)">T9</text><text class="b" x="256" y="95">retry-webhooks</text>
         <circle class="f-lane1" cx="420" cy="92" r="6"/>
-        <rect class="f-brand" x="430" y="86" width="12" height="12" rx="3.5"/>
+        <rect class="f-lane0" x="430" y="86" width="12" height="12" rx="3.5"/>
         <use href="#i-branch" x="231" y="106" width="12" height="12" class="gl-muted"/>
         <text x="250" y="116">ben/retry-try-2</text>
         <circle class="f-lane0" cx="436" cy="112" r="6"/>
         <circle class="dt-working" cx="223" cy="136" r="4"/>
         <text class="m xs" x="236" y="139" style="fill:var(--text)">T10</text><text x="262" y="139">fix-checkout-race</text>
-        <rect class="f-brand" x="430" y="130" width="12" height="12" rx="3.5"/>
+        <rect class="f-lane1" x="430" y="130" width="12" height="12" rx="3.5"/>
         <circle class="dt-queued" cx="223" cy="158" r="4"/>
         <text class="m xs" x="236" y="161" style="fill:var(--text)">T11</text><text x="262" y="161">log-retries</text>
         <!-- markers -->
@@ -877,7 +923,7 @@ type CardProps&lt;M&gt; = {
       <div class="shell-minis">
         <div>
           <svg class="d" viewBox="0 0 300 192" role="img" aria-labelledby="sh-c-t" style="width:100%;height:auto;display:block">
-            <title id="sh-c-t">⌘K opens the composer, one floating card at the top of the page over the conversation.</title>
+            <title id="sh-c-t">⌘K opens the composer and palette, one floating card at the top of the page over the conversation.</title>
             <rect class="frame" x="6" y="6" width="288" height="180" rx="10"/>
             <rect class="bx2" x="12" y="30" width="52" height="7" rx="3"/><rect class="bx2" x="12" y="44" width="46" height="7" rx="3"/><rect class="bx2" x="12" y="58" width="50" height="7" rx="3"/>
             <rect class="bx" x="80" y="62" width="186" height="46" rx="7" style="opacity:.55"/>
@@ -889,7 +935,7 @@ type CardProps&lt;M&gt; = {
             <text x="259" y="175.5" text-anchor="middle" style="font-size:8.5px">Chat ⌘K</text>
             <g class="nbm"><circle cx="276" cy="31" r="8"/><text x="276" y="34.5">10</text></g>
           </svg>
-          <p class="cap">Composer open</p>
+          <p class="cap">Composer and palette open<span class="prop">Proposed</span></p>
         </div>
         <div>
           <svg class="d" viewBox="0 0 300 192" role="img" aria-labelledby="sh-m-t" style="width:100%;height:auto;display:block">
@@ -913,23 +959,23 @@ type CardProps&lt;M&gt; = {
             <text x="259" y="175.5" text-anchor="middle" style="font-size:8.5px">Chat ⌘K</text>
             <g class="nbm"><circle cx="276" cy="160" r="8"/><text x="276" y="163.5">11</text></g>
           </svg>
-          <p class="cap">A card maximized (here the Run card: Inspect)</p>
+          <p class="cap">A card maximized (here the Run card: Inspect)<span class="prop">Proposed</span></p>
         </div>
       </div>
       <ol class="legend">
         <li><i class="nb">1</i><span><b>Crumbs.</b> Repository / main / branch. A parent crumb goes up; the last opens the tree.</span></li>
-        <li><i class="nb">2</i><span><b>Branch tree.</b> main, each item's branch in stack order, forks under their origin, with presence. ↑ ↓ move, ⏎ opens, ← goes up.</span></li>
+        <li><i class="nb">2</i><span><b>Branch tree.</b> main, each item's branch in stack order, forks under their origin, with presence. ↑ ↓ move, ⏎ opens, ← goes up.<span class="prop">Proposed</span></span></li>
         <li><i class="nb">3</i><span><b>Conversation.</b> The branch's shared entries: prompts with their author, Smithers' answers with Context · n, and cards.</span></li>
-        <li><i class="nb">4</i><span><b>Top edge.</b> Live work above the screen: two pinned rows at most, people-needed first, then “+N above”.</span></li>
+        <li><i class="nb">4</i><span><b>Top edge.</b> Live work above the screen, each with its single action. Two pinned rows, people-needed first, then “+N above”.<span class="prop">Proposed</span></span></li>
         <li><i class="nb">5</i><span><b>Band.</b> The entries on screen.</span></li>
-        <li><i class="nb">6</i><span><b>List.</b> One line per entry: a title and a fast-model summary. Live entries pulse, Needs you is gold, failures are ember.</span></li>
-        <li><i class="nb">7</i><span><b>Bottom edge.</b> Live work below and anything new: two pinned rows, then “+N below”.</span></li>
-        <li><i class="nb">8</i><span><b>Notices, docked.</b> Three at most. One with an action stays until someone acts or hides it.</span></li>
-        <li><i class="nb">9</i><span><b>Chat ⌘K.</b> Opens the composer in this branch's conversation.</span></li>
-        <li><i class="nb">10</i><span><b>Composer.</b> Floats at the top over the conversation. Esc, a press outside or ⌘K again closes it.</span></li>
-        <li><i class="nb">11</i><span><b>Maximize.</b> The same card, larger, over a scrim, with Restore.</span></li>
-        <li><i class="nb">12</i><span><b>Narrow edges.</b> No timeline. One pill per edge, in the header and footer rows.</span></li>
-        <li><i class="nb">13</i><span><b>Narrow notices.</b> Float at the bottom left.</span></li>
+        <li><i class="nb">6</i><span><b>List.</b> One line per entry. Title; run entries also have an optional fast-model summary. Live entries pulse, Needs you is gold, failures are ember.</span></li>
+        <li><i class="nb">7</i><span><b>Bottom edge.</b> Live work below. Two pinned rows, then “+N below”.<span class="prop">Proposed</span></span></li>
+        <li><i class="nb">8</i><span><b>Notices.</b> At most three, then “+N more”. Docked in the rail.<span class="prop">Proposed</span></span></li>
+        <li><i class="nb">9</i><span><b>Chat ⌘K.</b> Opens the composer and palette in this branch's conversation.</span></li>
+        <li><i class="nb">10</i><span><b>Composer and palette.</b> Floats at the top over the conversation. Esc, a press outside or ⌘K again closes it.<span class="prop">Proposed</span></span></li>
+        <li><i class="nb">11</i><span><b>Maximize.</b> The same component, larger. Scrim, Restore, chat control visible.<span class="prop">Proposed</span></span></li>
+        <li><i class="nb">12</i><span><b>Narrow edges.</b> No timeline. One pill per edge. Pills in the header and footer rows.<span class="prop">Proposed</span></span></li>
+        <li><i class="nb">13</i><span><b>Narrow notices.</b> Float at the bottom left.<span class="prop">Proposed</span></span></li>
       </ol>
     </div>
     <div class="scope">
@@ -937,29 +983,30 @@ type CardProps&lt;M&gt; = {
         <h3>Shared by everyone on the branch</h3>
         <ul>
           <li>Entries: prompts with their author, answers, events</li>
-          <li>Cards: the same card for everyone</li>
+          <li>Shared cards, excluding private Confirm and uncommitted Draft</li>
           <li>Receipts: what an act did, as its own entry</li>
-          <li>Timeline summaries</li>
+          <li>Run entries' summaries</li>
         </ul>
       </div>
       <div>
         <h3>Each person's own</h3>
         <ul>
           <li>Scroll position and last-seen entry</li>
-          <li>Card view: maximized, tab, filter, an open menu or Context line</li>
+          <li>Card view: maximized, tab, filter, scroll, selection</li>
           <li>Theme</li>
           <li>Hidden notices</li>
           <li>Drafts: composer text, and a Draft card until Commit</li>
+          <li>Confirm cards: only the asker sees one; others see nothing until the shared receipt</li>
         </ul>
       </div>
     </div>
   </figure>
   <ul class="rules">
     <li>Everything embeds in the conversation. Nothing opens full screen unless the person maximizes it (EMBED LAW).</li>
-    <li>The timeline is desktop only. Hiding a notice keeps its timeline entry and its action.</li>
-    <li>UI-only flows (theme, open, maximize, navigate, filters) change only the screen of the person who ran them, even when their app agent ran them.</li>
+    <li>The timeline is desktop only. Hiding a notice preserves the entry; any still-applicable action remains available.</li>
+    <li>UI-only flows (theme, open, maximize, navigate, palette, filters) change only the screen of the person who ran them, even when their app agent ran them.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §6.4 (Home card, Branch conversations, Toasts, Timeline, Browser notifications), M-08, Appendix B.1; spec.md §14.1.1–§14.1.4, §14.4, §14.5.1, §14.5.3, §14.5.4, §7.2.2; apps/app/AGENTS.md (EMBED LAW, onboarding brief on the composer); mock <code>AppFrame.tsx</code>, <code>Rail.tsx</code>, <code>Tree.tsx</code>, <code>mock.css</code> (PORT · the left rail).</p>
+  <p class="src"><strong>Source</strong> mvp.md §6.4 (Home card, Branch conversations, Toasts, Timeline, Browser notifications), M-08, Appendix B.1; spec.md §14.1.1–§14.1.4, §14.2, §14.4, §14.5.1–§14.5.4, §15.1.5, §7.2.2; ui-components.md v0.4 (Rules: view state); apps/app/AGENTS.md (EMBED LAW, onboarding brief on the composer); mock <code>AppFrame.tsx</code>, <code>Rail.tsx</code>, <code>Tree.tsx</code>, <code>mock.css</code> (PORT · the left rail).</p>
 </section>
 
 <!-- ═════════════════ 04 CARD ═════════════════ -->
@@ -974,7 +1021,7 @@ type CardProps&lt;M&gt; = {
           <span class="kc-end"><i class="nb">3</i><span class="av" style="--who:var(--lane-0)">BO</span><span class="ib"><svg class="i"><use href="#i-max"/></svg></span><i class="nb">4</i></span>
         </div>
         <div class="kc-b">
-          <div class="kc-meta"><i class="nb">5</i><span class="bchip"><svg class="i"><use href="#i-branch"/></svg>retry-webhooks</span><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="av s20 agent"><svg><use href="#i-bot"/></svg></span><span>2nd in stack</span><span>from #212</span><span>Ben</span></div>
+          <div class="kc-meta"><i class="nb">5</i><span class="bchip"><svg class="i"><use href="#i-branch"/></svg>retry-webhooks</span><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="av s20 agent dlg" style="--who:var(--lane-0)" title="Coding agent for Ben"><svg><use href="#i-bot"/></svg></span><span>2nd in stack</span><span>from #212</span><span>Ben</span></div>
           <ol class="strip">
             <li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li>
             <li class="wait"><span class="mk"></span>Implement</li>
@@ -985,11 +1032,11 @@ type CardProps&lt;M&gt; = {
           </ol>
           <div class="kc-flags"><span class="ind"><svg class="i"><use href="#i-repeat"/></svg>Thrashing: TestRetryBackoff failed 3×</span><span class="ind">Waiting for a person since 10:42</span></div>
           <div class="kc-ask">
-            <div class="kc-ask-line"><span class="av s20 agent"><svg><use href="#i-bot"/></svg></span><span>Each retry waits 30 s, so the retry test times out…</span></div>
+            <div class="kc-ask-line"><span class="av s20 agent dlg" style="--who:var(--lane-0)" title="Coding agent for Ben"><svg><use href="#i-bot"/></svg></span><span>Each retry waits 30 s, so the retry test times out…</span></div>
             <div class="row"><span class="inp">Answer</span><span class="btn solid">Answer</span></div>
           </div>
         </div>
-        <div class="kc-a"><i class="nb">6</i><span class="btn">Open branch</span><span class="btn">Inspect</span><span class="end"><span class="btn">Stop</span><span class="btn">Drop</span></span></div>
+        <div class="kc-a"><i class="nb">6</i><span class="btn">Open branch</span><span class="btn">Inspect</span><span class="end"><span class="btn">Drop</span></span></div>
       </div>
       <ol class="legend">
         <li><i class="nb">1</i><span><b>Title.</b> The ref chip and the title.</span></li>
@@ -997,12 +1044,12 @@ type CardProps&lt;M&gt; = {
         <li><i class="nb">3</i><span><b>Header end.</b> Owner, presence or a save state. See the variants below.</span></li>
         <li><i class="nb">4</i><span><b>Maximize.</b> Becomes Restore when maximized.</span></li>
         <li><i class="nb">5</i><span><b>Body.</b> Meta line, step strip, run flags, the question, evidence.</span></li>
-        <li><i class="nb">6</i><span><b>Actions row.</b> Ghost acts at the start; the one solid primary or a reason at the end.</span></li>
+        <li><i class="nb">6</i><span><b>Actions row.</b> Only the actions supplied, in order. A question is open, so no Stop. Ghost acts at the start; the one solid primary or a reason at the end.<span class="prop">Proposed</span></span></li>
       </ol>
     </div>
     <div class="tri">
       <div>
-        <h3>Button weights</h3>
+        <h3>Button weights<span class="prop">Proposed</span></h3>
         <div class="wt">
           <span class="btn solid">Merge</span><span>One per card: its primary act</span>
           <span class="btn outline sm">Answer</span><span>A row's one action; a secondary act</span>
@@ -1011,7 +1058,7 @@ type CardProps&lt;M&gt; = {
         </div>
       </div>
       <div>
-        <h3>Header end, by card</h3>
+        <h3>Header end, by card<span class="prop">Proposed</span></h3>
         <div class="wt">
           <span class="row"><span class="av s20" style="--who:var(--lane-0)">BO</span></span><span>TODO: its owner</span>
           <span class="row"><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="ok"><svg class="i"><use href="#i-check"/></svg></span></span><span>File: editors, then “Saved to the machine”</span>
@@ -1020,37 +1067,38 @@ type CardProps&lt;M&gt; = {
         </div>
       </div>
       <div>
-        <h3>One card per thing</h3>
+        <h3>One card per thing<span class="prop">Proposed</span></h3>
         <div class="flowmini">
-          <div class="fm-box dim">A TODO's run: no card of its own</div>
+          <div class="fm-box dim">A TODO's run: no entry of its own</div>
           <div class="fm-arr">↓ its flags ride the TODO card</div>
           <div class="fm-box"><span class="ref">T9</span> TODO card</div>
           <div class="fm-arr">↓ Inspect</div>
-          <div class="fm-box">Run card, maximized: the monitor</div>
+          <div class="fm-box"><code>RunView</code>, maximized: the monitor. No second conversation entry.</div>
           <div class="fm-arr" style="padding-left:0">A run that is no TODO's (learning, a flow run) has its own Run card. Showing a card again jumps to it.</div>
         </div>
       </div>
     </div>
   </figure>
   <ul class="rules">
-    <li>One solid button per card, for its primary act. Every other button is outline or ghost.</li>
+    <li>A View renders only the actions it is given. Stop is refused while a question or approval wait is open (spec.md §10.7.1), so this card has none.</li>
+    <li>One solid button per card, for its primary act. Every other button is outline or ghost.<span class="prop">Proposed</span></li>
     <li>A reason replaces the button it blocks, as text. An <code>Action</code> with <code>disabled.reason</code> renders that way.</li>
     <li>Card body lines hold 12 words or fewer, in product words only.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §2 (rules 4 and 7), §6.6 (TODO card), §6.14 (Monitor, Inspect); spec.md §14.2, §14.3 (TODO and Run rows), §14.6b, §11.6.4; ui-components.md <code>Action</code>; apps/app/AGENTS.md (EMBED LAW, MINIMAL TEXT); design README (Visual rules); mock <code>parts.tsx</code> (<code>Card</code>), <code>cards/Todo.tsx</code>, <code>cards/Run.tsx</code> (<code>RunFlags</code>), <code>world.ts</code> (<code>showCard</code>).</p>
+  <p class="src"><strong>Source</strong> mvp.md §2 (rules 4 and 7), §6.6 (TODO card), §6.14 (Monitor, Inspect); spec.md §14.2, §14.3 (TODO and Run rows), §14.6b, §11.6.4, §10.7.1, §4.1.0a; ui-components.md v0.4 Rules, <code>Action</code>, T-UI-04; apps/app/AGENTS.md (EMBED LAW, MINIMAL TEXT); design README (Visual rules); mock <code>parts.tsx</code> (<code>Card</code>), <code>cards/Todo.tsx</code>, <code>cards/Run.tsx</code> (<code>RunFlags</code>), <code>world.ts</code> (<code>showCard</code>).</p>
 </section>
 
 <!-- ═════════════════ 05 IDENTITY ═════════════════ -->
 <section class="dia" id="identity" aria-labelledby="h-identity">
   <div class="dia-h"><span class="dia-n">05</span><h2 id="h-identity">Identity: every participant has one mark, wherever it appears</h2><a class="dia-a" href="#identity">#identity</a></div>
-  <figure class="fig" aria-label="Actor kinds, their marks, and where each mark appears: presence list, activity rows, line flags, terminal headers and chat authors.">
+  <figure class="fig" aria-label="Actor kinds, their marks, and where each mark appears: presence list, activity rows, line flags, terminal headers and chat authors. People are circles; agents, Smithers included, are rounded squares in the color of the member they act for.">
     <table class="rt">
       <thead><tr><th>Mark</th><th>Reads as</th><th>Actor</th><th>Presence</th><th>Activity row</th><th>Line flag</th><th>Terminal header</th><th>Chat author</th></tr></thead>
       <tbody>
         <tr>
           <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av" style="--who:var(--lane-1)">AP</span></div></span></td>
-          <td data-l="Reads as"><span class="cv"><b>Alice</b><span class="vnote">a person: a circle in their lane color</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>person</code></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Alice</b><span class="vnote">a person: a circle in their color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>person</code><span class="vnote">color_index 1</span></span></td>
           <td data-l="Presence"><span class="cv">editing retry.ts:10</span></td>
           <td data-l="Activity row"><span class="cv">steers, answers</span></td>
           <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-1)">Alice</span></span></td>
@@ -1058,49 +1106,69 @@ type CardProps&lt;M&gt; = {
           <td data-l="Chat author"><span class="cv">prompt author</span></td>
         </tr>
         <tr>
-          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av agent"><svg><use href="#i-bot"/></svg></span></div></span></td>
-          <td data-l="Reads as"><span class="cv"><b>Coding agent</b><span class="vnote">the branch's agent: a teal rounded square</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>agent · coding</code></span></td>
-          <td data-l="Presence"><span class="cv">at Verify; breathes while working</span></td>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av sm dlg" style="--who:var(--lane-0)">S</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Smithers for Ben</b><span class="vnote">the app agent for Ben: its square in Ben's color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>system</code> · for Ben<span class="vnote">color_index 0, Ben's</span></span></td>
+          <td data-l="Presence"><span class="cv">Smithers for Ben · reading retry.ts</span></td>
+          <td data-l="Activity row"><span class="cv">Smithers for Ben steered T9</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-0)">Smithers for Ben</span><span class="vnote">wiki pages</span></span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none: never types</span></td>
+          <td data-l="Chat author"><span class="cv">answers Ben, as everyone sees it</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av sm">S</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Smithers</b><span class="vnote">the system, acting for nobody: the ink square</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>system</code></span></td>
+          <td data-l="Presence" class="na"><span class="cv">none</span></td>
+          <td data-l="Activity row"><span class="cv">Rebased onto T8</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--text)">Smithers</span><span class="vnote">wiki refresh</span></span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av agent dlg" style="--who:var(--lane-0)">C</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Claude Code for Ben</b><span class="vnote">an external agent: its own square in Ben's color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>agent</code> claude-code · for Ben<span class="vnote">id: its session · color_index 0</span></span></td>
+          <td data-l="Presence"><span class="cv">Claude Code for Ben · terminal 1</span></td>
+          <td data-l="Activity row"><span class="cv">Claude Code for Ben answered T9</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-0)">Claude Code for Ben</span></span></td>
+          <td data-l="Terminal header"><span class="cv">Claude Code for Ben, in Ben's terminal; Ben stays its owner</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none: no screen</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av agent dlg" style="--who:var(--lane-0)"><svg><use href="#i-bot"/></svg></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Coding agent for Ben</b><span class="vnote">a TODO's agent: its square in the owner's color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>agent</code> coding · for Ben · T9<span class="vnote">id: the run · color_index 0</span></span></td>
+          <td data-l="Presence"><span class="cv">Coding agent for Ben · Verify on T9; breathes while working</span></td>
           <td data-l="Activity row"><span class="cv">steps, Read, Context, Asks</span></td>
-          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--brand)">Agent</span></span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-0)">Agent for Ben</span></span></td>
           <td data-l="Terminal header"><span class="cv">its own session</span></td>
           <td data-l="Chat author" class="na"><span class="cv">asks through Needs you</span></td>
         </tr>
         <tr>
-          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av sm">S</span></div></span></td>
-          <td data-l="Reads as"><span class="cv"><b>Smithers</b><span class="vnote">the app agent and the stack service: one participant</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>system</code></span></td>
-          <td data-l="Presence" class="na"><span class="cv">only when acting for someone</span></td>
-          <td data-l="Activity row"><span class="cv">Rebased onto T8</span></td>
-          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--text)">Smithers</span></span></td>
-          <td data-l="Terminal header" class="na"><span class="cv">none: never types</span></td>
-          <td data-l="Chat author"><span class="cv">answers you</span></td>
-        </tr>
-        <tr>
-          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av sm">S<span class="for" style="--who:var(--lane-0)">B</span></span></div></span></td>
-          <td data-l="Reads as"><span class="cv"><b>Smithers for Ben</b><span class="vnote">acting for Ben: Ben's dot on its corner (M-34)</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>system · for</code></span></td>
-          <td data-l="Presence"><span class="cv">reading, for Ben</span></td>
-          <td data-l="Activity row"><span class="cv">Smithers for Ben asked · Dropped T11</span></td>
-          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--text)">Smithers</span></span></td>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av agent dlg" style="--who:var(--lane-0)">R</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Reviewer for Ben</b><span class="vnote">a review run: its own square in Ben's color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>agent</code> reviewer · for Ben<span class="vnote">id: the review run · color_index 0</span></span></td>
+          <td data-l="Presence"><span class="cv">Reviewer for Ben · T9 at 5e7d2b0</span></td>
+          <td data-l="Activity row"><span class="cv">Reviewer for Ben: no blocking issues</span></td>
+          <td data-l="Line flag" class="na"><span class="cv">none: reads only</span></td>
           <td data-l="Terminal header" class="na"><span class="cv">none</span></td>
-          <td data-l="Chat author"><span class="cv">answers Ben, as others see it</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none</span></td>
         </tr>
         <tr>
-          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av" style="--who:var(--lane-0)">BO<span class="badge"><svg><use href="#i-bot"/></svg></span></span></div></span></td>
-          <td data-l="Reads as"><span class="cv"><b>Ben via Claude Code</b><span class="vnote">an external agent: Ben's circle with an agent badge</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>person · via</code></span></td>
-          <td data-l="Presence"><span class="cv">in terminal 1</span></td>
-          <td data-l="Activity row"><span class="cv">Ben via Claude Code asked · Placed T12</span></td>
-          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-0)">Ben · Claude Code</span></span></td>
-          <td data-l="Terminal header"><span class="cv">runs inside Ben's session</span></td>
-          <td data-l="Chat author" class="na"><span class="cv">none: no screen</span></td>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av agent"><svg><use href="#i-bot"/></svg></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Coding agent</b><span class="vnote">acting for nobody: the default agent color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>agent</code> coding, no for<span class="vnote">id: the run · color_index 6</span></span></td>
+          <td data-l="Presence"><span class="cv">at a learning run's step</span></td>
+          <td data-l="Activity row"><span class="cv">a background run's steps</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--brand)">Agent</span></span></td>
+          <td data-l="Terminal header"><span class="cv">its own session</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none</span></td>
         </tr>
         <tr>
           <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av" style="--who:var(--lane-2)">MC<span class="badge ssh"><svg><use href="#i-term"/></svg></span></span></div></span></td>
-          <td data-l="Reads as"><span class="cv"><b>Maya via SSH</b><span class="vnote">a person over SSH: a terminal badge</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>person · via ssh</code></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Maya via SSH</b><span class="vnote">the person is the actor: her circle, a terminal badge</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>person</code> · via ssh<span class="vnote">color_index 2</span></span></td>
           <td data-l="Presence"><span class="cv">editing retry.ts:2</span></td>
           <td data-l="Activity row"><span class="cv">Maya via SSH changed 12 files</span></td>
           <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-2)">Maya · SSH</span></span></td>
@@ -1110,7 +1178,7 @@ type CardProps&lt;M&gt; = {
         <tr>
           <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av out"><svg><use href="#i-folder"/></svg></span></div></span></td>
           <td data-l="Reads as"><span class="cv"><b>Changed outside Smithers</b><span class="vnote">no single session can claim it: a neutral square</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>outside</code></span></td>
+          <td data-l="Actor"><span class="cv"><code>outside</code><span class="vnote">color_index 7</span></span></td>
           <td data-l="Presence" class="na"><span class="cv">none</span></td>
           <td data-l="Activity row"><span class="cv">Changed outside Smithers · 3 files</span></td>
           <td data-l="Line flag" class="na"><span class="cv">none; the File card says “Changed outside Smithers · Compare”</span></td>
@@ -1120,7 +1188,7 @@ type CardProps&lt;M&gt; = {
         <tr>
           <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="gh"><svg><use href="#i-github"/></svg>@login</span></div></span></td>
           <td data-l="Reads as"><span class="cv"><b>@login</b><span class="vnote">a GitHub user who is not a member</span></span></td>
-          <td data-l="Actor"><span class="cv"><code>github</code></span></td>
+          <td data-l="Actor"><span class="cv"><code>github</code><span class="vnote">color_index 7</span></span></td>
           <td data-l="Presence" class="na"><span class="cv">none</span></td>
           <td data-l="Activity row"><span class="cv">rows that came from GitHub carry the mark</span></td>
           <td data-l="Line flag" class="na"><span class="cv">none</span></td>
@@ -1131,17 +1199,20 @@ type CardProps&lt;M&gt; = {
     </table>
   </figure>
   <ul class="rules">
-    <li>People are circles; agents are rounded squares; Smithers is the ink square.</li>
-    <li>Smithers is one participant, the app agent and the stack service alike. Acting for a person it reads “Smithers for Ben” and wears Ben's dot, never Ben's avatar with a badge.</li>
-    <li>A mark's color is identity: the person's lane, also for agents acting as them; teal for the coding agent; ink for Smithers.</li>
+    <li>People are circles; agents, Smithers included, are rounded squares.</li>
+    <li>Every agent doing work is its own participant with a stable id: Smithers, Claude Code, the coding agent, reviewers (M-34). It never collapses into the person's avatar.</li>
+    <li>An agent or Smithers acting for a member takes that member's color and reads “Claude Code for Ben”. Plain “Smithers” in ink is the undelegated system mark.</li>
+    <li>Only a person's own doors keep their circle, with a small badge: “Maya via SSH”, “Ben's terminal”, “Ben via CLI”.</li>
+    <li><code>color_index</code>: 0–5 a member's color, also for anything acting for them; 6 an agent acting for nobody; 7 neutral, for GitHub users and outside writes. Tokens per index: <a href="#color">#color</a>.<span class="prop">Proposed</span></li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §3.1, §6.8 (Presence, External changes), M-21, M-27, M-32, M-34; spec.md §2 (actor notation), §7.3.2, §14.6a; ui-components.md <code>Actor</code>, T-UI-01; mock <code>parts.tsx</code> (<code>Avatar</code>, <code>actorName</code>, <code>flagName</code>, <code>identityColour</code>), <code>world.ts</code> (<code>isSmithers</code>, <code>forWhom</code>, <code>via</code>), <code>mock.css</code> (PORT · avatars), <code>css/code.css</code> (flags).</p>
+  <p class="src"><strong>Source</strong> mvp.md §3.1, §6.8 (Presence, External changes), M-21, M-27, M-32, M-34; settled ruling on M-34 marks (2026-10-02); spec.md §7.3.1, §7.3.2, §14.6a.1; ui-components.md v0.4 <code>Actor</code>, T-UI-01; mock <code>parts.tsx</code> (<code>Avatar</code>, <code>actorName</code>, <code>flagName</code>), <code>world.ts</code> (<code>isSmithers</code>, <code>forWhom</code>, <code>via</code>), <code>mock.css</code> (PORT · avatars), <code>css/code.css</code> (flags).</p>
 </section>
 
 <!-- ═════════════════ 06 COLOR ═════════════════ -->
 <section class="dia" id="color" aria-labelledby="h-color">
-  <div class="dia-h"><span class="dia-n">06</span><h2 id="h-color">Color semantics: one meaning per color, and actor colors apart from status colors</h2><a class="dia-a" href="#color">#color</a></div>
-  <figure class="fig" aria-label="Swatches with light and dark values: teal means live or act, gold means a person is needed, ember means failed, neutrals for settled or automatic states, lane colors for actors only, violet retired.">
+  <div class="dia-h"><span class="dia-n">06</span><h2 id="h-color">Color semantics: fixed status colors, and actor color as a separate channel</h2><a class="dia-a" href="#color">#color</a></div>
+  <figure class="fig" aria-label="Swatches with light and dark values: teal means live or act, gold means a person is needed, ember means failed, neutrals for settled or automatic states. Actor color is a separate channel: lane colors for members and anything acting for them. Token names, hex values and the violet retirement are design proposals.">
+    <p class="sub">Status meanings: ui-components.md Tone. Token names and hex values<span class="prop">Proposed</span></p>
     <div class="colors">
       <div class="crow">
         <div><h3>Teal · live or act</h3><p>Working, Starting, the current step, live timeline rows, the solid button, the focus ring.</p></div>
@@ -1154,7 +1225,7 @@ type CardProps&lt;M&gt; = {
         <div class="cuse"><span class="pill" data-s="working"><span class="dot" data-s="working"></span>Working · Implement</span><span class="btn solid sm">Merge</span></div>
       </div>
       <div class="crow">
-        <div><h3>Gold · a person is needed</h3><p>Needs you, a wait for a person, a blocked merge reason, a stale sync, the notification ask.</p></div>
+        <div><h3>Gold · a person is needed</h3><p>Needs you, stack attention, an approval toast, a wait for a person, a stale sync, the notification ask.</p><p>A blocked merge reason, a failed required check included.<span class="prop">Proposed</span></p></div>
         <div class="sw-set">
           <div class="sw"><div class="sw-c" style="--sw-l:#d08a1d;--sw-d:#f0c169"><span class="l">L</span><span class="k" style="color:#0d1514">D</span></div><b>--attention</b><small>#d08a1d · #f0c169</small></div>
           <div class="sw"><div class="sw-c" style="--sw-l:#8c5a08;--sw-d:#f0c169"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--attention-text</b><small>#8c5a08 · #f0c169</small></div>
@@ -1170,7 +1241,7 @@ type CardProps&lt;M&gt; = {
         <div class="cuse"><span class="pill" data-s="failed"><svg class="i"><use href="#i-x"/></svg>Failed</span><span class="checks"><span><svg class="i bad"><use href="#i-x"/></svg>lint</span></span></div>
       </div>
       <div class="crow">
-        <div><h3>Neutral · settled or automatic</h3><p>Queued, Paused, In review, Merged, the wait for merge, waiting for a machine, “Merges after T8”.</p></div>
+        <div><h3>Neutral · settled or automatic</h3><p>Queued, Paused, In review, Merged, Dropped, the wait for merge, waiting for a machine, “Merges after T8”.</p></div>
         <div class="sw-set">
           <div class="sw"><div class="sw-c" style="--sw-l:#665f54;--sw-d:#a8a193"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--text-muted</b><small>#665f54 · #a8a193</small></div>
           <div class="sw"><div class="sw-c" style="--sw-l:#efeae0;--sw-d:#1a2422"><span class="l">L</span><span class="k">D</span></div><b>--surface-2</b><small>#efeae0 · #1a2422</small></div>
@@ -1179,7 +1250,7 @@ type CardProps&lt;M&gt; = {
         <div class="cuse"><span class="pill" data-s="queued"><span class="dot" data-s="queued"></span>Queued</span><span class="pill" data-s="paused"><svg class="i"><use href="#i-pause"/></svg>Paused</span><span class="pill" data-s="review"><svg class="i"><use href="#i-pr"/></svg>In review</span><span class="pill" data-s="merged"><svg class="i"><use href="#i-merge"/></svg>Merged</span></div>
       </div>
       <div class="crow">
-        <div><h3>Actors · who, never what state</h3><p>Lanes mark people and the agents acting as them. Ink marks Smithers; the teal square marks the coding agent.</p></div>
+        <div><h3>Actors · who, never what state</h3><p>Colors 0–5 mark members and any agent or Smithers acting for them. Undelegated defaults: ink for system Smithers, teal for an agent acting for nobody (6), neutral for GitHub users and outside writes (7).</p></div>
         <div class="sw-set">
           <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#9b4d31;--sw-d:#eda381"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-0</b><small>#9b4d31<br>#eda381 · Ben</small></div>
           <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#376f91;--sw-d:#8cc5e8"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-1</b><small>#376f91<br>#8cc5e8 · Alice</small></div>
@@ -1188,11 +1259,12 @@ type CardProps&lt;M&gt; = {
           <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#387667;--sw-d:#8acaba"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-4</b><small>#387667<br>#8acaba</small></div>
           <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#a24f6b;--sw-d:#e5a1b8"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-5</b><small>#a24f6b<br>#e5a1b8</small></div>
           <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#211d18;--sw-d:#ece7db"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--text</b><small>#211d18<br>#ece7db · Smithers</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#0f766e;--sw-d:#45c4b2"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--brand</b><small>#0f766e<br>#45c4b2 · 6</small></div>
         </div>
-        <div class="cuse"><span class="av s20" style="--who:var(--lane-0)">BO</span><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="av s20" style="--who:var(--lane-2)">MC</span><span class="av s20 sm">S</span><span class="av s20 agent"><svg><use href="#i-bot"/></svg></span></div>
+        <div class="cuse" style="display:grid;gap:8px;justify-items:start"><span class="row"><span class="av s20" style="--who:var(--lane-0)" title="Ben">BO</span><span class="av s20 agent dlg" style="--who:var(--lane-0)" title="Coding agent for Ben"><svg><use href="#i-bot"/></svg></span><span class="av s20 sm dlg" style="--who:var(--lane-0)" title="Smithers for Ben">S</span><span>Ben, and for Ben</span></span><span class="row"><span class="av s20" style="--who:var(--lane-1)" title="Alice">AP</span><span class="av s20 agent dlg" style="--who:var(--lane-1)" title="Coding agent for Alice"><svg><use href="#i-bot"/></svg></span><span>Alice, and for Alice</span></span><span class="row"><span class="av s20 sm" title="Smithers">S</span><span class="av s20 agent" title="Coding agent"><svg><use href="#i-bot"/></svg></span><span>for nobody</span></span></div>
       </div>
       <div class="crow">
-        <div><h3>Retired from the chrome</h3><p>Violet no longer marks anything in the app's chrome.</p></div>
+        <div><h3>Retired from the chrome<span class="prop">Proposed</span></h3><p>Violet no longer marks anything in the app's chrome.</p></div>
         <div class="sw-set">
           <div class="sw"><div class="sw-c" style="--sw-l:#6a5ce0;--sw-d:#a99ff7"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--ai</b><small>#6a5ce0 · #a99ff7</small></div>
         </div>
@@ -1201,11 +1273,11 @@ type CardProps&lt;M&gt; = {
     </div>
   </figure>
   <ul class="rules">
-    <li>One meaning per color: teal live or act, gold a person is needed, ember failed. Everything settled or automatic is neutral.</li>
-    <li>Actor colors say who, never what state, and a status never borrows a lane color.</li>
+    <li>Status colors have fixed semantics: live is teal, attention is gold, failed is ember; done and quiet are neutral. In review is quiet.</li>
+    <li>Actor color is a separate channel. It says who, never what state, and a status never borrows an actor color.</li>
     <li>Both themes gate acceptance: every swatch has a light and a dark value.</li>
   </ul>
-  <p class="src"><strong>Source</strong> design README (Visual rules); mvp.md §6.3 (Sync status), §6.4 (Timeline), §6.12 (Pinned versions), §12; spec.md §4.4, §14.5.2; <code>apps/app/src/mainview/styles/tokens.css</code>; mock <code>mock.css</code> (PORT · identity and state tokens, PORT · TODO state, “Teal means live or act” overrides).</p>
+  <p class="src"><strong>Source</strong> ui-components.md v0.4 (Tone, <code>Actor</code>); settled rulings on Tone and M-34 marks (2026-10-02); design README (Visual rules); mvp.md §6.3 (Sync status), §6.4 (Timeline), §6.12 (Pinned versions), §12; spec.md §4.4, §14.5.2; <code>apps/app/src/mainview/styles/tokens.css</code>; mock <code>mock.css</code> (PORT · identity and state tokens, PORT · TODO state, “Teal means live or act” overrides).</p>
 </section>
 
 <!-- ═════════════════ 07 STATES ═════════════════ -->
@@ -1214,14 +1286,15 @@ type CardProps&lt;M&gt; = {
   <figure class="fig">
     <div class="scroll" style="--min:820px">
       <svg class="d" viewBox="0 0 1100 470" role="img" aria-labelledby="st-t">
-        <title id="st-t">TODO states. Main line: Queued, Starting, Working, In review, Merged. Working and Needs you go back and forth. Needs you answered after the machine was released goes to Queued. Stop takes Working to Paused, and Resume takes Paused to Queued. Starting or Working can fail; Retry queues a new attempt. In review goes back to Working on changes requested or a steer, and to Needs you on a rebase conflict or an outside push. Any unmerged state can be Dropped.</title>
+        <title id="st-t">TODO states. Main line: Queued, Starting, Working, In review, Merged. Starting becomes Working when the run attaches, new or resumed. A question, an approval, a conflict or a move off the item opens a wait and makes the TODO Needs you. Needs you leaves only when its last open wait settles: to Working when work is required, to Queued when the machine was released, and to In review when no new work is needed, as after Discard. Stop takes Working to Paused while no question or approval is open, and Resume takes Paused to Queued. Starting or Working can fail; Retry queues a new attempt. In review goes back to Working on changes requested or a steer, and to Needs you on a conflict, a move off the item or an outside push. Any unmerged state can be Dropped.</title>
         <defs><marker id="ah-st" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
         <rect class="region" x="14" y="40" width="854" height="414" rx="14"/>
         <text class="xs" x="860" y="447" text-anchor="end">any unmerged state</text>
         <path class="ed" d="M145 210H240" marker-end="url(#ah-st)"/>
         <text class="s" x="192" y="202" text-anchor="middle">machine granted</text>
         <path class="ed" d="M356 210H453" marker-end="url(#ah-st)"/>
-        <text class="s" x="404" y="202" text-anchor="middle">agent launched</text>
+        <text class="s" x="404" y="188" text-anchor="middle">run attached</text>
+        <text class="s" x="404" y="202" text-anchor="middle">new or resumed</text>
         <path class="ed" d="M633 210H737" marker-end="url(#ah-st)"/>
         <text class="s" x="685" y="202" text-anchor="middle">PR opened</text>
         <path class="ed" d="M859 210H963" marker-end="url(#ah-st)"/>
@@ -1229,19 +1302,25 @@ type CardProps&lt;M&gt; = {
         <text class="s" x="916" y="202" text-anchor="middle">merges</text>
         <path class="ed" d="M530 195V89" marker-end="url(#ah-st)"/>
         <text class="s" x="522" y="140" text-anchor="end">asks, approval,</text>
-        <text class="s" x="522" y="153" text-anchor="end">conflict</text>
+        <text class="s" x="522" y="153" text-anchor="end">conflict, moved off</text>
         <path class="ed" d="M560 85V191" marker-end="url(#ah-st)"/>
-        <text class="s" x="568" y="140">first answer</text>
-        <text class="s" x="568" y="153">settles it</text>
+        <text class="s" x="568" y="128">last open wait</text>
+        <text class="s" x="568" y="141">settles; work</text>
+        <text class="s" x="568" y="154">required</text>
         <path class="ed" d="M483 70H90V191" marker-end="url(#ah-st)"/>
-        <text class="s" x="287" y="62" text-anchor="middle">answered after the machine was released</text>
+        <text class="s" x="287" y="62" text-anchor="middle">last wait settles after release; work required</text>
         <path class="ed" d="M780 195L611 80" marker-end="url(#ah-st)"/>
-        <text class="s" x="712" y="121">rebase conflict,</text>
-        <text class="s" x="724" y="134">or outside push</text>
+        <path class="ed" d="M607 62H818V191" marker-end="url(#ah-st)"/>
+        <text class="s" x="810" y="98" text-anchor="end">last wait settles;</text>
+        <text class="s" x="810" y="111" text-anchor="end">no new work, as</text>
+        <text class="s" x="810" y="124" text-anchor="end">after Discard</text>
+        <text class="s" x="722" y="170" text-anchor="end">conflict, moved off,</text>
+        <text class="s" x="740" y="183" text-anchor="end">or outside push</text>
         <path class="ed" d="M790 225C790 285 600 285 600 229" marker-end="url(#ah-st)"/>
         <text class="s" x="695" y="298" text-anchor="middle">changes requested · steer</text>
         <path class="ed" d="M545 225V341" marker-end="url(#ah-st)"/>
         <text class="s" x="537" y="292" text-anchor="end">Stop</text>
+        <text class="s" x="537" y="305" text-anchor="end">no question open</text>
         <path class="ed" d="M545 375V440H60V229" marker-end="url(#ah-st)"/>
         <text class="s" x="300" y="433" text-anchor="middle">Resume</text>
         <path class="ed" d="M300 225V341" marker-end="url(#ah-st)"/>
@@ -1268,8 +1347,8 @@ type CardProps&lt;M&gt; = {
       </svg>
     </div>
     <div class="who">
-      <div><span class="pill" data-s="queued"><span class="dot" data-s="queued"></span>Queued</span><span>Nobody. Shows its reason: “Waiting for a machine · #2”</span></div>
-      <div><span class="pill" data-s="starting"><span class="dot" data-s="starting"></span>Starting</span><span>Nobody. Its machine is granted; the agent launches</span></div>
+      <div><span class="pill" data-s="queued"><span class="dot" data-s="queued"></span>Queued</span><span>Waiting for admission; may be dropped. “Waiting for a machine · #2”</span></div>
+      <div><span class="pill" data-s="starting"><span class="dot" data-s="starting"></span>Starting</span><span>Nobody. Machine granted; waits for its run to attach, new or resumed</span></div>
       <div><span class="pill" data-s="working"><span class="dot" data-s="working"></span>Working · Implement</span><span>Anyone on the branch watches or steers</span></div>
       <div><span class="pill" data-s="needs"><span class="dot" data-s="needs"></span>Needs you</span><span>Questions: any member. Approvals that gate a merge: a maintainer</span></div>
       <div><span class="pill" data-s="paused"><svg class="i"><use href="#i-pause"/></svg>Paused</span><span>Resume or drop</span></div>
@@ -1278,13 +1357,35 @@ type CardProps&lt;M&gt; = {
       <div><span class="pill" data-s="merged"><svg class="i"><use href="#i-merge"/></svg>Merged</span><span>Nobody. This is done</span></div>
       <div><span class="pill" data-s="dropped"><svg class="i"><use href="#i-dashed"/></svg>Dropped</span><span>Nobody. Its PR closes; later items rebase</span></div>
     </div>
+    <div class="waits">
+      <div>
+        <h3>Waits</h3>
+        <ul>
+          <li>Run waits: question, approval. Opened while working.</li>
+          <li>Branch waits: conflict, moved off, outside push. Opened from any unmerged state.</li>
+          <li>Settling one wait never settles another. Each open wait shows on the TODO card with its own action.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Precedence: the first that holds</h3>
+        <ol>
+          <li>Merged</li>
+          <li>Dropped</li>
+          <li>Needs you: any wait open</li>
+          <li>Paused</li>
+          <li>Failed</li>
+          <li>In review, Working, Starting or Queued: the run's phase</li>
+        </ol>
+        <p class="note">When the last open wait settles: Working, or Queued after release, if work is needed; In review if not; Paused if stopped; Failed if blocked.</p>
+      </div>
+    </div>
   </figure>
   <ul class="rules">
     <li>Each state has one glyph and one pill, the same on every card, row and timeline line.</li>
     <li>Merged is done. Learning is a receipt on the merged card (“2 lessons”), never a state.</li>
-    <li>Drawn from mvp.md §4.1 and spec.md §4.1. spec.md's transition table is authoritative and adds rarer edges: Discard returns to In review, a reopened PR revives a Dropped TODO, and a merge on GitHub counts from any unmerged state.</li>
+    <li>Drawn from mvp.md §4.1 and spec.md §4.1. spec.md's transition table is authoritative and adds rarer edges: a PR reopened on GitHub within 7 days revives a Dropped TODO, and a merge on GitHub counts from any unmerged state.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §4.1, M-15; spec.md §4.1 (with §4.1.0a precedence and §4.1.1 queue copy), §10.7, §10.8; mock <code>parts.tsx</code> (<code>StateGlyph</code>, <code>StatePill</code>, <code>stateLabel</code>), <code>mock.css</code> (PORT · TODO state).</p>
+  <p class="src"><strong>Source</strong> mvp.md §4.1, M-15; spec.md §4.1 (with §4.1.0a precedence and §4.1.1 queue copy), §10.7.1, §10.7.4, §10.8.0–§10.8.2; settled rulings on Stop and answers (2026-10-02); mock <code>parts.tsx</code> (<code>StateGlyph</code>, <code>StatePill</code>, <code>stateLabel</code>), <code>mock.css</code> (PORT · TODO state).</p>
 </section>
 
 <!-- ═════════════════ 08 RUN ═════════════════ -->
@@ -1292,8 +1393,8 @@ type CardProps&lt;M&gt; = {
   <div class="dia-h"><span class="dia-n">08</span><h2 id="h-run">One attempt is one durable run: five steps, then a wait for merge</h2><a class="dia-a" href="#run">#run</a></div>
   <figure class="fig">
     <div class="scroll" style="--min:820px">
-      <svg class="d" viewBox="0 0 1100 300" role="img" aria-labelledby="run-t">
-        <title id="run-t">Attempt 1 stopped at Implement when its machine restarted. Retry started attempt 2 as a new run: Plan, Implement, Verify, Review, Propose, then a wait for merge that holds no machine. A steer loops the run back to Implement; a rebase loops it back to Verify. A merge or a drop ends the run.</title>
+      <svg class="d" viewBox="0 0 1100 330" role="img" aria-labelledby="run-t">
+        <title id="run-t">Attempt 1 stopped at Implement when its machine restarted. Retry started attempt 2 as a new run: Plan, Implement, Verify, Review, Propose, then a wait for merge that needs no machine. A steer or a requested change loops the run back to Implement. A rebase or an edit loops it back to Verify. A clean rebase keeps the patch, so it goes from Verify straight to Propose and keeps the prior review; a conflict-resolved rebase or an edit reruns Review. A merge or a drop ends the run.</title>
         <defs><marker id="ah-run" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
         <!-- attempt 1 -->
         <g style="opacity:.62">
@@ -1332,25 +1433,39 @@ type CardProps&lt;M&gt; = {
         <path class="ed" d="M914 170H946" marker-end="url(#ah-run)"/>
         <rect class="stepbox-wait" x="950" y="146" width="140" height="48" rx="9"/>
         <circle class="st-wait badge-w" cx="952" cy="148" r="7.5"/>
-        <text class="b t13" x="1020" y="168" text-anchor="middle">Wait for merge</text><text class="s" x="1020" y="184" text-anchor="middle">holds no machine</text>
+        <text class="b t13" x="1020" y="168" text-anchor="middle">Wait for merge</text><text class="s" x="1020" y="184" text-anchor="middle">needs no machine</text>
         <!-- loops -->
-        <path class="ed" d="M1000 146V134Q1000 126 992 126H380Q372 126 372 134V142" marker-end="url(#ah-run)"/>
-        <text class="s" x="686" y="120" text-anchor="middle">steer · changes requested</text>
-        <path class="ed" d="M1030 194V222Q1030 230 1022 230H546Q538 230 538 222V198" marker-end="url(#ah-run)"/>
-        <text class="s" x="784" y="246" text-anchor="middle">rebase onto a new tip</text>
-        <path class="ed" d="M1078 194V266" marker-end="url(#ah-run)"/>
-        <text class="s" x="1068" y="286" text-anchor="end">merged or dropped: the run ends</text>
+        <path class="ed" d="M1000 146V128Q1000 120 992 120H380Q372 120 372 128V142" marker-end="url(#ah-run)"/>
+        <text class="s" x="686" y="113" text-anchor="middle">steer · changes requested</text>
+        <text class="s" x="702" y="137" text-anchor="middle">reruns on a new patch</text>
+        <path class="ed dash" d="M572 194V206Q572 214 580 214H804Q812 214 812 206V198" marker-end="url(#ah-run)"/>
+        <text class="s" x="692" y="231" text-anchor="middle">clean rebase: same patch-id, review kept</text>
+        <path class="ed" d="M1040 194V250Q1040 258 1032 258H524Q516 258 516 250V198" marker-end="url(#ah-run)"/>
+        <text class="s" x="770" y="276" text-anchor="middle">rebase onto a new tip, or an edit: back to Verify</text>
+        <path class="ed" d="M1078 194V292" marker-end="url(#ah-run)"/>
+        <text class="s" x="1068" y="312" text-anchor="end">merged or dropped: the run ends</text>
       </svg>
     </div>
     <p class="sub" style="margin-top:14px">The TODO card's step strip mirrors the run</p>
     <div class="mirror">
-      <div class="mi"><span class="mi-l">Working at Implement</span>
+      <div class="mi"><span class="mi-l">Working at Implement, also after a steer</span>
         <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="cur"><span class="mk"></span>Implement</li><li><span class="mk"></span>Verify</li><li><span class="mk"></span>Review</li><li><span class="mk"></span>Propose</li><li class="mg"><span class="mk"></span>Merge</li></ol></div>
       <div class="mi"><span class="mi-l">In review: held at the wait for merge</span>
         <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Implement</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Verify</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Review</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Propose</li><li class="mg held"><span class="mk"></span>Merge</li></ol></div>
-      <div class="mi"><span class="mi-l">A new revision: back at Verify until its checks pass</span>
+      <div class="mi"><span class="mi-l">Clean rebase: checks rerun at Verify; the prior review stays</span>
+        <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Implement</li><li class="cur"><span class="mk"></span>Verify</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Review</li><li><span class="mk"></span>Propose</li><li class="mg"><span class="mk"></span>Merge</li></ol></div>
+      <div class="mi"><span class="mi-l">Conflict-resolved rebase or an edit: Verify, then a new review</span>
         <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Implement</li><li class="cur"><span class="mk"></span>Verify</li><li><span class="mk"></span>Review</li><li><span class="mk"></span>Propose</li><li class="mg"><span class="mk"></span>Merge</li></ol></div>
     </div>
+    <table class="loops">
+      <thead><tr><th>After the wait, on</th><th>Back to</th><th>Then</th></tr></thead>
+      <tbody>
+        <tr><td>a steer or requested change</td><td data-l="Back to">Implement</td><td data-l="Then">Verify, Review, Propose</td></tr>
+        <tr><td>a clean rebase</td><td data-l="Back to">Verify: checks only</td><td data-l="Then">Propose; the prior review stays (same patch-id)</td></tr>
+        <tr><td>a conflict-resolved rebase, or an edit</td><td data-l="Back to">Verify</td><td data-l="Then">a new Review, then Propose</td></tr>
+        <tr><td>a merge or a drop</td><td data-l="Back to">none</td><td data-l="Then">the run ends</td></tr>
+      </tbody>
+    </table>
     <p class="sub" style="margin-top:18px">Inside a step: phases and cells, as Inspect shows them</p>
     <div class="ph">
       <div class="ph-step">Implement</div>
@@ -1385,53 +1500,67 @@ type CardProps&lt;M&gt; = {
   </figure>
   <ul class="rules">
     <li>One attempt is one durable run of its pinned flow version. It lives until the TODO merges or is dropped; Retry starts a new attempt beside the old one.</li>
-    <li>After Propose the run holds at the wait for merge. A rebase loops it back to Verify, a steer or a requested change to Implement.</li>
+    <li>After Propose the run holds at the wait for merge. The wait needs no machine: the machine is released once safe-idle, and its slot stays held until the stop is confirmed.</li>
+    <li>A clean rebase reruns checks only, and the prior review stays (same patch-id). A conflict-resolved rebase or a code change reruns review. Any rebase voids an approval.</li>
     <li>Phase titles and cell labels are deterministic. ✦ marks what the fast model wrote, only for runs someone inspects.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §6.12 (Pinned versions), §6.14 (Monitor), Appendix B.5, J11; spec.md §10.4.1, §10.4.4, §10.7.1, §11.4, §11.6.3, §11.6.4, §14.5.3; ui-components.md T-UI-04 (<code>steps</code>), T-UI-10 (<code>signals</code>), T-UI-12 (<code>RunModel</code>); mock <code>cards/Run.tsx</code>, <code>parts.tsx</code> (<code>StepStrip</code>), <code>cards/Flow.tsx</code>, <code>journeys/run.ts</code>. <a class="eng" href="../engineering/review.html#plan">Engineering view ↗</a></p>
+  <p class="src"><strong>Source</strong> mvp.md §6.12 (Pinned versions), §6.14 (Monitor), Appendix B.5, J11; settled rebase ruling (2026-10-02); spec.md §10.3.1, §8.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5, §10.5.3, §10.6.2c, §10.7.1, §11.4, §11.6.3, §11.6.4, §14.5.3; ui-components.md T-UI-04 (<code>steps</code>), T-UI-10 (<code>signals</code>), T-UI-12 (<code>RunModel</code>); mock <code>cards/Run.tsx</code>, <code>parts.tsx</code> (<code>StepStrip</code>), <code>cards/Flow.tsx</code>, <code>journeys/run.ts</code>. <a class="eng" href="../engineering/review.html#plan">Engineering view ↗</a></p>
 </section>
 
 <!-- ═════════════════ 09 MERGE RULE ═════════════════ -->
 <section class="dia" id="merge-rule" aria-labelledby="h-merge">
   <div class="dia-h"><span class="dia-n">09</span><h2 id="h-merge">Merge readiness: one decision, read by every merge surface</h2><a class="dia-a" href="#merge-rule">#merge-rule</a></div>
-  <figure class="fig" aria-label="The merge readiness rule tests, in order: merged already, role, stack order, PR open, a failed check, checks running, review running, GitHub's own rule. The first test that fails gives the reason that replaces Merge.">
+  <figure class="fig" aria-label="Merge readiness. Outside the predicate, a merged TODO shows Merged into main, and the authorizer requires a session of an owner or maintainer. MergeReady then tests nine rows in order: in review, stack order, stack attention, merge fence, accepted generation, rebase, pending work, reviewed head, and on GitHub the required checks, required reviews, draft state and mergeability. The first failing row gives the reason that replaces Merge.">
     <div class="mr">
       <div>
-        <div class="mr-in"><span class="chip">Home row</span><span class="chip">TODO card</span><span class="chip">Review &amp; merge</span><span>all read</span><code>mergeReadiness(world, item, viewer)</code></div>
+        <div class="mr-in"><span class="chip">Home row</span><span class="chip">TODO card</span><span class="chip">Review &amp; merge</span><span>all read one</span><code>Merge</code><span>ready · waiting · blocked · merging · done</span></div>
+        <div class="mr-pre">
+          <span><b>Outside the predicate.</b> Merged: “Merged into main”, no button (<code>done</code>).</span>
+          <span><b>Authorizer.</b> A session of an owner or maintainer. A member gets no Merge and reads the same reason, or “Ready · a maintainer merges”.</span>
+        </div>
+        <p class="mr-pred"><code>MergeReady(todo, reviewed_head_sha)</code> · rows in order · the first that fails gives <code>reason</code></p>
         <ol class="gates">
-          <li class="gate"><span class="g-k">Done</span><span class="g-q">Merged already?</span><span class="g-y">yes</span><span class="g-out"><span class="ok"><svg class="i"><use href="#i-check"/></svg> Merged into main</span><span class="reason">no button</span></span></li>
-          <li class="gate"><span class="g-k">Role</span><span class="g-q">Owner or maintainer?</span><span class="g-y">no</span><span class="g-out"><span class="reason blocked">A maintainer merges</span></span></li>
-          <li class="gate"><span class="g-k">Stack order</span><span class="g-q">First open item in the stack?</span><span class="g-y">no</span><span class="g-out"><span class="reason">Merges after T8</span></span></li>
-          <li class="gate"><span class="g-k">PR</span><span class="g-q">In review, with evidence?</span><span class="g-y">no</span><span class="g-out"><span class="reason">No PR yet</span></span></li>
-          <li class="gate"><span class="g-k">Checks, this revision</span><span class="g-q">Did a check fail?</span><span class="g-y">yes</span><span class="g-out"><span class="reason blocked">lint failed</span><span class="lnk">on GitHub ↗</span><span class="reason">when it is GitHub's check</span></span></li>
-          <li class="gate"><span class="g-k"></span><span class="g-q">Checks still running?</span><span class="g-y">yes</span><span class="g-out"><span class="reason">Checks running on 5e7d2b0</span></span></li>
-          <li class="gate"><span class="g-k">Review, this revision</span><span class="g-q">Review still running?</span><span class="g-y">yes</span><span class="g-out"><span class="reason">Review running on 5e7d2b0</span></span></li>
-          <li class="gate"><span class="g-k">GitHub's rule</span><span class="g-q">Does GitHub block it?</span><span class="g-y">yes</span><span class="g-out"><span class="reason blocked">1 approving review required on GitHub</span><span class="lnk">on GitHub ↗</span></span></li>
-          <li class="gate pass"><span class="g-k">Merge</span><span class="g-q">Every test passed</span><span class="g-y"></span><span class="g-out"><span class="btn solid sm">Merge</span><span class="reason">Review &amp; merge adds “Merges as Ben”</span></span></li>
+          <li class="gate"><span class="g-k">1 · <code>state</code></span><span class="g-q">In review: no open wait, not paused?</span><span class="g-y">no</span><span class="g-out"><span class="ms blk">blocked</span></span></li>
+          <li class="gate"><span class="g-k">2 · <code>order</code></span><span class="g-q">First unmerged item in the stack?</span><span class="g-y">no</span><span class="g-out"><span class="ms">waiting</span><span class="reason">Merges after T8</span></span></li>
+          <li class="gate"><span class="g-k">3 · <code>attention</code></span><span class="g-q">No stack attention open?</span><span class="g-y">no</span><span class="g-out"><span class="ms blk">blocked</span></span></li>
+          <li class="gate"><span class="g-k">4 · <code>merging</code></span><span class="g-q">No merge fence set?</span><span class="g-y">no</span><span class="g-out"><span class="ms">merging</span></span></li>
+          <li class="gate"><span class="g-k">5 · <code>rechecking</code></span><span class="g-q">Generation accepted after machine checks and review; PR push settled?</span><span class="g-y">no</span><span class="g-out"><span class="ms">waiting</span><span class="reason">Checks running on 5e7d2b0</span></span></li>
+          <li class="gate"><span class="g-k">6 · <code>rechecking</code></span><span class="g-q">No rebase pending; based on main's tip?</span><span class="g-y">no</span><span class="g-out"><span class="ms">waiting</span><span class="reason">Rebase pending</span></span></li>
+          <li class="gate"><span class="g-k">7 · <code>pending_work</code></span><span class="g-q">No steer or edit since that generation?</span><span class="g-y">no</span><span class="g-out"><span class="ms">waiting</span></span></li>
+          <li class="gate"><span class="g-k">8 · <code>stale_head</code></span><span class="g-q">Reviewed head = PR head = GitHub's head?</span><span class="g-y">no</span><span class="g-out"><span class="ms blk">blocked</span><span class="lnk">on GitHub ↗</span></span></li>
+          <li class="gate"><span class="g-k">9 · <code>checks</code> <code>review_required</code> <code>github</code></span><span class="g-q">Required GitHub checks pass, required reviews met, not draft, mergeable?</span><span class="g-y">no</span><span class="g-out"><span class="reason blocked">lint failed</span><span class="reason">a required check</span><span class="lnk">on GitHub ↗</span></span></li>
+          <li class="gate pass"><span class="g-k"><code>ready</code></span><span class="g-q">Every row holds</span><span class="g-y"></span><span class="g-out"><span class="btn solid sm">Merge</span><span class="reason">Review &amp; merge adds “Merges as Ben”</span></span></li>
         </ol>
-        <p class="reason" style="margin:10px 0 0">Gold text: blocked until a person acts. Neutral text: waiting on the system.</p>
+        <p class="reason" style="margin:10px 0 0">Gold: blocked until a person acts. Neutral: waiting on the system.<span class="prop">Proposed</span></p>
       </div>
       <div>
         <p class="sub">Evidence is per revision</p>
         <div class="revs">
           <div class="rev old">
             <div class="rev-h"><code>1b2c3d4</code><span>earlier revision</span></div>
-            <div class="checks"><span><svg class="i ok"><use href="#i-check"/></svg>typecheck</span><span><svg class="i ok"><use href="#i-check"/></svg>test</span><span><svg class="i ok"><use href="#i-check"/></svg>lint</span><span><svg class="i ok"><use href="#i-check"/></svg>GitHub 5/5</span></div>
+            <div class="checks"><span><svg class="i ok"><use href="#i-check"/></svg>typecheck</span><span><svg class="i ok"><use href="#i-check"/></svg>test</span><span><svg class="i ok"><use href="#i-check"/></svg>lint</span><span><svg class="i ok"><use href="#i-check"/></svg>GitHub required 3/3</span></div>
             <div>Review: No blocking issues</div>
             <div>Approved by Ben</div>
           </div>
-          <div class="rev-arrow">↓ rebased onto T8: a new revision</div>
+          <div class="rev-arrow">↓ T8 merged; clean rebase onto main, same patch-id</div>
           <div class="rev">
             <div class="rev-h"><code>5e7d2b0</code><span>current revision</span></div>
-            <div class="checks"><span><svg class="i run"><use href="#i-loader"/></svg>typecheck</span><span><svg class="i run"><use href="#i-loader"/></svg>test</span><span><svg class="i run"><use href="#i-loader"/></svg>lint</span><span><svg class="i run"><use href="#i-loader"/></svg>GitHub 0/5</span></div>
-            <div>Review running on 5e7d2b0 <span class="reason">· history: 1b2c3d4 No blocking issues</span></div>
+            <div class="checks"><span><svg class="i run"><use href="#i-loader"/></svg>typecheck</span><span><svg class="i run"><use href="#i-loader"/></svg>test</span><span><svg class="i run"><use href="#i-loader"/></svg>lint</span><span><svg class="i run"><use href="#i-loader"/></svg>GitHub required 0/3</span></div>
+            <div>Review: No blocking issues <span class="reason">· kept from 1b2c3d4, same patch-id</span></div>
             <div class="warn">Approval cleared by rebase · checks rerun</div>
           </div>
-          <div class="rev-arrow">↓ when its checks and review pass</div>
+          <div class="rev-arrow">↓ when its checks pass</div>
           <div class="mini">
-            <div class="mini-h">Merge T8 into main?</div>
+            <div class="mini-h">Merge T9 into main?</div>
             <div class="mini-b"><span class="warn">You approved 1b2c3d4. Review 5e7d2b0.</span></div>
             <div class="mini-a"><span class="btn sm">Cancel</span><span class="btn solid sm">Review &amp; merge</span></div>
+          </div>
+          <div class="rev-arrow">Or a conflict-resolved rebase, or a code change: a new patch</div>
+          <div class="rev">
+            <div class="rev-h"><code>9e8f7a6</code><span>new patch</span></div>
+            <div class="checks"><span><svg class="i run"><use href="#i-loader"/></svg>typecheck</span><span><svg class="i run"><use href="#i-loader"/></svg>test</span><span><svg class="i run"><use href="#i-loader"/></svg>lint</span><span><svg class="i run"><use href="#i-loader"/></svg>GitHub required 0/3</span></div>
+            <div>Review running on 9e8f7a6 <span class="reason">· no earlier review: the patch-id differs</span></div>
+            <div class="warn">Approval cleared · checks and review rerun</div>
           </div>
         </div>
       </div>
@@ -1439,10 +1568,11 @@ type CardProps&lt;M&gt; = {
   </figure>
   <ul class="rules">
     <li>One rule for every merge surface: no card offers a merge another card would refuse.</li>
-    <li>The tests run in the order a person fixes them. The first failing test's reason replaces Merge, as text.</li>
-    <li>A new revision reruns checks and review, keeps the old review as history, and clears an earlier approval.</li>
+    <li>MergeReady's nine rows run in order. The first failing row's reason replaces Merge, as text.</li>
+    <li>Role and session sit outside MergeReady, in the authorizer. Only required GitHub checks block; machine checks and review count through the accepted generation (row 5).</li>
+    <li>A clean rebase reruns checks only and keeps the prior review (same patch-id). A conflict-resolved rebase or a code change reruns review; an earlier review shows only when its patch-id matches. Any rebase voids an approval.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §4.2 (Rebase, Merging), §6.3 (Checks finish, GitHub branch protection), §6.10, M-05; spec.md §10.6.1, §10.6.2, §10.6.2a, §10.6.2c, §10.5.3; mock <code>world.ts</code> (<code>mergeReadiness</code>, <code>revise</code>, <code>checksPassed</code>), <code>cards/Home.tsx</code>, <code>cards/Todo.tsx</code> (<code>Evidence</code>), <code>cards/Confirm.tsx</code>. <a class="eng" href="../engineering/review.html#plan">Engineering view ↗</a></p>
+  <p class="src"><strong>Source</strong> mvp.md §4.2 (Rebase, Merging), §6.3 (Checks finish, GitHub branch protection), §6.10, M-05; spec.md §10.6.1, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.4.3, §10.5.3; ui-components.md v0.4 (<code>Merge</code>, <code>Evidence</code>); settled merge and rebase rulings (2026-10-02); mock <code>cards/Home.tsx</code>, <code>cards/Todo.tsx</code> (<code>Evidence</code>), <code>cards/Confirm.tsx</code>. <a class="eng" href="../engineering/review.html#plan">Engineering view ↗</a></p>
 </section>
 
 <!-- ═════════════════ 10 PERMISSIONS ═════════════════ -->
@@ -1460,27 +1590,30 @@ type CardProps&lt;M&gt; = {
           <li>The asker's own screen: theme, open, maximize</li>
           <li>Open the asker's terminal; never type in it</li>
         </ul>
-        <div class="mini"><div class="mini-b" style="padding-top:8px"><span class="row"><span class="av s16 sm">S</span><b style="color:var(--text)">Smithers</b></span><span>Stopped T10.</span></div></div>
+        <div class="mini"><div class="mini-b" style="padding-top:8px"><span class="row"><span class="av s16 sm dlg" style="--who:var(--lane-0)">S</span><b style="color:var(--text)">Smithers for Ben</b></span><span>Stopped T10.</span></div></div>
         <span class="also">The reply is the receipt.</span>
       </div>
       <div class="lane">
         <h3>One-click confirmation <small>A✓ · confirm</small></h3>
         <ul>
-          <li>Commit or drop a TODO</li>
-          <li>Add a scratch branch to the stack</li>
+          <li>Commit, amend or drop a TODO</li>
+          <li>Add to stack</li>
+          <li>Bring in or Discard an outside push (Discard: maintainer)</li>
           <li>Delete a wiki page</li>
           <li>Propose a flow or agent edit</li>
+          <li>Review a PR (<code>/review</code>)</li>
         </ul>
-        <span class="also">Appendix B.2 rows also mark amend and <code>/review</code> A✓.</span>
+        <span class="also">A role above member needs the requester to hold it; only their own session approves.</span>
         <div class="mini">
-          <div class="mini-h">Drop T11 log-retries?</div>
-          <div class="mini-a"><span class="btn sm">Cancel</span><span class="btn solid sm">Drop <span class="kbd">⏎</span></span></div>
+          <div class="mini-h">Commit a new TODO?</div>
+          <div class="mini-b"><code>/todo.new Send one reset email</code><span class="row"><span class="av s16 agent dlg" style="--who:var(--lane-0)">C</span>Claude Code for Ben asked</span></div>
+          <div class="mini-a"><span class="grow">Only Ben</span><span class="btn sm">Cancel</span><span class="btn solid sm">Commit <span class="kbd">⏎</span></span></div>
         </div>
-        <span class="also">Only the asker can press it. Commit and propose ride the Draft card: its Commit is the confirmation.</span>
+        <span class="also">Only the asker sees Confirm; others see nothing until the shared action receipt. A TODO it names shows “Needs Ben” to everyone. The Draft stays the editing and proposal model.</span>
       </div>
       <div class="lane">
         <h3>Merge <small>A✓ · review_merge</small></h3>
-        <ul><li>Opens the asker's own Review &amp; merge. A maintainer presses it.</li></ul>
+        <ul><li>Opens the asker's own private Review &amp; merge. Only a requesting owner or maintainer gets one.</li></ul>
         <div class="mini">
           <div class="mini-h">Merge T8 into main?</div>
           <div class="mini-b"><span>#88 · rev 5e7d2b0</span><span class="checks"><span><svg class="i ok"><use href="#i-check"/></svg>typecheck</span><span><svg class="i ok"><use href="#i-check"/></svg>test</span><span><svg class="i ok"><use href="#i-check"/></svg>GitHub 5/5</span></span></div>
@@ -1501,9 +1634,9 @@ type CardProps&lt;M&gt; = {
     </div>
     <div class="b3">
       <p class="sub">B.3: the coding agent's actions render in the cards a person's do</p>
-      <div class="b3-row"><code>read · ls · glob · grep</code><span>A “Read” line in the branch activity; each file opens the File card</span><span class="b3-demo"><span class="av s16 agent"><svg><use href="#i-bot"/></svg></span><span class="chip">Read</span><span class="chip m">retry.ts</span><span class="chip m">backoff.ts</span></span></div>
-      <div class="b3-row"><code>write · edit · apply_patch</code><span>An attributed edit in the File and Diff cards, with its line flag</span><span class="b3-demo"><span class="flag" style="--who:var(--brand)">Agent</span><span class="span" style="--who:var(--brand)">await sleep(backoff(1))</span></span></div>
-      <div class="b3-row"><code>bash · test</code><span>Its own Terminal session on the branch; anyone can watch</span><span class="b3-demo"><span class="chip"><svg class="i"><use href="#i-term"/></svg>terminal 1</span><span class="av s16 agent"><svg><use href="#i-bot"/></svg></span><span class="av s16" style="--who:var(--lane-0)">BO</span><svg class="i run"><use href="#i-eye"/></svg></span></div>
+      <div class="b3-row"><code>read · ls · glob · grep</code><span>A “Read” line in the branch activity; each file opens the File card</span><span class="b3-demo"><span class="av s16 agent dlg" style="--who:var(--lane-0)" title="Coding agent for Ben"><svg><use href="#i-bot"/></svg></span><span class="chip">Read</span><span class="chip m">retry.ts</span><span class="chip m">backoff.ts</span></span></div>
+      <div class="b3-row"><code>write · edit · apply_patch</code><span>An attributed edit in the File and Diff cards, with its line flag</span><span class="b3-demo"><span class="flag" style="--who:var(--lane-0)">Agent for Ben</span><span class="span" style="--who:var(--lane-0)">await sleep(backoff(1))</span></span></div>
+      <div class="b3-row"><code>bash · test</code><span>Its own Terminal session on the branch; anyone can watch</span><span class="b3-demo"><span class="chip"><svg class="i"><use href="#i-term"/></svg>terminal 1</span><span class="av s16 agent dlg" style="--who:var(--lane-0)" title="Coding agent for Ben"><svg><use href="#i-bot"/></svg></span><span class="av s16" style="--who:var(--lane-0)">BO</span><svg class="i run"><use href="#i-eye"/></svg></span></div>
       <div class="b3-row"><code>memory · recall</code><span>The Context line; the preflight cell in Inspect</span><span class="b3-demo"><span class="ctx"><svg class="i"><use href="#i-layers"/></svg>Context · 3</span></span></div>
       <div class="b3-row"><code>ask</code><span>Needs you, with Answer, on the TODO card</span><span class="b3-demo"><span class="pill" data-s="needs"><span class="dot" data-s="needs"></span>Needs you</span></span></div>
     </div>
@@ -1511,9 +1644,10 @@ type CardProps&lt;M&gt; = {
   <ul class="rules">
     <li>The app agent acts with the asker's authority and shows as Smithers for that person. It never merges or approves.</li>
     <li>External agents through the CLI or skill follow the same run, confirm and never rules.</li>
-    <li>A flow has one card, whoever runs it. Only the actor's glyph tells a person's act from an agent's.</li>
+    <li>Only the asker sees Confirm; others see nothing until the shared action receipt.</li>
+    <li>A flow renders the same card whoever runs it, and each run is its own instance. Exceptions: a Confirm card, seen only by its asker, and a Draft, seen only by its author until Commit. Only the actor's mark tells a person's act from an agent's.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §3.1, Appendix A (closing paragraph), Appendix B (legend, B.1, B.2, B.3, B.6), M-21, M-34; spec.md §5.2, §5.3, §5.4, §6.1.2, §15.1.3, §15.1.5; mock <code>cards/Act.tsx</code>, <code>cards/Confirm.tsx</code>, <code>cards/Draft.tsx</code>, <code>journeys/ask.ts</code>, <code>journeys/agent.ts</code>, <code>world.ts</code> (<code>ask</code>, <code>pressed</code>).</p>
+  <p class="src"><strong>Source</strong> mvp.md §3.1, Appendix B (legend, B.1, B.2, B.3, B.4, B.6), M-21, M-33, M-34; settled Confirm ruling (product, 16:51, 2026-10-02); spec.md §5.2, §5.3, §5.4, §6.1.2, §14.3 (Confirm, Draft), §14.5.1, §15.1.3, §15.1.5; ui-components.md v0.4 T-UI-05; mock <code>cards/Act.tsx</code>, <code>cards/Confirm.tsx</code>, <code>cards/Draft.tsx</code>, <code>journeys/ask.ts</code>, <code>journeys/agent.ts</code>, <code>world.ts</code> (<code>ask</code>, <code>pressed</code>).</p>
 </section>
 
 <!-- ═════════════════ 11 COMPONENTS ═════════════════ -->
@@ -1524,34 +1658,38 @@ type CardProps&lt;M&gt; = {
       <thead><tr><th>Ticket</th><th>View</th><th>Mock source</th><th>Reel steps</th><th>Stage</th></tr></thead>
       <tbody>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-01<small>T-APP-09</small></span></td><td data-l="View"><span class="cv"><code>ActorChip</code> <code>StateWord</code> <code>Tone</code></span></td><td data-l="Mock source"><span class="cv"><code>parts.tsx</code> <code>Rail.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=states&amp;s=1&amp;still=1">?j=states&amp;s=1</a><a href="mock/dist/index.html?j=j3&amp;s=2&amp;still=1">?j=j3&amp;s=2</a><a href="mock/dist/index.html?j=j3&amp;s=10&amp;still=1">?j=j3&amp;s=10</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-02<small>T-APP-03</small></span></td><td data-l="View"><span class="cv"><code>SetupView</code> <code>SettingsView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Setup.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=3&amp;still=1">?j=j1&amp;s=3</a><a href="mock/dist/index.html?j=j1&amp;s=8&amp;still=1">?j=j1&amp;s=8</a><a href="mock/dist/index.html?j=j1&amp;s=30&amp;still=1">?j=j1&amp;s=30</a><a href="mock/dist/index.html?j=states&amp;s=41&amp;still=1">?j=states&amp;s=41</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-03<small>T-APP-02</small></span></td><td data-l="View"><span class="cv"><code>DraftView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Draft.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j2&amp;s=2&amp;still=1">?j=j2&amp;s=2</a><a href="mock/dist/index.html?j=j2&amp;s=5&amp;still=1">?j=j2&amp;s=5</a><a href="mock/dist/index.html?j=j7&amp;s=3&amp;still=1">?j=j7&amp;s=3</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-04<small>T-APP-02 · T-STK-08 · T-MCH-08</small></span></td><td data-l="View"><span class="cv"><code>TodoView</code><span class="vnote">The mock puts Fork and Add to stack on the Branch card.</span></span></td><td data-l="Mock source"><span class="cv"><code>cards/Todo.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j4&amp;s=2&amp;still=1">?j=j4&amp;s=2</a><a href="mock/dist/index.html?j=states&amp;s=7&amp;still=1">?j=states&amp;s=7</a><a href="mock/dist/index.html?j=states&amp;s=10&amp;still=1">?j=states&amp;s=10</a><a href="mock/dist/index.html?j=j10&amp;s=11&amp;still=1">?j=j10&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-05<small>T-APP-04</small></span></td><td data-l="View"><span class="cv"><code>ConfirmView</code> (<code>one_click</code>, <code>review_merge</code>)</span></td><td data-l="Mock source"><span class="cv"><code>cards/Act.tsx</code> <code>cards/Confirm.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=agent&amp;s=14&amp;still=1">?j=agent&amp;s=14</a><a href="mock/dist/index.html?j=ask&amp;s=10&amp;still=1">?j=ask&amp;s=10</a><a href="mock/dist/index.html?j=states&amp;s=15&amp;still=1">?j=states&amp;s=15</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-06<small>T-APP-01 · T-GH-08</small></span></td><td data-l="View"><span class="cv"><code>HomeView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Home.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j4&amp;s=1&amp;still=1">?j=j4&amp;s=1</a><a href="mock/dist/index.html?j=states&amp;s=3&amp;still=1">?j=states&amp;s=3</a><a href="mock/dist/index.html?j=j10&amp;s=14&amp;still=1">?j=j10&amp;s=14</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-02<small>T-APP-03 · T-FLW-12</small></span></td><td data-l="View"><span class="cv"><code>SetupView</code> <code>SettingsView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Setup.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=3&amp;still=1">?j=j1&amp;s=3</a><a href="mock/dist/index.html?j=j1&amp;s=8&amp;still=1">?j=j1&amp;s=8</a><a href="mock/dist/index.html?j=j1&amp;s=30&amp;still=1">?j=j1&amp;s=30</a><a href="mock/dist/index.html?j=states&amp;s=41&amp;still=1">?j=states&amp;s=41</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-07<small>T-APP-16 · T-APP-17</small></span></td><td data-l="View"><span class="cv"><code>BranchTree</code> <code>EntryRow</code> <code>ContextLine</code>, Earlier archive<span class="vnote">The mock has no Earlier node.</span></span></td><td data-l="Mock source"><span class="cv"><code>Tree.tsx</code> <code>AppFrame.tsx</code> <code>parts.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j6&amp;s=10&amp;still=1">?j=j6&amp;s=10</a><a href="mock/dist/index.html?j=agent&amp;s=6&amp;still=1">?j=agent&amp;s=6</a><a href="mock/dist/index.html?j=ask&amp;s=6&amp;still=1">?j=ask&amp;s=6</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-08<small>T-APP-07 · T-APP-18</small></span></td><td data-l="View"><span class="cv"><code>ToastStack</code> <code>EdgeMap</code> <code>Timeline</code></span></td><td data-l="Mock source"><span class="cv"><code>Rail.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j2&amp;s=10&amp;still=1">?j=j2&amp;s=10</a><a href="mock/dist/index.html?j=j2&amp;s=11&amp;still=1">?j=j2&amp;s=11</a><a href="mock/dist/index.html?j=j4&amp;s=11&amp;still=1">?j=j4&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-09<small>T-APP-06</small></span></td><td data-l="View"><span class="cv"><code>MembersView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/People.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=24&amp;still=1">?j=j1&amp;s=24</a><a href="mock/dist/index.html?j=j1&amp;s=25&amp;still=1">?j=j1&amp;s=25</a><a href="mock/dist/index.html?j=states&amp;s=38&amp;still=1">?j=states&amp;s=38</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-10<small>T-APP-05</small></span></td><td data-l="View"><span class="cv"><code>FlowView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Flow.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j5&amp;s=6&amp;still=1">?j=j5&amp;s=6</a><a href="mock/dist/index.html?j=j11&amp;s=5&amp;still=1">?j=j11&amp;s=5</a><a href="mock/dist/index.html?j=states&amp;s=35&amp;still=1">?j=states&amp;s=35</a><a href="mock/dist/index.html?j=states&amp;s=36&amp;still=1">?j=states&amp;s=36</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-06<small>T-APP-01 · T-GH-08</small></span></td><td data-l="View"><span class="cv"><code>HomeView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Home.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j4&amp;s=1&amp;still=1">?j=j4&amp;s=1</a><a href="mock/dist/index.html?j=states&amp;s=3&amp;still=1">?j=states&amp;s=3</a><a href="mock/dist/index.html?j=j10&amp;s=14&amp;still=1">?j=j10&amp;s=14</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-11<small>T-APP-15</small></span></td><td data-l="View"><span class="cv"><code>CodeEditorView</code> (File, read-only), <code>DiffView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Code.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=12&amp;still=1">?j=j1&amp;s=12</a><a href="mock/dist/index.html?j=j1&amp;s=21&amp;still=1">?j=j1&amp;s=21</a><a href="mock/dist/index.html?j=j11&amp;s=6&amp;still=1">?j=j11&amp;s=6</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-03<small>T-APP-02</small></span></td><td data-l="View"><span class="cv"><code>DraftView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Draft.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j2&amp;s=2&amp;still=1">?j=j2&amp;s=2</a><a href="mock/dist/index.html?j=j2&amp;s=5&amp;still=1">?j=j2&amp;s=5</a><a href="mock/dist/index.html?j=j7&amp;s=3&amp;still=1">?j=j7&amp;s=3</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-04<small>T-APP-02</small></span></td><td data-l="View"><span class="cv"><code>TodoView</code>: every state, question and approval forms, failure, evidence, PR line, merge control</span></td><td data-l="Mock source"><span class="cv"><code>cards/Todo.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j4&amp;s=2&amp;still=1">?j=j4&amp;s=2</a><a href="mock/dist/index.html?j=states&amp;s=5&amp;still=1">?j=states&amp;s=5</a><a href="mock/dist/index.html?j=states&amp;s=10&amp;still=1">?j=states&amp;s=10</a><a href="mock/dist/index.html?j=j10&amp;s=11&amp;still=1">?j=j10&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-08<small>T-APP-07 · T-APP-18</small></span></td><td data-l="View"><span class="cv"><code>ToastStack</code> <code>EdgeMap</code> <code>Timeline</code></span></td><td data-l="Mock source"><span class="cv"><code>Rail.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j2&amp;s=10&amp;still=1">?j=j2&amp;s=10</a><a href="mock/dist/index.html?j=j2&amp;s=11&amp;still=1">?j=j2&amp;s=11</a><a href="mock/dist/index.html?j=j4&amp;s=11&amp;still=1">?j=j4&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-05<small>T-APP-04</small></span></td><td data-l="View"><span class="cv"><code>ConfirmView</code> (<code>one_click</code>, <code>review_merge</code>)</span></td><td data-l="Mock source"><span class="cv"><code>cards/Act.tsx</code> <code>cards/Confirm.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=agent&amp;s=14&amp;still=1">?j=agent&amp;s=14</a><a href="mock/dist/index.html?j=ask&amp;s=10&amp;still=1">?j=ask&amp;s=10</a><a href="mock/dist/index.html?j=states&amp;s=15&amp;still=1">?j=states&amp;s=15</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-09<small>T-APP-06</small></span></td><td data-l="View"><span class="cv"><code>MembersView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/People.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=24&amp;still=1">?j=j1&amp;s=24</a><a href="mock/dist/index.html?j=j1&amp;s=25&amp;still=1">?j=j1&amp;s=25</a><a href="mock/dist/index.html?j=states&amp;s=38&amp;still=1">?j=states&amp;s=38</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-14<small>T-CAT-01</small></span></td><td data-l="View"><span class="cv"><code>CommandsView</code> (<code>/help</code>)</span></td><td data-l="Mock source"><span class="cv"><code>cards/Commands.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=ask&amp;s=1&amp;still=1">?j=ask&amp;s=1</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-10<small>T-APP-05</small></span></td><td data-l="View"><span class="cv"><code>FlowView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Flow.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j5&amp;s=6&amp;still=1">?j=j5&amp;s=6</a><a href="mock/dist/index.html?j=j11&amp;s=5&amp;still=1">?j=j11&amp;s=5</a><a href="mock/dist/index.html?j=states&amp;s=35&amp;still=1">?j=states&amp;s=35</a><a href="mock/dist/index.html?j=states&amp;s=36&amp;still=1">?j=states&amp;s=36</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-12<small>T-FLW-07</small></span></td><td data-l="View"><span class="cv"><code>RunView</code> monitor and Inspect</span></td><td data-l="Mock source"><span class="cv"><code>cards/Run.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=run&amp;s=1&amp;still=1">?j=run&amp;s=1</a><a href="mock/dist/index.html?j=run&amp;s=2&amp;still=1">?j=run&amp;s=2</a><a href="mock/dist/index.html?j=run&amp;s=6&amp;still=1">?j=run&amp;s=6</a><a href="mock/dist/index.html?j=j11&amp;s=1&amp;still=1">?j=j11&amp;s=1</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-13<small>T-FLW-08</small></span></td><td data-l="View"><span class="cv"><code>AgentView</code> and model roles</span></td><td data-l="Mock source"><span class="cv"><code>cards/Agent.tsx</code> <code>cards/Setup.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j11&amp;s=13&amp;still=1">?j=j11&amp;s=13</a><a href="mock/dist/index.html?j=j11&amp;s=15&amp;still=1">?j=j11&amp;s=15</a><a href="mock/dist/index.html?j=j1&amp;s=8&amp;still=1">?j=j1&amp;s=8</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
-        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-14<small>T-CAT-01</small></span></td><td data-l="View"><span class="cv"><code>CommandsView</code> (<code>/help</code>)</span></td><td data-l="Mock source"><span class="cv"><code>cards/Commands.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=ask&amp;s=1&amp;still=1">?j=ask&amp;s=1</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-23<small>T-STK-08 · T-MCH-08 · T-GH-06</small></span></td><td data-l="View"><span class="cv"><code>TodoView</code> repair parts: conflict view, moved-off and outside-push forms, Fork, Add to stack<span class="vnote">The mock puts Fork and Add to stack on the Branch card.</span></span></td><td data-l="Mock source"><span class="cv"><code>cards/Todo.tsx</code> <code>cards/Branch.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=states&amp;s=7&amp;still=1">?j=states&amp;s=7</a><a href="mock/dist/index.html?j=states&amp;s=8&amp;still=1">?j=states&amp;s=8</a><a href="mock/dist/index.html?j=j10&amp;s=6&amp;still=1">?j=j10&amp;s=6</a><a href="mock/dist/index.html?j=states&amp;s=24&amp;still=1">?j=states&amp;s=24</a><a href="mock/dist/index.html?j=j7&amp;s=6&amp;still=1">?j=j7&amp;s=6</a><a href="mock/dist/index.html?j=j7&amp;s=11&amp;still=1">?j=j7&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-15<small>T-APP-10 · T-COL-05</small></span></td><td data-l="View"><span class="cv"><code>BranchView</code> with moved-off controls</span></td><td data-l="Mock source"><span class="cv"><code>cards/Branch.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j3&amp;s=2&amp;still=1">?j=j3&amp;s=2</a><a href="mock/dist/index.html?j=j7&amp;s=6&amp;still=1">?j=j7&amp;s=6</a><a href="mock/dist/index.html?j=states&amp;s=23&amp;still=1">?j=states&amp;s=23</a><a href="mock/dist/index.html?j=states&amp;s=24&amp;still=1">?j=states&amp;s=24</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-16<small>T-APP-11</small></span></td><td data-l="View"><span class="cv">File and Diff states: reload, gone, renamed, Restore, Compare</span></td><td data-l="Mock source"><span class="cv"><code>cards/Code.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=states&amp;s=25&amp;still=1">?j=states&amp;s=25</a><a href="mock/dist/index.html?j=states&amp;s=26&amp;still=1">?j=states&amp;s=26</a><a href="mock/dist/index.html?j=states&amp;s=28&amp;still=1">?j=states&amp;s=28</a><a href="mock/dist/index.html?j=states&amp;s=29&amp;still=1">?j=states&amp;s=29</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-17<small>T-APP-12</small></span></td><td data-l="View"><span class="cv"><code>TerminalView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Terminal.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j3&amp;s=3&amp;still=1">?j=j3&amp;s=3</a><a href="mock/dist/index.html?j=j3&amp;s=5&amp;still=1">?j=j3&amp;s=5</a><a href="mock/dist/index.html?j=agent&amp;s=9&amp;still=1">?j=agent&amp;s=9</a><a href="mock/dist/index.html?j=states&amp;s=37&amp;still=1">?j=states&amp;s=37</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-18<small>T-APP-13</small></span></td><td data-l="View"><span class="cv"><code>SecretsView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/People.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=27&amp;still=1">?j=j1&amp;s=27</a><a href="mock/dist/index.html?j=j1&amp;s=29&amp;still=1">?j=j1&amp;s=29</a><a href="mock/dist/index.html?j=states&amp;s=39&amp;still=1">?j=states&amp;s=39</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-21<small>T-APP-20</small></span></td><td data-l="View"><span class="cv"><code>DocsView</code> (<code>/docs</code>)</span></td><td data-l="Mock source" class="na"><span class="cv">none yet<span class="vnote">The mock lists <code>/docs</code> only in <code>/help</code>.</span></span></td><td data-l="Reel steps" class="na"><span class="cv">none yet</span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-22<small>T-APP-21</small></span></td><td data-l="View"><span class="cv"><code>DebugApiView</code> (<code>/debug-api</code>)</span></td><td data-l="Mock source" class="na"><span class="cv">none yet<span class="vnote">The mock lists <code>/debug-api</code> only in <code>/help</code>.</span></span></td><td data-l="Reel steps" class="na"><span class="cv">none yet</span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-19<small>T-APP-14</small></span></td><td data-l="View"><span class="cv">Co-editing visuals on <code>CodeEditorView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Code.tsx</code> <code>cards/Wiki.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j3&amp;s=8&amp;still=1">?j=j3&amp;s=8</a><a href="mock/dist/index.html?j=states&amp;s=27&amp;still=1">?j=states&amp;s=27</a><a href="mock/dist/index.html?j=j8&amp;s=6&amp;still=1">?j=j8&amp;s=6</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S3</span></span></td></tr>
         <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-20<small>T-FLW-06</small></span></td><td data-l="View"><span class="cv"><code>ProposalView</code> and the lessons receipt</span></td><td data-l="Mock source"><span class="cv"><code>cards/Learning.tsx</code> <code>cards/Todo.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j5&amp;s=12&amp;still=1">?j=j5&amp;s=12</a><a href="mock/dist/index.html?j=j5&amp;s=13&amp;still=1">?j=j5&amp;s=13</a><a href="mock/dist/index.html?j=j8&amp;s=2&amp;still=1">?j=j8&amp;s=2</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S3</span></span></td></tr>
       </tbody>
     </table>
   </figure>
   <ul class="rules">
-    <li>Stage 1 comes first. Within a stage, the order is the order a fresh install meets them in J1, then J2.</li>
+    <li>Rows follow ui-components.md v0.4 Order of need. Stage 1 comes first; within a stage, the order a fresh install meets each component in J1, then J2, J4, J5 and J11.</li>
     <li>Step links open the built mock (<code>node .specs/design/mock/build.mjs</code>). <code>s=n</code> shows the frame after step n.</li>
+    <li>Mock sources and reel steps are design guidance. Acceptance is C-UI-12: each View renders T-APP-19's fixtures.<span class="prop">Proposed</span></li>
     <li>A change to a retained card's fields first adds its spec.md §14.3 row.</li>
   </ul>
-  <p class="src"><strong>Source</strong> mvp.md §5 (journeys), §11 (stages 1 to 3); ui-components.md v0.3 (Order of need, Props per component); spec.md §14.3, §14.3.0; tickets T-UI-01 to T-UI-20; mock <code>src/journeys/*.ts</code> (step numbers checked 2026-10-02), <code>src/cards/*.tsx</code>.</p>
+  <p class="src"><strong>Source</strong> mvp.md §5 (journeys), §11 (stages 1 to 3), M-35, M-36; ui-components.md v0.4 (Order of need, Completion gates, Props per component); spec.md §14.3, §14.3.0; <code>tickets/README.md</code>; tickets T-UI-01 to T-UI-23; mock <code>src/journeys/*.ts</code> (step numbers checked 2026-10-02), <code>src/cards/*.tsx</code>.</p>
 </section>
 
 <!-- ═════════════════ 12 FILES ═════════════════ -->
@@ -1596,6 +1734,7 @@ type CardProps&lt;M&gt; = {
 │  │  ├─ AgentView.tsx  CommandsView.tsx
 │  │  ├─ SetupView.tsx  SettingsView.tsx
 │  │  ├─ MembersView.tsx  SecretsView.tsx
+│  │  ├─ DocsView.tsx  DebugApiView.tsx
 │  │  ├─ ProposalView.tsx
 │  │  └─ shell parts: BranchTree, EntryRow, ContextLine,
 │  │     ToastStack, EdgeMap, Timeline
@@ -1603,19 +1742,24 @@ type CardProps&lt;M&gt; = {
 │  ├─ CardRenderers.tsx    <span class="c">renders Containers</span>
 │  └─ CardActions.ts       <span class="c">cardActions</span>
 └─ flows/FlowAction.ts     <span class="c">flowAction</span>
+apps/app/src/docs/         <span class="c">bundled pages, toc.ts (T-APP-20)</span>
+docs/api/openapi.yaml      <span class="c">Debug API operations, bundled</span>
 packages/rpc/
 ├─ src/&lt;Card&gt;Card.ts       <span class="c">zod view model (T-APP-19)</span>
+│                          <span class="c">TodoCard, DocsCard, DebugApiCard …</span>
 └─ test/fixtures/&lt;Card&gt;.ts <span class="c">fixtures for the stories</span>
+                           <span class="c">Todo, Docs, DebugApi …</span>
 packages/smithers/ui/src/  <span class="c">@smthrs/ui: shared primitives</span></pre>
       </div>
     </div>
   </figure>
   <ul class="rules">
-    <li>Each mock card maps to one View. Its CSS marked PORT moves with it; MOCK CSS stays in the harness.</li>
+    <li>Each new §14.3 card maps to a View; mock files may combine/split those presentations. Retained cards keep existing renderers.</li>
+    <li>CSS marked PORT moves with its View; MOCK CSS stays in the harness.<span class="prop">Proposed</span></li>
     <li><code>world.ts</code> is the design's view of the data, not an API. The props are ui-components.md, then the zod schemas.</li>
-    <li>Each View ships fixture stories for every state its props allow: light and dark, desktop and 390 px.</li>
+    <li>Each View ships fixture stories for every state its props allow: light and dark, at 1280 and 390 px (C-UI-12).</li>
   </ul>
-  <p class="src"><strong>Source</strong> design README (Run it, Porting); ui-components.md v0.3 (opening diagram, Rules); spec.md §14.2.1, §14.3.0; delta.md §9; tickets T-UI-01 to T-UI-20 (Scope, Changes); mock <code>build.mjs</code>, <code>check.mjs</code>, <code>copy.mjs</code>, <code>shot.mjs</code>.</p>
+  <p class="src"><strong>Source</strong> design README (Run it, Porting); ui-components.md v0.4 (opening diagram, Rules, Completion gates, T-UI-21, T-UI-22); spec.md §14.2.1, §14.3 (Docs, Debug API rows), §14.3.0; delta.md §9; tickets T-UI-01 to T-UI-23 (Scope, Changes); mock <code>build.mjs</code>, <code>check.mjs</code>, <code>copy.mjs</code>, <code>shot.mjs</code>.</p>
 </section>
 
 <p class="foot">Smithers MVP design architecture · smithers-06 · 2026-10-02. Contradictions between sources go to the design lead, not onto this page.</p>
