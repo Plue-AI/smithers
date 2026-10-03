@@ -543,6 +543,30 @@ describe("render", () => {
     }
   })
 
+  it("writes per-step results files and uploads them per job, attempt and matrix leg only when declared", () => {
+    expect(golden).not.toContain("--results-file")
+    expect(golden).not.toContain("smthrs-results")
+    const text = render(attrsOf({ ...goldenAttrs, results: true }))
+    const workflow = parseWorkflow(text)
+    for (const job of workflow.jobs) {
+      const commands = job.steps.map((step) => step.run ?? "").filter((command) => command.startsWith("pnpm exec smthrs"))
+      for (const command of commands) {
+        expect(command).toMatch(/ --results-file "\$RUNNER_TEMP\/smthrs-results\/\$GITHUB_ACTION\.json" --verbose$/)
+      }
+      expect(job.steps[0]!.name).toBe("Start smthrs results")
+      expect(job.steps[0]!.condition).toBeUndefined()
+      expect(job.steps[0]!.shell).toBe("bash")
+      expect(job.steps[0]!.run).toContain(`'{"version":1,"results":[]}' > "$RUNNER_TEMP/smthrs-results/attempt.json"`)
+      const upload = job.steps.at(-1)!
+      expect(upload.name).toBe("Upload smthrs results")
+      expect(upload.condition).toBe("always()")
+      expect(upload.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/)
+      // Non-matrix jobs get a literal 0: strategy.job-index is only defined under a matrix.
+      expect(text).toMatch(new RegExp(`smthrs-results-${job.id}-(0|\\$\\{\\{ strategy\\.job-index \\}\\})-\\$\\{\\{ github\\.run_attempt \\}\\}`))
+    }
+    expect(text).toContain("${{ runner.temp }}/smthrs-results")
+  })
+
   it.each(["/etc/list.json", "../list.json", "ci/../list.json", "a list.json", "it's.json", "ci//list.json"])(
     "refuses the known-red path %s",
     (knownRed) => {

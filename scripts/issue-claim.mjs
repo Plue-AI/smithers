@@ -39,7 +39,7 @@ import { homedir, hostname, userInfo } from "node:os"
 import { join } from "node:path"
 import process from "node:process"
 
-import { evidenceGate } from "./check-evidence.mjs"
+import { evidenceGate, reverifyCi } from "./check-evidence.mjs"
 
 import { proxyUrl } from "./github-proxy.mjs"
 
@@ -125,6 +125,12 @@ const defaultGh = (args) => {
   return execFileSync(binary, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20 })
 }
 
+/** `gh` for binary bodies such as artifact zips, which utf8 decoding would corrupt. */
+const defaultGhBytes = (args) => {
+  const binary = process.env.ISSUE_CLAIM_GH || "gh"
+  return execFileSync(binary, args, { encoding: "buffer", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 })
+}
+
 /** Starts the machine's GitHub proxy unless it answers. */
 const defaultEnsure = (env) => {
   execFileSync(process.execPath, [new URL("./github-proxy.mjs", import.meta.url).pathname, "--ensure"],
@@ -185,7 +191,7 @@ export const read = ({ repo, number }, gh = defaultGh) => {
 const mine = (claim, me) => claim && claim.by === me.by && claim.host === me.host
 
 /** Runs a command through the machine's GitHub proxy, starting it first when it is not running. */
-export const run = (argv, { gh = defaultGh, now = () => new Date(), env = process.env, ensure = defaultEnsure, cwd = process.cwd() } = {}) => {
+export const run = (argv, { gh = defaultGh, ghBytes = defaultGhBytes, now = () => new Date(), env = process.env, ensure = defaultEnsure, cwd = process.cwd() } = {}) => {
   const [command, ref, ...rest] = argv
   const option = (name) => { const at = rest.indexOf(name); return at < 0 ? undefined : rest[at + 1] }
   const flag = (name) => rest.includes(name)
@@ -214,6 +220,14 @@ export const run = (argv, { gh = defaultGh, now = () => new Date(), env = proces
   const admit = (writes) => { identity = github.admit(issue.repo, writes) }
   const result = (code, out) => ({ code, out: { ...out, identity } })
   try {
+    // Inside the try: a rate-limited CI read defers the close instead of crashing it.
+    if (command === "comment" && flag("--close") && (!closeReason || closeReason === "completed")) {
+      const receipts = rest.flatMap((arg, index) => arg === "--receipt" ? [rest[index + 1]] : [])
+      const bytes = proxied({ gh: ghBytes, base: proxyUrl(env), now })
+      const checks = reverifyCi({ root: cwd, repo: issue.repo, landed: option("--landed"), receipts,
+        github: { json: (path) => JSON.parse(github.read(["api", path])), bytes: (path) => bytes.read(["api", path]) } })
+      if (checks.length) return { code: 2, out: { issue: id, action: "evidence-refused", checks } }
+    }
     admit(0)
     const initial = readIssue()
     const before = holder(initial, now().getTime())

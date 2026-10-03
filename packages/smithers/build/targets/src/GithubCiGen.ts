@@ -386,6 +386,13 @@ export const Attrs = Schema.Struct({
    * does. Omitted, every red target fails its step.
    */
   knownRed: Schema.optional(Schema.NonEmptyString),
+  /**
+   * Whether every step also writes its per-label summary with
+   * `--results-file` and each job uploads those files as the artifact
+   * `smthrs-results-<job>-<index>-<attempt>`. A check receipt reads a label's
+   * status from that artifact, never from the log.
+   */
+  results: Schema.optional(Schema.Boolean),
   mode: OutputMode
 })
 
@@ -698,6 +705,8 @@ export const stepCommand = (attrs: Attrs, step: TargetStep, nix?: CiToolchain.Ni
     shellArgument(step.pattern),
     ...(step.parallelism === undefined ? [] : ["--jobs", String(step.parallelism)]),
     ...(attrs.knownRed === undefined ? [] : ["--known-red", shellArgument(attrs.knownRed)]),
+    // GITHUB_ACTION is unique per step within a job, so no two steps share a file.
+    ...(attrs.results === true ? ["--results-file", `"$RUNNER_TEMP/${resultsDirectory}/$GITHUB_ACTION.json"`] : []),
     "--verbose"
   ].join(" ")
 }
@@ -1111,17 +1120,39 @@ export const artifactSteps = (upload: CiToolchain.ArtifactUpload): ReadonlyArray
   })
   return [
     { name: `Collect ${upload.artifact}`, condition: "always()", run: [`mkdir -p ${root}`, ...copies].join("\n") },
-    {
-      name: `Upload ${upload.artifact}`,
-      condition: "always()",
-      uses: actions.uploadArtifact,
-      with: {
-        name: artifact,
-        path: `\${{ runner.temp }}/${artifact}`,
-        "if-no-files-found": upload.sources.some((source) => source.required === true) ? "error" : "ignore"
-      }
-    }
+    uploadStep(`Upload ${upload.artifact}`, artifact, artifact, upload.sources.some((source) => source.required === true) ? "error" : "ignore")
   ]
+}
+
+/** The `$RUNNER_TEMP` directory every step's `--results-file` writes into. */
+const resultsDirectory = "smthrs-results"
+
+/** The always-run upload of `$RUNNER_TEMP/<directory>` as the artifact `name`; one shape for every upload. */
+const uploadStep = (stepName: string, name: string, directory: string, ifNoFiles: "error" | "ignore"): RenderedStep => ({
+  name: stepName,
+  condition: "always()",
+  uses: actions.uploadArtifact,
+  with: { name, path: `\${{ runner.temp }}/${directory}`, "if-no-files-found": ifNoFiles }
+})
+
+/**
+ * A job's per-step results files. The name carries the run attempt, since an
+ * artifact name cannot repeat within a run and a rerun uploads again, and the
+ * matrix index only for matrix jobs, where `strategy.job-index` is defined.
+ */
+const resultsUpload = (jobId: string, matrix: boolean): RenderedStep =>
+  uploadStep(
+    "Upload smthrs results",
+    `${resultsDirectory}-${jobId}-${matrix ? "${{ strategy.job-index }}" : "0"}-\${{ github.run_attempt }}`,
+    resultsDirectory,
+    "error"
+  )
+
+/** The empty results record each job writes before its setup steps. */
+const resultsMarker: RenderedStep = {
+  name: "Start smthrs results",
+  shell: "bash",
+  run: `mkdir -p "$RUNNER_TEMP/${resultsDirectory}" && printf '%s\\n' '{"version":1,"results":[]}' > "$RUNNER_TEMP/${resultsDirectory}/attempt.json"`
 }
 
 /** GitHub's own job-id shape: a letter or `_`, then letters, digits, `-`, `_`. */
@@ -1558,7 +1589,13 @@ export const render = (attrs: Attrs): string => {
       lines.push(`    continue-on-error: ${job.continueOnError}`)
     }
     lines.push("    steps:")
-    const rendered: Array<RenderedStep> = [...toolchainSteps(attrs, job)]
+    const rendered: Array<RenderedStep> = [
+      // First, before any setup can fail: every leg of every attempt uploads at
+      // least this empty record, so a rerun leg that dies early supersedes its
+      // earlier attempt's results instead of inheriting them (#3663).
+      ...(attrs.results === true ? [resultsMarker] : []),
+      ...toolchainSteps(attrs, job)
+    ]
     // Gates are independent, so a red one must not skip the ones after it. No
     // setup step declares an `if:`, so the last one concludes `success` only
     // when every setup step did: gates never run over a failed install. Every
@@ -1573,6 +1610,7 @@ export const render = (attrs: Attrs): string => {
       })
     }
     if (job.toolchain.artifacts !== undefined) rendered.push(...artifactSteps(job.toolchain.artifacts))
+    if (attrs.results === true) rendered.push(resultsUpload(job.id, job.matrix !== undefined))
     for (const step of rendered) lines.push(...renderStep(step, "      "))
   }
   return `${lines.join("\n")}\n`

@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createServer, connect } from 'node:net'
-import { validMapping, zeroTests } from './check-evidence.mjs'
+import { expectedCommand, reverifyCi, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
 import { fixture } from './fixtures/check-receipts.mjs'
+import { run as claimRun } from './issue-claim.mjs'
 
 const digest = (data) => `sha256:${createHash('sha256').update(data).digest('hex')}`
 
@@ -364,4 +366,202 @@ test('an exit-0 run with zero tests fails the runner and its receipt cannot clos
     assert.deepEqual(closed.out.checks.map(c => [c.check, c.reason]), [['C-FIX-01', 'failed'], ['C-FIX-02', 'failed']])
     assert.equal(f.writes.length, 0)
   } finally { f.cleanup() }
+})
+
+// #3663 option B: CI's own record decides a target mapping. Each case forges one input.
+const ciFixture = (overrides = {}) => {
+  const L = 'a'.repeat(40); const label = '//apps/app:viewStories'
+  const latest = Buffer.from('latest'); const earlier = Buffer.from('earlier')
+  const files = new Map([
+    [latest.toString(), [{ name: 'step.json', text: JSON.stringify({ version: 1, results: [{ label, status: overrides.status ?? 'ran', key: 'k' }, { label: '//other:x', status: 'failed' }] }) }]],
+    [earlier.toString(), [{ name: 'step.json', text: JSON.stringify({ version: 1, results: [{ label, status: 'ran', key: 'k' }] }) }]]
+  ])
+  const api = {
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1', ...overrides.check }] },
+    'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2, html_url: 'https://github.com/o/r/actions/runs/7', ...overrides.run },
+    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'test', conclusion: 'failure', run_attempt: overrides.testAttempt ?? 2 }, ...(overrides.jobs ?? [])] },
+    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [
+      { id: 10, name: 'smthrs-results-test-0-2', workflow_run: { id: 7 }, expired: false, digest: digest(latest), ...overrides.artifact },
+      { id: 11, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(earlier) }
+    ] }
+  }
+  const zips = { 'repos/o/r/actions/artifacts/10/zip': overrides.zip ?? latest, 'repos/o/r/actions/artifacts/11/zip': earlier }
+  return verifyCiRun({ github: { json: (path) => api[path] ?? (() => { throw new Error(`unexpected ${path}`) })(), bytes: (path) => zips[path] }, unpack: (bytes) => ({ files: files.get(bytes.toString()) ?? [] }), repo: 'o/r', landed: L, label })
+}
+
+test('CI receipt passes on the label\'s own status in the latest attempt, even when another target failed the job', () => {
+  const ok = ciFixture()
+  assert.equal(ok.pass, true); assert.equal(ok.reason, 'pass')
+  assert.deepEqual(ok.evidence.rows.map(row => [row.artifact, row.status]), [['smthrs-results-test-0-2', 'ran']])
+  assert.equal(ciFixture({ status: 'hit' }).pass, true)
+})
+
+test('CI receipt refuses forged sha, app, branch, event and workflow path', () => {
+  for (const [overrides, reason] of [
+    [{ check: { head_sha: 'b'.repeat(40) } }, 'no_run'],
+    [{ check: { app: { slug: 'evil-app' } } }, 'no_run'],
+    [{ run: { head_sha: 'b'.repeat(40) } }, 'no_run'],
+    [{ run: { event: 'pull_request' } }, 'no_run'],
+    [{ run: { head_branch: 'feature' } }, 'no_run'],
+    [{ run: { path: '.github/workflows/pr-edited.yml' } }, 'no_run'],
+    [{ run: { repository: { full_name: 'fork/r' } } }, 'no_run'],
+    [{ run: { status: 'in_progress' } }, 'incomplete']
+  ]) assert.equal(ciFixture(overrides).reason, reason, JSON.stringify(overrides))
+})
+
+test('CI receipt refuses a rerun that still fails, ignoring the earlier passing attempt', () => {
+  const r = ciFixture({ status: 'failed' })
+  assert.equal(r.pass, false); assert.equal(r.reason, 'label_failed')
+  assert.ok(r.evidence.rows.every(row => row.artifact.endsWith('-2')))
+  assert.equal(ciFixture({ status: 'skipped' }).reason, 'label_failed')
+})
+
+test('CI receipt refuses foreign or tampered artifacts, stopped jobs and an absent label', () => {
+  assert.equal(ciFixture({ artifact: { workflow_run: { id: 8 } } }).reason, 'artifact_foreign')
+  assert.equal(ciFixture({ artifact: { expired: true } }).reason, 'artifact_foreign')
+  assert.equal(ciFixture({ zip: Buffer.from('tampered') }).reason, 'artifact_digest')
+  assert.equal(ciFixture({ jobs: [{ name: 'go', conclusion: 'cancelled' }] }).reason, 'job_stopped')
+  assert.equal(ciFixture({ jobs: [{ name: 'go', conclusion: 'timed_out' }] }).reason, 'job_stopped')
+  // A leg the latest attempt re-ran must have uploaded at that attempt (b8): its earlier pass never stands in.
+  assert.equal(ciFixture({ artifact: { name: 'smthrs-results-test-0-1x' } }).reason, 'artifact_missing')
+  // A leg the rerun did not execute keeps its earlier attempt's result.
+  const fallback = ciFixture({ artifact: { name: 'smthrs-results-test-0-1x' }, testAttempt: 1 })
+  assert.equal(fallback.pass, true); assert.deepEqual(fallback.evidence.rows.map(row => row.artifact), ['smthrs-results-test-0-1'])
+})
+
+test('target mappings carry a label and no argv, and closure expects the CI receipt command', () => {
+  const target = { approvedBy: 'smithers-22', host: 'CI', target: '//apps/app:viewStories' }
+  assert.equal(validMapping(target), true)
+  for (const bad of [{ ...target, host: 'reference host' }, { ...target, command: ['node'] }, { ...target, paths: ['x'] }, { ...target, target: 'apps/app:viewStories' }, { ...target, target: '//apps/app' }]) assert.equal(validMapping(bad), false, JSON.stringify(bad))
+  assert.deepEqual(expectedCommand(target), ['smthrs-ci', '//apps/app:viewStories'])
+  assert.deepEqual(expectedCommand({ command: ['node', 'x.mjs'] }), ['node', 'x.mjs'])
+})
+
+test('a target mapping never executes argv: it needs --landed, and --landed refuses an argv mapping', () => {
+  const f = fixture()
+  try {
+    const mappings = JSON.parse(readFileSync(join(f.root, 'scripts/check-commands.json')))
+    const { command, paths, ...rest } = mappings.checks['C-FIX-02']
+    mappings.checks['C-FIX-02'] = { ...rest, target: '//fixture:canary' }
+    f.put('scripts/check-commands.json', JSON.stringify(mappings))
+    f.commit()
+    const run = (args) => spawnSync(process.execPath, ['scripts/check-run.mjs', ...args], { cwd: f.root, encoding: 'utf8', env: { ...process.env, HOME: join(f.root, 'home'), CI: 'true' } })
+    const target = run(['C-FIX-02'])
+    assert.equal(target.status, 2); assert.match(JSON.parse(target.stdout).reason, /recorded from CI with --landed/)
+    const argv = run(['C-FIX-01', '--landed', f.sha])
+    assert.equal(argv.status, 2); assert.match(JSON.parse(argv.stdout).reason, /--landed applies only to a target mapping/)
+    assert.equal(run(['C-FIX-01', '--landed']).status, 2)
+  } finally { f.cleanup() }
+})
+
+test('artifact unpacking is confined: symlinks, nested paths and oversize zips refuse with fixed reasons (3f, #3663)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'unpack-'))
+  try {
+    const zip = (name, setup, flags = []) => {
+      const work = join(dir, name); mkdirSync(work, { recursive: true }); setup(work)
+      spawnSync('/usr/bin/zip', ['-q', '-r', ...flags, join(dir, `${name}.zip`), '.'], { cwd: work })
+      return readFileSync(join(dir, `${name}.zip`))
+    }
+    const good = unpackResults(zip('good', (w) => writeFileSync(join(w, 'step.json'), '{"version":1,"results":[]}')))
+    assert.deepEqual(good, { files: [{ name: 'step.json', text: '{"version":1,"results":[]}' }] })
+    const secret = join(dir, 'secret.txt'); writeFileSync(secret, '-----BEGIN PRIVATE KEY-----')
+    const link = unpackResults(zip('link', (w) => symlinkSync(secret, join(w, 'x.json')), ['-y']))
+    assert.deepEqual(link, { reason: 'artifact_entry' })
+    assert.deepEqual(unpackResults(zip('nested', (w) => { mkdirSync(join(w, 'sub')); writeFileSync(join(w, 'sub', 'x.json'), '{}') })), { reason: 'artifact_entry' })
+    assert.deepEqual(unpackResults(zip('other', (w) => writeFileSync(join(w, 'x.txt'), '{}'))), { reason: 'artifact_entry' })
+    assert.deepEqual(unpackResults(zip('big', (w) => writeFileSync(join(w, 'x.json'), 'x'.repeat(2048))), { maxFile: 1024 }), { reason: 'artifact_size' })
+    assert.deepEqual(unpackResults(zip('total', (w) => { writeFileSync(join(w, 'a.json'), 'x'.repeat(600)); writeFileSync(join(w, 'b.json'), 'x'.repeat(600)) }), { maxTotal: 1000 }), { reason: 'artifact_size' })
+    assert.deepEqual(unpackResults(Buffer.from('not a zip')), { reason: 'artifact_zip' })
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('unreadable results JSON refuses with a fixed reason and no file contents', () => {
+  const L = 'a'.repeat(40); const bytes = Buffer.from('z')
+  const api = {
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
+    'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 1 },
+    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [] },
+    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(bytes) }] }
+  }
+  const r = verifyCiRun({ github: { json: (p) => api[p], bytes: () => bytes }, unpack: () => ({ files: [{ name: 'x.json', text: '-----BEGIN PRIVATE KEY----- abc' }] }), repo: 'o/r', landed: L, label: '//a:b' })
+  assert.equal(r.reason, 'results_unreadable')
+  assert.ok(!JSON.stringify(r).includes('PRIVATE KEY'))
+})
+
+test('a partial rerun keeps each job leg at its newest attempt, and truncated listings refuse (Fable, #3663)', () => {
+  const L = 'a'.repeat(40); const label = '//x:y'
+  const bytes = { a1: Buffer.from('a1'), b1: Buffer.from('b1'), a2: Buffer.from('a2') }
+  const rows = { a1: 'failed', b1: 'ran', a2: 'ran' }
+  const artifact = (id, name, key) => ({ id, name, workflow_run: { id: 7 }, expired: false, digest: digest(bytes[key]) })
+  const api = (extra = {}) => ({
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }], ...extra.checks },
+    'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2 },
+    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'a', conclusion: 'success', run_attempt: 2 }, { name: 'b', conclusion: 'success', run_attempt: 1 }], ...extra.jobs },
+    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [artifact(1, 'smthrs-results-a-0-1', 'a1'), artifact(2, 'smthrs-results-b-0-1', 'b1'), artifact(3, 'smthrs-results-a-0-2', 'a2')], ...extra.artifacts }
+  })
+  const verify = (extra) => {
+    const responses = api(extra); const zips = { 1: bytes.a1, 2: bytes.b1, 3: bytes.a2 }
+    return verifyCiRun({ github: { json: (p) => responses[p], bytes: (p) => zips[/artifacts\/(\d+)\/zip/.exec(p)[1]] }, unpack: (b) => ({ files: [{ name: 's.json', text: JSON.stringify({ version: 1, results: [{ label, status: rows[b.toString()] }] }) }] }), repo: 'o/r', landed: L, label })
+  }
+  const r = verify()
+  assert.equal(r.pass, true, JSON.stringify(r))
+  assert.deepEqual(r.evidence.rows.map(row => [row.artifact, row.status]), [['smthrs-results-a-0-2', 'ran'], ['smthrs-results-b-0-1', 'ran']])
+  for (const extra of [{ checks: { total_count: 101 } }, { jobs: { total_count: 150 } }, { artifacts: { total_count: 500 } }]) assert.equal(verify(extra).reason, 'truncated', JSON.stringify(extra))
+})
+
+test('closure re-reads CI for a target receipt: a hand-written receipt that passes the local gate is refused', () => {
+  const f = fixture()
+  try {
+    const mappings = JSON.parse(readFileSync(join(f.root, 'scripts/check-commands.json')))
+    const { command, paths, ...rest } = mappings.checks['C-FIX-02']
+    mappings.checks['C-FIX-02'] = { ...rest, target: '//fixture:canary' }
+    f.put('scripts/check-commands.json', JSON.stringify(mappings))
+    f.commit()
+    f.put('.artifacts/checks/C-FIX-02/forged/log.txt', 'ok')
+    f.put('.artifacts/checks/C-FIX-02/forged/receipt.json', JSON.stringify({ version: 1, check: 'C-FIX-02', commit: f.sha, layer: 'integration', command: ['smthrs-ci', '//fixture:canary'], exit: 0, started: '2026-10-03T00:00:00.000Z', ended: '2026-10-03T00:00:01.000Z', log_digest: digest('ok') }))
+    const L = f.sha; const calls = []
+    const github = { json: (p) => { calls.push(p); return p.includes('check-runs') ? { check_runs: [] } : {} }, bytes: () => Buffer.alloc(0) }
+    const failures = reverifyCi({ root: f.root, repo: 'o/r', landed: L, receipts: ['.artifacts/checks/C-FIX-02/forged/receipt.json'], github })
+    assert.deepEqual(failures, [{ check: 'C-FIX-02', receipt: '.artifacts/checks/C-FIX-02/forged/receipt.json', reason: 'ci_no_run' }])
+    assert.ok(calls[0].startsWith(`repos/o/r/commits/${L}/check-runs`))
+  } finally { f.cleanup() }
+})
+
+test('a rate-limited CI read during closure defers the close instead of crashing it (Fable N2)', () => {
+  const f = fixture()
+  try {
+    const mappings = JSON.parse(readFileSync(join(f.root, 'scripts/check-commands.json')))
+    for (const id of ['C-FIX-01', 'C-FIX-02']) { const { command, paths, ...rest } = mappings.checks[id]; mappings.checks[id] = { ...rest, target: `//fixture:${id}` } }
+    f.put('scripts/check-commands.json', JSON.stringify(mappings))
+    f.commit()
+    const receipts = ['C-FIX-01', 'C-FIX-02'].map(id => {
+      f.put(`.artifacts/checks/${id}/r/log.txt`, 'ok')
+      f.put(`.artifacts/checks/${id}/r/receipt.json`, JSON.stringify({ version: 1, check: id, commit: f.sha, layer: 'integration', command: ['smthrs-ci', `//fixture:${id}`], exit: 0, started: '2026-10-03T00:00:00.000Z', ended: '2026-10-03T00:00:01.000Z', log_digest: digest('ok') }))
+      return `.artifacts/checks/${id}/r/receipt.json`
+    })
+    const writes = []
+    const gh = (args) => {
+      if (args.includes('-i')) { writes.push(args); return '{}' }
+      const error = new Error('gh: API rate limit exceeded'); error.stderr = 'API rate limit exceeded (HTTP 429)'; throw error
+    }
+    const out = claimRun(['comment', 'o/r#7', '--by', 'fixture', '--body', 'Complete', '--close', '--landed', f.sha, ...receipts.flatMap(p => ['--receipt', p])], { cwd: f.root, env: { SMITHERS_GITHUB_PROXY: 'http://fixture.test' }, ensure: () => {}, gh, ghBytes: gh })
+    assert.equal(out.out.action, 'deferred', JSON.stringify(out))
+    assert.ok(out.out.retry_at)
+    assert.equal(writes.length, 0)
+  } finally { f.cleanup() }
+})
+
+test('an empty or non-JSON results file refuses the receipt (38L: a crashed run leaves 0 bytes)', () => {
+  const L = 'a'.repeat(40); const bytes = Buffer.from('z')
+  const api = {
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
+    'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 1 },
+    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [] },
+    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(bytes) }] }
+  }
+  for (const text of ['', 'not json', '{"results":[]}']) {
+    const files = [{ name: 'attempt.json', text: '{"version":1,"results":[]}' }, { name: '__run.json', text: JSON.stringify({ version: 1, results: [{ label: '//a:b', status: 'ran' }] }) }, { name: '__run_2.json', text }]
+    const r = verifyCiRun({ github: { json: (p) => api[p], bytes: () => bytes }, unpack: () => ({ files }), repo: 'o/r', landed: L, label: '//a:b' })
+    assert.equal(r.reason, 'results_unreadable', JSON.stringify(text))
+  }
 })

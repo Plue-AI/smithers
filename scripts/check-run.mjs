@@ -4,15 +4,31 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { confined, fullSha, gitRead, hashLog, validMapping, zeroTests } from './check-evidence.mjs'
+import { confined, expectedCommand, fullSha, gitRead, hashLog, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
 
 const root = realpathSync(process.cwd())
+/** Writes one receipt and its log; never follows a pre-existing artifact symlink. */
+const publish = ({ id, commit, layer, command, exit, started, ended, log }) => {
+  const dir = join('.artifacts/checks', id, `${started.replace(/[:.]/g, '-')}-${process.pid}`)
+  let current = root
+  for (const part of dir.split('/')) {
+    current = join(current, part)
+    try { if (!lstatSync(current).isDirectory() || lstatSync(current).isSymbolicLink()) throw new Error('unsafe artifact directory') } catch (error) { if (error.code !== 'ENOENT') throw error; mkdirSync(current) }
+  }
+  writeFileSync(join(root, dir, 'log.txt'), log, { flag: 'wx' })
+  writeFileSync(join(root, dir, 'receipt.json'), JSON.stringify({ version: 1, check: id, commit, layer, command, exit, started, ended, log_digest: hashLog(log) }, null, 2) + '\n', { flag: 'wx' })
+  console.log(JSON.stringify({ check: id, receipt: join(dir, 'receipt.json'), exit }))
+  // The receipt records the observed exit; closure also refuses an empty run.
+  process.exitCode = exit === 0 && zeroTests(log) ? 1 : exit
+}
 const id = process.argv[2]
 const refuse = (reason) => { console.log(JSON.stringify({ action: 'check-refused', check: id, reason })); process.exitCode = 2 }
 let snapshot
 try {
-  if (process.argv.length !== 3 || !/^C-[A-Z][A-Z0-9]*-\d+$/.test(id ?? '')) throw new Error('expected one check ID')
-  const commit = gitRead(root, ['rev-parse', 'HEAD'])
+  // `C-XX-NN` runs an argv mapping at HEAD; `C-XX-NN --landed <sha>` records CI's result for a target mapping.
+  const landed = process.argv[3] === '--landed' && process.argv.length === 5 ? process.argv[4] : undefined
+  if ((process.argv.length !== 3 && landed === undefined) || !/^C-[A-Z][A-Z0-9]*-\d+$/.test(id ?? '')) throw new Error('expected one check ID, optionally with --landed <sha>')
+  const commit = landed ?? gitRead(root, ['rev-parse', 'HEAD'])
   if (!fullSha(commit)) throw new Error('full commit SHA unavailable')
   snapshot = realpathSync(mkdtempSync(join(tmpdir(), 'check-source-')))
   const archive = execFileSync('/usr/bin/git', ['archive', commit], { cwd: root, maxBuffer: 256 << 20 })
@@ -23,7 +39,21 @@ try {
   const layer = /\bLayer: ([a-z]+)\b/.exec(doc)?.[1]
   const mappings = JSON.parse(readFileSync(join(snapshot, 'scripts/check-commands.json'), 'utf8'))
   const mapping = mappings.version === 1 && mappings.checks[id]
-  if (!layer || !validMapping(mapping) || mapping.status || mapping.automation !== declaration[1] || mapping.runsIn !== declaration[2] || !Array.isArray(mapping.command) || !mapping.command.length || mapping.command.some(arg => typeof arg !== 'string' || !arg) || !Array.isArray(mapping.paths) || !mapping.paths.length) throw new Error('no reviewed executable mapping')
+  if (!layer || !validMapping(mapping) || mapping.status || mapping.automation !== declaration[1] || mapping.runsIn !== declaration[2]) throw new Error('no reviewed executable mapping')
+  if ('target' in mapping !== (landed !== undefined)) throw new Error(landed === undefined ? 'a target mapping is recorded from CI with --landed <sha>' : '--landed applies only to a target mapping')
+  if ('target' in mapping) {
+    // CI already ran the label at `landed`: read its record, execute nothing (#3663).
+    const repo = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(gitRead(root, ['remote', 'get-url', 'origin']))?.[1]
+    const { proxied } = await import('./issue-claim.mjs')
+    const { ensure, proxyUrl } = await import('./github-proxy.mjs')
+    await ensure()
+    const text = proxied({ gh: (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 << 20 }), base: proxyUrl(process.env) })
+    const binary = proxied({ gh: (args) => execFileSync('gh', args, { encoding: 'buffer', maxBuffer: 256 << 20 }), base: proxyUrl(process.env) })
+    const started = new Date().toISOString()
+    const verdict = verifyCiRun({ github: { json: (path) => JSON.parse(text.read(['api', path])), bytes: (path) => binary.read(['api', path]) }, unpack: unpackResults, repo, landed, label: mapping.target })
+    publish({ id, commit, layer, command: expectedCommand(mapping), exit: verdict.pass ? 0 : 1, started, ended: new Date().toISOString(), log: Buffer.from(`${JSON.stringify({ label: mapping.target, ...verdict }, null, 2)}\n`) })
+  } else {
+  if (!Array.isArray(mapping.command) || !mapping.command.length || mapping.command.some(arg => typeof arg !== 'string' || !arg) || !Array.isArray(mapping.paths) || !mapping.paths.length) throw new Error('no reviewed executable mapping')
   // CI is an explicit execution location; reference/manual/machine execution stays refused
   // until its owner supplies a trusted host selector. No caller host override exists.
   if (mapping.host !== 'CI' || !['true', '1'].includes(process.env.CI)) throw new Error('declared host unavailable')
@@ -52,16 +82,6 @@ try {
   if (child.error) throw child.error
   const exit = child.status ?? 1
   const log = Buffer.concat([child.stdout ?? Buffer.alloc(0), child.stderr ?? Buffer.alloc(0)])
-  const dir = join('.artifacts/checks', id, `${started.replace(/[:.]/g, '-')}-${process.pid}`)
-  // Never follow a pre-existing artifact symlink on publication either.
-  let current = root
-  for (const part of dir.split('/')) {
-    current = join(current, part)
-    try { if (!lstatSync(current).isDirectory() || lstatSync(current).isSymbolicLink()) throw new Error('unsafe artifact directory') } catch (error) { if (error.code !== 'ENOENT') throw error; mkdirSync(current) }
+  publish({ id, commit, layer, command: mapping.command, exit, started, ended, log })
   }
-  writeFileSync(join(root, dir, 'log.txt'), log, { flag: 'wx' })
-  writeFileSync(join(root, dir, 'receipt.json'), JSON.stringify({ version: 1, check: id, commit, layer, command: mapping.command, exit, started, ended, log_digest: hashLog(log) }, null, 2) + '\n', { flag: 'wx' })
-  console.log(JSON.stringify({ check: id, receipt: join(dir, 'receipt.json'), exit }))
-  // The receipt records the observed exit; closure also refuses an empty run.
-  process.exitCode = exit === 0 && zeroTests(log) ? 1 : exit
 } catch (error) { refuse(error.message) } finally { if (snapshot) rmSync(snapshot, { recursive: true, force: true }) }

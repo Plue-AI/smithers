@@ -16,6 +16,8 @@ import * as Config from "@smthrs/targets/Config"
 import * as Input from "@smthrs/targets/Input"
 import * as Target from "@smthrs/targets/Target"
 import { Cli, z } from "incur"
+import type { FileHandle } from "node:fs/promises"
+import * as NodeFs from "node:fs/promises"
 import * as NodePath from "node:path"
 import * as Affected from "./Affected.ts"
 import * as Ansi from "./Ansi.ts"
@@ -63,6 +65,9 @@ const executionOptions = workspaceOption.extend({
   cache: z.boolean().default(true).describe("Consult the result cache before running; --no-cache bypasses reads"),
   knownRed: z.string().optional().describe(
     "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red"
+  ),
+  resultsFile: z.string().optional().describe(
+    "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged"
   )
 })
 
@@ -865,6 +870,27 @@ const settle = <A extends Outcome>(
 }
 
 /**
+ * The machine-readable record of a run, written beside the human output so CI
+ * keeps its readable log. A check receipt reads label statuses from it, never
+ * from the log. Only `{label, status, key}` rows, `ok` and `counts` are written:
+ * a result's error carries raw child output, and CI publishes this file as an
+ * artifact. The file is opened `wx` before any target runs.
+ */
+const writeResults = async (file: FileHandle, summary: Executor.Summary): Promise<string | undefined> => {
+  const results = summary.results.map(({ durationMs, key, label, status }) => ({ label, status, key, durationMs }))
+  try {
+    await file.writeFile(`${JSON.stringify({ ok: summary.ok, counts: summary.counts, results, version: 1 })}\n`)
+    return undefined
+  } catch (cause) {
+    return `results file: ${cause instanceof Error ? cause.message : String(cause)}`
+  }
+}
+
+/** The results path, resolved like `--known-red` against the workspace. */
+const resultsPath = (options: { readonly workspace?: string; readonly resultsFile?: string } | undefined): string | undefined =>
+  options?.resultsFile === undefined ? undefined : NodePath.resolve(options.workspace ?? process.cwd(), options.resultsFile)
+
+/**
  * Runs one execution command under a reporter that is closed however the
  * run ends, so a live renderer always hands the terminal back.
  */
@@ -873,6 +899,36 @@ const executeCommand = async <A extends Outcome>(
   config: RuntimeConfig,
   code: string,
   body: (reporter: Reporter.Reporter) => Promise<A>
+): Promise<A | undefined> => {
+  const options = context.options as { readonly workspace?: string; readonly knownRed?: string; readonly resultsFile?: string } | undefined
+  const resultsFile = resultsPath(options)
+  // Open (create) the results file before any target runs, so an existing one refuses up front.
+  let results: FileHandle | undefined
+  if (resultsFile !== undefined) {
+    try {
+      await NodeFs.mkdir(NodePath.dirname(resultsFile), { recursive: true })
+      results = await NodeFs.open(resultsFile, "wx")
+    } catch (cause) {
+      return context.error({ code, exitCode: 1, message: `results file ${resultsFile}: ${cause instanceof Error ? cause.message : String(cause)}` })
+    }
+  }
+  try {
+    return await executeWithResults(context, config, code, body, options, results)
+  } finally {
+    // A step that failed before summarizing still leaves a readable record with no rows,
+    // so it reads as "these labels did not run", never as an unreadable run.
+    if (results !== undefined && (await results.stat()).size === 0) await results.writeFile(`${JSON.stringify({ results: [], version: 1 })}\n`)
+    await results?.close()
+  }
+}
+
+const executeWithResults = async <A extends Outcome>(
+  context: Presentation & { readonly error: ErrorResult; readonly ok: SuccessResult },
+  config: RuntimeConfig,
+  code: string,
+  body: (reporter: Reporter.Reporter) => Promise<A>,
+  options: { readonly workspace?: string; readonly knownRed?: string } | undefined,
+  results: FileHandle | undefined
 ): Promise<A | undefined> => {
   const reporter = reporterFor(context, config)
   let outcome: A
@@ -883,8 +939,14 @@ const executeCommand = async <A extends Outcome>(
   } finally {
     reporter.close()
   }
-  const knownRed = (context.options as { readonly knownRed?: string | undefined } | undefined)?.knownRed
-  if (knownRed === undefined || !isSummary(outcome)) return settle(context, config, outcome)
+  const knownRed = options?.knownRed
+  if (knownRed === undefined || !isSummary(outcome)) {
+    if (results !== undefined && isSummary(outcome)) {
+      const failed = await writeResults(results, outcome)
+      if (failed !== undefined) return context.error({ code, exitCode: 1, message: failed })
+    }
+    return settle(context, config, outcome)
+  }
   let judged: KnownRed.JudgedSummary
   try {
     const list = await KnownRed.read(context.options?.workspace ?? process.cwd(), knownRed)
@@ -894,6 +956,10 @@ const executeCommand = async <A extends Outcome>(
   }
   const lines = KnownRed.describe(judged.knownRed)
   if (lines.length > 0) terminalsOf(config).stderr.write(`${lines.join("\n")}\n`)
+  if (results !== undefined) {
+    const failed = await writeResults(results, judged)
+    if (failed !== undefined) return context.error({ code, exitCode: 1, message: failed })
+  }
   return settle(context, config, judged as unknown as A)
 }
 

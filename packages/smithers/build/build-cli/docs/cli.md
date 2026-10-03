@@ -46,6 +46,7 @@ in the workspace declaration, then `.flows`. See
 | `--include-exclusive`    |       | boolean    | `false`          | Include exclusive targets in wildcard `ci` and `test` selections. |
 | `--cache` / `--no-cache` |       | boolean    | `true`           | Consult the cache before running. `--no-cache` still publishes.   |
 | `--known-red`            |       | path       | none             | JSON list of reviewed failures; unmatched failures fail.          |
+| `--results-file`         |       | path       | none             | Also write the summary, one status per label, as JSON to a new file. |
 
 Exclusive targets run alone after ready ordinary work drains, regardless of
 `--jobs`. Dependencies keep their ordering. Explicit labels, including
@@ -57,6 +58,18 @@ evaluates trusted declarations, reads the workspace, and may run tool probes
 or resolve and build declared environments. See
 [Planning requirements](./guides/inspect-a-workspace.md#see-what-a-run-would-do)
 for required tools and possible host and cache writes.
+
+### Results file
+
+`--results-file <path>` writes the run's summary, the same object
+`--format json` prints with one `{label, status, key}` row per target, to a new
+file, and leaves the human output unchanged. It is written whether the run
+passes or fails, with any known-red judgment included. The file must not exist.
+Generated CI passes it on every step when `GithubCiGen` sets `results: true`,
+and each job uploads the files as the artifact
+`smthrs-results-<job>-<index>-<attempt>`. A check receipt reads a label's
+status from that artifact, never from the log (`.specs/engineering/checks/README.md`).
+`hit` appears only for cached green results.
 
 ### Known-red targets
 

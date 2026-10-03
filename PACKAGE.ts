@@ -462,6 +462,9 @@ const ci = Smithers.GithubCiGen({
   // fails only on a red target this list does not name, so a new regression
   // stands out from the known ones. Delete an entry in the change that fixes it.
   knownRed: ".github/ci-known-red.json",
+  // Every step writes its per-label results file and each job uploads them, so
+  // a check receipt reads a target's status from CI, never from the log (#3663).
+  results: true,
   mode: "check",
   gates: [
     { name: "documentation parity", verb: Smithers.Verb.Docs, pattern: "//packages/...", job: "test" },
