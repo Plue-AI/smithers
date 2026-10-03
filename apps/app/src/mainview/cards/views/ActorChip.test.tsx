@@ -3,7 +3,7 @@ import { afterAll, expect, test } from "bun:test"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { fixtures } from "@smthrs/rpc/fixtures/ActorChip"
-import { ActorChip, type Actor } from "./ActorChip"
+import { ActorChip, actorName, type Actor } from "./ActorChip"
 
 GlobalRegistrator.register()
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -26,8 +26,14 @@ for (let color_index = 0; color_index < 6; color_index++) test(`person color ${c
     expect(node.style.getPropertyValue("--size")).toBe("28px")
   })
 })
-for (const agent of ["smithers", "coding", "reviewer", "claude-code", "codex", "external"] as const) for (const delegated of [false, true]) test(`${agent} ${delegated ? "delegated" : "independent"}`, async () => {
-  await withActor({ kind: "agent", id: agent, agent, avatar_url: "", color_index: delegated ? 1 : 6, ...(delegated ? { for_member: ben } : {}) }, node => {
+for (const [agent, participant] of [["smithers", "Smithers"], ["coding", "Coding agent"], ["reviewer", "Reviewer"], ["claude-code", "Claude Code"], ["codex", "Codex"], ["external", "External agent"]] as const) for (const delegated of [false, true]) test(`${agent} ${delegated ? "delegated" : "independent"}`, async () => {
+  const actor: Actor = { kind: "agent", id: agent, agent, avatar_url: "", color_index: delegated ? 1 : 6, ...(delegated ? { for_member: ben } : {}) }
+  const label = delegated ? `${participant} for Ben` : participant
+  expect(actorName(actor)).toBe(label)
+  if (agent !== "external") for (const name of ["implementer", "planner"]) expect(actorName({ ...actor, name })).toBe(label)
+  await withActor(actor, node => {
+    expect(node.getAttribute("aria-label")).toBe(label)
+    expect(node.getAttribute("title")).toBe(label)
     expect(node.querySelector("img")).toBeNull()
     if (agent === "coding") expect(node.querySelector("svg.lucide-bot")).not.toBeNull()
     else expect(node.textContent).toBe({ smithers: "S", reviewer: "R", "claude-code": "C", codex: "C", external: "E" }[agent])
@@ -36,6 +42,21 @@ for (const agent of ["smithers", "coding", "reviewer", "claude-code", "codex", "
     expect(node.hasAttribute("data-for")).toBe(delegated)
     expect(node.style.getPropertyValue("--who")).toBe(delegated ? "var(--lane-1)" : agent === "smithers" ? "var(--text)" : "var(--lane-6)")
   })
+})
+for (const delegated of [false, true]) test(`named external agent ${delegated ? "delegated" : "independent"}`, async () => {
+  const actor: Actor = { kind: "agent", id: "external", agent: "external", name: "Build assistant", avatar_url: "", color_index: delegated ? 1 : 6, ...(delegated ? { for_member: ben } : {}) }
+  const label = delegated ? "Build assistant for Ben" : "Build assistant"
+  expect(actorName(actor)).toBe(label)
+  await withActor(actor, node => expect(node.getAttribute("aria-label")).toBe(label))
+})
+test("shared labels retain first names and non-agent identities", () => {
+  expect(actorName({ kind: "person", ...ben })).toBe("Ben")
+  expect(actorName({ kind: "person", ...ben, name: "  Ben Park  ", via: "ssh" })).toBe("Ben via SSH")
+  expect(actorName({ kind: "person", ...ben, via: "cli" })).toBe("Ben via CLI")
+  expect(actorName({ kind: "person", ...ben, via: "terminal" })).toBe("Ben's terminal")
+  expect(actorName({ kind: "github", login: "ben", color_index: 7 })).toBe("@ben")
+  expect(actorName({ kind: "outside", color_index: 7 })).toBe("Changed outside Smithers")
+  expect(actorName({ kind: "system", color_index: 7 })).toBe("Install event")
 })
 for (const via of ["ssh", "terminal", "cli"] as const) test(`${via} retains person identity and badge`, async () => {
   await withActor({ kind: "person", ...ben, via }, node => {
