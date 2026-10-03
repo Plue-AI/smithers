@@ -440,7 +440,12 @@ function UserMessage(
       customBorderChars={bar}
     >
       <box style={{ paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1 }} backgroundColor={color.surface}>
-        <text {...(props.id === undefined ? {} : { id: `${props.id}:text` })} fg={props.queued ? color.muted : color.text}>{props.text}</text>
+        <text
+          {...(props.id === undefined ? {} : { id: `${props.id}:text` })}
+          fg={props.queued ? color.muted : color.text}
+        >
+          {props.text}
+        </text>
         {props.queued ? <text fg={color.faint} style={{ marginTop: 1 }}>steering</text> : null}
       </box>
     </box>

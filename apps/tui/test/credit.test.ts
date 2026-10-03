@@ -162,7 +162,10 @@ describe("a session's credit ledger", () => {
     // Out of hosted credit, another model is the way on too.
     const hosted = FailureCopy.describe(new ModelError({ code: "out_of_credit", message: "x" }), sol)
     expect(hosted.actions).toEqual(["switch-model", "resume", "details"])
-    expect(Tabs.actions({ status: "failed", failure: hosted }).map((action) => action.keys[0])).toEqual(["alt+m", "alt+r"])
+    expect(Tabs.actions({ status: "failed", failure: hosted }).map((action) => action.keys[0])).toEqual([
+      "alt+m",
+      "alt+r"
+    ])
     // A passing limit keeps its own order, and the account is named as the picker names it.
     const limited = FailureCopy.describe(new ModelError({ code: "rate_limited", message: "x" }), sol)
     expect(limited).toMatchObject({
