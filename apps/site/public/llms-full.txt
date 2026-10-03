@@ -781,7 +781,9 @@ Smithers answers in prose, shows a card, or starts a flow. If a step needs sign-
 smthrs tui
 ```
 
-Type your request and press Enter. Shift+Enter or Ctrl+J adds a line; Up and Down recall earlier prompts; Ctrl+G opens your editor for a long one. Type `@` to mention a file.
+Type your request and press Enter; the view jumps to the new turn. Shift+Enter or Ctrl+J adds a line; Up and Down recall earlier prompts; Ctrl+G opens your editor for a long one. Type `@` to mention a file.
+
+The footer keeps the project and branch visible. Ctrl+O details show session tokens including agents and estimated dollars; context use appears from 70%.
 
 New to the TUI? Start with [Smithers in your terminal](/docs/tui/).
 
@@ -1198,7 +1200,7 @@ Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
 /flow echo text=hello
 ```
 
-Quote values with spaces: `text="hello world"`. A missing input opens a form with every field and each choice's options: Tab moves between fields, Left/Right chooses, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. The run reports in the chat as one line, such as `✓ sum · 40ms → 5`; Enter on it opens its tab with each step. Summary lists past runs. A parked run keeps its question; `r` resumes the same run and `x` stops it.
+Quote values with spaces: `text="hello world"`. A missing input opens a form with every field and each choice's options: Tab moves between fields, Left/Right chooses, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. The host-owned run card updates in Chat, such as `✓ sum · 40ms → 5`; Tab focuses it; Enter opens its tab with each step. Active runs have tabs; finished runs open from Summary. A parked run keeps its question; `r` resumes the same run and `x` stops it.
 
 Discovery refreshes when `flows/` changes. A flow added after the TUI loaded shows `Restart to load`; restart after adding or editing a `flow.ts`. Run only one TUI or CLI flow executor per directory.
 
@@ -1206,7 +1208,7 @@ Discovery refreshes when `flows/` changes. A flow added after the TUI loaded sho
 
 The TUI with fixture flows.
 
-![Running a flow from the TUI and reading its result in the run tab.](/images/learn/tui-run-flow.gif)
+![Running a flow from the TUI and reading its result in Chat.](/images/learn/tui-run-flow.gif)
 
 The TUI with fixture flows.
 
@@ -1352,7 +1354,7 @@ Fix the failing search tests. Keep changes inside src/search.ts and its tests.
 
 **TUI**
 
-**Available now.** Ask in chat. Smithers starts a worker in its own tab and returns to chat. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
+**Available now.** Ask in Chat. Its host-owned card shows progress while you keep chatting, then updates with the final answer and receipts. Tab focuses it; `d` shows the diff, `u` undoes captured changes, and Enter opens the run. The strip shows one live count. A toast reports an off-screen settlement; Enter opens the run and clears it. Notices do not restore after restart. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
 
 Use Ctrl+K **Run Claude Code…** or **Run Codex…** to run a signed-in CLI as a worker.
 
@@ -1393,7 +1395,7 @@ Ctrl+S shows every subagent as a tree beside the chat; press it again to close.
 
 **TUI**
 
-**Available now.** Open a worker with Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a Claude Code or Codex worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. Ctrl+K lists the same actions, with their keys, from anywhere.
+**Available now.** Open active workers with Ctrl+]; finished workers open from Summary. Chat and Summary stay pinned, followed by counts and only the focused run. Its composer is focused; printable keys type. Enter steers a Smithers agent, Alt+X requests Stop (Enter confirms), and Alt+R resumes with its earlier steps. Alt+T takes over any running agent: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a Claude Code or Codex worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer Alt+M to pick another model and Alt+W to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. Ctrl+K lists the same actions, with their keys, from anywhere.
 
 ![Stopping and retrying a worker from its TUI tab.](/images/learn/tui-worker-controls.gif)
 
@@ -1516,7 +1518,7 @@ The card lists the built-in agents and the loaded repository's agent flows: a `f
 
 **TUI**
 
-**Available now.** `/smithers` lists flow runs, newest first. Select one to open its tab. Background workers each have a tab too; see [Work in the background](/docs/learn/background-work/).
+**Available now.** Each run updates its Chat card with the result. Tab focuses it; Enter opens its steps. Ctrl+S lists workers and flows in Summary; select one to open it. See [Work in the background](/docs/learn/background-work/).
 
 **CLI**
 
@@ -1549,9 +1551,9 @@ The Steps view, with example data.
 
 **TUI**
 
-**Available now.** The timeline sits above the composer, with phases (Researching, Implementing, Testing, Stuck, Blocked) and milestones. Press Ctrl+T to inspect it; arrows move, `[` and `]` jump between milestones, Home and End jump to the ends, Esc returns to live. An earlier point shows only what was known then.
+**Available now.** Press Ctrl+T for a one-row timeline over the current view, with recorded actions; arrows move, `[` and `]` jump between milestones, Home and End jump to the ends, Esc restores the previous view, scroll and composer target. An earlier point shows only what was known then.
 
-![Scrubbing the TUI timeline across phases and milestones.](/images/learn/tui-timeline.gif)
+![Inspecting recorded actions in the TUI timeline.](/images/learn/tui-timeline.gif)
 
 The TUI with a scripted test model.
 
@@ -1873,7 +1875,7 @@ On a repository that sends work upstream, including Smithers itself, landing ope
 
 **TUI**
 
-**Available now.** Changes stay in your checkout; commit them yourself. To undo a run, press `u` where `d` works: every file it changed is listed, files a shell command wrote included. Space unchecks one; Enter undoes the rest. A file changed since the run, one outside the repository, and a binary or large change stay as they are.
+**Available now.** Changes stay in your checkout; commit them yourself. To undo a run, press `u` where `d` works (Alt+U and Alt+V in its agent tab): every file it changed is listed, files a shell command wrote included. Space unchecks one; Enter undoes the rest. A file changed since the run, one outside the repository, and a binary or large change stay as they are.
 
 ![Undoing a captured edit from the TUI Summary.](/images/learn/tui-undo-edit.gif)
 
@@ -2485,8 +2487,8 @@ Start with the error on the card, row, or output. It names what failed and what 
 | --- | --- |
 | OpenTUI fails to load with `Operation not permitted` | If `/tmp` is mounted `noexec`, [set a writable, executable `TMPDIR`](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) and retry interactive startup. |
 | No model available | Set a provider key and restart. See [Configuration](/docs/tui/configuration/). |
-| Worker parked | Wait for its reset, or press `r` to retry now. A failed worker offers `m` to choose another model. |
-| Worker failed | Press `r` to retry. |
+| Worker parked | Wait for its reset, or press Alt+R to retry now. A failed agent offers Alt+M to choose another model. |
+| Worker failed | Press Alt+R to retry. |
 | `Stop running work first` | Stop or finish running work before switching conversations or undoing. |
 | Undo refused | The file changed since; review the newer edit. |
 | Flow runs old code | Restart the TUI after changing a `flow.ts`. |
@@ -2651,6 +2653,8 @@ https://smithers.sh/docs/tui/keys/
 
 Press **?** with an empty editor to see the keys for where you are. **Esc** or **?** closes the list.
 
+Agent tabs open in the composer; printable keys type. Use the Alt chords for agent actions; the single-letter aliases apply to explicit rows in other views. Tab selects agent transcript rows; typing and pasting return to the composer. Enter steers a running agent; Alt+Enter queues a message for after it finishes. A Claude Code or Codex agent, or one still waiting to start, queues on Enter. Esc closes file completion before returning to Chat. Stop asks for one confirmation per run. Ctrl+T inspection returns to the previous view, scroll and composer target on Esc; after switching tabs, Esc keeps the opened tab. Sending a message shows the new turn.
+
 ## Global
 
 | Key | Action |
@@ -2686,6 +2690,7 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `@` | Mention file. |
 | `!` | Shell mode. |
 | `tab` | Cards. |
+| `a` | Answer. |
 
 ## Working
 
@@ -2711,17 +2716,17 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `i` | Composer. |
 | `j` / `k` / `h` / `l` / `up` / `down` / `left` / `right` | Navigate. |
 | `enter` / `space` | Expand row. |
-| `d` | Diff. |
+| `d` / `alt+v` | Diff. |
 | `v` | Split diff. |
-| `r` | Resume. |
+| `alt+r` / `r` | Resume. |
 | `c` | Continue. |
-| `m` | Switch model. |
-| `w` | Wait for reset. |
-| `x` | Stop. |
-| `s` | Steer. |
-| `t` | Take over. |
-| `a` | Action. |
-| `u` | Undo. |
+| `alt+m` / `m` | Switch model. |
+| `alt+w` / `w` | Wait for reset. |
+| `alt+x` / `x` | Stop. |
+| `alt+s` / `s` | Steer. |
+| `alt+t` / `t` | Take over. |
+| `alt+a` / `a` | Action. |
+| `alt+u` / `u` | Undo. |
 | `tab` | Next tab. |
 
 ## Picker
@@ -2748,9 +2753,9 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 
 | Key | Action |
 | --- | --- |
-| `y` | Allow. |
-| `n` | Deny. |
-| `a` | Allow all. |
+| `y` / `alt+y` | Allow once. |
+| `n` / `alt+n` | Deny. |
+| `a` / `alt+a` | Allow this run. |
 
 ## Selection
 
@@ -2777,7 +2782,6 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `up` / `down` / `left` / `right` / `tab` / `shift+tab` | Card. |
 | `d` | Diff. |
 | `u` | Undo. |
-| `f` | Files. |
 | `esc` | Composer. |
 
 ## Overview
@@ -2792,7 +2796,6 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `y` | Approve. |
 | `n` | Deny. |
 | `g` | Graph. |
-| `f` | Files. |
 | `d` | Diff. |
 | `u` | Undo. |
 | `esc` | Close. |
@@ -2818,7 +2821,7 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 
 Ctrl+A/Ctrl+E move to the beginning/end of a line. Shift+Left/Right selects text in the composer, search, and text fields; typing replaces the selection. Ctrl+W deletes a word and Ctrl+U deletes to the start of the line. Ctrl+K belongs to search. Drag text to copy a selection; click tabs, worker rows, cards, or status actions to open/invoke them. Scroll with the mouse or PageUp/PageDown.
 
-Ctrl+C clears the editor; twice within 500 ms exits. Ctrl+D exits only with an empty editor. Approval letters arm only after the editor is empty and their 400 ms guard has elapsed.
+Ctrl+C clears the editor; twice within 500 ms exits. Ctrl+D exits only with an empty editor. Approval keys arm only after the editor is empty and their 400 ms guard has elapsed. Agent tabs use Alt+Y, Alt+N and Alt+A; plain letters type. An agent’s Answer or Raise cap owns Alt+A; Alt+Y/Alt+N remain available.
 
 Repository and runtime [extensions](/docs/tui/extend/) add keys under their owner in the popup. Built-in keys and text-editing bindings cannot be shadowed.
 
@@ -2841,7 +2844,7 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--resume` | `-r` | Pick a conversation to continue. |
 | `--print "prompt"` | `-p` | Answer one prompt, print it, and exit. |
 | `--approve all` | | Run edits, commands, and network calls. The default. |
-| `--approve ask` | | Ask first. Interactive only. |
+| `--approve ask` | | Ask first; each run remembers its answers, and a few read-only commands run unasked. Interactive only. |
 | `--approve deny` | | Refuse them. |
 | `--budget-tokens n` | | Refuse a model call when its estimated total would exceed `n` tokens per turn or worker. Unbounded by default. |
 | `--environment name` | | Run on a saved execution location. |
@@ -2965,21 +2968,27 @@ https://smithers.sh/docs/tui/views/
 
 ## Tabs
 
-Chat, Summary, workers, flow runs, and custom views each have a tab. Ctrl+] moves forward; Ctrl+[ or Ctrl+Left moves back. Ctrl+Right also moves forward. Ctrl+\ returns to Chat; Ctrl+Y returns from a worker to its parent. Click a tab to open it.
+Chat and Summary stay pinned, followed by counts and only the focused run or custom view. Finished runs open from Summary. Ctrl+] moves forward; Ctrl+[ or Ctrl+Left moves back. Ctrl+Right also moves forward. Ctrl+\ returns to Chat; Ctrl+Y returns from a worker to its parent. Click a tab to open it. Agent tabs focus their composer; printable keys type. Tab selects transcript rows, arrows move, and Alt+U undoes the selected change. Esc returns to Chat.
 
 Some terminals send Ctrl+[ as Esc; use Ctrl+Left there. macOS may reserve Ctrl+Left/Right for switching Spaces.
 
+Ctrl+T opens a one-row timeline over the current view. Esc closes it. The idle composer and worker header each use two rows; decisions and recovery controls keep their space when the transcript is clipped.
+
 ## Filter the transcript
 
-`/filter` shows or hides kinds of row. Workers show as cards in the chat; Ctrl+S shows them all. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
+`/filter` shows or hides kinds of row. Cells starts off, so each step shows what it read, ran and edited, not its program; turn Cells on, or press Ctrl+O, to see the program in place. Every worker and flow has one host-owned Chat card. It updates in place with its final answer (up to two lines), file changes and last command exit. Tab focuses a card; `d` opens its diff, `u` undoes captured changes, and Enter opens the run. Scalar flow results fit on one line. The strip shows one live count, and Ctrl+S shows them all. There is no automatic worker rail. Off-screen settlements produce a toast: Enter opens the run and clears it. A new attempt replaces its notice; restart never restores notices. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
 
-![Filtering the TUI transcript by row kind and text.](/images/learn/tui-transcript-filter.gif)
+![Turning Cells on to show each step's program, then filtering the TUI transcript by text.](/images/learn/tui-transcript-filter.gif)
 
-The TUI with a scripted test model.
+The TUI replaying a recorded model run.
 
 ## Theme
 
 The TUI uses Paper with the same teal accent as the browser app.
+
+## Footer and details
+
+The footer shows the project and branch, clipped from the left, followed by key hints. Context use appears from 70%, such as `ctx 74%`. Ctrl+O shows session input and output tokens including agents, with dollars marked estimated. Summary rows show names, models, and clocks.
 
 ---
 
@@ -3000,7 +3009,7 @@ await ctx.call("ui.publish", {
 })
 ```
 
-Ctrl+K lists each view by title. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
+The host owns run status and drops unbound panels that contain only status. Ctrl+K lists each useful view by title. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
 
 ![A published Checks view in the TUI.](/images/learn/tui-custom-view.gif)
 
@@ -3016,10 +3025,9 @@ In a flow's frontmatter:
 metadata:
   tui:
     keys:
-      - key: alt+r
+      - key: alt+z
         label: Review
     status: true
-    card: true
 ```
 
 Or at run time with `ui.publish` and `kind: "key"` or `kind: "status"`. An action can send a prompt, start a flow or agent, or open a tab. Global keys need Ctrl or Alt; built-in keys always win.
@@ -20661,18 +20669,18 @@ and authentication failures.
 
 ### Service
 
-| Operation | Signature                                                                                                                                                                                                                                     | Returns                                                                                              |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `plan`    | `(input: PlanInput) => Effect<PlanCard, FlowNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                                   | The reviewable card, whether or not this call created it.                                            |
-| `run`     | `(input: RunInput) => Effect<Receipt, RunNotFound \| PlanNotFound \| PlanDenied \| PlanDigestMismatch \| EnvelopeMismatch \| ClaimLost \| InvalidInput \| LaunchFailed \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>` | `Accepted`, `AlreadyApplied`, `Conflict`, or `Parked` for a plan; a resume answers as `resume` does. |
-| `approve` | `(input: ApprovalInput) => Effect<Receipt, PlanDigestMismatch \| EnvelopeMismatch \| AlreadyResolved \| PlanNotFound \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                    | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `deny`    | same as `approve`                                                                                                                                                                                                                             | same as `approve`.                                                                                   |
-| `steer`   | `(input: SteerInput) => Effect<Receipt, NotificationError \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                               | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `signal`  | `(input: SignalInput) => Effect<Receipt, RunNotFound \| NoMatchingWait \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `cancel`  | `(input: RunMutationInput) => Effect<Receipt, RunNotFound \| ClaimLost \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted` or `Terminal`. Never replays its recorded receipt.                                        |
-| `resume`  | same as `cancel`                                                                                                                                                                                                                              | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `list`    | `(input: ListRequest) => Effect<ListResponse, ControlError>`                                                                                                                                                                                  | A bounded page of flows, runs, triggers, or trigger fires.                                           |
-| `watch`   | `(filter: WatchFilter) => Stream<ControlEvent, ControlError>`                                                                                                                                                                                 | Committed journal entries, plus the deltas the plane derives.                                        |
+| Operation | Signature                                                                                                                                                                                                                                     | Returns                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `plan`    | `(input: PlanInput) => Effect<PlanCard, FlowNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                                   | The reviewable card, whether or not this call created it.                                                     |
+| `run`     | `(input: RunInput) => Effect<Receipt, RunNotFound \| PlanNotFound \| PlanDenied \| PlanDigestMismatch \| EnvelopeMismatch \| ClaimLost \| InvalidInput \| LaunchFailed \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>` | `Accepted`, `AlreadyApplied`, `Conflict`, or `Parked` for a plan; a resume answers as `resume` does.          |
+| `approve` | `(input: ApprovalInput) => Effect<Receipt, PlanDigestMismatch \| EnvelopeMismatch \| AlreadyResolved \| PlanNotFound \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                    | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `deny`    | same as `approve`                                                                                                                                                                                                                             | same as `approve`.                                                                                            |
+| `steer`   | `(input: SteerInput) => Effect<Receipt, NotificationError \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                               | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `signal`  | `(input: SignalInput) => Effect<Receipt, RunNotFound \| NoMatchingWait \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `cancel`  | `(input: RunMutationInput) => Effect<Receipt, RunNotFound \| ClaimLost \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted` or `Terminal`. Never replays its recorded receipt.                                                 |
+| `resume`  | same as `cancel`                                                                                                                                                                                                                              | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `list`    | `(input: ListRequest) => Effect<ListResponse, ControlError>`                                                                                                                                                                                  | A bounded page of flows, runs, triggers, or trigger fires, or exact run-scoped native execution observations. |
+| `watch`   | `(filter: WatchFilter) => Stream<ControlEvent, ControlError>`                                                                                                                                                                                 | Committed journal entries, plus the deltas the plane derives.                                                 |
 
 There is no `pause`. An operator park is written through
 `ControlRuntime.writeStatus(runId, fence, "parked")`.
@@ -20695,6 +20703,8 @@ RPC schemas that exclude it do so on purpose: an authenticated server names the
 identity, and a remote client cannot claim another.
 
 ## ControlSchema
+
+`Control.list({ _tag: "executions", runId, executionIds })` reads at most 200 exact native executions under an authorized control run. It returns `{ _tag: "executions", source, revision, items }`. Each snapshot is `Observed` with a native observation, `Missing`, or `Unavailable`. Unrelated IDs and incomplete ancestry never expose another run. Hosts without this observer return `Unavailable`; historical journal statuses remain historical. A batch and its ancestry checks share one engine transaction and source revision. `runs show` reads every known ID in bounded batches and applies only matching observed rows. Its `executionSnapshots` array retains each batch's source and revision; batches may observe different revisions while a run progresses. A changed source refuses the show until retried.
 
 The serializable values both halves of the wire decode. Every entry has a
 schema constant and a type of the same name unless noted.
@@ -23280,13 +23290,15 @@ handoffs; explicit cancellation still cascades to linked children.
 
 ### EngineStore.Options
 
-| Field                  | Type                                               | Meaning                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `owner.hostId`         | `string`                                           | This engine's stable host identity. Which host a store speaks for is a composition decision, not a host fact.                                                                                                                                                                                                                                                                           |
-| `journalSource`        | `string`                                           | The source id every record this engine writes carries.                                                                                                                                                                                                                                                                                                                                  |
-| `isAlive`              | `Ownership.LivenessCheck` (optional)               | Liveness arbitration consulted before stealing a run whose lease expired. Answering `true` refuses the takeover. Defaults to `Ownership.leaseLiveness(Ownership.heartbeatStaleAfter)`.                                                                                                                                                                                                  |
-| `clockFireRetryPolicy` | `Schedule<unknown, unknown>` (optional)            | Redispatch policy for a durable clock whose fire failed. Defaults to exponential from 100ms capped at 30s, forever, the same option shape as the engine's `suspendedRetryPolicy`.                                                                                                                                                                                                       |
-| `requestResume`        | `(executionId, reason) => Effect<void>` (optional) | Called for every wake this engine initiates against a PARKED execution: `"deferred"` (a durable deferred completed), `"clock"` (a durable clock fired), `"parent"` (a child settled under a parent parked on it). An operator's own resume is not reported. A host that refuses to re-enter a parked run nobody asked for reads it to tell an engine wake from its own heartbeat sweep. |
+| Field                  | Type                                                   | Meaning                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner.hostId`         | `string`                                               | This engine's stable host identity. Which host a store speaks for is a composition decision, not a host fact.                                                                                                                                                                                                                                                                           |
+| `journalSource`        | `string`                                               | The source id every record this engine writes carries.                                                                                                                                                                                                                                                                                                                                  |
+| `isAlive`              | `Ownership.LivenessCheck` (optional)                   | Liveness arbitration consulted before stealing a run whose lease expired. Answering `true` refuses the takeover. Defaults to `Ownership.leaseLiveness(Ownership.heartbeatStaleAfter)`.                                                                                                                                                                                                  |
+| `canExecute`           | `(row: RunStore.RunRow) => Effect<boolean>` (optional) | Host admission before claiming, including automatic wakes.                                                                                                                                                                                                                                                                                                                              |
+| `canActivate`          | `(row: RunStore.RunRow) => Effect<boolean>` (optional) | Read-only admission fence rechecked inside the native activation transaction. Use the same consent and ownership policy as preflight; keep module loading and external I/O in `canExecute`. A refusal abandons the claim without dispatching the body.                                                                                                                                  |
+| `clockFireRetryPolicy` | `Schedule<unknown, unknown>` (optional)                | Redispatch policy for a durable clock whose fire failed. Defaults to exponential from 100ms capped at 30s, forever, the same option shape as the engine's `suspendedRetryPolicy`.                                                                                                                                                                                                       |
+| `requestResume`        | `(executionId, reason) => Effect<void>` (optional)     | Called for every wake this engine initiates against a PARKED execution: `"deferred"` (a durable deferred completed), `"clock"` (a durable clock fired), `"parent"` (a child settled under a parent parked on it). An operator's own resume is not reported. A host that refuses to re-enter a parked run nobody asked for reads it to tell an engine wake from its own heartbeat sweep. |
 
 ### Required services
 
@@ -23353,6 +23365,11 @@ Full model: [Ownership and fencing](https://engine-store.smithers.sh/concepts/ow
 queries return rows after `after` and at or before `through`, ordered by those
 fields. An optional `eligibleBeforeMs` limits results to older admissions.
 `pendingRunTail` captures the upper bound of a recovery scan cycle.
+`pendingCancellationRuns` and `pendingCancellationTail` use the same cursors
+for explicitly requested cancellations, independent of registered handlers.
+Their partial index excludes settled and unrequested admissions; cleanup has
+no admission grace and still requires workspace admission and ownership fencing.
+`limit` must be zero or a positive safe integer; other values defect with `RangeError`.
 
 [src/DurableEngineState.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/DurableEngineState.ts)
 
@@ -23379,32 +23396,34 @@ permit deadlocks against a fiber doing the opposite.
 
 ### Service members
 
-| Member                   | Signature                                                                                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deferred`               | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                                                                                      |
-| `consumeDeferred`        | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                                                                                               |
-| `completeDeferred`       | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                                                                                          |
-| `clock`                  | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                                                                                            |
-| `scheduleClock`          | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                                                                                                |
-| `completeClock`          | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`                                                                                 |
-| `dueClocks`              | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                                                                                             |
-| `completeRunClocks`      | `(executionId: string, completedAtMs: number) => Effect<void>`                                                                                                   |
-| `pendingClocks`          | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`                                                                        |
-| `completedDeferreds`     | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                                                                                                   |
-| `park`                   | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                                                                                       |
-| `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
-| `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
-| `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
-| `waitingTree`            | `(runId: string, options?: WaitingTreeOptions) => Effect<ReadonlyArray<WaitingRow>>`                                                                             |
-| `pendingRuns`            | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
-| `pendingRunTail`         | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
-| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
-| `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)                                                                        |
-| `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>`                                                                     |
-| `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                                                                                                |
-| `runParents`             | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                      |
-| `runChildren`            | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                     |
-| `transaction`            | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                                                                                          |
+| Member                    | Signature                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deferred`                | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                                                                                      |
+| `consumeDeferred`         | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                                                                                               |
+| `completeDeferred`        | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                                                                                          |
+| `clock`                   | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                                                                                            |
+| `scheduleClock`           | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                                                                                                |
+| `completeClock`           | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`                                                                                 |
+| `dueClocks`               | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                                                                                             |
+| `completeRunClocks`       | `(executionId: string, completedAtMs: number) => Effect<void>`                                                                                                   |
+| `pendingClocks`           | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`                                                                        |
+| `completedDeferreds`      | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                                                                                                   |
+| `park`                    | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                                                                                       |
+| `wake`                    | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
+| `waiting`                 | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
+| `waitingRuns`             | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
+| `waitingTree`             | `(runId: string, options?: WaitingTreeOptions) => Effect<ReadonlyArray<WaitingRow>>`                                                                             |
+| `pendingRuns`             | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
+| `pendingRunTail`          | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
+| `pendingCancellationRuns` | `(limit: number, after?: PendingRunCursor, through?: PendingRunCursor) => Effect<ReadonlyArray<PendingRunCursor>>`                                               |
+| `pendingCancellationTail` | `() => Effect<Option<PendingRunCursor>>`                                                                                                                         |
+| `staleRunningRuns`        | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
+| `attemptSurvivors`        | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)                                                                        |
+| `recordRunParent`         | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>`                                                                     |
+| `removeRunParentsForRun`  | `(runId: string) => Effect<void>`                                                                                                                                |
+| `runParents`              | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                      |
+| `runChildren`             | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                     |
+| `transaction`             | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                                                                                          |
 
 `scheduleClock` requires the execution's ownership token. Creation succeeds
 only while the run is running under that owner. An existing clock wins unchanged,
@@ -24215,7 +24234,7 @@ Explicit deletion of finished run state. Nothing schedules any of it.
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RetainOptions`           | `olderThanMs` (a duration: how long a run must have been finished), `limit?`, `dryRun?`. A negative `olderThanMs` is read as zero; a `limit` that is not a non-negative safe integer is read as zero.                                                      |
 | `RetainReport`            | `cutoffMs`, `runIds`, `retainedForLiveDescendants`, `retainedForLiveAncestors`, `runs`, `attempts`, `clockDeadlines`, `deferredCompletions`, `journalEntries`, `journalCheckpoints`, `journalIdentities`, `archiveEntries`, `timeTravelReceipts`, `dryRun` |
-| `Options` (for `collect`) | `olderThanMs` (an absolute epoch millisecond threshold), `dryRun?`, `database?`, `limit?`, `pins?`                                                                                                                                                                  |
+| `Options` (for `collect`) | `olderThanMs` (an absolute epoch millisecond threshold), `dryRun?`, `database?`, `limit?`, `pins?`                                                                                                                                                         |
 | `Report` (from `collect`) | `database`, `olderThanMs`, `runs`, `deleted` (empty under a dry run), `dryRun`                                                                                                                                                                             |
 
 A run is a candidate only when its status is terminal and it finished before the
@@ -24243,20 +24262,22 @@ The engine-owned read port, exported from the root and
 `@smthrs/engine-store/ExecutionSnapshot`. Its `make()` and `layer` require
 `SqlClient` with the engine migrations applied.
 
-| Export                                   | Contract                                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `ExecutionSnapshot`, `Service`           | Service tag and its `read` and `related` operations.                                              |
-| `Service.read(runIds)`                   | Coherent `Batch` for up to `maximumBatchSize` (200) IDs, preserving request order and duplicates. |
-| `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.    |
-| `Position`                               | Durable database `source` and monotonic `revision`.                                               |
-| `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                              |
-| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`. |
-| `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                   |
-| `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                            |
+| Export                                   | Contract                                                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExecutionSnapshot`, `Service`           | Service tag and its `read` and `related` operations.                                                                                                                                  |
+| `Service.read(runIds)`                   | Coherent `Batch` for up to `maximumBatchSize` (200) IDs, preserving request order and duplicates.                                                                                     |
+| `withReadTransaction(sql, effect)`       | Reserves a read transaction without writer admission: deferred on SQLite and repeatable-read, read-only on PostgreSQL. An existing transaction retains its caller-selected isolation. |
+| `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.                                                                                        |
+| `Position`                               | Durable database `source` and monotonic `revision`.                                                                                                                                   |
+| `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                                                                                                                  |
+| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`.                                                                                     |
+| `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                                                                                                       |
+| `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                                                                                                                |
 
 The requested run's lifecycle remains round scoped. Intent and the first owner's
-cancellation acknowledgement are separate fields. Failures use `RunStoreError`
-with causes preserved; interruption releases the read transaction.
+cancellation acknowledgement are separate fields. Observation failures use
+`RunStoreError` with causes preserved. `withReadTransaction` also preserves SQL
+transaction admission errors; interruption releases the read transaction.
 
 ## RunChangeFeed
 
@@ -25679,6 +25700,7 @@ flow file actions; the database path is trusted host configuration.
 | `owner`            | `{ hostId: string }`                               | Stable identity of this engine host.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `isAlive`          | `Ownership.LivenessCheck`                          | Whether a previously recorded owner is still alive. Required, and a stub is not an answer: a check that returns `false` without asking makes the engine steal runs out of live processes. Receives the claim context as well as the owner.                                                                                                                                                                                            |
 | `canExecute`       | `(row) => Effect<boolean>` (optional)              | Routes shared-store runs to the host configured for their workspace. Checked before claiming a run, including automatic wakes.                                                                                                                                                                                                                                                                                                        |
+| `canActivate` | `(row) => Effect<boolean>` (optional) | Read-only admission rechecked inside the native activation transaction. Use captured store reads and synchronous local probes; keep module loading and external I/O in `canExecute`. |
 | `requestResume`    | `(executionId, reason) => Effect<void>` (optional) | Records that the engine has asked a PARKED execution to resume: `"deferred"`, `"clock"`, or `"parent"`. A control plane that refuses to re-enter a parked run nobody asked for reads it to tell an engine wake from its own heartbeat sweep.                                                                                                                                                                                          |
 | `cacheEnvironment` | `Action.CacheEnvironment`                          | Optional. The complete runtime environment a sealed step's recorded result may be reused under. Absent by default, which keeps every sealed key scoped to its own run.                                                                                                                                                                                                                                                                |
 | `sourceRevision`   | `string \| (() => string \| undefined)`            | Optional. The revision of the tree this host read its flows out of, which every recorded graph page carries beside the declaration sites, so a reader opens the declared file at that revision and not at whatever is on disk. A host that only learns the answer after this call declares a reader instead of a string; it is asked once per recorded page, and an answer that is not a revision records nothing. Absent by default. |
@@ -25816,6 +25838,7 @@ required.
 | `shutdownTimeoutMs` | `number`                                           | `defaultShutdownTimeoutMs`         | How long a graceful shutdown may take before the host leaves with the signal's own exit code.                                                                                                        |
 | `containment`       | `ContainedSpawner.Options & ProcessReaper.Options` | none                               | Process containment and reaping options for the host spawner.                                                                                                                                        |
 | `canExecute`        | `(row) => Effect<boolean>`                         | none                               | The same shared-store routing check as the runtime `Options` field.                                                                                                                                  |
+| `canActivate` | `(row) => Effect<boolean>` | none | The same read-only native activation fence as the runtime `Options` field. |
 | `cacheEnvironment`  | `Action.CacheEnvironment`                          | none                               | The same cross-run cache environment as the runtime `Options` field, provided under the engine.                                                                                                      |
 | `sourceRevision`    | `string \| (() => string \| undefined)`            | none                               | The same source revision declaration as the runtime `Options` field, recorded on every graph page.                                                                                                   |
 
@@ -29699,19 +29722,36 @@ compensable attempt leaves no change of its own in the log, and the message is
 not written to the repository. Browser snapshots preserve the current change
 and description too, and report the operation id through the WASM ABI.
 
-Repository state operations are fenced as a unit. `snapshot`, `restore`, and
-`diff` share one single-permit semaphore per repository inside a process and an
-exclusive `.jj/smithers.lock` owner directory across processes. The snapshot's
-CLI calls therefore cannot interleave with another state operation. A caller
+Repository operations are fenced as a unit, including `status`, which can
+snapshot. Each holds workspace and shared-store permits, with exclusive
+`.jj/smithers.lock` and store `smithers.lock` owner directories across
+processes. `root(from)` fences its actual directory, preserving its exemption
+from the layer's bound root. The default 120-second deadline includes permit
+waits and execution; cancellation releases both permits. A caller
 records lock owners as `hostname-pid-random` and reclaims only an owner on the
 same host whose process is dead. Permission-denied probes count as alive;
 foreign-host and legacy owner markers require operator cleanup.
 
-`workspaceAdd`, `workspaceForget`, and `opRestore` also hold one permit per
-repository store, shared by every workspace of the repository in a process and
-by an exclusive `smithers.lock` inside the store (`.jj/repo`) across processes.
+A store-pointer read failure during configuration inspection is refused
+before jj starts. Its `JjError` retains the original cause and releases both
+fences. An absent `.jj` directory remains the ordinary CLI's unsupported-root
+case; absence is distinct from an unreadable pointer.
+
+The store permit is shared by every workspace of the repository.
 A restore therefore either sees an added workspace and refuses with `conflict`,
 or completes before the add runs.
+
+`withRepositoryMutation(method, from, effect)` exposes this coordination to
+host adoption. `RepositoryMutationTimeoutMs` is a Context reference with a
+default of `120000`. The protected effect must not call another fenced
+operation on the same store; internal compound operations use their raw
+command runner while holding the outer permits.
+
+`retryGitIndexLock(effect)` retries only confirmed shared Git `index.lock`
+acquisition failures: at most 1,200 retries with 100 ms waits, independently
+for each execution. It preserves permanent errors, private-index errors and
+the final exhausted error, and never removes an active Git lock. Use it inside
+`withRepositoryMutation` to bound acquisition, execution and retry waits.
 
 Snapshot messages are opaque strings on both browser and CLI layers, including
 empty strings, leading `-`, quotes, and newlines. Node and Bun never pass them
@@ -35513,12 +35553,12 @@ route; every other route sends it.
 
 Replay-safe policy for native deferred provider tool loading.
 
-| Export                                  | Kind      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Export                                  | Kind      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, GPT-6 Astra, and GPT-6 Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. GPT-6.1 Sol answers `true` on the API-key protocol only, from the guide; it has not been probed on the ChatGPT backend. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
-| `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                              |
+| `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Without native support, deferred tools arrive as ordinary definitions once
 activated or once used before their activation. With native support, lazy
@@ -35636,6 +35676,13 @@ with their existing subscription resolver and reject malformed verdicts.
 `layerVercelGateway` remains an explicit library adapter for consumers of Jev's
 HTTP evaluation protocol. It reads no environment configuration and is never
 selected by a flow host or used as a subscription fallback.
+
+`EvaluatorBackup.withFallback(primary, backup)` retains the backup's failure
+when both evaluators fail. An active backup's timeout or transport outage
+remains transient even if the primary is unconfigured. A primary 429 still
+takes precedence over a backup transport or configuration failure, while
+retaining the backup's actual paid usage. A primary failure carrying paid
+usage never calls the backup, avoiding a second paid reading.
 
 | Export                                                                                                                                                   | Kind                      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -42124,6 +42171,7 @@ none, with nothing in the failure to say why.
 class ExecutableError {
   readonly _tag: "flows/registry/ExecutableError"
   readonly code:
+    | "reserved_name"
     | "missing_delegate"
     | "ambiguous_delegate"
     | "load_timeout"
@@ -42142,7 +42190,9 @@ class ExecutableError {
 }
 ```
 
-A descriptor the bridge will not turn into a runnable flow. `delegate` is
+A descriptor the bridge will not turn into a runnable flow. Hosts may also
+report `reserved_name` for a repository entry that collides with a packaged
+system name, before importing its module. `delegate` is
 present whenever the refusal is about one named flow, and `available` lists the
 delegates the host registered. That is the whole point of the type: the
 engine's own unresolved-call defect names nothing, so an operator reading it
@@ -42472,6 +42522,10 @@ static import links. Both verify the manifest and project lockfile identity.
 executions. Lockfile drift does not remove these roots. Missing or corrupt
 snapshots remain typed failures. `ExecutionSnapshotError.code` is `missing`,
 `corrupt`, `lockfile_changed`, or `unavailable`.
+
+When the filesystem snapshot index is absent, `indexMissing` is `true`.
+Source loading retains its original typed refusal in this case. A missing blob
+behind an existing index retains the snapshot recovery diagnostic.
 
 The manifest pins project source, while installed workspace packages remain
 host code. Run the host from a pinned checkout.
@@ -43389,7 +43443,7 @@ https://smithers.sh/docs/reference/api/sandbox/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sandbox/docs/api.md) · [package docs](https://sandbox.smithers.sh)
 
-> **Related APIs:** [`@smthrs/kernel`](/docs/reference/api/kernel/)
+> **Related APIs:** [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/kernel`](/docs/reference/api/kernel/)
 
 `@smthrs/sandbox` adapts a provider a caller hands it onto Effect's host
 services. The smallest composition adapts a spawn-only provider onto
@@ -43656,6 +43710,17 @@ const outcome = yield* SandboxMerge.apply(work, {
 `Outcome` is `Merged { change, commit, onto }`, `Conflicted { change, commit, onto, paths }`, or the work's own `Unchanged`, which applies as nothing. `change` is the jj change id; `commit` and `onto` are commit ids. A `Conflicted` change exists and records jj conflicts in `paths`, as `jj rebase` would.
 
 `apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
+
+Host import and rebase share the Node/Bun jj workspace and store fences. Their
+default 120-second deadline includes permit waits, commands and retries of
+confirmed shared Git `index.lock` acquisition failures. Cancellation and
+timeout preserve captured work and any pending imported change for the next
+call. An active Git lock is never removed; permanent VCS failures, private
+index errors and source conflicts retain their existing behavior.
+
+Conflict strategies run after the import/rebase fence is released, so a
+resolver can use ordinary fenced jj operations without nested acquisition.
+The core mutation deadline does not bound a custom resolver's effects.
 
 | `MergeError.reason`   | Cause                                                                     |
 | --------------------- | ------------------------------------------------------------------------- |
