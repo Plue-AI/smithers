@@ -1,6 +1,7 @@
 import { Flow as Durable } from "@smthrs/flow"
 import * as Context from "effect/Context"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
 import * as Annotations from "../src/Annotations.ts"
 import * as Flow from "../src/Flow.ts"
@@ -62,7 +63,6 @@ describe("Flow combinators", () => {
 
 it("retains frozen signature payload adaptation and annotation overrides", async () => {
   const { build } = await import("../src/internal/Signature.ts")
-  const { Schema } = await import("effect")
   const { Graph } = await import("@smthrs/flow")
   const { Node } = await import("@smthrs/plan")
   const base = Markdown.lowerMarkdown({ name: "frozen" }, "Prompt")
