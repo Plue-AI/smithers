@@ -509,21 +509,16 @@ jobs:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
           SMITHERS_POSTGRES_TEST_MAJOR: "18"
       - name: Distribution release contracts
-        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs distribution/fake-coding-provider.test.mjs distribution/publish-image.test.mjs
-      - name: Build distribution image
-        run: docker build --build-arg "BUILD_SHA=$(git rev-parse HEAD)" --build-arg "SMITHERS_DISTRIBUTION_VERSION=${RELEASE_TAG#v}" -f distribution/Dockerfile -t smithers-distribution:release .
-      - name: Test distribution image
-        run: SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" SMITHERS_DOCKER_SKIP_BUILD=1 bash distribution/test-image.sh smithers-distribution:release
+        run: node --test scripts/repo-contract/mac-distribution.test.mjs distribution/fake-coding-provider.test.mjs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
       # The macOS job gates the native pair. This job gates the web and local
-      # pairs with fresh PostgreSQL and the distribution image.
+      # pairs with fresh PostgreSQL.
       - name: Product deployment mode matrix
-        run: bun apps/app/scripts/run-packaged-mode-matrix.ts run --modes web-selfhost,web-plue,local-own,local-plue --output-dir "$RUNNER_TEMP/smithers-mode-matrix"
+        run: bun apps/app/scripts/run-packaged-mode-matrix.ts run --modes web-plue,local-own,local-plue --output-dir "$RUNNER_TEMP/smithers-mode-matrix"
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
-          SMITHERS_MODE_MATRIX_IMAGE: smithers-distribution:release
           SMITHERS_MODE_MATRIX_PLUE_WEB_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_WEB_URL }}
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
           SMITHERS_MODE_MATRIX_PLUE_TOKEN: ${{ secrets.SMITHERS_MODE_MATRIX_PLUE_TOKEN }}
@@ -832,38 +827,6 @@ jobs:
           echo "Dry run: every current gate ran; candidate build/smoke or archived-candidate verification passed. Nothing was published."
           echo "A real run would publish these at $PUBLISH_VERSION on the $PUBLISH_DIST_TAG dist-tag:"
           cat "$PUBLISH_ORDER"
-  distribution-publish:
-    name: publish public multi-architecture image
-    needs: publish
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    permissions:
-      contents: write
-      packages: write
-    env:
-      RELEASE_TAG: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 26.4.0
-      - name: Enable image architecture emulation
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
-      - name: Set up multi-architecture image builder
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
-      - name: Verify distribution version
-        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs
-      - name: Rehearse both image architectures
-        if: env.DRY_RUN == 'true'
-        run: bash distribution/publish-image.sh "${RELEASE_TAG#v}" "$(git rev-parse HEAD)" --dry-run
-      - name: Publish and anonymously verify distribution image
-        if: env.DRY_RUN != 'true' && !inputs.sourceRef
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash distribution/publish-image.sh "${RELEASE_TAG#v}" "$(git rev-parse HEAD)"
   # The docs sites serve the release that just published. A dispatched run is a
   # rehearsal and deploys nothing. Alchemy reads the shared alchemy-state-store,
   # so this job plans against the same record as an operator's shell.
@@ -1027,3 +990,37 @@ jobs:
           test -n "$AWS_ACCESS_KEY_ID"
           test -n "$AWS_SECRET_ACCESS_KEY"
           node scripts/installer-release.mjs publish "$INSTALLER_DIR" "$RELEASE_TAG"
+
+  # T-INS-05: unmounted until T-INS-01/02/03/08 and real C-REL-02 evidence.
+  # No publication token, public tap mutation or source-build fallback.
+  homebrew-bottle:
+    name: Apple Silicon Homebrew release candidate
+    if: ${{ false }}
+    needs: installer-archive
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.ref }}
+      - name: Require unprivileged tagged release inputs
+        run: |
+          test "$(id -u)" != 0
+          test "$GITHUB_REPOSITORY" = smithersai/smithers
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          test "$GITHUB_WORKFLOW_REF" = "smithersai/smithers/.github/workflows/release.yml@refs/tags/$RELEASE_TAG"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: installer-darwin-arm64
+          path: ${{ runner.temp }}/homebrew-candidate
+      - name: Refuse incomplete bundle and signing integration
+        run: |
+          # Activation requires replacing this boundary with the restored
+          # assembler, approved manifest/signing variant and actual brew pour.
+          # A CLI archive alone is never a passing host-install receipt.
+          echo 'T-INS-01/02/03/08 and C-REL-02 qualification required' >&2
+          exit 1

@@ -5,7 +5,13 @@ import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
-import { executeCommand } from "./docker-web-selfhost"
+const executeCommand = async (args: readonly string[], cwd: string) => {
+  const child = Bun.spawn([...args], { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited
+  ])
+  return { exitCode, stdout, stderr }
+}
 
 export interface LocalOwnSession {
   readonly modeConfig: ModeConfig

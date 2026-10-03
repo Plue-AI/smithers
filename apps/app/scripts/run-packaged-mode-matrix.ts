@@ -4,8 +4,6 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseMatrixConfig, selectMatrixModes } from "../e2e/real/coverage/matrix"
 import type { MatrixConfig } from "../e2e/real/coverage/matrix"
-import { startPackagedWebSelfhost } from "./mode-matrix/docker-web-selfhost"
-import type { WebSelfhostSession } from "./mode-matrix/docker-web-selfhost"
 import { startLocalOwn } from "./mode-matrix/local-own"
 import type { LocalOwnSession } from "./mode-matrix/local-own"
 import { startLocalPlue, startWebPlue } from "./mode-matrix/plue-target"
@@ -17,7 +15,7 @@ const rootDir = resolve(appDir, "../..")
 const args = process.argv.slice(2)
 const matrixCommand = args[0] ?? "run"
 if (matrixCommand !== "audit" && matrixCommand !== "run") {
-  throw new Error("usage: run-packaged-mode-matrix.ts audit|run [--output-dir path] [--external-config path] [--auth-environment NAME] [--modes comma-separated]")
+  throw new Error("usage: run-packaged-mode-matrix.ts audit|run [--output-dir path] [--external-config path] [--modes comma-separated]")
 }
 
 const option = (name: string): string | undefined => {
@@ -31,7 +29,7 @@ const option = (name: string): string | undefined => {
 const revision = await sourceRevision(rootDir)
 
 const outputDir = resolve(option("--output-dir") ?? process.env.SMITHERS_MODE_MATRIX_OUTPUT_DIR ?? resolve(appDir, "test-results/mode-matrix"))
-const modeSelection = option("--modes")
+const modeSelection = option("--modes") ?? "web-plue,local-own,local-plue"
 const selectedModes = selectMatrixModes(modeSelection).modes
 const wants = (mode: string): boolean => selectedModes.some((selected) => selected === mode)
 const configPath = resolve(outputDir, "config.json")
@@ -44,7 +42,7 @@ if (externalPath !== undefined) {
   if (!existsSync(externalPath)) throw new Error(`external mode configuration does not exist: ${externalPath}`)
   external = parseMatrixConfig(JSON.parse(readFileSync(resolve(externalPath), "utf8")) as unknown)
   if (external.revision !== revision) throw new Error(`external mode revision ${external.revision} does not match checkout ${revision}`)
-  if (external.modes.some(({ mode }) => mode === "web-selfhost" || mode === "local-own")) {
+  if (external.modes.some(({ mode }) => mode === "local-own")) {
     throw new Error("external mode configuration must not replace an in-repo owned launch")
   }
 }
@@ -57,21 +55,18 @@ if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue"
   throw new Error("external configuration must not duplicate the configured Plue web or local target")
 }
 
-let session: WebSelfhostSession | undefined
 let localSession: LocalOwnSession | undefined
 let plueSessions: PlueSession[] = []
 let launchFailure: unknown
 let matrixCode = 1
 let teardownFailure: unknown
 const stop = async (): Promise<void> => {
-  const docker = session
   const local = localSession
   const remote = plueSessions
-  session = undefined
   localSession = undefined
   plueSessions = []
   const failures: unknown[] = []
-  for (const close of [docker?.close, local?.close, ...remote.map((target) => target.close)]) {
+  for (const close of [local?.close, ...remote.map((target) => target.close)]) {
     if (close === undefined) continue
     try { await close() } catch (error) { failures.push(error) }
   }
@@ -85,18 +80,6 @@ const interrupt = (signal: NodeJS.Signals): void => {
 process.once("SIGINT", interrupt)
 process.once("SIGTERM", interrupt)
 try {
-  if (wants("web-selfhost")) try {
-    session = await startPackagedWebSelfhost({
-      rootDir,
-      revision,
-      outputDir,
-      ...(process.env.SMITHERS_MODE_MATRIX_IMAGE ? { image: process.env.SMITHERS_MODE_MATRIX_IMAGE } : {}),
-      ...(option("--auth-environment") === undefined ? {} : { authEnvironment: option("--auth-environment") })
-    })
-  } catch (error) {
-    launchFailure = error
-    console.error(`web-selfhost launch failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
   if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue") || wants("local-plue"))) {
     if (wants("web-plue")) try {
       if (!plueWebTarget) throw new Error("web-plue requires SMITHERS_MODE_MATRIX_PLUE_WEB_URL and SMITHERS_MODE_MATRIX_PLUE_URL")
@@ -120,7 +103,7 @@ try {
   }
   const config: MatrixConfig = {
     revision,
-    modes: [...(session === undefined ? [] : [session.modeConfig]), ...(localSession === undefined ? [] : [localSession.modeConfig]),
+    modes: [...(localSession === undefined ? [] : [localSession.modeConfig]),
       ...plueSessions.map(({ modeConfig }) => modeConfig), ...external.modes]
   }
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
@@ -132,7 +115,7 @@ try {
     ...(modeSelection === undefined ? [] : ["--modes", modeSelection])
   ], {
     cwd: appDir,
-    env: { ...process.env, ...session?.runtimeEnvironment, ...localSession?.runtimeEnvironment },
+    env: { ...process.env, ...localSession?.runtimeEnvironment },
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit"

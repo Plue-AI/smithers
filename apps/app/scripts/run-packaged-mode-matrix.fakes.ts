@@ -9,7 +9,7 @@
  *
  * The child reports which sessions it acquired and closed as JSON written to
  * MATRIX_FAKES_LOG when it exits; MATRIX_FAKES_FAIL_CLOSE=1 makes the
- * docker session's close throw.
+ * local session's close throw.
  */
 import { mock } from "bun:test"
 import { writeFileSync } from "node:fs"
@@ -33,19 +33,10 @@ mock.module("../e2e/real/coverage/matrix", () => ({
   parseMatrixConfig: (value: { revision: string; modes: unknown[] }) => value
 }))
 mock.module("./mode-matrix/source-revision", () => ({ sourceRevision: async () => revision }))
-mock.module("./mode-matrix/docker-web-selfhost", () => ({
-  startPackagedWebSelfhost: async () => {
-    acquisitions.push("docker")
-    return { modeConfig: modeConfig("web-selfhost"), runtimeEnvironment: {}, close: async () => {
-      closes.push("docker")
-      if (failClose) throw new Error("docker close failed")
-    } }
-  }
-}))
 mock.module("./mode-matrix/local-own", () => ({
   startLocalOwn: async () => {
     acquisitions.push("local")
-    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: {}, close: async () => { closes.push("local") } }
+    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: {}, close: async () => { closes.push("local"); if (failClose) throw new Error("local close failed") } }
   }
 }))
 mock.module("./mode-matrix/plue-target", () => ({

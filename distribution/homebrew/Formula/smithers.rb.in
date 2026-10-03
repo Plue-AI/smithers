@@ -1,0 +1,67 @@
+# T-INS-05 / spec §16.1.1. Unmounted tap template; never publish unresolved tokens.
+require "digest"
+require "tmpdir"
+
+# Verify signed archive bytes before Homebrew's extraction boundary, including
+# cached downloads. Homebrew's normal SHA-256 check remains an independent gate.
+class SmithersReleaseDownloadStrategy < CurlDownloadStrategy
+  def fetch(timeout: nil, **options)
+    raise "Smithers installation must be unprivileged" if Process.uid.zero?
+    super
+
+    Dir.mktmpdir("smithers-release-") do |staging|
+      File.chmod(0700, staging)
+      base = "https://github.com/smithersai/smithers/releases/download/v@@VERSION@@"
+      sums = File.join(staging, "SHA256SUMS")
+      signature = File.join(staging, "SHA256SUMS.sigstore.json")
+      [sums, signature].each do |path|
+        system_command!("/usr/bin/curl", args: ["--fail", "--location", "--proto", "=https",
+          "--proto-redir", "=https", "--output", path, "#{base}/#{File.basename(path)}"])
+      end
+      system_command!(Formula["cosign"].opt_bin/"cosign", args: ["verify-blob",
+        "--bundle", signature, "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com",
+        "--certificate-identity", "https://github.com/smithersai/smithers/.github/workflows/release.yml@refs/tags/v@@VERSION@@",
+        sums])
+      filename = @url.split("/").last
+      expected = "#{Digest::SHA256.file(cached_location).hexdigest}  #{filename}"
+      raise "Smithers archive is not in the signed release" unless File.readlines(sums, chomp: true).count(expected) == 1
+    end
+  end
+end
+
+class Smithers < Formula
+  desc "Self-hosted coding factory"
+  homepage "https://github.com/smithersai/smithers"
+  version "@@VERSION@@"
+  url "https://github.com/smithersai/smithers/releases/download/v@@VERSION@@/smithers-v@@VERSION@@-darwin-arm64.tar.gz",
+      using: SmithersReleaseDownloadStrategy
+  sha256 "@@CLI_SHA256@@"
+  license "MIT"
+  depends_on :macos
+  depends_on arch: :arm64
+  depends_on "cosign" => :build
+
+  resource "server" do
+    url "https://github.com/smithersai/smithers/releases/download/v@@VERSION@@/smithers-server-v@@VERSION@@-darwin-arm64.tar.gz",
+        using: SmithersReleaseDownloadStrategy
+    sha256 "@@BUNDLE_SHA256@@"
+  end
+
+  # T-INS-08 resolves the keg's libexec beside the real CLI launcher. Preserve
+  # the installer's whole runtime and dependency tree; do not reassemble a CLI.
+  def install
+    odie "Smithers installation must be unprivileged" if Process.uid.zero?
+    odie "A prebuilt bottle is required" unless build.bottle?
+    libexec.install "smithers", "runtime", "node_modules"
+    resource("server").stage { libexec.install Dir["*"] }
+    # T-INS-01 manifest verification and T-INS-03 approved signing/relocation
+    # variant replace these tokens together. Never invent a manifest schema or
+    # mutate signed bytes without its qualified manifest procedure.
+    @@QUALIFIED_MANIFEST_AND_SIGNING@@
+    bin.install_symlink libexec/"smithers" => "smthrs"
+  end
+
+  # Bottle metadata and signing after relocation require T-INS-03's real pour
+  # evidence. No source-build substitute can qualify this release.
+  @@QUALIFIED_BOTTLE_METADATA@@
+end

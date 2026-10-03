@@ -53,7 +53,7 @@ const (
 
 // DefaultImage is the L0 image: node:26.5.0-trixie (Debian 13, glibc 2.41,
 // linux/arm64) pinned by digest. Trixie, not bookworm: the app's build stage
-// (distribution/Dockerfile) uses it, and the Hutch devkit needs glibc 2.38.
+// uses it, and the Hutch devkit needs glibc 2.38.
 const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b"
 
 // Config selects the msb binary, the data root holding adapter metadata, the

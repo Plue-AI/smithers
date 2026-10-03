@@ -127,20 +127,25 @@ const reliabilityWorkflow = Smithers.NodeTest({
 })
 
 /**
- * A release version bump retags every distribution image declaration.
+ * The Mac distribution removes the image and preserves lifecycle port guards.
  *
  * @since 1.0.0
  * @category test
  */
-const distributionImageTag = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/distribution-image-tag.test.mjs")]),
+const macDistribution = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/mac-distribution.test.mjs")]),
   srcs: [
     sources,
     Smithers.file("//scripts/set-release-version.mjs"),
     Smithers.file("//scripts/workspace-packages.mjs"),
     Smithers.file("//packages/smithers/package.json"),
     Smithers.file("//distribution/README.md"),
-    Smithers.file("//distribution/Dockerfile")
+    Smithers.file("//.github/workflows/release.yml"),
+    Smithers.file("//.github/workflows/distribution.yml"),
+    Smithers.file("//scripts/check-toolchain-pins.mjs"),
+    Smithers.file("//apps/app/scripts/run-packaged-mode-matrix.ts"),
+    Smithers.file("//distribution/homebrew/Formula/smithers.rb.in"),
+    Smithers.file("//scripts/fixtures/homebrew-fetch.rb")
   ],
   deps: []
 })
@@ -351,5 +356,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
+  targets: { barrels, cliVerbs, macDistribution, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
 })

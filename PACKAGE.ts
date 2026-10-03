@@ -1114,15 +1114,13 @@ const securityReview = Smithers.SecurityReview({
       paths: [".github/workflows/release.yml", ".github/workflows/release-auth.yml"]
     },
     {
-      id: "distribution-image-hardening",
-      title: "The self-host image runs unprivileged and verifies what it downloads",
+      id: "distribution-lifecycle-hardening",
+      title: "Lifecycle port guards verify backups and preserve secrets",
       threat:
-        "A network attacker or a crafted backup gives code execution or file overwrite inside a self-hoster's Smithers container and its PostgreSQL data.",
+        "A crafted backup gives file overwrite or leaks PostgreSQL credentials during lifecycle recovery.",
       lookFor: [
-        "A Dockerfile download (curl, cargo install --git, go mod download) without a pinned digest, SHA, or --locked, or a final stage that does not end with `USER smithers`.",
         "restore.sh extracting files.tar where a symlink entry followed by a path through it can write outside SMITHERS_DATA_ROOT, since verify_backup only rejects absolute and `..` names.",
         "SMITHERS_DATABASE_URL, which carries the database password, passed on a command line (pg_dump, psql --dbname) or printed in a `die` message.",
-        "A FROM base image (rust, debian, node, golang, postgres, oven/bun) pinned by tag rather than by @sha256 digest.",
         "SMITHERS_AUTH_MODE, SMITHERS_LIB, or SMITHERS_RELEASE_FILE taken from the environment in a way that disables selfhost auth or sources an attacker-chosen script."
       ],
       paths: ["distribution/*"]
@@ -1202,7 +1200,7 @@ const securityReview = Smithers.SecurityReview({
         "pnpm-workspace.yaml allowBuilds admitting a package that has no documented need for an install script, or .npmrc adding a registry or auth line.",
         "flake.nix or the Dockerfile fetching a source without a pinned hash."
       ],
-      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix", "distribution/Dockerfile"]
+      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix"]
     },
     {
       id: "root-tool-targets",
