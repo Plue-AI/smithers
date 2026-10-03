@@ -30,8 +30,8 @@
 }
 
 .help-bubble {
-  --help-tip-border: color-mix(in srgb, var(--g-accent, #286447) 28%, transparent);
-  --help-tip-background: var(--surface, #fff);
+  --help-tip-border: color-mix(in srgb, var(--g-accent, #3a756b) 28%, transparent);
+  --help-tip-background: var(--surface, #fffefa);
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -41,10 +41,10 @@
   margin-bottom: 18px;
   padding: 14px 12px 14px 16px;
   border: 1px solid var(--help-tip-border);
-  border-left: 4px solid var(--g-accent, #286447);
+  border-left: 4px solid var(--g-accent, #3a756b);
   border-radius: 12px;
   background: var(--help-tip-background);
-  color: var(--text, #403f53);
+  color: var(--text, #211d18);
   box-shadow: 0 4px 14px #1e393012;
   text-align: left;
   /* A hint explains the control beneath it; it never eats that control's clicks. */
@@ -80,7 +80,7 @@
 .help-bubble-icon {
   flex-shrink: 0;
   margin-top: 3px;
-  color: var(--g-accent, #286447);
+  color: var(--g-accent, #3a756b);
 }
 
 .help-bubble-dismiss {
@@ -110,7 +110,7 @@
   z-index: 10;
 }
 .help-anchor[data-help-open] .help-anchor-target > button {
-  box-shadow: 0 0 16px 4px color-mix(in srgb, var(--g-accent, #286447) 24%, transparent);
+  box-shadow: 0 0 16px 4px color-mix(in srgb, var(--g-accent, #3a756b) 24%, transparent);
 }
 
 /* Only the action we are waiting for pulses; explanatory tips stay quiet. */
@@ -120,7 +120,7 @@
 }
 @keyframes help-target-glow {
   0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50% { box-shadow: 0 0 16px 4px color-mix(in srgb, var(--g-accent, #286447) 32%, transparent); }
+  50% { box-shadow: 0 0 16px 4px color-mix(in srgb, var(--g-accent, #3a756b) 32%, transparent); }
 }
 .help-anchor[data-help-pulse] .help-anchor-target > button[data-pressed],
 .help-anchor[data-help-pulse] button[data-pressed] .guide-button-key {
@@ -130,7 +130,7 @@
   .help-anchor[data-help-pulse] .help-anchor-target > button,
   .help-anchor[data-help-pulse] .guide-button-key {
     animation: none;
-    box-shadow: 0 0 16px 4px color-mix(in srgb, var(--g-accent, #286447) 18%, transparent);
+    box-shadow: 0 0 16px 4px color-mix(in srgb, var(--g-accent, #3a756b) 18%, transparent);
   }
 }
 

@@ -54,12 +54,25 @@ test("help uses an opaque surface even when its parent is translucent", () => {
   expect(getComputedStyle(document.querySelector(".help-bubble")!).backgroundColor).toBe("#f7f6f1")
 })
 
-for (const [theme, ink] of [["light", "#403f53"], ["dark", "#d6deeb"]]) {
+/* The bubble's ink is the theme's own text token, whichever palette is the default. */
+const bubbleInk = (theme: string) => {
+  style("./tokens.css")
+  style("../HelpBubble.css")
+  document.documentElement.dataset.theme = theme
+  document.body.innerHTML = '<div class="help-bubble"><div class="help-bubble-content">Help</div></div><p style="color: var(--text)">Body</p>'
+  const ink = { bubble: getComputedStyle(document.querySelector(".help-bubble")!).color, text: getComputedStyle(document.querySelector("p")!).color }
+  document.head.innerHTML = ""
+  return ink
+}
+
+for (const theme of ["light", "dark"]) {
   test(`a help bubble reads in ${theme} mode`, () => {
-    style("./tokens.css")
-    style("../HelpBubble.css")
-    document.documentElement.dataset.theme = theme
-    document.body.innerHTML = '<div class="help-bubble"><div class="help-bubble-content">Help</div></div>'
-    expect(getComputedStyle(document.querySelector(".help-bubble")!).color).toBe(ink)
+    const ink = bubbleInk(theme)
+    expect(ink.text).toMatch(/^(#|rgb)/)
+    expect(ink.bubble).toBe(ink.text)
   })
 }
+
+test("a help bubble's ink follows the theme", () => {
+  expect(bubbleInk("light").bubble).not.toBe(bubbleInk("dark").bubble)
+})
