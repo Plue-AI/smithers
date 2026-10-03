@@ -38,7 +38,7 @@ is Effect's Node spawner re-exported; contained POSIX variants use
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `@effect/platform-bun` is a required peer at exactly `4.0.0-rc.115`. Package
 managers install it with the other required Effect peers. The filesystem slot

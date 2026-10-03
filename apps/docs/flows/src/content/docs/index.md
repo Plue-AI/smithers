@@ -5,7 +5,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 ---
 
 `@smthrs/flows` is one package that carries the whole durable flow engine
-behind [Smithers](https://smithers.sh/docs/). It re-exports every engine
+behind [Smithers](https://smithers.sh/docs/installation/). It re-exports every engine
 package under a single import, and it adds the two modules a Node program needs
 to run flows for real: `NodeRuntime`, which stands a durable engine up over
 local SQLite, and `SandboxedFlow`, which runs a child flow's own code on a

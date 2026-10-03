@@ -17,7 +17,7 @@ defines the plugins and runs the host. There are no services to provide.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A TypeScript project with the package installed. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+- A TypeScript project with the package installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Declare the host's hook catalog
 

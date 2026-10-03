@@ -13,7 +13,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/mcp
 is the worked example of everything on this page: it composes this package
 behind `--mcp-config`.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Requirements
 

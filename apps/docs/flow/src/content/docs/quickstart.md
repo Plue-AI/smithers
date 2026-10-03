@@ -16,7 +16,7 @@ A runnable copy of this program is published in the Smithers examples,
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+- A package with the dependencies installed. Not on npm yet; see [Installation](/installation/#use-the-libraries).
 
 ## Declare the action and the flow
 

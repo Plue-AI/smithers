@@ -62,7 +62,7 @@ The bank name `global-notes` resolves to the namespace `{ kind: "global", id: "n
 
 ## 2. Make the fact survive a restart
 
-The in-memory layer forgets everything when the process exits. Swap it for a SQLite file by replacing the layer, and nothing else. Declare the database package and its Node adapters before replacing the layer. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+The in-memory layer forgets everything when the process exits. Swap it for a SQLite file by replacing the layer, and nothing else. Declare the database package and its Node adapters before replacing the layer. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ```ts
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"

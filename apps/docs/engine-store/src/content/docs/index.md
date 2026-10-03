@@ -12,7 +12,7 @@ over.
 It is an [Effect](https://effect.website) library: every surface below is a
 `Layer` you compose or an `Effect` you run.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## What it solves
 

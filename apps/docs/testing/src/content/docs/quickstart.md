@@ -14,7 +14,7 @@ against it. Nothing is stubbed but the storage.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the test dependencies installed. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+- A package with the test dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Both `effect` packages are exact peer pins. [Installation](/installation/)
 says why.

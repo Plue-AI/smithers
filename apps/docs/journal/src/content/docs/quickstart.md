@@ -21,7 +21,7 @@ redacted.
   `await`) with the journal, the database it writes through, and `effect`
   installed. See [Installation](/installation/) for why `effect` is pinned.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Compose the layer
 

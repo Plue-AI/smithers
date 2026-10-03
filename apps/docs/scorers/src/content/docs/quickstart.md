@@ -15,7 +15,7 @@ in-memory, so the whole thing runs from one file with no setup.
 
 Node.js 26.4.0 or later, and a project that depends on `@smthrs/scorers` and
 `@smthrs/database`. The in-memory SQLite example also needs the optional Node
-driver. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+driver. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Declare the scorer
 

@@ -8,7 +8,7 @@ export default defineDocsSite({
   starlight,
   slug: "core",
   title: "@smthrs/core",
-  description: "Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it",
+  description: "Flow metadata and Markdown lowering over @smthrs/flow",
   sourceDir: "packages/smithers/flows/core",
   contentDir: fileURLToPath(new URL("./src/content/docs", import.meta.url))
 })

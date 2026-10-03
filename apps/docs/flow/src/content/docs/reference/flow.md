@@ -6,7 +6,7 @@ order: 10
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/flow/docs/reference/flow.md"
 ---
 
-Install the package with its exact `effect` peer. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Install the package with its exact `effect` peer. Not on npm yet; see [Installation](/installation/#use-the-libraries).
 
 ## Entry points
 

@@ -35,7 +35,7 @@ Every pattern here answers both halves, and exports one function for each:
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The package
 needs Node.js 26.4.0 or later. It shares its `effect` peer with the host,

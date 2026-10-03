@@ -16,7 +16,7 @@ or opens a database except read only.
 
 ## Install the scanner API
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Keep optional dependencies enabled: TypeScript 7 supplies the native compiler
 the scanners need through a platform-specific optional package. See

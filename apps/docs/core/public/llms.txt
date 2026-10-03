@@ -1,6 +1,6 @@
 # @smthrs/core
 
-> Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it
+> Flow metadata and Markdown lowering over @smthrs/flow
 
 - [@smthrs/core documentation](https://core.smithers.sh/): Package documentation.
 - [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

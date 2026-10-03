@@ -48,7 +48,7 @@ place code you do not trust.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Node.js 26.4.0 or later. `@smthrs/platform-node` supplies the contained host
 services `DirectorySandbox` requires. A raw spawner or a wrapper with only a

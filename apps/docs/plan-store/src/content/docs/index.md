@@ -29,7 +29,7 @@ browser and the platform choice stays the caller's.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The store writes through a durable writer over a SQL client, and verifying asks
 Effect for its `Crypto` service.

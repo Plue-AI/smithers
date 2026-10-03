@@ -33,7 +33,7 @@ coordinate concurrent calls, but cannot hard-cap a provider's actual bill.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later. For the import forms and the
 packages a runnable composition adds, see [Installation](/installation/).

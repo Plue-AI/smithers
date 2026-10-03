@@ -43,7 +43,7 @@ the details that decide whether a model gets its next step right:
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The handlers
 ask the host for services such as `FileSystem`, `Path`, and

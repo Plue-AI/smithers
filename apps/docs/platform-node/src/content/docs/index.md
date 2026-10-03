@@ -9,7 +9,7 @@ its side effects through: a filesystem, a path helper, a child-process spawner,
 a [Jujutsu](https://jj-vcs.github.io/jj/) adapter, and an HTTP client. One
 layer, `NodeHost.layer`, provides all five.
 
-That set is the host surface of [Smithers](https://smithers.sh/docs/), a durable
+That set is the host surface of [Smithers](https://smithers.sh/docs/installation/), a durable
 engine for long-running agent work whose packages carry the `@smthrs` scope.
 This package is the Node.js machine a Smithers flow runs on, and it is usable
 on its own by any Effect program that wants the same guarantees.

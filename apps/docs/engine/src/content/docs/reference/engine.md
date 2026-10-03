@@ -12,7 +12,7 @@ This page is the long form: one entry per export, with the full type and every f
 
 ## Install
 
-Install the engine beside the flow package it runs. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Install the engine beside the flow package it runs. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Entry points
 

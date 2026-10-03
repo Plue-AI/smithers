@@ -8,7 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/gat
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ## Requirements
 
@@ -85,6 +85,6 @@ The full composition, with the storage underneath it, is in
 ## Running without composing anything
 
 [`smthrs serve`](https://smithers.sh/docs/reference/cli/serve/) hosts this exact assembly for a project on disk.
-If you want a gateway rather than a library, use the CLI instead. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
+If you want a gateway rather than a library, use the CLI instead. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 Then see the [Quickstart](/quickstart/).

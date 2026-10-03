@@ -12,7 +12,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 [GitHub](https://github.com/smithersai/smithers), and the storage packages
 listed below are the worked examples of everything on this page.
 
-See [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+See [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `effect` is a required exact peer. The SQLite adapter is an optional exact
 peer, needed by `node/NodeDatabase` and `test/TestDatabase`, including the
