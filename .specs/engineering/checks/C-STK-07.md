@@ -10,6 +10,8 @@ Automation: `packages/backend/internal/services/todo_merge_race_db_test.go` (new
 - T1's machine is awake, and the test can write into its working copy under another uid.
 - Each step starts from this fixture.
 
+- Placement landing slice, T-STK-02: run packages/backend/internal/services/todo_place_db_test.go through the production create/move router and dispatcher. Before and Move touching a fenced item return 409 merging with no position, event or rebase writes. Fixed request/result fixtures supply expectations; full GitHub merge races complete with T-STK-04.
+
 ## Steps
 Approved-ruling fixtures below are independent cases on the same real-dependency harness. Exercise Candidate and Propose through the production dispatcher and captures through the composed head-report route. Record generation rows, manifests, input acknowledgements, capture ordering, signals, waits and GitHub writes. Use fixed file bytes and literal expected outcomes; do not derive oracles from implementation decisions.
 
@@ -27,7 +29,7 @@ Approved-ruling fixtures below are independent cases on the same real-dependency
 
 ## Pass when
 
-- T-STK-04 Land-deletion gate: StackCard and ChangeCards render no legacy Land dispatch. AppController bindings, Flows import/policy rows, flow entries, TODO Land routes and their obsolete test expectations are removed. Source search and existing app type/flow-parity checks find no executable history.land/change.land door. TODO Merge/Confirm exercise the authorized merge route; Plue-only LandingService remains intact.
+- T-STK-04 Land-deletion gate: StackCard and ChangeCards render no legacy Land dispatch. AppController bindings, Flows import/policy rows, flow entries, TODO Land routes, the prs.land handler and its install route and their obsolete test expectations are removed. Source search and existing app type/flow-parity checks find no executable history.land/change.land door. T-APP-04 binds or removes the control only. Production TODO Merge/Confirm routes exercise the authorized merge route; Plue-only LandingService and landing routes remain intact.
 
 - Required checks pass but protected reviews are unsatisfied: the readiness reason is `review_required`, the same route/confirmation/projection decision holds on identical facts, and no merge PUT occurs. Refreshing satisfied reviews permits the remaining draft and mergeability checks.
 

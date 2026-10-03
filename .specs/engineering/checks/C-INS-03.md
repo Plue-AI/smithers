@@ -1,11 +1,13 @@
 # C-INS-03 Bind address and public origins are owner settings, applied without a restart; one effective origin per request sets cookies, Origin checks, the OAuth callback and the SSH line
 
 Proves: mvp.md §6.1 Reaching the install, M-28 · spec.md §1.4, §3 (`install_settings`), §5.1.0, §6.3, §8.10.5, §16.3.1, §16.3.3, §17.6a · Layer: integration · Stage: S1 · Tickets: T-INS-04
-Automation: `packages/backend/internal/routes/install_serving_test.go` (new) · Runs in: CI (macOS and Linux runners)
+Automation: `packages/backend/internal/compose/serving_integration_test.go` (new), using the composed install router and real HTTP listeners; registered host flags in `packages/smithers/test/host-service.integration.test.ts` · Runs in: CI (macOS and Linux runners; CLI/launchd on macOS only)
 
 ## Setup
 - Real PostgreSQL 18, migrated; the backend started in-process with the loopback listener on a free port; an owner session, a member session, a delegated credential; a fake GitHub with OAuth and an App whose callback URLs were recorded at creation as the loopback origin only.
 - Initial settings: bind loopback, origins empty.
+
+Use committed literal origin, cookie, redirect and refusal fixtures; no runtime spec or implementation oracle. HTTP/settings cases run after T-INS-04. Real /api/live upgrade/reconnect cases run when T-COL-02 lands, and real :2222 listener cases when T-TRM-03 lands. Mark consumer cases pending until then; no test-only transport discharges them.
 
 ## Steps
 1. As the member and as the delegated credential, `PUT /api/install` with a new bind and origin.

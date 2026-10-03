@@ -13,6 +13,7 @@ Automation: `packages/backend/internal/services/stack_order_attention_test.go` (
 3. Ben merges T4 through `POST /api/todos/4/merge`.
 4. Alice presses **OK** on the attention.
 5. Ben presses **OK**.
+- Drive the production OK route with delegated owner/maintainer credentials and a stale revision. Drive definitive GitHub 405/409/422 refusals through the production merge route.
 
 ## Pass when
 
@@ -46,6 +47,7 @@ Automation: `packages/backend/internal/services/stack_order_attention_test.go` (
 - Step 3 is refused with class `conflict` naming the open attention, and the fake server records no merge call.
 - Step 4 is refused with class `permission`; the row stays open.
 - After step 5 the row is settled by Ben, and T4's Merge is enabled.
+- Delegated OK returns 403 never/never; lower-role OK returns 403 permission/permission; stale OK returns 409 conflict/stale_attention. Refused OK requests have no effects. Definitive GitHub 405/409/422 responses return github/github_refused envelopes through the production merge route.
 
 ## Fail when
 - T3's merge is treated as normal while T2 is still first, or T2 stays unmerged with its change already in `main`.

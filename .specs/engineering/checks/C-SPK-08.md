@@ -9,6 +9,8 @@ Automation: `scripts/spikes/trm-06/run.sh` (new), plus a recorded VS Code sessio
 - The T-TRM-06 gateway prototype listening on the reference host, reachable from the second Mac, with Ben's key.
 - The second Mac has OpenSSH and VS Code with Remote-SSH.
 
+- Expected exit status, signal, fixture bytes, sequence order, RSS bound and timing limits are literal harness fixtures, never derived from spec files or runtime implementation constants. The host gateway must not execute repository code; all session payloads run in the disposable machine. smithers-3f reviews this boundary before start
+
 ## Steps
 
 1. Exit status: `ssh … 'exit 7'; echo $?`. Then `ssh -vvv … 'kill -TERM $$'`.
@@ -17,7 +19,7 @@ Automation: `scripts/spikes/trm-06/run.sh` (new), plus a recorded VS Code sessio
 4. PTY: `ssh -t …`, run `stty size`, resize the window to 120×40, run `stty size` again; start `sleep 100` and press Ctrl-C.
 5. Port forward: `ssh -L 3000:localhost:3000 … 'python3 -m http.server 3000'`, then `curl -s localhost:3000`.
 6. VS Code: connect Remote-SSH, open `/workspace`, edit and save `a.ts`, open the integrated terminal and run `ls`, forward port 3000 from the Ports view, close the window, then reopen and reconnect.
-7. Revocation, 10 runs: with VS Code connected and `nohup sleep 10000 &` started in its terminal, call `kill_sessions(ben)`. Record the time to the SSH disconnect and to `populated 0` on every Ben cgroup.
+7. Revocation, 10 runs: with VS Code connected and `nohup sleep 10000 &` started in its terminal, invoke the prototype gateway's host revocation operation, which sends `kill_sessions(ben)` over the real transport. Record the time to the SSH disconnect and to `populated 0` on every Ben cgroup.
 8. Supervisor restart: with foreground and background Ben processes active, send SIGKILL to the supervisor; init restarts it. Independently sample every child of `/sys/fs/cgroup/smithers/sessions/` and record populated 0 before any new open_session is accepted. Run `pgrep -u ben`, then let VS Code reconnect. Inject a cleanup failure and verify open_session is refused.
 9. Disconnect: during `ssh … 'seq 1 100000'`, cut the host↔guest stream for 10 s, then restore it within the 30 s grace.
 

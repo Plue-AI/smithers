@@ -9,6 +9,10 @@ Automation: `packages/rpc/src/catalog/Cuts.test.ts` (new, unit) and `packages/ba
 - The backend router composed in-process twice, as `openapi_conformance_test.go:150` does: the install composition (`auth.mode=selfhost`, no commerce option) and the Plue composition (multitenant, with a commerce option).
 - `docs/api/openapi.yaml`, freshly bundled by `scripts/openapi-bundle.mjs`.
 
+Pin reviewed literal expectations independently of implementation: compose/testdata/cut_routes.json for route decisions/statuses and packages/rpc/test/fixtures/MvpCuts.ts for Cut/Defer/Hide ids, card kinds and doors. Never derive expected sets or statuses from cuts.json, catalog.mvp.json, FLOW_NAMES, renderer/schema options or spec files at runtime. Those files are actual results or supplemental parity inputs. Send requests through the production install and Plue routers with normal middleware, credentials and all relevant handlers/capabilities, backed by real PostgreSQL; exercise removed Registration procedures through the shared workflow RPC dispatcher.
+
+Keep internal repository-job admission, dispatch, reply and approval machinery. Under spec §6.3.1, T-CUT-03 unmounts the seven user trigger-management operations from install HTTP and marks them Plue-only in OpenAPI; C-ACC-01 proves those 404s and retained worker grant restrictions. A retained internal implementation does not imply a served install user-management route.
+
 ## Steps
 1. Unit, app: build the app registry. Collect `FLOW_NAMES` (`flows/FlowName.ts`), the card renderer kinds (`cards/CardRenderers.tsx`), the options of `CurrentCardSchema`, `LEGACY_CARD_KINDS` (`packages/rpc/src/Cards.ts`), and the visible sets (slash, palette, `/help`, agent tools).
 2. Unit, CLI: build `makeCli()`. Collect every command path, the generated SKILL.md section, and the generated MVP command docs page.

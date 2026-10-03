@@ -1,11 +1,15 @@
 # C-MNT-02 Duplicate and reproduction evidence is measured in a machine
 
 Proves: mvp.md §14, M-05, M-26, M-29 · spec.md §6.1.2b, §10.2.1, §12.4, §16.4, §17.3, §17.5 · Layer: e2e · Stage: M · Tickets: T-MNT-02
-Automation: apps/app/e2e/real/maintainer-triage.spec.ts (new) · Runs in: reference Apple Silicon host, real install and microVMs, second-laptop browser, scratch GitHub repository
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: reference Apple Silicon host, real install and microVMs, second-laptop browser, scratch GitHub repository
 
 ## Setup
 
 A trusted base containing a known bug and passing control; two possible duplicate issues with citations, one unrelated issue and one question. Real machine capacity full before admission; separate machine users hold canary personal credentials.
+
+Candidate Automation declaration (unapproved): apps/app/e2e/real/maintainer-triage.spec.ts (new) · Runs in: reference Apple Silicon host, real install and microVMs, second-laptop browser, scratch GitHub repository
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

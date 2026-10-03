@@ -1,7 +1,7 @@
 # C-SPK-03 Host↔guest relay round trip
 
 Proves: mvp.md §9 Live updates (transport share) · spec.md §9.1.1, §1.4 (host-relay port), §8.2.1; overview.md E-04 · Layer: spike · Stage: W0 · Tickets: T-COL-01, T-COL-11
-Automation: `scripts/spikes/col-01/relay-rtt/` (new; `scripts/spikes/col-01/run.sh rtt`) · Runs in: reference host
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: reference host
 
 ## Setup
 
@@ -9,6 +9,10 @@ Automation: `scripts/spikes/col-01/relay-rtt/` (new; `scripts/spikes/col-01/run.
 - One microVM booted from `DefaultImage` (`packages/backend/microsandbox/runtime.go:57`) with the machine memory and vCPUs §8.2.1 derives for that host, and no other VM running.
 - The Rust echo server from `scripts/spikes/col-01/echo/` listens on a guest loopback port, and a host listener is bridged into the guest.
 - No browser or network is involved: this check isolates the host↔guest leg.
+
+Candidate Automation declaration (unapproved): `scripts/spikes/col-01/relay-rtt/` (new; `scripts/spikes/col-01/run.sh rtt`) · Runs in: reference host
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 
@@ -35,3 +39,7 @@ Automation: `scripts/spikes/col-01/relay-rtt/` (new; `scripts/spikes/col-01/run.
 ## Evidence
 
 `.artifacts/checks/C-SPK-03/<UTC timestamp>/`: `samples.csv` (transport, size, load, rtt_ns), `summary.json` (percentiles per cell), `env.json` (commit, `msb --version`, VM config, macOS version, host profile), and the chosen transport with one line of reason.
+
+## T-COL-11 decision receipt
+
+A reference-host budget miss is retained as a failed measurement, with raw samples. T-COL-11 W0 completes its decision evidence when the matrix is complete and the topology trigger is applied; S1 additionally requires smithers-8a to accept ADR 0003 after T-COL-10 creates it. This does not waive the production latency budget. Expected bytes, frame sizes, sequence tags and thresholds are literal harness fixtures, never derived from spec files or runtime implementation constants. Capture/growth/GC and kernel commands run only inside the disposable machine, reviewed by smithers-3f.

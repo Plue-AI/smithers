@@ -173,13 +173,17 @@ type StateWordProps = { state: TodoState; step?: string }   // "Working · Imple
 
 ### T-UI-02 Setup and Settings (`install` topic)
 
-Capacity 0 renders "No machine fits", the supplied limiting term and fix link on one line. The third role UI label is "<third role label: product ruling pending, batch 2>"; its key field remains "AI Gateway key". Check: C-UI-12.
+At once / settings.parallel is absent in S1 and is bound only after T-STK-03's S2 backend guard lands. T-APP-03 implements the S1 controls. Checks: C-J4-01, C-UI-12.
+
+Capacity 0 renders "No machine fits", the supplied limiting term and fix link on one line. The third role UI label is "Decisions"; its key field remains "AI Gateway key". Check: C-UI-12.
 
 ```ts
 // One step identity and order: spec §16.2 and T-INS-06 steps 0–6. T-INS-06 stores each step under `setup.<id>`
 // and reports these states, so the container passes them through with no mapping. The squash check runs inside
 // `repository` and blocks it with its fix link (§10.6.2); §16.2 step 1 is the setup session itself.
 type SetupStepId = "address" | "app_manifest" | "sign_in" | "repository" | "models" | "source" | "machine"
+
+// app_manifest uses POST /api/install/setup/app; no github_app route alias exists (C-J1-02).
 type SetupStep = {
   id: SetupStepId
   state: "pending" | "running" | "done" | "blocked" | "failed"   // a step's control enables when the step before it is done
@@ -188,7 +192,7 @@ type SetupStep = {
   pct?: number                                     // source and machine while running
 }
 type ModelRole = {
-  role: "fast" | "coding" | "jev"                  // visible: "Fast model", "Coding model", "<third role label: product ruling pending, batch 2>" (mvp.md §6.5)
+  role: "fast" | "coding" | "jev"                  // visible: "Fast model", "Coding model", "Decisions" (mvp.md §6.5)
   provider: string                                 // "Cerebras", "OpenAI", "AI Gateway"
   key: "none" | "validating" | "saved" | "failed"  // jev's key field reads "AI Gateway key"
   error?: string                                   // the provider's reason, from the typed error (§6.2.3)
@@ -206,7 +210,7 @@ type SetupModel = {
   chatgpt: boolean                                 // coding may use the owner's ChatGPT sign-in (§15.2)
 }
 type SettingsModel = SetupModel & {
-  capacity: number; parallel: number               // the Machines and TODOs at once steppers (§8.2.1, §10.3.1)
+  capacity: number; parallel?: number              // parallel is absent in S1; S2 T-STK-03 guards the TODOs at once stepper (C-J4-01)
   laptop_lines: string[]                           // `smthrs login <origin>`, one per origin
   notifications_need_https: boolean                // the viewer's origin is plain HTTP and not localhost (§14.6)
   health: { process: "ok" | "degraded"; postgres_bytes: number; disk_free_gb: number
@@ -242,7 +246,8 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 // place JSON.stringify({ mode: "append" | "before" | "amend", n?: number }); fixes "true" or "false".
 // Emit place properties in mode, n order; omit n for append. C-UI-12 asserts literal strings.
 // Commit forwards the complete supplied Draft input; T-APP-19b reconciles typed input.
-// Discard has no tag until product rules on Appendix B; do not invent one (C-UI-08).
+// Discard binds draft.discard {draft: DraftId}; person or app agent, author only. The runtime strict z.object accepts only draft; the server policy enforces authorship (C-CAT-01, C-UI-12).
+// It deletes the author's uncommitted private Draft and never drops a TODO (C-CAT-01, C-UI-12).
 // (`form.set` into the entry's card column, T-APP-02). buttons: Commit ("Commit puts it on the stack as T12"), Discard.
 // Make TODO is the Issue card's button that opens a Draft.
 ```
@@ -273,6 +278,7 @@ type TodoModel = {
                                                   // "Thrashing: TestRetryBackoff failed 3×" (spec §11.6.4)
   waits: { id: string; kind: NeedsYouKind; prompt: string; since: string
            paths?: string[]                       // conflict
+           ssh_line?: string                      // S1 conflict only; Container supplies it
            by?: Actor; sha?: string               // foreign_push, moved_off
            actions: Action[] }[]                  // every open wait, primary first (§4.1.0a), each with its own action
   first_answer?: { by: Actor; text: string; at: string }   // "Ben answered" after the latest question settled
@@ -287,6 +293,7 @@ type TodoModel = {
   merged_via?: number                             // "Merged · in T15's commit"
   lessons?: number                                // absent while learning runs
 }
+type TodoViewSlots = { conflictTerminals?: Readonly<Record<string, React.ReactNode>> } // keyed by wait id; supplied by the Container, never serialized by rpc
 // buttons by state (T-UI-04): Answer, Send as steer, Steer, Stop, Resume, Retry, Retry with the current flow,
 // Drop, Amend, Edit (Queued: todo.amend with prefilled inputs), Take over, Add to machine image,
 // Merge, Review & merge, Rebase now, Open branch, Inspect. A late answer's 409 keeps the typed text
@@ -304,7 +311,7 @@ type ConfirmModel = {
                                                   // the A✓ commands (Appendix B legend); members, secrets
                                                   // and settings are agent: never and have no confirmation
   text?: string                                   // one_click: the exact words the command sends
-  asked_by: Actor                                 // "Claude Code, for Ben"
+  asked_by: Actor                                 // "Claude Code for Ben"
   review?: { title: string; place: number; pr: { number: number; url: string }
              evidence: Evidence                   // the subject revision's evidence, each check shown (Confirm.tsx)
              approved_revision?: string           // "You approved 1b2c3d4; it is now at 9e8f7a6"
@@ -313,8 +320,11 @@ type ConfirmModel = {
 }
 // buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel 
 // Verb, Merge / Review & merge and Cancel dispatch their supplied actions[] entries, not model.action.tag.
-// T-APP-04 binds approve/deny with subject/revision in args. Product rules on Cancel
-// in Appendix B before the tag is added. C-UI-12 asserts literal approval/denial payloads.
+// T-APP-04 binds approve/deny with subject/revision in args. Cancel binds confirm.cancel
+// with {confirmation, revision}; person only, pending confirmations only (C-ACC-02, C-UI-12). Use the existing Confirm revision schema; stale revision returns typed stale (C-ACC-02, C-UI-12).
+
+// T-STK-04 owns the prs.land handler and merge route; T-APP-04 binds the control only (C-STK-04, C-ACC-02).
+// C-UI-12 asserts literal approval, denial and cancellation payloads.
 // Only the person who must press sees this card; other viewers see nothing (C-ACC-02).
 ```
 
@@ -536,7 +546,7 @@ type RunViewProps = CardProps<RunModel, RunView> & { custom?: React.ReactNode }
 
 ### T-UI-13 Agent and model roles
 
-Use the pending third-role UI label above; product rules in batch 2. Keep internal role identifiers unchanged. Check: C-UI-12.
+Use Decisions as the third-role UI label. Keep the internal role id jev. Check: C-UI-12.
 
 ```ts
 type AgentModel = {
@@ -544,12 +554,12 @@ type AgentModel = {
   instructions_path: string                       // TODO-flow prompts beside the flow source;
                                                   // ".smithers/instructions/app.md" for the app agent (spec §11.5a)
   role: "fast" | "coding" | "jev"; model: string; provider: string; available: string[]
-                                                  // visible role names: "Fast model", "Coding model", "<third role label: product ruling pending, batch 2>" (mvp.md §6.5)
+                                                  // visible role names: "Fast model", "Coding model", "Decisions" (mvp.md §6.5)
   runs: { id: string; title: string; state: string; at: string }[]   // runs it took part in
   owner: boolean
 }
 // buttons: Change model (owner only), Edit instructions (opens a Draft TODO)
-// Product rules on Change model's Appendix B tag with smithers-38 review; no invented tag.
+// Change model binds settings.model.set {role, model}; owner session only, agent: never (C-CAT-01, C-UI-12). Use the existing model-role enum (including jev) and model-catalog id schema. Strict z.object runtime parsing and producer tests validate all three inputs (C-CAT-01, C-UI-12).
 // Edit instructions uses the supplied Draft-opening tag with prefilled text, never a TODO-commit
 // todo.new binding. T-APP-19b includes smithers-b8's Agent fixture correction (#3601); C-UI-12 proves it.
 ```
@@ -616,7 +626,7 @@ type FileStates = {
 
 ```ts
 type TerminalModel = { id: string; title: string; branch: string
-                       owner: Actor; agents: Actor[]              // agents working in it, e.g. Claude Code, for Ben (M-34)
+                       owner: Actor; agents: Actor[]              // agents working in it, e.g. Claude Code for Ben (M-34)
                        watchers: Actor[]; command?: string
                        viewer_is_owner: boolean
                        frozen: boolean }                          // "Rebasing…" while a rebase freezes it (§9.4.2)

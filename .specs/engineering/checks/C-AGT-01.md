@@ -1,11 +1,15 @@
 # C-AGT-01 Golden transcripts normalize both formats; version mismatch fails
 
 Proves: mvp.md M-38, M-34 · spec.md §9.6.6, §14.5.5 · Layer: unit · Stage: S2 · Tickets: T-AGT-01
-Automation: packages/model-host/test/ExternalTranscripts.test.ts (new; T-AGT-01 owns the final existing-library location) · Runs in: package unit runner
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: package unit runner
 
 ## Setup
 
 Recorded real transcripts for each supported Claude Code and Codex release, sanitized fixtures, manifest and expected canonical entries/events.
+
+Candidate Automation declaration (unapproved): packages/model-host/test/ExternalTranscripts.test.ts (new; T-AGT-01 owns the final existing-library location) · Runs in: package unit runner
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

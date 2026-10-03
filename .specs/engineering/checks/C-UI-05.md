@@ -21,6 +21,7 @@ Automation: `packages/backend/internal/live/honest_state_integration_test.go` (n
 6. e2e: Ben submits the same `/todo.retry Tn` twice within 100 ms. The two submissions carry the same `Idempotency-Key`.
 7. e2e: block Ben's live socket for 10 s while the TODO moves through two states. Then unblock it.
 8. Integration (T-COL-10 contract): two writes to one branch file carry the same `base_digest`, and the app's write door renders the second response.
+8a. Integration (T-COL-07): dispatch the real coding-agent read and each of write, edit and apply_patch through coding/edit-atom in a machine, with an outside fixture write between read and mutation. Observe the tool result and its displayed run event through the production path.
 
 ## Pass when
 
@@ -36,6 +37,7 @@ Automation: `packages/backend/internal/live/honest_state_integration_test.go` (n
 - Step 6 creates one attempt, and the second response returns the first result (§6.2.1).
 - After step 7, the client resubscribes with its cursors and receives both missed deltas once, in order, with no `gap`. The card ends on the final state without showing a state out of order.
 - In step 8, the second write returns `409 stale` (§7.6 row 1). The caller shows it as refused and reloads the file, and never shows it as saved.
+- Step 8a returns stale_read and leaves the outside fixture bytes unchanged; its run event displays refused and never saved. The oracle uses fixed fixture bytes and literal expected states, never spec files or production code at runtime.
 
 ## Fail when
 

@@ -8,14 +8,14 @@ This page does three things. §1 gives each card's schemas and Containers one ow
 
 A card crosses three schemas:
 - **Topic schema.** The snapshot and deltas a topic publishes (spec §7.2). The ticket that publishes the topic owns the Go snapshot builder. The card's wiring ticket owns the TypeScript decoder `packages/rpc/src/topics/<Topic>.ts`, the golden fixture `packages/rpc/test/fixtures/topics/<topic>.json`, and one Go test, `<topic>_golden_test.go`, that runs the publisher's builder on a seeded database and compares its JSON with the golden. The decoder's unit test parses the same golden, so the Go and TypeScript halves can't drift.
-- **View model.** `packages/rpc/src/<Card>Card.ts` with fixtures in `packages/rpc/test/fixtures/<Card>.ts` (spec §14.2.1). T-APP-19 owns every view model in its list; a card added later (Docs, Debug API) has its wiring ticket own its view model.
+- **View model.** `packages/rpc/src/<Card>Card.ts` with fixtures in `packages/rpc/test/fixtures/<Card>.ts` (spec §14.2.1). T-APP-19 owns every view model in its list; a card added later (Docs, Debug API) has its wiring ticket own its view model. T-APP-19 is landed history; T-APP-19b owns the follow-up reconciliation of current §14.3 schemas and shared shell data contracts. RunView maps to MonitorCard, not a new RunCard. Checks: C-UI-08, C-UI-12.
 - **Card reference.** The `{kind, payload}` a conversation entry stores (`Cards.ts`, decoded by `CardSchema`). A card with a topic stores only its subject (`todo {n}`, `branch {id}`); a Draft stores its fields (spec §3, `conversation_entries.card`).
 
 The **adapter** is a pure function `to<Card>Model(topic, viewer, view) → {model, actions}` in `MV/cards/containers/<card>Model.ts`, owned by the wiring ticket. It derives every per-viewer value (role-filtered attention, merged since last look, the §14.5.2 action) and labels every action. Its unit test feeds the golden topic fixture and asserts that the result parses with the view model. The **Container** `MV/cards/containers/<Card>Container.tsx` subscribes, calls the adapter, binds `actions[]` through `cardActions`, stores `onView` patches as view state, and renders the View. It holds no derivation of its own. The **View** is design's (spec §14.2.1).
 
 | Card | Topics | Snapshot builder | Decoder, golden, adapter, Container | View model | View |
 | --- | --- | --- | --- | --- | --- |
-| Home | `home` | T-APP-01 (items from T-STK-01's writers) | T-APP-01 | T-APP-19 | T-UI-06 |
+| Home | `home` | T-APP-08 (items from T-STK-01's writers) | T-APP-08 (decoder and golden); T-APP-01 (adapter and Container) | T-APP-19 | T-UI-06 |
 | TODO | `todo:<n>` | T-STK-01 | T-APP-02 (T-STK-08 and T-MCH-08 add actions) | T-APP-19 | T-UI-04; T-UI-23 for conflict, moved-off, outside-push, Fork and Add to stack |
 | Draft | the entry's `card` column | T-APP-16 | T-APP-02 | T-APP-19 | T-UI-03 |
 | Setup, Settings | `install` | T-INS-06 | T-APP-03 (T-FLW-12 adds the Obsidian row) | T-APP-19 | T-UI-02 |
@@ -38,7 +38,7 @@ The **adapter** is a pure function `to<Card>Model(topic, viewer, view) → {mode
 
 ## 2. Legacy decoding
 
-Confirm references and receipts are visible only to the person who must press the card; every other viewer sees nothing. Keep `file`, `diff`, `run-trace` and `agents` live when their names are reused under L4; never add those live kinds to `LEGACY_CARD_KINDS`. Checks: C-ACC-02, C-CUT-02.
+Confirm references and receipts are visible only to the person who must press the card; every other viewer sees nothing. Keep `file`, `diff`, `run-trace` and `agents` live when their names are reused under L4; never add those live kinds to `LEGACY_CARD_KINDS`. Checks: C-ACC-02, C-CUT-02. Legacy decoding preserves pinned records; current Confirm references validate their authorized confirmation subject. Legacy decoding never grants access to a forbidden Confirm subject. Check: C-UI-08.
 
 
 L1. **One decoder.** `CardSchema` (`packages/rpc/src/Cards.ts`) decodes every persisted card: today's per-member transcripts (`MV/state/AppStore.ts`, OPFS or localStorage), the `card` frames of the agent turn journals read through `/api/agent/conversations/replay` (`packages/backend/internal/chat`), and from T-APP-16 `conversation_entries.card`. Its preprocessor turns a row whose kind is in `LEGACY_CARD_KINDS` into the tombstone `{kind: "retired", payload: {was: <kind>}}`. The tombstone keeps `id`, `ordinal`, `createdAt` and the stored `title`, and drops `body` and the payload. Today's two mechanisms, the preprocessor's `retiredKinds` (`Cards.ts:2952-2962`) and the app's `RETIRED_CARD_KINDS` (`MV/state/CardAvailability.ts:1`), become this one set. T-APP-22 builds it.

@@ -13,6 +13,7 @@ Automation: `apps/app/e2e/real/machine-image.spec.ts` (new) · Runs in: referenc
 3. Ben discards that Draft. Maya opens `/settings` and enters `Fig Let` in Add to machine image, then `figlet`.
 4. Maya commits the Draft as T2 and merges T2.
 5. Ben retries T1.
+- Invoke mounted S1 `GET /api/branches/{b}/files/{path}`, including `main:.smithers/machine.json`, with literal bytes and absent-file status.
 
 ## Pass when
 - Step 1: T1's failure names `figlet` and `.smithers/machine.json`, with class `user`.
@@ -20,6 +21,7 @@ Automation: `apps/app/e2e/real/machine-image.spec.ts` (new) · Runs in: referenc
 - Step 3: `Fig Let` is refused in the field with the name rule's reason, and no Draft opens. `figlet` opens the same Draft for Maya.
 - Step 4: T2's PR diff is exactly that change. After the merge, the machine recipe digest for `main` differs from the one before.
 - Step 5: T1's retry passes its check on a machine built from the new recipe.
+- The mounted file route returns the literal bytes and absent-file status. It neither wakes a machine nor executes repository code.
 
 ## Fail when
 - The seed drops or reorders existing packages, or touches another file.

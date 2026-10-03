@@ -158,4 +158,4 @@ Settled 2026-10-02 and recorded in spec.md: co-editing in the MVP (Will), Tailsc
 
 - **Engineer:** take tickets in [tickets/README.md](tickets/README.md) order. A ticket is done when each phase’s checks pass and landed-commit receipts are attached (C-PRC-03).
 - **Reviewer:** check spec compliance and repo standards separately (CLAUDE.md). The checks are the spec-compliance gate.
-- **Product and design:** [spec.md §14.3](spec.md) lists each card's data contract, and [ui-components.md](ui-components.md) types it. A card field missing there is a spec bug.
+- **Product and design:** [spec.md §14.3](spec.md) lists each card's data contract, and [ui-components.md](ui-components.md) types it. A card field missing there is a spec bug. Home ownership is T-APP-08 (snapshot, decoder and golden); T-APP-01 (adapter, Container and commands). T-COL-02 owns the one LiveChannel client; T-APP-08 extends it. Check: C-COL-02.

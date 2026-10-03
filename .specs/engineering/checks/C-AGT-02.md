@@ -1,11 +1,15 @@
 # C-AGT-02 Live external sessions appear read-only with attribution and home isolation
 
 Proves: mvp.md M-38, M-34 · spec.md §9.6.6, §14.5.5 · Layer: e2e · Stage: S2 · Tickets: T-AGT-02, T-AGT-03
-Automation: packages/backend/microsandbox/real_external_transcripts_test.go and apps/app/e2e/external-transcripts.spec.ts (new) · Runs in: reference host and browser runner
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: reference host and browser runner
 
 ## Setup
 
 Real branch machine with Linux inotify/cgroups, real PostgreSQL, Ben and Maya homes, supported installed Claude Code and Codex, test provider accounts and two authenticated browsers. No fake agent transcript producer.
+
+Candidate Automation declaration (unapproved): packages/backend/microsandbox/real_external_transcripts_test.go and apps/app/e2e/external-transcripts.spec.ts (new) · Runs in: reference host and browser runner
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

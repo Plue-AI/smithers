@@ -1,11 +1,15 @@
 # C-MNT-01 Passive events require maintainer admission
 
 Proves: mvp.md §14, M-05, M-26, M-29 · spec.md §6.1.2b, §10.2.1, §12.4, §16.4, §17.3, §17.5 · Layer: integration · Stage: M · Tickets: T-MNT-01
-Automation: packages/backend/internal/services/maintainer_admission_db_test.go (new) · Runs in: real PostgreSQL, catalog dispatch and durable flow runtime; local GitHub protocol server for repeatable delivery and fault injection
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: real PostgreSQL, catalog dispatch and durable flow runtime; local GitHub protocol server for repeatable delivery and fault injection
 
 ## Setup
 
 Launch and M catalogs; owner, maintainer, Member, outsider with GitHub write access but no roster entry, suspended member and another App. Persisted synced issue and PR revisions. Counters for jobs, proposals, run credentials, machine requests and TODOs.
+
+Candidate Automation declaration (unapproved): packages/backend/internal/services/maintainer_admission_db_test.go (new) · Runs in: real PostgreSQL, catalog dispatch and durable flow runtime; local GitHub protocol server for repeatable delivery and fault injection
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

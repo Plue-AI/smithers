@@ -9,6 +9,8 @@ Automation: `apps/app/scripts/server-bundle.integration.test.ts` (new) · Runs i
 - No `msb`, `jj`, PostgreSQL or Homebrew `git` on `PATH` for the launch steps (`PATH=/usr/bin:/bin:/usr/sbin:/sbin`).
 - An empty state directory for the launch.
 
+C-INS-05 exercises the real bundle build and bin/smithers-server entrypoint. T-INS-09 also requires C-INS-06 through registered host start --bundle, status and stop with real launchd. Expected paths, manifest coverage, versions, limits and refusals are committed literal fixtures; no runtime spec or production-resolver oracle.
+
 ## Steps
 1. Run the one documented build command, `smthrs build //apps/app:serverBundle`, with only `SMITHERS_BUILD_SHA=X` set.
 2. List changes in the clone (`jj status` or `git status --porcelain` in the test's own clone).

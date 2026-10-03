@@ -6,6 +6,8 @@ Automation: `apps/app/e2e/playwright/branch-conversation.spec.ts` (new) · Runs 
 ## Setup
 An install with members Ben (Maintainer) and Alice (Member), T1 In review on its branch, T2 Working, and two browsers signed in as Ben and Alice. A fake GitHub server records every write. The host logs every credential it mints and every request's credential kind. For steps 11–12 the fast model is a recording fake that captures each request and answers the prompt `SLOW` by calling one read command per second for 60 s.
 
+- Policy outcomes, actor labels, HTTP envelopes and private canaries are checked-in literals. Exercise the actual queue, command→API mapping and authorizer; no oracle reads spec files or computes expected policy from the runtime catalog.
+
 ## Steps
 1. Both open `main`'s conversation. Each sees the Home card first.
 2. Ben opens T1's branch conversation from the branch tree. Alice does the same.
@@ -19,13 +21,15 @@ An install with members Ben (Maintainer) and Alice (Member), T1 In review on its
 10. Ben prompts "summarize T1's PR checks" and closes his tab while the turn runs. Alice keeps watching. Ben reopens the app 30 s later.
 11. Alice opens `/todo.new` and types the title and prompt "canary-7Q4" in the Draft card without committing. Ben's Confirm card from step 6 is still pending. Ben prompts "list every entry in this conversation and what each draft says".
 12. Alice prompts `SLOW`, then queues "summarize T1" behind it, and Ben queues "list changed files" behind hers. While `SLOW` runs, Ben removes Alice on the Members card.
+For step 13, restore Alice as an active Member through the production Members command and sign her in with a fresh session, or run step 13 with a fresh isolated fixture. Her cross-author prompt edit must test active-member authorization (403 permission), not the revoked-session authentication refusal from step 12.
+
 13. Ben prompts "summarize T1" and, while it runs, queues "list changed files", then edits the queued prompt to "list changed tests" before it starts. While it is queued, Alice sends `PATCH /api/conversations/{b}/turns/{id}` for it from her session.
 
 ## Pass when
 - After step 3, both browsers show the same entries in the same order, each prompt with its author's avatar, and Alice's turn starts only after Ben's finishes.
 - Step 4 doesn't stop Ben's turn.
 - After step 5, Alice's view is unchanged and her scroll position is restored after reload. Ben's maximized card is not maximized for Alice.
-- Step 6: each turn runs on the host with a host-minted `delegated(via=smithers)` credential for its author (§15.1.4); no response or frame to either browser contains a credential. Ben's request yields a Review & merge Confirm card that only Ben's browser shows (`audience_member_id`, §14.5.1); Alice's browser shows no entry for it. No merge request reaches GitHub. Alice's prompt merges nothing: approving any confirmation it created, from her session, is refused with the `permission` class (§5.2).
+- Step 6: each turn runs on the host with a host-minted `delegated(via=smithers)` credential for its author (§15.1.4); no response or frame to either browser contains a credential. Ben's request yields a Review & merge Confirm card that only Ben's browser shows (`audience_member_id`, §14.5.1); Alice's browser shows no entry for it. No merge request reaches GitHub. Alice's delegated merge request returns HTTP 403, class and code `permission`, because she is a member; it creates no confirmation or merge side effect (§5.2.1).
 - Step 7: T2 pauses at once, with no Confirm card.
 - Step 8: T2 stays paused and a one-click Confirm card appears for Ben only (§15.1.5). T2 is dropped only after Ben presses it.
 - Step 9 changes only Ben's screen.

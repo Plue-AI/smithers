@@ -7,6 +7,8 @@ Automation: `packages/backend/internal/services/conversations_db_test.go` (new),
 - Real PostgreSQL with the product migrations; members Ben and Alice; branches `main` and `smithers/t1`; the live-channel server (T-COL-02) with one subscribed client per member.
 - For Earlier: a seeded browser store holding two legacy conversations of Ben's, and a journal behind `GET /api/agent/conversations` holding one more.
 
+- Mount the production authenticated conversation router, live server and legacy history/replay routes. Expected entry lists, private canaries and golden bytes are checked-in fixtures; no oracle reads spec files or computes expectations using production builders or decoders.
+
 ## Steps
 - Adopted T-APP-16 boundary cases: Drive concurrent appends and branch creation through production routes with real PostgreSQL. Inject failure after entry allocation, after projection insert and during branch creation; assert no orphan entry, projection or conversation, and no consumed committed sequence. Alice’s authenticated GET and snapshot omit Ben’s private entries and queued prompts. Foreign view-state GET/PUT/snapshot/subscription refuse without data disclosure
 
@@ -17,6 +19,8 @@ Automation: `packages/backend/internal/services/conversations_db_test.go` (new),
 5. Ben and Alice write different view states; each reads theirs back.
 6. Read `SharedEntries` for the conversation.
 7. Open Earlier as Ben, then as Alice.
+
+8. Create a branch through each production fork/TODO command, including a rolled-back creation. Assert its conversation commits or rolls back with the branch. Exercise prompt and view-state mutations through their HTTP routes and Earlier through the real history/replay client; direct service tests supplement these boundary cases.
 
 ## Pass when
 - Lock the conversation row in the append transaction, allocate seq from its transactional counter and enforce UNIQUE(conversation_id, seq). Advance the counter only with committed entries and projection rows; branch/conversation creation shares its caller transaction. GET, snapshots and live subscriptions authorize the conversation and filter private entries and queued prompts to their audience member. Foreign view-state reads/writes and snapshots are refused; SharedEntries excludes every private entry, including the reader’s own

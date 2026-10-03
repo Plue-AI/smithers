@@ -24,7 +24,7 @@ Record exceptions in each ticket as `Runs outside the install: <owner>, <reason>
 
 Before starting a ticket, claim its GitHub issue with `node scripts/issue-claim.mjs claim` (AGENTS.md). Ticket files carry the issue number once filed; the lead engineer (smithers-22) files them as work starts. Each ticket issue has an "Absorbs …" comment listing the older issues it folds in, and implementers read those first. Deferred work is tracked in #3467 (Cloud, billing, plans), #3468 (TUI) and #3469 (triggers and the Machine view). Parked tickets live in `tickets/deferred/`.
 
-**First tickets.** T-ACC-01 starts on day 1 in parallel. The first-merge slice includes install/setup, identity, TODO execution/merge, catalog/live data, app Containers and their S1 View dependencies. Its resolved prerequisite closure is: T-ACC-01, T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-08, T-APP-09, T-APP-15, T-APP-16, T-APP-17, T-APP-19, T-APP-22, T-APP-23, T-CAT-01, T-CAT-02, T-COL-02, T-COL-07, T-COL-10, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-11, T-GH-01, T-GH-02, T-GH-05, T-GH-09, T-INS-01, T-INS-02, T-INS-03, T-INS-04, T-INS-06, T-INS-08, T-MCH-08, T-MCH-10, T-MCH-14, T-STK-01, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-10, T-STK-12, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-14, T-UI-23. C-J1-04’s S1 recording starts from a built bundle through T-INS-08 and proves setup, drafting, execution and merge. Estimate this complete closure before scheduling; the former 3–6 week backend-chain estimate does not estimate this journey. Bootstrap App credentials come only from T-GH-01’s setup flow into sealed PostgreSQL.
+**First tickets.** T-ACC-01 starts on day 1 in parallel. The first-merge slice includes install/setup, identity, TODO execution/merge, catalog/live data, app Containers and their S1 View dependencies. Its resolved prerequisite closure is: T-ACC-01, T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-08, T-APP-09, T-APP-15, T-APP-16, T-APP-17, T-APP-19, T-APP-19b, T-APP-22, T-APP-23, T-CAT-01, T-CAT-02, T-COL-02, T-COL-07, T-COL-10, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-11, T-GH-01, T-GH-02, T-GH-05, T-GH-09, T-INS-01, T-INS-02, T-INS-03, T-INS-04, T-INS-06, T-INS-08, T-MCH-08, T-MCH-10, T-MCH-14, T-STK-01, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-10, T-STK-12, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-14, T-UI-23. C-J1-04’s S1 recording starts from a built bundle through T-INS-08 and proves setup, drafting, execution and merge. Estimate this complete closure before scheduling; the former 3–6 week backend-chain estimate does not estimate this journey. Bootstrap App credentials come only from T-GH-01’s setup flow into sealed PostgreSQL.
 
 ## Index
 
@@ -155,6 +155,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-APP-09](T-APP-09.md) | Actor adapter: participants and "for Ben" (§14.6a, M-34) | S1 | S | T-ACC-04, T-UI-01, T-APP-19 | C-J1-04, C-J6-01, C-UI-13 |
 | [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07, T-UI-08, T-APP-19 | C-UI-03, C-UI-13 |
 | [T-APP-19](T-APP-19.md) | Card view-model schemas and fixtures from `ui-components.md`: the seam between design's views and engineering's containers | S1 | S | — | C-J1-04, C-UI-08 |
+| [T-APP-19b](T-APP-19b.md) | Card schemas match §14.3: one rpc reconciliation | S1 | M | T-APP-19 | C-UI-08 |
 | [T-UI-01](T-UI-01.md) | Primitives: actor chip, state word, tone | S1 | S | T-APP-19 | C-UI-12 |
 | [T-UI-02](T-UI-02.md) | Setup and Settings views | S1 | M | T-UI-01, T-APP-19b | C-UI-12 |
 | [T-UI-03](T-UI-03.md) | Draft view | S1 | S | T-UI-01, T-APP-19b | C-UI-12 |
@@ -179,6 +180,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-APP-15](T-APP-15.md) | File card on CodeMirror 6 with code intelligence (read-only) | S1 | M | T-COL-10, T-UI-11, T-APP-19, T-INS-02, T-CAT-01 | C-COL-01, C-J1-03, C-J1-04, C-UI-11, C-UI-13 |
 | [T-APP-16](T-APP-16.md) | Branch conversations: storage, topics, view state, branch tree, Earlier archive | S1 | L | T-COL-02, T-ACC-02, T-UI-07, T-APP-19, T-APP-22, T-APP-09 | C-APP-04, C-J1-04, C-UI-06, C-UI-13 |
 | [T-APP-23](T-APP-23.md) | Host turns: the app agent's turns move to the host; cutover to shared conversations | S1 | L | T-APP-16, T-APP-22, T-ACC-04, T-ACC-05, T-ACC-06, T-CAT-02, T-UI-07, T-INS-02, T-FLW-08, T-APP-09 | C-APP-05, C-CUT-02, C-J1-04, C-UI-06 |
+| [T-APP-24](T-APP-24.md) | Settings HTTPS hint opens the quickstart page | S2 | S | T-APP-20, T-APP-03 | C-UI-09 |
 | [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-23, T-UI-07, T-APP-19, T-UI-12, T-INS-06, T-STK-12, T-FLW-08, T-FLW-07 | C-J1-04, C-UI-07, C-UI-13 |
 | [T-APP-10](T-APP-10.md) | Branch card: presence, activity, machine state, terminals, SSH line | S2 | L | T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-11, T-UI-15, T-APP-19, T-APP-11, T-APP-22 | C-J3-01, C-J3-03, C-UI-13 |
 | [T-APP-11](T-APP-11.md) | File and Diff cards reload on change; deleted/renamed states; Restore this file; language server on the daemon | S2 | M | T-COL-04, T-APP-15, T-UI-16, T-APP-19, T-APP-22 | C-J3-08, C-PERF-04, C-UI-11, C-UI-13 |
@@ -215,7 +217,6 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-PRC-01](T-PRC-01.md) | Declared-input existence in //:targetIndex and the drift set at landing | S1 | S | — | C-PRC-01 |
 | [T-PRC-02](T-PRC-02.md) | DB-free migration gate and planned table ownership at Ready | S1 | S | — | C-PRC-02 |
 | [T-PRC-03](T-PRC-03.md) | Check receipts required to close a ticket | S1 | S | — | C-PRC-03 |
-| [T-APP-19b](T-APP-19b.md) | Card schemas match §14.3: one rpc reconciliation | S1 | M | T-APP-19 | C-UI-08 |
 | [T-STK-16](T-STK-16.md) | Pre-approved TODOs merge when ready (M-39) | S1 | M | T-STK-04, T-GH-09, T-ACC-05, T-STK-01 | C-STK-13 |
 
 ## Deferred

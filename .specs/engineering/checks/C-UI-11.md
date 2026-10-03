@@ -17,15 +17,19 @@ Automation: `apps/app/e2e/real/file-intelligence.spec.ts` (new) · Runs in: refe
 4. He reads the diagnostics on `src/b.ts`.
 5. Release build only: let T1's branch sleep (T1 paused, §8.4.2). Open `src/b.ts` on it again and request hover.
 6. Ben runs `/browser.open <page.html URL>`.
+- In `FileContainer.test.tsx`, request cross-file definition with literal target path `src/a.ts` and line 3; repeat with a same-file definition.
 
 ## Pass when
 - Step 2: a hover shows `add(x: number, y: number): number` within 3 s of the request (the first request may start the language server; the time is recorded).
 - Step 3: the File card shows `src/a.ts` with the cursor on line 3.
 - Step 4: exactly one error diagnostic marks line 5, naming the argument type mismatch.
-- Each gesture raises its catalog flow (`code.hover`, `code.definition`, `code.diagnostics`) with `{path, line, col}`, recorded in the flow log.
+- Hover and definition raise their catalog flows through the production dispatcher with the position converted from `{path, line, col}`. Diagnostics dispatches `code.diagnostics` with the file path and repository, without a position. The flow log and LSP tunnel record the requests. Expected signature, target and diagnostic values are checked-in literals, never derived from spec files or production conversion code.
 - Step 5: the file renders from the captured snapshot, no `machine_requests` row appears (§8.4.4), and hover binds no gesture, with no error toast, spinner or dead click.
 - Step 6: a reader card shows the title "Reader canary" and the paragraph "Reader canary body".
 - Steps 1–6 complete with the keyboard alone.
+
+- A repository-controlled language-server plugin runs only inside the isolated branch machine; it creates no host/browser process or file write. An unavailable LSP capability binds no gesture and starts no host fallback.
+- Cross-file definition dispatches `files.read` through cardActions → flowAction with literal target path `src/a.ts` and line 3; same-file definition sets reveal.
 
 ## Fail when
 - Hover, definition or diagnostics show nothing, or the wrong place, on an awake branch.

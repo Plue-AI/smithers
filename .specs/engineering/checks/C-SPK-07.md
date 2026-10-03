@@ -1,7 +1,7 @@
 # C-SPK-07 Yjs keystroke latency into a VM from a second Mac
 
 Proves: mvp.md §9 Live updates, J3.5, M-02 · spec.md §1.4, §7.4.1–7.4.2, §9.2.2, §16.3.2, §18 (keystroke budget); overview.md E-04, E-05 · Layer: spike · Stage: W0 · Tickets: T-COL-01, T-COL-11
-Automation: `scripts/spikes/col-01/keystrokes.spec.ts` (new; `scripts/spikes/col-01/run.sh keystrokes`) · Runs in: reference host plus a second Mac on the same network
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: reference host plus a second Mac on the same network
 
 ## Setup
 
@@ -10,6 +10,10 @@ Automation: `scripts/spikes/col-01/keystrokes.spec.ts` (new; `scripts/spikes/col
 - The fan-out reaches the VM over the transport C-SPK-03 chose.
 - Second Mac on the same network: one Playwright process opens two Chromium pages, A and B, at the plain-HTTP LAN origin (`http://<host>.local:<port>`, an insecure context, §16.3.2). Each page has a `yjs 13.6.32` text bound to the document.
 - One clock: the Playwright runner's monotonic clock (`process.hrtime.bigint()`) stamps both send and receipt.
+
+Candidate Automation declaration (unapproved): `scripts/spikes/col-01/keystrokes.spec.ts` (new; `scripts/spikes/col-01/run.sh keystrokes`) · Runs in: reference host plus a second Mac on the same network
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 
@@ -36,3 +40,7 @@ Automation: `scripts/spikes/col-01/keystrokes.spec.ts` (new; `scripts/spikes/col
 ## Evidence
 
 `.artifacts/checks/C-SPK-07/<UTC timestamp>/`: `keystrokes.csv` (run, seq, t_send, t_recv, host_in, host_out), `summary.json`, the Playwright trace for each run, the final texts and disk file with their SHA-256, and `env.json` (commit, browser version, host profile, network link of each Mac, VM config).
+
+## T-COL-11 decision receipt
+
+A reference-host budget miss is retained as a failed measurement, with raw samples. T-COL-11 W0 completes its decision evidence when the matrix is complete and the topology trigger is applied; S1 additionally requires smithers-8a to accept ADR 0003 after T-COL-10 creates it. This does not waive the production latency budget. Expected bytes, frame sizes, sequence tags and thresholds are literal harness fixtures, never derived from spec files or runtime implementation constants. Capture/growth/GC and kernel commands run only inside the disposable machine, reviewed by smithers-3f.

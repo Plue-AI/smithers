@@ -16,6 +16,8 @@ Out:
 
 ## Changes
 
+- Serve manual App setup through POST /api/install/setup/app only; register no github_app alias. Check: C-GH-01.
+
 - The manual-App route inherits T-GH-11/T-GH-12’s durable setup-session and claim gates. Do not authorize it with the transitional X-Smithers-Setup-Token header. Check: C-J1-02.
 - Explain the exact GitHub settings fields to supply. Take PEM, client secret and webhook secret as secret inputs; obtain canonical App id/slug from authenticated GET /app and reject mismatches.
 - Require the literal permission set and inactive webhook from T-GH-12. Manual `POST /api/install/setup/app` accepts `{app_id, slug, pem, client_id, client_secret, webhook_secret, callbacks_confirmed[]}`. Declare this schema in `docs/api/openapi/install.yaml`. `callbacks_confirmed` must equal the URL set reported by `GET /api/install`, each origin plus `/api/auth/github/callback`. The installer registers URLs manually; GitHub provides no callback-registration API. Missing fields or URLs return HTTP 400, class `user`, with the missing field or URL named and no secret echoed. Never mark the App step done before validation. Checks: C-GH-01, C-J1-02.

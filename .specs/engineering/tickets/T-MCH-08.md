@@ -66,7 +66,7 @@ Out:
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 
 
-- [C-J7-02](../checks/C-J7-02.md), S1: fork T2 to scratch, Add to stack as a new TODO after T2, drop T2.
+- [C-J7-02](../checks/C-J7-02.md), S1: landing qualifies fork T2 to scratch and Add to stack as a new TODO after T2 through the production stack-operation boundary, including FoldIntoForks. The real Drop portion completes after T-STK-05 lands and remains pending until then.
 - [C-MCH-08](../checks/C-MCH-08.md), S2: fork never stops the source machine and starts from the captured revision.
 - [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
@@ -78,9 +78,9 @@ Out:
 
 ## Ready checklist
 
-1. Dependencies: S1 names placement, Views/schema, microVM launcher, catalog, person confirmations, Drop integration, verified candidates/fence, live delivery and actor rendering. S2 requires daemon capture and one machine per branch. Both phase closures remain within stage order.
+1. Dependencies: S1 names placement, Views/schema, microVM launcher, catalog, person confirmations, verified candidates/fence, live delivery and actor rendering. Land the fork/add/fold primitive through the production stack-operation boundary before T-STK-05 consumes FoldIntoForks. S2 requires daemon capture and one machine per branch. The real Drop portion of C-J7-02 remains pending until T-STK-05 lands and is not counted as passed before then.
 2. Exclusions: Replace, scratch Rebase now, Drop implementation beyond its hook, Branch card, disk-copy forks, scratch pushes, credential copying and design-owned Views are explicit.
 3. Boundary tests: C-J7-02 drives app/catalog/Confirm/Drop; C-MCH-08 enters the routed fork endpoint and additionally proves awake Add to stack capture. Integration uses real PostgreSQL/jj and the production dispatcher/router with fixed repository fixtures and literal results, never runtime spec or code-derived expectations.
 4. Decisions: smithers-8a accepts the stack-service and hosted-route compatibility decision; smithers-3f approves history/capture seams, smithers-b8 command and Container seams, smithers-38 catalog/schema public API under §21.1, and smithers-06 View props. Will decides product changes such as Replace or source interruption.
-5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
+5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok for design. Fork, Add to stack and Drop arrive as Actions; Confirm shows the exact command text and who asked; no new View. The engineering semantics are yours."
 6. Security: smithers-3f reviews launch, capture and credential boundaries before start. Repository code and scratch terminal commands run only in machines; host system flows call fixed stack-service operations and never load repository flows. SourceRef transfers a revision, not a disk, home or credentials; no member/agent sudo or provider keys in guests. C-J7-02/C-MCH-08 prove the actual runtime path.

@@ -15,6 +15,9 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
   - the machine token of T1's branch.
 - T1 is `in_review` and first in stack order.
 
+T-ACC-04 proves real OAuth/token minting and the missing-consumer guard. T-ACC-05 proves production one-click dispatch, persisted confirmations and private live subscriptions; an unavailable action handler returns HTTP 503, class infra, code confirmation_unavailable, before approval or effects. T-STK-04 installs the real merge handler and owns complete merge/GitHub/fault cases; keep those pending until it lands. T-APP-23 proves real turn-runner lifetime revocation. No service fake discharges these boundaries. Use committed literal request/result fixtures; no runtime spec, catalog or production-policy oracle. An S1 terminal profile permits append-only todo.new without confirmation and refuses Merge/explicit confirmation creation with 403 permission; S2 follows catalog policy. Include current-role, sponsor/member revocation and credential-scoped idempotency fixtures from the approved rulings.
+- Drive the real approval route and production merge consumer with PostgreSQL and fake GitHub. Include a crash between approval and the external call and T-GH-09 reconciliation; a test-only merge handler does not pass.
+
 ## Steps
 - Adopted T-ACC-05 boundary cases: Use production create/approve routes and real merge-consumer wiring with fixed GitHub outcomes. Change generation while the displayed head stays unchanged and assert stale refusal, zero merge sends and no approved row. Assert MergeReady and each definitive GitHub refusal leave pending; only independently confirmed merge marks approved. Retain these assertions in downstream T-STK-04 integration
 
@@ -31,6 +34,7 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
 8. Call `GET /api/confirmations` with O-delegated and with O's session.
 9. With O's `via=smithers` bearer, dispatch `/todo.new` (A✓). Press the resulting confirmation with E's session, then with O's session.
 10. Restore T1 to `in_review` at generation g with head `h1`. Create a merge confirmation with O-delegated. Steer T1 with E's session, so T1 turns `working` while its PR head stays `h1`. Approve with O's session. Then let T1's run propose generation g+1 with head `h3`, and approve again with O's session.
+- Compare the production confirmation-create response, GET list, delegated read and live projection with the persisted row.
 
 ## Pass when
 - Store review_merge bindings as (generation, reviewed_pr_head_sha). Approval rereads both under the subject transaction and expires/refuses a stale binding before effects. Pass both to the merge consumer. MergeReady and definitive GitHub refusals leave the confirmation pending; only a confirmed merge settles approved. Missing handlers leave it unapproved
@@ -40,16 +44,17 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
 - No consumer=503 infra/confirmation_unavailable, zero row/handler effects. Each resolved create, press and replay obtains one fresh bound-action decision; there is no generic-create decision followed by a second command decision.
 - Same immutable credential/key/canonical request reuses permitted result without duplicate row/effect. Mismatch within scope=409 conflict/idempotency_mismatch. Other credential identities/bindings have distinct scopes and no result leakage. Downgraded/dead callers get current refusal before recorded response; expired/resolved confirmation replay reports actual state, never fabricated pending. Terminal confirmation state and durable operation deduplication prevent duplicate merge even across distinct approval scopes.
 - Ordinary role downgrade after allow may commit; later requests use new role. Member revocation committed before serialized write=401/no effect. Merge checks current approving-member role/state/confirmation ownership before send under STK-04 S20; downgrade/suspension/removal produces no outbound merge. All isolated cases report effect totals separately from steps 1–10.
-- Step 1: eligible delegated merge requests return 202 with a confirmation id and `state: "requested"`; run and machine return 403 `permission`. Step 2: eligible delegated approval returns 403 `never`; run and machine return 403 `permission`. No request in these steps merges. Cancel the step 1 confirmations before step 3.
-- In step 3, dispatch returns 202 with exactly `confirmation` and `state`, and `state = "requested"`; the stored row is `pending`.
+- Step 1: eligible delegated merge requests return 202 with a confirmation id and `state: "pending"`; run and machine return 403 `permission`. Step 2: eligible delegated approval returns 403 `never`; run and machine return 403 `permission`. No request in these steps merges. Cancel the step 1 confirmations before step 3.
+- In step 3, dispatch returns 202 with exactly `confirmation` and `state`, and `state = "pending"`; the stored row is `pending`.
 - In step 4, every credential except O's session gets 403. O's session yields exactly 1 merge call, with `sha = h1` and `merge_method = squash`, and the row becomes `approved`.
 - Step 5 returns 409 `class: "conflict"`, the row becomes `expired`, and no new merge call is made.
 - In step 6, deny gives `denied`, the later approve returns 409, and no merge call is made.
 - Step 7 is refused at create with 403, because a Member's role can't merge.
 - In step 8, the delegated response holds only `{id, state}` per row, and the session response holds full rows.
-- In step 9, dispatch returns `202 {confirmation: id, state: "requested"}` with a `one_click` row and no TODO. E’s press gets 403 `permission`; O’s press creates exactly one TODO attributed to O.
+- In step 9, dispatch returns `202 {confirmation: id, state: "pending"}` with a `one_click` row and no TODO. E’s press gets 403 `permission`; O’s press creates exactly one TODO attributed to O.
 - In step 10, the first approve returns 409 `class: "conflict"` with reason `state`, makes no merge call and leaves the row `pending`; after g+1 is accepted the row is `expired`, and the second approve returns 409.
 - Over the whole run, the fake GitHub records exactly 1 merge call.
+- All initial confirmation states equal the literal `pending`; no response reports `requested`.
 
 ## Fail when
 - The app agent's bearer (`via=smithers`) or a CLI token merges directly, or an A✓ command runs before its author presses it.

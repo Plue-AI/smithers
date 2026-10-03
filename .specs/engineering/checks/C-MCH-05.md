@@ -1,7 +1,7 @@
 # C-MCH-05 Cleanup never deletes uncaptured work or a machine with an active session
 
 Proves: mvp.md §6.7 Cleanup · spec.md §8.12, §4.1 (dropped → in_review within 7 days) · Layer: integration · Stage: S2 · Tickets: T-MCH-09
-Automation: `packages/backend/internal/services/machine_cleanup_integration_test.go` (policy, runtime fake, CI), `packages/backend/microsandbox/real_cleanup_reopen_test.go` (destructive recovery, real microVM, reference host); both use real PostgreSQL and an injected clock.
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: unavailable (owner must declare the execution host)
 
 ## Setup
 
@@ -18,6 +18,10 @@ Automation: `packages/backend/internal/services/machine_cleanup_integration_test
 | g | dropped | ok | none | 23 h 59 m |
 | h | in_review | ok | none | 30 d idle |
 | i | scratch, archived | ok | none | 24 h |
+
+Candidate Automation declaration (unapproved): `packages/backend/internal/services/machine_cleanup_integration_test.go` (policy, runtime fake, CI), `packages/backend/microsandbox/real_cleanup_reopen_test.go` (destructive recovery, real microVM, reference host); both use real PostgreSQL and an injected clock.
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

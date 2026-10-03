@@ -23,7 +23,7 @@ Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference hos
 - Step 8 admits no job on rollback and retains the committed job after restart. Only the current run, attempt and source revision can update the summary and its projection. Late results leave the accepted literal bytes and summary_rev unchanged. Phase and cell rows obey the same comparison. The shell mounts T-UI-08’s View through T-APP-07’s Containers and has no legacy ToastStack or ChatRunTimeline import.
 - Maya's EMIT entry pins to the top edge with the live tone; Alice, with no timeline, sees a "↑ 1 live above" pill.
 - During the 60 s of events, no event waits more than 30 s for a refresh, and the last event is summarized within 8 s (5 s debounce plus model time).
-- Title, summary, tone and state are identical for both members on every entry; they match the §14.5.2 table computed from `todos` at the same cursor.
+- Title, summary, tone and state are identical for both members on every entry. Compare ASK, FAIL, PR and Starting against checked-in literal fixture values at the recorded cursor; do not derive expected values from spec files or production tone/state functions.
 - ASK shows attention (gold) and Answer for both; FAIL shows failed (ember) and Retry; the first In review item shows quiet, with Merge for Maya and no action for Alice.
 - In step 3 the Needs you and failure toasts reach the TODO's owner and prompter, Maya, and not Alice (§14.4.1); presence-based recipients start in S2 (§10.8.3). Each toast is also a timeline entry, and the entry stays after the toast settles.
 - While a TODO is between admission and its first step, its entry's state reads Starting for both members (§4.1).

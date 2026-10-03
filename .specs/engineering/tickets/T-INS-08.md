@@ -28,6 +28,8 @@ Out:
 - The setup token, setup sessions and the owner claim (T-ACC-01).
 
 ## Changes
+
+- Add to Changes and C-INS-06 acceptance references: Inherit C-SPK-06’s literal selected plist, exact bootstrap/print commands and prerequisites: installing administrator, macOS 15 or later, /opt/homebrew spike installation and one sudo for a LaunchDaemon. On daemon no, C-SPK-06 proves GUI-domain LaunchAgent boot/doctor only; automatic login remains unproven until C-INS-06 step 5 records reboot without manual login and readiness under the automatically logged-in installing user. T-INS-02 sets SMITHERS_MICROSANDBOX_BIN=<bundle>/bin/msb and removes inherited PATH directories. Check: C-INS-06.
 - `packages/smithers/src/commands/Host.ts` (new): the `host` group with `start`, `stop` and `status`, registered in `makeCli` (`packages/smithers/src/Cli.ts:76`). T-INS-04 adds the flags and T-INS-07 the remaining commands. The top-level `up` and `status` verbs keep their meanings (`packages/smithers/src/Verb.ts:87`). `status` reads `/readyz` and `GET /api/install` (T-INS-06). Appendix B.6 lists the group, so the allowlist test (T-CAT-01) passes.
 - `apps/app/launchd/sh.smithers.host.plist` (new template; the label is a proposal), plus a launchd agent template if T-INS-03 chose the fallback.
 - `apps/app/scripts/README.md` → build the bundle with `smthrs build //apps/app:serverBundle` and start it with `smthrs host start --bundle apps/app/.server-bundle`. This is the stage-1 install note that C-J1-04's operator holds.
@@ -44,6 +46,8 @@ Out:
 - integration: C-INS-06 on the reference host with the T-INS-01 bundle built from a clean checkout. Its reboot step needs a host that can reboot; the other steps also run on a macOS arm64 CI runner.
 
 ## Acceptance
+
+- [C-INS-06](../checks/C-INS-06.md): inherit C-SPK-06’s literal selected plist, exact bootstrap/print commands and prerequisites. The LaunchAgent fallback proves GUI-domain boot/doctor only; automatic login remains unproven until step 5 records reboot without manual login and readiness under the automatically logged-in installing user.
 
 
 

@@ -5,7 +5,7 @@ Automation: `scripts/check-process-gates.test.mjs` (new) · Runs in: CI (isolate
 
 ## Setup
 
-An isolated fixture checkout with a recorded commit and command logs. Stub remote writes only; execute the local production gate.
+An isolated fixture checkout in a machine, with literal expected statuses, paths, gate order and workflow fields. Invoke production smthrs lint //:targetIndex and scripts/commit.mjs --push for both supported VCS paths; execute local gates and intercept remote publication only. Never derive expectations from spec/product Markdown or runtime implementation output.
 
 ## Steps
 
@@ -13,7 +13,8 @@ An isolated fixture checkout with a recorded commit and command logs. Stub remot
 2. Exercise file, paths, workflows, glob, brace-expansion and ignore-rule fixtures through `withTargetIndex`. Verify `Input.expandGlob` returns `[]` for a missing static prefix and `Input.digestFile` returns `undefined` for a missing file outside the TargetIndex check. Verify Actionlint consumes its declared workflow list.
 3. Attempt landing with stale workflow input, generated drift, tracked temporary-path leakage and a conflict marker.
 4. Resolve and execute all five target labels, including `//scripts:trackedHygiene`; the temporary-path fixture must fail that target. Run the gates in the invoking checkout's process for local landing and ubuntu-latest CI, with no install credentials.
-5. Land a clean fixture and inspect the per-SHA drift configuration and repository-settings read API. Verify the required context is `Per-commit drift` after a clean per-SHA run.
+5. Refuse machine execution and assert zero push attempts. Read main required-status settings through the repository settings API and verify the literal per-SHA status name; generated YAML alone is insufficient.
+6. Land a clean fixture and inspect the per-SHA drift configuration and repository-settings read API. Verify the required context is `Per-commit drift` after a clean per-SHA run.
 
 ## Pass when
 

@@ -15,6 +15,7 @@ Automation: `apps/app/e2e/real/todo-takeover.spec.ts` (new) · Runs in: referenc
 4. Ben presses **Take over** on T3.
 5. Ben opens `/todo T4` and presses **Take over**.
 6. T4's run asks a question.
+- Exercise `todo.takeover` through the action route `POST /api/todos/{n} {takeover}`.
 
 ## Pass when
 - After step 1, every browser shows Eve as T3's and T4's removed owner, and T3 keeps its history and revisions.
@@ -23,6 +24,7 @@ Automation: `apps/app/e2e/real/todo-takeover.spec.ts` (new) · Runs in: referenc
 - Step 4: within 1 s, T3's owner is Ben in all three browsers; one `todo_events` row records Ben as the actor; T3 keeps its place and revisions.
 - Step 5: T4's run continues on attempt 1 with no restart; its owner is Ben.
 - Step 6: the Needs you toast reaches Ben, T4's owner now.
+- The descriptor is person-only; delegated=403 never/never and Member=403 permission/permission, without effects.
 
 ## Fail when
 - Take over shows for a member, or on a TODO whose owner is active.

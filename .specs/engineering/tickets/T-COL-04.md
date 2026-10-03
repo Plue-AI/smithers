@@ -24,6 +24,8 @@ Out:
 
 ## Changes
 
+- The existing S2 burst writer emits edit lifecycle evidence with source_key equal to burst id and stored actor attribution. T-REL-03 only reads it; this adds no person-minute inference or effort ingestion. Check: C-REL-04.
+
 - Encode and decode only through `packages/backend/internal/machined/wire` (T-COL-10); no local frame types, so the golden frames in `packages/backend/internal/compose/cocontracts_test.go` keep guarding this codec (smithers-3f, 2026-10-02).
 - The host's run launch starts the coding host with `open_session(agent, exec)` and then calls `register_run(run_id, session)` (§9.1.2); the coding host never calls it.
 - `packages/backend/internal/machined/events.go` (new): ingest, outbox acknowledgement after commit, `live.Publish`.

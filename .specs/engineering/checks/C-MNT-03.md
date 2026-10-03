@@ -1,11 +1,15 @@
 # C-MNT-03 Only exact session-approved replies publish once
 
 Proves: mvp.md §14, M-05, M-26, M-29 · spec.md §6.1.2b, §10.2.1, §12.4, §16.4, §17.3, §17.5 · Layer: integration · Stage: M · Tickets: T-MNT-03
-Automation: packages/backend/internal/services/maintainer_reply_db_test.go (new) · Runs in: real PostgreSQL, catalog dispatch and durable flow runtime; local GitHub protocol server for repeatable delivery and fault injection
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: real PostgreSQL, catalog dispatch and durable flow runtime; local GitHub protocol server for repeatable delivery and fault injection
 
 ## Setup
 
 Real durable approvals and outbound_writes stores; GitHub protocol server accepts comments, records bodies and can drop the response after committing. Draft with evidence and subject digests; maintainer, Member and delegated credentials.
+
+Candidate Automation declaration (unapproved): packages/backend/internal/services/maintainer_reply_db_test.go (new) · Runs in: real PostgreSQL, catalog dispatch and durable flow runtime; local GitHub protocol server for repeatable delivery and fault injection
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

@@ -1,17 +1,17 @@
 # C-COL-01 Stage-1 co-editing contracts hold
 
 Proves: mvp.md M-02, M-27 · spec.md §7.1, §7.6 · Layer: unit+integration · Stage: S1 · Tickets: T-COL-10, T-COL-07, T-APP-15, T-COL-03, T-COL-03a, T-COL-03r, T-COL-04a, T-COL-03a, T-COL-03, T-COL-04a, T-COL-04, T-COL-06
-Automation: `packages/backend/internal/compose/cocontracts_test.go` (new), `apps/app/src/mainview/cards/CodeSurface.test.tsx` · Runs in: CI
+Automation: `packages/backend/internal/compose/cocontracts_test.go` (new), `apps/app/src/mainview/cards/CodeSurface.test.tsx` · Runs in: CI (pure codecs and View units); reference host (T-COL-07 real-machine lane)
 
 ## Setup
-A backend with real PostgreSQL and one running workspace (microVM on the reference host, process runtime in CI), with two signed-in members, A and B, and the file `src/a.ts`. Steps 1–6 gate stage 1. Step 7 covers the §7.6 rows that T-COL-03, T-COL-04 and T-COL-06 append to the same test file, and re-runs in stage 2.
+A backend with real PostgreSQL and one running workspace on a real microVM on the reference host for T-COL-07 guarded-write cases; pure codec cases remain DB-free and host-side, with two signed-in members, A and B, and the file `src/a.ts`. Steps 1–6 gate stage 1. Step 7 covers the §7.6 rows that T-COL-03, T-COL-04 and T-COL-06 append to the same test file, and re-runs in stage 2.
 
 ## Steps
 1. A reads `src/a.ts` and gets digest d0.
 2. B writes `src/a.ts` with `base_digest = d0`; the response carries d1.
 3. A writes `src/a.ts` with `base_digest = d0`.
 4. A writes without `base_digest`.
-4a. The coding agent's std `read` returns `src/a.ts`; B then writes it; the agent's `write`, `edit` and `apply_patch` each try to change it.
+4a. Through the production coding/edit-atom tool bindings in a real machine, dispatch std read on fixed src/a.ts fixture bytes; B then writes fixed replacement bytes; dispatch write, edit and apply_patch with the stale read. Repeat against the authenticated daemon path in S2. Do not call FileMutation or write_file directly or fake the guarded filesystem. Expected bytes and independently calculated digests are test fixtures, never derived from spec files or production code at runtime.
 4b. Through the real coding/edit-atom apply_patch binding, exercise add, delete, update and move in S1 and through the authenticated daemon in S2. Change each read source or destination externally, create a formerly absent destination, and try an unread existing destination. Submit a two-file patch whose later hunk is stale; repeat with an outside replacement at exchange.
 5. Open `/api/live` as A and subscribe to `doc:code:<branch>:src/a.ts` and `doc:wiki:<page>`.
 6. Render the File card for `src/a.ts` in the app's unit harness.

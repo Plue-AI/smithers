@@ -33,6 +33,8 @@ Out:
 
 ## Changes
 
+- Adopt GH-12’s App handler only at POST /api/install/setup/app under the existing {step} route. Register no github_app alias or second handler. Check: C-GH-01.
+
 - Step 4 uses `POST /api/install/setup/models`; declare its request and refusal schemas in `docs/api/openapi/install.yaml`. Literal seven-step fixtures store and return ordered ids `address`, `app_manifest`, `sign_in`, `repository`, `models`, `source`, `machine`. Preserve blocked fix links and the repository squash check. Check: C-J1-02.
 
 - `install_setup.go`: store operation identity and fence in the existing setup step record, claim recovery by compare-and-set and reconcile the dependency’s durable external operation. Commit fenced completion and install projection together. Image recovery uses T-MCH-10’s isolated preparation and retained operation identity; repository recipes never run on the host and provider/App secrets never enter the machine. Checks: C-J1-02, C-SEC-04.

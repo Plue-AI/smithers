@@ -30,6 +30,8 @@ Out:
 - New command policies, direct GitHub merges, host-turn execution/recovery, public API expansion, new Views/CSS and removal of StackSeam consumers that still belong to other tickets. Host-turn/tab-close coverage belongs to T-APP-23 after this card is wired.
 
 ## Changes
+
+- T-STK-04 owns the `prs.land` command handler and install route deletion; T-APP-04 binds and removes the control only. Confirmation state is `pending`. Checks: C-STK-07, C-ACC-02.
 - `packages/rpc/src/topics/Confirmations.ts` (new): the `confirmations:<member>` decoder, with `kind: one_click | review_merge`. `packages/rpc/test/fixtures/topics/confirmations.json` (new): the golden, which `confirmations_golden_test.go` (new) compares with T-ACC-05's builder.
 - `apps/app/src/mainview/cards/containers/confirmModel.ts` (new): `toConfirmModel(row, viewer, todo?)`: the verb from the catalog descriptor; for `review_merge`, Merge's state from the subject TODO's `merge_block` (`MergeReady`, §10.6.2a) at the bound head, with each check's name, required flag and status from the TODO's PR; one-line receipt results `done`, `cancelled` and `expired`; stale describes revision approval separately.
 - `apps/app/src/mainview/cards/containers/ConfirmContainer.tsx` (new): subscribes `confirmations:<member>` and the subject's `todo:<n>`; Confirm and Merge run `POST /api/confirmations/{id}/approve` with the session cookie and Cancel runs `deny`; renders `ConfirmView` (T-UI-05).

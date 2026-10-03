@@ -1,13 +1,15 @@
 # C-STK-03 Stop then Resume continues from the last finished step; Retry keeps the earlier attempt
 
 Proves: mvp.md §4.1 (Paused, Failed "earlier attempts and evidence kept"), §6.6 Stop and resume, rule 5 · spec.md §4.1, §10.4.1, §10.7.1, §11.4.2, §19.3, §10.4.1a–b, §11.6.1, §15.2 · Layer: integration · Stage: S1 · Tickets: T-STK-05, T-FLW-11, T-STK-13, T-MCH-14
-Automation: `packages/backend/internal/services/todo_control_db_test.go` (new) · Runs in: CI (real PostgreSQL, a real flow host as in `packages/backend/flowdispatch/real_host_test.go`)
+Automation: `packages/backend/internal/services/todo_control_db_test.go` (new) · Runs in: reference host (real PostgreSQL and the real flow host on a microVM)
 
 ## Setup
 - Additional fixtures hold post-propose stack wait and Candidate/Propose capture, acceptance and outbound dispatch boundaries. A fake host model proxy has a declared UTC budget, 60M run reserve, per-call request log and controllable in-flight response. Literal person/session, delegated and run credentials cover typed-stop authority; a named install owner appears in projection fixtures.
 - Product schema at head; owner Will signed in with a session.
 - Fixture `todo` flow with four steps `s1..s4`, run as one run per attempt (T-FLW-11). Each step increments a counter row keyed by (run id, step); `s3` blocks until released; `s4` fails when the TODO's prompt contains `FAIL`.
 - T1 with prompt `FAIL`, admitted; flow digest D recorded when T1 entered `starting`.
+
+- Send control requests through POST /api/todos/{n} on the composed install router and production command dispatcher. Use fixed state/guard fixtures, counters and digests; do not derive expectations from spec files or production code. Stop releases execution capacity while retaining the workspace id, disk and unfinished bytes.
 
 ## Steps
 - FLW11 QA G02/G03/G14/G16: after s1/s2 finish, Stop in held review and at capture/accept/push boundaries, restart before pause receipt, then Resume with a steer while starting. Race Answer and steer before/after turn dispatch; record stable wait/input ids and model_turn_started.

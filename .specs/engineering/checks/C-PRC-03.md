@@ -5,15 +5,16 @@ Automation: `scripts/check-receipts.test.mjs` (new) · Runs in: CI (isolated fix
 
 ## Setup
 
-An isolated fixture checkout with literal ticket/check inputs, full commit SHAs and an `origin/main` ancestry fixture. CI is the fixture check’s declared `Runs in` host; no msb is required. Stub remote writes only. Seed publication variables and issue-claim configuration in the parent to prove the check cannot access them.
+An isolated fixture checkout in a machine with literal check coverage, landed commit, commands, layers and refusal outcomes. Invoke production scripts/check-run.mjs and scripts/issue-claim.mjs comment --close; intercept remote GitHub writes only. Fixture check documents are parser input; no test derives expectations from engineering/product Markdown or production code.
 
 ## Steps
 
 1. Run a fixture check on its declared CI host. Inspect version-1 receipt fields and independently recompute the log digest. Assert all three publication variables absent and issue-claim configuration unreadable.
 2. Invoke the runner with absent, unwritten and unparsable Automation and an unavailable declared host. Run a failed fixture command.
-3. Attempt every close variant with no receipts, incomplete coverage, failed exit, different commit, altered log and malformed version/SHA/exit/time/digest fields. Assert literal refusal actions, per-check reasons and zero remote writes.
+3. Attempt close with no receipts, incomplete coverage, failed exit, different commit and altered log, using --release, omitted --release and --force variants. Assert exit 2 and zero comment, release or close writes.
 4. Test missing --landed, non-full SHA, non-ancestor of origin/main, free-text --note, invented coverage, symlink receipts/logs/parent directories, .. components and realpath escape. Required check IDs come from the ticket.
-5. Close using passing receipts for every named ticket check with receipt.commit equal to --landed <sha>, verified as an ancestor of origin/main. Repeat without --release and with --force. Test a held claim separately.
+5. Refuse machine execution; assert no passing receipt and no issue writes. Keep publication credentials out of the fixture check process.
+6. Close using passing receipts for every named ticket check with receipt.commit equal to --landed <sha>, verified as an ancestor of origin/main. Repeat without --release and with --force. Test a held claim separately.
 
 ## Pass when
 

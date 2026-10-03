@@ -4,29 +4,26 @@ Proves: mvp.md §2 rule 1, §6.13 "CLI", §8 (CLI and skill), M-21, Appendix A �
 Automation: `packages/smithers/test/CatalogCli.test.ts` (new) · Runs in: CI
 
 ## Setup
-- The source tree at the commit under test. The CLI is built in-process with `makeCli()` from `packages/smithers/src/Cli.ts`, never the installed `smthrs` binary.
-- `packages/rpc/src/catalog/catalog.mvp.json` and its descriptors. C-CAT-01 proves their product parity. Tests consume committed catalog fixtures and never read `.specs/*.md` at runtime.
+Use committed literal expectations in packages/smithers/test/fixtures/CatalogCli.ts, reviewed against Appendix A/B.6 when authored. Invoke makeCli().serve(argv), exercising its parser and production dispatcher with recording HTTP/app-opener adapters; assert pinned paths, flags, payloads, attribution, invalid-input refusals and mutation-free person card doors. The CLI tree, descriptors and catalog.mvp.json are actual results or supplemental parity inputs only, never runtime expectation sources. CatalogCli.integration.test.ts exercises production install routes with real PostgreSQL, delegated authorization and confirmation approval. Read no spec file at runtime.
 
 ## Steps
 6. Feed recording HTTP stubs literal allow, 202 confirmation/requested, 403 never/never, 403 permission/permission, 401 permission/unauthenticated and 503 infra/confirmation_unavailable responses. Record CLI stdout, stderr and exit codes.
-1. For each Appendix A row, read its `cli` field in `catalog.mvp.json`.
-2. Resolve each non-null path in `Cli.toCommands.get(makeCli())`, using the technique of `test/McpDocs.test.ts`.
-3. For each resolved external-agent action command, compare its positional args and options with the descriptor payload's zod shape:
-   - key names, as the kebab-case flag of each payload key;
-   - type (string, number, boolean or enum, including the enum values);
-   - required vs optional;
-   - positional order for `Tn`, `#n` (issues and PRs), `<name>`, `<path>` and `<branch>`.
-4. Run each external-agent action command's parser on the descriptor's example payload, and run the handler against a recording HTTP stub. Run the three person card doors against a recording app-opener stub and prove that they make no mutation request.
+1. Invoke makeCli().serve(argv) with committed literal CatalogCli.ts cases through parser and production dispatcher recording adapters.
+2. Run CatalogCli.integration.test.ts through production install routes with real PostgreSQL, delegated authorization and confirmation approval.
+3. Compare actual command paths and parsed payloads against literal fixtures.
+4. Assert pinned paths, flags, payloads, attribution, invalid-input refusals and mutation-free person card doors; descriptors and catalog.mvp.json are supplemental parity inputs only.
 5. List `Definitions.ts` entries whose HTTP method and path equal a descriptor's binding.
+- Dispatch a confirmable command through the installed CLI and inspect its 202 result and printed state.
 
 ## Pass when
-- Step 6 prints Waiting for <person> to confirm with id/requested state for 202, makes no follow-up execution call and exits with a code distinct from refusal. Refusals preserve exact class/code and never fabricate pending/success or completion. S1 terminal immediate append and S2 ordinary confirmation remain distinct server-issued profile outcomes.
+- Step 6 prints Waiting for <person> to confirm with id/pending state for 202, makes no follow-up execution call and exits with a code distinct from refusal. Refusals preserve exact class/code and never fabricate pending/success or completion. S1 terminal immediate append and S2 ordinary confirmation remain distinct server-issued profile outcomes.
 - `/terminal` resolves through `workspace ssh`, `shell` and `exec`. `/search` and `/github` status expose read-only external-agent paths. GitHub App changes are Owner-only (C-ACC-01).
 
 - Every Appendix A row that lists `external_agent` has a resolvable CLI action path. `/secrets`, `/members` and `/settings` have only person card doors: running them opens the app card and sends no mutation. UI-only rows ⌘K, `/help`, `/stop` and `/theme` have no CLI path (§6.1.2a, mvp.md B.6).
-- For every resolved external-agent action command, step 3 finds zero differences.
-- In step 4, the stub receives exactly one request per external-agent action command, to the descriptor's method and path, with a body deep-equal to the example payload and a `Smithers-Via` header present.
+- For every literal external-agent action case, step 3 finds zero differences from the committed fixture.
+- The recording adapter receives exactly one request per external-agent action fixture, with its literal method, path, body and Smithers-Via attribution.
 - Step 5 returns an empty list, so no second CLI declaration exists for a catalog action.
+- The CLI reports id/pending state and Waiting for <person> to confirm with its distinct exit code.
 
 ## Fail when
 - A row's CLI door is an old name, such as `history todo` for `/todo.new`.

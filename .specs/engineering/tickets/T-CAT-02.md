@@ -8,7 +8,7 @@ Spec: spec.md §5.4, §6.1.1–§6.1.3, §6.4, §15.3 · Delta: delta.md §9 (CL
 
 ## Scope
 Approved integration requirements (In):
-- Render HTTP 202 as Waiting for <person> to confirm with confirmation id/requested state and an exit code distinct from refusal. Render exact never/permission/death/infra envelopes; no 202 executes a TODO or merge. Checks: C-CAT-02, C-ACC-02.
+- Render HTTP 202 as Waiting for <person> to confirm with confirmation id/pending state and an exit code distinct from refusal. Render exact never/permission/death/infra envelopes; no 202 executes a TODO or merge. Checks: C-CAT-02, C-ACC-02.
 - A-27 CLI rulings: `/terminal` uses `workspace ssh`, `shell` and `exec`. `/search` and `/github` status carry X and use the same read-only skill as the app agent. `/secrets`, `/members` and `/settings` open the app card for the person, and delegated mutations are refused; GitHub App changes require the Owner's session. Checks: C-CAT-02, C-CAT-03, C-ACC-01.
 
 In:
@@ -17,7 +17,7 @@ In:
   - One generic handler sends the payload to the descriptor's HTTP binding.
   - Missing required input gets a typed refusal naming the flag, since the CLI has no form card (§6.1.4 is the app's rule).
 - Delete the `Definitions.ts` entries the catalog replaces: `history todo|land|retry|show` become `todo new`, `merge`, `todo retry` and `stack`, with no alias left behind. Also resolve each hidden app/CLI duplicate pair T-CAT-01 listed.
-- Every request from these commands carries `Smithers-Via` (T-ACC-04). The CLI's credential is always `delegated` (§5.3.1), so each command follows its row's `agent` value through T-ACC-05 (§15.1.5): `run` executes; `confirm` prints Waiting for <person> to confirm with id/requested state and exits with a code distinct from refusal (`smthrs merge Tn` opens the member's **Review & merge**); a `never` row has no external-agent CLI action, and eligible delegated smthrs api to its person-only route returns 403 never/never; scope/role and excluded multi-actor class failures return 403 permission/permission.
+- Every request from these commands carries `Smithers-Via` (T-ACC-04). The CLI's credential is always `delegated` (§5.3.1), so each command follows its row's `agent` value through T-ACC-05 (§15.1.5): `run` executes; `confirm` prints Waiting for <person> to confirm with id/pending state and exits with a code distinct from refusal (`smthrs merge Tn` opens the member's **Review & merge**); a `never` row has no external-agent CLI action, and eligible delegated smthrs api to its person-only route returns 403 never/never; scope/role and excluded multi-actor class failures return 403 permission/permission.
 - The Smithers skill's catalog section is generated from `catalog.mvp.json`, with a drift check. Each command line names its `agent` value, so an external agent knows which commands open a confirmation.
 - `smthrs skills add` installs no skill for a hidden command group.
 - MVP help and CLI docs list only Appendix A rows and the B.6 kept items (`login`, `ssh-key`, `workspace ssh|shell|exec|cp`, `api`, and `host start|stop|status|upgrade|backup|restore`, run by the owner on the Mac). An explicit hidden list in `Cli.ts` removes the other groups, since incur 0.5.1 has no hidden flag (§6.1.2). Those groups stay published and keep `--help` (§6.1.3, mvp.md §8).

@@ -1,12 +1,14 @@
 # C-STK-08 Independent waits give the §4.1.0a state; resume leaves Starting; merges on GitHub win
 
 Proves: mvp.md §4.1 (Needs you: "only an answer settles it"; Paused), J3.6, J10.3, J10.5, M-22 · spec.md §4.1, §4.1.0, §4.1.0a, §10.7.1, §10.7.3, §10.8.0, §10.8.2, §12.3 · Layer: integration · Stage: S1 · Tickets: T-STK-07, T-STK-05, T-GH-05, T-GH-06
-Automation: `packages/backend/internal/services/todo_waits_db_test.go` (new) · Runs in: CI (real PostgreSQL, real git and jj, a real flow host as in `packages/backend/flowdispatch/real_host_test.go`, the fake GitHub server)
+Automation: `packages/backend/internal/services/todo_waits_db_test.go` (new) · Runs in: reference host (real PostgreSQL, a real microVM flow host and the fake GitHub server)
 
 ## Setup
 - A fixture `todo` flow with steps `s1..s4` and the post-propose wait. `s3` can raise an `ask`. Per-step execution counters are keyed by (run id, step).
 - Owner Will, maintainer Ben and member Alice, each with a session.
 - Each case starts from a fresh T1.
+
+- Send stop/resume/retry/answer and Resolve/Done through the composed install router and production command dispatcher; production poll/runtime ingestion raises the named waits. Test expected states, actions and refusal envelopes are checked-in literal cases independent of spec files, TSV and production decisions. Direct wait/state helper calls are unit coverage only.
 
 ## Steps
 1. Question and foreign push: T1 in `s3` raises a question. Alice pushes a commit to T1's branch on the fake; advance one refs cycle. Alice answers the question. Ben selects Discard.

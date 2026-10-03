@@ -29,6 +29,8 @@ Out:
 - Browser notifications (T-APP-18); new command handlers, flow runtime changes, repository-code execution on the host, Plue policy changes and S1 terminal-scope expansion.
 
 ## Changes
+
+- The existing successful Review & merge approval writer emits review lifecycle evidence pairing its open confirmation with confirmed merge approval; source_key is confirmation id. Credit delegated participation only to the confirming person. Definitive refusals remain pending and produce no approved receipt. T-REL-03 only reads evidence. Checks: C-ACC-02, C-REL-04.
 - Store review_merge bindings as (generation, reviewed_pr_head_sha). Approval rereads both under the subject transaction and expires/refuses a stale binding before effects. Pass both to the merge consumer. MergeReady and definitive GitHub refusals leave the confirmation pending; only a confirmed merge settles approved. Missing handlers leave it unapproved. Check: C-ACC-02.
 
 - `packages/backend/db/product/migrations/01NN_person_confirmations.sql` (new). Columns per §3, including `kind` (`one_click` | `review_merge`), plus the stored command payload for `one_click`; an index on `(member_id, state)`.
@@ -73,6 +75,8 @@ Out:
 
 ## Acceptance
 
+- Landing qualifies confirmation against T-STK-01’s production append route. Before/Move confirmation integration remains pending until T-STK-02 lands; an absent handler leaves the row unapproved. Check: C-ACC-02.
+
 
 
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
@@ -87,7 +91,7 @@ Out:
 - `GrantConfirm` (`apps/app/src/mainview/cards/CardActions.ts`, `ChatCards.tsx`) is today's client-side confirm for consequential agent acts. The `one_click` row replaces it as the enforced path; T-APP-04 deletes the client-only path when the Confirm card reads these rows.
 
 ## Ready checklist
-1. Dependencies: T-ACC-04 real delegated credentials, T-CAT-01 descriptors, T-STK-01 projection writer, T-STK-02 real TODO creation and T-COL-02 private live transport. T-STK-04 is downstream; absent action handlers fail closed before approval.
+1. Dependencies: T-ACC-04 supplies real delegated credentials; T-CAT-01 supplies descriptors; T-STK-01 supplies production append creation and the projection writer; T-COL-02 supplies private live transport. Confirmation can land against append creation before Before/Move are enabled. T-STK-02 completes Before/Move confirmation integration. T-STK-04 is downstream; absent action handlers fail closed before approval. Check: C-ACC-02.
 2. Exclusions: Confirm view/conversation storage, catalog policy, merge mechanics, new command handlers, notifications, host repository execution, Plue policy and S1 scope expansion are explicit.
 3. Tests: C-ACC-02 uses composed command/confirmation routes, real TODO persistence and real private subscriptions with literal fixtures; real merge/fault cases run in T-STK-04 and remain pending until installed.
 4. Decisions: smithers-3f backend semantics, smithers-b8 public outcomes, smithers-38 catalog consumer, smithers-8a merge seam; Will decides product exceptions. person_confirmations needs planned ownership under C-PRC-02.

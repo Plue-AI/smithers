@@ -17,10 +17,12 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
   - an `/api/live` socket.
 - A owns T3, which has 5 `todo_events` rows.
 
+T-APP-23 reruns revocation with real queued/running host turns; T-TRM-07 reruns it through kill_sessions and waits for populated 0; T-MCH-15 proves store deletion and awake-machine file removal, plus deletion before first session after wake. These downstream cases stay pending until consumers land; socket closure alone does not prove them. Preserve all approved member-bound run-sponsor revocation cases.
+
 ## Steps
 - Adopted T-ACC-06 boundary cases: Drop NOTIFY delivery to a separate consumer, then remove/suspend through production routes/jobs. Measure state-commit-to-stream-close and guest-parent/child termination at no more than 5 s. Inject event insert/NOTIFY failure before commit and assert member state, credential changes and events roll back with no fanout. Crash after commit and verify durable catch-up closes every transport and guest process
 
-9. Suspend/remove A while persistent token cleanup is blocked: immediately call each run credential, then unblock cleanup and measure physical revocation from state commit. Restore A, take over a TODO and resume with a freshly minted O-sponsored run token. Force both serialized write/revocation orders with barriers.
+10. Suspend/remove A while persistent token cleanup is blocked: immediately call each run credential, then unblock cleanup and measure physical revocation from state commit. Restore A, take over a TODO and resume with a freshly minted O-sponsored run token. Force both serialized write/revocation orders with barriers.
 1. **Removal.** O calls `DELETE /api/members/A` and records the response time `t0`, then:
    - polls each of A's streams for close;
    - sends one request on A's old cookie and one on each delegated token right after `t0`.
@@ -32,16 +34,20 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
 7. Exercise permission lookups returning installation 401/403/404, expired installation token and an App that lost repository access. Assert `github_sync` health `refused` and byte-for-byte unchanged member access fields. Disambiguate permission 404 with `GET /users/{login}` fixtures for an existing user, unknown user and unresolved installation failure. Confirmed member `none`/`read` suspends; an installation failure never does.
 8. Trigger user-token 401/403 through `RefreshUserGitHubToken` callers in `github_user_repos.go`, `github_import.go` and `auth.go`, and through refreshing/non-refreshing proxy paths. Assert one shared reactive recheck without waiting for the hour.
 
+9. Through the real S1 microVM terminal path, start a member command with a lingering guest child, remove the member through DELETE /api/members/{id}, and prove no matching session process remains within 5 s of revocation commit. Record commit-to-close and response-to-close timings. Use POST /api/todos/{n}/takeover, including a delegated attempt returning 403 never without ownership change. Expected responses, events and the 5 s limit are committed literals; no runtime spec or implementation oracle.
+- Send takeover through `POST /api/todos/{n} {takeover}` with maintainer session, delegated credentials and Member session.
+
 ## Pass when
 - Use NewTransactionalDBPublisher with queries bound to the member-revocation transaction. Commit member state, credential revocations and durable revocation events before the response. Rollback publishes no event; local fanout consumes only committed events. Set catch-up polling to at most 1 s and reserve the remaining budget for consumer work and guest child termination so commit-to-termination is at most 5 s, including lost NOTIFY
 
-- Step 9 subsequent run calls return 401 permission/unauthenticated immediately; every A-bound token, including pre-transfer tokens, is physically revoked within 5 s of state commit. Old tokens remain dead after restoration/takeover; resumed work uses a new O-sponsored identity and retained history. A machine token never continues the revoked member run. State-transition-first prevents writes with 401/no effect; write-first may stand under §5.2.1.
+- Step 10 subsequent run calls return 401 permission/unauthenticated immediately; every A-bound token, including pre-transfer tokens, is physically revoked within 5 s of state commit. Old tokens remain dead after restoration/takeover; resumed work uses a new O-sponsored identity and retained history. A machine token never continues the revoked member run. State-transition-first prevents writes with 401/no effect; write-first may stand under §5.2.1.
 - In step 1, every non-public request on A's old session, delegated and member-bound run credentials returns HTTP 401 permission/unauthenticated immediately after the committed state change, including the request right after t0.
 - In step 2, the maximum close time for each stream kind is ≤ 5.0 s over all 20 runs (monotonic clock, measured in the test process).
 - Step 3 sets `suspended_at` at the first tick after the flip, so detection takes ≤ 60 min plus one tick, and step 1's revocations happen within 5 s of it.
 - Step 4 suspends A without waiting for the hour.
 - After step 5, A's suspension is cleared. A's next sign-in succeeds, but no old session or token works again.
 - In step 6, T3 keeps its 5 events plus one `owner_changed` event with O as actor. E gets 403.
+- Maintainer takeover succeeds once; delegated=403 never/never and Member=403 permission/permission; refused requests change no owner or event. The `/takeover` route is absent.
 
 ## Fail when
 - An SSH or terminal session stays open after removal, because the bus event reached the DB but not the registry.

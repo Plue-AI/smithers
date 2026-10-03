@@ -1,10 +1,12 @@
 # C-UI-07 Answers are built from a stored preflight context
 
 Proves: mvp.md §6.5 Context preflight · spec.md §15.1.2, §15.1.2a, §14.5.1, §11.5a (`agent:fast`) · Layer: integration · Stage: S1 · Tickets: T-APP-17
-Automation: `apps/app/src/bun/ContextPreflight.test.ts` (new), plus one e2e assertion in `branch-conversation.spec.ts` · Runs in: CI
+Automation: `packages/backend/internal/chat/preflight_integration_test.go` (new), plus one e2e assertion in `apps/app/e2e/playwright/branch-conversation.spec.ts` · Runs in: CI
 
 ## Setup
 `main`'s conversation seeded with 500 shared entries, then three private entries: Ben's own uncommitted Draft containing `canary-B`, a pending Confirm card for Alice containing `canary-C`, and, newest of all, Alice's uncommitted Draft containing `canary-D` and naming `src/webhooks/retry.ts`. A repository fixture with a known retry helper in `src/webhooks/retry.ts`. The model is a recording fake that captures each request. Ben is the author.
+
+- Submit through the production authenticated `POST /api/conversations/{b}/prompt` route and actual host runner with real PostgreSQL; record the model endpoint and consume conversation/run topics for the stored answer and Inspect. Expected selected refs/revisions, last-three shared texts, canaries and budget limits are checked-in literals; no oracle reads spec files or calls production selector/token-estimate functions.
 
 ## Steps
 1. Prompt "where do we retry webhooks?".
@@ -20,6 +22,8 @@ Automation: `apps/app/src/bun/ContextPreflight.test.ts` (new), plus one e2e asse
 - The answer shows a Context line with one chip per item.
 - Inspect lists preflight as step 1, with candidates and choices.
 - No recorded request, preflight or answer, contains `canary-B`, `canary-C` or `canary-D`. The last-3 window is the last 3 shared entries, and `context[]` refers to no private entry (§15.1.2a).
+
+- Before Machine ready, preflight reads mirrored-main data without any machine request. S1 item and S2 captured file candidates use their pinned host-store revision. A missing snapshot triggers no wake or live-file read; a repository search-plugin/flow canary never executes on the host.
 
 ## Fail when
 - The full transcript (or any window of it beyond 3 entries) reaches the answer step.

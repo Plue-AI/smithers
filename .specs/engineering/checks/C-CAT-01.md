@@ -5,20 +5,21 @@ Automation: `apps/app/src/mainview/flows/catalog-allowlist.test.ts`, `packages/r
 
 ## Setup
 - The source tree at the commit under test. No backend or network.
-- `.specs/product/mvp.md` and `.specs/product/actions.md`, declared as test inputs in `packages/rpc/PACKAGE.ts` and parsed by `packages/rpc/src/catalog/mvpAppendix.ts`.
+- Committed reviewed literal Appendix A/B/C fixtures; tests do not read spec or product Markdown.
 - The real app registry built in-process from `flows/Flows.ts` with an empty repository-flow list, plus a second build with two fixture repository flows, `flows/release-notes/flow.ts` and `flows/lint-fix/flow.ts`.
 - The CLI's backend command tree from `makeCli()` (`packages/smithers/src/Cli.ts`, the `Definitions.ts` commands).
 - The built flow registry's tags: every `Flow.make`, `Action.make` and `AgentAction.make` in shipped flows and std tools. Two builds: the host flow runtime's registry and the coding host's registry.
 
 ## Steps
-1. Parse Appendix A, B.1, B.2, B.4, B.6 and Appendix C. Record the shorthand expansion (`.edit`, `*`, angle-bracket ids).
+1. Load reviewed literal Appendix A/B/C fixtures, including explicit shorthand expansions (`.edit`, `*`, angle-bracket ids).
 2. Map each Appendix A row and each B.4 control to exactly one descriptor by slash or id.
 3. Regenerate `catalog.mvp.json` in memory and compare it byte for byte with the committed file.
 4. From the first registry build, compute S (slash menu), P (palette), H (`/help`, with groups and collapsed state) and T (agent tools, `agentTools.ts`). From the CLI tree and the generated skill section, compute X (external-agent commands).
 5. From the second build, compute S′, P′, H′ and T′ and their differences from step 4. Compare the differences with the `flows/*/flow.ts` fixtures, not with Appendix A.
 6. For each row, compare actor eligibility, minimum role and `agent` with its Appendix B Who column: **A** or **A✓** → `app_agent`; **X** → `external_agent`; **A✓** → `confirm`, otherwise **A** or **X** → `run`, otherwise `never`; "Maintainer", "maintainer for Discard" and "Owner" → the minimum role.
 7. Match every registered app flow id against B.1, B.2 and B.4, and every backend CLI command against B.6 and the Appendix A rows allowed to X.
-8. Match every registered tag against Appendix C, separately for the host flow runtime's registry and the coding host's registry.
+8. Build the production host-flow and coding-host registries and compare tags and runtime placement with the literal Appendix C fixture. Inject each Replaced entry point in a negative fixture and assert rejection without executing repository code.
+- Generate the S1 host reference from exported definitions after T-INS-08 registers the group.
 
 ## Pass when
 
@@ -35,6 +36,7 @@ Automation: `apps/app/src/mainview/flows/catalog-allowlist.test.ts`, `packages/r
 - Step 6: zero mismatches in actors, minimum role and `agent`. For example, `/todo.amend` is `confirm` (B.2), and `branch.discard-foreign` lists `app_agent`, is `confirm` and has minimum role `maintainer` (B.4). Person-only rows, `/sign-in` and `/sign-out` list `person` alone, are `never`, and are absent from T and X.
 - Step 7: zero ids or commands absent from B.1, B.2, B.4 or B.6, and zero registered ids marked Cut there. The groups B.6 cuts from MVP docs (`admin`, `org`, …) are `hidden`, not failures. `smthrs host start|stop|status|upgrade|backup|restore` match B.6.
 - Step 8: every tag has an Appendix C row; none is marked Cut, and none is marked Replaced once T-FLW-11 has landed. The host flow runtime registers only Install rows, and the coding host only Machine rows. Defer and Internal ops rows pass.
+- Documented host start/stop/status exist in the real registry; ticket prose is never a registry or documentation-generation input.
 
 ## Fail when
 - A Cut id (`chat.clear`, `tab.*`, `billing.*`, `change.split`) or a Cut Appendix C tag is registered, or a hidden id (`history.bootstrap`, `debug.*`) appears in S, P, H or T.

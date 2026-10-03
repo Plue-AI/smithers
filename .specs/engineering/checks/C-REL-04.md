@@ -1,7 +1,7 @@
 # C-REL-04 Automated scorecard counts and sampled alpha effort
 
 Proves: mvp.md §10 Success and kill criteria, M-22 · spec.md §20.4, §6.3 (`GET /api/install/scorecard`), §3, §3.0 · Layer: integration and recorded manual · Stage: S1 · Tickets: T-REL-03
-Automation: `packages/backend/internal/services/scorecard_test.go` (new) · Runs in: CI (real PostgreSQL) for automated counts; recorded alpha sessions for manual effort review
+Automation: `packages/backend/internal/routes/install_scorecard_test.go` (new, production router and credential middleware, real PostgreSQL), with supplemental `packages/backend/internal/services/scorecard_test.go` · Runs in: CI
 
 ## Setup
 - Real PostgreSQL 18 migrated to head.
@@ -17,10 +17,10 @@ Automation: `packages/backend/internal/services/scorecard_test.go` (new) · Runs
 - Hand-computed expectations in `three-weeks.expected.json` (new).
 
 ## Steps
-1. As the owner, request the scorecard for [t0, t0 + 14 d] and for [t0 + 14 d, t0 + 21 d].
+1. Through the production router, request GET /api/install/scorecard?from&to as the owner for [t0, t0 + 14 d] and [t0 + 14 d, t0 + 21 d]. Feed effort fixtures through the production attributed dispatcher; reject forged member identity and agent-only durations and replay duplicate source keys without double counting. Compare with committed literal expected JSON; never read spec/product Markdown or derive expected verdicts from production code.
 2. Request [t0, t0 + 14 d] on a second database at the stage-1 migration head, where `burst_files` does not exist yet.
 3. Review separate annotated-session variants with medians exactly 15 (target fails) and 10 then 12 (rising, kill). Load the automated week-2 count variant 2 (kill). Changing only code-authorship share never changes the core-value conclusion. Missing annotations leave person-minutes unmeasured.
-4. Request as a maintainer and as a delegated credential.
+4. Request through the same router as maintainer, member, delegated, run and machine credentials and without authentication; assert literal refusal statuses.
 5. Request with a window whose boundaries fall at 23:30 in the install's time zone.
 6. Through the production scorecard route, test present-but-empty burst_files and presence_sessions with incomplete producer coverage, then complete coverage with no matching activity.
 
@@ -30,7 +30,7 @@ Automation: `packages/backend/internal/services/scorecard_test.go` (new) · Runs
 - Step 1 equals the expectations field for field, each measure with value, target, kill signal and verdict: dogfood 52 merged in two weeks (pass, target 50) with 5 of 57 changes to `main` made outside Smithers (8.8 %, under the half kill line); activation 48 min (pass, ≤ 60); core value 30 accepted in each week (pass, ≥ 10/week); API person_minutes has source sampled_alpha_sessions and verdict manual; separate annotated-session evidence shows medians 12 then 10 (pass, < 15, not rising); no hand-written code 43/52 = 82.7 % (diagnostic only); terminal edits 6; flow revisions 2; multiplayer 4 sessions (pass, ≥ 3); retention 11 (pass, ≥ 10); self-improvement 1 learning-proposed change merged that measurably helps (3/5 → 0/5, pass). The definitions are spec §20.4's. Multiplayer passes only once presence intervals are persisted (T-REL-03 Open); until then it returns `source_missing`.
 - Step 2: multiplayer and terminal edits return `source_missing`, never 0 or `pass`; the TODO-based measures match step 1; person_minutes remains explicitly manual at every stage.
 - Step 3 matches each literal variant's target and kill result, independent of code authorship.
-- Step 4: 403 for both.
+- Step 4: maintainer, member, delegated, run and machine credentials return 403 through the production router; unauthenticated requests are refused.
 - Step 5: week boundaries use UTC timestamps consistently; the result matches the expectation file's boundary case.
 - Step 6: incomplete lifecycle producer coverage returns source_missing even with present-but-empty tables. Only complete coverage with no matching activity returns 0; person_minutes remains explicitly manual.
 - No statement in the scorecard transaction writes (the transaction is read-only), and the result is the same with `$STATE/logs/` empty (product tables only).

@@ -20,6 +20,8 @@ Automation: `packages/smithers/test/host-service.integration.test.ts` (new) driv
 7. `smthrs host stop`, and list processes under the bundle prefix. Then `smthrs host start --bundle <out>`, and reload the setup card from step 4.
 8. Copy the bundle to `<out2>` and run `smthrs host start --bundle <out2>`. Move `<out2>` away and run `smthrs host status`.
 9. Change one byte of one file in a third copy of the bundle and start with it.
+10. Before T-INS-06 lands, run the real host status command and require exit 0 for healthy processes with unavailable install telemetry omitted. With T-INS-04, invoke host start --bind --origin through the registered CLI. Disable the configured msb in a disposable bundle and require startup refusal with no repository process. A file absent from manifest.json must also refuse before plist mutation.
+- Inspect literal ProgramArguments for `--setup-handoff=socket`, stat `$STATE/run/host.sock`, and invoke host start before and after claim. Scan `$STATE/logs/*` plus the configured launchd stdout/stderr files after each start/restart.
 
 ## Pass when
 - Step 10: the original installing user, LaunchDaemon UserName and every recorded service effective UID match before and after restart. Sudo never changes service identity to root.
@@ -34,6 +36,8 @@ Automation: `packages/smithers/test/host-service.integration.test.ts` (new) driv
 - Step 7: after `stop`, no launcher, backend or PostgreSQL process remains; after `start`, the setup session and every setup step state from step 4 are unchanged.
 - Step 8: after one restart the plist points at `<out2>`; with `<out2>` gone, `status` exits non-zero and names the missing path.
 - Step 9: refused before any plist change, naming the file whose hash differs.
+- Expected plist fields, URL prefixes, exit codes and timing limits are committed literal fixtures; no test reads spec Markdown or derives expected results from production helpers.
+- ProgramArguments includes `--setup-handoff=socket`; host.sock is mode 0600 and is the only setup-output source. No log contains `setup?token=` or setup token bytes. After claim host start prints "already set up"; the host group preserves up/status.
 
 ## Fail when
 - A repeated start launches a second backend or PostgreSQL, or changes the setup token.

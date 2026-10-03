@@ -5,7 +5,7 @@ Automation: `packages/backend/microsandbox/hostprofile_test.go` (new), `packages
 
 ## Setup
 
-- `Sizing(HostProfile)` and `Clamp(owner, formula)` from `packages/backend/microsandbox/hostprofile.go` (new), implementing the §8.2.1 formula with reserve 8 GiB and machine memory 8/6 GiB, or the values C-SPK-05 calibrated; the test reads them from the one place they are defined.
+- `Sizing(HostProfile)` and `Clamp(owner, formula)` from `packages/backend/microsandbox/hostprofile.go` (new), implementing the §8.2.1 formula with reserve 8 GiB and machine memory 8/6 GiB, or the values C-SPK-05 calibrated; the test pins smithers-8a-approved constants and literal expected outputs in independent fixtures; it never reads spec files or implementation constants to derive expectations at runtime.
 - Synthetic profiles only: memory as exact byte counts the way `hw.memsize` reports them, performance and physical core counts, free disk bytes. No Mac model names.
 - Owner-setting cases: real PostgreSQL 18 (`SMITHERS_REQUIRE_DATABASE_TESTS=1`), an owner, a maintainer and a member, and a profile injected into `microVMConfig` (`apps/backend/isolation.go:147`).
 
@@ -20,6 +20,8 @@ Automation: `packages/backend/microsandbox/hostprofile_test.go` (new), `packages
 7. `rg -n 'hw\.model' packages/backend apps/backend` and `rg -n 'SMITHERS_MICROVM_(CPUS|MEMORY_MIB|DISK_MIB|MAX_RUNNING)' packages apps`.
 8. Start a fresh install (no owner) on each zero-capacity profile of step 1 (32/10/60, 13/8/200, 16/1/200). Then start an install that has an owner on 32/10/60 and request a machine.
 
+9. Exercise built-bundle smthrs host start/status, the authenticated install-settings HTTP route through the production router, the Settings Container and a real home subscription; inject only host detection. Check the literal expected limits and owner-only writes. T-MCH-06 owns queue-position checks; they do not block T-MCH-01.
+
 ## Pass when
 
 - Step 1, the spec columns (machine memory, vCPUs, capacity, layer budget): 24/8/200 → 8, 4, 2, 48; 32/10/400 → 8, 4, 3, 48; 64/12/1,024 → 8, 4, 6, 48.
@@ -31,7 +33,7 @@ Automation: `packages/backend/microsandbox/hostprofile_test.go` (new), `packages
 - Step 5 is refused with `permission` class for both.
 - Step 6 refuses start with a typed message and never falls back to a constant.
 - Step 7 finds nothing outside tests.
-- Step 8: each fresh start refuses with the limiting term and its fix; the install with an owner starts at capacity 0, `smthrs host status` and the Settings model show the term and fix, and the machine request waits at position 1.
+- Step 8: each fresh start refuses with the limiting term and its fix; the install with an owner starts at capacity 0, `smthrs host status` and the Settings model show the term and fix, and no machine is granted; queue-position assertions run with T-MCH-06.
 
 ## Fail when
 

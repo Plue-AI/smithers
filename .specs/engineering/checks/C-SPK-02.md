@@ -1,7 +1,7 @@
 # C-SPK-02 virtiofs `/home` keeps guest uid, gid and 0700 across two uids
 
 Proves: mvp.md M-18, J6.1, J6.5 · spec.md §5.5.4, §8.7.1, §8.7.2 · Layer: spike · Stage: W0 · Tickets: T-MCH-02
-Automation: `scripts/spikes/mch-02-virtiofs-homes/run.sh` (new) · Runs in: reference host
+Automation: `scripts/spikes/mch-02-virtiofs-homes/run.sh --decision-evidence <evidence-dir>` · Runs in: reference host
 
 ## Result (2026-10-02)
 
@@ -26,6 +26,12 @@ NO. Layout A: guest `chown` persists, but the `0:0 700` mount root blocks member
 8. On the host: `stat` the files under `$SPIKE/homes`.
 9. Repeat steps 2–5 for layout A.
 
+## Decision completion
+
+T-MCH-02 completes when a controlled yes or no is recorded with raw evidence. The accepted 2026-10-02 result is NO. The pass conditions below describe the rejected shared-home hypothesis, not a requirement to implement shared homes. Do not report the uncontrolled cross-VM lock probe as proof. Expected fixture bytes, owners and modes are fixed in the harness, never read from spec files or implementation values at runtime.
+
+The mode exits 0 only for complete retained evidence supporting the smithers-8a-accepted decision, exits nonzero for missing evidence or setup failures, and preserves `hypothesis: NO` as a separate field. It must not turn the original shared-home benchmark into PASS.
+
 ## Pass when
 
 For layout B:
@@ -35,6 +41,8 @@ For layout B:
 - Step 6: all 2,000 files exist in both VMs and on the host with their exact content, and every read of `shared.json` during and after the run parses (no torn file). The final `shared.json` is one of the two VMs' last writes.
 - Host files under `$SPIKE/homes` are not readable by another macOS user.
 - Step 7 is recorded either way. If `msb` can't add a mount to a running VM, the report says that a member added while a machine is awake needs a machine-local home until the next wake.
+
+- The decision-completion receipt validates the retained NO without converting the shared-home hypothesis into PASS. Layout A preserved ownership across reboot and the second VM but its root:root 0700 parent prevented traversal. Layout B passed ownership but failed concurrent mutable-state safety. Controlled lock classifications and uncontrolled probes remain separate in the receipt.
 
 ## Fail when
 

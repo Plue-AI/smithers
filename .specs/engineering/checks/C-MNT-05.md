@@ -1,11 +1,15 @@
 # C-MNT-05 Launch install upgrades to the complete day-seven journey
 
 Proves: mvp.md §14, M-05, M-26, M-29 · spec.md §6.1.2b, §10.2.1, §12.4, §16.4, §17.3, §17.5 · Layer: e2e · Stage: M · Tickets: T-MNT-05
-Automation: apps/app/e2e/real/maintainer-upgrade.spec.ts (new) · Runs in: reference Apple Silicon host, real install and microVMs, second-laptop browser, scratch GitHub repository
+Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: reference Apple Silicon host, real install and microVMs, second-laptop browser, scratch GitHub repository
 
 ## Setup
 
 Populated launch release on the reference host, second laptop, real scratch GitHub repository and outsider fork. Keep a working TODO, queued machine request, pending approval, wiki revision, flow version and retained hidden issue/review history. Record launch UTC and M artifact target UTC.
+
+Candidate Automation declaration (unapproved): apps/app/e2e/real/maintainer-upgrade.spec.ts (new) · Runs in: reference Apple Silicon host, real install and microVMs, second-laptop browser, scratch GitHub repository
+
+Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
 
 ## Steps
 

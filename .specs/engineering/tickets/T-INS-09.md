@@ -9,6 +9,8 @@ Align the bundle contract and ticket references with T-INS-08 after the frozen a
 
 ## Scope
 
+- Generate and validate the CLI reference from the registered `definitions` in `packages/smithers/src/internal/backend/Definitions.ts` after T-INS-08 adds the `host` command group. Never derive the reference or expected registered contract from T-INS-08’s ticket text. The current contract has no `host` command group; `host` occurs only as an option or argument. Check: C-CAT-01.
+
 In:
 - Document the complete bundle prefix: `bin/smithers-server`, `bin/smithers-backend`, packaged git/jj and Bun, `libexec/git-core`, `share/git-core/templates`, `postgres/`, `bin/flow-hosts.json`, `bin/linux-arm64/`, `bin/msb`, `lib/libkrunfw.5.dylib`, `share/microsandbox/smithers-guest.py`, `share/microsandbox/base-image.oci.tar`, `share/microsandbox/base-image.json`, `views/mainview/`, `licenses/` and `manifest.json`. T-INS-08 consumes this build output with `smthrs host start --bundle`; T-INS-05 installs it as keg `libexec`. Document that T-INS-02 sets `SMITHERS_MICROSANDBOX_BIN=<bundle>/bin/msb` and drops inherited PATH directories. Checks: documentation gates, C-CAT-01.
 - Documentation references to entitlement signing, launchd and the `smthrs host` lifecycle group: S1 start/stop/status belong to T-INS-08; the R tap/formula and upgrade/backup/restore belong to T-INS-05/T-INS-07. This ticket changes references, not those implementations.

@@ -7,6 +7,8 @@ Automation: `packages/backend/internal/chat/cutover_integration_test.go` (new) a
 - Real PostgreSQL holding the previous build's data, including Ben's legacy server conversations (journal rows); the backend and model host built at the cutover commit; members Ben and Alice.
 - A fake model that, in one turn, calls `todo.stop T2`, `todo.drop T2` and `/theme dark`.
 
+- Mount the production router and run the actual queue/dispatcher, packaged model host, shipped CLI command mapping and authorizer. Fake only the model endpoint and outside services. Expected HTTP envelopes, entry order and policy outcomes are checked-in literals, not derived from spec files or the catalog/production implementation.
+
 ## Steps
 - Sweep symbol imports and `/api/agent/turn` and `/api/chat/` literals. Run recording prompt/stop fixtures for launch-seam-probe and all launch-checklist callers; inspect the command registry and retained Earlier clients.
 
@@ -15,7 +17,7 @@ Automation: `packages/backend/internal/chat/cutover_integration_test.go` (new) a
 1. Start the cutover build on that database.
 2. Ben posts a prompt to `main`; the fake model makes its three calls.
 3. Send the previous build’s requests: `POST /api/agent/turn`, `/api/agent/turn/cancel`, `/api/agent/turn/retire`, `/api/chat/turn` and `/api/chat/cancel`.
-4. Read Ben's legacy conversations through `GET /api/agent/conversations` and `/api/agent/conversations/replay`.
+4. Read Ben's legacy conversations through `GET /api/agent/conversations` and `POST /api/agent/conversations/replay`; read an archived turn through `POST /api/agent/turn/replay`. Preserve the existing replay methods and exercise the real archive client.
 5. Ben queues two prompts behind a running turn and edits the second. Alice tries to edit it and to remove it.
 6. Run the architecture test.
 
@@ -29,6 +31,8 @@ Automation: `packages/backend/internal/chat/cutover_integration_test.go` (new) a
 - Step 4: every legacy conversation reads in full, with removed card kinds as tombstones (C-CUT-02).
 - Step 5: the edited text runs; Alice gets 403 `permission` for both requests.
 - Step 6: no module under `apps/app/src/mainview` executes a non-UI-only command for an agent turn, and none imports the deleted turn client.
+
+- Repeated prompt submission with the same idempotency key queues and starts one turn. Every terminal turn exit revokes its credential and closes its lease; a later command is refused. A repository host-execution canary never executes in the host model process; repository work reaches only a machine or fails closed without isolation. Browser frames and Inspect expose no credential.
 
 ## Fail when
 - A tool call runs in a browser, or a browser receives the turn credential.
