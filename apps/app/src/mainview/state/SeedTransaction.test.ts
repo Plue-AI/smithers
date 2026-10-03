@@ -32,6 +32,9 @@ test("a fresh store commits all nine seed collections in one SQLite transaction"
     expect(statements.filter((sql) => /^BEGIN/i.test(sql))).toHaveLength(1)
     expect(db.query(`SELECT DISTINCT collection_id FROM ${ROW_TABLE_NAME}`).all()).toHaveLength(9)
     expect(store.session().id).toBe("main")
+    expect(store.session().palette).toBe("paper")
+    expect(store.session().revision).toBe(0)
+    expect(store.collections.transitions.size).toBe(0)
     await store.dispose?.()
   } finally { db.close() }
 })

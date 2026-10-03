@@ -1262,7 +1262,13 @@ const initializeAppStore = async (
     // Old row snapshots are an explicit coverage boundary, never invented history.
     const previous = readProjection(collections)
     retireLegacySignup = previous.sessions.length > 0
-    const baseline = initializeAppStream(seedAppProjection(previous, seedContext, retireLegacySignup), crypto.randomUUID(),
+    const seeded = seedAppProjection(previous, seedContext, retireLegacySignup)
+    // New authority starts in the current palette. Historical boot seeds remain
+    // unchanged for replay; existing sessions migrate through the dispatcher.
+    const currentSeed = previous.sessions.length === 0
+      ? { ...seeded, sessions: seeded.sessions.map(session => ({ ...session, palette: DEFAULT_PALETTE })) }
+      : seeded
+    const baseline = initializeAppStream(currentSeed, crypto.randomUUID(),
       previous.sessions.length === 0 ? "created" : "legacy-baseline")
     initial = { state: baseline, checkpoint: baseline.checkpoint }
   } else {
