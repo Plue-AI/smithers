@@ -648,3 +648,51 @@ test("heavy script admission distinguishes tests from build output", async (t) =
   assert.equal(await checkMain([check], { run: async () => { throw new Error("executor fault") }, printError: (message) => errors.push(message) }), 2)
   assert.deepEqual(errors, ["executor fault"])
 })
+
+test("Playwright JSON preserves nested project cases, skips, retries and runner errors", () => {
+  const json = (tests, errors = []) => JSON.stringify({ stats: {}, errors, suites: [{ title: "views.spec.ts", suites: [{ title: "nested", specs: [{ title: "oracle", tests }] }] }] })
+  const success = { projectName: "chromium", status: "expected", results: [{ status: "passed" }] }
+  const population = parsePopulation("playwright", json([success]))
+  assert.deepEqual(population.passedCaseIds, ["views.spec.ts:nested:oracle:chromium"])
+  assert.equal(classifyRun(goodRun, population, { expectedCaseIds: ["views.spec.ts:nested:oracle:chromium"] }).status, "PASS")
+  assert.equal(classifyRun(goodRun, population, { expectedCaseIds: ["missing"] }).reasonCode, "incompatible_result")
+  for (const status of ["failed", "timedOut"]) {
+    assert.equal(classifyRun(goodRun, parsePopulation("playwright", json([{ ...success, status: "unexpected", results: [{ status }] }])), {}).status, "FAIL")
+  }
+  assert.equal(classifyRun(goodRun, parsePopulation("playwright", json([{ ...success, status: "flaky", results: [{ status: "failed" }, { status: "passed" }] }])), {}).status, "FAIL")
+  assert.equal(classifyRun(goodRun, parsePopulation("playwright", json([{ ...success, status: "skipped", results: [{ status: "skipped" }] }])), {}).status, "SKIPPED")
+  for (const results of [[], [{ status: "interrupted" }]]) {
+    assert.equal(classifyRun(goodRun, parsePopulation("playwright", json([success, { ...success, results }])), {}).reasonCode, "incompatible_result")
+  }
+  const startup = parsePopulation("playwright", JSON.stringify({ suites: [], stats: {}, errors: [{ message: "server failed" }] }))
+  assert.equal(classifyRun(goodRun, startup, {}).status, "FAIL")
+  assert.equal(classifyRun(goodRun, parsePopulation("playwright", json([])), {}).status, "FAIL")
+  for (const output of ["garbage", "{}", '{"suites":[]}']) assert.equal(parsePopulation("playwright", output), null)
+  const prepared = prepareCommand({ argv: ["pnpm", "exec", "playwright", "test"], reporter: "playwright" }, { PLAYWRIGHT_JSON_OUTPUT_FILE: "wrong", PLAYWRIGHT_JSON_OUTPUT_NAME: "wrong", PLAYWRIGHT_JSON_OUTPUT_DIR: "wrong" }, "/evidence")
+  assert.ok(prepared.argv.includes("--reporter=json"))
+  assert.ok(prepared.argv.includes("--output=/evidence/playwright-results"))
+  assert.equal(prepared.environment.SMITHERS_VIEW_SHOTS, "/evidence/view-shots")
+  for (const key of ["PLAYWRIGHT_JSON_OUTPUT_FILE", "PLAYWRIGHT_JSON_OUTPUT_NAME", "PLAYWRIGHT_JSON_OUTPUT_DIR"]) assert.equal(prepared.environment[key], undefined)
+  const literal = prepareCommand({ argv: ["pnpm", "exec", "playwright", "test", "--reporter=json", "--output=reviewed"], reporter: "playwright" }, {}, "/evidence")
+  assert.equal(literal.argv.filter(arg => arg.startsWith("--reporter")).length, 1)
+  assert.ok(literal.argv.includes("--output=reviewed"))
+})
+
+test("Bun named case oracle is retained and required", () => {
+  const population = parsePopulation("bun", "", "(pass) literal action [2.00ms]\n 1 pass\n 0 fail\n")
+  assert.deepEqual(population.passedCaseIds, ["literal action"])
+  assert.equal(classifyRun(goodRun, population, { expectedCaseIds: ["literal action"] }).status, "PASS")
+  assert.equal(classifyRun(goodRun, population, { expectedCaseIds: ["missing"] }).reasonCode, "incompatible_result")
+})
+
+test("typed partial binding gaps block closure while preserving runnable subcases", async (t) => {
+  const options = await fixture(t)
+  const command = { argv: [process.execPath, "--test", "fixture.mjs"], reporter: "tap" }
+  const bindings = { [check]: { commands: [command], unboundSubcases: [{ name: "T-UI-11", reason: "update oracle absent" }], subcases: { unit: { commands: [command] } } } }
+  const full = await runCheck({ ...options, bindings })
+  assert.equal(full.result.status, "BLOCKED")
+  assert.equal(full.result.reasonCode, "dependency")
+  assert.match(full.result.reason, /T-UI-11/)
+  assert.equal(full.result.commands.length, 0)
+  assert.equal((await runCheck({ ...options, bindings, subcases: ["unit"] })).result.status, "PASS")
+})

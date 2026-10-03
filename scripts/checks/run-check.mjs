@@ -75,7 +75,15 @@ export function prepareCommand(command, env, directory) {
     if (!argv.some((arg) => arg.startsWith("--reporter"))) argv.push("--reporter=json")
     if (!argv.some((arg) => arg.startsWith("--maxWorkers"))) argv.push("--maxWorkers=2")
   }
+  if (reporter === "playwright" && !argv.some((arg) => arg.startsWith("--reporter"))) argv.push("--reporter=json")
   const environment = { ...env, ...command.env, SMITHERS_CHECK_EVIDENCE_DIR: directory }
+  if (reporter === "playwright") {
+    delete environment.PLAYWRIGHT_JSON_OUTPUT_FILE
+    delete environment.PLAYWRIGHT_JSON_OUTPUT_NAME
+    delete environment.PLAYWRIGHT_JSON_OUTPUT_DIR
+    environment.SMITHERS_VIEW_SHOTS = join(directory, "view-shots")
+    if (!argv.some(arg => arg.startsWith("--output"))) argv.push(`--output=${join(directory, "playwright-results")}`)
+  }
   // A Node test worker sets this internal IPC flag. An independently launched
   // node --test must report TAP rather than inherit the parent's binary IPC.
   delete environment.NODE_TEST_CONTEXT
@@ -158,12 +166,42 @@ export function parsePopulation(reporter, stdout, stderr = "", argv = []) {
       reportedSkipped: (report.numPendingTests ?? 0) + (report.numTodoTests ?? 0)
     }
   }
+  if (reporter === "playwright") {
+    let report
+    try { report = JSON.parse(stdout) } catch { return null }
+    if (!Array.isArray(report.suites) || !report.stats) return null
+    const cases = []
+    const visit = (suites, parents = []) => {
+      for (const suite of suites) {
+        const path = [...parents, suite.title].filter(Boolean)
+        for (const spec of suite.specs ?? []) for (const test of spec.tests ?? []) {
+          cases.push({ id: [...path, spec.title, test.projectName].filter(Boolean).join(":"), test })
+        }
+        visit(suite.suites ?? [], path)
+      }
+    }
+    visit(report.suites)
+    const last = c => c.test.results?.at(-1)?.status
+    const executed = cases.filter(c => ["passed", "failed", "timedOut", "interrupted"].includes(last(c)))
+    return {
+      expectedCases: cases.length, executedCases: executed.length,
+      expectedCaseIds: cases.map(c => c.id), executedCaseIds: executed.map(c => c.id),
+      passedCaseIds: cases.filter(c => c.test.status === "expected" && last(c) === "passed").map(c => c.id),
+      skipped: cases.filter(c => last(c) === "skipped" || c.test.status === "skipped").map(c => c.id),
+      failures: [...(report.errors ?? []).map(e => e.message ?? "Playwright runner error"),
+        ...cases.filter(c => c.test.status === "unexpected" || c.test.status === "flaky" || ["failed", "timedOut"].includes(last(c))).map(c => c.id)],
+      incomplete: cases.some(c => !last(c) || last(c) === "interrupted")
+    }
+  }
   if (reporter === "bun") {
     const output = `${stdout}\n${stderr}`.replace(/\x1b\[[0-9;]*m/g, "")
     const counts = [...output.matchAll(/^\s*(\d+) (pass|fail|skip|todo)\s*$/gm)]
     if (!counts.length) return null
     const sum = (kind) => counts.filter((m) => m[2] === kind).reduce((n, m) => n + Number(m[1]), 0)
+    const named = [...output.matchAll(/^\((pass|fail|skip|todo)\) (.*?)(?: \[.*\])?$/gm)]
     return { expectedCases: sum("pass") + sum("fail") + sum("skip") + sum("todo"), executedCases: sum("pass") + sum("fail"),
+      expectedCaseIds: named.map(m => m[2]), executedCaseIds: named.filter(m => ["pass", "fail"].includes(m[1])).map(m => m[2]),
+      passedCaseIds: named.filter(m => m[1] === "pass").map(m => m[2]),
       skipped: sum("skip") + sum("todo") ? ["Bun reported skipped cases"] : [],
       failures: sum("fail") ? [output.match(/^\(fail\).*$/m)?.[0] ?? "Bun test failure"] : [], quarantine: sum("todo") > 0 }
   }
@@ -191,7 +229,7 @@ export function classifyRun(run, population, command) {
   if (population.skipped?.length || population.reportedSkipped) return outcome("SKIPPED", population.quarantine ? "quarantine" : "intentional_skip", "Runner left cases unexecuted")
   if (population.executedCases === 0) return failed("Empty executed test population")
   if (population.executedCases !== population.expectedCases || population.incomplete) return blocked("incompatible_result", "Incomplete case population")
-  const missing = (command.expectedCaseIds ?? []).filter((name) => !population.passedCaseIds?.some((id) => id.endsWith(`:${name}`)))
+  const missing = (command.expectedCaseIds ?? []).filter((name) => !population.passedCaseIds?.some((id) => id === name || id.endsWith(`:${name}`)))
   if (missing.length) return blocked("incompatible_result", `Expected named tests did not pass: ${missing.join(", ")}`)
   return outcome("PASS", "complete", "Every reported case passed")
 }
@@ -338,7 +376,10 @@ export async function runCheck({ check, root = ROOT, sha, evidenceRoot = join(ro
     if (relative(root, path).startsWith("..") || isAbsolute(file)) preflight.push(blocked("source_drift", `Automation path outside checkout: ${file}`))
     else if (!await exists(path)) preflight.push(absent(`Missing automation file: ${file}`))
   }
-  if (binding?.unboundSubcases?.length) preflight.push(absent(`Unbound required subcases: ${binding.unboundSubcases.join(", ")}`))
+  for (const subcase of binding?.unboundSubcases ?? []) {
+    preflight.push(typeof subcase === "string" ? absent(`Unbound required subcase: ${subcase}`)
+      : blocked("dependency", `Unbound required subcase: ${subcase.name}: ${subcase.reason}`))
+  }
   if (!commands.length) preflight.push(absent(parsed.problem ?? "No reviewed command binding"))
   if (binding?.behaviorAbsent) preflight.push(outcome("NOT IMPLEMENTED", "behavior_absent", binding.behaviorAbsent))
   const environment = [...new Set([...requiredEnvironment, ...(binding?.prerequisites ?? []), ...commands.flatMap((c) => c.prerequisites ?? [])])]
