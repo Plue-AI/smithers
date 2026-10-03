@@ -612,3 +612,20 @@ retained. No gesture means plain text. Renamed files open renamed_to.
 ### T-UI-16 File live states (S2)
 
 `CodeSurface` reuses the File props and existing CodeFileView. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. Compare needs the outside text; contract pending (T-UI-16 report: Issues to file). `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
+
+### T-UI-18 Secrets
+
+```ts
+type SecretsCard = { secrets: {
+  name: string
+  scope: "all_branches" | "main_only"
+  hosts?: string[]
+  actions: Action[]
+}[] }
+type SecretsViewProps = CardProps<SecretsCard>
+```
+
+Values never enter the model. Add and Replace supply Value, Scope and optional
+Hosts through `Action.input`; Add also supplies Name. Replace expands locally.
+Rows show names and scope, without a Hosts count or Bind control. Scope changes
+are submitted with Replace; the View adds no independent scope action.

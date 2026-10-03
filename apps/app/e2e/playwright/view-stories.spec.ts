@@ -510,3 +510,29 @@ test("File light syntax resolves to Paper ink", async ({ page }) => {
     return matches
   })).toBe(true)
 })
+
+test("Secrets Replace keyboard form keeps values write-only", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
+    await page.goto(`/view-stories.html?story=SecretsView/bound_hosts&theme=${theme}`)
+    await page.evaluate(() => {
+      Object.assign(window, { secretCalls: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
+    })
+    await page.locator('.secrets-view summary').focus(); await page.keyboard.press("Enter")
+    const form = page.locator('.secrets-view details form')
+    await expect(form.locator('input[type="password"]')).toHaveValue("")
+    await expect(form.locator('input[aria-label="Hosts"]')).toHaveValue("api.stripe.com, files.stripe.com")
+    await form.locator('input[type="password"]').fill("replacement-value")
+    await form.locator('select').selectOption("all_branches")
+    await form.locator('input[aria-label="Hosts"]').fill("")
+    await form.getByRole("button", { name: "Replace" }).focus(); await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([
+      { kind: "action", value: { tag: "secrets.set", args: { name: "STRIPE_KEY", value: "replacement-value", scope: "all_branches", hosts: "" } } },
+    ])
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.addScriptTag({ path: axePath })
+    expect(await page.evaluate(async () => (await (window as unknown as { axe: { run: () => Promise<{ violations: { impact: string }[] }> } }).axe.run()).violations.filter(v => v.impact === "serious" || v.impact === "critical"))).toEqual([])
+    await page.screenshot({ path: resolve(shots, `SecretsView-replace-open-${theme}-${width}.png`), fullPage: true })
+  }
+})

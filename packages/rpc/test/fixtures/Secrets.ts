@@ -30,7 +30,7 @@ export const fixtures = {
   empty: story("No secrets yet", { secrets: [] }, { actions: [add], expect: ["Add"] }),
   all_branches: story("A secret for all branches", { secrets: [secret("NPM_TOKEN", "all_branches")] }, {
     actions: [add],
-    expect: ["NPM_TOKEN", "Replace", "Delete"]
+    expect: ["NPM_TOKEN"]
   }),
   main_only: story("A main-only secret", { secrets: [secret("RELEASE_TOKEN", "main_only")] }, {
     actions: [add],
@@ -46,6 +46,8 @@ export const fixtures = {
     { secrets: [secret("NPM_TOKEN", "all_branches"), secret("RELEASE_TOKEN", "main_only", ["registry.npmjs.org"])] },
     { actions: [add], expect: ["NPM_TOKEN", "RELEASE_TOKEN"] }
   ),
+  disabled: story("Secret change unavailable", { secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, { expect: ["DEPLOY_TOKEN", "Change pending"] }),
+  long_name: story("Long secret name", { secrets: [secret("PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN", "all_branches")] }, { actions: [add], expect: ["PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN"] }),
   member_view: story(
     "Secret names as a member sees them",
     { secrets: [{ name: "NPM_TOKEN", scope: "all_branches", actions: [] }] },
