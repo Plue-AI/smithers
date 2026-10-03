@@ -518,13 +518,16 @@ test.each(["worker", "flow"] as const)(
       await waitFor(() => records().some((record) => record.type === "flow" && record.run.status === "failed"))
     }
     await settle(0, { _tag: "done", answer: "Requested" })
-    // Chat -> Summary -> visible worker -> failed target (worker or flow).
-    await key("]", { ctrl: true })
+    // A failed run leaves the strip: Summary -> Failed -> failed target (worker or flow).
+    await key("s", { ctrl: true })
     expect(await draw()).toContain("Failed 1 ›")
-    await key("]", { ctrl: true })
-    await key("]", { ctrl: true })
+    await key("ARROW_DOWN")
+    await key("ARROW_DOWN")
+    await key("RETURN")
+    await key("ARROW_DOWN")
+    await key("RETURN")
     const tabFrame = await draw()
-    expect(tabFrame).toContain(kind === "worker" ? "Subagent · Target review" : "Target refused")
+    expect(tabFrame).toContain(kind === "worker" ? "Continue Target review" : "Target refused")
     await key("s", { ctrl: true })
     const summary = await draw()
     expect(summary).toContain("Failed 1")
@@ -541,7 +544,7 @@ test.each(["worker", "flow"] as const)(
     expect(rightPane).not.toContain("Visible work")
     // The same shortcut returns to the failed tab it came from.
     await key("s", { ctrl: true })
-    expect(await draw()).toContain(kind === "worker" ? "Subagent · Target review" : "Target refused")
+    expect(await draw()).toContain(kind === "worker" ? "Continue Target review" : "Target refused")
     expect(await draw()).not.toContain("Failed 1")
   }
 )
@@ -559,9 +562,12 @@ test("Ctrl+S from a successful worker selects it while unrelated Failed rows sta
   await settle(1, { _tag: "done", answer: "Target completed" })
   await settle(2, { _tag: "failed", message: "Other refused", detail: "Fixture refusal" })
   await settle(0, { _tag: "done", answer: "Requested" })
-  await key("]", { ctrl: true })
-  await key("]", { ctrl: true })
-  expect(await draw()).toContain("Subagent · Target review")
+  // A finished worker leaves the strip: Summary -> Done -> the worker.
+  await key("s", { ctrl: true })
+  await key("ARROW_DOWN")
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  expect(await draw()).toContain("Continue Target review")
   await key("s", { ctrl: true })
   expect(await draw()).toContain("Failed 1 ›")
   expect(await draw()).toContain("┌─Target review")

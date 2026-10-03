@@ -317,7 +317,7 @@ test.each(
     })
     await press("ARROW_RIGHT", true)
     await press("ARROW_RIGHT", true)
-    await waitFor(() => frame().includes("Subagent · Approval worker") && frame().includes("alt+y Allow once"))
+    await waitFor(() => frame().includes("Continue Approval worker") && frame().includes("alt+y Allow once"))
     expect(frame()).toContain("alt+n Deny")
     expect(frame()).toContain("alt+a Allow commands this run")
     expect(frame()).not.toContain(" y Allow once")
@@ -387,9 +387,11 @@ test.each(
       }
       await setImmediate()
     })
-    await press("ARROW_RIGHT", true)
-    await press("ARROW_RIGHT", true)
-    await waitFor(() => frame().includes("Subagent · Answer worker") && frame().includes("alt+y Allow once"))
+    // A failed worker leaves the strip; it opens by name.
+    await press("k", true)
+    await type("tab:Answer worker")
+    await press("RETURN")
+    await waitFor(() => frame().includes("Continue Answer worker") && frame().includes("alt+y Allow once"))
     expect(frame()).toContain(action !== "ask" ? "alt+a Raise cap" : "Which path?")
     expect(frame()).toContain("alt+n Deny change")
     expect(frame()).not.toContain("alt+a Allow edits this run")
@@ -484,7 +486,7 @@ test("keyboard inspection reveals the entire pending subject before approval", a
   }
   pending = [oversized]
   await act(async () => setup!.renderer.resize(80, 24))
-  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y Allow once"))
   expect(frame()).not.toContain("FINAL_ARGUMENT")
   const firstPage = frame()
   await press("\x1b[6~")
@@ -493,9 +495,9 @@ test("keyboard inspection reveals the entire pending subject before approval", a
   expect(replies).toEqual([])
   await press("END")
   expect(frame()).toContain("FINAL_ARGUMENT")
-  expect(frame()).toContain("y allow  n deny")
+  expect(frame()).toContain("y Allow once  n Deny")
   await press("HOME")
-  expect(frame()).toContain("? bash node")
+  expect(frame()).toContain("? run node")
   expect(frame()).not.toContain("FINAL_ARGUMENT")
   await press("END")
   await press("\x1b[5~")
@@ -513,7 +515,7 @@ test("completion menu and oversized approval share the 80x24 control budget", as
     subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FINAL_ARGUMENT"
   }]
   await act(async () => setup!.renderer.resize(80, 24))
-  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y Allow once"))
   await type("/")
   expect(frame()).toContain("/model")
   expect(frame()).toContain("very-long-directory")
@@ -521,7 +523,7 @@ test("completion menu and oversized approval share the 80x24 control budget", as
   expect(frame().split("\n")[23]).toContain("esc Close")
   expect(replies).toEqual([])
   await press("c", true)
-  await waitFor(() => frame().includes("y allow"))
+  await waitFor(() => frame().includes("y Allow once"))
   await press("END")
   expect(frame()).toContain("FINAL_ARGUMENT")
 }, 15000)
@@ -535,7 +537,7 @@ test.each([[80, 24], [60, 18], [110, 32]])(
       subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FINAL_ARGUMENT"
     }]
     await act(async () => setup!.renderer.resize(width!, height!))
-    await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+    await waitFor(() => frame().includes("very-long-directory") && frame().includes("y Allow once"))
     const prompts = Array.from({ length: 10 }, (_, index) => `Follow-up ${index + 1}`)
     for (const prompt of prompts) {
       await type(prompt)
@@ -564,7 +566,7 @@ test.each([[80, 24], [60, 18], [110, 32]])(
     expect(frame()).toMatch(/ 2\/\d+ /)
     expect(replies).toEqual([])
     await press("c", true)
-    await waitFor(() => frame().includes("y allow  n deny"))
+    await waitFor(() => frame().includes("y Allow once  n Deny"))
     await act(async () => {
       setup!.mockInput.pressKey("\x1b[1;3A")
       await setImmediate()
@@ -585,7 +587,7 @@ test("replacing a scrolled approval reveals the new request from its beginning",
     subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FIRST_END"
   }]
   await act(async () => setup!.renderer.resize(80, 24))
-  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y Allow once"))
   await press("END")
   expect(frame()).toContain("FIRST_END")
   const replacement = {
@@ -594,7 +596,7 @@ test("replacing a scrolled approval reveals the new request from its beginning",
     subject: "SECOND_BEGIN " + "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "SECOND_END"
   }
   pending = [replacement]
-  await waitFor(() => frame().includes("SECOND_BEGIN") && frame().includes("y allow"))
+  await waitFor(() => frame().includes("SECOND_BEGIN") && frame().includes("y Allow once"))
   expect(frame()).not.toContain("SECOND_END")
   expect(frame()).not.toContain("FIRST_END")
   await press("END")

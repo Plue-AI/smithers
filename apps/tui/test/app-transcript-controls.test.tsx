@@ -392,7 +392,7 @@ test.each([24, 32])(
     await drainDeferredScroll()
     expect(frame()).not.toContain("src/app.ts")
     expect(frame()).not.toContain("tab Complete")
-    expect(frame()).toContain("Subagent · Agent A")
+    expect(frame()).toContain("Back (ctrl+y)")
     expect(frame()).toContain("steer ↳ Agent A")
     expect(composer().plainText).toBe("explain @src/app")
     expect(composer().focused).toBe(true)

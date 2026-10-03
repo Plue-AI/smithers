@@ -50,7 +50,7 @@ const settle = async () => {
   })
   await render()
 }
-/** Feed recorded host events through the App boundary so the real activity dock is rendered. */
+/** Feed recorded host events through the App boundary; the timeline stays hidden until Ctrl+T. */
 const showActivity = async () => {
   const events = readFileSync(new URL("./fixtures/fix-add.jsonl", import.meta.url), "utf8").trim().split("\n")
     .slice(0, 20).map((line) => (JSON.parse(line) as { event: AgentEvent }).event)
@@ -59,7 +59,7 @@ const showActivity = async () => {
     await setImmediate()
   })
   await render()
-  expect(frame()).toContain("Pause")
+  expect(frame()).not.toContain("Pause")
 }
 /** The chat delegates `ids`; each worker's turn is `turns[n]`. */
 const delegate = async (...ids: ReadonlyArray<string>) => {

@@ -464,7 +464,9 @@ test("an agent tab's keys list its Alt actions and no row navigation", async () 
 test("printable retry letters in a finished worker tab remain an unsent draft", async () => {
   await delegate(turns[0]!.input)
   await finish(1, { _tag: "done", answer: "Review complete" })
-  await openWorker()
+  // A finished worker leaves the strip; it opens by name.
+  await palette("tab:Review one file")
+  expect(frame()).toContain("Continue Review one file")
   await type("rerun explanation")
   expect(composer().plainText).toBe("rerun explanation")
   expect(composer().focused).toBe(true)
@@ -563,14 +565,14 @@ test.each([false, true])("a contributed panel key keeps its owning worker and ro
   await palette("tab:Other review")
   if (rows) await key("TAB")
   await key("z", { meta: true })
-  expect(frame()).toContain("Subagent · Other review")
+  expect(frame()).toContain("Continue Other review")
   expect(turns).toHaveLength(3)
   await palette("tab:Review one file")
   await key("z", { meta: true })
-  expect(frame()).toContain("Subagent · Review one file")
+  expect(frame()).toContain("Continue Review one file")
   await key("TAB")
   await key("z", { meta: true })
-  expect(frame()).not.toContain("Subagent · Review one file")
+  expect(frame()).not.toContain("Continue Review one file")
   expect(frame()).toContain("Coordinate a review")
   expect(frame()).not.toContain("steer ↳ Review one file")
   expect(turns).toHaveLength(3)
@@ -754,7 +756,7 @@ test.each(["codex", "claude"] as const)(
   20_000
 )
 
-test("Escape after Chat timeline inspection restores its scroll and sends to Chat, even when inspection opened a worker", async () => {
+test("Chat timeline inspection stays in Chat, and Escape restores its scroll and sends to Chat", async () => {
   await stream(0, "Earlier chat line\n".repeat(50))
   await delegate(turns[0]!.input)
   await stream(1, "Worker line\n".repeat(35))
@@ -767,7 +769,8 @@ test("Escape after Chat timeline inspection restores its scroll and sends to Cha
   await key("t", { ctrl: true })
   await key("ARROW_LEFT")
   await drainDeferredScroll()
-  expect(frame()).toContain("steer ↳ Review one file")
+  expect(frame()).toContain("esc Live")
+  expect(frame()).not.toContain("steer ↳ Review one file")
   await key("ESCAPE")
   await drainDeferredScroll()
   expect(frame()).not.toContain("steer ↳ Review one file")
@@ -851,6 +854,11 @@ test.each(["failed", "done"] as const)(
     await key("s", { ctrl: true })
     await key("ARROW_DOWN")
     await key("RETURN")
+    // Failed opens closed: Enter on its heading lists the row.
+    if (status === "failed") {
+      await key("ARROW_DOWN")
+      await key("RETURN")
+    }
     expect(frame()).toContain("Back (ctrl+y)")
     await key("s", { ctrl: true })
     expect(frame()).not.toContain("Back (ctrl+y)")
@@ -859,6 +867,16 @@ test.each(["failed", "done"] as const)(
     expect(frame()).toContain("Continue Review one file")
   }
 )
+
+/** Summary lists failures under a closed Failed heading: open it, then the worker. */
+const openFailedWorker = async () => {
+  await key("s", { ctrl: true })
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  expect(frame()).toContain("Back (ctrl+y)")
+}
 
 test("expanded failure diagnostics expose their clipped ends through keyboard inspection", async () => {
   await act(async () => setup!.renderer.resize(80, 24))
@@ -871,9 +889,7 @@ test("expanded failure diagnostics expose their clipped ends through keyboard in
     message: "Review refused",
     detail: Array.from({ length: 35 }, (_, i) => i === 34 ? "ROOT_CAUSE" : `diagnostic ${i}`).join("\n")
   })
-  await key("s", { ctrl: true })
-  await key("ARROW_DOWN")
-  await key("RETURN")
+  await openFailedWorker()
   const transcriptBottom = frame()
   await key("\x1b[5~")
   expect(frame()).not.toBe(transcriptBottom)
@@ -909,11 +925,8 @@ test("a draft keeps Home and End while failure details are expanded", async () =
     message: "Review refused",
     detail: Array.from({ length: 35 }, (_, i) => i === 34 ? "ROOT_CAUSE" : `diagnostic ${i}`).join("\n")
   })
-  await key("s", { ctrl: true })
-  await key("ARROW_DOWN")
-  await key("RETURN")
+  await openFailedWorker()
   await key("o", { ctrl: true })
-  await key("i")
   await type("abc")
   await key("HOME")
   await type("Z")
