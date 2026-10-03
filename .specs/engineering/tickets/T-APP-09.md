@@ -1,6 +1,6 @@
 # T-APP-09 Actor adapter: participants and "for Ben" (§14.6a, M-34)
 
-Stage S1 · Size S · Depends on T-ACC-04, T-UI-01 · Unblocks T-AGT-01, T-AGT-03, T-APP-02, T-APP-04, T-APP-06, T-APP-07, T-APP-10, T-APP-16, T-MCH-08, T-REL-02, T-TRM-02 · Issue: [#3503](https://github.com/smithersai/smithers/issues/3503)
+Stage S1 · Size S · Depends on T-ACC-04, T-UI-01 · Unblocks T-AGT-01, T-AGT-03, T-APP-02, T-APP-04, T-APP-06, T-APP-07, T-APP-10, T-APP-11, T-APP-12, T-APP-14a, T-APP-16, T-MCH-08, T-REL-02, T-TRM-02 · Issue: [#3503](https://github.com/smithersai/smithers/issues/3503)
 Spec: spec.md §2 (actor notation), §5.3, §6.4, §14.6a, §14.6a.1 · Delta: delta.md §9 (Modify: actor rendering with `via` badges) · Product: mvp.md J6.3, §6.13 Attribution, M-21, M-34
 Ready: 2026-10-03 smithers-8a sha256:0f0b0e3b97e0
 

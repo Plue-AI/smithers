@@ -1,6 +1,6 @@
 # T-INS-08 Restore the launchd service code; `smthrs host start/stop/status` from a built bundle; setup-URL handoff
 
-Stage S1 · Size M · Depends on first merge: T-INS-01, T-INS-02, T-ACC-01; rest of S1: — · Unblocks T-APP-03, T-CUT-02, T-INS-04, T-INS-05, T-INS-07, T-MCH-01, T-REL-02 · Issue: [#3523](https://github.com/smithersai/smithers/issues/3523)
+Stage S1 · Size M · Depends on first merge: T-INS-01, T-INS-02, T-ACC-01; rest of S1: — · Unblocks T-APP-03, T-INS-04, T-INS-05, T-INS-07, T-MCH-01, T-REL-02 · Issue: [#3523](https://github.com/smithersai/smithers/issues/3523)
 Spec: spec.md §1.1, §1.2, §5.1.0, §16.1.2, §20.1, §20.2 · Product: mvp.md J1.1, J1.2, §6.1, §11 stage 1 item 1, M-26
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §5, v1 §7). Absorbs T-INS-08 ([#3607](https://github.com/smithersai/smithers/issues/3607)).
 

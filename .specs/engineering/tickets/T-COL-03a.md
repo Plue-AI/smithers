@@ -1,7 +1,7 @@
 # T-COL-03a Rust daemon core, broker, capture and durable outbox
 
-Stage S2 · Size L · Depends on T-COL-01, T-COL-03r, T-TRM-06 · Unblocks T-COL-03, T-REL-02 · Issue: [#3624](https://github.com/smithersai/smithers/issues/3624)
-Spec: spec.md §5.3 (`machine`), §7.6 (rows 1, 5), §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
+Stage S2 · Size L · Depends on T-COL-03r · Unblocks T-COL-03, T-COL-05, T-REL-02 · Issue: [#3624](https://github.com/smithersai/smithers/issues/3624)
+Spec: spec.md §5.3 (`machine`), §7.6.1–7.6.2, §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
 
 ## Goal
 
@@ -10,10 +10,13 @@ Build the daemon independently of the backend, against a Rust fake host and real
 ## Scope
 
 In:
-- A Rust crate built as a static `linux-arm64` musl binary. T-COL-03 plants it in the guest rootfs.
+- Extend T-COL-03r’s Rust crate and codec; build a static `linux-arm64` musl binary. T-COL-03 plants it in the guest rootfs.
+- Lands dark until T-COL-03r: no daemon activation without its codec and hook contract; unavailable handlers answer typed `unsupported`. Build against its specified contract while it is unlanded.
+- Lands dark until T-COL-03: no production routing, session admission or `awake` state without digest-checked planting, per-boot mutual authentication, successful wake reconciliation and host object verification plus transactional receipts. Missing authority closes the connection; missing receipts retain pending refs and outbox entries and prevent capture success. Tests use T-COL-03r’s fake host, never production credentials.
+- T-COL-01 and T-TRM-06 supply transport and session-feasibility evidence, not code or schema dependencies. smithers-8a accepts those decisions before activation; absent evidence keeps production activation disabled. Reuse the existing relay or bridge; no new transport. Check: `tests/capture.rs::dark_activation` through the production startup and RPC dispatcher.
 - Boot: the binary is planted digest-checked, as `installGuest` does. The guest's init starts the root broker before any session is admitted. The broker starts the daemon as `machined` (uid 19998, groups `{team}`) and restarts it on exit, with backoff, after ending every session (§9.1.3, §9.5.1, §9.6.4). The machine reports `awake` only after `status()` answers.
 - Host connection (§9.1.1) over the host-relay port, on the transport T-COL-01 chose (`relay` or `bridge`). It authenticates with a per-boot `machine` credential scoped to the branch (§5.3) and reconnects with backoff from 250 ms to 5 s. On `relay`, the daemon accepts the host only after it presents the per-boot connection secret (§9.5.3). One live connection per machine: a newer boot's connection replaces the older one.
-- Implement the connection framing, RPC schemas and outbox acknowledgement bytes fixed by T-COL-10; this ticket does not define the wire contract.
+- Reuse the connection framing, RPC schemas and outbox acknowledgement bytes fixed by T-COL-03r; this ticket does not define the wire contract.
 - Control RPC (§9.1.2). This ticket implements:
   - `status()`;
   - `read_file(path, at?)`;
@@ -21,6 +24,7 @@ In:
   - `wake_reconcile()` (§9.1.2), on every boot before any session is admitted: fetch `refs/smithers/branches/<id>/head` from the host. If the host rebased the branch while it slept (§10.5.5), move or rebase `@` onto that head and emit "Rebased onto Tk". A conflict becomes `needs_you{kind: conflict}` on wake (§10.5.4). The machine reports `awake` only after it finishes;
   - `capture()`, run in phases: flush documents (a no-op until T-COL-08) → close bursts (a no-op until T-COL-04) → `jj util snapshot` → push the head to the host repo store → verify the head ref equals the snapshot commit → return once the outbox is empty (§9.1.4). T-COL-03 adds `repohost.BranchHeadRef` beside `WorkspaceHeadRef` (`packages/backend/internal/repohost/refs.go:166`). T-MCH-07 moves every reader to it and deletes the workspace form.
 - The rest of §9.1.2 lands with its owner: `open_session`, `tcp_connect`, `close_session` and `kill_sessions` (T-TRM-07), `register_run` (T-COL-04), `rebase` (T-STK-08), `return_to_item` (T-COL-05), and `open_doc`/`close_doc` (T-COL-08, S3). Until then each answers a typed `unsupported`.
+- Lands dark until T-COL-04 and T-COL-08: burst-close and document-flush hooks remain no-ops while their producers are disabled; refuse activation of a producer without its corresponding hook. The periodic capture timer still runs. Session RPCs remain `unsupported` until T-TRM-07, run registration until T-COL-04, rebase until T-STK-08, and return-to-item until T-COL-05. These are activation conditions, not dependency edges. Check: `tests/capture.rs::unavailable_hooks` through the production dispatcher.
 - Capture cadence while awake (§9.1.3): after every burst, coalesced to one per 5 s, and at least every 5 min. Sleep, fork, rebase and upgrade also call it (§8.4.3, §8.5.1, §9.4.1, §16.4).
 - Operation log policy (§9.1.2a): each capture is one jj operation, and nothing outside the machine references one. Weekly, the daemon abandons operations older than 7 days (`jj op abandon`) and runs `jj util gc`. Pending outbox refs (§9.1.4) keep unpushed objects alive.
 - Sessions are daemon-owned (§8.10.3, §8.11.1): the guest runs no sshd, and every terminal and SSH session is a PTY or process the daemon starts through `open_session`. This ticket ships the typed `unsupported` stub and the session cgroup parent; T-TRM-07 implements the sessions in the broker (§9.6).
@@ -30,40 +34,53 @@ In:
 
 Out:
 - Go registry, credential minting, rootfs planting and head-reporter deletion (T-COL-03).
-- Watcher, documents and real session implementation retain their existing owners.
+- Watcher and burst attribution (T-COL-04a/T-COL-04), live documents (T-COL-08a/T-COL-08b/T-COL-08), real sessions and SSH/PTY/SFTP/TCP forwarding (T-TRM-07), rebase (T-STK-08), return-to-item (T-COL-05), presence publication and UI views.
+- New host transport, socket tunnel or sidecar; root repository commands, repository hooks and image/package installation; exact per-write kernel attribution, per-entry Undo and replaced-edit flags.
 
 ## Changes
 
-
-- `crates/smithers-machined/` (new):
-  - `Cargo.toml`, `PACKAGE.ts`: build, clippy and test targets plus the musl cross build, globbed by the root `PACKAGE.ts:45`;
-  - `src/main.rs`, `src/conn.rs` (framing, reserved kinds), `src/rpc.rs`, `src/capture.rs`, `src/reconcile.rs` (`wake_reconcile`), `src/oplog.rs` (weekly abandon and gc), `src/outbox.rs`, `src/lock.rs` (mutation lock and freeze sequence), `src/broker.rs` (root broker and socketpair), `src/confine.rs` (`openat2` resolution, regular-file checks), `src/local.rs` (agent socket).
-- `Cargo.toml` (root) `members` and `Cargo.lock` gain the crate.
-- Extend T-COL-03r’s crate and `conn.rs`/`rpc.rs` codec with the production control handlers, broker, lock, capture, reconcile, oplog, outbox, confinement and agent socket listed above. T-COL-03r owns the initial skeleton, hook traits and `tests/fake_host.rs`; retain its golden-frame tests.
+- Extend T-COL-03r’s `crates/smithers-machined/` first: retain `Cargo.toml`, `PACKAGE.ts`, `src/main.rs`, `src/conn.rs`, `src/rpc.rs`, hook traits, `tests/fake_host.rs` and golden-frame tests. Add production handlers to that codec, not a second codec or crate. Extend its build targets for the static musl cross build; reuse the root `PACKAGE.ts:45` crate glob. Update root `Cargo.toml` membership and `Cargo.lock` only if T-COL-03r has not already done so.
+- Reuse the confinement and privilege-drop approach in `packages/backend/microsandbox/guest.go:54` (`installGuest`) and `guest/smithers-guest.py:78,124` (`cgroup_kill`, `drop_to`) as implementation references. Adapt it to the specified identities and 1 s freeze timeout; do not invoke the helper to implement the broker.
+- New modules inside that crate: `src/capture.rs`, `src/reconcile.rs`, `src/oplog.rs`, `src/outbox.rs`, `src/lock.rs`, `src/broker.rs`, `src/confine.rs`, `src/local.rs`. Delta §4 permits these new daemon components: `packages/backend/internal/services/workspace_head.go:55` polls heads without durable per-file events or acknowledgements, and the guest helper is one-shot. Neither provides the required long-lived broker, mutation lock or durable outbox. T-COL-03 owns host transport enablement and head-loop deletion.
 
 ## Tests
 
+- Boundary gate: `tests/capture.rs`, `tests/confinement.rs` and `tests/fake_host.rs` launch the production binary through guest init, connect the fake host through the production codec and authenticated host connection, and send control requests through `src/rpc.rs` dispatch. Local-socket cases connect to `/run/smithers/machined.sock`; broker cases use the production socketpair request handler. Do not call a control handler directly as acceptance evidence. Fixed golden bytes, independently written input files, writer logs and literal expected errors supply expectations; no test reads spec files or derives expected results from production code. Kernel and process state are observations, not generated expectations.
 - unit (`crates/smithers-machined/src/*` `#[cfg(test)]`): the frame codec round-trips. A reserved document frame and an unimplemented RPC get typed refusals. Backoff stays within its bounds. The outbox replays unacknowledged events in order after restart and drops acknowledged ones.
 - integration (`crates/smithers-machined/tests/capture.rs`, new, real jj in a Linux runner or microVM): after capture, the ref equals the `jj util snapshot` commit. A capture interrupted between snapshot and push leaves the previous ref untouched. A killed daemon is restarted by init and reconnects.
 - integration (`write_file`): a write with a stale `base_digest` returns `stale` and leaves the file unchanged; `"absent"` refuses an existing path.
 - integration (`wake_reconcile`, real jj): the host moves the head ref while the machine is off; on boot `@` descends from the new head before the first session opens, and one "Rebased onto Tk" event is sent. A conflicting move yields `needs_you{conflict}` with the paths. An unchanged ref is a no-op with no event.
 - integration (`oplog.rs`, fake clock): after 8 days, every operation older than 7 days is abandoned and gc'd, objects behind a pending outbox ref survive, the working copy and `@` are unchanged, and `jj op log` stays readable by a member uid.
-- integration (`lock.rs`, real jj and cgroup v2): C-COL-03's writer matrix for capture and the freeze sequence; a forced freeze timeout thaws within 1 s and answers `busy`.
-- integration (`confine.rs`, `broker.rs`): C-COL-04's path, special-file and identity cases; `ps` shows the daemon as `machined` and only the broker as root.
+- integration (`tests/capture.rs`, real jj and cgroup v2): race dispatched `write_file` and `capture` requests with logged outside writes, including an outside rename between digest check and swap; stale writes restore the displaced bytes. Exercise freeze/thaw through the production broker socketpair; a forced freeze timeout thaws within 1 s and answers `busy`. The full C-COL-03 writer matrix is in T-COL-03’s Tests; real rebase and return-to-item dispatcher cases wait for their owners, rather than replacing this ticket’s `unsupported` handlers.
+- integration (`tests/confinement.rs`): C-COL-04’s path, special-file, relay-secret and local-socket cases through the production interfaces; `/proc` shows the daemon as `machined` and only the broker plus init/kernel threads as root. Session identity cases wait for T-TRM-07; this component proves their typed `unsupported` refusal. `broker_root_inputs` sends malformed identities, oversized environment/token payloads, cgroup escapes and branch-controlled symlinks/FIFOs, races home-path replacement, and attempts to supply an executable, cwd, loader variable or config path to the broker; all are refused before any privileged side effect. A permitted home/token operation runs only after uid/gid drop and cannot reach another member’s sentinel. C-COL-04 component evidence includes this test.
 - fault: C-DUR-04 kill points in snapshot, push, outbox write and acknowledgement.
 
 - Contract: the Rust fake host replays golden frames byte for byte, including requests, refusals, acknowledgements, missing objects and reconnect. Run the same vectors against the real Rust codec.
-- Fault tests cover the Rust portions of C-DUR-04 K1–K6 against the fake; full host/VM evidence remains in T-COL-04.
+- Fault tests in `tests/capture.rs` cover K3/K3b/K4/K4b redelivery with preloaded literal outbox events and fake receipts, plus K5a–c capture kills and daemon restart through init. K1/K2 require the burst producer; K6 requires VM-stop integration. Full K1–K6 host/VM evidence remains in T-COL-04. A fake receipt is not proof of a real host transaction.
 
 ## Acceptance
 
 - [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-03r golden-frame gate.
-- C-COL-03: Rust mutation-lock and freeze cases.
-- C-COL-04: Rust confinement and broker cases.
+- C-COL-03 component evidence: `tests/capture.rs` dispatched compare-and-write/capture races and production broker freeze cases; the folded full matrix is owned by T-COL-03.
+- C-COL-04 component evidence: `tests/confinement.rs` production RPC, local-socket and broker cases, including `broker_root_inputs`; real session cases remain T-TRM-07’s gate.
 - C-DUR-04: Rust capture and outbox kill cases. Fake results are component evidence, not full-check passes.
 
 ## Risks and notes
 
-- No backend dependency. The fake models host receipts and object availability; it does not prove real transactions.
-- Keep the existing musl build and member-writable jj metadata requirements from T-COL-03.
+- No backend code dependency. The fake models host receipts and object availability; it does not prove real transactions.
+- Decisions: smithers-8a accepts transport, ADR and wire-contract changes and resolves scope or cross-ticket disputes; smithers-3f approves broker security, kernel/cgroup requirements, restart and capture seams with the Go host; smithers-38 approves Cargo/PACKAGE.ts integration and Rust hook/codec compatibility. No public command or UI API is added here.
+- Security preconditions (M-29): repository code, jj/git, hooks and all working-copy operations execute only inside a machine as `machined` or a session user, never on the host or as root. No member or agent has sudo. Missing `openat2`, cgroup v2 freeze/kill support, trusted boot inputs, or mutual authentication refuses daemon activation and session admission. smithers-3f reviews these conditions and `broker_root_inputs` evidence under C-COL-04.
+- Root-input inventory, main-controlled sources: init, broker/daemon executable and digest, loader/runtime libraries, fixed executable paths, sanitized startup environment, socketpair and cgroup/home/token base descriptors come from the installed main bundle and root-owned guest image. Per-boot secrets, branch binding, member uid/login/gids, environment/token payloads and kill/freeze targets come from authenticated host authority and broker-owned state, not branch configuration. The broker accepts only bounded typed messages on its startup socketpair, validates identities and permitted operations, uses fixed paths and held descriptors, and never loads config, executables or loader settings from `/workspace` or a home.
+- Root-input inventory, branch-sourced inputs: session activity reflected in kernel cgroup state, existing member-home/token path entries and filesystem metadata on retained disks are untrusted. The broker confines cgroup access to its fixed root-owned parent, validates ownership/type and cgroup state, and opens home/token paths beneath held descriptors without symlink traversal. It drops uid/gids before reading or writing home/token contents. Repository paths/content, jj/git config and hooks are consumed only by unprivileged children, never root. `tests/confinement.rs::broker_root_inputs` must prove validation of every branch-sourced input before root use; an uncovered input blocks activation. Future session argv/env/cwd handling belongs to T-TRM-07 and stays `unsupported` here.
+- Keep T-COL-03’s static musl build and member-writable jj metadata requirements; run jj as `machined` with `umask 002`. The current root Cargo workspace has no machined crate; the initial crate belongs to T-COL-03r.
+
+
+## Ready checklist
+
+1. Depends on names T-COL-03r, the called Rust codec/schema and hook contract. T-COL-01/T-TRM-06 are decision evidence; host integration and optional producers land dark under Scope, without cycles or later-stage edges.
+2. Out explicitly excludes host registry/planting, transport replacement, watcher/attribution, documents, real sessions/forwarding, rebase/return, presence/UI, root repository execution and deferred attribution/Undo/flags.
+3. Tests name production startup, authenticated RPC dispatch, local socket and broker socketpair boundaries with fixed fixtures and independent writer logs; no runtime spec or implementation-derived expectations. Component evidence does not claim full host/VM checks.
+4. smithers-8a decides transport/ADR/wire and scope disputes; smithers-3f decides security, kernel/cgroup and host seams; smithers-38 decides build and Rust hook/codec compatibility.
+5. Owner pre-review, with post hoc review permitted by the 2026-10-03 directive: smithers-3f must answer (1) Are all root inputs inventoried and branch inputs validated by `broker_root_inputs`? (2) Do authentication, capture receipts and wake gating fail closed at the Go/guest seam? (3) Does freeze/restart cleanup preserve the session-owner contract? smithers-38 must answer (1) Does this extend T-COL-03r’s codec/hooks without duplication? (2) Do Cargo/PACKAGE.ts changes preserve existing targets and static musl packaging? No UI view or apps/ edit requires smithers-06 or smithers-b8 here.
+6. Security preconditions and both root-input source lists are explicit; repository code stays unprivileged inside machines. smithers-3f reviews C-COL-04 `broker_root_inputs`; any branch input without validation evidence keeps activation blocked.
 

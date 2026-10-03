@@ -1,6 +1,6 @@
 # T-APP-15 File card with code intelligence (read-only)
 
-Stage S1 · Size S · Depends on T-INS-02, T-CAT-01, T-INS-06, T-SEC-01 · Unblocks T-APP-02, T-APP-05, T-APP-11, T-APP-14a, T-REL-02 · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
+Stage S1 · Size S · Depends on T-INS-02, T-CAT-01, T-INS-06, T-SEC-01 · Unblocks T-APP-02, T-APP-05, T-APP-11, T-APP-14a, T-APP-17, T-REL-02 · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
 Spec: spec.md §7.6, §14.3 (File) · Delta: delta.md §4, §9 · Product: mvp.md §8 (code intelligence in file cards: Keep), §1.4, J1.5, J9
 Ready: 2026-10-03 smithers-8a sha256:3a3b25e177fd
 

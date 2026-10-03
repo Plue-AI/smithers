@@ -9,7 +9,11 @@ Build daemon documents against the Rust fake host without waiting for backend ch
 
 ## Scope
 
-The behavioral requirements below describe the complete protocol. This ticket implements only the daemon side. T-COL-08b implements subscriber authorization, Go envelopes and the optional mirror; T-APP-14a implements wake requests, the provider and editor actions. Fixtures supply those peers here.
+The behavioral requirements below describe the complete protocol. This ticket implements only the daemon side. T-COL-08b implements subscriber authorization, Go envelopes and the optional mirror; T-APP-14a implements wake requests, the provider and editor actions. Fixtures supply those peers here. Consume only T-COL-03r hook traits and T-COL-08b document schemas; production core, watcher, broker, scheduler and editor wiring belongs to T-COL-08.
+
+Lands dark until T-COL-03r: missing codec or dispatcher hooks refuse `unsupported` before opening a document. Lands dark until T-COL-08b: missing authenticated document envelopes or saved/epoch schemas refuse `unsupported`; never accept a caller-supplied actor or use a local wire format. Build against both specified contracts while they are unavailable.
+
+Lands dark until T-COL-03a/T-COL-03 and T-COL-04a/T-COL-04 are integrated by T-COL-08: refuse production document opens without the authenticated machine connection, branch mutation lock, capture/rewrite hooks, attribution and recorded-version provider. Do not substitute fixtures in production. Lands dark until T-COL-11: missing ADR 0003 topology decision or passing openat2/renameat2/cgroup probes keeps production co-editing disabled; no host filesystem or privileged fallback. T-COL-08 verifies these activation gates.
 
 In:
 - Document host in `smithers-machined` (§9.2), one Yrs document per `(branch, path)` with one `Y.Text("content")`, opened and closed through `open_doc`/`close_doc` (§9.1.2):
@@ -38,42 +42,48 @@ Out:
 - Wiki pages (T-COL-09) and the File card client (T-APP-14a).
 - Carets and selections (cut, mvp.md §6.8).
 - Per-entry Undo, command names and replaced-edit flags (§9.3.5–9.3.7 [D]).
-- Rebase scheduling (T-STK-08, which absorbed T-STK-08).
+- Rebase scheduling (T-STK-08), production capture/rewrite/broker implementation (T-COL-03a), machine provisioning and root startup/session/freeze operations. This ticket supplies document hooks only; T-COL-08 integrates them.
+- Host mirror, Go authorization and relay (T-COL-08b), browser provider, wake requests, recovery UI and Restore/Follow/Compare command wiring (T-APP-14a); no new UI Views, CLI or public TypeScript exports.
+- A second Yrs core, new presence protocol, per-write kernel attribution, language servers, and kernel fallbacks.
 - Component boundary: inject watcher/session events and recorded versions using Linux fixtures; T-COL-08 integrates T-COL-04a’s production watcher. Consume T-COL-08b's document envelopes and saved/epoch schemas.
 
 ## Changes
 
-- `crates/smithers-machined/Cargo.toml`: pin `yrs = "=0.27.4"`, matching `crates/smithers-ffi/Cargo.toml:35`. Share the Rust Yjs sync-protocol codec with `smithers-ffi`; T-COL-09 is its second user. ADR `docs/architecture/0003-live-code-co-editing.md` records this choice.
+- `crates/smithers-machined/Cargo.toml`: pin `yrs = "=0.27.4"`, matching `crates/smithers-ffi/Cargo.toml:35`. Reshape the existing FFI update encode/decode and UTF-16 document setup into the shared core; add Yjs sync-message framing only where that core lacks it. Preserve the wiki FFI entry point and its interop tests. T-COL-11 owns the topology decision in `docs/architecture/0003-live-code-co-editing.md`; this ticket does not create a competing ADR.
 - One Yrs core (minimal-code synthesis, 2026-10-03, v2 layers): reshape the document setup and update integration in `crates/smithers-ffi/src/wiki_document.rs:53` (`execute`, UTF-16 offsets, `apply`) into a module both crates import, parameterized by the text name (`markdown` for wiki, `content` for code). `smithers-machined` writes no second Yrs document core.
 
-- `crates/smithers-machined/src/doc/` (new): `host.rs` (documents, sync, close timer), `disk.rs` (flush with file and directory fsync), `merge.rs` (three-way merge, overlap detection, outside snapshot), `reconcile.rs` (minimal edit), `state.rs` (Yrs state under `/var/lib/smithers/docs/`), `authors.rs`, `gone.rs`.
+- Extend T-COL-03r’s crate and hook traits with `crates/smithers-machined/src/doc/` (planned, absent on inspected main): `host.rs` (documents, sync, close timer), `disk.rs` (flush with file and directory fsync), `merge.rs` (three-way merge, overlap detection, outside snapshot), `reconcile.rs` (minimal edit), `state.rs` (Yrs state under `/var/lib/smithers/docs/`), `authors.rs`, `gone.rs`. New persistence, merge, attribution and lifecycle adapters are needed because `wiki_document.rs` returns serialized wiki state and has no machine filesystem, save cadence, author map or document lifetime. They use the extracted core rather than reimplementing it. Extraction must parameterize allowed roots as well as the text name: keep the wiki’s existing single-root validation and permit the code document’s `content` and `authors` roots.
 
 - All provider and editor code belongs to T-APP-14a. All Go relay and mirror code belongs to T-COL-08b.
 
 ## Tests
 
+Component acceptance enters T-COL-03r’s production RPC dispatcher with `open_doc`, `close_doc`, `write_file`, `capture`, `rebase` and `return_to_item`, and the production document-stream decoder with T-COL-08b actor envelopes. Inject only the peer, watcher/version and core-operation hook implementations. Direct calls to merge/reconcile helpers are unit evidence only. Pin golden bytes, actor ids, texts, digests, epochs, limits and timing thresholds in independent test fixtures; no test reads spec files or derives expected outcomes from production encoders/constants at runtime.
+
 - unit (`reconcile.rs`): a property test over 10,000 random (old, new) pairs, including multi-byte and astral characters, shows that applying the edit to doc(old) gives exactly new. The edit touches only changed lines.
 - unit (`merge.rs`): a property test over random (base, ours, theirs) triples: without overlap the result contains both sides' changes; with overlap the result equals ours plus theirs' non-overlapping hunks, and theirs is returned for the snapshot.
 - unit (`authors.rs`): an actor's client id is stable across reopen. A forged client id is rejected.
 - interop (`crates/smithers-machined/tests/yjs-interop.ts`, new, modelled on `crates/smithers-ffi/tests/wiki-yjs-interop.ts`): two `yjs 13.6.32` clients and the daemon converge under 1,000 interleaved concurrent edits.
-- integration, real filesystem and inotify (`crates/smithers-machined/tests/documents.rs`, new):
+- component integration, real Linux filesystem with injected completed-write events and attribution/version hooks (`crates/smithers-machined/tests/documents.rs`, planned):
   - flush cadence: 200 ms debounce and at most 1 s under continuous typing;
   - mode and group are preserved, and the owner is `machined`;
-  - an SSH-uid write that doesn't overlap unsaved typing lands as one transaction attributed to that member;
+  - an outside write with a fixture-supplied member session actor that does not overlap unsaved typing lands as one transaction attributed to that member; real SSH attribution is T-COL-08;
   - an outside save over a line with unsaved typing leaves the disk equal to the document, the outside version as its burst's `after`, and the "Changed outside Smithers" flag;
-  - after "saved" is acknowledged, killing the VM and the host and restarting both leaves the acknowledged text on disk;
+  - after `saved` is acknowledged, killing and restarting the daemon leaves the acknowledged text on real disk; VM/host kills are T-COL-08’s K7b;
   - close, reopen: per-character authors are unchanged; an outside rewrite while closed reconciles as an outside edit, and unchanged text keeps its authors;
   - ordering (test hook delaying the watcher by 2 s, 200 runs): an outside save landing before the debounce fires, during the swap, and after it each ends with the outside version merged or kept as its burst's `after`, never lost; an in-place writer mid-write at the swap is read after it goes quiet;
   - `saved{sv}` arrives only after the record and the file are durable, and a client counts an update saved only when `sv` covers it;
-  - a client holding an old document reconnects after a daemon restart and converges with no duplicated character; a client on an old epoch retains unacknowledged edits, shows "N edits weren't saved", reapplies them as new attributed edits or copies them (C-DUR-04 K7e);
+  - a client holding an old document reconnects after a daemon restart and converges with no duplicated character; an old-epoch fixture receives the changed epoch without its updates being applied to the recovered document; recovery UI, Reapply and Copy are T-APP-14a/T-COL-08’s C-DUR-04 K7e;
   - a no-op write with an identical digest produces no transaction;
   - the daemon's own flushes produce no watcher burst, and typing gives one activity entry per editor per 2 s idle period;
-  - delete and rename give the gone states, and Restore and Follow work;
+  - delete and rename give the gone states; fixture Restore enters `write_file`, and fixture Follow enters `close_doc`/`open_doc`; app commands remain T-APP-14a;
   - a 2 MiB file opens read-only;
   - close happens at 60 s.
 
 - Contract: Rust fake host replays golden sync, actor, saved, epoch, gone and backpressure frames; run the same vectors against the real daemon document codec.
-- Component faults: K7a, K7c and K7d with real disk and fake host; full daemon/VM/host and client-recovery matrix is T-COL-08.
+- Component faults: K7a, K7c and K7d through production document dispatch with real disk and fake host; full daemon/VM/host and client-recovery matrix is T-COL-08.
+- `DocumentDispatchFailsClosed`: exercise every missing contract/provider/ADR/kernel gate through production dispatch; no document opens, write, saved acknowledgment or host fallback occurs.
+- `DocumentDispatchConfinement`: through production `open_doc`, stream update, save and `write_file` dispatch, reject escaping paths, swapped symlinks, non-regular files, unauthenticated envelopes and forged client ids. Assert no bytes outside `/workspace` or the daemon-controlled document store change. Record effective uid and machine identity; repository test code and document operations run inside a preprovisioned machine as non-root. No root broker is started by this component harness.
 
 ## Acceptance
 
@@ -84,4 +94,21 @@ Out:
 
 - Keep UTF-16 interop, displacement reconciliation and persistent author-map tests.
 - No backend or watcher-completion dependency. Fixtures must supply the same attribution and versions interfaces as T-COL-04a.
+- smithers-3f accepts daemon hook, disk, wire and security seams; smithers-38 accepts the shared FFI/core extraction and preservation of wiki behavior. smithers-8a accepts ADR 0003 after the T-COL-11 owner reviews, and decides kernel or performance remedies after smithers-3f review. Will approves changes to product budgets or disk authority. No remedy enables a fallback before its checks pass.
+
+## Security preconditions and root inputs
+
+Repository code executes only inside machines as non-root (M-29); members and agents have no sudo. Document decoding, state records, working-copy reads/writes, merge and capture/rewrite document hooks run as `machined`, never root (§9.5). Use descriptor-relative `openat2` confinement, regular-file checks and a daemon-controlled state-store directory; branch paths or symlinks cannot select state-store destinations. Accept actors only from the authenticated host envelope. smithers-3f reviews these preconditions; `DocumentDispatchConfinement` and `DocumentDispatchFailsClosed` prove the component behavior.
+
+This ticket adds and runs no root step. Its component harness uses an already provisioned machine and injected broker/core hooks; it does not install, bootstrap, start a root broker, launch privileged sessions or freeze cgroups. Root input inventory here is empty. Production startup, session and freeze/thaw inputs, their main/branch provenance, and validation tests are owned by T-COL-03a/T-COL-03 and T-COL-08’s Security preconditions and root inputs section. Activation stays off until T-COL-08’s `TestLiveDocumentTrustedStartup` and `TestLiveDocumentBrokerInputs` pass. Branch-built binaries, interpreters, helpers and scripts never run as root.
+
+## Ready checklist
+
+1. Dependencies: T-COL-03r supplies consumed dispatcher/hooks/codecs and T-COL-08b supplies consumed document schemas; both are S2/S3. Scope defines fail-closed dark landing for unavailable contracts and production activation providers without adding switch-on edges.
+2. Exclusions: wiki/client work, mirror/relay, wake and recovery UI, production broker/core/watcher integration, scheduling, cut/deferred editor features and second cores/protocols are explicit. Changes reshape the existing FFI core; each new adapter states the missing capability.
+3. Boundary tests: component tests enter production RPC/document dispatch with independent literal fixtures; DocumentDispatchFailsClosed and DocumentDispatchConfinement cover negative paths. C-COL-03’s folded component matrix and C-DUR-04 K7a/c/d supply component evidence; full-stack C-J3-04/C-PERF-03 and K7b/e remain T-COL-08.
+4. Decisions: smithers-3f accepts daemon/disk/wire/security seams; smithers-38 accepts FFI extraction; smithers-8a accepts ADR and kernel/performance remedies after owner review; Will approves product-contract changes.
+5. Owner pre-review (recorded answers stand; owners review post hoc under Will’s directive): smithers-3f: Do dispatcher hooks preserve one mutation lock and durable acknowledgment ordering? Do confinement and dark gates refuse before side effects? Does this component harness avoid all root operations? smithers-38: Does extraction preserve wiki root validation, UTF-16 offsets and pending updates? Do wiki and code import one core without a second implementation? No apps/ or UI View changes are owned here.
+6. Security: smithers-3f reviews machine-only non-root execution, authenticated actors and descriptor confinement. This component owns no root step or root inputs; production privileged activation requires the named T-COL-08 provenance/validation tests.
+
 

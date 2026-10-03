@@ -1,6 +1,6 @@
 # T-COL-11 Spike: reference-host rerun and the ADR 0003 topology decision; capture growth, versions commit, kernel probes
 
-Stage W0, S1 · Size M · Depends on W0: T-COL-01 · S1: T-COL-10 · Unblocks T-COL-08, T-COL-08b · Issue: [#3553](https://github.com/smithersai/smithers/issues/3553)
+Stage W0, S1 · Size M · Depends on W0: T-COL-01 · S1: T-COL-10 · Unblocks T-COL-08 · Issue: [#3553](https://github.com/smithersai/smithers/issues/3553)
 Spec: spec.md §1.4, §7.1, §7.4.1–7.4.2, §7.6, §8.2.1, §9.1.1, §9.2.2, §18 · Delta: delta.md §4 (host relay, live channel) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 Ready: 2026-10-03 smithers-8a sha256:640f6dcf1015
 

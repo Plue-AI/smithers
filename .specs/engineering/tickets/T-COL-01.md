@@ -1,6 +1,6 @@
 # T-COL-01 Spike: relay round trip, Yjs keystroke p95 and jj capture cost in a disposable machine
 
-Stage W0 · Size S · Depends on — · Unblocks T-COL-03a, T-COL-11 · Issue: [#3441](https://github.com/smithersai/smithers/issues/3441)
+Stage W0 · Size S · Depends on — · Unblocks T-COL-11 · Issue: [#3441](https://github.com/smithersai/smithers/issues/3441)
 Spec: spec.md §1.4, §7.1, §7.4.1–7.4.2, §7.6, §8.2.1, §9.1.1, §9.2.2, §18 · Delta: delta.md §4 (host relay, live channel) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 Ready: 2026-10-03 smithers-8a sha256:97d2f3b1853f
 

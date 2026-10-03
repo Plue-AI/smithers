@@ -1,6 +1,6 @@
 # T-STK-04 Merge: person session, one predicate and an in-flight fence, sha-bound, squash
 
-Stage S1 · Size L · Depends on first merge: T-STK-01, T-ACC-01; rest of S1: T-ACC-03, T-STK-12, T-ACC-04, T-APP-04, T-GH-02, T-GH-03, T-GH-09, T-INS-02 · Unblocks T-APP-01, T-APP-07, T-INS-07, T-REL-02, T-STK-05 · Issue: [#3529](https://github.com/smithersai/smithers/issues/3529)
+Stage S1 · Size L · Depends on first merge: T-STK-01, T-ACC-01; rest of S1: T-ACC-03, T-STK-12, T-ACC-04, T-APP-04, T-GH-02, T-GH-03, T-GH-09, T-INS-02 · Unblocks T-APP-01, T-APP-07, T-FLW-02, T-INS-07, T-REL-02, T-STK-05 · Issue: [#3529](https://github.com/smithersai/smithers/issues/3529)
 Spec: spec.md §4.1, §4.1.2a, §5.2, §5.3, §6.2.4, §10.4.5, §10.6.1, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.6.3, §12.1.2, §12.3 (TODO PR merged), §12.5, §16.4 · Delta: delta.md §6 (Modify merge; Delete `change.land` path) · Product: mvp.md §4.2 Merging, §6.10, J1.7, J2.6, M-01, M-05, rule 6, Appendix B.4 (Stack: merge)
 
 ## Goal

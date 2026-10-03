@@ -1,6 +1,6 @@
 # T-FLW-01 Overridable flows run only in machines; system flow catalog
 
-Stage S1 · Size M · Depends on — · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-COL-02, T-COL-10, T-FLW-02, T-FLW-03, T-FLW-11, T-FLW-13, T-INS-06, T-INS-07, T-MCH-14, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-REL-02, T-STK-02, T-STK-12 · Issue: [#3438](https://github.com/smithersai/smithers/issues/3438)
+Stage S1 · Size M · Depends on T-INS-02, T-SEC-01 · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-APP-16, T-COL-02, T-COL-10, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-11, T-FLW-13, T-INS-06, T-INS-07, T-MCH-14, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-REL-02, T-STK-02, T-STK-12 · Issue: [#3438](https://github.com/smithersai/smithers/issues/3438)
 Spec: spec.md §1.3, §10.4.1, §10.4.1a, §11.1, §17.3 · Delta: delta.md §8 (row 1), §11 (ADR 0001 row) · Product: mvp.md §6.12 "Change the factory", §9 Isolation, M-29, M-30
 
 ## Goal
@@ -40,6 +40,7 @@ Out:
 - [C-J10-09](../checks/C-J10-09.md): `/review` on a teammate's PR runs the Active review flow in an ephemeral background machine at the PR head and writes nothing to GitHub; an outsider's PR is refused
 - [C-SEC-01](../checks/C-SEC-01.md): Provider keys, the App PEM and main-only secrets never appear in any branch machine
 - [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
+- [C-CAT-01](../checks/C-CAT-01.md): Folded into T-CAT-01's tests
 
 ## Risks and notes
 - C-SEC-01 (T-MCH-12) also exercises this ticket: the coding host in the machine runs without provider keys.
