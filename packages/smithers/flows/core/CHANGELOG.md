@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Removed `Flow.withCapabilities`, `Flow.sealed` and `Flow.annotateMerge` from
+  core's deprecated object-form flow API. Nothing outside this package called
+  them. Declare capabilities and effects on the flow itself, or use
+  `@smthrs/flow`'s tag-first `Flow.make` with its `annotate` and
+  `annotateMerge` methods.
+
 ### Added
 
 - Added `Graph.maximumGraphNodes`, `Graph.maximumGraphEdges`,

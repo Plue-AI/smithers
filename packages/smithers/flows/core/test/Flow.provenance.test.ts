@@ -14,12 +14,9 @@ it("keeps the declaration's source when a decorator copies it", () => {
   expect(expected.every((site) => site !== undefined)).toBe(true)
   for (
     const copy of [
-      Flow.withCapabilities(original, ["read"]),
       Flow.withFlows(original, ["helper"]),
       Flow.within(original, Placement.local()),
-      Flow.annotate(original, Context.Service<string>("provenance/metadata"), "value"),
-      Flow.annotateMerge(original, Context.empty()),
-      Flow.sealed(original)
+      Flow.annotate(original, Context.Service<string>("provenance/metadata"), "value")
     ]
   ) {
     expect(sites(copy)).toEqual(expected)

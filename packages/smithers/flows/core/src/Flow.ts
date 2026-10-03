@@ -450,39 +450,6 @@ export const make = <
 }
 
 /**
- * Adds capabilities to a flow, returning a fresh flow with sorted,
- * duplicate-free capabilities.
- *
- * @category combinators
- * @since 0.0.0
- * @slop
- */
-export const withCapabilities: {
-  (
-    capabilities: ReadonlyArray<string>
-  ): <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>
-  ) => Flow<I, O, Err, Requires>
-  <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>,
-    capabilities: ReadonlyArray<string>
-  ): Flow<I, O, Err, Requires>
-} = dual(2, <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-  self: Flow<I, O, Err, Requires>,
-  capabilities: ReadonlyArray<string>
-): Flow<I, O, Err, Requires> => {
-  const options = optionsOf(self)
-  const combined = [...new Set([...self.capabilities, ...capabilities])].sort()
-  return build({
-    ...options,
-    capabilities: combined,
-    annotations: options.annotations.mapUnsafe.has(Durable.Capabilities.key)
-      ? Annotations.add(options.annotations, Durable.Capabilities, combined)
-      : options.annotations
-  })
-})
-
-/**
  * Places a flow within a host directive, returning a fresh flow.
  *
  * @category combinators
@@ -549,35 +516,6 @@ export const annotate: {
 })
 
 /**
- * Merges an annotation bag onto a flow, returning a fresh flow.
- *
- * Supplied values override existing values for matching keys.
- *
- * @category combinators
- * @since 0.1.0
- */
-export const annotateMerge: {
-  (
-    annotations: Context.Context<never>
-  ): <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>
-  ) => Flow<I, O, Err, Requires>
-  <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>,
-    annotations: Context.Context<never>
-  ): Flow<I, O, Err, Requires>
-} = dual(2, <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-  self: Flow<I, O, Err, Requires>,
-  annotations: Context.Context<never>
-): Flow<I, O, Err, Requires> => {
-  const options = optionsOf(self)
-  return build({
-    ...options,
-    annotations: Annotations.merge(options.annotations, annotations)
-  })
-})
-
-/**
  * Replaces the collaborators a flow declares, returning a fresh flow.
  *
  * Everything else comes across unchanged: name, schemas, capabilities,
@@ -606,42 +544,3 @@ export const withFlows: {
     ...optionsOf(self),
     flows: [...flows]
   }))
-
-/**
- * Seals a flow's effect declaration, returning a fresh flow.
- *
- * A flow that declared no envelope gains the hermetic, sealed one; a flow that
- * declared one keeps its reads and writes and seals the tier.
- *
- * @category combinators
- * @since 0.0.0
- * @slop
- */
-export const sealed: {
-  (): <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>
-  ) => Flow<I, O, Err, Requires>
-  <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>
-  ): Flow<I, O, Err, Requires>
-} = dual(
-  (arguments_) => arguments_.length === 1,
-  <I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires>(
-    self: Flow<I, O, Err, Requires>
-  ): Flow<I, O, Err, Requires> => {
-    const options = optionsOf(self)
-    const effects = self.effects === undefined
-      ? Effects.make({
-        reads: [],
-        writes: [],
-        mode: "hermetic",
-        onConflict: "serialize",
-        tier: "sealed"
-      })
-      : Effects.sealed(self.effects)
-    return build({
-      ...options,
-      annotations: Annotations.add(options.annotations, Annotations.Effects, effects)
-    })
-  }
-)

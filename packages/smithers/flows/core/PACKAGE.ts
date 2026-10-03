@@ -61,11 +61,10 @@ const securityReview = Smithers.SecurityReview({
         "A flow with no declared effects content-shares another tenant's or run's cached result, or a decorator widens a flow's capability ceiling without the author declaring it.",
       lookFor: [
         "tierOf returning \"sealed\" or anything but \"irreversible\" when effects are undefined.",
-        "build preferring an annotated Durable.Capabilities or Annotations.Effects value in a way withCapabilities, withFlows, or within can trigger without the caller supplying that key.",
+        "build preferring an annotated Durable.Capabilities or Annotations.Effects value in a way withFlows or within can trigger without the caller supplying that key.",
         "A combinator rebuilding from the lowered `annotations` bag instead of the author's original options, so an earlier override resurfaces.",
-        "sealed() producing an envelope with non-empty reads or writes for a flow that declared none.",
-        "sealed() or Effects.sealed keeping a declared write set while setting tier \"sealed\", so a side-effecting flow's result is content-shared across runs.",
-        "annotateMerge copying Durable.Capabilities, Annotations.Effects, or Annotations.Placement from a caller-supplied context without the flow author opting in."
+        "Effects.sealed keeping a declared write set while setting tier \"sealed\", so a side-effecting flow's result is content-shared across runs.",
+        "annotate copying Durable.Capabilities, Annotations.Effects, or Annotations.Placement from a caller-supplied context without the flow author opting in."
       ],
       paths: ["src/Flow.ts", "src/Annotations.ts"]
     },

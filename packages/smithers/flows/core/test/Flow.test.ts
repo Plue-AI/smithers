@@ -225,12 +225,9 @@ describe("Flow combinators", () => {
   })
 
   it("returns fresh values and leaves the original alone", () => {
-    const capable = Flow.withCapabilities(original, ["shell"])
     const placed = original.pipe(Flow.within(Placement.sandbox({ profile: "test" })))
-    const sealedDirect = Flow.sealed(original)
-    const sealedPiped = original.pipe(Flow.sealed())
 
-    for (const variant of [capable, placed, sealedDirect, sealedPiped]) {
+    for (const variant of [placed]) {
       expect(variant).not.toBe(original)
       expect(variant.name).toBe("core/original")
       expect(variant.description).toBe("the declaration every combinator rebuilds")
@@ -242,27 +239,9 @@ describe("Flow combinators", () => {
     expect(original.capabilities).toEqual(["net"])
     expect(original.effects).toBeUndefined()
     expect(Option.isNone(Annotations.getOption(original.annotations, Annotations.Placement))).toBe(true)
-    expect(capable.capabilities).toEqual(["net", "shell"])
     expect(Option.getOrUndefined(Annotations.getOption(placed.annotations, Annotations.Placement))).toEqual(
       Placement.sandbox({ profile: "test" })
     )
-  })
-
-  it("seals an undeclared envelope and seals a declared one in place", () => {
-    const declared = Effects.make({ reads: ["src"], writes: ["dist"], mode: "expected", onConflict: "serialize" })
-
-    expect(Flow.sealed(original).effects).toEqual(Effects.make({
-      reads: [],
-      writes: [],
-      mode: "hermetic",
-      onConflict: "serialize",
-      tier: "sealed"
-    }))
-    expect(Flow.sealed(Flow.make({ name: "core/sealing", effects: declared })).effects).toEqual(
-      Effects.sealed(declared)
-    )
-    // Sealing is what makes the lowered action shareable across runs.
-    expect(Flow.sealed(original).action?.tier).toBe("sealed")
   })
 
   it("attaches a typed annotation without disturbing the declared ones", () => {
@@ -275,24 +254,6 @@ describe("Flow combinators", () => {
     expect(Option.getOrUndefined(Annotations.getOption(piped.annotations, Bank))).toEqual({ bank: "two" })
     // The declared capability ceiling survives the rebuild.
     expect(Option.getOrUndefined(Context.getOption(direct.annotations, Durable.Capabilities))).toEqual(["net"])
-  })
-
-  it("merges an annotation bag with supplied values winning", () => {
-    const Metadata = Context.Service<string>("test/Flow/MergedMetadata")
-    const annotated = original.pipe(
-      Flow.within(Placement.local()),
-      Flow.annotate(Metadata, "original")
-    )
-    const bag = Context.make(Metadata, "supplied").pipe(Context.add(Annotations.Priority, 2))
-
-    for (const merged of [Flow.annotateMerge(annotated, bag), annotated.pipe(Flow.annotateMerge(bag))]) {
-      expect(Option.getOrUndefined(Context.getOption(merged.annotations, Metadata))).toBe("supplied")
-      expect(Option.getOrUndefined(Context.getOption(merged.annotations, Annotations.Priority))).toBe(2)
-      expect(Option.getOrUndefined(Context.getOption(merged.annotations, Annotations.Placement))).toEqual(
-        Placement.local()
-      )
-    }
-    expect(Option.getOrUndefined(Context.getOption(annotated.annotations, Metadata))).toBe("original")
   })
 
   it("replaces the collaborators a signature declares and snapshots the replacement", () => {

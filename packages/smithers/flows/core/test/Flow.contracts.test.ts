@@ -61,27 +61,17 @@ describe("lowered flow contracts", () => {
     expect(Graph.diagnostics(Graph.build(signature.flow, {}))).toContainEqual(
       expect.objectContaining({ code: "capability_outside_grant" })
     )
-    const expanded = Flow.withCapabilities(signature, ["net"])
-    expect(expanded.capabilities).toEqual(["net"])
-    expect(Option.getOrThrow(Context.getOption(expanded.annotations, Durable.Capabilities))).toEqual(["net"])
   })
 
   it("keeps effect overrides, action tiers, and later combinators consistent", () => {
     const before = Effects.make({ reads: ["src"], writes: [], mode: "expected", onConflict: "serialize" })
     const override = Effects.make({ reads: ["docs"], writes: [], mode: "hermetic", onConflict: "fail", tier: "sealed" })
     const original = Flow.make({ name: "contracts/effects", effects: before })
-    for (
-      const changed of [
-        Flow.annotate(original, Annotations.Effects, override),
-        Flow.annotateMerge(original, Context.make(Annotations.Effects, override))
-      ]
-    ) {
-      const rebuilt = changed.pipe(Flow.withFlows(["helper"]), Flow.withCapabilities(["read"]))
-      expect(rebuilt.effects).toEqual(override)
-      expect(Option.getOrThrow(Context.getOption(rebuilt.annotations, Annotations.Effects))).toEqual(override)
-      expect(rebuilt.action?.tier).toBe("sealed")
-      expect(Flow.sealed(rebuilt).effects).toEqual(override)
-    }
+    const changed = Flow.annotate(original, Annotations.Effects, override)
+    const rebuilt = changed.pipe(Flow.withFlows(["helper"]))
+    expect(rebuilt.effects).toEqual(override)
+    expect(Option.getOrThrow(Context.getOption(rebuilt.annotations, Annotations.Effects))).toEqual(override)
+    expect(rebuilt.action?.tier).toBe("sealed")
     expect(original.effects).toEqual(before)
     expect(original.action?.tier).toBe("irreversible")
   })

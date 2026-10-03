@@ -124,8 +124,7 @@ bag both carry, with the declared `capabilities` and `effects` already lowered
 into it.
 
 A signature that declared no effect envelope dispatches as `irreversible`.
-`Flow.sealed` changes the tier; its generated action remains keyless and uses
-invocation identity, so this alone does not enable content sharing across runs.
+Its generated action remains keyless and uses invocation identity.
 
 The requirement channel is `Action.Requirement<string>` for every body-less
 signature, because a signature's tag is typed `string`. The compiler therefore
@@ -144,13 +143,14 @@ The struct payload a declared `input` becomes. `@smthrs/flow` requires a struct
 payload, so a non-struct input travels as the one field `input`. `call` takes
 the declared shape and wraps it, so an author never writes the wrapper.
 
-### Flow.call
+### Flow value: call
 
 ```ts
 readonly call: (input: I["~type.make.in"]) => Node.Node<O["Type"], Err["Type"], Requires>
 ```
 
-Records a call in the schema's constructor shape. A class schema accepts inert
+The `call` property of a flow value records a call in the schema's constructor shape.
+It is not a module export. A class schema accepts inert
 field data; it need not put a class instance in the plan. It never runs the body:
 `Graph.build` evaluates pure bodies at plan time.
 
@@ -192,20 +192,6 @@ const isFlow: (value: unknown) => value is Any
 
 The runtime type-id check, not a shape check.
 
-### Flow.withCapabilities
-
-```ts
-const withCapabilities: {
-  (
-    capabilities: ReadonlyArray<string>
-  ): <I, O, Err, Requires>(self: Flow<I, O, Err, Requires>) => Flow<I, O, Err, Requires>
-  <I, O, Err, Requires>(self: Flow<I, O, Err, Requires>, capabilities: ReadonlyArray<string>): Flow<I, O, Err, Requires>
-}
-```
-
-Returns a fresh signature whose capabilities are the union, sorted and
-deduplicated.
-
 ### Flow.within
 
 ```ts
@@ -217,7 +203,7 @@ const within: {
 
 The placement-shaped special case of `annotate`.
 
-### Flow.annotate and Flow.annotateMerge
+### Flow.annotate
 
 ```ts
 const annotate: {
@@ -231,21 +217,13 @@ const annotate: {
     value: S
   ): Flow<I, O, Err, Requires>
 }
-
-const annotateMerge: {
-  (
-    annotations: Context.Context<never>
-  ): <I, O, Err, Requires>(self: Flow<I, O, Err, Requires>) => Flow<I, O, Err, Requires>
-  <I, O, Err, Requires>(self: Flow<I, O, Err, Requires>, annotations: Context.Context<never>): Flow<I, O, Err, Requires>
-}
 ```
 
 A custom key is advisory, so a signature annotated with one plans the same
 graph. `Annotations.Placement` and `Annotations.Effects` are not advisory:
-`Graph.build` projects both into node key material. Merged values override
+`Graph.build` projects both into node key material. Annotated values override
 existing values for matching keys, including declared effects and capabilities.
-The exposed metadata and the action's tier follow those overrides. Later
-`withCapabilities` and `sealed` operations update the effective values.
+The exposed metadata and the action's tier follow those overrides.
 Combinators retain the original diagnostic source locations of both native
 declarations.
 
@@ -261,18 +239,6 @@ const withFlows: {
 Replaces the collaborators a signature declares. Everything else comes across
 unchanged, which is what lets a decorator rewrite a flow tree without dropping
 the metadata a host reads back. The replacement array is copied.
-
-### Flow.sealed
-
-```ts
-const sealed: {
-  (): <I, O, Err, Requires>(self: Flow<I, O, Err, Requires>) => Flow<I, O, Err, Requires>
-  <I, O, Err, Requires>(self: Flow<I, O, Err, Requires>): Flow<I, O, Err, Requires>
-}
-```
-
-A signature that declared no envelope gains the hermetic, sealed one; a
-signature that declared one keeps its reads and writes and seals the tier.
 
 ### Flow.Input, Flow.Output, Flow.Error
 
