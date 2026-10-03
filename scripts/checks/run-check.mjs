@@ -224,12 +224,17 @@ export async function probePrerequisite(name, { root, env, exec, os = platform()
 }
 
 // The shared machine budget is admission, never a skipped successful test.
-export async function resourceGuard(root, builds = false, { healthPath = join(homedir(), "Desktop/back-of-house-20261002/health.txt"), exec = execute } = {}) {
-  let health
-  try { health = await readFile(healthPath, "utf8") } catch { return blocked("environment", `Machine budget unavailable: ${healthPath}`) }
-  const load = Number(health.match(/mac: load ([\d.]+)/)?.[1])
-  const free = Number(health.match(/disk (\d+) GiB/)?.[1])
-  if (!Number.isFinite(load) || !Number.isFinite(free) || load >= 60 || free < (builds ? 30 : 20)) return blocked("environment", `Machine budget: load ${load}, free ${free} GiB; retry after 2 minutes`)
+// A shared machine opts in with SMITHERS_CHECK_HEALTH_FILE (its budget line,
+// "<host>: load N · disk N GiB") and SMITHERS_CHECK_HEALTH_HOST (default mac).
+// Without it, only the disk guard below applies, so CI and other hosts admit.
+export async function resourceGuard(root, builds = false, { env = process.env, healthPath = env.SMITHERS_CHECK_HEALTH_FILE, healthHost = env.SMITHERS_CHECK_HEALTH_HOST || "mac", exec = execute } = {}) {
+  if (healthPath) {
+    let health
+    try { health = await readFile(healthPath, "utf8") } catch { return blocked("environment", `Machine budget unavailable: ${healthPath}`) }
+    const budget = health.match(new RegExp(`(?:^|\\W)${healthHost.replace(/\W/g, "")}: load ([\\d.]+) · disk (\\d+) GiB`))
+    const load = Number(budget?.[1]), free = Number(budget?.[2])
+    if (!Number.isFinite(load) || !Number.isFinite(free) || load >= 60 || free < (builds ? 30 : 20)) return blocked("environment", `Machine budget: load ${load}, free ${free} GiB; retry after 2 minutes`)
+  }
   // Read-only disk guard, including Go's build cache writes.
   const disk = await exec(["df", "-k", homedir()], { cwd: root })
   const availableKiB = Number(disk.stdout.trim().split("\n").at(-1)?.trim().split(/\s+/)[3])

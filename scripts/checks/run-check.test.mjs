@@ -346,7 +346,7 @@ test("qualification runs every obligation sequentially with one SHA and retains 
 test("machine admission covers load and disk boundaries and refuses unknown health", async (t) => {
   const options = await fixture(t)
   const healthPath = join(options.root, "health.txt")
-  const config = { healthPath, exec: async () => ({ ...goodRun, stdout: `Filesystem 1K-blocks Used Available Capacity Mounted\nfixture 999999999 0 ${31 * 1024 ** 2} 1% /\n` }) }
+  const config = { env: {}, healthPath, exec: async () => ({ ...goodRun, stdout: `Filesystem 1K-blocks Used Available Capacity Mounted\nfixture 999999999 0 ${31 * 1024 ** 2} 1% /\n` }) }
   assert.equal((await resourceGuard(options.root, false, config)).reasonCode, "environment")
   for (const [text, builds, passes] of [
     ["mac: load 59.99 · disk 20 GiB", false, true], ["mac: load 60 · disk 30 GiB", false, false],
@@ -365,6 +365,22 @@ test("machine admission covers load and disk boundaries and refuses unknown heal
       assert.match(refusal.reason, /Disk guard/)
     }
   }
+})
+
+test("machine budget is opt-in and reads only the configured host's segment", async (t) => {
+  const options = await fixture(t)
+  const healthPath = join(options.root, "health.txt")
+  const disk = (gib) => async () => ({ ...goodRun, stdout: `Filesystem 1K-blocks Used Available Capacity Mounted\nfixture 999999999 0 ${gib * 1024 ** 2} 1% /\n` })
+  // No configured budget file: CI and unconfigured hosts admit on the disk guard alone.
+  assert.equal(await resourceGuard(options.root, true, { env: {}, exec: disk(31) }), null)
+  assert.equal((await resourceGuard(options.root, true, { env: {}, exec: disk(29) })).reasonCode, "environment")
+  // A configured but missing file still fails closed.
+  assert.equal((await resourceGuard(options.root, false, { env: { SMITHERS_CHECK_HEALTH_FILE: join(options.root, "absent.txt") }, exec: disk(31) })).reasonCode, "environment")
+  await writeFile(healthPath, "00:00 PT · mac: load 99 · disk 5 GiB · limited · mini: load 3.5 · disk 157 GiB · open")
+  const mini = { env: { SMITHERS_CHECK_HEALTH_FILE: healthPath, SMITHERS_CHECK_HEALTH_HOST: "mini" }, exec: disk(31) }
+  assert.equal(await resourceGuard(options.root, true, mini), null)
+  assert.equal((await resourceGuard(options.root, false, { ...mini, env: { SMITHERS_CHECK_HEALTH_FILE: healthPath } })).reasonCode, "environment")
+  assert.equal((await resourceGuard(options.root, false, { ...mini, env: { ...mini.env, SMITHERS_CHECK_HEALTH_HOST: "nas" } })).reasonCode, "environment")
 })
 
 test("executor profiles require host, environment, argv, toolchain and lease", async (t) => {
