@@ -29,24 +29,18 @@ const RAW_ERROR_RENDER = new RegExp(
 const ALLOWED: Readonly<Record<string, number>> = {
   // `unreadable`: the model's refusal text for an agent body read.
   "agents.ts": 2,
-  // A 401/403 probe that signs the factory out; never shown.
-  "app.tsx": 1,
   // The worker's provider error for the model; the person sees `FailureCopy`.
   "box.ts": 2,
   // The refusal text a publishing plugin cell reads.
   "contributions.ts": 2,
   // A plugin manifest's decode problem, for the plugin author.
   "extension.ts": 2,
-  // HTTP status classification; the displayed sentence uses Failures.
-  "factory.ts": 1,
   // Control-plane text kept on `FlowError.message` for the model and the log.
   "flow-control.ts": 3,
   // A suspended flow's own question, and the run's persisted message field.
   "flows.ts": 2,
   // Cell and model-facing results.
   "host.ts": 4,
-  // HTTP status classification; the displayed sentence uses Failures.
-  "issue-views.ts": 1,
   // The log, including nested causes.
   "log.ts": 6,
   // `MonitorError` and `message`: the model's monitor context.
