@@ -1,0 +1,26 @@
+/* PORT: mock field, placement and receipt anatomy, scoped to Draft. */
+.draft-view { min-width: 0; color: var(--text); font-family: var(--font-ui); }
+.draft-head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.draft-private { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.draft-field { display: flex; flex-direction: column; gap: 4px; margin-top: var(--sp-2); }
+.draft-field > span, .draft-field-row > span, .draft-seed > span { color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.draft-field input, .draft-field textarea { box-sizing: border-box; width: 100%; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); line-height: 1.5; resize: vertical; }
+.draft-field input { font-weight: 500; }
+.draft-field-row { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); min-width: 0; }
+.draft-field-row select { min-width: 0; max-width: 100%; height: 32px; padding: 0 8px 0 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); font-weight: 500; text-overflow: ellipsis; }
+.draft-check { display: flex; align-items: center; gap: 8px; margin-top: var(--sp-2); font-size: var(--fs-small); }
+.draft-check input { width: 15px; height: 15px; accent-color: var(--brand); }
+.draft-issue { display: block; margin-top: var(--sp-3); color: var(--text-muted); font-size: var(--fs-small); overflow-wrap: anywhere; }
+.draft-seed { display: flex; flex-direction: column; gap: 4px; margin-top: var(--sp-3); }
+.draft-seed code { font: var(--fs-caption) var(--font-mono); overflow-wrap: anywhere; }
+.draft-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-1); margin-top: var(--sp-3); }
+.draft-action { display: flex; flex-direction: column; gap: 4px; }
+.draft-actions button { padding: 6px 12px; border: 1px solid transparent; border-radius: var(--r-1); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-small); cursor: pointer; }
+.draft-actions button:hover { background: var(--hover); }
+.draft-actions button[data-primary] { background: var(--action-primary); color: var(--on-action-primary); }
+.draft-actions button:disabled { opacity: .6; cursor: default; }
+.draft-reason { margin: 0; color: var(--text-muted); font-size: var(--fs-caption); }
+.draft-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--fs-small); }
+.draft-receipt b { color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
+.draft-ref { font: var(--fs-caption) var(--font-mono); padding: 1px 5px; border: 1px solid var(--border); border-radius: var(--r-1); }
+.draft-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
