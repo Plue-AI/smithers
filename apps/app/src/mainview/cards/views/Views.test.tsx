@@ -122,6 +122,16 @@ for (const path of paths) {
           }
           return
         }
+        if (path === "BranchView.stories.tsx") {
+          for (const tab of host.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
+            onAction.mockClear(); onView.mockClear()
+            await act(async () => tab.click())
+            expect(onView.mock.calls).toEqual([[{ tab: tab.dataset.tab }]])
+            expect(onAction).toHaveBeenCalledTimes(0)
+          }
+          expect(host.querySelectorAll('[aria-label="Copy SSH line"]')).toHaveLength(1)
+          return
+        }
         const interactions = story.interactions ?? []
         const gestureControls = new Set(interactions.filter(item => item.gesture).map(item => host.querySelector(item.selector)))
         const controls = [...host.querySelectorAll<HTMLButtonElement>("button[data-flow]")].filter(control => !gestureControls.has(control))
@@ -1248,4 +1258,75 @@ test("Terminal gives the working agent its own avatar and acting-for label", asy
     expect(item.host.textContent).toContain("Claude Code for Ben")
     expect(item.host.querySelector('.mvp-avatar[data-kind="agent"]')!.hasAttribute("data-live")).toBe(true)
   } finally { await item.close() }
+})
+import { BranchView } from "./BranchView"
+import { fixtures as branchFixtures } from "@smthrs/rpc/fixtures/Branch"
+
+test("Branch actions retain burst identities, forms, omissions and supplied order", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
+    expect([...host.querySelectorAll("button[data-flow]")].map(button => button.textContent)).toEqual(["Diff", "Diff", "Fork", "New terminal", "Steer"])
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('button[data-flow="diff"]')[1]!.click())
+    expect(onAction.mock.calls).toEqual([["diff", { branch: "todo/12", burst: "burst-6" }]])
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Steer"]') ?? host.querySelector<HTMLInputElement>("input")!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Check cancellation")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    onAction.mockClear()
+    await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+    expect(onAction.mock.calls).toEqual([["todo.steer", { n: "12", text: "Check cancellation" }]])
+    expect(onView).toHaveBeenCalledTimes(0)
+    await act(async () => root.render(<BranchView {...branchFixtures.active} actions={[]} model={{ ...branchFixtures.active.model, activity: [] }} onAction={onAction} onView={onView} />))
+    expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
+    expect(host.textContent).toContain("flows/todo/flow.ts:12")
+    expect(host.textContent).toContain("watching Implement")
+    await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "terminals" }} onAction={onAction} onView={onView} />))
+    expect(host.textContent).toContain("pnpm check")
+    expect(host.textContent).toContain("Rebasing…")
+    expect(host.querySelectorAll(".branch-watchers .mvp-avatar")).toHaveLength(2)
+    await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "files" }} onAction={onAction} onView={onView} />))
+    expect(host.textContent).toContain("flows/todo/prompt.md → flows/todo/instructions/implementer.md")
+    expect(host.querySelectorAll(".branch-list .mvp-avatar")).toHaveLength(6)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("Branch conflict disables Done with its reason and retains bound revisions", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.scratch_conflict} onAction={onAction} onView={onView} />))
+    const done = host.querySelector<HTMLButtonElement>('button[data-flow="branch.rebase"]')!
+    expect(done.disabled).toBe(true); expect(host.textContent).toContain("Unresolved paths")
+    await act(async () => done.click()); expect(onAction).toHaveBeenCalledTimes(0)
+    await act(async () => host.querySelector<HTMLButtonElement>('button[data-flow="terminal"]')!.click())
+    expect(onAction.mock.calls).toEqual([["terminal", { branch: "scratch/repro" }]])
+    await act(async () => root.render(<BranchView {...branchFixtures.scratch_conflict} actions={[{ tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" } }]} onAction={onAction} onView={onView} />))
+    onAction.mockClear()
+    await act(async () => host.querySelector<HTMLButtonElement>('button[data-flow="branch.rebase"]')!.click())
+    expect(onAction.mock.calls).toEqual([["branch.rebase", { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" }]])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+const branchStateOracles = [
+  ["awake", "Awake", "Sleep", "box.suspend", { branch: "todo/12" }],
+  ["asleep", "Asleep", "Wake", "box.resume", { branch: "todo/12" }],
+  ["failed", "Image build failed", "Retry", "box.resume", { branch: "todo/12" }],
+  ["rebase_pending", "Rebase pending onto T8", "Rebase now", "branch.rebase-now", { branch: "todo/12" }],
+  ["moved_off", "Needs you", "Return to T15", "todo.return-to-item", { n: "15" }],
+] as const
+for (const [key, copy, label, tag, args] of branchStateOracles) test(`Branch ${key} projects its control`, async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures[key]} onAction={onAction} onView={onView} />))
+    expect(host.textContent).toContain(copy)
+    const button = [...host.querySelectorAll<HTMLButtonElement>("button[data-flow]")].find(button => button.textContent === label)!
+    await act(async () => button.click())
+    expect(onAction.mock.calls).toEqual([[tag, args]])
+    await act(async () => root.render(<BranchView {...branchFixtures[key]} actions={[]} onAction={onAction} onView={onView} />))
+    expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
+  } finally { await act(async () => root.unmount()); host.remove() }
 })

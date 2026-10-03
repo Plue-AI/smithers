@@ -98,6 +98,8 @@ export const IN_CARD_TAGS = [
   "file.follow-rename",
   "todo.retry-current-flow",
   "branch.rebase-now",
+  "box.suspend",
+  "box.resume",
   "learning.accept",
   "learning.dismiss",
   "terminal.watch",

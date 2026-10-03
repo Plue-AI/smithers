@@ -593,3 +593,15 @@ type TerminalViewProps = CardProps<TerminalModel>
 ```
 
 Watchers and frozen terminals have an inert, read-only emulator. They never receive input focus or forward keys. Watching and Rebasing… are neutral; each working agent has its own ActorChip and acting-for name. T-APP-12 binds the stream, replay, geometry and palette shortcut through the shared runtime.
+
+### T-UI-15 Branch (S2)
+
+`BranchViewProps = CardProps<BranchCard>` from `@smthrs/rpc/BranchCard`.
+The existing Branch boundary decoder and fixtures are retained. §14.3 defines
+machine, item/scratch, rebase, moved-off, presence, terminals, activity,
+changed_files and ssh_line. `view.tab` selects activity, files or terminals.
+Buttons render supplied actions in order; activity actions retain burst ids.
+Scratch Done carries conflict_change and onto_revision in its supplied args
+(§8.5.2b). Sleep/Wake/Retry use the retained box.suspend/box.resume controls.
+Copy SSH uses the shared clipboard helper. Presence has no local state.
+BranchView is pending T-APP-10/T-COL-05/T-REL-02 and remains unmounted.

@@ -108,6 +108,8 @@ export type BranchViewProps = CardProps<BranchCard>
  * @category models
  */
 export type BranchCardCallbacks = CardCallbacks<
+  | "box.suspend"
+  | "box.resume"
   | "branch"
   | "branch.fork"
   | "branch.rebase"

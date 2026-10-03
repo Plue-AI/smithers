@@ -51,11 +51,11 @@ const diff = (burst: string): Action => ({ tag: "diff", label: "Diff", args: { b
 
 export const fixtures = {
   awake: story("Item branch, machine awake", base, {
-    actions: [fork, newTerminal, steer],
+    actions: [{ tag: "box.suspend", label: "Sleep", args: { branch: "todo/12" } }, fork, newTerminal, steer],
     expect: ["todo/12", "Card model contracts", "ssh -p 2222 todo-12@mac-mini.local"]
   }),
   asleep: story("Machine asleep", { ...base, machine: { state: "asleep" } }, {
-    actions: [fork],
+    actions: [{ tag: "box.resume", label: "Wake", args: { branch: "todo/12" } }, fork],
     expect: ["todo/12"]
   }),
   waking: story("Machine waking", { ...base, machine: { state: "waking" } }, { expect: ["todo/12"] }),
@@ -70,11 +70,11 @@ export const fixtures = {
   failed: story(
     "Machine failed to start",
     { ...base, machine: { state: "failed", error: { class: "machine_start", message: "Image build failed" } } },
-    { expect: ["Image build failed"] }
+    { actions: [{ tag: "box.resume", label: "Retry", args: { branch: "todo/12" } }], expect: ["Image build failed"] }
   ),
   rebase_pending: story("Rebase pending onto T8", { ...base, rebase: { state: "pending", onto: "T8" } }, {
     actions: [{ tag: "branch.rebase-now", label: "Rebase now", args: { branch: "todo/12" }, primary: true }],
-    expect: ["T8", "Rebase now"]
+    expect: ["T8"]
   }),
   rebase_waiting_for: story(
     "Rebase pending, waiting for a write in Ben's terminal",
@@ -85,11 +85,11 @@ export const fixtures = {
   scratch_conflict: story(
     "Scratch branch with a rebase conflict",
     { ...scratch, rebase: { state: "conflict", onto: "main", paths: ["packages/rpc/src/HomeCard.ts"] } },
-    { actions: [newTerminal], expect: ["scratch/repro", "packages/rpc/src/HomeCard.ts"] }
+    { actions: [{ tag: "terminal", label: "Resolve", args: { branch: "scratch/repro" } }, { tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" }, disabled: { reason: "Unresolved paths" } }], expect: ["scratch/repro", "packages/rpc/src/HomeCard.ts"] }
   ),
   scratch_main: story("Scratch branch forked from main", scratch, {
     actions: [addToStack],
-    expect: ["scratch/repro", "Add to stack"]
+    expect: ["scratch/repro"]
   }),
   scratch_item: story(
     "Scratch branch forked from T12",
@@ -109,9 +109,12 @@ export const fixtures = {
         { tag: "todo.return-to-item", label: "Return to T15", args: { n: "15" }, primary: true },
         { tag: "todo.keep-moved", label: "Keep for now", args: { n: "15" } }
       ],
-      expect: ["Return to T15", "Keep for now"]
+      expect: ["Ben Carter"]
     }
   ),
+  answered: story("Answer the coding agent", { ...base, presence: [{ actor: person, where: { kind: "branch" } }] }, {
+    actions: [{ tag: "todo.answer", label: "Answer", args: { n: "12", wait: "question-1" }, primary: true, input: [{ name: "text", label: "Answer the coding agent", kind: "text", required: true }] }, steer], expect: ["todo/12"]
+  }),
   active: story(
     "People and agents working together",
     {
