@@ -329,12 +329,12 @@ repositories["cache connect"] = async (c, _a, o) => {
     JSON.stringify(repository)
   }, publicReadToken: ${JSON.stringify(record.token)} })`
   if (o.write === false) return { build_file, declaration, changed: false }
-  if (existing && !/import\s+\*\s+as\s+Smithers\s+from/.test(existing)) {
+  if (existing && !/import\s+(?:\*\s+as\s+Smithers|\{\s*Smithers\s*\})\s+from/.test(existing)) {
     throw new Refused({ fault: "user", code: "invalid_package", message: "PACKAGE.ts must import Smithers" })
   }
   const updated = existing
     ? `${existing.trimEnd()}\n\n${declaration}\n`
-    : `import * as Smithers from "@smthrs/build"\n\n${declaration}\n`
+    : `import { Smithers } from "@smthrs/targets"\n\n${declaration}\n`
   await mkdir(resolve(str(o.workspace) || "."), { recursive: true })
   await writeFile(build_file, updated)
   return { build_file, declaration, changed: true, endpoint: record.endpoint }

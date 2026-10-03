@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import ts from "typescript"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { main } from "../src/cli/Entry.ts"
 import { type Host, repoFromRemote, resolveRepo } from "../src/commands/Open.ts"
@@ -597,6 +598,55 @@ describe("repository selection and transfer", () => {
     const content = await readFile(join(home, "PACKAGE.ts"), "utf8")
     expect(content).toContain("Smithers.RemoteCache.smithersCloud(")
     expect(content).not.toContain("jjhub")
+    expect(await repositories["cache connect"]!(c, {}, { ...options, workspace: home })).toMatchObject({
+      changed: false
+    })
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+  it("emits cache setup that typechecks against the public targets entry", async () => {
+    const { c, home, request } = await fixture()
+    request.mockResolvedValue({ token: "smithers_cachero_public" })
+    await repositories["cache connect"]!(c, {}, { ...options, workspace: home })
+    const file = join(home, "PACKAGE.ts")
+    const content = await readFile(file, "utf8")
+    expect(content).toContain('import { Smithers } from "@smthrs/targets"')
+    await writeFile(join(home, "package.json"), JSON.stringify({ type: "module" }))
+    const targetsRoot = join(import.meta.dirname, "../build/targets")
+    const manifest = JSON.parse(await readFile(join(targetsRoot, "package.json"), "utf8")) as {
+      name: string
+      exports: Record<string, string>
+    }
+    expect(manifest.name).toBe("@smthrs/targets")
+    // TypeScript is already a test dependency; checking the manifest's public source entry
+    // catches missing namespace members without relying on a prior package build.
+    const program = ts.createProgram([file], {
+      target: ts.ScriptTarget.ES2024,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      allowImportingTsExtensions: true,
+      types: ["node"],
+      paths: { [manifest.name]: [join(targetsRoot, manifest.exports["."]!)] }
+    })
+    expect(
+      ts.getPreEmitDiagnostics(program, program.getSourceFile(file)!).map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+      )
+    ).toEqual([])
+  })
+  it("appends cache setup to the standard named Smithers import without replacing existing targets", async () => {
+    const { c, home, request } = await fixture()
+    request.mockResolvedValue({ token: "smithers_cachero_public" })
+    const file = join(home, "PACKAGE.ts")
+    const existing = 'import { Smithers } from "@smthrs/targets"\nexport const existing = 1\n'
+    await writeFile(file, existing)
+    const result = object(await repositories["cache connect"]!(c, {}, { ...options, workspace: home }))
+    expect(result.changed).toBe(true)
+    expect(await readFile(file, "utf8")).toBe(
+      `${existing}\nexport const remoteCache = Smithers.RemoteCache.smithersCloud({ repo: "owner/repo", publicReadToken: "smithers_cachero_public" })\n`
+    )
     expect(await repositories["cache connect"]!(c, {}, { ...options, workspace: home })).toMatchObject({
       changed: false
     })
