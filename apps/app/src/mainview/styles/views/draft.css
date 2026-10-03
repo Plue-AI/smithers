@@ -4,7 +4,7 @@
 .draft-private { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .draft-field { display: flex; flex-direction: column; gap: 4px; margin-top: var(--sp-2); }
 .draft-field > span, .draft-field-row > span, .draft-seed > span { color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
-.draft-field input, .draft-field textarea { box-sizing: border-box; width: 100%; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); line-height: 1.5; resize: vertical; }
+.draft-field input, .draft-field textarea { box-sizing: border-box; width: 100%; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); line-height: 1.5; resize: none; }
 .draft-field input { font-weight: 500; }
 .draft-field-row { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); min-width: 0; }
 .draft-field-row select { min-width: 0; max-width: 100%; height: 32px; padding: 0 8px 0 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); font-weight: 500; text-overflow: ellipsis; }
