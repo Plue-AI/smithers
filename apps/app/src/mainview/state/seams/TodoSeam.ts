@@ -1,3 +1,5 @@
+import { todoActors } from "../TodoActors"
+import type { ActorContext } from "../ProductActor"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
@@ -21,6 +23,7 @@ export interface TodoTopics {
   readonly subscribe: (topic: `todo:${number}`, receive: (model: unknown, receipts?: readonly TodoReceipt[]) => void) => () => void
 }
 export interface TodoSeamOptions {
+  readonly actors?: () => ActorContext
   readonly topics?: TodoTopics
   readonly debounceMs?: number
   readonly onDispose?: (stop: () => void) => void
@@ -81,7 +84,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
     const live = stillCurrent ?? (() => current(login, revision))
     if (!live()) return
-    const model = TodoCardSchema.parse(value)
+    const model = TodoCardSchema.parse(todoActors(value, options.actors?.()))
     if (model.n !== n) throw new Error("TODO topic mismatch")
     const card = entry(n) ?? blank(n)
     await write({ ...card, title: model.title, payload: { ...card.payload, model,
@@ -192,7 +195,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       const response = await ctx.http(`${ctx.baseUrl}/api/todos/${n}`, { credentials: "include" })
       if (!current(login, revision)) return
       if (!response.ok) return "Could not open the TODO."
-      const model = TodoCardSchema.parse(await response.json())
+      const model = TodoCardSchema.parse(todoActors(await response.json(), options.actors?.()))
       await applyProjection(n, model)
       watch(n)
       return readResult(JSON.stringify(model))

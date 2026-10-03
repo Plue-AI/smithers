@@ -17,6 +17,7 @@
  * positions; the card-frame position is decided here, because it needs the
  * wire model to say what a card object looks like.
  */
+import ts from "typescript"
 import {
   attributeSelectorValues,
   dataAttributesIn,
@@ -31,7 +32,7 @@ import {
 /** One orphaned literal, named well enough to fix without reading this file. */
 export interface Violation {
   /** Which vocabulary the literal failed to resolve against. */
-  readonly rule: "flow" | "card-kind" | "card-id-prefix" | "data-attribute" | "dotted-identifier"
+  readonly rule: "actor-label" | "flow" | "card-kind" | "card-id-prefix" | "data-attribute" | "dotted-identifier"
   readonly value: string
   readonly file: string
   readonly line: number
@@ -274,5 +275,45 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
     })
   }
 
+  return found
+}
+
+/** T-APP-09: actor labels have one formatter, including template static chunks. */
+export const actorLabelViolations = (literal: ExtractedLiteral): ReadonlyArray<Violation> => {
+  if (!/(?: via | for |'s terminal)/.test(literal.value)) return []
+  return [{ rule: "actor-label", value: literal.value, file: literal.file, line: literal.line,
+    message: "Use actorName for participant labels." }]
+}
+
+/** Inspect actor formatting expressions, so ordinary copy such as "Stop for now" remains valid. */
+export const actorSourceViolations = (file: string, source: string): ReadonlyArray<Violation> => {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  const found: Violation[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteralLike(node) && /^(?:[A-Z][\w -]* for [A-Z]|.+ via (?:SSH|CLI)$)|'s terminal/.test(node.text)) {
+      found.push({ rule: "actor-label", file, value: node.text,
+        line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
+        message: "Use actorName for participant labels." })
+    }
+    if (ts.isTemplateExpression(node) || ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      // Only the outer formatting expression, to avoid reporting nested concatenations twice.
+      if (ts.isBinaryExpression(node.parent) && node.parent.operatorToken.kind === ts.SyntaxKind.PlusToken) return
+      const identifiers: string[] = [], strings: string[] = []
+      const collect = (child: ts.Node): void => {
+        if (ts.isIdentifier(child)) identifiers.push(child.text)
+        if (ts.isStringLiteralLike(child) || ts.isTemplateHead(child) || ts.isTemplateMiddle(child) || ts.isTemplateTail(child)) strings.push(child.text)
+        ts.forEachChild(child, collect)
+      }
+      collect(node)
+      if (identifiers.some(name => /^(?:actor|person|member|owner|author|answerer|requester|name)(?:$|[A-Z_])/.test(name))) {
+        for (const value of strings.filter(value => /^(?: via | for )|'s terminal|^(?:Smithers|Claude Code|Codex|Coding agent|Reviewer) for /.test(value))) found.push({
+          rule: "actor-label", file, value, line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
+          message: "Use actorName for participant labels."
+        })
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
   return found
 }

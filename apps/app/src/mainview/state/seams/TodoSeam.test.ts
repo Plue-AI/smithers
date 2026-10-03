@@ -3,7 +3,7 @@ import { CardSchema } from "@smthrs/rpc/Cards"
 import { createAppStore } from "../AppStore"
 import { memoryStorage, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
-import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics } from "./TodoSeam"
+import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 
 const json = (body: unknown, status = 202) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
@@ -12,7 +12,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
-const harness = async (http: SeamContext["http"], storage = memoryStorage()) => {
+const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"]) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const observed = new Map<string, (model: unknown, receipts?: readonly TodoReceipt[]) => void>()
@@ -26,7 +26,7 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage()) => 
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
   }
-  const seam = createTodoSeam(context, { topics, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
+  const seam = createTodoSeam(context, { actors, topics, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
   return { store, seam, observed, outcomes, context, storage,
     draft: () => [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry,
     todo: () => store.collections.cards.get("todo:12") as TodoEntry,
@@ -225,5 +225,28 @@ test("multiple waits require a target and persist the exact answer wait in HTTP"
     expect(await h.seam.answerTodo(12, "Approve", approval.id)).toEqual({ value: "Requested" })
     await waitFor(() => calls.length === 1)
     expect(calls).toEqual([{ answer: "Approve", wait: approval.id }])
+  } finally { h.close() }
+})
+
+// Recorded attribution crosses the real seam transport and persistence boundary; credential issuance is T-ACC-04.
+test("TODO HTTP and live projections normalize historical delegated authors", async () => {
+  const { actorName } = await import("../ProductActor")
+  const { PlaceholderAvatarUrl } = await import("@smthrs/rpc/CardPrimitives")
+  const by = { person: "member-ben", via: "claude-code", session: "cc-7" }
+  const projection = { ...fixtures.working.model, steers: [{ text: "Steer", by, at: "now" }],
+    first_answer: { text: "Answer", by, at: "now" }, prompt_revisions: [{ text: "Amend", acceptance: [], by, at: "now" }] }
+  const h = await harness(async () => json(projection, 200), memoryStorage(), () => ({ roster: [
+    { id: "member-ben", login: "ben", name: "Ben", avatar_url: PlaceholderAvatarUrl, color_index: 3 }
+  ] }))
+  try {
+    await h.seam.showTodo(12)
+    const model = h.todo().payload.model!
+    for (const author of [model.steers[0]!.by, model.first_answer!.by, model.prompt_revisions[0]!.by]) {
+      expect(actorName(author)).toBe("Claude Code for Ben")
+      expect(author).toMatchObject({ kind: "agent", id: "agent-session-cc-7", color_index: 3, for_member: { name: "Ben" } })
+    }
+    h.observed.get("todo:12")!({ ...projection, steers: [{ text: "Cookie", by: { person: "member-ben", session: "cookie" }, at: "later" }] })
+    await waitFor(() => h.todo().payload.model!.steers[0]!.text === "Cookie")
+    expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Ben")
   } finally { h.close() }
 })
