@@ -1,3 +1,4 @@
-import { fixtures } from "@smthrs/rpc/fixtures/Setup"
+import { fixtures, personOnlyFixtures } from "@smthrs/rpc/fixtures/Setup"
 import { SetupView } from "./SetupView"
-export const setupStories = Object.entries(fixtures).map(([id, story]) => ({ id: `setup-${id}`, name: story.name, render: () => <SetupView {...story} onAction={() => {}} onView={() => {}} /> }))
+import { fixtureStories } from "./stories"
+export const stories = fixtureStories({ ...fixtures, ...personOnlyFixtures }, (story, callbacks) => <SetupView {...story} {...callbacks} />)

@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs"
 import type { StoryModule, ViewStory } from "./stories"
 
 GlobalRegistrator.register()
+const { createRoot } = await import("react-dom/client")
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { createRoot } = await import("react-dom/client")
 afterAll(() => GlobalRegistrator.unregister())
@@ -70,6 +71,30 @@ for (const path of paths) {
             })
             expect(onAction.mock.calls).toEqual([[action!.tag, { ...action!.args, ...inputArgs }]])
             expect(onView).toHaveBeenCalledTimes(0)
+          }
+          return
+        }
+        if (path === "SetupView.stories.tsx" || path === "SettingsView.stories.tsx") {
+          // Form actions project one submit or two stepper controls, with draft fields.
+          const fixture = Object.values(path.startsWith("Setup") ? { ...setup, ...personOnlyFixtures } : settings).find(item => item.name === story.name)!
+          const supplied: import("@smthrs/rpc/CardAction").Action[] = [...(fixture.model.this_mac.capacity === 0 && fixture.model.this_mac.limit ? [fixture.model.this_mac.limit.fix] : []), ...fixture.actions]
+          const forms = [...host.querySelectorAll<HTMLFormElement>("form[data-flow]")]
+          expect(forms.map(form => form.dataset.flow)).toEqual(supplied.map(action => action.tag))
+          for (const [index, form] of forms.entries()) {
+            const action = supplied[index]!
+            const values = Object.fromEntries((action.input ?? []).map(field => [field.name, field.value ?? field.choices?.[0] ?? ""]))
+            const buttons = [...form.querySelectorAll<HTMLButtonElement>("button")]
+            for (const button of buttons) expect(button.disabled).toBe(!!action.disabled)
+            if (action.disabled) expect(form.textContent).toContain(action.disabled.reason)
+            for (const button of buttons) {
+              onAction.mockClear()
+              await act(async () => action.disabled ? button.click() : button.type === "submit"
+                ? form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+                : button.click())
+              expect(onAction).toHaveBeenCalledTimes(action.disabled ? 0 : 1)
+              if (!action.disabled) expect(onAction.mock.calls[0]?.[0]).toBe(action.tag)
+              if (!action.disabled && button.type === "submit") expect(onAction.mock.calls[0]).toEqual([action.tag, { ...action.args, ...values }])
+            }
           }
           return
         }
@@ -471,3 +496,114 @@ test("a question holds the named step, not the first unfinished step", () => {
   expect([...view.element.querySelectorAll(".todo-steps li")].map(row => row.getAttribute("data-phase"))).toEqual(["done", "waiting", "next"]);
   view.close();
 });
+import { fixtures as setup, personOnlyFixtures } from "@smthrs/rpc/fixtures/Setup"
+import { fixtures as settings } from "@smthrs/rpc/fixtures/Settings"
+import { SetupView } from "./SetupView"
+import { SettingsView } from "./SettingsView"
+let root: import("react-dom/client").Root | undefined
+function render(element: React.ReactNode) { const host = document.createElement("div"); document.body.append(host); root = createRoot(host); act(() => root!.render(element)); return host }
+afterEach(() => { act(() => root?.unmount()); document.body.innerHTML = "" })
+
+for (const [id, story] of Object.entries(setup)) test(`Setup ${id}`, () => {
+  const host = render(<SetupView {...story} onAction={() => {}} onView={() => {}} />)
+  for (const text of story.expect) expect(host.textContent).toContain(text)
+  expect([...host.querySelectorAll("[data-step]")].map(row => row.getAttribute("data-step"))).toEqual(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
+  expect(host.textContent).toContain("Decisions")
+  expect(host.querySelector('input[aria-label="AI Gateway key"]')?.getAttribute("type")).toBe("password")
+})
+for (const [id, story] of Object.entries(settings)) test(`Settings ${id}`, () => {
+  const host = render(<SettingsView {...story} onAction={() => {}} onView={() => {}} />)
+  for (const text of story.expect) expect(host.textContent).toContain(text)
+  expect(host.textContent).toContain("734003200 bytes")
+})
+test("Address submits literal bound step and edited fields once", () => {
+  const calls: unknown[] = []
+  const host = render(<SetupView {...setup.fresh} onAction={(...args) => calls.push(args)} onView={() => { throw new Error("Unexpected view patch") }} />)
+  const input = host.querySelector('input[id$="-bind"]') as HTMLInputElement
+  act(() => { const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!; setter.call(input, "0.0.0.0:8080"); input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })) })
+  act(() => host.querySelector<HTMLButtonElement>('button[data-flow="settings"]')!.click())
+  expect(calls).toEqual([["settings", { step: "address", listen: "mac", bind: "0.0.0.0:8080" }]])
+})
+test("Missing actions omit controls; disabled reason stays visible", () => {
+  const host = render(<SetupView {...setup.fresh} actions={[]} onAction={() => { throw new Error("Unexpected dispatch") }} onView={() => {}} />)
+  expect(host.querySelector("button")).toBeNull()
+  act(() => root!.render(<SetupView {...setup.fresh} actions={[{ tag: "settings", label: "Save address", disabled: { reason: "Address unavailable" } }]} onAction={() => { throw new Error("Unexpected dispatch") }} onView={() => {}} />))
+  expect(host.textContent).toContain("Address unavailable")
+  expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true)
+})
+test("Blocked repository links to the supplied fix; capacity explains limit", () => {
+  const host = render(<SetupView {...setup.squash_blocked} onAction={() => {}} onView={() => {}} />)
+  expect(host.querySelector("a")!.href).toBe("https://github.com/smithersai/smithers/settings")
+  act(() => root!.render(<SetupView {...setup.no_capacity} onAction={() => {}} onView={() => {}} />))
+  expect(host.textContent).toContain("No machine fits · memory · Close apps to free 6 GB")
+})
+test("Model keys stay masked and submit only supplied fields", () => {
+  const calls: unknown[] = []
+  const host = render(<SetupView {...setup.models_validating} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  const input = host.querySelector('input[id$="-jev"]') as HTMLInputElement
+  expect(input.type).toBe("password")
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "private-key"); input.dispatchEvent(new Event("input", { bubbles: true })) })
+  act(() => host.querySelector<HTMLButtonElement>('button[data-flow="settings"]')!.click())
+  expect(calls).toEqual([["settings", { step: "models", fast: "", coding: "", jev: "private-key" }]])
+  expect(host.textContent).not.toContain("private-key")
+})
+test("Machines stepper dispatches the supplied field and string values", () => {
+  const calls: unknown[] = []
+  const host = render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="More Machines"]')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Fewer Machines"]')!.click())
+  expect(calls).toEqual([["settings", { field: "capacity", value: "3" }], ["settings", { field: "capacity", value: "1" }]])
+})
+test("Settings shows literal sync health and Obsidian receipts", () => {
+  const host = render(<SettingsView {...settings.obsidian} onAction={() => {}} onView={() => {}} />)
+  expect(host.textContent).toContain("2026-10-02T17:40:00.000Z")
+  expect(host.textContent).toContain("GitHub rate budget · 4812/5000")
+  expect(host.textContent).toContain("Disk free · 412 GB")
+  expect(host.textContent).toContain("Process · ok")
+})
+test("Owner action forms retain literal order and model arguments", () => {
+  const calls: unknown[] = []
+  const host = render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings.model.set', 'settings.model.set', 'settings.model.set', 'github', 'settings', 'settings', 'settings'])
+  for (const button of host.querySelectorAll<HTMLButtonElement>('.setup-action button[type="submit"]')) act(() => button.click())
+  expect(calls).toEqual([
+    ['settings.model.set', { role: 'fast', model: 'llama-4-scout' }],
+    ['settings.model.set', { role: 'coding', model: 'gpt-6.1-sol' }],
+    ['settings.model.set', { role: 'jev', model: 'typesafe-ai/jev' }],
+    ['github', {}],
+    ['settings', { field: 'obsidian', path: '' }]
+  ])
+})
+
+test("Failed address keeps the live bind and shows the attempted bind and reason", () => {
+  const host = render(<SettingsView {...settings.address_failed} onAction={() => {}} onView={() => {}} />)
+  const failed = settings.address_failed.model.address.failed!
+  expect(host.textContent).toContain(settings.address_failed.model.address.bind)
+  expect(host.textContent).toContain(`${failed.from} → ${failed.to}`)
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(failed.reason.message)
+})
+
+test("Rejected key retry submits a write-only secret; agent projection has no retry input", () => {
+  const calls: unknown[] = []
+  const host = render(<SetupView {...setup.models_failed} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  const input = host.querySelector<HTMLInputElement>('input[id$="-key"]')!
+  expect(input.type).toBe("password")
+  expect(input.value).toBe("")
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "replacement-key")
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+  act(() => host.querySelector<HTMLFormElement>('form[data-flow="settings.model-key"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+  expect(calls).toEqual([["settings.model-key", { role: "jev", provider: "AI Gateway", key: "replacement-key" }]])
+  expect(host.textContent).not.toContain("replacement-key")
+  act(() => root!.render(<SetupView {...personOnlyFixtures.models_failed_agent} onAction={() => {}} onView={() => {}} />))
+  expect(host.querySelector('input[id$="-key"]')).toBeNull()
+})
+
+test("No-capacity fix dispatches its supplied tag and arguments", () => {
+  const calls: unknown[] = []
+  const host = render(<SetupView {...setup.no_capacity} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  act(() => host.querySelector<HTMLButtonElement>(".setup-capacity button")!.click())
+  const fix = setup.no_capacity.model.this_mac.limit!.fix
+  expect(calls).toEqual([[fix.tag, fix.args ?? {}]])
+})

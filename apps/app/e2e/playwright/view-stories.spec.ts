@@ -131,3 +131,50 @@ test("answer and late draft use their supplied actions", async ({ page }) => {
     JSON.stringify({ tag: "todo.steer", args: { n: "12", text: "Keep my answer" } }),
   );
 });
+test("Setup and Settings forms dispatch edited values, fixes and write-only retry", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: unknown[] = []
+    Object.assign(window, { storyCalls: calls })
+    window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
+  })
+  await page.goto("/view-stories.html?story=SetupView/A%20fresh%20install%20choosing%20its%20address")
+  await page.getByLabel("Bind", { exact: true }).fill("0.0.0.0:9090")
+  await page.getByRole("button", { name: "Save address" }).click()
+  expect(await page.evaluate(() => (window as unknown as { storyCalls: unknown[] }).storyCalls)).toEqual([
+    { kind: "action", value: { tag: "settings", args: { step: "address", listen: "mac", bind: "0.0.0.0:9090" } } }
+  ])
+  await page.goto("/view-stories.html?story=SetupView/A%20rejected%20AI%20Gateway%20key")
+  await page.locator('input[id$="-key"]').fill("replacement-key")
+  await expect(page.locator('input[id$="-key"]')).toHaveAttribute("type", "password")
+  await page.getByRole("button", { name: "Retry" }).click()
+  expect(await page.evaluate(() => (window as unknown as { storyCalls: unknown[] }).storyCalls)).toEqual([
+    { kind: "action", value: { tag: "settings.model-key", args: { role: "jev", provider: "AI Gateway", key: "replacement-key" } } }
+  ])
+  await page.goto("/view-stories.html?story=SetupView/This%20Mac%20has%20no%20room%20for%20a%20machine")
+  await page.getByRole("button", { name: "Close apps to free 6 GB" }).click()
+  expect(await page.evaluate(() => (window as unknown as { storyCalls: unknown[] }).storyCalls)).toEqual([
+    { kind: "action", value: { tag: "settings", args: { step: "machine" } } }
+  ])
+  await page.goto("/view-stories.html?story=SettingsView/Address%20apply%20failed%3B%20the%20previous%20bind%20remains%20active")
+  await expect(page.locator('[role="alert"]')).toHaveText("Address already in use")
+  await expect(page.locator(".setup-settings")).toContainText("0.0.0.0:8080 → 0.0.0.0:9090")
+})
+
+for (const native of ["unavailable", "refused"]) test(`Settings Copy uses the fallback when native clipboard is ${native}`, async ({ page }) => {
+  await page.addInitScript(mode => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: mode === "unavailable" ? undefined : { writeText: async () => { throw new Error("Refused") } } })
+    Object.assign(window, { copiedLines: [] })
+    document.execCommand = command => {
+      if (command !== "copy") return false
+      ;(window as unknown as { copiedLines: string[] }).copiedLines.push((document.activeElement as HTMLTextAreaElement).value)
+      return true
+    }
+  }, native)
+  await page.goto("/view-stories.html?story=SettingsView/Settings%20for%20the%20owner")
+  const copy = page.getByRole("button", { name: /^Copy / }).first()
+  await copy.focus()
+  await copy.press("Enter")
+  expect(await page.evaluate(() => (window as unknown as { copiedLines: string[] }).copiedLines)).toEqual(["smthrs login http://mac-mini.local:8080"])
+  await expect(copy).toBeFocused()
+  await expect(page.locator('textarea[aria-hidden="true"]')).toHaveCount(0)
+})
