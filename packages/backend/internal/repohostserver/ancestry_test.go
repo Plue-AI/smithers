@@ -41,8 +41,9 @@ func TestWorkflowPushCommitAncestry(t *testing.T) {
 		})
 	}
 	for _, ancestor := range []string{"", "--all", "abc", strings.Repeat("f", 40)} {
-		_, err := client.IsAncestor(t.Context(), "alice", "demo", ancestor, tip)
+		got, err := client.IsAncestor(t.Context(), "alice", "demo", ancestor, tip)
 		require.Error(t, err)
+		require.False(t, got)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/repos/alice:demo/commits/ancestry?"+url.Values{"ancestor": {old}, "descendant": {tip}}.Encode(), nil)
 	rec := httptest.NewRecorder()
