@@ -10,7 +10,7 @@
     "build": "pnpm run build:web",
     "typecheck": "tsc --noEmit",
     "check": "tsc --noEmit",
-    "test": "bun test --isolate src e2e/contracts e2e/real/coverage e2e/real/support e2e/real/auth-permissions/profile.test.ts scripts",
+    "test": "smthrs test //apps/app:unitTests",
     "lint:conformance": "bun test lint/conformance",
     "checklist": "bun scripts/launch-checklist.ts",
     "test:e2e": "playwright test",

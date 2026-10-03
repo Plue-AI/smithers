@@ -73,6 +73,30 @@ describe("NodeTest", () => {
     })))).toEqual(["node", "--test", "src"])
   })
 
+  it("plans isolated Bun argv only when the suite opts in", () => {
+    for (const isolate of [undefined, false, true]) {
+      for (const declared of [bun, runtime]) {
+        const runner = isolate === undefined
+          ? NodeTest.testSuite(["src"])
+          : NodeTest.testSuite(["src"], { isolate })
+        const target = NodeTest.NodeTest({
+          runtime: declared,
+          runner,
+          srcs: [],
+          deps: [],
+          cwd: "apps/app"
+        })
+        const payload = Exec.Payload.make(plannedCalls(target)[0]!.payload as never)
+        expect(payload.argv).toEqual(
+          declared === bun
+            ? ["bun", "test", ...(isolate === true ? ["--isolate"] : []), "src"]
+            : ["node", "--test", "src"]
+        )
+        expect(payload.cwd).toBe("apps/app")
+      }
+    }
+  })
+
   it("runs an entry point with its declared arguments", () => {
     const attrs = attrsOf<NodeTest.Attrs>(NodeTest.NodeTest({
       runtime,

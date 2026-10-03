@@ -69,7 +69,13 @@ export type TestRunner = typeof TestRunner.Type
  */
 export const TestSuite = Schema.Struct({
   name: Schema.Literal("suite"),
-  paths: Schema.NonEmptyArray(Schema.NonEmptyString).check(Schema.isMaxLength(maximumArguments))
+  paths: Schema.NonEmptyArray(Schema.NonEmptyString).check(Schema.isMaxLength(maximumArguments)),
+  /**
+   * Bun isolation for suites whose files mutate process globals; costs about
+   * 3× wall time. Temporary until https://github.com/smithersai/smithers/issues/3696
+   * lands: apps/app drops isolation, then delete this option if no callers remain.
+   */
+  isolate: Schema.optional(Schema.Boolean)
 })
 
 /**
@@ -139,7 +145,7 @@ export const testRunner = (tests: readonly [Input.File, ...Array<Input.File>]): 
 
 /**
  * Declares a run of the runtime's own test runner over the suites under the
- * given directories.
+ * given directories. Isolation is opt-in for Bun; Node retains its defaults.
  *
  * @example
  * ```ts
@@ -151,8 +157,10 @@ export const testRunner = (tests: readonly [Input.File, ...Array<Input.File>]): 
  * @category constructors
  * @since 0.1.0
  */
-export const testSuite = (paths: readonly [string, ...Array<string>]): TestSuite =>
-  TestSuite.make({ name: "suite", paths })
+export const testSuite = (
+  paths: readonly [string, ...Array<string>],
+  options: Pick<TestSuite, "isolate"> = {}
+): TestSuite => TestSuite.make({ name: "suite", paths, ...options })
 
 /**
  * Declares a run of one program that gates on its exit code.
@@ -228,7 +236,11 @@ export const runArgv = (attrs: Attrs): ReadonlyArray<string> => {
     case "test-runner":
       return Runtime.test(attrs.runtime, attrs.runner.tests.map((test) => Input.rootRelative(attrs.cwd, test.path)))
     case "suite":
-      return Runtime.test(attrs.runtime, attrs.runner.paths.map((path) => Input.rootRelative(attrs.cwd, path)))
+      return Runtime.test(
+        attrs.runtime,
+        attrs.runner.paths.map((path) => Input.rootRelative(attrs.cwd, path)),
+        attrs.runner
+      )
     case "entrypoint":
       return Runtime.run(attrs.runtime, [Input.rootRelative(attrs.cwd, attrs.runner.entry.path), ...attrs.runner.args])
   }

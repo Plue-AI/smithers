@@ -467,12 +467,16 @@ export const evaluate = (
  * @category constructors
  * @since 0.1.0
  */
-export const test = (declared: Runtime | undefined, files: ReadonlyArray<string>): Array<string> => {
+export const test = (
+  declared: Runtime | undefined,
+  files: ReadonlyArray<string>,
+  options: { readonly isolate?: boolean | undefined } = {}
+): Array<string> => {
   const runtime = required(declared)
   switch (runtime.name) {
     case "node":
       return [runtime.executable, "--test", ...files]
     case "bun":
-      return [runtime.executable, "test", ...files]
+      return [runtime.executable, "test", ...(options.isolate === true ? ["--isolate"] : []), ...files]
   }
 }

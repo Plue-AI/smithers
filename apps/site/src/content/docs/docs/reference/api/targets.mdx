@@ -283,6 +283,8 @@ Extracts and validates fenced source blocks from one Markdown file. `file` is th
 
 ### Remaining exports
 
+`Smithers.testSuite(paths, { isolate: true })` enables Bun `--isolate` for suites whose files mutate process globals. It costs about 3× wall time; the default and Node runner are unchanged. This is temporary: after [#3696](https://github.com/smithersai/smithers/issues/3696) lands, apps/app drops isolation and the option is deleted if no callers remain.
+
 Every other export of `Smithers.ts`, in source order:
 
 | Name                              | Kind               | Summary                                                                                                                                                                           |
@@ -384,7 +386,7 @@ Every other export of `Smithers.ts`, in source order:
 | `Smithers.NodeTest`               | rule               | Runs one declared JavaScript program as a test gate.                                                                                                                              |
 | `Smithers.entrypoint`             | constructor        | Declares a run of one program that gates on its exit code.                                                                                                                        |
 | `Smithers.testRunner`             | constructor        | Declares a run of the runtime's own test runner over the given files.                                                                                                             |
-| `Smithers.testSuite`              | constructor        | Declares a run of the runtime's own test runner over the suites under the given directories.                                                                                      |
+| `Smithers.testSuite`              | constructor        | Declares a run of the runtime's own test runner over the suites under the given directories; Bun isolation is opt-in.                                                                                      |
 | `Smithers.NodeBinary`             | rule               | Runs one declared JavaScript program under the build verb.                                                                                                                        |
 | `Smithers.CaptureOutputs`         | action             | Digests the declared outputs of a build target.                                                                                                                                   |
 | `Smithers.CaptureOutputsLive`     | layer              | Implements `CaptureOutputs`, resolving declared paths against `workspaceRoot`.                                                                                                    |

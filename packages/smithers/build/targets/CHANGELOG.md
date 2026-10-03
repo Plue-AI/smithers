@@ -122,6 +122,11 @@ of it.
 
 ### Changed
 
+- Bun suites can opt into `--isolate` with `testSuite(paths, { isolate: true })`
+  for files that mutate process globals; defaults and Node argv stay unchanged.
+  This temporary option costs about 3× wall time and is removed after #3696
+  lands and no callers remain.
+
 - The `check` script typechecks with `--noEmit` instead of emitting an
   undeclared `dist` tree, and the manifest no longer carries a `publishConfig`
   export map describing a distribution no target produces.
