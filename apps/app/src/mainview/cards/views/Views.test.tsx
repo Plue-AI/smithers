@@ -1,15 +1,11 @@
-import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
+import { createRoot } from "./testDom"
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { Glob } from "bun"
 
 import { act } from "react"
 import { readFileSync } from "node:fs"
 import type { StoryModule, ViewStory } from "./stories"
 
-GlobalRegistrator.register()
-const { createRoot } = await import("react-dom/client")
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-afterAll(() => GlobalRegistrator.unregister())
 let consoleError: ReturnType<typeof spyOn>
 beforeEach(() => { consoleError = spyOn(console, "error").mockImplementation(() => {}) })
 afterEach(() => {
@@ -513,7 +509,7 @@ import { SetupView } from "./SetupView"
 import { SettingsView } from "./SettingsView"
 let root: import("react-dom/client").Root | undefined
 function render(element: React.ReactNode) { const host = document.createElement("div"); document.body.append(host); root = createRoot(host); act(() => root!.render(element)); return host }
-afterEach(() => { act(() => root?.unmount()); document.body.innerHTML = "" })
+afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = "" })
 
 for (const [id, story] of Object.entries(setup)) test(`Setup ${id}`, () => {
   const host = render(<SetupView {...story} onAction={() => {}} onView={() => {}} />)

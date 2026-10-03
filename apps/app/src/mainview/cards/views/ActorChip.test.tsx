@@ -1,13 +1,9 @@
-import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, expect, test } from "bun:test"
+import { createRoot } from "./testDom"
+import { expect, test } from "bun:test"
 import { act } from "react"
-import { createRoot } from "react-dom/client"
 import { fixtures } from "@smthrs/rpc/fixtures/ActorChip"
 import { ActorChip, actorName, type Actor } from "./ActorChip"
 
-GlobalRegistrator.register()
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-afterAll(() => GlobalRegistrator.unregister())
 async function withActor(actor: Actor, check: (node: HTMLElement) => void, live = true) {
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)

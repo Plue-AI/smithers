@@ -1,9 +1,7 @@
-import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, afterEach, expect, mock, test } from "bun:test"
+import "./testDom"
+import { afterEach, expect, mock, test } from "bun:test"
 import { copyText } from "@smthrs/ui/copy"
 
-GlobalRegistrator.register()
-afterAll(() => GlobalRegistrator.unregister())
 const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard")
 const originalExec = Object.getOwnPropertyDescriptor(document, "execCommand")
 afterEach(() => {
