@@ -21,9 +21,10 @@ file whole and parses at most its first 64 KiB to find the declaration, so it
 imports nothing, and the body stays behind a path plus the SHA-256 digest
 measured during the scan.
 
-Literal `payload` objects using an unshadowed `Schema` import from `effect`
-or a namespace import from `effect/Schema` expose String, Number, Boolean and
-Null fields as an Effect JSON Schema document. Import aliases are supported.
+Literal `payload` objects and `Schema.Struct({...})` using an unshadowed
+`Schema` import from `effect` or a namespace import from `effect/Schema` expose
+String, Number, Boolean and Null fields as an Effect JSON Schema document.
+Nested Struct, Array, optional and Literals calls and import aliases are supported.
 The descriptor keeps its module locator: admission uses the module's real
 decoder. Dynamic schemas, refinements, spreads, computed properties and
 unproven imports remain unavailable in metadata and produce a warning;

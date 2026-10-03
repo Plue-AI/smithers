@@ -1,4 +1,5 @@
 import { Option, Schema } from "effect"
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import * as ModuleMetadata from "../src/internal/ModuleMetadata.ts"
 import discoveredFlow from "./fixtures/project/flows/review/read-pr/flow.ts"
@@ -123,6 +124,174 @@ describe("ModuleMetadata", () => {
       ).inputDocument
     )
       .toMatchObject({ schema: { properties: { value: { type: "string" } } } })
+  })
+
+  it("projects the canonical payload in migrate's complete emitted module without evaluating it", () => {
+    // 525197db11 changed the emitter to this tagged Flow.make declaration;
+    // its other schemas also nest Schema.Array(Schema.String).
+    const source = readFileSync(
+      new URL("../../../migrate/test/fixtures/jsx-single.migrated/flows/simple-workflow/flow.ts", import.meta.url),
+      "utf8"
+    )
+    const metadata = ModuleMetadata.parse(source)
+    expect(metadata.hasInput).toBe(true)
+    expect(metadata.inputDocument).toEqual(
+      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({ topic: Schema.String })))
+    )
+    expect(metadata.warnings).toEqual([])
+  })
+
+  it.each([
+    ["import { Schema } from \"effect\"", "Schema"],
+    ["import { Schema as S } from \"effect\"", "S"],
+    ["import * as S from \"effect/Schema\"", "S"]
+  ])("projects nested Struct, Array, optional and Literals calls (%s)", (declaration, namespace) => {
+    const metadata = ModuleMetadata.parse(`${declaration}; throw new Error("must never execute");
+      export default Flow.make("nested", { payload: ${namespace}.Struct({
+        rows: ${namespace}.Array(${namespace}.Struct({
+          values: ${namespace}.Array(${namespace}.String),
+          label: ${namespace}.optional(${namespace}.String),
+          kind: ${namespace}.Literals(["one", "two"])
+        })),
+        flags: ${namespace}.optional(${namespace}.Array(${namespace}.Boolean)),
+        literal: ${namespace}.Literals(["text", 3, true, false])
+      }) })`)
+    expect(metadata.inputDocument).toEqual(
+      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({
+        rows: Schema.Array(Schema.Struct({
+          values: Schema.Array(Schema.String),
+          label: Schema.optional(Schema.String),
+          kind: Schema.Literals(["one", "two"])
+        })),
+        flags: Schema.optional(Schema.Array(Schema.Boolean)),
+        literal: Schema.Literals(["text", 3, true, false])
+      })))
+    )
+    expect(metadata.warnings).toEqual([])
+  })
+
+  it("projects a Schema call nested to the depth bound and warns one level past it", () => {
+    const nested = (arrays: number) =>
+      `import { Schema } from "effect"; export default Flow.make("deep", { payload: Schema.Struct({ v: ${
+        "Schema.Array(".repeat(arrays)
+      }Schema.String${")".repeat(arrays)} }) })`
+    // Struct is depth 0, its field depth 1, and each Array one more: 7 Arrays put String at depth 8.
+    const atBound = ModuleMetadata.parse(nested(7))
+    expect(atBound.inputDocument).toBeDefined()
+    expect(atBound.warnings).toEqual([])
+    const pastBound = ModuleMetadata.parse(nested(8))
+    expect(pastBound.inputDocument).toBeUndefined()
+    expect(pastBound.warnings.length).toBeGreaterThan(0)
+  })
+
+  it("does not count brackets inside string literals toward the nesting prefilter", () => {
+    const brackets = "[x]" + "(".repeat(30) + "{".repeat(30) + "[".repeat(30)
+    const metadata = ModuleMetadata.parse(
+      `import { Schema } from "effect"; export default Flow.make("strings", { payload: Schema.Struct({ v: Schema.Literals(["${brackets}", "[x]"]) }) })`
+    )
+    expect(metadata.inputDocument).toEqual(
+      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({ v: Schema.Literals([brackets, "[x]"]) })))
+    )
+    expect(metadata.warnings).toEqual([])
+  })
+
+  it.each([
+    ["Array", (depth: number) => `Schema.Struct({ a: ${"Schema.Array(".repeat(depth)}Schema.String${")".repeat(depth)} })`],
+    ["Struct", (depth: number) => `${"Schema.Struct({ a: ".repeat(depth)}Schema.String${" })".repeat(depth)}`]
+  ])("warns quickly on a hostile %s payload nested far past the bound", (_, payload) => {
+    const started = performance.now()
+    const metadata = ModuleMetadata.parse(
+      `import { Schema } from "effect"; export default Flow.make("hostile", { payload: ${payload(2_000)} })`
+    )
+    expect(performance.now() - started).toBeLessThan(1_000)
+    expect(metadata.inputDocument).toBeUndefined()
+    expect(metadata.warnings.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ["import { payload } from \"./payload.ts\";", "payload"],
+    ["const key = \"value\";", "Schema.Struct({ [key]: Schema.String })"],
+    ["const fields = { value: Schema.String };", "Schema.Struct(fields)"],
+    ["", "Schema.Struct({ ...fields })"],
+    ["", "Schema.Struct({ value: importedSchema })"]
+  ])("retains a warning for dynamic canonical payloads (%s/%s)", (declaration, payload) => {
+    const metadata = ModuleMetadata.parse(
+      `import { Schema } from "effect"; ${declaration} export default Flow.make("dynamic", { payload: ${payload} })`
+    )
+    expect(metadata.hasInput).toBe(true)
+    expect(metadata.inputDocument).toBeUndefined()
+    expect(metadata.warnings).toEqual([
+      { message: "Payload schema cannot be projected statically; retaining its module locator" }
+    ])
+  })
+
+  it.each([
+    ["Schema.Struct({})", Schema.Struct({})],
+    [
+      "{ rows: Schema.Array(Schema.Number), note: Schema.optional(Schema.String) }",
+      Schema.Struct({
+        rows: Schema.Array(Schema.Number),
+        note: Schema.optional(Schema.String)
+      })
+    ],
+    ["Schema.Struct({ kind: Schema.Literals([]) })", Schema.Struct({ kind: Schema.Literals([]) })],
+    [
+      "Schema.Struct({ kind: Schema.Literals(['one', -1.25e+2, .5, 2., `three`,]), },)",
+      Schema.Struct({
+        kind: Schema.Literals(["one", -125, 0.5, 2, "three"])
+      })
+    ],
+    [
+      "Schema.Struct(/* fields */ { value: Schema.Array(/* item */ Schema.String /* end */,), })",
+      Schema.Struct({
+        value: Schema.Array(Schema.String)
+      })
+    ]
+  ])("projects literal field maps, empty schemas, comments and trailing commas (%s)", (payload, schema) => {
+    const metadata = ModuleMetadata.parse(
+      `import { Schema } from "effect"; export default Flow.make("literal", { payload: ${payload} })`
+    )
+    expect(metadata.inputDocument).toEqual(
+      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(schema))
+    )
+    expect(metadata.warnings).toEqual([])
+  })
+
+  it.each([
+    "Schema.Struct()",
+    "Schema.Struct({}, {})",
+    "Schema.Struct({}) || Schema.Struct({})",
+    "Schema.Struct(({}))",
+    "Schema.Struct(({})",
+    "Schema.Struct({ value: Schema.Array() })",
+    "Schema.Struct({ value: Schema.Array(Schema.String, Schema.Number) })",
+    "Schema.Struct({ value: Schema.Array(dynamic) })",
+    "Schema.Struct({ value: Schema.optional(dynamic) })",
+    "Schema.Struct({ value: Schema.Literals(values) })",
+    "Schema.Struct({ value: Schema.Literals([] || []) })",
+    "Schema.Struct({ value: Schema.Literals([, 'one']) })",
+    "Schema.Struct({ value: Schema.Literals([...values]) })",
+    "Schema.Struct({ value: Schema.Literals([dynamic]) })",
+    "Schema.Struct({ value: Schema.Literals([1 + 2]) })",
+    "Schema.Struct({ value: Schema.Literals([1e309]) })",
+    "Schema.Struct({ value: Schema.Literals([null]) })",
+    "Schema.Struct({ value: Schema.Literals([010]) })",
+    "Schema.Struct({ value: Schema.Literals([`value${dynamic}`]) })",
+    "Schema.Struct({ value: Schema.Array({ value: Schema.String }) })",
+    "Schema.Struct({ value: Schema.String() })",
+    "Schema.Struct({ value: Schema.Array(Schema.String).pipe(refine) })",
+    "Schema.Struct({ value: Schema.Array(Schema.String) }) + extra",
+    "Schema.Array(Schema.String)",
+    "Schema.optional(Schema.String)",
+    "Schema.String"
+  ])("refuses dynamic, malformed or non-struct constructor payloads (%s)", (payload) => {
+    const metadata = ModuleMetadata.parse(
+      `import { Schema } from "effect"; export default Flow.make("unsupported", { payload: ${payload} })`
+    )
+    expect(metadata.inputDocument).toBeUndefined()
+    expect(metadata.warnings).toEqual([
+      { message: "Payload schema cannot be projected statically; retaining its module locator" }
+    ])
   })
 
   it.each([

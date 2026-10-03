@@ -850,6 +850,8 @@ const effectDeclaration = (
   return projection.effects
 }
 
+const schemaConstructors = new Set(["Struct", "Array", "optional", "Literals"])
+
 // Only imported, unshadowed namespace reads can identify a trusted schema.
 // This is a conservative projection over the metadata lexer, never an import
 // of repository code. Any other use of the binding makes its identity opaque.
@@ -903,10 +905,16 @@ const schemaNamespaces = (source: string): ReadonlySet<string> => {
     if (count !== 1) continue
     const safe = tokens.every((token, index) => {
       if (token.kind !== "identifier" || token.value !== name || importTokens.has(index)) return true
-      // A declaration, argument, assignment, computed access or alias escapes
-      // the namespace identity. Member mutation is also refused.
+      // A namespace read nested in a supported schema call keeps its identity.
+      // Grouped members stay opaque: `(S.String) = fake` mutates the member.
+      const nestedSchema = tokens[index - 1]?.value === "(" &&
+        imported.has(tokens[index - 4]?.value ?? "") && tokens[index - 3]!.value === "." &&
+        schemaConstructors.has(tokens[index - 2]!.value)
+      // A declaration, bare argument, assignment, computed access or alias
+      // escapes the namespace identity. Member mutation is also refused.
       return token.escaped !== true &&
-        !["delete", "+", "-", "("].includes(tokens[index - 1]?.value ?? "") &&
+        !["delete", "+", "-"].includes(tokens[index - 1]?.value ?? "") &&
+        (tokens[index - 1]?.value !== "(" || nestedSchema) &&
         tokens[index + 1]?.value === "." &&
         tokens[index + 2]?.kind === "identifier" &&
         [",", "}", "]", ")", ";", "("].includes(tokens[index + 3]?.value ?? "")
@@ -916,30 +924,118 @@ const schemaNamespaces = (source: string): ReadonlySet<string> => {
   return trusted
 }
 
+const delimitedBody = (source: string, opening: string, closing: string): string | undefined => {
+  const tokens = tokenize(source)
+  if (tokens[0]?.value !== opening || tokens.at(-1)?.value !== closing) return undefined
+  let depth = 0
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index]!.value === opening) depth++
+    if (tokens[index]!.value === closing && --depth === 0 && index !== tokens.length - 1) return undefined
+  }
+  return depth === 0 ? source.slice(tokens[0].end, tokens.at(-1)!.start) : undefined
+}
+
+const schemaFields = (
+  source: string,
+  namespaces: ReadonlySet<string>,
+  depth = 0
+): Schema.Struct.Fields | undefined => {
+  const body = delimitedBody(source, "{", "}")
+  if (body === undefined) return undefined
+  const properties = propertiesFrom(body)
+  if (properties.hasUnprojectableMembers) return undefined
+  const fields: Record<string, Schema.Top> = Object.create(null)
+  for (const [key, value] of properties.values) {
+    if (key === "__proto__" || key.includes("\\")) return undefined
+    const schema = schemaExpression(value, namespaces, depth)
+    if (schema === undefined) return undefined
+    fields[key] = schema
+  }
+  return fields
+}
+
+const literalValue = (source: string): string | number | boolean | undefined => {
+  const text = stringLiteral(source)
+  if (text !== undefined) return text
+  const boolean = booleanLiteral(source)
+  if (boolean !== undefined) return boolean
+  // Literal numbers only: never interpret expressions, bigint or non-finite values.
+  if (!/^-?(?:(?:0|[1-9]\d*)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(source)) return undefined
+  const number = Number(source)
+  return Number.isFinite(number) ? number : undefined
+}
+
+const literalParts = (source: string): ReadonlyArray<string> => {
+  const parts = splitTopLevel(source).map(trimTrivia)
+  if (parts.at(-1) === "") parts.pop()
+  return parts
+}
+
+// Payload schemas nest a few levels in practice. Past this depth projection gives up
+// (the caller warns), which bounds the work to O(depth × n) on hostile input.
+const maxSchemaDepth = 8
+
+const schemaExpression = (
+  source: string,
+  namespaces: ReadonlySet<string>,
+  depth = 0
+): Schema.Top | undefined => {
+  if (depth > maxSchemaDepth) return undefined
+  const tokens = tokenize(source)
+  if (
+    tokens[0]?.kind !== "identifier" || !namespaces.has(tokens[0].value) || tokens[1]?.value !== "." ||
+    tokens[2]?.kind !== "identifier" || tokens[2].escaped === true
+  ) return undefined
+  const member = tokens[2].value
+  const primitives = { String: Schema.String, Number: Schema.Number, Boolean: Schema.Boolean, Null: Schema.Null }
+  if (tokens.length === 3) {
+    return Object.hasOwn(primitives, member) ? primitives[member as keyof typeof primitives] : undefined
+  }
+  if (!schemaConstructors.has(member)) return undefined
+  const body = delimitedBody(source.slice(tokens[2].end), "(", ")")
+  if (body === undefined) return undefined
+  const args = literalParts(body)
+  if (args.length !== 1) return undefined
+  const argument = args[0]!
+  if (member === "Struct") {
+    const fields = schemaFields(argument, namespaces, depth + 1)
+    return fields === undefined ? undefined : Schema.Struct(fields)
+  }
+  if (member === "Literals") {
+    const valuesBody = delimitedBody(argument, "[", "]")
+    if (valuesBody === undefined) return undefined
+    const values = literalParts(valuesBody).map(literalValue)
+    return values.every((value): value is string | number | boolean => value !== undefined)
+      ? Schema.Literals(values)
+      : undefined
+  }
+  const schema = schemaExpression(argument, namespaces, depth + 1)
+  return schema === undefined ? undefined : member === "Array" ? Schema.Array(schema) : Schema.optional(schema)
+}
+
 const payloadDocument = (source: string, payload: string | undefined): Schema.Json | undefined => {
   if (payload === undefined) return undefined
   const tokens = tokenize(payload)
-  if (tokens[0]?.value !== "{" || tokens.at(-1)?.value !== "}") return undefined
-  let depth = 0
-  for (let index = 0; index < tokens.length; index++) {
-    if (tokens[index]!.value === "{") depth++
-    if (tokens[index]!.value === "}" && --depth === 0 && index !== tokens.length - 1) return undefined
+  // One pass over the payload's brackets rejects nesting no projection could
+  // accept (a Struct level opens two brackets), so hostile input costs O(n).
+  let open = 0
+  let deepest = 0
+  for (const token of tokens) {
+    if (token.kind !== "punctuation") continue // brackets inside strings never nest
+    if (token.value === "(" || token.value === "{" || token.value === "[") deepest = Math.max(deepest, ++open)
+    else if (token.value === ")" || token.value === "}" || token.value === "]") open--
   }
-  const properties = propertiesFrom(payload.slice(tokens[0].end, tokens.at(-1)!.start))
-  if (properties.hasUnprojectableMembers) return undefined
+  if (deepest > 2 * (maxSchemaDepth + 2)) return undefined
   const namespaces = schemaNamespaces(source)
-  const primitives = { String: Schema.String, Number: Schema.Number, Boolean: Schema.Boolean, Null: Schema.Null }
-  const fields: Record<string, Schema.Top> = Object.create(null)
-  for (const [key, value] of properties.values) {
-    const expression = tokenize(value)
-    if (
-      key === "__proto__" || key.includes("\\") || expression.length !== 3 ||
-      !namespaces.has(expression[0]!.value) || expression[1]?.value !== "." ||
-      !Object.hasOwn(primitives, expression[2]!.value)
-    ) return undefined
-    fields[key] = primitives[expression[2]!.value as keyof typeof primitives]
-  }
-  return Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct(fields)))
+  const fields = tokens[0]?.value === "{" ? schemaFields(payload, namespaces) : undefined
+  const schema = fields !== undefined
+    ? Schema.Struct(fields)
+    : tokens[2]?.value === "Struct"
+    ? schemaExpression(payload, namespaces)
+    : undefined
+  return schema === undefined
+    ? undefined
+    : Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(schema))
 }
 
 /**
