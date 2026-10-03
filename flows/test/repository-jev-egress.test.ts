@@ -1,6 +1,8 @@
 /** Subscription judgments must use the sandbox's configured egress proxy. */
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -8,6 +10,16 @@ import type { Duplex } from "node:stream"
 import { test } from "node:test"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import { evaluatorLayer } from "../repository/jev-checks.ts"
+
+const unavailableJev = Layer.succeed(HttpClient.HttpClient)(
+  HttpClient.make((request) =>
+    Effect.fail(
+      new HttpClientError.HttpClientError({
+        reason: new HttpClientError.TransportError({ request, description: "fixture Jev outage" })
+      })
+    )
+  )
+)
 
 interface Proxy {
   /** What the guest environment names as its egress proxy. */
@@ -59,6 +71,7 @@ test("the host's judge reaches the subscription pool through the configured prox
   const proxy = await listen()
   try {
     const environment = {
+      AI_GATEWAY_API_KEY: "fixture-jev",
       SMITHERS_ACCOUNT_POOL_URL: "https://pool.example.test",
       SMITHERS_ACCOUNT_POOL_KEY: "fixture-host",
       SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
@@ -72,11 +85,11 @@ test("the host's judge reaches the subscription pool through the configured prox
         evaluator.evaluate({
           state: { rule: "Every exported constant carries a unit in its name", hunk: "+const timeout = 5" },
           questions: { violates: new Evaluator.BooleanQuestion({ instructions: "Does this hunk violate the rule?" }) }
-        })).pipe(Effect.provide(evaluatorLayer(environment)))
+        })).pipe(Effect.provide(evaluatorLayer(environment, unavailableJev)))
     ))
     assert.equal(answered._tag, "Failure", "the refusing proxy cannot produce a model answer")
     if (answered._tag === "Failure") {
-      assert.equal(answered.failure.code, "unconfigured", "an unreadable pool fails closed with the setup reason")
+      assert.equal(answered.failure.code, "unreachable", "an unreadable pool fails closed with a transport failure")
     }
     assert.ok(proxy.seen.length > 0, "the subscription pool must be reached through the proxy")
     assert.ok(proxy.seen.every((request) => request === "CONNECT pool.example.test:443"))

@@ -1,7 +1,7 @@
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
-import { ReviewCommentSeverity } from "./reviewCommentSeveritySchema.ts";
-import { ReviewCommentCategory } from "./reviewCommentCategorySchema.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
+import { ReviewCommentCategory } from "./reviewCommentCategorySchema.ts"
+import { ReviewCommentSeverity } from "./reviewCommentSeveritySchema.ts"
 
 /**
  * One finding, anchored to a line range in one file.
@@ -23,8 +23,8 @@ export const ReviewComment = Schema.Struct({
   thinking: withDefault(Schema.String, ""),
   severity: withDefault(ReviewCommentSeverity, "minor" as const),
   category: withDefault(ReviewCommentCategory, "other" as const),
-  confidence: withDefault(Schema.Literals(["confirmed", "plausible"]), "plausible" as const),
-});
+  confidence: withDefault(Schema.Literals(["confirmed", "plausible"]), "plausible" as const)
+})
 
 /**
  * A decoded finding.
@@ -32,4 +32,4 @@ export const ReviewComment = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewComment = typeof ReviewComment.Type;
+export type ReviewComment = typeof ReviewComment.Type

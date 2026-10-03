@@ -3,8 +3,8 @@
  *
  * @since 1.0.0
  */
-import * as Schema from "effect/Schema";
-import { arrayOf, withDefault } from "../schema/withDefault.ts";
+import * as Schema from "effect/Schema"
+import { arrayOf, withDefault } from "../schema/withDefault.ts"
 
 /**
  * One block of a chapter.
@@ -23,8 +23,8 @@ export const StoryBlock = Schema.Struct({
   path: withDefault(Schema.String, ""),
   intro: withDefault(Schema.String, ""),
   title: withDefault(Schema.String, ""),
-  mermaid: withDefault(Schema.String, ""),
-});
+  mermaid: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded block.
@@ -32,7 +32,7 @@ export const StoryBlock = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type StoryBlock = typeof StoryBlock.Type;
+export type StoryBlock = typeof StoryBlock.Type
 
 /**
  * One chapter of the story.
@@ -42,8 +42,8 @@ export type StoryBlock = typeof StoryBlock.Type;
  */
 export const StoryChapter = Schema.Struct({
   title: withDefault(Schema.String, ""),
-  blocks: arrayOf(StoryBlock),
-});
+  blocks: arrayOf(StoryBlock)
+})
 
 /**
  * A decoded chapter.
@@ -51,7 +51,7 @@ export const StoryChapter = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type StoryChapter = typeof StoryChapter.Type;
+export type StoryChapter = typeof StoryChapter.Type
 
 /**
  * The whole story.
@@ -62,8 +62,8 @@ export type StoryChapter = typeof StoryChapter.Type;
 export const Story = Schema.Struct({
   headline: withDefault(Schema.String, ""),
   synopsis: withDefault(Schema.String, ""),
-  chapters: arrayOf(StoryChapter),
-});
+  chapters: arrayOf(StoryChapter)
+})
 
 /**
  * A decoded story.
@@ -71,4 +71,4 @@ export const Story = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type Story = typeof Story.Type;
+export type Story = typeof Story.Type

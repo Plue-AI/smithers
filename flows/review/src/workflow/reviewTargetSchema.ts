@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { ReviewMode } from "./reviewModeSchema.ts";
+import * as Schema from "effect/Schema"
+import { ReviewMode } from "./reviewModeSchema.ts"
 
 /**
  * The resolved change set: which repository, read which way, at which ref.
@@ -10,8 +10,8 @@ import { ReviewMode } from "./reviewModeSchema.ts";
 export const ReviewTarget = Schema.Struct({
   repoDir: Schema.String,
   mode: ReviewMode,
-  ref: Schema.String,
-});
+  ref: Schema.String
+})
 
 /**
  * A decoded review target.
@@ -19,4 +19,4 @@ export const ReviewTarget = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewTarget = typeof ReviewTarget.Type;
+export type ReviewTarget = typeof ReviewTarget.Type

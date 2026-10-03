@@ -1,4 +1,4 @@
-import { ReviewFailure } from "./reviewFailureSchema.ts";
+import { ReviewFailure } from "./reviewFailureSchema.ts"
 /**
  * The review workflow, as four durable stages.
  *
@@ -17,24 +17,19 @@ import { ReviewFailure } from "./reviewFailureSchema.ts";
  *
  * @since 1.0.0
  */
-import { Action, Flow } from "@smthrs/flow";
-import { Node } from "@smthrs/plan";
-import * as Schema from "effect/Schema";
-import { NarrateChanges, ReviewFile, VerifyFindings } from "./reviewAgentActions.ts";
+import { type Action, Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import * as Schema from "effect/Schema"
+import { NativeReviewAgentOutput } from "./nativeReviewAgentOutputSchema.ts"
 import {
   ApplyVerdicts,
   FinalizeReview,
   MAX_VERIFIABLE_FINDINGS,
   MergeFileBatch,
-  RenderWalkthrough,
-} from "./reviewActions.ts";
-import { NativeReviewAgentOutput } from "./nativeReviewAgentOutputSchema.ts";
-import {
-  NarrateReviewPayload,
-  ReviewFilesPayload,
-  ReviewResult,
-  VerifyReviewPayload,
-} from "./reviewSchemas.ts";
+  RenderWalkthrough
+} from "./reviewActions.ts"
+import { NarrateChanges, ReviewFile, VerifyFindings } from "./reviewAgentActions.ts"
+import { NarrateReviewPayload, ReviewFilesPayload, ReviewResult, VerifyReviewPayload } from "./reviewSchemas.ts"
 
 /**
  * What the file-review rounds need from the composition.
@@ -42,7 +37,7 @@ import {
 type FileReviewRequirement =
   | Action.Requirement<"smithers-review/ReviewFile">
   | Action.Requirement<"smithers-review/MergeFileBatch">
-  | Action.Requirement<"smithers-review/FinalizeReview">;
+  | Action.Requirement<"smithers-review/FinalizeReview">
 
 /**
  * The narrating round: story and the rendered walkthrough.
@@ -58,7 +53,7 @@ export const NarrateReview = Flow.make("smithers-review/NarrateReview", {
   success: ReviewResult,
   error: ReviewFailure,
   body: ({ changes, input, review, target }) => {
-    const narrating = input.narrate && changes.files.length > 0;
+    const narrating = input.narrate && changes.files.length > 0
     const story = narrating
       ? NarrateChanges.call({
         timeout: input.timeout,
@@ -66,14 +61,17 @@ export const NarrateReview = Flow.make("smithers-review/NarrateReview", {
         comments: review.comments,
         background: input.background,
         mode: target.mode,
-        ref: target.ref,
+        ref: target.ref
       }).pipe(
         Node.map((value) => ({ value, failure: "" })),
-        Node.catch({ onFailure: (error) => Node.succeed(error).pipe(
-          Node.map((failure) => ({ value: null, failure: failure.message })),
-        ) }),
+        Node.catch({
+          onFailure: (error) =>
+            Node.succeed(error).pipe(
+              Node.map((failure) => ({ value: null, failure: failure.message }))
+            )
+        })
       )
-      : Node.succeed({ value: null, failure: "" });
+      : Node.succeed({ value: null, failure: "" })
     return story.pipe(
       Node.bindPlanned((narrated) =>
         RenderWalkthrough.call({
@@ -82,7 +80,7 @@ export const NarrateReview = Flow.make("smithers-review/NarrateReview", {
           changes,
           review,
           story: narrated.value,
-          narrateFailure: narrated.failure,
+          narrateFailure: narrated.failure
         })
       ),
       Node.map((rendered) => ({
@@ -90,11 +88,11 @@ export const NarrateReview = Flow.make("smithers-review/NarrateReview", {
         review: rendered.review,
         walkthrough: rendered.walkthrough,
         story: rendered.story,
-        ui: rendered.ui,
-      })),
-    );
-  },
-});
+        ui: rendered.ui
+      }))
+    )
+  }
+})
 
 /**
  * The verifying round.
@@ -112,22 +110,23 @@ export const VerifyReview = Flow.make("smithers-review/VerifyReview", {
   body: ({ changes, input, review, target }) => {
     const verifying = input.verify &&
       review.comments.length >= 1 &&
-      review.comments.length <= MAX_VERIFIABLE_FINDINGS;
+      review.comments.length <= MAX_VERIFIABLE_FINDINGS
     if (!verifying) {
-      return NarrateReview.to({ input, target, changes, review });
+      return NarrateReview.to({ input, target, changes, review })
     }
     return VerifyFindings.call({ findings: review.comments, files: changes.files, timeout: input.timeout }).pipe(
       Node.map((verdicts) => ({ verdicts, failure: "" })),
       Node.catch({
-        onFailure: (error) => Node.succeed(error).pipe(
-          Node.map((failure) => ({ verdicts: null, failure: failure.message })),
-        ),
+        onFailure: (error) =>
+          Node.succeed(error).pipe(
+            Node.map((failure) => ({ verdicts: null, failure: failure.message }))
+          )
       }),
       Node.bindPlanned(({ verdicts, failure }) => ApplyVerdicts.call({ review, verdicts, failure })),
-      Node.bindPlanned((verified) => NarrateReview.to({ input, target, changes, review: verified })),
-    );
-  },
-});
+      Node.bindPlanned((verified) => NarrateReview.to({ input, target, changes, review: verified }))
+    )
+  }
+})
 
 /**
  * The maximum simultaneous file reviews when the input names no valid bound.
@@ -135,7 +134,7 @@ export const VerifyReview = Flow.make("smithers-review/VerifyReview", {
  * @since 1.0.0
  * @category constants
  */
-export const DEFAULT_CONCURRENCY = 8;
+export const DEFAULT_CONCURRENCY = 8
 
 /**
  * The file-review round.
@@ -160,28 +159,33 @@ export const ReviewFiles: Flow.Flow<
   success: ReviewResult,
   error: ReviewFailure,
   body: ({ input, prepared, offset, outcomes }) => {
-    const files = prepared.prompt.shouldReview ? prepared.prompt.files : [];
+    const files = prepared.prompt.shouldReview ? prepared.prompt.files : []
     const width = Number.isSafeInteger(input.concurrency) && input.concurrency > 0
       ? input.concurrency
-      : DEFAULT_CONCURRENCY;
+      : DEFAULT_CONCURRENCY
     if (offset < files.length) {
-      const members: Record<string, Node.Node<NativeReviewAgentOutput | null, never, FileReviewRequirement>> = {};
+      const members: Record<string, Node.Node<NativeReviewAgentOutput | null, never, FileReviewRequirement>> = {}
       for (const file of files.slice(offset, offset + width)) {
         // A file whose review fails is a warning, not a dead run: 0.x spelled
         // this `continueOnFail`, and `finalizeNativeReview` turns the null into
         // a `subtask_error` warning against that file.
         members[file.id] = ReviewFile.call({ path: file.path, prompt: file.prompt, timeout: input.timeout }).pipe(
-          Node.catch({ onFailure: (error) => Node.succeed(error).pipe(
-            Node.map((failure) => Schema.decodeUnknownSync(NativeReviewAgentOutput)({ status: "failed", message: failure.message })),
-          ) }),
-        );
+          Node.catch({
+            onFailure: (error) =>
+              Node.succeed(error).pipe(
+                Node.map((failure) =>
+                  Schema.decodeUnknownSync(NativeReviewAgentOutput)({ status: "failed", message: failure.message })
+                )
+              )
+          })
+        )
       }
       return Node.all(members).pipe(
         Node.bindPlanned((batch) => MergeFileBatch.call({ previous: outcomes, batch })),
         Node.bindPlanned((collected) =>
           ReviewFiles.to({ input, prepared, offset: offset + width, outcomes: collected })
-        ),
-      );
+        )
+      )
     }
     return FinalizeReview.call({ input, prepared, outcomes }).pipe(
       Node.bindPlanned((review) =>
@@ -189,12 +193,12 @@ export const ReviewFiles: Flow.Flow<
           input,
           target: prepared.target,
           changes: prepared.changes,
-          review,
+          review
         })
-      ),
-    );
-  },
-});
+      )
+    )
+  }
+})
 
 /**
  * The review workflow's entry point.
@@ -208,7 +212,7 @@ export const ReviewFiles: Flow.Flow<
  * @since 1.0.0
  * @category constants
  */
-export const flows = [ReviewFiles, VerifyReview, NarrateReview] as const;
+export const flows = [ReviewFiles, VerifyReview, NarrateReview] as const
 
 /**
  * The result schema, re-exported so a host can decode a run's success without
@@ -217,7 +221,7 @@ export const flows = [ReviewFiles, VerifyReview, NarrateReview] as const;
  * @since 1.0.0
  * @category schemas
  */
-export const Result: typeof ReviewResult = ReviewResult;
+export const Result: typeof ReviewResult = ReviewResult
 
 /**
  * A decoded review result.
@@ -225,4 +229,4 @@ export const Result: typeof ReviewResult = ReviewResult;
  * @since 1.0.0
  * @category models
  */
-export type Result = Schema.Schema.Type<typeof ReviewResult>;
+export type Result = Schema.Schema.Type<typeof ReviewResult>

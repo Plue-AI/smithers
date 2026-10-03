@@ -1,9 +1,9 @@
-import * as Schema from "effect/Schema";
-import { arrayOf, withDefault } from "../schema/withDefault.ts";
-import { ReviewRunStatus } from "./reviewRunStatusSchema.ts";
-import { ReviewSummary } from "./reviewSummarySchema.ts";
-import { ReviewComment } from "./reviewCommentSchema.ts";
-import { ReviewWarning } from "./reviewWarningSchema.ts";
+import * as Schema from "effect/Schema"
+import { arrayOf, withDefault } from "../schema/withDefault.ts"
+import { ReviewComment } from "./reviewCommentSchema.ts"
+import { ReviewRunStatus } from "./reviewRunStatusSchema.ts"
+import { ReviewSummary } from "./reviewSummarySchema.ts"
+import { ReviewWarning } from "./reviewWarningSchema.ts"
 
 /**
  * The finished review: its status, its findings, and what it could not do.
@@ -19,8 +19,8 @@ export const ReviewRunOutput = Schema.Struct({
   summary: withDefault(Schema.NullOr(ReviewSummary), null),
   comments: arrayOf(ReviewComment),
   warnings: arrayOf(ReviewWarning),
-  error: withDefault(Schema.String, ""),
-});
+  error: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded review result.
@@ -28,4 +28,4 @@ export const ReviewRunOutput = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewRunOutput = typeof ReviewRunOutput.Type;
+export type ReviewRunOutput = typeof ReviewRunOutput.Type

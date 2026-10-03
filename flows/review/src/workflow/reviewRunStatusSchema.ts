@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import * as Schema from "effect/Schema"
 
 /**
  * How a review ended. `failed` means no file review produced an answer, which
@@ -12,8 +12,8 @@ export const ReviewRunStatus = Schema.Literals([
   "skipped",
   "completed_with_warnings",
   "completed_with_errors",
-  "failed",
-]);
+  "failed"
+])
 
 /**
  * A decoded run status.
@@ -21,4 +21,4 @@ export const ReviewRunStatus = Schema.Literals([
  * @since 1.0.0
  * @category models
  */
-export type ReviewRunStatus = typeof ReviewRunStatus.Type;
+export type ReviewRunStatus = typeof ReviewRunStatus.Type

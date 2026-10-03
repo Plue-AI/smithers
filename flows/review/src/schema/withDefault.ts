@@ -9,8 +9,8 @@
  *
  * @since 1.0.0
  */
-import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 
 /**
  * A field that fills in `value` when the key is absent or `undefined`.
@@ -26,15 +26,15 @@ import * as Schema from "effect/Schema";
  */
 export const withDefault = <S extends Schema.Codec<any, any> & Schema.WithoutConstructorDefault>(
   schema: S,
-  value: S["Encoded"],
+  value: S["Encoded"]
 ) =>
   // Both halves, because both are real entry points. `Flow.execute` and
   // `Action.call` build a payload through the CONSTRUCTOR, so a caller that
   // omits `narrate` must get the declared default there; decoding is what a
   // model answer and a stored payload come back through.
   Schema.withDecodingDefaultKey<Schema.withConstructorDefault<S>>(Effect.succeed(value))(
-    Schema.withConstructorDefault<S>(Effect.succeed(value))(schema),
-  );
+    Schema.withConstructorDefault<S>(Effect.succeed(value))(schema)
+  )
 
 /**
  * A mutable array field with an empty-array default.
@@ -47,4 +47,4 @@ export const withDefault = <S extends Schema.Codec<any, any> & Schema.WithoutCon
  * @category constructors
  */
 export const arrayOf = <S extends Schema.Codec<any, any>>(item: S) =>
-  withDefault(Schema.mutable(Schema.Array(item)), []);
+  withDefault(Schema.mutable(Schema.Array(item)), [])

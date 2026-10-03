@@ -2,6 +2,7 @@
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
@@ -10,6 +11,16 @@ import { test } from "node:test"
 import { hostEvaluator as releaseEvaluator } from "../release-support/runtime.ts"
 import { evaluatorLayer } from "../repository/jev-checks.ts"
 import { hostEvaluator as wikiEvaluator } from "../wiki/runtime.ts"
+
+const unavailableJev = Layer.succeed(HttpClient.HttpClient)(
+  HttpClient.make((request) =>
+    Effect.fail(
+      new HttpClientError.HttpClientError({
+        reason: new HttpClientError.TransportError({ request, description: "fixture Jev outage" })
+      })
+    )
+  )
+)
 
 const evaluate = (layer: Layer.Layer<Evaluator.Evaluator>) =>
   Effect.runPromise(
@@ -52,7 +63,7 @@ for (
     assert.deepEqual(seen, [Evaluator.defaultBaseUrl])
   })
 
-  test(`${name}: missing Jev key uses the subscription Luna backup`, async () => {
+  test(`${name}: Jev outage uses the subscription Luna backup`, async () => {
     const seen: string[] = []
     let answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
     let available = true
@@ -81,13 +92,14 @@ for (
     const { port } = server.address() as AddressInfo
     try {
       const environment = {
+        AI_GATEWAY_API_KEY: "fixture-jev",
         SMITHERS_ACCOUNT_POOL_URL: `http://127.0.0.1:${port}`,
         SMITHERS_ACCOUNT_POOL_KEY: "fixture-host",
         SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
         CODEX_HOME: "/nonexistent",
         NO_PROXY: "*"
       }
-      const layer = compose(environment)
+      const layer = compose(environment, unavailableJev)
       const result = await evaluate(layer)
       assert.equal(result._tag, "Success")
       if (result._tag === "Success") {
@@ -105,8 +117,8 @@ for (
       const missing = await evaluate(layer)
       assert.equal(missing._tag, "Failure")
       if (missing._tag === "Failure") {
-        assert.equal(missing.failure.code, "unconfigured")
-        assert.match(Evaluator.publicMessage(missing.failure), /AI_GATEWAY_API_KEY/)
+        assert.equal(missing.failure.code, "unreachable")
+        assert.equal(Evaluator.publicMessage(missing.failure), Evaluator.unreachableMessage)
       }
       assert.deepEqual(seen, ["/routes"], "an empty pool cannot fall back to another provider")
 
@@ -114,11 +126,25 @@ for (
       const failed = await evaluate(layer)
       assert.equal(failed._tag, "Failure")
       if (failed._tag === "Failure") {
-        assert.equal(failed.failure.code, "unconfigured", "an unreadable pool fails closed with the setup reason")
-        assert.match(Evaluator.publicMessage(failed.failure), /AI_GATEWAY_API_KEY/)
+        assert.equal(failed.failure.code, "unreachable", "an unreadable pool fails closed with a transport failure")
+        assert.equal(Evaluator.publicMessage(failed.failure), Evaluator.unreachableMessage)
       }
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    }
+  })
+
+  test(`${name}: missing Jev key fails before consulting a configured subscription pool`, async () => {
+    const result = await evaluate(compose({
+      SMITHERS_ACCOUNT_POOL_URL: "http://127.0.0.1:1",
+      SMITHERS_ACCOUNT_POOL_KEY: "fixture-host",
+      SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+      CODEX_HOME: "/nonexistent"
+    }))
+    assert.equal(result._tag, "Failure")
+    if (result._tag === "Failure") {
+      assert.equal(result.failure.code, "unconfigured")
+      assert.match(result.failure.message, /AI_GATEWAY_API_KEY/)
     }
   })
 

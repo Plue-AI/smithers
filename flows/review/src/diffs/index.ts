@@ -1,3 +1,3 @@
-export { extractDiffAssets, type DiffAssets } from "./extractDiffAssets.ts";
-export { renderFallbackDiffHtml } from "./renderFallbackDiffHtml.ts";
-export { renderPierreFileDiff, type PierreDiffAnnotation } from "./renderPierreFileDiff.ts";
+export { type DiffAssets, extractDiffAssets } from "./extractDiffAssets.ts"
+export { renderFallbackDiffHtml } from "./renderFallbackDiffHtml.ts"
+export { type PierreDiffAnnotation, renderPierreFileDiff } from "./renderPierreFileDiff.ts"

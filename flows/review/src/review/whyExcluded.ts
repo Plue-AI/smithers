@@ -1,8 +1,8 @@
-import { extname } from "node:path";
-import { globMatch } from "./globMatch.ts";
-import { effectivePath } from "../git/effectivePath.ts";
-import type { DiffRecord } from "../git/diffRecord.ts";
-import type { FileFilter } from "./fileFilter.ts";
+import { extname } from "node:path"
+import type { DiffRecord } from "../git/diffRecord.ts"
+import { effectivePath } from "../git/effectivePath.ts"
+import type { FileFilter } from "./fileFilter.ts"
+import { globMatch } from "./globMatch.ts"
 
 const supportedExtensions = new Set([
   ".java",
@@ -71,8 +71,8 @@ const supportedExtensions = new Set([
   ".ets",
   ".json5",
   ".dart",
-  ".tf",
-]);
+  ".tf"
+])
 
 const defaultExcludePatterns = [
   "**/*_test.go",
@@ -90,8 +90,8 @@ const defaultExcludePatterns = [
   "**/*Tests.java",
   "**/*_test.rs",
   "**/oh_modules/**",
-  "**/*.test.ets",
-];
+  "**/*.test.ets"
+]
 
 // Tool state and vendored or packaged third-party code. Reported as
 // `provider_dir`, never hidden, and a rule `include` brings a path back.
@@ -106,51 +106,51 @@ const providerDirs = [
   ".cachefile/",
   "_packages/",
   "rpm/",
-  "pkgs/",
-];
+  "pkgs/"
+]
 
 function isProviderDir(path: string) {
-  return providerDirs.some((prefix) => path.startsWith(prefix));
+  return providerDirs.some((prefix) => path.startsWith(prefix))
 }
 
 function isAllowedExt(path: string) {
-  const ext = extFromPath(path);
-  return ext === "" || supportedExtensions.has(ext);
+  const ext = extFromPath(path)
+  return ext === "" || supportedExtensions.has(ext)
 }
 
 function extFromPath(path: string) {
-  const name = path.split("/").pop() ?? path;
-  const ext = extname(name);
-  return ext.startsWith(".") ? ext.toLowerCase() : "";
+  const name = path.split("/").pop() ?? path
+  const ext = extname(name)
+  return ext.startsWith(".") ? ext.toLowerCase() : ""
 }
 
 function isDefaultExcluded(path: string) {
-  const lower = path.toLowerCase();
-  return defaultExcludePatterns.some((pattern) => globMatch(pattern, lower));
+  const lower = path.toLowerCase()
+  return defaultExcludePatterns.some((pattern) => globMatch(pattern, lower))
 }
 
 function isUserExcluded(filter: FileFilter | null, path: string) {
-  if (!filter) return false;
-  const lower = path.toLowerCase();
-  return filter.exclude.some((pattern) => globMatch(pattern, lower));
+  if (!filter) return false
+  const lower = path.toLowerCase()
+  return filter.exclude.some((pattern) => globMatch(pattern, lower))
 }
 
 function isUserIncluded(filter: FileFilter | null, path: string) {
-  if (!filter || filter.include.length === 0) return false;
-  const lower = path.toLowerCase();
-  return filter.include.some((pattern) => globMatch(pattern, lower));
+  if (!filter || filter.include.length === 0) return false
+  const lower = path.toLowerCase()
+  return filter.include.some((pattern) => globMatch(pattern, lower))
 }
 
 /**
  * Why the review filters skip this file, or `""` when it is reviewable.
  */
 export function whyExcluded(diff: DiffRecord, filter: FileFilter | null) {
-  if (diff.isBinary) return "binary";
-  const path = effectivePath(diff);
-  if (isUserExcluded(filter, path)) return "user_exclude";
-  if (!isAllowedExt(path)) return "unsupported_ext";
-  if (filter && filter.include.length > 0 && isUserIncluded(filter, path)) return "";
-  if (isProviderDir(path)) return "provider_dir";
-  if (isDefaultExcluded(path)) return "default_path";
-  return "";
+  if (diff.isBinary) return "binary"
+  const path = effectivePath(diff)
+  if (isUserExcluded(filter, path)) return "user_exclude"
+  if (!isAllowedExt(path)) return "unsupported_ext"
+  if (filter && filter.include.length > 0 && isUserIncluded(filter, path)) return ""
+  if (isProviderDir(path)) return "provider_dir"
+  if (isDefaultExcluded(path)) return "default_path"
+  return ""
 }

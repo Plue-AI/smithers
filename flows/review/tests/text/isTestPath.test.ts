@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { isTestPath } from "../../src/text/isTestPath.ts";
+import { describe, expect, test } from "bun:test"
+import { isTestPath } from "../../src/text/isTestPath.ts"
 
 // One table for the shared review checklist and walkthrough path rule.
 //
@@ -21,13 +21,13 @@ const cases: Array<[string, boolean]> = [
   ["src/latest.ts", false],
   ["src/contest/index.ts", false],
   ["docs/testing.md", false],
-  ["src/protest.ts", false],
-];
+  ["src/protest.ts", false]
+]
 
 describe("isTestPath", () => {
   for (const [path, expected] of cases) {
     test(`${path} is ${expected ? "" : "not "}a test path`, () => {
-      expect(isTestPath(path)).toBe(expected);
-    });
+      expect(isTestPath(path)).toBe(expected)
+    })
   }
-});
+})

@@ -48,7 +48,13 @@ export interface RolloutHost {
   record(receipt: RolloutReceipt): Promise<void>
 }
 
-const terminal: ReadonlyArray<RolloutReceipt["status"]> = ["passed", "failed", "refused", "rolled-back", "rollback-failed"]
+const terminal: ReadonlyArray<RolloutReceipt["status"]> = [
+  "passed",
+  "failed",
+  "refused",
+  "rolled-back",
+  "rollback-failed"
+]
 /** A receipt left in a non-terminal status belongs to a run that stopped mid-rollout. */
 export const isInterrupted = (receipt: RolloutReceipt): boolean => !terminal.includes(receipt.status)
 
@@ -75,7 +81,11 @@ const verify = async (host: RolloutHost, release: Release, phase: Phase): Promis
 }
 
 /** Restore the captured baseline, re-verify it, and record the terminal receipt. Never rolls forward. */
-const restoreBaseline = async (host: RolloutHost, receipt: RolloutReceipt, previous: Release): Promise<RolloutReceipt> => {
+const restoreBaseline = async (
+  host: RolloutHost,
+  receipt: RolloutReceipt,
+  previous: Release
+): Promise<RolloutReceipt> => {
   const record = recorder(host, receipt)
   // A full disk must not prevent rollback. Try to retain intent, then restore anyway.
   try {
@@ -108,7 +118,10 @@ const restoreBaseline = async (host: RolloutHost, receipt: RolloutReceipt, previ
  * From "publishing" on the candidate may be live: restore the interrupted run's baseline.
  */
 export async function reconcile(host: RolloutHost, interrupted: RolloutReceipt): Promise<RolloutReceipt> {
-  const receipt: RolloutReceipt = { ...structuredClone(interrupted), failedChecks: [...interrupted.failedChecks, "interrupted"] }
+  const receipt: RolloutReceipt = {
+    ...structuredClone(interrupted),
+    failedChecks: [...interrupted.failedChecks, "interrupted"]
+  }
   if (receipt.status === "captured" || receipt.status === "prepared") {
     await recorder(host, receipt)("refused")
     return receipt

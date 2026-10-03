@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { PreviewEntry } from "./previewEntrySchema.ts";
+import * as Schema from "effect/Schema"
+import { PreviewEntry } from "./previewEntrySchema.ts"
 
 /**
  * The whole change set before any seat is asked: every file, with the totals
@@ -14,8 +14,8 @@ export const PreviewOutput = Schema.Struct({
   totalDeletions: Schema.Number,
   totalFiles: Schema.Number,
   reviewableCount: Schema.Number,
-  excludedCount: Schema.Number,
-});
+  excludedCount: Schema.Number
+})
 
 /**
  * A decoded preview.
@@ -23,4 +23,4 @@ export const PreviewOutput = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type PreviewOutput = typeof PreviewOutput.Type;
+export type PreviewOutput = typeof PreviewOutput.Type

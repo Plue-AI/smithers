@@ -47,8 +47,8 @@ import {
   read,
   themeCandidates,
   themeColors,
-  TREE_BYTES,
   type Tree,
+  TREE_BYTES,
   workflowFiles
 } from "./tree.ts"
 import {

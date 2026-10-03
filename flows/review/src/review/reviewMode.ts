@@ -1,6 +1,6 @@
-import { normalizeOpenCodeReviewInput } from "../workflow/normalizeOpenCodeReviewInput.ts";
-import type { OpenCodeReviewInput } from "../workflow/openCodeReviewInputSchema.ts";
-import type { ReviewTarget } from "../workflow/reviewTargetSchema.ts";
+import { normalizeOpenCodeReviewInput } from "../workflow/normalizeOpenCodeReviewInput.ts"
+import type { OpenCodeReviewInput } from "../workflow/openCodeReviewInputSchema.ts"
+import type { ReviewTarget } from "../workflow/reviewTargetSchema.ts"
 
 /**
  * Reads which mode a request asks for: `--commit` wins, then `--from`/`--to`,
@@ -10,8 +10,8 @@ import type { ReviewTarget } from "../workflow/reviewTargetSchema.ts";
  * @category constructors
  */
 export function reviewMode(input: OpenCodeReviewInput): ReviewTarget["mode"] {
-  input = normalizeOpenCodeReviewInput(input);
-  if (input.commit.trim()) return "commit";
-  if (input.from.trim() || input.to.trim()) return "range";
-  return "workspace";
+  input = normalizeOpenCodeReviewInput(input)
+  if (input.commit.trim()) return "commit"
+  if (input.from.trim() || input.to.trim()) return "range"
+  return "workspace"
 }

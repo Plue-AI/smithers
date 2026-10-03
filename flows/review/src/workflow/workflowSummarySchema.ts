@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { ReviewRunStatus } from "./reviewRunStatusSchema.ts";
+import * as Schema from "effect/Schema"
+import { ReviewRunStatus } from "./reviewRunStatusSchema.ts"
 
 /**
  * The flat summary a caller records for one run.
@@ -16,8 +16,8 @@ export const WorkflowSummary = Schema.Struct({
   comments: Schema.Number,
   warnings: Schema.Number,
   totalTokens: Schema.Number,
-  message: Schema.String,
-});
+  message: Schema.String
+})
 
 /**
  * A decoded workflow summary.
@@ -25,4 +25,4 @@ export const WorkflowSummary = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type WorkflowSummary = typeof WorkflowSummary.Type;
+export type WorkflowSummary = typeof WorkflowSummary.Type

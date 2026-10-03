@@ -1,20 +1,20 @@
-import * as Schema from "effect/Schema";
-import { NativeReviewPrompt } from "../workflow/nativeReviewPromptSchema.ts";
-import { whyExcluded } from "./whyExcluded.ts";
-import { effectivePath } from "../git/effectivePath.ts";
-import { diffStatus } from "../git/diffStatus.ts";
-import { reviewFileTaskId } from "./reviewFileTaskId.ts";
-import { buildFileReviewPrompt } from "./buildFileReviewPrompt.ts";
-import type { DiffRecord } from "../git/diffRecord.ts";
-import type { FileFilter } from "./fileFilter.ts";
-import type { ReviewSnapshot } from "./reviewSnapshot.ts";
-import type { PreviewOutput } from "../workflow/previewOutputSchema.ts";
+import * as Schema from "effect/Schema"
+import type { DiffRecord } from "../git/diffRecord.ts"
+import { diffStatus } from "../git/diffStatus.ts"
+import { effectivePath } from "../git/effectivePath.ts"
+import { NativeReviewPrompt } from "../workflow/nativeReviewPromptSchema.ts"
+import type { PreviewOutput } from "../workflow/previewOutputSchema.ts"
+import { buildFileReviewPrompt } from "./buildFileReviewPrompt.ts"
+import type { FileFilter } from "./fileFilter.ts"
+import { reviewFileTaskId } from "./reviewFileTaskId.ts"
+import type { ReviewSnapshot } from "./reviewSnapshot.ts"
+import { whyExcluded } from "./whyExcluded.ts"
 
-const decodePrompt = Schema.decodeUnknownSync(NativeReviewPrompt);
+const decodePrompt = Schema.decodeUnknownSync(NativeReviewPrompt)
 
-function reviewableDiffs(diffs: DiffRecord[], filter: FileFilter | null) {
+function reviewableDiffs(diffs: Array<DiffRecord>, filter: FileFilter | null) {
   // Matches previewFromSnapshot: deletions with removed content are reviewable.
-  return diffs.filter((diff) => whyExcluded(diff, filter) === "" && !(diff.isDeleted && diff.deletions === 0));
+  return diffs.filter((diff) => whyExcluded(diff, filter) === "" && !(diff.isDeleted && diff.deletions === 0))
 }
 /**
  * Builds the whole fan-out plan: which files to review, and the exact prompt
@@ -28,9 +28,9 @@ function reviewableDiffs(diffs: DiffRecord[], filter: FileFilter | null) {
  */
 export function nativeReviewPromptFromSnapshot(
   snapshot: ReviewSnapshot,
-  preview: PreviewOutput,
+  preview: PreviewOutput
 ): NativeReviewPrompt {
-  const { input, target } = snapshot;
+  const { input, target } = snapshot
   if (!input.runReview) {
     return decodePrompt({
       shouldReview: false,
@@ -41,8 +41,8 @@ export function nativeReviewPromptFromSnapshot(
       reviewableFiles: preview.reviewableCount,
       excludedFiles: preview.excludedCount,
       files: [],
-      message: "Review execution disabled by input.runReview.",
-    });
+      message: "Review execution disabled by input.runReview."
+    })
   }
   if (preview.reviewableCount === 0) {
     return decodePrompt({
@@ -54,12 +54,12 @@ export function nativeReviewPromptFromSnapshot(
       reviewableFiles: 0,
       excludedFiles: preview.excludedCount,
       files: [],
-      message: "No supported files changed.",
-    });
+      message: "No supported files changed."
+    })
   }
 
-  const allDiffs = snapshot.diffs;
-  const diffs = reviewableDiffs(allDiffs, snapshot.filter);
+  const allDiffs = snapshot.diffs
+  const diffs = reviewableDiffs(allDiffs, snapshot.filter)
   if (diffs.length === 0) {
     return decodePrompt({
       shouldReview: false,
@@ -70,12 +70,12 @@ export function nativeReviewPromptFromSnapshot(
       reviewableFiles: 0,
       excludedFiles: preview.excludedCount,
       files: [],
-      message: "No supported files changed.",
-    });
+      message: "No supported files changed."
+    })
   }
 
   const files = diffs.map((diff, index) => {
-    const path = effectivePath(diff);
+    const path = effectivePath(diff)
     return {
       id: reviewFileTaskId(path, index),
       path,
@@ -83,9 +83,9 @@ export function nativeReviewPromptFromSnapshot(
       insertions: diff.insertions,
       deletions: diff.deletions,
       diff: diff.diff,
-      prompt: buildFileReviewPrompt(target, input, diff, allDiffs),
-    };
-  });
+      prompt: buildFileReviewPrompt(target, input, diff, allDiffs)
+    }
+  })
 
   return decodePrompt({
     shouldReview: true,
@@ -96,6 +96,6 @@ export function nativeReviewPromptFromSnapshot(
     reviewableFiles: diffs.length,
     excludedFiles: preview.excludedCount,
     files,
-    message: `Prepared native review for ${diffs.length} file(s).`,
-  });
+    message: `Prepared native review for ${diffs.length} file(s).`
+  })
 }

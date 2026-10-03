@@ -1,5 +1,5 @@
-const PER_FILE_DIFF_FLOOR = 3_500;
-const PER_FILE_DIFF_CAP = 30_000;
+const PER_FILE_DIFF_FLOOR = 3_500
+const PER_FILE_DIFF_CAP = 30_000
 
 /**
  * Per-file diff excerpt budget for the narrator prompt: an even share of the
@@ -8,7 +8,7 @@ const PER_FILE_DIFF_CAP = 30_000;
  * eat the whole prompt.
  */
 export function perFileExcerptLimit(fileCount: number, totalLimit: number): number {
-  if (fileCount <= 0) return PER_FILE_DIFF_CAP;
-  const share = Math.floor(totalLimit / fileCount);
-  return Math.min(PER_FILE_DIFF_CAP, Math.max(PER_FILE_DIFF_FLOOR, share));
+  if (fileCount <= 0) return PER_FILE_DIFF_CAP
+  const share = Math.floor(totalLimit / fileCount)
+  return Math.min(PER_FILE_DIFF_CAP, Math.max(PER_FILE_DIFF_FLOOR, share))
 }

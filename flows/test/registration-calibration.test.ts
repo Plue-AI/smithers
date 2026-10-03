@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { test } from "node:test"
 import {
   auroc,
@@ -14,6 +17,7 @@ import {
   split
 } from "../register-repository/calibration/fit.ts"
 import { generate, PER_STRATUM } from "../register-repository/calibration/generate.ts"
+import { readShallowBoundary } from "../register-repository/calibration/record.ts"
 
 const read = <T>(name: string): T =>
   JSON.parse(readFileSync(new URL(`../register-repository/calibration/${name}`, import.meta.url), "utf8")) as T
@@ -98,4 +102,19 @@ test("helpers: simplex projection, AUROC ties and split", () => {
   const { train, heldOut } = split(corpus.cases)
   assert.equal(train.length + heldOut.length, corpus.cases.length)
   assert.ok(heldOut.every((entry) => !train.includes(entry)))
+})
+
+test("shallow boundaries distinguish complete history from unreadable metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "calibration-shallow-"))
+  try {
+    const path = join(root, "shallow")
+    assert.deepEqual([...await readShallowBoundary(path)], [], "a missing boundary means complete history")
+    await writeFile(path, "first\nsecond\nfirst\n\n")
+    assert.deepEqual([...await readShallowBoundary(path)], ["first", "second"])
+    await rm(path)
+    await mkdir(path)
+    await assert.rejects(readShallowBoundary(path), { code: "EISDIR" }, "unreadable metadata cannot appear complete")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

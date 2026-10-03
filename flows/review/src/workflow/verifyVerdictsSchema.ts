@@ -3,9 +3,9 @@
  *
  * @since 1.0.0
  */
-import * as Schema from "effect/Schema";
-import { arrayOf, withDefault } from "../schema/withDefault.ts";
-import { ReviewCommentSeverity } from "./reviewCommentSeveritySchema.ts";
+import * as Schema from "effect/Schema"
+import { arrayOf, withDefault } from "../schema/withDefault.ts"
+import { ReviewCommentSeverity } from "./reviewCommentSeveritySchema.ts"
 
 /**
  * One verdict. `index` defaults to -1 so a verdict that lost its index is
@@ -18,8 +18,8 @@ export const FindingVerdict = Schema.Struct({
   index: withDefault(Schema.Number, -1),
   verdict: withDefault(Schema.Literals(["keep", "drop", "demote"]), "keep" as const),
   severity: Schema.optional(ReviewCommentSeverity),
-  reason: withDefault(Schema.String, ""),
-});
+  reason: withDefault(Schema.String, "")
+})
 
 /**
  * The decoded verdict.
@@ -27,7 +27,7 @@ export const FindingVerdict = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type FindingVerdict = typeof FindingVerdict.Type;
+export type FindingVerdict = typeof FindingVerdict.Type
 
 /**
  * Every verdict the verifier produced.
@@ -36,8 +36,8 @@ export type FindingVerdict = typeof FindingVerdict.Type;
  * @category schemas
  */
 export const VerifyVerdicts = Schema.Struct({
-  verdicts: arrayOf(FindingVerdict),
-});
+  verdicts: arrayOf(FindingVerdict)
+})
 
 /**
  * The decoded verdict set.
@@ -45,4 +45,4 @@ export const VerifyVerdicts = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type VerifyVerdicts = typeof VerifyVerdicts.Type;
+export type VerifyVerdicts = typeof VerifyVerdicts.Type

@@ -1,12 +1,13 @@
-import type { PullRequestTarget } from "./resolvePullRequest.ts";
-import { runGh as defaultRunGh, runGhJsonLines } from "./runGh.ts";
+import { Effect, Logger } from "effect"
+import type { PullRequestTarget } from "./resolvePullRequest.ts"
+import { runGh as defaultRunGh, runGhJsonLines } from "./runGh.ts"
 
-const MARKER = "<!-- smithers-review -->";
+const MARKER = "<!-- smithers-review -->"
 // Re-running the sweep is a no-op: a body that already starts with this
 // prefix is skipped, so a retry after a partial failure adds nothing twice.
-const SUPERSEDED_PREFIX = "Superseded by a newer smithers review.";
+const SUPERSEDED_PREFIX = "Superseded by a newer smithers review."
 // GitHub caps review bodies at 65536 characters; leave room for the prefix.
-const MAX_UPDATED_BODY = 64_000;
+const MAX_UPDATED_BODY = 64_000
 
 /**
  * Mark earlier smithers reviews on the PR as superseded once the replacement
@@ -31,7 +32,7 @@ export async function supersedePriorReviews(
   repoDir: string,
   pr: PullRequestTarget,
   newReviewId: number,
-  runGh: typeof defaultRunGh = defaultRunGh,
+  runGh: typeof defaultRunGh = defaultRunGh
 ): Promise<number> {
   try {
     const records = await runGhJsonLines(
@@ -41,26 +42,30 @@ export async function supersedePriorReviews(
         "--paginate",
         `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`,
         "--jq",
-        ".[] | {id, body, login: .user.login} | @json",
+        ".[] | {id, body, login: .user.login} | @json"
       ],
-      runGh,
-    );
-    const reviews = records as Array<{ id?: unknown; body?: unknown; login?: unknown }>;
-    const login = reviews.find((review) => review.id === newReviewId)?.login;
+      runGh
+    )
+    const reviews = records as Array<{ id?: unknown; body?: unknown; login?: unknown }>
+    const login = reviews.find((review) => review.id === newReviewId)?.login
     if (typeof login !== "string" || !login) {
-      console.error(`smithers-review: new review ${newReviewId} missing from the PR's review list; nothing superseded`);
-      return 0;
+      await Effect.runPromise(
+        Effect.logWarning(
+          `smithers-review: new review ${newReviewId} missing from the PR's review list; nothing superseded`
+        ).pipe(Effect.provideService(Logger.LogToStderr, true))
+      )
+      return 0
     }
-    let superseded = 0;
+    let superseded = 0
     for (const review of reviews) {
-      if (typeof review.id !== "number" || typeof review.body !== "string") continue;
+      if (typeof review.id !== "number" || typeof review.body !== "string") continue
       // Only predecessors: GitHub review ids grow with creation, so a review
       // with a larger id was posted after this one by an overlapping run and
       // must stay current even if this sweep finishes last.
-      if (review.id >= newReviewId) continue;
-      if (review.login !== login) continue;
-      if (!review.body.includes(MARKER) || review.body.startsWith(SUPERSEDED_PREFIX)) continue;
-      const updated = `${SUPERSEDED_PREFIX}\n\n${review.body}`.slice(0, MAX_UPDATED_BODY);
+      if (review.id >= newReviewId) continue
+      if (review.login !== login) continue
+      if (!review.body.includes(MARKER) || review.body.startsWith(SUPERSEDED_PREFIX)) continue
+      const updated = `${SUPERSEDED_PREFIX}\n\n${review.body}`.slice(0, MAX_UPDATED_BODY)
       try {
         await runGh(
           repoDir,
@@ -70,20 +75,28 @@ export async function supersedePriorReviews(
             "PUT",
             `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews/${review.id}`,
             "--input",
-            "-",
+            "-"
           ],
-          JSON.stringify({ body: updated }),
-        );
-        superseded += 1;
+          JSON.stringify({ body: updated })
+        )
+        superseded += 1
       } catch (error) {
-        console.error(
-          `smithers-review: could not mark prior review ${review.id} superseded: ${(error as Error).message.slice(0, 200)}`,
-        );
+        await Effect.runPromise(
+          Effect.logWarning(
+            `smithers-review: could not mark prior review ${review.id} superseded: ${
+              (error as Error).message.slice(0, 200)
+            }`
+          ).pipe(Effect.provideService(Logger.LogToStderr, true))
+        )
       }
     }
-    return superseded;
+    return superseded
   } catch (error) {
-    console.error(`smithers-review: supersede check failed (non-fatal): ${(error as Error).message.slice(0, 200)}`);
-    return 0;
+    await Effect.runPromise(
+      Effect.logWarning(
+        `smithers-review: supersede check failed (non-fatal): ${(error as Error).message.slice(0, 200)}`
+      ).pipe(Effect.provideService(Logger.LogToStderr, true))
+    )
+    return 0
   }
 }

@@ -21,6 +21,7 @@ export default tseslint.config(
       }
     },
     settings: {
+      "import/core-modules": ["bun:test"],
       "import/resolver": {
         typescript: {
           project: ["./tsconfig.json"]

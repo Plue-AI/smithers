@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
 
 /**
  * Everything one review run is asked for.
@@ -19,8 +19,8 @@ export const OpenCodeReviewInput = Schema.Struct({
   rule: withDefault(Schema.String, ""),
   concurrency: withDefault(Schema.Number, 8),
   timeout: withDefault(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(1)), 10),
-  runReview: withDefault(Schema.Boolean, true),
-});
+  runReview: withDefault(Schema.Boolean, true)
+})
 
 /**
  * A decoded review request.
@@ -28,4 +28,4 @@ export const OpenCodeReviewInput = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type OpenCodeReviewInput = typeof OpenCodeReviewInput.Type;
+export type OpenCodeReviewInput = typeof OpenCodeReviewInput.Type

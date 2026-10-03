@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
 
 /**
  * The counts one review run accumulated.
@@ -13,8 +13,8 @@ export const ReviewSummary = Schema.Struct({
   totalTokens: withDefault(Schema.NullOr(Schema.Number), null),
   inputTokens: withDefault(Schema.NullOr(Schema.Number), null),
   outputTokens: withDefault(Schema.NullOr(Schema.Number), null),
-  elapsed: withDefault(Schema.String, ""),
-});
+  elapsed: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded run summary.
@@ -22,4 +22,4 @@ export const ReviewSummary = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewSummary = typeof ReviewSummary.Type;
+export type ReviewSummary = typeof ReviewSummary.Type

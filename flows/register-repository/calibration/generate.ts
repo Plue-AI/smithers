@@ -3,7 +3,7 @@
  * its signal values from a seeded log-normal whose median is a documented per-label multiple of a
  * per-language, per-band human baseline. See docs/mvp/research/registration-scores-calibration.md.
  */
-import { BANDS, type CorpusCase, type Deterministic, LANGUAGES, type Label } from "./fit.ts"
+import { BANDS, type CorpusCase, type Deterministic, type Label, LANGUAGES } from "./fit.ts"
 
 /** Human median per signal (duplicated blocks per KLOC, churn share, lexicon and stubs per KLOC, unused-export share). */
 const BASE: Record<Deterministic, number> = { duplicates: 4, churn: 0.12, lexicon: 0.8, stubs: 0.6, "dead-code": 0.1 }
@@ -40,7 +40,13 @@ export const generate = (): ReadonlyArray<CorpusCase> => {
               return [id, Math.round(median * Math.exp(SIGMA * normal()) * 10_000) / 10_000]
             })
           ) as Record<Deterministic, number>
-          cases.push({ id: `${language}-${band}-${label}-${String(index).padStart(2, "0")}`, language, band, label, values })
+          cases.push({
+            id: `${language}-${band}-${label}-${String(index).padStart(2, "0")}`,
+            language,
+            band,
+            label,
+            values
+          })
         }
       }
     }

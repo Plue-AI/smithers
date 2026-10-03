@@ -9,12 +9,20 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { deterministicSignals } from "../cleanup.ts"
-import { agentTrace, churn, DAY, LOG_FORMAT, parseLog } from "../history.ts"
-import { ADOPTION_MARKERS } from "../history.ts"
-import { BINARY, FILE_BYTES, isSource, TREE_BYTES, type Tree } from "../tree.ts"
+import { ADOPTION_MARKERS, agentTrace, churn, DAY, LOG_FORMAT, parseLog } from "../history.ts"
+import { BINARY, FILE_BYTES, isSource, type Tree, TREE_BYTES } from "../tree.ts"
 import type { CorpusCase, Deterministic } from "./fit.ts"
 
 const run = promisify(execFile)
+
+/** Read Git's shallow boundary; only a missing file denotes a complete history. */
+export const readShallowBoundary = async (path: string): Promise<ReadonlySet<string>> => {
+  const text = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error
+    return undefined
+  })
+  return new Set((text ?? "").split("\n").filter((line) => line !== ""))
+}
 
 export type Language = CorpusCase["language"]
 export type Band = CorpusCase["band"]
@@ -122,9 +130,7 @@ export const recordRepository = async (
     await git(dir, ["checkout", "-q", "--detach", entry.sha])
     const { tree, sourceLines } = await readTree(dir, entry.sha)
     // A shallow boundary commit has no parent, so git would list its whole tree as added.
-    const boundary = new Set(
-      (await readFile(join(dir, ".git", "shallow"), "utf8").catch(() => "")).split("\n").filter((line) => line !== "")
-    )
+    const boundary = await readShallowBoundary(join(dir, ".git", "shallow"))
     const log = await git(dir, ["log", "-n", "50000", `--format=${LOG_FORMAT}`, "--numstat", entry.sha])
     const commits = parseLog(log).filter((commit) => !boundary.has(commit.sha))
     const window = commits.filter((commit) => commit.time > now - 180 * DAY)

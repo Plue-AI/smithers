@@ -1,4 +1,4 @@
-import type { DiffRecord } from "../../src/git/diffRecord.ts";
+import type { DiffRecord } from "../../src/git/diffRecord.ts"
 
 /** A modified `src/a.ts` with no content, overridden field by field. */
 export function diffRecordFixture(overrides: Partial<DiffRecord>): DiffRecord {
@@ -11,6 +11,6 @@ export function diffRecordFixture(overrides: Partial<DiffRecord>): DiffRecord {
     isNew: false,
     isDeleted: false,
     isBinary: false,
-    ...overrides,
-  };
+    ...overrides
+  }
 }

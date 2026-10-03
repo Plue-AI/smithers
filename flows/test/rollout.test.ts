@@ -337,7 +337,9 @@ test("publication refusal preserves its named check and prevents publishing", as
   assert.ok(refusal instanceof Error)
   assert.equal(refusal.message, "provenance")
   assert.equal(refusal.check, "provenance")
-  f.host.beforePublish = async () => { throw refusal }
+  f.host.beforePublish = async () => {
+    throw refusal
+  }
   const result = await rollout(f.host)
   assert.equal(result.status, "refused")
   assert.deepEqual(result.failedChecks, ["provenance"])

@@ -29,7 +29,6 @@ export function assertWorkerQualified(app: WorkerApp, artifact: WorkerArtifact, 
     !sameArtifact(evidence.artifact, artifact) || !sameArtifact(evidence.adoption.artifact, artifact) ||
     evidence.adoption.status !== "retained" || !evidence.adoption.receipt.trim()
   ) throw new Error("Worker qualification refused")
-
 }
 
 /** The private host holds the exclusive lease, immutable artifact and durable receipts. */

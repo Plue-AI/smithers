@@ -5,30 +5,30 @@
  * the old side and are not commentable on RIGHT.
  */
 export function parsePatchCommentableLines(patch: string): Set<number> {
-  const commentable = new Set<number>();
-  if (!patch.trim()) return commentable;
-  let newLine = 0;
-  let inHunk = false;
+  const commentable = new Set<number>()
+  if (!patch.trim()) return commentable
+  let newLine = 0
+  let inHunk = false
   for (const line of patch.split("\n")) {
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
     if (hunk) {
-      newLine = Number(hunk[1]);
-      inHunk = true;
-      continue;
+      newLine = Number(hunk[1])
+      inHunk = true
+      continue
     }
-    if (!inHunk) continue;
+    if (!inHunk) continue
     if (line.startsWith("+")) {
-      commentable.add(newLine);
-      newLine += 1;
+      commentable.add(newLine)
+      newLine += 1
     } else if (line.startsWith("-")) {
       // Old side only; the new-side counter does not advance.
     } else if (line.startsWith("\\")) {
       // "\ No newline at end of file" marker; no line on either side.
     } else {
       // Context line: present on both sides, commentable on RIGHT.
-      commentable.add(newLine);
-      newLine += 1;
+      commentable.add(newLine)
+      newLine += 1
     }
   }
-  return commentable;
+  return commentable
 }

@@ -284,44 +284,35 @@ const scenarios: Readonly<Record<string, Scenario>> = {
 
   "park-without-a-human-is-answered": {
     summary:
-      "A park in a run with no approval channel is refused and answered in the frame that asked, and the run spends the budget it still held instead of suspending on nobody.",
+      "An unattended park fails visibly with approval_unavailable in its first frame; the agent cannot answer its own approval question.",
     run: () => {
       const recorder = Subject.makeRecorder()
       return Subject.runAgent({
         recorder,
-        // The second cell answers only when the refusal actually reached the
-        // model, so a loop that quietly suspended cannot pass by ending some
-        // other way: it would never produce this answer at all.
-        respond: (prompt) =>
-          prompt.includes("No human is available")
-            ? `await ctx.call("probe", { note: "settled-it-myself" })
-               ctx.done("settled it myself")`
-            : `ctx.park("waiting-input", "which branch?")`,
+        expectedFailureCode: "approval_unavailable",
+        respond: () => `ctx.park("waiting-input", "which branch?")`,
         maxFrames: 4,
         flows: [Subject.probeSource(recorder)]
       })
     },
-    expected: answered("settled it myself", 2, ["probe:settled-it-myself"])
+    expected: failed("/harness/HarnessError", 1)
   },
 
   "park-every-frame-still-hits-the-read-only-cap": {
     summary:
-      "A run that answers every refused park with another park is stopped at twice its read-only cap, not left to spend the whole frame budget asking.",
+      "An unattended park fails before the read-only cap can demand another frame, preserving the approval failure rather than continuing autonomously.",
     run: () => {
       const recorder = Subject.makeRecorder()
       return Subject.runAgent({
         recorder,
-        // A refused park continues the run, so the frame is judged like any
-        // other frame that changed nothing. Exempting it would leave one shape
-        // of stall — ask, be refused, ask again — outside the only control
-        // that ends one, and the run would spend all forty frames on it.
+        expectedFailureCode: "approval_unavailable",
         respond: () => `ctx.park("waiting-input", "which branch?")`,
         maxFrames: 40,
         readOnlyCap: 1,
         flows: [Subject.probeSource(recorder)]
       })
     },
-    expected: failed("/harness/HarnessError", 2)
+    expected: failed("/harness/HarnessError", 1)
   },
 
   "repl-realm-carries-a-binding-across-frames": {

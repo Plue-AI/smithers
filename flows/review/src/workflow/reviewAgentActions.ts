@@ -9,20 +9,20 @@
  *
  * @since 1.0.0
  */
-import * as AgentAction from "@smthrs/agent/AgentAction";
-import * as Schema from "effect/Schema";
-import * as Duration from "effect/Duration";
-import { buildNarratePrompt } from "../walkthrough/buildNarratePrompt.ts";
-import { ChangedFile } from "../walkthrough/changedFileSchema.ts";
-import { Story } from "../walkthrough/storySchema.ts";
-import { arrayOf } from "../schema/withDefault.ts";
-import { NativeReviewAgentOutput } from "./nativeReviewAgentOutputSchema.ts";
-import { OpenCodeReviewInput } from "./openCodeReviewInputSchema.ts";
-import { ReviewComment } from "./reviewCommentSchema.ts";
-import { ReviewMode } from "./reviewModeSchema.ts";
-import { SEAT } from "./reviewSeats.ts";
-import { buildVerifyFindingsPrompt } from "./verifyFindings.ts";
-import { VerifyVerdicts } from "./verifyVerdictsSchema.ts";
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import * as Duration from "effect/Duration"
+import * as Schema from "effect/Schema"
+import { arrayOf } from "../schema/withDefault.ts"
+import { buildNarratePrompt } from "../walkthrough/buildNarratePrompt.ts"
+import { ChangedFile } from "../walkthrough/changedFileSchema.ts"
+import { Story } from "../walkthrough/storySchema.ts"
+import { NativeReviewAgentOutput } from "./nativeReviewAgentOutputSchema.ts"
+import { OpenCodeReviewInput } from "./openCodeReviewInputSchema.ts"
+import { ReviewComment } from "./reviewCommentSchema.ts"
+import { ReviewMode } from "./reviewModeSchema.ts"
+import { SEAT } from "./reviewSeats.ts"
+import { buildVerifyFindingsPrompt } from "./verifyFindings.ts"
+import { VerifyVerdicts } from "./verifyVerdictsSchema.ts"
 
 /**
  * Reviews one file.
@@ -42,10 +42,10 @@ export const ReviewFile = AgentAction.make("smithers-review/ReviewFile", {
   timeout: ({ timeout }) => Duration.minutes(timeout),
   system: [
     "You are a precise code reviewer. Report only defects you can point at in the diff you were given.",
-    "Never invent line numbers, never restate the diff, and never report style preferences as defects.",
+    "Never invent line numbers, never restate the diff, and never report style preferences as defects."
   ],
-  prompt: ({ prompt }) => prompt,
-});
+  prompt: ({ prompt }) => prompt
+})
 
 /**
  * Adjudicates the findings a review produced.
@@ -57,14 +57,14 @@ export const VerifyFindings = AgentAction.make("smithers-review/VerifyFindings",
   payload: {
     timeout: OpenCodeReviewInput.fields.timeout,
     findings: arrayOf(ReviewComment),
-    files: arrayOf(ChangedFile),
+    files: arrayOf(ChangedFile)
   },
   output: VerifyVerdicts,
   seat: SEAT.verify,
   timeout: ({ timeout }) => Duration.minutes(timeout),
   system: [
     "You adjudicate code-review findings against the diff they were made on.",
-    "Keep a finding only when the diff shows the defect. Drop a finding the diff refutes. Demote one whose severity overstates it.",
+    "Keep a finding only when the diff shows the defect. Drop a finding the diff refutes. Demote one whose severity overstates it."
   ],
   prompt: ({ files, findings }) =>
     buildVerifyFindingsPrompt({
@@ -76,11 +76,11 @@ export const VerifyFindings = AgentAction.make("smithers-review/VerifyFindings",
         confidence: finding.confidence,
         startLine: finding.startLine,
         endLine: finding.endLine,
-        existingCode: finding.existingCode,
+        existingCode: finding.existingCode
       })),
-      filesByPath: new Map(files.map((file) => [file.path, { diff: file.diff }])),
-    }),
-});
+      filesByPath: new Map(files.map((file) => [file.path, { diff: file.diff }]))
+    })
+})
 
 /**
  * Narrates the change set as a story the walkthrough renders.
@@ -95,13 +95,13 @@ export const NarrateChanges = AgentAction.make("smithers-review/NarrateChanges",
     comments: arrayOf(ReviewComment),
     background: Schema.String,
     mode: ReviewMode,
-    ref: Schema.String,
+    ref: Schema.String
   },
   output: Story,
   seat: SEAT.narrate,
   timeout: ({ timeout }) => Duration.minutes(timeout),
   system: [
-    "You explain a change set to a reader who has not seen it, in chapters, in the order that makes it easiest to follow.",
+    "You explain a change set to a reader who has not seen it, in chapters, in the order that makes it easiest to follow."
   ],
   prompt: ({ background, comments, files, mode, ref }) =>
     buildNarratePrompt({
@@ -109,7 +109,6 @@ export const NarrateChanges = AgentAction.make("smithers-review/NarrateChanges",
       comments: [...comments],
       background,
       mode: mode === "commit" ? "commit" : mode === "range" ? "range" : "workspace",
-      ref,
-    }),
-});
-
+      ref
+    })
+})

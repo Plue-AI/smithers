@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import * as Schema from "effect/Schema"
 
 /**
  * What kind of problem a finding reports.
@@ -14,8 +14,8 @@ export const ReviewCommentCategory = Schema.Literals([
   "tests",
   "docs",
   "style",
-  "other",
-]);
+  "other"
+])
 
 /**
  * A decoded category.
@@ -23,4 +23,4 @@ export const ReviewCommentCategory = Schema.Literals([
  * @since 1.0.0
  * @category models
  */
-export type ReviewCommentCategory = typeof ReviewCommentCategory.Type;
+export type ReviewCommentCategory = typeof ReviewCommentCategory.Type

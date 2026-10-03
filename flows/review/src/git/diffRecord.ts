@@ -8,12 +8,12 @@
  * @category models
  */
 export type DiffRecord = {
-  oldPath: string;
-  newPath: string;
-  diff: string;
-  insertions: number;
-  deletions: number;
-  isNew: boolean;
-  isDeleted: boolean;
-  isBinary: boolean;
-};
+  oldPath: string
+  newPath: string
+  diff: string
+  insertions: number
+  deletions: number
+  isNew: boolean
+  isDeleted: boolean
+  isBinary: boolean
+}

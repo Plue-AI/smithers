@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import * as Schema from "effect/Schema"
 
 /**
  * One file the fan-out will review, carrying the diff and the built prompt so
@@ -14,8 +14,8 @@ export const NativeReviewFile = Schema.Struct({
   insertions: Schema.Number,
   deletions: Schema.Number,
   diff: Schema.String,
-  prompt: Schema.String,
-});
+  prompt: Schema.String
+})
 
 /**
  * A decoded reviewable file.
@@ -23,4 +23,4 @@ export const NativeReviewFile = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type NativeReviewFile = typeof NativeReviewFile.Type;
+export type NativeReviewFile = typeof NativeReviewFile.Type

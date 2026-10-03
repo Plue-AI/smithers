@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import * as Schema from "effect/Schema"
 
 /**
  * How much a finding matters. Ordered most to least severe; every rank, order,
@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
  * @since 1.0.0
  * @category schemas
  */
-export const ReviewCommentSeverity = Schema.Literals(["critical", "major", "minor", "info"]);
+export const ReviewCommentSeverity = Schema.Literals(["critical", "major", "minor", "info"])
 
 /**
  * A decoded severity.
@@ -16,4 +16,4 @@ export const ReviewCommentSeverity = Schema.Literals(["critical", "major", "mino
  * @since 1.0.0
  * @category models
  */
-export type ReviewCommentSeverity = typeof ReviewCommentSeverity.Type;
+export type ReviewCommentSeverity = typeof ReviewCommentSeverity.Type

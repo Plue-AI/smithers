@@ -1,5 +1,5 @@
 import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Duration, Effect, Layer, Schema, Semaphore } from "effect"
+import { type Duration, Effect, Layer, Schema, Semaphore } from "effect"
 import { existsSync, statfsSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"

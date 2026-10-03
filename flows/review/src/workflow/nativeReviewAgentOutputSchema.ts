@@ -1,8 +1,8 @@
-import * as Schema from "effect/Schema";
-import { arrayOf, withDefault } from "../schema/withDefault.ts";
-import { ReviewSummary } from "./reviewSummarySchema.ts";
-import { ReviewComment } from "./reviewCommentSchema.ts";
-import { ReviewWarning } from "./reviewWarningSchema.ts";
+import * as Schema from "effect/Schema"
+import { arrayOf, withDefault } from "../schema/withDefault.ts"
+import { ReviewComment } from "./reviewCommentSchema.ts"
+import { ReviewSummary } from "./reviewSummarySchema.ts"
+import { ReviewWarning } from "./reviewWarningSchema.ts"
 
 /**
  * The per-file answer a review seat must produce.
@@ -14,13 +14,13 @@ import { ReviewWarning } from "./reviewWarningSchema.ts";
 export const NativeReviewAgentOutput = Schema.Struct({
   status: withDefault(
     Schema.Literals(["success", "completed_with_warnings", "completed_with_errors", "failed"]),
-    "success" as const,
+    "success" as const
   ),
   message: withDefault(Schema.String, ""),
   summary: withDefault(Schema.NullOr(ReviewSummary), null),
   comments: arrayOf(ReviewComment),
-  warnings: arrayOf(ReviewWarning),
-});
+  warnings: arrayOf(ReviewWarning)
+})
 
 /**
  * A decoded per-file answer.
@@ -28,4 +28,4 @@ export const NativeReviewAgentOutput = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type NativeReviewAgentOutput = typeof NativeReviewAgentOutput.Type;
+export type NativeReviewAgentOutput = typeof NativeReviewAgentOutput.Type

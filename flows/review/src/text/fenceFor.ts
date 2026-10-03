@@ -8,9 +8,9 @@
  * fences as valid, including for suggestion blocks, so widening is always safe.
  */
 export function fenceFor(content: string): string {
-  let longest = 0;
+  let longest = 0
   for (const match of content.matchAll(/`+/g)) {
-    longest = Math.max(longest, match[0].length);
+    longest = Math.max(longest, match[0].length)
   }
-  return "`".repeat(Math.max(longest + 1, 3));
+  return "`".repeat(Math.max(longest + 1, 3))
 }

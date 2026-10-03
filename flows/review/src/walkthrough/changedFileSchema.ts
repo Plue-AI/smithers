@@ -3,8 +3,8 @@
  *
  * @since 1.0.0
  */
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
 
 /**
  * A changed file, with its diff and whether the review looked at it.
@@ -19,8 +19,8 @@ export const ChangedFile = Schema.Struct({
   deletions: withDefault(Schema.Number, 0),
   diff: withDefault(Schema.String, ""),
   reviewed: withDefault(Schema.Boolean, false),
-  excludeReason: withDefault(Schema.String, ""),
-});
+  excludeReason: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded changed file.
@@ -28,4 +28,4 @@ export const ChangedFile = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ChangedFile = typeof ChangedFile.Type;
+export type ChangedFile = typeof ChangedFile.Type

@@ -473,6 +473,8 @@ export interface AgentOptions {
   readonly recorder: Recorder
   readonly respond: Respond
   readonly maxFrames: number
+  /** Require a precise failure reason before reducing it to the stable observation. */
+  readonly expectedFailureCode?: string | undefined
   /** Caps consecutive read-only frames, the task-run discipline. */
   readonly readOnlyCap?: number | undefined
   /** Host executable flows the cell may call. */
@@ -525,6 +527,12 @@ export const runAgent = (options: AgentOptions): Effect.Effect<Observation> =>
     )
     yield* engine.execute(DriveFlow, { executionId: "evals-agent", payload: {}, discard: true })
     const exit = yield* Deferred.await(settled)
+    if (options.expectedFailureCode !== undefined) {
+      const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+      if (typeof error !== "object" || error === null || !("code" in error) || error.code !== options.expectedFailureCode) {
+        return yield* Effect.die(new Error(`Expected failure code ${options.expectedFailureCode}`))
+      }
+    }
     return observe(exit, options.recorder)
   }).pipe(
     Effect.provide(Layer.merge(FlowEngine.layerMemory, hostCrypto)),

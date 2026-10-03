@@ -9,16 +9,16 @@
  *
  * @since 1.0.0
  */
-import * as Schema from "effect/Schema";
-import { arrayOf, withDefault } from "../schema/withDefault.ts";
-import { Changes } from "../walkthrough/changesSchema.ts";
-import { Story } from "../walkthrough/storySchema.ts";
-import { NativeReviewAgentOutput } from "./nativeReviewAgentOutputSchema.ts";
-import { NativeReviewPrompt } from "./nativeReviewPromptSchema.ts";
-import { PreviewOutput } from "./previewOutputSchema.ts";
-import { ReviewRunOutput } from "./reviewRunOutputSchema.ts";
-import { ReviewTarget } from "./reviewTargetSchema.ts";
-import { ReviewInput } from "./reviewInputSchema.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
+import { Changes } from "../walkthrough/changesSchema.ts"
+import { Story } from "../walkthrough/storySchema.ts"
+import { NativeReviewAgentOutput } from "./nativeReviewAgentOutputSchema.ts"
+import { NativeReviewPrompt } from "./nativeReviewPromptSchema.ts"
+import { PreviewOutput } from "./previewOutputSchema.ts"
+import { ReviewInput } from "./reviewInputSchema.ts"
+import { ReviewRunOutput } from "./reviewRunOutputSchema.ts"
+import { ReviewTarget } from "./reviewTargetSchema.ts"
 
 /**
  * Everything the local git work produces in one durable step.
@@ -30,8 +30,8 @@ export const PreparedReview = Schema.Struct({
   target: ReviewTarget,
   preview: PreviewOutput,
   changes: Changes,
-  prompt: NativeReviewPrompt,
-});
+  prompt: NativeReviewPrompt
+})
 
 /**
  * A decoded preparation result.
@@ -39,7 +39,7 @@ export const PreparedReview = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type PreparedReview = typeof PreparedReview.Type;
+export type PreparedReview = typeof PreparedReview.Type
 
 /**
  * What one file's review seat produced, or `null` when its step failed.
@@ -53,8 +53,8 @@ export type PreparedReview = typeof PreparedReview.Type;
  */
 export const FileOutcome = Schema.Struct({
   fileId: Schema.String,
-  output: Schema.NullOr(NativeReviewAgentOutput),
-});
+  output: Schema.NullOr(NativeReviewAgentOutput)
+})
 
 /**
  * A decoded per-file outcome.
@@ -62,7 +62,7 @@ export const FileOutcome = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type FileOutcome = typeof FileOutcome.Type;
+export type FileOutcome = typeof FileOutcome.Type
 
 /**
  * One concurrency batch's answers, keyed by the file's step id.
@@ -70,7 +70,7 @@ export type FileOutcome = typeof FileOutcome.Type;
  * @since 1.0.0
  * @category schemas
  */
-export const FileBatch = Schema.Record(Schema.String, Schema.NullOr(NativeReviewAgentOutput));
+export const FileBatch = Schema.Record(Schema.String, Schema.NullOr(NativeReviewAgentOutput))
 
 /**
  * A decoded batch.
@@ -78,7 +78,7 @@ export const FileBatch = Schema.Record(Schema.String, Schema.NullOr(NativeReview
  * @since 1.0.0
  * @category models
  */
-export type FileBatch = typeof FileBatch.Type;
+export type FileBatch = typeof FileBatch.Type
 
 /**
  * The accumulator threaded through the concurrency batches.
@@ -86,7 +86,7 @@ export type FileBatch = typeof FileBatch.Type;
  * @since 1.0.0
  * @category schemas
  */
-export const FileOutcomes = withDefault(Schema.Array(FileOutcome), []);
+export const FileOutcomes = withDefault(Schema.Array(FileOutcome), [])
 
 /**
  * A decoded outcome list.
@@ -94,7 +94,7 @@ export const FileOutcomes = withDefault(Schema.Array(FileOutcome), []);
  * @since 1.0.0
  * @category models
  */
-export type FileOutcomes = typeof FileOutcomes.Type;
+export type FileOutcomes = typeof FileOutcomes.Type
 
 /**
  * The payload the file-review round runs under.
@@ -106,8 +106,8 @@ export const ReviewFilesPayload = Schema.Struct({
   input: ReviewInput,
   prepared: PreparedReview,
   offset: withDefault(Schema.Number, 0),
-  outcomes: FileOutcomes,
-});
+  outcomes: FileOutcomes
+})
 
 /**
  * The payload the verification round runs under.
@@ -119,8 +119,8 @@ export const VerifyReviewPayload = Schema.Struct({
   input: ReviewInput,
   target: ReviewTarget,
   changes: Changes,
-  review: ReviewRunOutput,
-});
+  review: ReviewRunOutput
+})
 
 /**
  * The payload the narration round runs under. Its `review` is post-verification.
@@ -128,7 +128,7 @@ export const VerifyReviewPayload = Schema.Struct({
  * @since 1.0.0
  * @category schemas
  */
-export const NarrateReviewPayload = VerifyReviewPayload;
+export const NarrateReviewPayload = VerifyReviewPayload
 
 /**
  * The walkthrough file the last round writes, plus the counts the CLI's run
@@ -146,8 +146,8 @@ export const WalkthroughOutput = Schema.Struct({
   chapters: Schema.Number,
   files: Schema.Number,
   findings: Schema.Number,
-  message: withDefault(Schema.String, ""),
-});
+  message: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded walkthrough result.
@@ -155,7 +155,7 @@ export const WalkthroughOutput = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type WalkthroughOutput = typeof WalkthroughOutput.Type;
+export type WalkthroughOutput = typeof WalkthroughOutput.Type
 
 /**
  * What a whole review run answers with.
@@ -168,8 +168,8 @@ export const ReviewResult = Schema.Struct({
   review: ReviewRunOutput,
   walkthrough: WalkthroughOutput,
   story: Story,
-  ui: Schema.Struct({ kind: Schema.Literal("html"), title: Schema.String, html: Schema.String }),
-});
+  ui: Schema.Struct({ kind: Schema.Literal("html"), title: Schema.String, html: Schema.String })
+})
 
 /**
  * A decoded review result.
@@ -177,4 +177,4 @@ export const ReviewResult = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewResult = typeof ReviewResult.Type;
+export type ReviewResult = typeof ReviewResult.Type

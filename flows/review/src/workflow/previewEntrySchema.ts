@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
 
 /**
  * One changed file as the preview reports it, including whether the review
@@ -14,8 +14,8 @@ export const PreviewEntry = Schema.Struct({
   insertions: Schema.Number,
   deletions: Schema.Number,
   willReview: Schema.Boolean,
-  excludeReason: withDefault(Schema.String, ""),
-});
+  excludeReason: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded preview entry.
@@ -23,4 +23,4 @@ export const PreviewEntry = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type PreviewEntry = typeof PreviewEntry.Type;
+export type PreviewEntry = typeof PreviewEntry.Type

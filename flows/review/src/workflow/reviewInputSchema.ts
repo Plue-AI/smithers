@@ -4,9 +4,9 @@
  *
  * @since 1.0.0
  */
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
-import { OpenCodeReviewInput } from "./openCodeReviewInputSchema.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
+import { OpenCodeReviewInput } from "./openCodeReviewInputSchema.ts"
 
 /**
  * The full review request.
@@ -20,8 +20,8 @@ export const ReviewInput = Schema.Struct({
   narrate: withDefault(Schema.Boolean, true),
   title: withDefault(Schema.String, ""),
   split: withDefault(Schema.Boolean, false),
-  verify: withDefault(Schema.Boolean, true),
-});
+  verify: withDefault(Schema.Boolean, true)
+})
 
 /**
  * The decoded review request.
@@ -29,4 +29,4 @@ export const ReviewInput = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewInput = typeof ReviewInput.Type;
+export type ReviewInput = typeof ReviewInput.Type

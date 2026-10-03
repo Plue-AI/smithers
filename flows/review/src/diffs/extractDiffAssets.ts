@@ -6,10 +6,10 @@
  * @category models
  */
 export type DiffAssets = {
-  sprite: string;
-  styles: string[];
-  body: string;
-};
+  sprite: string
+  styles: Array<string>
+  body: string
+}
 
 /**
  * Split a prerendered @pierre/diffs HTML block into its shared assets and the
@@ -30,16 +30,16 @@ export type DiffAssets = {
  * page can inline it once.
  */
 export function extractDiffAssets(prerenderedHTML: string): DiffAssets {
-  const firstStyle = prerenderedHTML.indexOf("<style");
-  if (firstStyle < 0) return { sprite: "", styles: [], body: prerenderedHTML };
-  const sprite = prerenderedHTML.slice(0, firstStyle);
-  const styles: string[] = [];
-  let rest = prerenderedHTML.slice(firstStyle);
+  const firstStyle = prerenderedHTML.indexOf("<style")
+  if (firstStyle < 0) return { sprite: "", styles: [], body: prerenderedHTML }
+  const sprite = prerenderedHTML.slice(0, firstStyle)
+  const styles: Array<string> = []
+  let rest = prerenderedHTML.slice(firstStyle)
   while (rest.startsWith("<style")) {
-    const end = rest.indexOf("</style>");
-    if (end < 0) break;
-    styles.push(rest.slice(0, end + "</style>".length).replaceAll(":host", ".pierre-diff"));
-    rest = rest.slice(end + "</style>".length);
+    const end = rest.indexOf("</style>")
+    if (end < 0) break
+    styles.push(rest.slice(0, end + "</style>".length).replaceAll(":host", ".pierre-diff"))
+    rest = rest.slice(end + "</style>".length)
   }
-  return { sprite: rest.includes("<use") ? sprite : "", styles, body: rest };
+  return { sprite: rest.includes("<use") ? sprite : "", styles, body: rest }
 }

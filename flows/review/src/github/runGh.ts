@@ -1,4 +1,4 @@
-import { runCommand } from "../git/runCommand.ts";
+import { runCommand } from "../git/runCommand.ts"
 
 /**
  * The gh executable this process spawns.
@@ -9,17 +9,20 @@ import { runCommand } from "../git/runCommand.ts";
  * about which gh they mean.
  */
 export function ghBin(): string {
-  return process.env.SMITHERS_GH_BIN || "gh";
+  return process.env.SMITHERS_GH_BIN || "gh"
 }
 
 /**
  * Run the gh CLI in a repo directory; resolves stdout, throws with stderr.
  */
-export async function runGh(repoDir: string, args: string[], stdin?: string): Promise<string> {
-  const result = await runCommand(ghBin(), args, repoDir, 120_000, stdin);
-  if (result.exitCode !== 0) throw new Error(`gh ${args.slice(0, 2).join(" ")} failed: ${result.stderr || `exited with code ${result.exitCode}`}`);
-  return result.stdout;
-
+export async function runGh(repoDir: string, args: Array<string>, stdin?: string): Promise<string> {
+  const result = await runCommand(ghBin(), args, repoDir, 120_000, stdin)
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `gh ${args.slice(0, 2).join(" ")} failed: ${result.stderr || `exited with code ${result.exitCode}`}`
+    )
+  }
+  return result.stdout
 }
 
 /**
@@ -31,20 +34,24 @@ export async function runGh(repoDir: string, args: string[], stdin?: string): Pr
  * across jq builds, so string results are unwrapped once; blank and
  * unparseable lines are skipped.
  */
-export async function runGhJsonLines(repoDir: string, args: string[], gh: typeof runGh = runGh): Promise<object[]> {
-  const raw = await gh(repoDir, args);
-  const records: object[] = [];
+export async function runGhJsonLines(
+  repoDir: string,
+  args: Array<string>,
+  gh: typeof runGh = runGh
+): Promise<Array<object>> {
+  const raw = await gh(repoDir, args)
+  const records: Array<object> = []
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let parsed: unknown;
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    let parsed: unknown
     try {
-      parsed = JSON.parse(trimmed);
-      if (typeof parsed === "string") parsed = JSON.parse(parsed);
+      parsed = JSON.parse(trimmed)
+      if (typeof parsed === "string") parsed = JSON.parse(parsed)
     } catch {
-      continue;
+      continue
     }
-    if (parsed && typeof parsed === "object") records.push(parsed);
+    if (parsed && typeof parsed === "object") records.push(parsed)
   }
-  return records;
+  return records
 }

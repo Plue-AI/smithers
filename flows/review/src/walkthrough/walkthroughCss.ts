@@ -1,4 +1,4 @@
-import { standaloneThemeCss } from "@smthrs/ui-styleguide";
+import { standaloneThemeCss } from "@smthrs/ui-styleguide"
 
 /**
  * The walkthrough design system composes the standalone shared theme with
@@ -245,7 +245,7 @@ td.finding-cell { padding: 0 !important; }
   .dot, .sev-chip, .finding-gutter::before, .chart-add, .chart-del { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   a { color: inherit; }
 }
-`.trim();
+`.trim()
 
 /**
  * Emitted after the Pierre stylesheets: unlayered restores for the resets
@@ -264,4 +264,4 @@ export const walkthroughRestoreCss = `
 *:not(:where(.pierre-diff, .pierre-diff *)), *:not(:where(.pierre-diff, .pierre-diff *))::before, *:not(:where(.pierre-diff, .pierre-diff *))::after { box-sizing: border-box; }
 code:not(:where(.pierre-diff *)), pre:not(:where(.pierre-diff *)) { display: revert; margin: revert; padding: revert; }
 code:not(:where(.pierre-diff *)) { display: inline; }
-`.trim();
+`.trim()

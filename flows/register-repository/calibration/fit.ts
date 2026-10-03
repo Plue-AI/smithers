@@ -42,7 +42,9 @@ export const fitAnchors = (cases: ReadonlyArray<CorpusCase>) => {
   /** A stratum with fewer than three measured human values borrows the pooled anchor for that signal. */
   const anchors = (subset: ReadonlyArray<CorpusCase>): Anchors =>
     Object.fromEntries(
-      DETERMINISTIC.map((id) => [id, measured(subset, id).length < 3 ? pooled[id] : percentile(measured(subset, id), 0.9)])
+      DETERMINISTIC.map((
+        id
+      ) => [id, measured(subset, id).length < 3 ? pooled[id] : percentile(measured(subset, id), 0.9)])
     ) as Anchors
   const strata: Record<string, Anchors> = {}
   for (const language of LANGUAGES) {
@@ -56,7 +58,7 @@ export const fitAnchors = (cases: ReadonlyArray<CorpusCase>) => {
 
 export const normalize = (entry: CorpusCase, strata: Record<string, Anchors>, pooled: Anchors) => {
   const anchor = strata[`${entry.language}/${entry.band}`] ?? pooled
-  return DETERMINISTIC.map((id) => entry.values[id] === null ? 0 : Math.min(1, entry.values[id]! / anchor[id]))
+  return DETERMINISTIC.map((id) => entry.values[id] === null ? 0 : Math.min(1, entry.values[id] / anchor[id]))
 }
 
 /** Euclidean projection onto {w >= 0, sum w = 1}. */
@@ -77,7 +79,10 @@ const sigmoid = (value: number) => 1 / (1 + Math.exp(-value))
  * Logistic regression p(agent) = sigmoid(scale * theta.x + bias) with theta on the simplex,
  * by projected gradient descent from a uniform start. Weights are theta scaled to `total`.
  */
-export const fitWeights = (rows: ReadonlyArray<{ x: ReadonlyArray<number>; y: 0 | 1 }>, total = DETERMINISTIC_TOTAL) => {
+export const fitWeights = (
+  rows: ReadonlyArray<{ x: ReadonlyArray<number>; y: 0 | 1 }>,
+  total = DETERMINISTIC_TOTAL
+) => {
   const size = rows[0]!.x.length
   let theta = Array.from({ length: size }, () => 1 / size), scale = 1, bias = 0
   for (let step = 0; step < 4000; step++) {
@@ -102,7 +107,13 @@ export const auroc = (scores: ReadonlyArray<{ score: number; positive: boolean }
   const positives = scores.filter((entry) => entry.positive), negatives = scores.filter((entry) => !entry.positive)
   let wins = 0
   for (const positive of positives) {
-    for (const negative of negatives) wins += positive.score > negative.score ? 1 : positive.score === negative.score ? 0.5 : 0
+    for (const negative of negatives) {
+      wins += positive.score > negative.score
+        ? 1
+        : positive.score === negative.score
+        ? 0.5
+        : 0
+    }
   }
   return wins / (positives.length * negatives.length)
 }
@@ -121,7 +132,8 @@ export const split = (cases: ReadonlyArray<CorpusCase>) => {
 }
 
 const round = (value: number) => Math.round(value * 10_000) / 10_000
-const roundAll = (anchors: Anchors) => Object.fromEntries(Object.entries(anchors).map(([k, v]) => [k, round(v)])) as Anchors
+const roundAll = (anchors: Anchors) =>
+  Object.fromEntries(Object.entries(anchors).map(([k, v]) => [k, round(v)])) as Anchors
 
 export interface Fit {
   readonly method: "calibrated-synthetic-v1" | "calibrated-real-v1"
@@ -145,7 +157,7 @@ export const fit = (cases: ReadonlyArray<CorpusCase>, method: Fit["method"] = "c
   const vector = (entry: CorpusCase) => normalize(entry, strata, pooled)
   const rows = train.filter((entry) => entry.label !== "hybrid").map((entry) => ({
     x: vector(entry),
-    y: (entry.label === "agent" ? 1 : 0) as 0 | 1
+    y: (entry.label === "agent" ? 1 : 0)
   }))
   const { weights, scale, bias } = fitWeights(rows)
   const score = (entry: CorpusCase) => vector(entry).reduce((sum, value, index) => sum + value * weights[index]!, 0)
@@ -158,14 +170,23 @@ export const fit = (cases: ReadonlyArray<CorpusCase>, method: Fit["method"] = "c
   const flaggedBy = (index: number) => heldOut.filter((entry) => vector(entry)[index]! >= 1)
   const precision = Object.fromEntries(DETERMINISTIC.map((id, index) => {
     const flagged = flaggedBy(index)
-    return [id, flagged.length === 0 ? null : round(flagged.filter((entry) => entry.label === "agent").length / flagged.length)]
+    return [
+      id,
+      flagged.length === 0 ? null : round(flagged.filter((entry) => entry.label === "agent").length / flagged.length)
+    ]
   })) as Record<Deterministic, number | null>
-  const flagged = Object.fromEntries(DETERMINISTIC.map((id, index) => [id, flaggedBy(index).length])) as Record<Deterministic, number>
+  const flagged = Object.fromEntries(DETERMINISTIC.map((id, index) => [id, flaggedBy(index).length])) as Record<
+    Deterministic,
+    number
+  >
   return {
     method,
     pooled: roundAll(pooled),
     strata: Object.fromEntries(Object.entries(strata).map(([key, value]) => [key, roundAll(value)])),
-    weights: Object.fromEntries(DETERMINISTIC.map((id, index) => [id, round(weights[index]!)])) as Record<Deterministic, number>,
+    weights: Object.fromEntries(DETERMINISTIC.map((id, index) => [id, round(weights[index]!)])) as Record<
+      Deterministic,
+      number
+    >,
     scale: round(scale),
     bias: round(bias),
     trainCases: train.length,

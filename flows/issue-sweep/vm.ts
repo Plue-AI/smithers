@@ -32,7 +32,7 @@ import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@s
 import { type Duration, Effect, Option, Semaphore, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
 import { existsSync, readdirSync } from "node:fs"
-import { homedir, hostname } from "node:os"
+import { hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { pooled } from "./vm-pool.ts"

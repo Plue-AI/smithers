@@ -1,8 +1,8 @@
-import * as Schema from "effect/Schema";
-import { arrayOf, withDefault } from "../schema/withDefault.ts";
-import { ReviewMode } from "./reviewModeSchema.ts";
-import { NativeReviewFile } from "./nativeReviewFileSchema.ts";
-import { ReviewWarning } from "./reviewWarningSchema.ts";
+import * as Schema from "effect/Schema"
+import { arrayOf, withDefault } from "../schema/withDefault.ts"
+import { NativeReviewFile } from "./nativeReviewFileSchema.ts"
+import { ReviewMode } from "./reviewModeSchema.ts"
+import { ReviewWarning } from "./reviewWarningSchema.ts"
 
 /**
  * Everything the fan-out round needs, decided once by the preparing round:
@@ -21,8 +21,8 @@ export const NativeReviewPrompt = Schema.Struct({
   excludedFiles: Schema.Number,
   files: arrayOf(NativeReviewFile),
   message: withDefault(Schema.String, ""),
-  warnings: arrayOf(ReviewWarning),
-});
+  warnings: arrayOf(ReviewWarning)
+})
 
 /**
  * A decoded fan-out plan.
@@ -30,4 +30,4 @@ export const NativeReviewPrompt = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type NativeReviewPrompt = typeof NativeReviewPrompt.Type;
+export type NativeReviewPrompt = typeof NativeReviewPrompt.Type

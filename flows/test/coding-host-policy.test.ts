@@ -119,7 +119,8 @@ test("the packaged host exposes PR triage in a repository with no project flows"
   const output = join(temporary, "host.mjs")
   await bundle(fileURLToPath(new URL("./fixtures/coding-pr-triage-bundle-entry.ts", import.meta.url)), output)
   const found = JSON.parse(execFileSync(process.execPath, [output, temporary], {
-    encoding: "utf8", timeout: 60_000
+    encoding: "utf8",
+    timeout: 60_000
   })) as {
     readonly name: string
     readonly source: string
@@ -143,7 +144,9 @@ test("the packaged host exposes PR triage in a repository with no project flows"
   const environment = { ...process.env }
   delete environment.NODE_TEST_CONTEXT
   const execution = execFileSync(process.execPath, ["--test", output], {
-    encoding: "utf8", timeout: 60_000, env: environment
+    encoding: "utf8",
+    timeout: 60_000,
+    env: environment
   })
   assert.match(execution, /pass 1/)
   assert.match(execution, /fail 0/)

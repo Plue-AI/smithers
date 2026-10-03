@@ -19,7 +19,7 @@ function qualification(app: WorkerApp): WorkerQualification {
     mainRevision: artifact.revision,
     gate: { revision: artifact.revision, status: "passed" },
     artifact: { ...artifact },
-    adoption: { artifact: { ...artifact }, status: "retained", receipt: "adoption receipt" },
+    adoption: { artifact: { ...artifact }, status: "retained", receipt: "adoption receipt" }
   }
 }
 
@@ -194,10 +194,8 @@ const qualificationCases: Array<[string, WorkerApp, (evidence: WorkerQualificati
     (e) => ({ ...e, adoption: { ...e.adoption, artifact: { ...e.adoption.artifact, sha256: "d".repeat(64) } } })
   ],
   ["missing adoption receipt", "bug-worker", (e) => ({ ...e, adoption: { ...e.adoption, receipt: "  " } })],
-  ["replacement required", "bug-worker", (e) => ({ ...e, adoption: { ...e.adoption, status: "replacement-required" } })],
-
+  ["replacement required", "bug-worker", (e) => ({ ...e, adoption: { ...e.adoption, status: "replacement-required" } })]
 ]
-
 
 for (const [name, app, change] of qualificationCases) {
   test(`${app}: ${name} refuses before the publisher`, async () => {

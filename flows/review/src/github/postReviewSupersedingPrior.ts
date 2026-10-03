@@ -1,8 +1,8 @@
-import type { PullRequestReviewPayload } from "./buildPullRequestReview.ts";
-import { postPullRequestReview } from "./postPullRequestReview.ts";
-import type { PullRequestTarget } from "./resolvePullRequest.ts";
-import { runGh as defaultRunGh } from "./runGh.ts";
-import { supersedePriorReviews } from "./supersedePriorReviews.ts";
+import type { PullRequestReviewPayload } from "./buildPullRequestReview.ts"
+import { postPullRequestReview } from "./postPullRequestReview.ts"
+import type { PullRequestTarget } from "./resolvePullRequest.ts"
+import { runGh as defaultRunGh } from "./runGh.ts"
+import { supersedePriorReviews } from "./supersedePriorReviews.ts"
 
 /**
  * Publish one review to the PR and retire the ones it replaces, in that order.
@@ -24,10 +24,9 @@ export async function postReviewSupersedingPrior(
   repoDir: string,
   pr: PullRequestTarget,
   payload: PullRequestReviewPayload,
-  runGh: typeof defaultRunGh = defaultRunGh,
+  runGh: typeof defaultRunGh = defaultRunGh
 ): Promise<{ url: string; inline: number; superseded: number }> {
-  const posted = await postPullRequestReview(repoDir, pr, payload, runGh);
-  const superseded =
-    posted.id === undefined ? 0 : await supersedePriorReviews(repoDir, pr, posted.id, runGh);
-  return { url: posted.url, inline: posted.inline, superseded };
+  const posted = await postPullRequestReview(repoDir, pr, payload, runGh)
+  const superseded = posted.id === undefined ? 0 : await supersedePriorReviews(repoDir, pr, posted.id, runGh)
+  return { url: posted.url, inline: posted.inline, superseded }
 }

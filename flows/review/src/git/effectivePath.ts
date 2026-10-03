@@ -1,4 +1,4 @@
-import type { DiffRecord } from "./diffRecord.ts";
+import type { DiffRecord } from "./diffRecord.ts"
 
 /**
  * The path a finding on this diff should name: the new one, except for a
@@ -8,5 +8,5 @@ import type { DiffRecord } from "./diffRecord.ts";
  * @category constructors
  */
 export function effectivePath(diff: DiffRecord) {
-  return diff.newPath === "/dev/null" ? diff.oldPath : diff.newPath;
+  return diff.newPath === "/dev/null" ? diff.oldPath : diff.newPath
 }

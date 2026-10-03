@@ -259,4 +259,4 @@ export const walkthroughScript = `
   });
 
 })();
-`.trim();
+`.trim()

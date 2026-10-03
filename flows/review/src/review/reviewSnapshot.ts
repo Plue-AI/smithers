@@ -1,8 +1,8 @@
-import type { OpenCodeReviewInput } from "../workflow/openCodeReviewInputSchema.ts";
-import type { ReviewTarget } from "../workflow/reviewTargetSchema.ts";
-import type { FileFilter } from "./fileFilter.ts";
-import type { DiffRecord } from "../git/diffRecord.ts";
-import type { ReviewWarning } from "../workflow/reviewWarningSchema.ts";
+import type { DiffRecord } from "../git/diffRecord.ts"
+import type { OpenCodeReviewInput } from "../workflow/openCodeReviewInputSchema.ts"
+import type { ReviewTarget } from "../workflow/reviewTargetSchema.ts"
+import type { ReviewWarning } from "../workflow/reviewWarningSchema.ts"
+import type { FileFilter } from "./fileFilter.ts"
 
 /**
  * Everything one review reads from git, read at a single instant.
@@ -17,9 +17,9 @@ import type { ReviewWarning } from "../workflow/reviewWarningSchema.ts";
  * @category models
  */
 export type ReviewSnapshot = {
-  input: OpenCodeReviewInput;
-  target: ReviewTarget;
-  filter: FileFilter | null;
-  warnings: Array<ReviewWarning>;
-  diffs: Array<DiffRecord>;
-};
+  input: OpenCodeReviewInput
+  target: ReviewTarget
+  filter: FileFilter | null
+  warnings: Array<ReviewWarning>
+  diffs: Array<DiffRecord>
+}

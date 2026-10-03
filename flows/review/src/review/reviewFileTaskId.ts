@@ -12,6 +12,6 @@ export function reviewFileTaskId(path: string, index: number) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 72);
-  return `review-file-${index + 1}-${slug || "file"}`;
+    .slice(0, 72)
+  return `review-file-${index + 1}-${slug || "file"}`
 }

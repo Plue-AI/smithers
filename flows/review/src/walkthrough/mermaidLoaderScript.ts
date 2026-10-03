@@ -52,4 +52,4 @@ export const mermaidLoaderScript = `
     noteAll("Diagram rendering failed to initialize in this browser.");
   });
 })();
-`.trim();
+`.trim()

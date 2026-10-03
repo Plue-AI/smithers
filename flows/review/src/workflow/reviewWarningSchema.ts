@@ -1,5 +1,5 @@
-import * as Schema from "effect/Schema";
-import { withDefault } from "../schema/withDefault.ts";
+import * as Schema from "effect/Schema"
+import { withDefault } from "../schema/withDefault.ts"
 
 /**
  * Something the run could not do, reported beside the findings rather than
@@ -12,8 +12,8 @@ import { withDefault } from "../schema/withDefault.ts";
 export const ReviewWarning = Schema.Struct({
   file: withDefault(Schema.String, ""),
   message: withDefault(Schema.String, ""),
-  type: withDefault(Schema.String, ""),
-});
+  type: withDefault(Schema.String, "")
+})
 
 /**
  * A decoded warning.
@@ -21,4 +21,4 @@ export const ReviewWarning = Schema.Struct({
  * @since 1.0.0
  * @category models
  */
-export type ReviewWarning = typeof ReviewWarning.Type;
+export type ReviewWarning = typeof ReviewWarning.Type

@@ -6,10 +6,10 @@ const reasonLabels: Record<string, string> = {
   unsupported_ext: "file type not reviewed",
   default_path: "outside the default review set",
   provider_dir: "vendor or tool directory",
-  deleted: "deleted with no reviewable content",
-};
+  deleted: "deleted with no reviewable content"
+}
 
 /** Human label for a review exclude reason; unknown enums degrade to readable text. */
 export function humanizeExcludeReason(reason: string): string {
-  return reasonLabels[reason] ?? reason.replace(/_/g, " ");
+  return reasonLabels[reason] ?? reason.replace(/_/g, " ")
 }

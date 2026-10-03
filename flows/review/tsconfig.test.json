@@ -1,1 +1,6 @@
-{"extends":"./tsconfig.json","compilerOptions":{"types":["node","bun"]},"include":["flow.ts","src/**/*.ts","tests/**/*.ts"],"exclude":["node_modules"]}
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node", "bun"] },
+  "include": ["flow.ts", "src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}

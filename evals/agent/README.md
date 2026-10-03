@@ -55,8 +55,8 @@ loop and its seams, not durability and not a real catalog.
 | `cell-calls-a-flow`                    | A cell reaches a host capability through `ctx.call`, and the flow's typed result reaches the answer.                   |
 | `read-only-cap-stops-a-reading-run`    | A task run that only reads is told to write or justify at its cap, and stops as `/harness/HarnessError` at twice it.   |
 | `sufficiency-signal-reaches-the-next-frame` | A run holding a check that failed before its change and a broader one that passed after is told so, and completes on it. |
-| `park-without-a-human-is-answered`     | A park in a run with no approval channel is refused, answered in-frame, and the run spends the budget it still held.  |
-| `park-every-frame-still-hits-the-read-only-cap` | A run that answers every refusal with another park stops at twice its read-only cap instead of spending the frame budget. |
+| `park-without-a-human-is-answered`     | A park with no approval channel fails visibly in its first frame; it cannot answer its own question.  |
+| `park-every-frame-still-hits-the-read-only-cap` | An unattended park fails before the read-only cap can demand another frame. |
 | `repl-realm-carries-a-binding-across-frames` | A cell's top-level name is still bound in the next cell, and the run finishes with `ctx.done`.                    |
 | `repl-print-reaches-the-next-frame`    | What a cell prints opens the next frame, so `console.log` is the whole of the context channel.                         |
 | `repl-completion-behind-a-guard`       | One cell reproduces, writes, re-checks and completes behind a check of the exit codes it just took.                    |
@@ -163,10 +163,10 @@ red run:
   capability envelope, and at most one host flow. Plugin ordering, memory
   injection, steering, compaction, and durable park-and-resume are covered by
   `packages/smithers/agent/test`, not here.
-- **Failures are matched by tag, not by content.** A case that expects
+- **Most failures are matched by tag, not by content.** A case that expects
   `/harness/HarnessError` would still pass if the harness raised that tag for a
-  different reason. The tag is the stable half of the contract; the message is
-  not.
+  different reason. The two unattended park cases additionally require
+  `approval_unavailable` before reducing the failure to an observation.
 
 ## Character evals: how an agent profile speaks and acts
 

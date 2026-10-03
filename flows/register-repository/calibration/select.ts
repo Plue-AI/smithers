@@ -55,7 +55,9 @@ interface Candidate {
 const gh = (args: ReadonlyArray<string>): any => {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return JSON.parse(execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20 }))
+      return JSON.parse(
+        execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20 })
+      )
     } catch (error) {
       const message = String((error as { stderr?: string }).stderr ?? error)
       if (/rate limit|abuse|secondary/i.test(message)) execFileSync("sleep", ["30"])
@@ -67,8 +69,24 @@ const gh = (args: ReadonlyArray<string>): any => {
 }
 const search = (query: ReadonlyArray<string>, limit: number) => {
   execFileSync("sleep", ["2.5"])
-  return (gh(["search", "repos", ...query, "--limit", String(limit), "--json", "fullName,description,stargazersCount,createdAt,size,isFork,isArchived"]) ?? []) as ReadonlyArray<
-    { fullName: string; description: string | null; stargazersCount: number; createdAt: string; size: number; isFork: boolean; isArchived: boolean }
+  return (gh([
+    "search",
+    "repos",
+    ...query,
+    "--limit",
+    String(limit),
+    "--json",
+    "fullName,description,stargazersCount,createdAt,size,isFork,isArchived"
+  ]) ?? []) as ReadonlyArray<
+    {
+      fullName: string
+      description: string | null
+      stargazersCount: number
+      createdAt: string
+      size: number
+      isFork: boolean
+      isArchived: boolean
+    }
   >
 }
 const proxyBand = (kilobytes: number): Band => kilobytes < 800 ? "small" : kilobytes < 8000 ? "medium" : "large"
@@ -100,35 +118,65 @@ const gather = (): ReadonlyArray<Candidate> => {
   for (const language of LANGUAGES) {
     const ghLanguage = GH_LANGUAGE[language]
     for (const range of ["50..200", "200..600", "600..2500", "2500..10000", "10000..40000"]) {
-      for (const row of search([`language:${ghLanguage}`, `created:<${HUMAN_CREATED_BEFORE}`, `stars:${range}`, "--sort", "stars"], 40)) {
+      for (
+        const row of search([
+          `language:${ghLanguage}`,
+          `created:<${HUMAN_CREATED_BEFORE}`,
+          `stars:${range}`,
+          "--sort",
+          "stars"
+        ], 40)
+      ) {
         if (row.isFork || seen.has(row.fullName) || row.size > 300_000) continue
         seen.add(row.fullName)
         const pin = gh(["api", `repos/${row.fullName}/commits?until=${HUMAN_PIN_BEFORE}&per_page=1`])?.[0]
         const date = pin?.commit?.committer?.date as string | undefined
         if (pin === undefined || date === undefined || date < HUMAN_PIN_AFTER) continue
         found.set(row.fullName, {
-          repo: row.fullName, language, label: "human", sha: pin.sha, proxy: proxyBand(row.size),
+          repo: row.fullName,
+          language,
+          label: "human",
+          sha: pin.sha,
+          proxy: proxyBand(row.size),
           evidence: `created ${row.createdAt.slice(0, 10)}; pinned ${date.slice(0, 10)}, before agent-assisted coding`
         })
       }
     }
     for (const phrase of AGENT_QUERIES) {
       for (const sort of ["stars", "updated"]) {
-        for (const row of search([`"${phrase}"`, `language:${ghLanguage}`, "--created", ">=2024-06-01", "--sort", sort], 30)) {
+        for (
+          const row of search(
+            [`"${phrase}"`, `language:${ghLanguage}`, "--created", ">=2024-06-01", "--sort", sort],
+            30
+          )
+        ) {
           const description = row.description ?? ""
           if (row.isFork || seen.has(row.fullName) || !AGENT_DESCRIPTION.test(description)) continue
           seen.add(row.fullName)
           const sha = head(row.fullName)
           if (sha === undefined) continue
           found.set(row.fullName, {
-            repo: row.fullName, language, label: "agent", sha, proxy: proxyBand(row.size),
+            repo: row.fullName,
+            language,
+            label: "agent",
+            sha,
+            proxy: proxyBand(row.size),
             evidence: `created ${row.createdAt.slice(0, 10)}; description: ${description.slice(0, 120)}`
           })
         }
       }
     }
     for (const range of ["100..400", "400..1500", "1500..8000"]) {
-      for (const row of search([`language:${ghLanguage}`, "--created", ">=2024-01-01", `stars:${range}`, "--sort", "stars"], 40)) {
+      for (
+        const row of search([
+          `language:${ghLanguage}`,
+          "--created",
+          ">=2024-01-01",
+          `stars:${range}`,
+          "--sort",
+          "stars"
+        ], 40)
+      ) {
         if (row.isFork || seen.has(row.fullName) || AGENT_DESCRIPTION.test(row.description ?? "")) continue
         seen.add(row.fullName)
         const root = gh(["api", `repos/${row.fullName}/contents/`]) as ReadonlyArray<{ name: string }> | undefined
@@ -136,8 +184,14 @@ const gather = (): ReadonlyArray<Candidate> => {
         const sha = markers.length === 0 ? undefined : head(row.fullName)
         if (sha === undefined) continue
         found.set(row.fullName, {
-          repo: row.fullName, language, label: "hybrid", sha, proxy: proxyBand(row.size),
-          evidence: `created ${row.createdAt.slice(0, 10)}; ${row.stargazersCount} stars; root has ${markers.join(", ")}`
+          repo: row.fullName,
+          language,
+          label: "hybrid",
+          sha,
+          proxy: proxyBand(row.size),
+          evidence: `created ${row.createdAt.slice(0, 10)}; ${row.stargazersCount} stars; root has ${
+            markers.join(", ")
+          }`
         })
       }
     }
@@ -205,7 +259,11 @@ const main = async () => {
       const { recorded, measuredLanguage } = result
       const measuredKey = cell(candidate.language, recorded.band, candidate.label)
       if (measuredLanguage !== candidate.language) {
-        rejected.push({ repo: candidate.repo, label: candidate.label, reason: `dominant source language ${measuredLanguage}` })
+        rejected.push({
+          repo: candidate.repo,
+          label: candidate.label,
+          reason: `dominant source language ${measuredLanguage}`
+        })
         save(rejected.at(-1)!)
       } else if ((counts.get(measuredKey) ?? 0) >= QUOTA[candidate.label]) {
         rejected.push({ repo: candidate.repo, label: candidate.label, reason: `${recorded.band} cell full` })
@@ -215,24 +273,45 @@ const main = async () => {
         const index = String(counts.get(measuredKey)!).padStart(2, "0")
         const entry: ManifestEntry = {
           id: `${candidate.language}-${recorded.band}-${candidate.label}-${index}`,
-          repo: candidate.repo, sha: candidate.sha, language: candidate.language, band: recorded.band,
-          label: candidate.label, evidence: candidate.evidence
+          repo: candidate.repo,
+          sha: candidate.sha,
+          language: candidate.language,
+          band: recorded.band,
+          label: candidate.label,
+          evidence: candidate.evidence
         }
         accepted.set(candidate.repo, entry)
         save({ repo: candidate.repo, label: candidate.label, entry })
       }
-      console.error(`${accepted.size} accepted, ${rejected.length} rejected; last ${candidate.repo} ${recorded.band}`)
+      process.stderr.write(
+        `${accepted.size} accepted, ${rejected.length} rejected; last ${candidate.repo} ${recorded.band}\n`
+      )
     }
   }
   await Promise.all(Array.from({ length: 5 }, worker))
   const entries = [...accepted.values()].sort((a, b) => a.id.localeCompare(b.id))
   const missing = LANGUAGES.flatMap((language) =>
-    BANDS.flatMap((band) => (["human", "agent", "hybrid"] as const).map((label) => [cell(language, band, label), QUOTA[label] - (counts.get(cell(language, band, label)) ?? 0)] as const))
+    BANDS.flatMap((band) =>
+      (["human", "agent", "hybrid"] as const).map((label) =>
+        [cell(language, band, label), QUOTA[label] - (counts.get(cell(language, band, label)) ?? 0)] as const
+      )
+    )
   ).filter(([, count]) => count > 0)
   writeFileSync(
     OUT,
-    JSON.stringify({ selectedOn: new Date().toISOString().slice(0, 10), seed: SEED, quota: QUOTA, unfilled: Object.fromEntries(missing), entries, rejected }, null, 1) + "\n"
+    JSON.stringify(
+      {
+        selectedOn: new Date().toISOString().slice(0, 10),
+        seed: SEED,
+        quota: QUOTA,
+        unfilled: Object.fromEntries(missing),
+        entries,
+        rejected
+      },
+      null,
+      1
+    ) + "\n"
   )
-  console.error(`wrote ${entries.length} entries; unfilled ${JSON.stringify(Object.fromEntries(missing))}`)
+  process.stderr.write(`wrote ${entries.length} entries; unfilled ${JSON.stringify(Object.fromEntries(missing))}\n`)
 }
 await main()
