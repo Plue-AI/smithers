@@ -424,3 +424,101 @@ test("ToastStack, EdgeMap and Timeline render actions, band and breakpoint", asy
     await expect(page.locator("[data-flow]")).toHaveCount(0)
   }
 })
+
+// T-UI-06 / C-UI-12: Home fixtures only; no backend or Container.
+test("HomeView renders sync health, attention and background runs", async ({ page }) => {
+  test.setTimeout(180_000)
+  await mkdir(shots, { recursive: true })
+  await page.clock.install({ time: new Date("2026-10-02T17:42:05Z") })
+  await page.addInitScript(() => {
+    (window as unknown as { homeVisibility: unknown[] }).homeVisibility = []
+    window.addEventListener("story-callback", event => {
+      const receipt = (event as CustomEvent).detail
+      if (receipt.kind === "view" && "on_screen" in receipt.value) (window as unknown as { homeVisibility: unknown[] }).homeVisibility.push(receipt.value)
+    })
+  })
+  const receipts = []
+  for (const story of ["fresh", "stale", "limited", "refused", "active", "active_member", "boundaries", "merge-reasons"]) for (const theme of ["light", "dark"]) for (const width of [1280, 1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
+    await page.clock.setFixedTime(new Date("2026-10-02T17:42:05Z"))
+    await page.goto(`/view-stories.html?story=HomeView/home-${story}&theme=${theme}`)
+    await expect(page.locator(".mvp-home")).toBeVisible()
+    await expect.poll(() => page.evaluate(() => (window as unknown as { homeVisibility: unknown[] }).homeVisibility)).toContainEqual({ on_screen: true })
+    if (story === "fresh") await expect(page.locator(".mvp-sync")).toHaveText("synced 5 s ago")
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.addScriptTag({ path: axePath })
+    const violations = await page.evaluate(async () => {
+      const axe = (window as unknown as { axe: { run: () => Promise<{ violations: { id: string; impact: string }[] }> } }).axe
+      return (await axe.run()).violations.filter(item => item.impact === "serious" || item.impact === "critical")
+    })
+    receipts.push({ story, theme, width, violations })
+    expect(violations).toEqual([])
+    if (story === "active_member") await expect(page.getByRole("button", { name: "Reset to GitHub main" })).toHaveCount(0)
+    await page.screenshot({ path: resolve(shots, `home-${story}-${theme}-${width}.png`), animations: "disabled", fullPage: true })
+    await page.evaluate(() => {
+      (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks = []
+      window.addEventListener("story-callback", event => (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks.push((event as CustomEvent).detail))
+    })
+    // C-UI-12 literal callback oracles, independent of supplied action arrays.
+    const actionCases = story.startsWith("active") ? [
+      ["order.ok", "OK", { n: "3" }],
+      ...(story === "active" ? [["main.reset-to-github", "Reset to GitHub main", { revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" }]] : []),
+      ["merge", "Merge", { n: "8" }], ["todo.answer", "Answer", { n: "12" }],
+      ["todo", "Open", { n: "15" }], ["todo.retry", "Retry", { n: "16" }],
+      ["todo", "Open", { n: "17" }, true], ["todo", "Open", { n: "18" }],
+      ["background.retry", "Retry", { id: "source-sync" }], ["background.dismiss", "Dismiss", { id: "source-sync" }],
+      ["todo.new", "New TODO", {}],
+    ] : story === "fresh" || story === "limited" ? [["todo.new", "New TODO", {}]]
+      : story === "stale" ? [["github", "Retry", {}], ["todo.new", "New TODO", {}]]
+      : story === "refused" ? [["settings", "Fix", {}]] : []
+    await expect(page.locator("button[data-flow]")).toHaveCount(actionCases.length)
+    for (const [index, [tag, label, args, disabled]] of actionCases.entries()) {
+      const control = page.locator("button[data-flow]").nth(index)
+      await expect(control).toHaveAttribute("data-flow", tag as string)
+      await expect(control).toHaveText(label as string)
+      await page.evaluate(() => { (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks = [] })
+      if (disabled) {
+        await expect(control).toBeDisabled()
+        await expect(control.locator("..")).toContainText("Waiting for a machine")
+        await control.evaluate(button => (button as HTMLButtonElement).click())
+      } else { await control.focus(); await page.keyboard.press("Enter") }
+      expect(await page.evaluate(() => (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks)).toEqual(disabled ? [] : [{ kind: "action", value: { tag, args } }])
+    }
+    if (story.startsWith("active")) {
+      await expect(page.locator('.mvp-avatar[data-kind="agent"]')).not.toHaveCount(0)
+      await expect(page.getByRole("button", { name: "Open", exact: true }).nth(1)).toBeDisabled()
+      await expect(page.locator('.mvp-stack-row').first().locator('.mvp-avatar')).toHaveCount(1)
+      await expect(page.locator('.mvp-home')).not.toContainText("Not in review yet")
+      await expect(page.locator('.mvp-home')).toContainText("Daily limit reached · starts tomorrow")
+      for (const [title, n] of [["Persist merge requests", "8"], ["Card model contracts", "12"], ["Wire Home", "15"], ["Retry webhook delivery", "16"]]) {
+        const trigger = page.getByRole("button", { name: `Order ${title}`, exact: true })
+        await trigger.focus(); await page.keyboard.press("Enter")
+        const menu = page.getByRole("menu", { name: `Order ${title}`, exact: true })
+        await expect(menu).toBeVisible()
+        await expect(menu.getByRole("menuitem")).toHaveCount(3)
+        for (const [label, tag, args] of [["Move up", "stack.move", { n, direction: "up" }], ["Move down", "stack.move", { n, direction: "down" }], ["Drop", "todo.drop", { n }]] as const) {
+          await page.evaluate(() => { (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks = [] })
+          const control = menu.getByRole("menuitem", { name: label })
+          await control.focus(); await page.keyboard.press("Enter")
+          expect(await page.evaluate(() => (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks)).toEqual([{ kind: "action", value: { tag, args } }])
+        }
+        const menuViolations = await page.evaluate(async () => {
+          const axe = (window as unknown as { axe: { run: () => Promise<{ violations: { impact: string }[] }> } }).axe
+          return (await axe.run()).violations.filter(item => item.impact === "serious" || item.impact === "critical")
+        })
+        expect(menuViolations).toEqual([])
+        await page.keyboard.press("Escape")
+        await expect(menu).toHaveCount(0)
+        await expect(trigger).toBeFocused()
+      }
+      for (const [state, filter] of [["needs_you", "needs_you"], ["working", "working"], ["queued", "queued"], ["in_review", "in_review"]]) {
+        await page.evaluate(() => { (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks = [] })
+        await page.locator(`[data-filter="${state}"]`).click()
+        expect(await page.evaluate(() => (window as unknown as { homeCallbacks: unknown[] }).homeCallbacks)).toEqual([{ kind: "view", value: { filter } }])
+      }
+    }
+  }
+  await writeFile(join(shots, "home-axe.json"), JSON.stringify(receipts, null, 2))
+})
+
+
