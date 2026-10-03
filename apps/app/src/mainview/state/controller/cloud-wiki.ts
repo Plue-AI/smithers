@@ -395,6 +395,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       editors,
       clients,
       preparations,
+      paneRead: 0,
       branch,
       space,
       login,
@@ -464,18 +465,17 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     if ((ctx.store.session().wikiPageView ?? "read") !== view) ctx.store.dispatch({ type: "wiki.page-view.changed", actor: ctx.commandActor, view })
   }
 
-  let paneRead = 0
-  const invalidatePaneRead = (): void => { ++paneRead }
+  const invalidatePaneRead = (): void => { ++shared.paneRead }
 
   const readWikiForPane = async (): Promise<void> => {
-    const generation = ++paneRead
+    const generation = ++shared.paneRead
     const repo = targetRepo(undefined)
     if (typeof repo !== "string" || shared.login() === null || ctx.store.session().surface !== "world") return
     const space = shared.space()
     const owner = shared.login()
     const epoch = ctx.accountEpoch
     const branch = shared.branch()
-    const current = () => generation === paneRead && !ctx.disposed && !shared.disposed() &&
+    const current = () => generation === shared.paneRead && !ctx.disposed && !shared.disposed() &&
       ctx.accountEpoch === epoch && shared.login() === owner && shared.branch() === branch &&
       ctx.store.session().surface === "world" && shared.space() === space && targetRepo(undefined) === repo
     await loadWikiIndex(repo, space)
@@ -495,7 +495,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     if (shared.space() !== spaceArg) ctx.store.dispatch({ type: "wiki.space.changed", actor: ctx.commandActor, space: spaceArg })
     const repo = targetRepo(repoArg)
     if (typeof repo !== "string" || shared.login() === null) return
-    ++paneRead
+    ++shared.paneRead
     if (ctx.store.session().surface === "world") void readWikiForPane()
     else void loadWikiIndex(repo, spaceArg)
   }
@@ -569,8 +569,8 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     } catch (error) {
       return error instanceof CloudWikiError ? error.sentence : "Invalid Wiki page."
     }
-    const selection = isCurrent === undefined && ctx.commandActor === "user" ? ++paneRead : undefined
-    const current = isCurrent ?? (() => selection === undefined || selection === paneRead)
+    const selection = isCurrent === undefined && ctx.commandActor === "user" ? ++shared.paneRead : undefined
+    const current = isCurrent ?? (() => selection === undefined || selection === shared.paneRead)
     const originBranch = shared.branch()
     const actor = ctx.commandActor
     return shared.run(
@@ -597,8 +597,8 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         const document = shared.read(id)!
         yield* shared.persist({ ...document, cloud: { ...document.cloud, phase: "live" } }, actor)
         if (!current()) return "The Wiki selection changed while the page was loading."
-        // With the Wiki pane open, the page opened is the page shown (the pane reads the session's selection), and no card doubles it in the chat.
-        if (ctx.store.session().surface === "world" && actor === "user") {
+        // Automatic reads populate the active pane; explicit agent opens remain embedded in chat.
+        if (ctx.store.session().surface === "world" && (actor === "user" || isCurrent !== undefined)) {
           ctx.store.dispatch({ type: "world.document.selected", actor, id })
           void shared.flush(id)
           return { value: `Opened ${document.path} at page revision ${incoming.page.revision}.` }
