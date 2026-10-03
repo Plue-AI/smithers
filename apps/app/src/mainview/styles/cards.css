@@ -2884,16 +2884,16 @@
 .branch-view button[data-primary] { background: var(--action-primary); color: var(--on-action-primary); border-color: var(--action-primary); }
 .branch-view button:disabled { cursor: default; color: var(--text-muted); }
 .branch-view .flow-disabled, .branch-view .setup-reason { color: var(--text-muted); font-size: var(--fs-caption); }
-.branch-view .setup-action { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; max-width: 100%; }
+.branch-view .setup-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
 .branch-view .setup-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: var(--fs-caption); }
-.branch-view .setup-field input { width: 220px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.branch-view .setup-field input { min-height: 28px; width: 220px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .branch-view .branch-ssh { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
 .branch-view .branch-ssh code { min-width: 0; color: var(--text-muted); overflow-wrap: normal; white-space: nowrap; overflow-x: auto; }
 .branch-view .branch-ssh button { flex: none; display: inline-flex; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
 .branch-view button:focus-visible, .branch-view input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 @media (max-width: 480px) {
   .branch-view .branch-presence li { gap: 4px 8px; }
-  .branch-view .branch-presence li > .branch-muted { margin-left: 30px; }
+  .branch-view .branch-presence li > .branch-watching { margin-left: 30px; }
   .branch-view .branch-location { margin-left: 30px; flex-basis: calc(100% - 30px); }
   .branch-view .branch-tabs button { padding-inline: 7px; }
 }
@@ -2911,3 +2911,7 @@
 @media (prefers-reduced-motion: reduce) { .branch-view .branch-spin { animation: none; } }
 
 .branch-view .branch-notice > .branch-muted { flex-basis: 100%; }
+
+.branch-view .flow-control { align-items: flex-start; }
+.branch-view .branch-activity .flow-control { margin-top: 4px; }
+.branch-view .branch-actions:empty { display: none; }

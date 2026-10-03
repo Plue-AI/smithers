@@ -8,6 +8,10 @@ import { StateWord } from "./StateWord"
 import { FlowActionView } from "./FlowActionView"
 import { SetupAction } from "./SetupAction"
 
+function terminalName(model: BranchViewProps["model"], id: string) {
+  return model.terminals.find((terminal) => terminal.id === id)?.title ?? "a terminal"
+}
+
 const tabs = ["activity", "files", "terminals"] as const
 const machineWords = {
   awake: "Awake",
@@ -50,8 +54,6 @@ function BranchLink({
 export function BranchView({ model, actions, gestures, view, onAction, onView }: BranchViewProps) {
   const id = useId()
   const tab = tabs.find((value) => value === view.tab) ?? "activity"
-  const terminalName = (id: string) =>
-    model.terminals.find((terminal) => terminal.id === id)?.title ?? "a terminal"
   return (
     <section
       className="smithers-card branch-view"
@@ -140,7 +142,7 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
             {model.rebase.state === "pending" && model.rebase.waiting_for ? (
               <span className="branch-muted">
                 Waiting for {actorName(model.rebase.waiting_for.actor)} ·{" "}
-                {terminalName(model.rebase.waiting_for.terminal)}
+                {terminalName(model, model.rebase.waiting_for.terminal)}
               </span>
             ) : null}
             {model.rebase.state === "conflict" ? (
@@ -213,8 +215,6 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
 
 type ListProps = Pick<BranchViewProps, "model" | "gestures" | "onAction">
 function Presence({ model, gestures, onAction }: ListProps) {
-  const terminalName = (id: string) =>
-    model.terminals.find((terminal) => terminal.id === id)?.title ?? "a terminal"
   return (
     <ul className="branch-presence" aria-label="On this branch">
       {model.presence.length ? (
@@ -225,11 +225,9 @@ function Presence({ model, gestures, onAction }: ListProps) {
           <li key={index}>
             <ActorChip actor={row.actor} size="s" live={model.machine.state === "awake"} />
             <b>{actorName(row.actor)}</b>
-            <span className="branch-muted">
-              {row.where.kind === "branch" ? "here" : row.where.kind === "step" ? "at" : "in"}
-            </span>
             {row.where.kind !== "branch" ? (
               <span className="branch-location">
+                <span className="branch-muted">{row.where.kind === "step" ? "at" : "in"}</span>
                 {row.where.kind === "file" ? (
                   <FileCode2 size={12} aria-hidden="true" />
                 ) : row.where.kind === "terminal" ? (
@@ -260,18 +258,16 @@ function Presence({ model, gestures, onAction }: ListProps) {
                   {row.where.kind === "file"
                     ? `${row.where.path}${row.where.line === undefined ? "" : `:${row.where.line}`}`
                     : row.where.kind === "terminal"
-                      ? terminalName(row.where.id)
-                      : row.where.kind === "step"
-                        ? row.where.label
-                        : "here"}
+                      ? terminalName(model, row.where.id)
+                      : row.where.label}
                 </BranchLink>
               </span>
-            ) : null}
+            ) : <span className="branch-muted">here</span>}
             {row.watching ? (
-              <span className="branch-muted">
+              <span className="branch-muted branch-watching">
                 watching{" "}
                 <BranchLink action={gestures.terminal} input={{ id: row.watching }} onAction={onAction}>
-                  {terminalName(row.watching)}
+                  {terminalName(model, row.watching)}
                 </BranchLink>
               </span>
             ) : null}
