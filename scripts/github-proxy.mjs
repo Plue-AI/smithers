@@ -25,7 +25,9 @@
 
 import { execFileSync, spawn } from "node:child_process"
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync } from "node:fs"
+import { createRequire } from "node:module"
 import { homedir } from "node:os"
+import { pathToFileURL } from "node:url"
 import { dirname, join } from "node:path"
 import process from "node:process"
 
@@ -58,6 +60,12 @@ export const ensure = async ({ env = process.env, script = new URL(import.meta.u
   throw new Error(`the GitHub proxy did not answer at ${base} within ${waitMs} ms; see ${logFile}`)
 }
 
+/** Resolve a public integration export through the CLI's declared dependency. */
+export const proxyIntegrationUrl = (name) => {
+  const cliRequire = createRequire(createRequire(import.meta.url).resolve("@smthrs/cli/package.json"))
+  return pathToFileURL(cliRequire.resolve(`@smthrs/integrations/${name}`)).href
+}
+
 /** Serves the proxy until the process is stopped. */
 export const serve = async (env = process.env) => {
   const [{ Effect, Layer }, NodeHttpServer, NodeRuntime, { createServer }, { IntegrationError }, Proxy, RateLimit, { appAuth, appConfig, MintLimited }] =
@@ -66,9 +74,9 @@ export const serve = async (env = process.env) => {
       import("@effect/platform-node/NodeHttpServer"),
       import("@effect/platform-node/NodeRuntime"),
       import("node:http"),
-      import("../packages/smithers/agent/integrations/src/core/IntegrationError.ts"),
-      import("../packages/smithers/agent/integrations/src/github/Proxy.ts"),
-      import("../packages/smithers/agent/integrations/src/github/RateLimit.ts"),
+      import(proxyIntegrationUrl("core/IntegrationError")),
+      import(proxyIntegrationUrl("github/Proxy")),
+      import(proxyIntegrationUrl("github/RateLimit")),
       import("./github-app-auth.mjs")
     ])
   const url = new URL(proxyUrl(env))

@@ -57,18 +57,6 @@ const suite = Smithers.NodeTest({
   cwd
 })
 
-// Re-fetches pinned public repositories; keep network reproduction out of
-// ordinary wildcard CI while retaining an explicit uncached gate (#3071, #2290).
-const registrationCalibrationReal = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//flows/test/registration-calibration-real.test.ts")]),
-  srcs: [sources, Smithers.glob("//flows/register-repository/calibration/*.json")],
-  deps: [],
-  cwd,
-  exclusive: true,
-  cache: false,
-  timeout: "15m"
-})
-
 // Lints flow sources; suites and fixtures are formatted, not linted.
 const lint = Smithers.EsLint({
   sources: [Smithers.glob("**/*.ts")],
@@ -709,7 +697,6 @@ export const Package = Smithers.Package({
     fmt,
     repository,
     suite,
-    registrationCalibrationReal,
     recording,
     issueSweep,
     issueSweepVm,

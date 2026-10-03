@@ -57,8 +57,8 @@ test("a private shipped template requires registry versions even for a workspace
     { directory: "kernel", manifest: { name: "@smthrs/kernel", version: "1.0.0" } }
   ]
   assert.deepEqual(mismatches(entries, "1.0.0"), [
-    "template: dependencies.@smthrs/kernel is 0.1.0, expected 1.0.0",
-    "template: devDependencies.@smthrs/kernel is workspace:*, expected 1.0.0"
+    "template/package.json: dependencies.@smthrs/kernel is 0.1.0, expected 1.0.0",
+    "template/package.json: devDependencies.@smthrs/kernel is workspace:*, expected 1.0.0"
   ])
 })
 
@@ -72,11 +72,13 @@ test("mismatches names the version and every stale internal range", () => {
   ]
 
   assert.deepEqual(mismatches(entries, "0.1.0-next.0"), [
-    "packages/smithers/flows: version is 0.1.0, expected 0.1.0-next.0",
-    "packages/smithers/flows: dependencies.@smthrs/kernel is 0.1.0, expected 0.1.0-next.0",
-    "packages/smithers/flows: devDependencies.@smthrs/kernel is workspace:*, expected 0.1.0-next.0"
+    "packages/smithers/flows/package.json: version is 0.1.0, expected 0.1.0-next.0",
+    "packages/smithers/flows/package.json: dependencies.@smthrs/kernel is 0.1.0, expected 0.1.0-next.0",
+    "packages/smithers/flows/package.json: devDependencies.@smthrs/kernel is workspace:*, expected 0.1.0-next.0"
   ])
   assert.deepEqual(mismatches(entries.slice(1), "0.1.0-next.0"), [])
+  assert.deepEqual(mismatches([{ ...entries[0], directory: "packages/smithers/flows/package.json" }, entries[1]], "0.1.0-next.0"),
+    mismatches(entries, "0.1.0-next.0"), "a manifest path is not given a second package.json suffix")
 })
 
 test("this workspace is internally coherent at its current version", () => {

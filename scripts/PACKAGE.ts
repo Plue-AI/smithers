@@ -209,8 +209,7 @@ const toolchainPins = Smithers.NodeTest({
     Smithers.glob("//.github/workflows/*.yml"),
     Smithers.file("//PACKAGE.ts"),
     Smithers.file("//scripts/ci/cloud.sh"),
-    Smithers.file("//distribution/Dockerfile"),
-    Smithers.file("//apps/app/scripts/build-native.ts")
+    Smithers.file("//distribution/Dockerfile")
   ],
   deps: []
 })
@@ -339,6 +338,19 @@ const conflictMarkers = Smithers.Shell.Diff({
   shell: "node scripts/check-conflict-markers.mjs",
   changes: [],
   timeout: "2m"
+})
+
+/** Tracked files must resolve declared paths and exclude local build and agent state. */
+const trackedHygiene = Smithers.Shell.Diff({
+  shell: "node scripts/check-tracked-hygiene.mjs --projected-tree",
+  changes: [],
+  timeout: "2m"
+})
+
+const trackedHygieneUnit = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/check-tracked-hygiene.test.mjs")]),
+  srcs: sources,
+  deps: []
 })
 
 /**
@@ -983,6 +995,8 @@ export const Package = Smithers.Package({
     apiBaseline,
     conflictMarkers,
     conflictMarkersUnit,
+    trackedHygiene,
+    trackedHygieneUnit,
     docsDrift,
     driftJob,
     providerLiveGuards,

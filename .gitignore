@@ -26,10 +26,14 @@ app/.electrobun/
 .native-ffi/
 .nyc_output/
 coverage/
+# Browser qualification sources, not generated coverage output.
+!/apps/app/e2e/real/coverage/
 *.lcov
 
 # Logs and profiles
 *.log
+# The migration corpus retains a 0.x loose log to prove archive preservation.
+!/packages/smithers/migrate/test/fixtures/persisted-db/.smithers/workflows/run-1783757199651.log
 *.cpuprofile
 tui-debug.log
 default.profraw
@@ -117,10 +121,18 @@ worktrees/
 !/.smithers/environment.nix
 !/.smithers/memory-thresholds.json
 !/.smithers/memory-thresholds.receipt.json
+# Repository-owned factory configuration and CI workflow source.
+!/.smithers/coding-project.json
+!/.smithers/workflows/
+/.smithers/workflows/*
+!/.smithers/workflows/ci.tsx
 **/.smithers/*.db
 **/.smithers/*.db-*
 **/.smithers/runs/
 **/.smithers/executions/
+# Persisted migration input is source evidence, not a live execution directory.
+!/packages/smithers/migrate/test/fixtures/persisted-db/.smithers/executions/
+!/packages/smithers/migrate/test/fixtures/persisted-db/.smithers/executions/run-1783757199651/stdout.log
 **/.smithers/cache/
 # Project roots `packages/smithers/test/FlowCatalogRefresh.test.ts` builds and
 # then imports out of. They sit inside the package so this process loads their

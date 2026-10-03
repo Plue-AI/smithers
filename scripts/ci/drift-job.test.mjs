@@ -25,6 +25,7 @@ const gateCommands = [
   "pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//scripts:conflictMarkers' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//scripts:trackedHygiene' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose",
 ]
 
@@ -227,6 +228,16 @@ test('public build declarations match release-style tsc for all source files', a
     await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'), 'dir')
     await symlink(join(repositoryRoot, 'packages/smithers/build/node_modules'), join(buildRoot, 'node_modules'), 'dir')
     await write(root, 'packages/build/src/Added.ts', 'export interface Added { value: string }\n')
+    // Checking the private seed creates B first; a noCheck declaration emit
+    // reaches the exported conditional first and creates A first instead.
+    await write(root, 'packages/build/src/DeclarationOrder.ts', `
+const seed: B = { b: true }
+export const inferred = Math.random() ? getA() : getB()
+interface A { a: boolean }
+interface B { b: boolean }
+declare function getA(): A
+declare function getB(): B
+`)
 
     const releaseRoot = join(root, 'release')
     const releaseDir = join(releaseRoot, 'packages/build/dist/esm')
@@ -257,8 +268,8 @@ test('public build declarations match release-style tsc for all source files', a
     assert.equal(oldConfig.errors.length, 0)
     assert.equal(ts.createProgram(oldConfig.fileNames, oldConfig.options).emit().emitSkipped, false)
     assert.notEqual(
-      apiSurface(root, oldRoot)['@smthrs/build'].declarations['Install.d.ts'],
-      releaseSurface['@smthrs/build'].declarations['Install.d.ts'],
+      await readFile(join(oldRoot, 'packages/build/dist/esm/DeclarationOrder.d.ts'), 'utf8'),
+      await readFile(join(releaseDir, 'DeclarationOrder.d.ts'), 'utf8'),
       'the former noCheck emit must exercise the declaration-order regression',
     )
 

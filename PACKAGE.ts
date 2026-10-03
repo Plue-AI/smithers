@@ -446,6 +446,7 @@ const driftCi = Smithers.GithubCiGen({
       { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
       { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
       { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
+      { name: "Tracked file hygiene", verb: Smithers.Verb.Lint, pattern: "//scripts:trackedHygiene" },
       { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" }
     ]
   }]

@@ -188,8 +188,7 @@ else { writeFileSync(${JSON.stringify(tscMarker)}, JSON.stringify(process.argv.s
     assert.ok(existsSync(tscMarker), output)
     assert.deepEqual(readManifest(tscMarker), ["exec", "tsc", "-p", "tsconfig.json", "--noEmit"])
     assert.match(output, /\/\/apps\/app:check  failed/)
-    assert.doesNotMatch(output, /module_import_failed|devkit|electrobun|hutch/i)
-    assert.equal(existsSync(join(temporary, "apps/app/.hutch")), false)
+    assert.doesNotMatch(output, /module_import_failed/i)
     // SecurityReview validates production trust-boundary paths before the
     // compiler may start. A missing authorization input must fail closed.
     rmSync(tscMarker)

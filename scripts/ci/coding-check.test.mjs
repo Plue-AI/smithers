@@ -141,7 +141,7 @@ test("an affected check without its check host's written paths refuses instead o
 const driftGates = [
   ["lint", "//...:fmt"], ["lint", "//:targetIndex"], ["lint", "//:openapiBundle"], ["lint", "//:openapiClients"],
   ["lint", "//scripts:docsDrift"], ["build", "//scripts:apiBaseline"], ["lint", "//scripts:conflictMarkers"],
-  ["lint", "//:driftCi"]
+  ["lint", "//scripts:trackedHygiene"], ["lint", "//:driftCi"]
 ]
 const driftRun = (failing) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "coding-drift-")))

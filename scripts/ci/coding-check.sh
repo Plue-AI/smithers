@@ -16,6 +16,7 @@ lint //:openapiClients
 lint //scripts:docsDrift
 build //scripts:apiBaseline
 lint //scripts:conflictMarkers
+lint //scripts:trackedHygiene
 lint //:driftCi"
 if [ "${1:-}" = affected ]; then
   if [ -z "${SMITHERS_CHECK_FILES+set}" ]; then

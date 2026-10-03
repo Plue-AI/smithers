@@ -1055,7 +1055,7 @@
   {
    "repo": "kovidgoyal/kitty",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-Clpwfc log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "EcoPasteHub/EcoPaste",
@@ -1070,7 +1070,7 @@
   {
    "repo": "podman-container-tools/podman",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-RVwSgb log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "dokku/dokku",
@@ -1115,7 +1115,7 @@
   {
    "repo": "BuilderIO/agent-native",
    "label": "hybrid",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-YIza0W log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "open-source-labs/SeeQR",
@@ -1145,7 +1145,7 @@
   {
    "repo": "fish-shell/fish-shell",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-zkGZHS log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "lerna/lerna",
@@ -1160,27 +1160,27 @@
   {
    "repo": "zachowj/node-red-contrib-home-assistant-websocket",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-9gOYS5 log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "pola-rs/polars",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-RYzQCH log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "NginxProxyManager/nginx-proxy-manager",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-xoHjF2 log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "anomalyco/models.dev",
    "label": "hybrid",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-JNwY7Q log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "SigNoz/signoz",
    "label": "human",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-YcIitU log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "intuit/auto",
@@ -1455,7 +1455,7 @@
   {
    "repo": "kejilion/KPanel",
    "label": "hybrid",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-IcA7rA log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "afumu/openlink",
@@ -1505,7 +1505,7 @@
   {
    "repo": "adamtwiss/coda",
    "label": "agent",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-WfpCdZ log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "zhongweili/nanobanana-mcp-server",
@@ -1520,7 +1520,7 @@
   {
    "repo": "SlopLabs/slopos",
    "label": "agent",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-H9DiJK log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "scarletkc/seiso",
@@ -1535,12 +1535,12 @@
   {
    "repo": "galoryber/fawkes",
    "label": "agent",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-WLnRKa log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   },
   {
    "repo": "DarkReaperBoy/Uniclient",
    "label": "agent",
-   "reason": "Command failed: git -C /private/tmp/claude-501/-Users-williamcory-smithers/ae401ad3-ba4e-43bc-b6c8-e85e320dcf11/scratchpad/s159/w/calibration-r1IzO3 log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
+   "reason": "Command failed: git -C <workspace> log -n 50000 --format=%x1e%H%x1f%ae%x1f%an%x1f%at%x"
   }
  ]
 }

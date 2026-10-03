@@ -18,7 +18,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { docsText } from "../../site/scripts/docs-text.mjs"
 import { launchOptions } from "../scripts/browser.mjs"
-import { runtimeInputs, tracked, walk } from "../scripts/inputs.mjs"
+import { runtimeInputs, tracked, trackedPath, walk } from "../scripts/inputs.mjs"
 import { providerFixture } from "../scripts/provider-fixture.mjs"
 import { monitorCell } from "../scripts/scenarios.mjs"
 import { parseScripts } from "../scripts/scripts.mjs"
@@ -195,6 +195,13 @@ test("recording directory enumeration includes nested files deterministically an
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test("tracked filesets use repository-relative slash paths on Windows", () => {
+  assert.equal(trackedPath("C:\\repo\\src\\a space.ts", "C:\\repo"), "src/a space.ts")
+  assert.equal(trackedPath("C:\\repo", "C:\\repo"), ".")
+  assert.equal(trackedPath("\\\\server\\repo\\src\\index.ts", "\\\\server\\repo"), "src/index.ts")
+  assert.equal(trackedPath("/repo/src/a space.ts", "/repo"), "src/a space.ts")
 })
 
 test("tracked inputs preserve Git index membership and NUL-delimited names", () => {

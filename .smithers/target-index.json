@@ -1458,10 +1458,6 @@
       {
         "kind": "file",
         "path": "scripts/require-toolchain.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "packages/backend/internal/services/issue_sync.go"
       }
     ],
     "outputs": [],
@@ -31055,38 +31051,6 @@
     }
   },
   {
-    "label": "//flows:registrationCalibrationReal",
-    "package": "flows",
-    "name": "registrationCalibrationReal",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "exclusive": true,
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "flows/test/registration-calibration-real.test.ts"
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/register-repository/calibration/*.json",
-        "exclude": []
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "flows/PACKAGE.ts"
-    }
-  },
-  {
     "label": "//flows:repository",
     "package": "flows",
     "name": "repository",
@@ -53848,23 +53812,11 @@
       },
       {
         "kind": "file",
-        "path": "apps/app/scripts/ensure-devkit.mjs"
-      },
-      {
-        "kind": "file",
         "path": "apps/app/scripts/run-pr-e2e.mjs"
       },
       {
         "kind": "file",
         "path": "apps/app/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "apps/app/electrobun.config.ts"
-      },
-      {
-        "kind": "file",
-        "path": "apps/app/hutch.config.ts"
       },
       {
         "kind": "file",
@@ -56028,10 +55980,59 @@
       {
         "kind": "file",
         "path": "distribution/Dockerfile"
-      },
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:trackedHygiene",
+    "package": "scripts",
+    "name": "trackedHygiene",
+    "rule": "Shell.Diff",
+    "kinds": [
+      "run",
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:trackedHygieneUnit",
+    "package": "scripts",
+    "name": "trackedHygieneUnit",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
       {
         "kind": "file",
-        "path": "apps/app/scripts/build-native.ts"
+        "path": "scripts/check-tracked-hygiene.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
       }
     ],
     "outputs": [],

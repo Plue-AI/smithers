@@ -160,14 +160,15 @@ export const mismatches = (entries, version) => {
   const workspaceNames = new Set(entries.map(({ manifest }) => manifest.name))
   const found = []
   for (const { directory, manifest, registryDependencies = false } of entries) {
+    const manifestPath = directory.endsWith("package.json") ? directory : `${directory}/package.json`
     if (manifest.private !== true && manifest.version !== version) {
-      found.push(`${directory}: version is ${manifest.version}, expected ${version}`)
+      found.push(`${manifestPath}: version is ${manifest.version}, expected ${version}`)
     }
     for (const field of dependencyFields) {
       for (const [name, range] of Object.entries(manifest[field] ?? {})) {
         if (!workspaceNames.has(name) || range === version) continue
         if (!registryDependencies && manifest.private === true && range.includes(":")) continue
-        found.push(`${directory}: ${field}.${name} is ${range}, expected ${version}`)
+        found.push(`${manifestPath}: ${field}.${name} is ${range}, expected ${version}`)
       }
     }
   }

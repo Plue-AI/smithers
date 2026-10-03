@@ -7,7 +7,7 @@ import { dirname, join } from "node:path"
 import { describe, it } from "node:test"
 import { promisify } from "node:util"
 
-import { proxyUrl } from "./github-proxy.mjs"
+import { proxyIntegrationUrl, proxyUrl } from "./github-proxy.mjs"
 
 const script = new URL("./github-proxy.mjs", import.meta.url).pathname
 const hasGh = (() => { try { execFileSync("gh", ["--version"], { stdio: "ignore" }); return true } catch { return false } })()
@@ -49,6 +49,14 @@ const serve = (env) => {
 }
 
 describe("the GitHub proxy daemon", () => {
+  it("resolves integrations through the installed CLI's public dependency exports", () => {
+    for (const name of ["core/IntegrationError", "github/Proxy", "github/RateLimit"]) {
+      const url = new URL(proxyIntegrationUrl(name))
+      assert.equal(url.protocol, "file:")
+      assert.ok(url.pathname.endsWith(`/integrations/src/${name}.ts`), url.href)
+    }
+  })
+
   it("defaults to loopback port 47821 and trims a trailing slash", () => {
     assert.equal(proxyUrl({}), "http://127.0.0.1:47821")
     assert.equal(proxyUrl({ SMITHERS_GITHUB_PROXY: "http://127.0.0.1:9/" }), "http://127.0.0.1:9")

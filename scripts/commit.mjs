@@ -39,6 +39,7 @@ try { mkdirSync(lock) } catch (error) {
   throw error
 }
 try {
+  run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true)
   if (existsSync(join(root, ".jj"))) {
     const eligible = run("jj", ["log", "-r", "main & (@ | @-)", "--no-graph", "-T", "commit_id"], true)
     if (!eligible) throw new Error("The shared checkout must be on main or its working-copy child.")

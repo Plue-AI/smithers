@@ -159,6 +159,8 @@ only.
 | `smithers`                    | `runs a prompt on the Codex subscription with no provider keys`                                    | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")`              |
 | `smithers`                    | `ClaudeCode against the installed Claude Code`                                                     | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")`        |
 | `smithers`                    | `CloudSandbox live workspace lifecycle`                                                            | `it.skipIf(SMITHERS_CLOUD_SANDBOX_SMOKE !== "1")`           |
+| `smithers`                    | `PostgreSQL retains one native ancestry snapshot across a committed writer on a separate connection` | `it.skipIf(process.env.SMITHERS_TEST_PG_URL === undefined)` |
+| `smithers`                    | `observing host over PostgreSQL`                                                                   | `describe.skipIf(!postgres)`                               |
 
 **PostgreSQL storage.** The `smithers` history and database adapter tests
 run with declared PostgreSQL services in their Linux test targets. The
@@ -167,7 +169,9 @@ case onto PostgreSQL. The `smithers` target's `env` sets only
 `SMITHERS_HISTORY_TEST_PG_URL`, read by the history and observe-mode
 PostgreSQL cases, because the CLI announces `SMITHERS_TEST_PG_URL` as an
 ignored 0.x setting on stderr. A suite gated on a variable its package's test
-target sets is a capability gate, so neither case is a pin.
+target sets is a capability gate. The two conditionally run native-read and
+observe-mode cases are registered above so an offline run's skipped PostgreSQL
+coverage stays explicit.
 
 **`migrate`: apply against a real model.** The three cases in
 `packages/smithers/migrate/test/flow/MigrateFlow.live.e2e.test.ts` drive the migration

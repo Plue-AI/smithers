@@ -1,11 +1,15 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
 
 const script = resolve(import.meta.dirname, "commit.mjs")
+const copyHygiene = (directory) => {
+  mkdirSync(join(directory, "scripts"))
+  copyFileSync(resolve(import.meta.dirname, "check-tracked-hygiene.mjs"), join(directory, "scripts/check-tracked-hygiene.mjs"))
+}
 const command = (cwd, bin, args) => spawnSync(bin, args, { cwd, encoding: "utf8" })
 const ok = (cwd, bin, args) => {
   const result = command(cwd, bin, args)
@@ -17,11 +21,12 @@ for (const vcs of ["git", "jj"]) {
     const directory = mkdtempSync(join(tmpdir(), "smithers-commit-test-"))
     const remote = mkdtempSync(join(tmpdir(), "smithers-commit-remote-"))
     try {
+      copyHygiene(directory)
       ok(directory, "git", ["init", "-b", "main"])
       ok(directory, "git", ["config", "user.name", "Commit test"])
       ok(directory, "git", ["config", "user.email", "test@example.com"])
       writeFileSync(join(directory, ".gitignore"), ".env\n")
-      ok(directory, "git", ["add", ".gitignore"])
+      ok(directory, "git", ["add", ".gitignore", "scripts/check-tracked-hygiene.mjs"])
       ok(directory, "git", ["commit", "-m", "initial"])
       ok(remote, "git", ["init", "--bare", "-b", "main"])
       ok(directory, "git", ["remote", "add", "origin", remote])
@@ -57,4 +62,63 @@ for (const vcs of ["git", "jj"]) {
       rmSync(remote, { recursive: true, force: true })
     }
   })
+  for (const finding of ["scaffold", "dangling", "untracked", "deleted"]) {
+    test(`${vcs}: ${finding} hygiene failure prevents commit and requested push`, () => {
+      const directory = mkdtempSync(join(tmpdir(), "smithers-commit-hygiene-test-"))
+      const remote = mkdtempSync(join(tmpdir(), "smithers-commit-hygiene-remote-"))
+      try {
+        copyHygiene(directory)
+        ok(directory, "git", ["init", "-b", "main"])
+        ok(directory, "git", ["config", "user.name", "Commit test"])
+        ok(directory, "git", ["config", "user.email", "test@example.com"])
+        writeFileSync(join(directory, "PACKAGE.ts"), "const target = { paths: ['source.ts'] }\n")
+        writeFileSync(join(directory, "source.ts"), "export const value = 1\n")
+        ok(directory, "git", ["add", "."])
+        ok(directory, "git", ["commit", "-m", "initial"])
+        ok(remote, "git", ["init", "--bare", "-b", "main"])
+        ok(directory, "git", ["remote", "add", "origin", remote])
+        ok(directory, "git", ["push", "origin", "main"])
+        if (vcs === "jj") {
+          ok(directory, "jj", ["git", "init", "--colocate"])
+          ok(directory, "jj", ["config", "set", "--repo", "user.name", "Commit test"])
+          ok(directory, "jj", ["config", "set", "--repo", "user.email", "test@example.com"])
+        }
+        if (finding === "deleted") {
+          rmSync(join(directory, "source.ts"))
+        } else if (finding === "untracked") {
+          writeFileSync(join(directory, "fresh.ts"), `export const path = 'scratchpad/${"lanes"}/a'\n`)
+        } else if (finding === "scaffold") {
+          writeFileSync(join(directory, "source.ts"), `export const path = 'scratchpad/${"lanes"}/a'\n`)
+        } else {
+          writeFileSync(join(directory, "PACKAGE.ts"), "const target = { paths: ['deleted.ts'] }\n")
+        }
+        const before = ok(directory, "git", ["rev-parse", "main"])
+        const stagedBefore = ok(directory, "git", ["diff", "--cached"])
+        const parentBefore = vcs === "jj" ? ok(directory, "jj", ["log", "-r", "@-", "--no-graph", "-T", "commit_id"]) : null
+        const refused = command(directory, process.execPath, [script, "--message", "must not commit", "--push"])
+        assert.notEqual(refused.status, 0)
+        assert.match(refused.stderr, finding === "deleted"
+          ? /PACKAGE\.ts:1: dangling: paths names "source\.ts", which no tracked file matches/
+          : finding === "dangling"
+          ? /PACKAGE\.ts:1: dangling: paths names "deleted\.ts", which no tracked file matches/
+          : finding === "untracked" ? /fresh\.ts:1: scaffold: lane scaffolding/ : /source\.ts:1: scaffold: lane scaffolding/)
+        assert.match(refused.stderr, /tracked hygiene: 1 finding\(s\)/)
+        assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
+        assert.equal(ok(remote, "git", ["rev-parse", "main"]), before)
+        assert.equal(ok(directory, "git", ["diff", "--cached"]), stagedBefore)
+        if (vcs === "jj") {
+          assert.equal(ok(directory, "jj", ["log", "-r", "@-", "--no-graph", "-T", "commit_id"]), parentBefore)
+        }
+        // A subsequent clean invocation proves the failed preflight released its lock.
+        writeFileSync(join(directory, "PACKAGE.ts"), "const target = { paths: ['source.ts'] }\n")
+        writeFileSync(join(directory, "source.ts"), "export const value = 1\n")
+        if (finding === "untracked") rmSync(join(directory, "fresh.ts"))
+        ok(directory, process.execPath, [script])
+        assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+        rmSync(remote, { recursive: true, force: true })
+      }
+    })
+  }
 }

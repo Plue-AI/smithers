@@ -182,6 +182,10 @@ const redGateDefects = (redGates, gates, gaps) => {
  */
 const allowedSkips = new Map([
   [
+    "packages/smithers/test/faults/burndown-infrastructure.test.ts",
+    "The bounded Microsandbox guest disk case runs on darwin or linux; other platforms report prerequisites without executing the guest."
+  ],
+  [
     "packages/smithers/test/faults/time-travel/case12-rewind-reverts-vcs.test.ts",
     "Needs the jj binary to rewind a real workspace. Skips locally without it and throws on CI."
   ],

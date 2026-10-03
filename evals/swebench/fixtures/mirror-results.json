@@ -19,7 +19,7 @@
     "failures": {
       "failed: Directory entry not found: CITATION": 3,
       "failed: Path not found: CITATION": 4,
-      "failed: Path not found: /private/tmp/claude-501/-Users-willi": 4,
+      "failed: Path not found: <workspace>": 4,
       "failed: Working directory is outside declared reads: /privat": 10,
       "failed: Path not found: /": 1
     },

@@ -406,6 +406,7 @@ gate_tools() {
     docs-drift) echo 'js' ;;
     api-baseline) echo 'js' ;;
     conflict-markers) echo 'js' ;;
+    tracked-hygiene) echo 'js' ;;
     drift-ci) echo 'js' ;;
     ui-check) echo 'js jj' ;;
     ui-tests) echo 'js jj' ;;
@@ -606,6 +607,9 @@ run_gate() {
       ;;
     conflict-markers)
       pnpm exec smthrs lint '//scripts:conflictMarkers' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    tracked-hygiene)
+      pnpm exec smthrs lint '//scripts:trackedHygiene' --known-red '.github/ci-known-red.json' --verbose
       ;;
     drift-ci)
       pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose

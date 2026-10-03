@@ -1,7 +1,7 @@
 /** Enumerate concrete cross-package inputs: globs cannot cross PACKAGE.ts boundaries. */
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync } from "node:fs"
-import { join } from "node:path"
+import { join, relative, sep, win32 } from "node:path"
 import { repoRoot, workspacePackages } from "../../../scripts/workspace-packages.mjs"
 export const walk = (dir) =>
   !existsSync(dir)
@@ -14,14 +14,17 @@ export const walk = (dir) =>
  * their membership from Git's index or jj's existing snapshot, never a directory walk,
  * so an untracked stray in a dirty checkout cannot enter a row.
  */
+export const trackedPath = (dir, root) =>
+  (/^[A-Za-z]:[\\/]|^\\\\/.test(root) ? win32.relative(root, dir).split("\\") : relative(root, dir).split(sep)).join("/") || "."
+
 export const tracked = (dir, root = repoRoot) =>
   !existsSync(dir)
     ? []
     : execFileSync(
       existsSync(join(root, ".jj")) ? "jj" : "git",
       existsSync(join(root, ".jj"))
-        ? ["file", "list", "--ignore-working-copy", "--template", "path.display() ++ \"\\0\"", "--", dir]
-        : ["ls-files", "-z", "--", dir],
+        ? ["file", "list", "--ignore-working-copy", "--template", "path.display() ++ \"\\0\"", "--", trackedPath(dir, root)]
+        : ["ls-files", "-z", "--", trackedPath(dir, root)],
       { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }
     )
       .split("\0")
