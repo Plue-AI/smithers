@@ -824,6 +824,9 @@ var authRandomRead = rand.Read
 func isSafe5xxMessageCode(code errors.Code) bool {
 	switch code {
 	case errors.CodeNoCapacity,
+		// Its messages are written constants ("workspace guest is still
+		// starting; retry shortly"); the client needs them to wait, not fail.
+		errors.CodeGuestNotReady,
 		errors.CodeEgressProxyUnavailable,
 		errors.CodeSecretDeliveryUnavailable,
 		// Its message is a written constant naming an environment variable and
