@@ -5,7 +5,7 @@ import { extractLiterals, sourceFiles } from "./Literals"
 import { actorLabelViolations, actorSourceViolations } from "./Rules"
 
 for (const phrase of [" via ", " for ", "'s terminal"]) {
-  for (const file of ["cards/Sample.tsx", "state/seams/Sample.ts", "state/TodoActors.ts", "toast/Sample.ts"]) {
+  for (const file of ["cards/Sample.tsx", "state/seams/Sample.ts", "state/ProductActor.ts", "toast/Sample.ts"]) {
     test(`${file}: rejects ${phrase}`, () => {
       const source = 'const label = `${name}' + phrase + '${other}`'
       expect(extractLiterals(file, source).flatMap(actorLabelViolations)).toHaveLength(1)

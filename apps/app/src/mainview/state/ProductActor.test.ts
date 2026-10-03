@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { ActorSchema, PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import { fixtures } from "@smthrs/rpc/fixtures/ActorChip"
 import { actorName, toActor, type ActorMember } from "./ProductActor"
-import { todoActors } from "./TodoActors"
+import { todoActors } from "./ProductActor"
 const ben: ActorMember = { id: "b", login: "ben", name: "Ben", avatar_url: PlaceholderAvatarUrl, color_index: 3 }
 const roster = [ben]
 for (const [via, label] of [[undefined, "Ben"], ["smithers", "Smithers for Ben"], ["claude-code", "Claude Code for Ben"], ["codex", "Codex for Ben"], ["ssh", "Ben via SSH"], ["terminal", "Ben's terminal"], ["cli", "Ben via CLI"], ["Aider", "Aider for Ben"]] as const) {

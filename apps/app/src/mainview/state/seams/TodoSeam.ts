@@ -1,5 +1,4 @@
-import { todoActors } from "../TodoActors"
-import type { ActorContext } from "../ProductActor"
+import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
