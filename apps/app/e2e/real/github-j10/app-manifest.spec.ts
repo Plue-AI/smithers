@@ -83,7 +83,7 @@ test("a fresh localhost install creates and installs its GitHub App", scenario("
     const initial = await before.json() as InstallStatus
     expect(initial.github_app.configured).toBe(false)
     testInfo.annotations.push({ type: "real-host-verified", description: "local" })
-    const begin = await context.request.post(`${ORIGIN}/api/install/setup/app`, {
+    const begin = await context.request.post(`${ORIGIN}/api/install/setup/app_manifest`, {
       headers, data: { owner_login: LOGIN, owner_kind: "user", repository: REPOSITORY }
     })
     expect(begin.status()).toBe(200)

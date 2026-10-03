@@ -886,7 +886,7 @@ func buildRouter(
 		}
 		if extras.GitHubAppSetup != nil {
 			r.Get("/install", extras.GitHubAppSetup.Status)
-			r.Post("/install/setup/app", extras.GitHubAppSetup.Begin)
+			r.Post("/install/setup/app_manifest", extras.GitHubAppSetup.Begin)
 		}
 		if extras.Recommender != nil {
 			r.Post("/recommend", extras.Recommender.Recommend)

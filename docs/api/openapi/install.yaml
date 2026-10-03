@@ -22,7 +22,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/install/setup/app:
+  /api/install/setup/app_manifest:
     post:
       summary: Begin or resume GitHub App setup
       operationId: post_api_install_setup_app

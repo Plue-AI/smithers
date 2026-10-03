@@ -97,7 +97,7 @@ describe("T-APP-03 install seam", () => {
   test.each(["pending", "running", "failed", "blocked"] as const)("earlier %s prevents later setup writes", async state => {
     const model = installFixture(); model.steps[0]!.state = state; model.steps[1]!.state = "pending"
     const h = await harness(() => Response.json(model)); await h.seam.readInstall()
-    expect(h.seam.setupStep({ step: "app" })).toBe("Complete the earlier step"); expect(h.requests).toHaveLength(1)
+    expect(h.seam.setupStep({ step: "app_manifest" })).toBe("Complete the earlier step"); expect(h.requests).toHaveLength(1)
   })
   test("Retry launches once; the toast waits for the terminal machine event", async () => {
     const model = installFixture(); model.steps[6]!.state = "failed"; model.machine = { state: "failed", pct: 60 }

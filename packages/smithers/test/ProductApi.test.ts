@@ -97,7 +97,7 @@ describe("the generated product API client", () => {
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
-    ).sort()).toEqual(["GET /api/install", "POST /api/install/setup/app"])
+    ).sort()).toEqual(["GET /api/install", "POST /api/install/setup/app_manifest"])
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
     }

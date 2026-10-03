@@ -1399,9 +1399,9 @@ export interface PostApiInstallSetupAppInput {
   readonly body: PostApiInstallSetupAppBody
 }
 
-/** POST /api/install/setup/app: Begin or resume GitHub App setup */
+/** POST /api/install/setup/app_manifest: Begin or resume GitHub App setup */
 export const postApiInstallSetupApp = (transport: Transport, input: PostApiInstallSetupAppInput): Promise<PostApiInstallSetupAppResponse> =>
-  transport.request("POST", `/api/install/setup/app`, input.body) as Promise<PostApiInstallSetupAppResponse>
+  transport.request("POST", `/api/install/setup/app_manifest`, input.body) as Promise<PostApiInstallSetupAppResponse>
 
 export type PostApiInstallQuiesceBody = {
   op: string

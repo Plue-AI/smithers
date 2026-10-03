@@ -2161,10 +2161,10 @@ func (c *Client) GetAPIInstall(ctx context.Context) (GitHubAppSetupStatus, error
 	return out, err
 }
 
-// PostAPIInstallSetupApp calls POST /api/install/setup/app.
+// PostAPIInstallSetupApp calls POST /api/install/setup/app_manifest.
 func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetupRequest) (GitHubAppManifestStart, error) {
 	var out GitHubAppManifestStart
-	err := c.do(ctx, "POST", "/api/install/setup/app", nil, body, &out)
+	err := c.do(ctx, "POST", "/api/install/setup/app_manifest", nil, body, &out)
 	return out, err
 }
 

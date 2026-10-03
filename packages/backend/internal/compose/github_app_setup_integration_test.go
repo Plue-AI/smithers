@@ -121,7 +121,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	var live []*http.Cookie
 	var attempt services.GitHubAppManifestStart
 	for i, server := range []*httptest.Server{local, network} {
-		for _, path := range []string{"/api/install", "/api/install/setup/app"} {
+		for _, path := range []string{"/api/install", "/api/install/setup/app_manifest"} {
 			method := "GET"
 			if strings.Contains(path, "setup") {
 				method = "POST"
@@ -137,7 +137,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 		require.Equal(t, i == 1, cookies[0].Secure)
 		status, _, _ = request(server, "GET", "/api/install", cookies, false)
 		require.Equal(t, 200, status)
-		status, body, stateCookies := request(server, "POST", "/api/install/setup/app", cookies, true)
+		status, body, stateCookies := request(server, "POST", "/api/install/setup/app_manifest", cookies, true)
 		if i == 0 {
 			require.Equal(t, 200, status, string(body))
 			require.NoError(t, json.Unmarshal(body, &attempt))
@@ -213,7 +213,7 @@ func TestGitHubAppSetupRejectsUnusedTokenCORSPreflight(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
 	cfg.Server.AllowedOrigins = []string{"https://setup.example"}
 	router := githubAppSetupComposeRouter(cfg, nil, &routes.GitHubAppSetupHandler{})
-	r := httptest.NewRequest(http.MethodOptions, "http://localhost:4000/api/install/setup/app", nil)
+	r := httptest.NewRequest(http.MethodOptions, "http://localhost:4000/api/install/setup/app_manifest", nil)
 	r.Header.Set("Origin", "https://setup.example")
 	r.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	r.Header.Set("Access-Control-Request-Headers", "Content-Type, X-Smithers-Setup-Token")

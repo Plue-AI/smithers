@@ -10,7 +10,7 @@ export const InstallErrorSchema = z.object({
   message: z.string(), retry_at: z.string().optional(), fix: z.string().optional()
 })
 export type InstallError = z.infer<typeof InstallErrorSchema>
-export const InstallStepIdSchema = z.enum(["address", "app", "sign_in", "repository", "models", "source", "machine"])
+export const InstallStepIdSchema = z.enum(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
 export type InstallStepId = z.infer<typeof InstallStepIdSchema>
 const state = z.enum(["pending", "running", "done", "blocked", "failed"])
 const progress = z.object({ state: z.enum(["pending", "running", "ready", "failed"]), pct: z.number().min(0).max(100) })
@@ -48,7 +48,7 @@ export const setupCardModel = (model: InstallModel): SetupCard => SetupCardSchem
   ...model,
   steps: model.steps.map(step => {
     const progress = step.id === "source" || step.id === "machine" ? model[step.id] : undefined
-    return { ...step, id: step.id === "app" ? "app_manifest" : step.id,
+    return { ...step,
       state: step.state === "done" && progress ? progress.state === "ready" ? "done" : progress.state : step.state,
       pct: progress?.pct ?? step.pct }
   }),

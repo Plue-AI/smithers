@@ -45,5 +45,5 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
   flow({ name: "settings.setup", summary: "Continue setup", hidden: true, discloseToAgent: true,
     grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),
-    handler: input => actions.setupStep({ ...input, step: input.step === "app_manifest" ? "app" : input.step }) })
+    handler: input => actions.setupStep(input) })
 ]
