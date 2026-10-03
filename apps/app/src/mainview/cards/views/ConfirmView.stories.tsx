@@ -14,8 +14,9 @@ export const confirmStories = {
   ...Object.fromEntries(Object.entries(actors).map(([key, story]) => [`actor_${key}`, { ...fixtures.one_click, name: `Asker: ${story.name}`, model: { ...fixtures.one_click.model, asked_by: story.model.actor } }]))
 }
 
-export function ConfirmStory({ name, onAction = () => {}, onView = () => {} }: { name: string; onAction?: ConfirmViewProps["onAction"]; onView?: ConfirmViewProps["onView"] }) {
-  const story = confirmStories[name as keyof typeof confirmStories]
-  if (!story) throw new Error(`Unknown Confirm story: ${name}`)
-  return <ConfirmView {...story} onAction={onAction} onView={onView} />
-}
+export const stories: import("./stories").ViewStory[] = Object.entries(confirmStories).map(([name, story]) => ({
+  name,
+  expect: story.expect,
+  actions: story.actions,
+  render: (callbacks, actions = story.actions) => <ConfirmView {...story} actions={actions as ConfirmViewProps["actions"]} {...callbacks} />
+}))

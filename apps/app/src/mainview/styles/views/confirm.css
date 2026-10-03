@@ -2,9 +2,6 @@
 .confirm-view h2 { margin: 0; }
 .confirm-view .smithers-card-header { min-height: 32px; }
 .confirm-asker, .confirm-receipt { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text-muted); font-size: var(--fs-caption); }
-.confirm-actor { display: inline-flex; align-items: center; gap: 6px; }
-.confirm-avatar { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--confirm-who); }
-.confirm-avatar[data-agent] { border-radius: 5px; }
 .confirm-text { margin: 8px 0 0; padding: 6px 10px; border-left: 2px solid var(--border-strong); color: var(--text); font-size: var(--fs-small); line-height: 1.45; white-space: pre-wrap; }
 .confirm-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--text-muted); font-size: var(--fs-small); }
 .confirm-meta b { color: var(--text); font-weight: 500; }
@@ -16,7 +13,7 @@
 .confirm-check[data-state="running"], .confirm-check[data-state="pending"] { color: var(--brand); }
 .confirm-check-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .confirm-previous, .confirm-merge-reason { color: var(--text-muted); }
-.confirm-stale { color: var(--attention-text, var(--warning)); }
+.confirm-stale { color: var(--attention-text); }
 .confirm-stale, .confirm-merge-reason { margin: 12px 0 0; font-size: var(--fs-small); }
 .confirm-merge-reason[data-state="merging"] { color: var(--brand); }
 .confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
