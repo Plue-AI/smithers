@@ -1,6 +1,6 @@
 import { copyText } from "@smthrs/ui/copy"
 import type { SettingsViewProps } from "@smthrs/rpc/SettingsCard"
-import { ModelAccess, ThisMac } from "./SetupFields"
+import { ThisMac } from "./SetupFields"
 import { formatBytes } from "./formatBytes"
 import { SettingsModels } from "./SettingsModels"
 import type { Action } from "@smthrs/rpc/CardAction"
