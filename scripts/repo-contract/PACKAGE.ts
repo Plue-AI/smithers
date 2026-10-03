@@ -140,7 +140,6 @@ const distributionImageTag = Smithers.NodeTest({
     Smithers.file("//scripts/workspace-packages.mjs"),
     Smithers.file("//packages/smithers/package.json"),
     Smithers.file("//distribution/README.md"),
-    Smithers.file("//distribution/version.env"),
     Smithers.file("//distribution/Dockerfile")
   ],
   deps: []

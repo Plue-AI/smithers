@@ -52,7 +52,6 @@ const write = (root, path, contents) => {
  */
 const seededSources = {
   "distribution/README.md": "```sh\nexport SMITHERS_IMAGE=ghcr.io/smithersai/smithers:0.1.0\numask 077\n```\n",
-  "distribution/version.env": "SMITHERS_DISTRIBUTION_VERSION=0.1.0\nSMITHERS_SCHEMA_VERSION=3\nSMITHERS_POSTGRES_MAJOR=18\n",
   "distribution/Dockerfile": "ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0\nRUN test -n \"$SMITHERS_DISTRIBUTION_VERSION\"\n",
   "packages/smithers/flows/observability/src/Otlp.ts": "export const defaultServiceVersion = \"0.1.0\"\n",
   "packages/smithers/migrate/src/flow/Cli.ts": "export const version = \"0.1.0\"\n",

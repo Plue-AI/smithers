@@ -123,13 +123,13 @@ COPY --from=git-cli /out/opt/smithers/git /opt/smithers/git
 COPY --from=web /src/apps/app/dist /opt/smithers/web
 COPY --from=smithers-rust /out/lib/libsmithers_ffi.so /opt/smithers/lib/libsmithers_ffi.so
 COPY packages/backend/db/product/migrations /opt/smithers/migrations
-COPY distribution/lib.sh distribution/entrypoint.sh distribution/backup.sh distribution/restore.sh distribution/upgrade.sh distribution/version.env /opt/smithers/
+COPY distribution/lib.sh distribution/entrypoint.sh distribution/backup.sh distribution/restore.sh distribution/upgrade.sh /opt/smithers/
 COPY LICENSE THIRD_PARTY_NOTICES.md distribution/licenses/ /opt/smithers/licenses/
 # A version-only release must not invalidate the runtime setup above.
 ARG SMITHERS_DISTRIBUTION_VERSION=1.0.0-rc.1
 RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4 | sed 's/^0*//')" \
   && test -n "$schema_version" \
-  && sed -i "s/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=${SMITHERS_DISTRIBUTION_VERSION}/; s/^SMITHERS_SCHEMA_VERSION=.*/SMITHERS_SCHEMA_VERSION=${schema_version}/" /opt/smithers/version.env \
+  && printf 'SMITHERS_DISTRIBUTION_VERSION=%s\nSMITHERS_SCHEMA_VERSION=%s\nSMITHERS_POSTGRES_MAJOR=18\n' "$SMITHERS_DISTRIBUTION_VERSION" "$schema_version" > /opt/smithers/version.env \
   && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
   && chmod 0444 /opt/smithers/bin/flow-hosts.json /opt/smithers/bin/*.sha256 \
   && ln -s ../cli/node_modules/@smthrs/cli/bin/smithers.mjs /opt/smithers/bin/smithers \

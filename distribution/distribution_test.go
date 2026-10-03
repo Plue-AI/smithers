@@ -126,7 +126,7 @@ func backupRestoreDurableClasses(t *testing.T, databaseURL string) {
 			t.Fatal(err)
 		}
 	}
-	version, _ := os.ReadFile("version.env")
+	version := []byte(testRelease)
 	if err := os.WriteFile(filepath.Join(data, "version.env"), version, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func backupRestoreDurableClasses(t *testing.T, databaseURL string) {
 	executable(t, filepath.Join(bin, "psql"), noSecret+`case " $* " in *" --dbname=postgres://smithers@example/db?sslmode=require "*) printf '0\n';; *) exit 41;; esac`)
 	marker := filepath.Join(root, "pg-restore")
 	executable(t, filepath.Join(bin, "pg_restore"), noSecret+`case " $* " in *" --dbname=postgres://smithers@example/db?sslmode=require "*) printf restored >"$RESTORE_MARKER";; *) exit 42;; esac`)
-	common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "DATABASE_URL=" + databaseURL, "SMITHERS_DATABASE_URL=", "PGPASSWORD="}
+	common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=" + releaseFixture(t), "DATABASE_URL=" + databaseURL, "SMITHERS_DATABASE_URL=", "PGPASSWORD="}
 	out, err := run(t, "backup.sh", append(common, "SMITHERS_DATA_ROOT="+data, "SMITHERS_BACKUP_ROOT="+backups)...)
 	if err != nil {
 		t.Fatalf("backup: %v %s", err, out)
@@ -186,7 +186,7 @@ func TestRestoreRefusesLinksLeavingDataRoot(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			version, _ := os.ReadFile("version.env")
+			version := []byte(testRelease)
 			if err := os.WriteFile(filepath.Join(data, "version.env"), version, 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -206,7 +206,7 @@ func TestRestoreRefusesLinksLeavingDataRoot(t *testing.T) {
 			executable(t, filepath.Join(bin, "pg_dump"), `while [ "$#" -gt 0 ]; do case "$1" in --file) printf database >"$2"; shift 2;; *) shift;; esac; done`)
 			executable(t, filepath.Join(bin, "psql"), `printf '0\n'`)
 			executable(t, filepath.Join(bin, "pg_restore"), `printf restored >"$RESTORE_MARKER"`)
-			common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "DATABASE_URL=postgres://example/db", "SMITHERS_DATABASE_URL=", "RESTORE_MARKER=" + marker}
+			common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=" + releaseFixture(t), "DATABASE_URL=postgres://example/db", "SMITHERS_DATABASE_URL=", "RESTORE_MARKER=" + marker}
 			out, err := run(t, "backup.sh", append(common, "SMITHERS_DATA_ROOT="+data, "SMITHERS_BACKUP_ROOT="+backups)...)
 			if err != nil {
 				t.Fatalf("backup: %v %s", err, out)
@@ -265,7 +265,7 @@ func TestFailedUpgradeLeavesManifest(t *testing.T) {
 	executable(t, filepath.Join(bin, "flock"), "exit 0")
 	executable(t, filepath.Join(bin, "backend"), "exit 42")
 	cmd := exec.Command("sh", "upgrade.sh", backup)
-	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "DATABASE_URL=postgres://x/db", "SMITHERS_DATABASE_URL=", "SMITHERS_DATA_ROOT="+data, "SMITHERS_BACKEND_BINARY="+filepath.Join(bin, "backend"))
+	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE="+releaseFixture(t), "DATABASE_URL=postgres://x/db", "SMITHERS_DATABASE_URL=", "SMITHERS_DATA_ROOT="+data, "SMITHERS_BACKEND_BINARY="+filepath.Join(bin, "backend"))
 	if err := cmd.Run(); err == nil {
 		t.Fatal("failed migration accepted")
 	}
@@ -308,13 +308,13 @@ func TestRealBackupRestorePostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(sourceData, "repositories", "o", "r", "proof"), []byte("files"), 0600)
-	version, _ := os.ReadFile("version.env")
+	version := []byte(testRelease)
 	_ = os.WriteFile(filepath.Join(sourceData, "version.env"), version, 0600)
 	fake := filepath.Join(root, "fake")
 	_ = os.Mkdir(fake, 0700)
 	executable(t, filepath.Join(fake, "flock"), "exit 0")
 	backupRoot := filepath.Join(root, "backups")
-	out, err := run(t, "backup.sh", "PATH="+fake+":"+bin+":"+os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "SMITHERS_DATABASE_URL="+source.ConnectionString, "SMITHERS_DATA_ROOT="+sourceData, "SMITHERS_BACKUP_ROOT="+backupRoot)
+	out, err := run(t, "backup.sh", "PATH="+fake+":"+bin+":"+os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE="+releaseFixture(t), "SMITHERS_DATABASE_URL="+source.ConnectionString, "SMITHERS_DATA_ROOT="+sourceData, "SMITHERS_BACKUP_ROOT="+backupRoot)
 	if err != nil {
 		t.Fatalf("backup: %v %s", err, out)
 	}
@@ -322,7 +322,7 @@ func TestRealBackupRestorePostgreSQL(t *testing.T) {
 	targetData := filepath.Join(root, "target-data")
 	_ = os.Mkdir(targetData, 0700)
 	cmd := exec.Command("sh", "restore.sh", strings.TrimSpace(out))
-	cmd.Env = append(os.Environ(), "PATH="+fake+":"+bin+":"+os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "SMITHERS_DATABASE_URL="+target.ConnectionString, "SMITHERS_DATA_ROOT="+targetData)
+	cmd.Env = append(os.Environ(), "PATH="+fake+":"+bin+":"+os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE="+releaseFixture(t), "SMITHERS_DATABASE_URL="+target.ConnectionString, "SMITHERS_DATA_ROOT="+targetData)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("restore: %v %s", err, b)
 	}
@@ -332,4 +332,15 @@ func TestRealBackupRestorePostgreSQL(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(targetData, "repositories", "o", "r", "proof")); string(got) != "files" {
 		t.Fatalf("files %q", got)
 	}
+}
+
+const testRelease = "SMITHERS_DISTRIBUTION_VERSION=1.0.0-rc.1\nSMITHERS_SCHEMA_VERSION=3\nSMITHERS_POSTGRES_MAJOR=18\n"
+
+func releaseFixture(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "version.env")
+	if err := os.WriteFile(path, []byte(testRelease), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

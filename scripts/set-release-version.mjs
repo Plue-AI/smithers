@@ -44,12 +44,6 @@ export const versionedSources = [
   },
   {
     package: "packages/smithers",
-    path: "distribution/version.env",
-    declaration: "SMITHERS_DISTRIBUTION_VERSION",
-    pattern: /(SMITHERS_DISTRIBUTION_VERSION=)([^\n]+)(\n)/
-  },
-  {
-    package: "packages/smithers",
     path: "distribution/Dockerfile",
     declaration: "SMITHERS_DISTRIBUTION_VERSION",
     pattern: /(ARG SMITHERS_DISTRIBUTION_VERSION=)([^\n]+)(\n)/

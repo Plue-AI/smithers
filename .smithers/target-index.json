@@ -45477,10 +45477,6 @@
       },
       {
         "kind": "file",
-        "path": "distribution/version.env"
-      },
-      {
-        "kind": "file",
         "path": "distribution/Dockerfile"
       }
     ],

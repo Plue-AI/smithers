@@ -174,6 +174,15 @@ func registeredMigrations() ([]migration, error) {
 	return result, nil
 }
 
+// HeadVersion returns the head of the validated, embedded migration registry.
+func HeadVersion() (int, error) {
+	registered, err := registeredMigrations()
+	if err != nil {
+		return 0, err
+	}
+	return registered[len(registered)-1].version, nil
+}
+
 type migrationQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }

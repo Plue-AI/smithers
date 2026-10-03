@@ -10,12 +10,11 @@ test("operator image tag and packaged distribution match the release", () => {
   const tags = [...read("distribution/README.md").matchAll(/ghcr\.io\/smithersai\/smithers:([^\s"'`]+)/g)].map((match) => match[1])
   assert.ok(tags.length > 0, "the install guide must identify the image")
   assert.deepEqual([...new Set(tags)], [version])
-  assert.match(read("distribution/version.env"), new RegExp(`^SMITHERS_DISTRIBUTION_VERSION=${version.replaceAll(".", "\\.")}$`, "m"))
   assert.ok(read("distribution/Dockerfile").includes(`ARG SMITHERS_DISTRIBUTION_VERSION=${version}\n`))
 })
 
 test("the version bump updates all distribution version declarations", () => {
-  for (const path of ["distribution/README.md", "distribution/version.env", "distribution/Dockerfile"]) {
+  for (const path of ["distribution/README.md", "distribution/Dockerfile"]) {
     const source = versionedSources.find((entry) => entry.path === path)
     assert.ok(source, `${path} must participate in release version bumps`)
     const changed = retargetSource(read(path), "9.8.7-next.1", source)
