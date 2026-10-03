@@ -108,11 +108,16 @@ describe("the package's entry point", () => {
 })
 
 describe("the flow surface's dependency boundary", () => {
-  it("imports only packages the manifest declares", () => {
+  it("imports only packages the manifest declares", async () => {
+    const { privateEffectAdapters } = await import(
+      new URL("../../../../repo-targets/scripts/private-effect-adapters.mjs", import.meta.url).href
+    )
     const declared = new Set([
       ...Object.keys(manifest.dependencies),
       ...Object.keys(manifest.peerDependencies ?? {}),
-      ...Object.keys(manifest.optionalDependencies)
+      ...Object.keys(manifest.optionalDependencies),
+      // Only validated, exactly pinned private adapters count as build inputs.
+      ...privateEffectAdapters(manifest)
     ])
     const undeclared = new Map<string, ReadonlyArray<string>>()
     for (const file of flowFiles(join(sourceRoot, "flow"))) {

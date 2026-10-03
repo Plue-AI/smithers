@@ -51295,6 +51295,11 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/scripts/private-effect-adapters.mjs",
+        "exclude": []
+      },
+      {
         "kind": "file",
         "path": "packages/smithers/migrate/vitest.config.ts"
       }

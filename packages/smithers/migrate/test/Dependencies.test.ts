@@ -98,16 +98,21 @@ describe("the scan surface's dependency boundary", () => {
     expect(text).toContain("import(\"@smthrs/registry/Discovery\")")
   })
 
-  it("keeps the flow-lane packages out of the hard dependencies", () => {
-    // The scanner declares the packages it imports directly, plus the Node
-    // adapter's shared platform, which the adapter would otherwise take at
-    // the newest release candidate its caret range allows (#2398).
+  it("keeps the flow-lane packages out of the hard dependencies", async () => {
+    const { privateEffectAdapters } = await import(
+      new URL("../../../repo-targets/scripts/private-effect-adapters.mjs", import.meta.url).href
+    )
+    // The platform adapters are validated private build inputs, relocated into
+    // the published package. Their external dependencies remain explicit.
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
-      "@effect/platform-node",
-      "@effect/platform-node-shared",
+      "@types/ws",
       "effect",
-      "typescript"
+      "redis",
+      "typescript",
+      "undici",
+      "ws"
     ])
+    expect(privateEffectAdapters(manifest)).toEqual(["@effect/platform-node", "@effect/platform-node-shared"])
     expect(Object.keys(manifest.optionalDependencies).every((name) => name.startsWith("@smthrs/"))).toBe(true)
     expect(Object.keys(manifest.optionalDependencies)).toContain("@smthrs/registry")
   })
@@ -116,14 +121,19 @@ describe("the scan surface's dependency boundary", () => {
     const { EXPECTED_EFFECT_VERSION } = await import(
       new URL("../../../../scripts/check-single-effect-version.mjs", import.meta.url).href
     )
+    const { privateEffectAdapters } = await import(
+      new URL("../../../repo-targets/scripts/private-effect-adapters.mjs", import.meta.url).href
+    )
     // The scanner can run before a project installs the flow runtime. Its own
-    // Effect, the Node adapter and its shared platform are hard dependencies
-    // at the checked-in family pin. A peer-only shared platform let npm, pnpm
-    // and Bun each resolve the adapter's own caret edge to a newer release
-    // candidate beside the pinned Effect (#2398).
-    for (const name of ["effect", "@effect/platform-node", "@effect/platform-node-shared"]) {
-      expect(manifest.dependencies[name]).toBe(EXPECTED_EFFECT_VERSION)
+    // Effect remains external; the Node adapter and its shared platform are
+    // private build inputs at the same exact family pin (#2398, #3093).
+    expect(manifest.dependencies.effect).toBe(EXPECTED_EFFECT_VERSION)
+    expect(manifest.devDependencies.effect).toBe(EXPECTED_EFFECT_VERSION)
+    for (const name of privateEffectAdapters(manifest)) {
       expect(manifest.devDependencies[name]).toBe(EXPECTED_EFFECT_VERSION)
+      expect(manifest.dependencies[name]).toBeUndefined()
+      expect(manifest.peerDependencies?.[name]).toBeUndefined()
+      expect(manifest.optionalDependencies[name]).toBeUndefined()
     }
     expect(manifest.peerDependencies).toBeUndefined()
   })

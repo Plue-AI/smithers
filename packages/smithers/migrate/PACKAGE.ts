@@ -8,7 +8,10 @@ import { Smithers } from "@smthrs/targets"
 
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
   deps: [],
-  cwd: "packages/smithers/migrate"
+  cwd: "packages/smithers/migrate",
+  // The dependency tests import the private Effect adapter validator, so a
+  // change to it must invalidate their cached result.
+  testData: ["//packages/repo-targets/scripts/private-effect-adapters.mjs"]
 })
 
 const securityReview = Smithers.SecurityReview({
