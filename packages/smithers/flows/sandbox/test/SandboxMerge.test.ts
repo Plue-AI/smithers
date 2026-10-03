@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
-import { RepositoryMutationTimeoutMs } from "@smthrs/jj/node/NodeJj"
-import { Effect, Fiber, FileSystem } from "effect"
+import { Jj } from "@smthrs/jj/Jj"
+import { layerAt, RepositoryMutationTimeoutMs, withRepositoryMutation } from "@smthrs/jj/node/NodeJj"
+import { Deferred, Effect, Fiber, FileSystem } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -167,11 +168,10 @@ exit "$code"
         ], { concurrency: 2 })),
         (applying) =>
           Effect.gen(function*() {
+            // Bounded by the test timeout, not a wall-clock deadline that flakes under load.
             yield* Effect.promise(async (signal) => {
-              const deadline = Date.now() + 10_000
               while (!existsSync(failed)) {
                 signal.throwIfAborted()
-                if (Date.now() >= deadline) throw new Error("jj did not encounter the active index lock")
                 await new Promise((resolve) => setTimeout(resolve, 10))
               }
             })
@@ -212,13 +212,30 @@ exit "$code"
       writeFileSync(indexLock, "active writer", { flag: "wx" })
       yield* Effect.ensuring(
         Effect.gen(function*() {
+          const entered = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          const holder = yield* Effect.forkChild(
+            withRepositoryMutation(
+              "held test fence",
+              repo.path,
+              Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
+            )
+          )
+          yield* Deferred.await(entered)
           const error = yield* Effect.flip(
             apply(work, { repository: repo.path }).pipe(
               Effect.provideService(RepositoryMutationTimeoutMs, 150)
             )
           )
+          yield* Deferred.succeed(release, undefined)
+          yield* Fiber.join(holder)
           expect(error.reason).toBe("vcs_failed")
           expect(error.message).toContain("timed out")
+          expect(error.cause).toMatchObject({
+            _tag: "@smthrs/jj/JjError",
+            code: "unknown",
+            cause: { code: "lock_timeout" }
+          })
           expect(readFileSync(indexLock, "utf8")).toBe("active writer")
           const applying = yield* Effect.forkChild(apply(work, { repository: repo.path }))
           yield* Effect.sleep(150)
@@ -386,6 +403,70 @@ exit "$code"
       expect(outcome.onto).toBe(fetched)
       expect(parentOf(clone, outcome.commit)).toBe(fetched)
       expect(fileAt(clone, outcome.commit, "b.txt")).toBe("b upstream\n")
+    }))
+
+  it.live("retries fetch ref-lock contention and allows a snapshot while fetch is running", () =>
+    Effect.gen(function*() {
+      const dir = fresh()
+      const upstream = hostRepository(dir, { "a.txt": "a\n" }, "upstream")
+      host(dir, `jj git clone --quiet --colocate ${quote(upstream.path)} clone`)
+      const clone = join(dir, "clone")
+      advanceMain(upstream.path, { "a.txt": "upstream\n" })
+      const work = yield* workOn(upstream.path, { "new.txt": "captured\n" })
+      const nodeJj = yield* Jj.pipe(Effect.provide(layerAt(clone)))
+      const bin = join(fresh(), "bin")
+      mkdirSync(bin, { recursive: true })
+      const saved = process.env.PATH
+      const real = host(bin, "command -v jj").trim()
+      const attempted = join(bin, "fetch-attempted")
+      const entered = join(bin, "fetch-entered")
+      const released = join(bin, "fetch-released")
+      writeFileSync(
+        join(bin, "jj"),
+        `#!/bin/sh
+case " $* " in
+  *" git fetch "*)
+    if [ ! -f ${quote(attempted)} ]; then
+      touch ${quote(attempted)}
+      echo "cannot lock ref 'refs/remotes/origin/main': Unable to create 'refs/remotes/origin/main.lock': File exists" >&2
+      exit 1
+    fi
+    touch ${quote(entered)}
+    while [ ! -f ${quote(released)} ]; do sleep 0.01; done
+    ;;
+esac
+PATH=${quote(saved ?? "/usr/bin:/bin")} exec ${quote(real)} "$@"
+`
+      )
+      chmodSync(join(bin, "jj"), 0o755)
+      process.env.PATH = `${bin}:${saved}`
+      const outcome = yield* Effect.acquireUseRelease(
+        Effect.forkChild(apply(work, { repository: clone })),
+        (applying) =>
+          Effect.gen(function*() {
+            yield* Effect.promise(async (signal) => {
+              while (!existsSync(entered)) {
+                signal.throwIfAborted()
+                await new Promise((resolve) => setTimeout(resolve, 10))
+              }
+            })
+            const snapshot = yield* nodeJj.snapshot().pipe(Effect.provideService(RepositoryMutationTimeoutMs, 1000))
+            expect(snapshot).toBeDefined()
+            expect(existsSync(attempted)).toBe(true)
+            expect(existsSync(released)).toBe(false)
+            writeFileSync(released, "release")
+            return yield* Fiber.join(applying)
+          }),
+        (applying) =>
+          Effect.sync(() => writeFileSync(released, "release")).pipe(
+            Effect.andThen(Fiber.interrupt(applying)),
+            Effect.andThen(Effect.sync(() => {
+              process.env.PATH = saved
+            }))
+          )
+      )
+      expect(outcome._tag).toBe("Merged")
+      expect(fileAt(clone, (outcome as SandboxMerge.Merged).commit, "new.txt")).toBe("captured\n")
     }))
 
   it.effect("fetches with the given arguments, and never fetches when fetch is false", () =>

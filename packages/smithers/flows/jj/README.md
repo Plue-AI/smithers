@@ -142,16 +142,18 @@ through the host's spawner must not change what a caller observes.
 Node and Bun operations hold workspace and shared-store permits, including
 `status`, which can snapshot. Processes coordinate through `.jj/smithers.lock`
 and the store's `smithers.lock`; `root(from)` fences the directory it actually
-queries. The default 120-second deadline includes permit waits and execution.
+queries. The default 120-second deadline bounds acquisition of both fences only;
+execution can outlast it after acquisition.
 Cancellation releases both permits. A caller reclaims only a same-host lock
 whose owner process has exited.
 
 `NodeJj.withRepositoryMutation` lets host adoption share these permits;
 `RepositoryMutationTimeoutMs` overrides its deadline. The protected effect must
 not call another fenced operation on the same store. `retryGitIndexLock`
-retries only confirmed shared `index.lock` acquisition failures, at most 1,200
-times with 100 ms waits, preserving the final error. It never removes Git's
-lock; use it inside the mutation deadline to bound the whole operation.
+retries confirmed shared `index.lock` acquisition failures and Git ref-lock
+contention, at most 1,200 times with 100 ms waits, preserving the final error. It never removes Git's
+lock. Once acquired, both fences remain held throughout bounded retries (about
+two minutes for a stuck lock); the acquisition deadline does not bound execution.
 
 ## Failures are six codes
 

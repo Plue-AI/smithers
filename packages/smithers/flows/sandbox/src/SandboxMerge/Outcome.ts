@@ -69,7 +69,7 @@ export type Outcome = Merged | Conflicted | Unchanged
  * - `conflict`: the `failOnConflict` strategy met a conflict; `paths` names it.
  * - `resolution_rejected`: a resolver's change still has conflicts or does
  *   not descend from `onto`.
- * - `vcs_failed`: `jj` or `git` failed on the host.
+ * - `vcs_failed`: a host command, fence acquisition or adapter load failed.
  *
  * @category errors
  * @since 1.0.0
@@ -84,5 +84,7 @@ export class MergeError extends Schema.TaggedError<MergeError>()("@smthrs/sandbo
     "vcs_failed"
   ]),
   message: Schema.String,
-  paths: Schema.optional(Schema.Array(Schema.String))
+  paths: Schema.optional(Schema.Array(Schema.String)),
+  /** Original host failure, including a jj error's code and nested cause. */
+  cause: Schema.optional(Schema.Unknown)
 }) {}

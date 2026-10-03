@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "@effect/vitest"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Schedule from "effect/Schedule"
@@ -41,7 +42,7 @@ const errno = (code: string) => Object.assign(new Error(code), { code })
 const fixture = <A, E, R>(use: (root: string) => Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
     Effect.promise(async () => {
-      const root = await mkdtemp(join(tmpdir(), "flows-jj-lock-"))
+      const root = await actualFs.realpath(await mkdtemp(join(tmpdir(), "flows-jj-lock-")))
       await mkdir(join(root, ".jj", "repo"), { recursive: true })
       await mkdir(join(root, "nested"))
       const binary = join(root, "jj-shim")
@@ -51,6 +52,8 @@ const fixture = <A, E, R>(use: (root: string) => Effect.Effect<A, E, R>) =>
 if [ "$1" = "--version" ]; then echo "jj 0.39.0"; exit 0; fi
 printf '%s\\n' "$*" >> calls
 : > started
+echo $$ > child-pid.tmp
+mv child-pid.tmp child-pid
 while [ -f hold ]; do /bin/sleep 0.01; done
 # Both Git diff and its path metadata describe an empty change.
 if [ "$1" = "diff" ] && [ "$2" = "--from" ]; then exit 0; fi
@@ -80,6 +83,82 @@ const until = (predicate: () => Promise<boolean>) =>
   })
 
 describe("NodeJj repository locks", () => {
+  it.effect("times out a held fence without starting the waiting operation", () =>
+    fixture((root) =>
+      Effect.gen(function*() {
+        const acquired = yield* Deferred.make<void>()
+        const holder = yield* Effect.forkChild(NodeJj.withRepositoryMutation(
+          "apply",
+          root,
+          Deferred.succeed(acquired, undefined).pipe(Effect.andThen(Effect.never))
+        ))
+        yield* Deferred.await(acquired)
+        let ran = false
+        const waiter = yield* Effect.forkChild(
+          NodeJj.withRepositoryMutation(
+            "apply",
+            root,
+            Effect.sync(() => {
+              ran = true
+            })
+          ).pipe(Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 30), Effect.flip)
+        )
+        yield* TestClock.adjust(31)
+        expect(yield* Fiber.join(waiter)).toMatchObject({ cause: { code: "lock_timeout" } })
+        expect(ran).toBe(false)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(true)
+        yield* Fiber.interrupt(holder)
+        yield* NodeJj.withRepositoryMutation("apply", root, Effect.void)
+      })
+    ))
+
+  it.effect("allows an acquired operation to outlive the acquisition timeout", () =>
+    fixture((root) =>
+      Effect.gen(function*() {
+        const acquired = yield* Deferred.make<void>()
+        const complete = yield* Deferred.make<string>()
+        const operation = yield* Effect.forkChild(
+          NodeJj.withRepositoryMutation(
+            "apply",
+            root,
+            Deferred.succeed(acquired, undefined).pipe(Effect.andThen(Deferred.await(complete)))
+          ).pipe(Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 30))
+        )
+        yield* Deferred.await(acquired)
+        yield* TestClock.adjust(31)
+        expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(true)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(true)
+        yield* Deferred.succeed(complete, "completed")
+        expect(yield* Fiber.join(operation)).toBe("completed")
+        expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(false)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(false)
+      })
+    ))
+
+  it.live("releases both fences after SIGKILL of an acquired jj child", () =>
+    fixture((root) =>
+      Effect.gen(function*() {
+        const jj = yield* Effect.provide(Jj, NodeJj.layerAt(root))
+        yield* Effect.promise(() => writeFile(join(root, "hold"), ""))
+        const pending = yield* Effect.forkChild(jj.snapshot("killed").pipe(Effect.flip))
+        yield* until(async () => existsSync(join(root, "child-pid")))
+        expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(true)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(true)
+        const pid = Number(yield* Effect.promise(() => readFile(join(root, "child-pid"), "utf8")))
+        expect(Number.isSafeInteger(pid) && pid > 0).toBe(true)
+        yield* Effect.sync(() => process.kill(pid, "SIGKILL"))
+        expect(yield* Fiber.join(pending)).toMatchObject({ method: "snapshot" })
+        expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(false)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(false)
+        yield* Effect.promise(() => rm(join(root, "hold")))
+        expect(
+          (yield* jj.snapshot("after-kill").pipe(
+            Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 1_000)
+          )).commitId
+        ).toBe("0abc")
+      })
+    ))
+
   it.effect("reaches lock assertions after fixture startup exceeds the production deadline", () =>
     fixture((root) =>
       Effect.acquireUseRelease(
@@ -174,6 +253,8 @@ fi
           "Could not acquire lock for index file: /git/private.index.lock",
           "Could not acquire lock for index file: could not be obtained immediately after 1 attempt(s). '/git/private.index.lock'",
           "Could not acquire lock for index file: '/git/index.lock': permission denied",
+          "cannot lock ref 'refs/heads/main': permission denied",
+          "cannot lock ref 'refs/heads/main': is at abc but expected def",
           "invalid revision"
         ]
       ) {
@@ -186,6 +267,42 @@ fi
         expect(answer).toBe(failure)
         expect(calls).toBe(1)
       }
+    }))
+
+  it.effect("retries transient ref-lock failures and succeeds after contention clears", () =>
+    Effect.gen(function*() {
+      for (const detail of ["File exists", "another Git process", "reference already locked"]) {
+        let calls = 0
+        const pending = yield* Effect.forkChild(NodeJj.retryGitIndexLock(Effect.suspend(() => {
+          calls++
+          return calls === 1
+            ? Effect.fail({ message: `cannot lock ref 'refs/heads/main': ${detail}` })
+            : Effect.succeed("fetched")
+        })))
+        yield* TestClock.adjust(100)
+        expect(yield* Fiber.join(pending)).toBe("fetched")
+        expect(calls).toBe(2)
+      }
+    }))
+
+  it.effect("bounds persistent ref-lock contention and stops retries on cancellation", () =>
+    Effect.gen(function*() {
+      let calls = 0
+      const failure = { message: "cannot lock ref 'refs/heads/main': File exists" }
+      const retrying = NodeJj.retryGitIndexLock(Effect.suspend(() => {
+        calls++
+        return Effect.fail(failure)
+      }))
+      const exhausted = yield* Effect.forkChild(Effect.flip(retrying))
+      yield* TestClock.adjust(120_000)
+      expect(yield* Fiber.join(exhausted)).toBe(failure)
+      expect(calls).toBe(1_201)
+      const cancelled = yield* Effect.forkChild(retrying)
+      yield* TestClock.adjust(0)
+      expect(calls).toBe(1_202)
+      yield* Fiber.interrupt(cancelled)
+      yield* TestClock.adjust(120_000)
+      expect(calls).toBe(1_202)
     }))
 
   for (const method of ["status", "root"] as const) {
@@ -414,7 +531,7 @@ fi
       ["2147483647-legacy", "ESRCH"]
     ]
   ) {
-    it.live(`preserves an owner whose death cannot be established locally: ${owner}`, () =>
+    it.effect(`preserves an owner whose death cannot be established locally: ${owner}`, () =>
       fixture((root) =>
         Effect.gen(function*() {
           const jj = yield* Effect.provide(Jj, NodeJj.layerAt(root))
@@ -426,9 +543,24 @@ fi
           const kill = vi.spyOn(process, "kill").mockImplementation(() => {
             throw errno(code!)
           })
-          let now = 0
-          vi.spyOn(Date, "now").mockImplementation(() => now += 120_001)
-          expect((yield* Effect.flip(jj.snapshot())).message).toContain("timed out waiting")
+          const pending = yield* Effect.forkChild(Effect.flip(
+            jj.snapshot().pipe(
+              Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 30)
+            )
+          ))
+          yield* Effect.promise(async (signal) => {
+            for (;;) {
+              signal.throwIfAborted()
+              const inspection = vi.mocked(readdir).mock.calls.findIndex(([path]) => path === lock)
+              if (inspection >= 0 && (code !== "EPERM" || kill.mock.calls.length > 0)) {
+                await vi.mocked(readdir).mock.results[inspection]!.value
+                return
+              }
+              await new Promise<void>((resolve) => setImmediate(resolve))
+            }
+          })
+          yield* TestClock.adjust(31)
+          expect((yield* Fiber.join(pending)).message).toContain("timed out waiting")
           expect(existsSync(join(lock, owner!))).toBe(true)
           if (code === "EPERM") expect(kill).toHaveBeenCalledWith(2147483647, 0)
           else expect(kill).not.toHaveBeenCalled()
@@ -445,9 +577,11 @@ fi
           await mkdir(lock)
           await writeFile(join(lock, "unknown-owner"), "")
         })
-        let now = 0
-        vi.spyOn(Date, "now").mockImplementation(() => now += 120_001)
-        const refused = yield* Effect.flip(jj.snapshot())
+        const refused = yield* Effect.flip(
+          jj.snapshot().pipe(
+            Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 30)
+          )
+        )
         expect(refused.message).toContain("timed out waiting")
         expect(refused.cause).toMatchObject({ name: "JjInternalFault", code: "lock_timeout" })
         expect(existsSync(join(lock, "unknown-owner"))).toBe(true)

@@ -133,6 +133,16 @@ and lands nothing new. An apply interrupted between creating the change and
 rebasing it finishes on the next attempt. Pass a `key` when a retry of the
 machine side can produce a different patch for the same unit of work.
 
+Host application shares the workspace/store fences with snapshots. The default
+120-second deadline bounds fence acquisition only; an acquired application runs
+to completion unless its caller cancels it. A missing base is fetched before
+acquiring the fences and checked again inside them, so slow network fetches do
+not block snapshots. Fence failures use `MergeError` reason `vcs_failed` with
+the original `JjError` in `cause`, preserving its code and nested `lock_timeout`.
+
+Host adapter imports share pending and successful loads. Rejected imports can
+be retried, and cancelling a caller does not poison later applications.
+
 ## Requirements
 
 - `git` in the guest.

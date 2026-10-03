@@ -32,6 +32,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
+import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import * as EffectChildProcess from "effect/unstable/process/ChildProcess"
@@ -376,51 +377,40 @@ const reclaimDeadLock = async (lockPath: string): Promise<void> => {
  * half-written owner record, and rename cannot replace a populated live lock.
  * Temporary candidates left by a killed process do not block future callers.
  */
-const withLockFile = <A, E, R>(
+const acquireLockFile = (
   method: string,
-  lockPath: string,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | JjError, R> => {
+  lockPath: string
+): Effect.Effect<void, JjError, Scope.Scope> => {
   const io = <T>(run: () => Promise<T>) => Effect.tryPromise({ try: run, catch: (cause) => lockFailure(method, cause) })
   const cleanup = (run: () => Promise<unknown>) =>
     io(run).pipe(Effect.catch((failure) => Effect.logWarning("Failed to release the jj repository lock", failure)))
-  return Effect.acquireUseRelease(
-    io(() => mkdtemp(join(dirname(lockPath), ".smithers-lock-"))),
-    (candidate) =>
-      Effect.gen(function*() {
-        const owner = `${hostname()}-${process.pid}-${candidate.slice(candidate.lastIndexOf("-") + 1)}`
-        yield* io(() => writeFile(join(candidate, owner), "", { flag: "wx", mode: 0o600 }))
-        const acquire = Effect.gen(function*() {
-          const startedAt = Date.now()
-          for (;;) {
-            const claimed = yield* io(async () => {
-              try {
-                await rename(candidate, lockPath)
-                return true
-              } catch (cause) {
-                if (!errnoIs(cause, "ENOTEMPTY") && !errnoIs(cause, "EEXIST")) throw cause
-                await reclaimDeadLock(lockPath)
-                return false
-              }
-            })
-            if (claimed) return
-            if (Date.now() - startedAt >= lockAcquireWithinMs) {
-              return yield* Effect.fail(lockFailure(
-                method,
-                new JjInternalFault({ code: "lock_timeout", message: "timed out waiting for another jj operation" })
-              ))
-            }
-            // Only the wait is interruptible: acquisition and registration of
-            // its finalizer must be inseparable, or cancellation leaks a lock.
-            yield* Effect.interruptible(Effect.sleep("25 millis"))
+  return Effect.gen(function*() {
+    const candidate = yield* Effect.acquireRelease(
+      io(() => mkdtemp(join(dirname(lockPath), ".smithers-lock-"))),
+      (candidate) => cleanup(() => rm(candidate, { recursive: true, force: true }))
+    )
+    const owner = `${hostname()}-${process.pid}-${candidate.slice(candidate.lastIndexOf("-") + 1)}`
+    yield* io(() => writeFile(join(candidate, owner), "", { flag: "wx", mode: 0o600 }))
+    const acquire = Effect.gen(function*() {
+      for (;;) {
+        const claimed = yield* io(async () => {
+          try {
+            await rename(candidate, lockPath)
+            return true
+          } catch (cause) {
+            if (!errnoIs(cause, "ENOTEMPTY") && !errnoIs(cause, "EEXIST")) throw cause
+            await reclaimDeadLock(lockPath)
+            return false
           }
         })
-        return yield* Effect.acquireUseRelease(acquire, () =>
-          effect, () =>
-          cleanup(() => removeLockOwner(lockPath, owner)))
-      }),
-    (candidate) => cleanup(() => rm(candidate, { recursive: true, force: true }))
-  )
+        if (claimed) return
+        // Only the wait is interruptible: acquisition and registration of
+        // its finalizer must be inseparable, or cancellation leaks a lock.
+        yield* Effect.interruptible(Effect.sleep("25 millis"))
+      }
+    })
+    yield* Effect.acquireRelease(acquire, () => cleanup(() => removeLockOwner(lockPath, owner)))
+  })
 }
 
 /**
@@ -434,64 +424,55 @@ const repositoryStoreOf = (root: string): string => {
 }
 
 /** One in-process permit and one on-disk lock per key. */
-const withLock = <A, E, R>(
+const acquireLock = (
   method: string,
   key: string,
-  lockPath: string | undefined,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | JjError, R> => {
-  let entry = repositoryLocks.get(key)
-  if (entry === undefined) {
-    entry = { semaphore: Semaphore.makeUnsafe(1), users: 0 }
-    repositoryLocks.set(key, entry)
-  }
-  entry.users += 1
-  const held = entry
-  return held.semaphore.withPermit(lockPath === undefined ? effect : withLockFile(method, lockPath, effect)).pipe(
-    Effect.ensuring(Effect.sync(() => {
-      held.users -= 1
-      if (held.users === 0) repositoryLocks.delete(key)
-    }))
-  )
-}
+  lockPath: string | undefined
+): Effect.Effect<void, JjError, Scope.Scope> =>
+  Effect.gen(function*() {
+    const held = yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        let entry = repositoryLocks.get(key)
+        if (entry === undefined) {
+          entry = { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+          repositoryLocks.set(key, entry)
+        }
+        entry.users += 1
+        return entry
+      }),
+      (held) =>
+        Effect.sync(() => {
+          held.users -= 1
+          if (held.users === 0) repositoryLocks.delete(key)
+        })
+    )
+    yield* Effect.acquireRelease(held.semaphore.take(1), () => held.semaphore.release(1), { interruptible: true })
+    if (lockPath !== undefined) yield* acquireLockFile(method, lockPath)
+  })
 
-/** Fibers and independently constructed layers share a permit per workspace. */
-const withRepositoryLock = <A, E, R>(
-  method: string,
-  from: string,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | JjError, R> =>
-  Effect.suspend(() => {
+/** Acquire workspace then store, in the same order for every mutation. */
+const acquireRepositoryLocks = (method: string, from: string): Effect.Effect<void, JjError, Scope.Scope> =>
+  Effect.gen(function*() {
     const root = workspaceRootOf(from)
-    return withLock(
+    yield* acquireLock(
       method,
       `workspace:${root ?? resolve(from)}`,
-      root === undefined ? undefined : join(root, ".jj", lockName),
-      effect
+      root === undefined ? undefined : join(root, ".jj", lockName)
     )
+    if (root === undefined) {
+      yield* acquireLock(method, `store:${resolve(from)}`, undefined)
+    } else {
+      const store = yield* Effect.try({
+        try: () => repositoryStoreOf(root),
+        catch: (cause) => lockFailure(method, cause)
+      })
+      yield* acquireLock(method, `store:${store}`, join(store, lockName))
+    }
   })
 
 /**
- * Every workspace of one repository shares a permit for repository mutations.
- * Taken only while the workspace permit is held, so the two
- * are always acquired in the same order.
- */
-const withStoreLock = <A, E, R>(
-  method: string,
-  from: string,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | JjError, R> =>
-  Effect.suspend(() => {
-    const root = workspaceRootOf(from)
-    if (root === undefined) return withLock(method, `store:${resolve(from)}`, undefined, effect)
-    return Effect.flatMap(
-      Effect.try({ try: () => repositoryStoreOf(root), catch: (cause) => lockFailure(method, cause) }),
-      (store) => withLock(method, `store:${store}`, join(store, lockName), effect)
-    )
-  })
-
-/**
- * The total bound for a coordinated host repository mutation, including permit waits.
+ * Milliseconds allowed to acquire both workspace and store fences.
+ * Once acquired, this deadline never interrupts the protected operation.
  *
  * @category configuration
  * @since 1.0.0
@@ -502,7 +483,8 @@ export const RepositoryMutationTimeoutMs = Context.Reference<number>("@smthrs/jj
 
 /**
  * Share the workspace/store fences with host application of captured work.
- * The deadline bounds acquisition and execution; interruption releases both fences.
+ * The deadline bounds acquisition of both fences only, never execution.
+ * Caller cancellation and operation failure release both fences.
  *
  * @category utils
  * @since 1.0.0
@@ -515,8 +497,8 @@ export const withRepositoryMutation = <A, E, R>(
   Effect.flatMap(
     RepositoryMutationTimeoutMs,
     (duration) =>
-      withRepositoryLock(method, from, withStoreLock(method, from, effect)).pipe(
-        Effect.timeoutOrElse({
+      Effect.scoped(Effect.andThen(
+        acquireRepositoryLocks(method, from).pipe(Effect.timeoutOrElse({
           duration,
           orElse: () =>
             Effect.fail(lockFailure(
@@ -526,14 +508,15 @@ export const withRepositoryMutation = <A, E, R>(
                 message: "timed out waiting for a host repository mutation"
               })
             ))
-        })
-      )
+        })),
+        effect
+      ))
   )
 
 /**
- * Retry only Git's shared index acquisition failure, within the surrounding
- * mutation deadline. Source conflicts, private index errors and other VCS
- * failures retain their original error. Never reclaim Git's active lock.
+ * Retry Git's shared index or ref-lock contention, for at most 1,200 retries.
+ * Source conflicts, private index errors and other VCS failures retain their
+ * original error. Never reclaim Git's active lock.
  *
  * @category utils
  * @since 1.0.0
@@ -546,9 +529,13 @@ export const retryGitIndexLock = <A, E extends { readonly message: string }, R>(
     const attempt: Effect.Effect<A, E, R> = Effect.suspend(() =>
       effect.pipe(
         Effect.catch((error) =>
-          attempts++ < 1_200 && /Could not acquire lock for index file/i.test(error.message)
-            && /could not be obtained immediately after \d+ attempt\(s\)/i.test(error.message)
-            && /(?:[/\\])index\.lock['" ]/.test(error.message)
+          attempts++ < 1_200 && (
+              /Could not acquire lock for index file/i.test(error.message)
+                && /could not be obtained immediately after \d+ attempt\(s\)/i.test(error.message)
+                && /(?:[/\\])index\.lock['" ]/.test(error.message)
+              || /cannot lock ref '[^']+':/i.test(error.message)
+                && /(?:file exists|another git process|reference already locked)/i.test(error.message)
+            )
             ? Effect.sleep("100 millis").pipe(Effect.andThen(attempt))
             : Effect.fail(error)
         )

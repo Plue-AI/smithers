@@ -4,11 +4,11 @@
  * @since 1.0.0
  */
 
-import type * as NodeJj from "@smthrs/jj/node/NodeJj"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { loadHostAdapter } from "./HostAdapter.ts"
 import { MergeError } from "./Outcome.ts"
 
 /**
@@ -74,7 +74,7 @@ export const output = (
   })).pipe(
     Effect.catchTag(
       "PlatformError",
-      (cause) => new MergeError({ reason: "vcs_failed", message: `${command} could not run: ${cause.message}` })
+      (cause) => new MergeError({ reason: "vcs_failed", message: `${command} could not run: ${cause.message}`, cause })
     )
   )
 
@@ -84,12 +84,10 @@ export const output = (
  * @category constructors
  * @since 1.0.0
  */
-export const make = (path: string): Effect.Effect<Repository, never, ChildProcessSpawner> =>
+export const make = (path: string): Effect.Effect<Repository, MergeError, ChildProcessSpawner> =>
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
-    // Host-only loading keeps provider/browser imports independent of Node.
-    const adapter = "@smthrs/jj/node/NodeJj"
-    const { retryGitIndexLock } = yield* Effect.promise(() => import(adapter) as Promise<typeof NodeJj>)
+    const { retryGitIndexLock } = yield* loadHostAdapter
     return {
       path,
       jj: (args) =>

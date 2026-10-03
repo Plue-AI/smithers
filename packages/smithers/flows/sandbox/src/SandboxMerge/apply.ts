@@ -4,12 +4,12 @@
  * @since 1.0.0
  */
 
-import type * as NodeJj from "@smthrs/jj/node/NodeJj"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import type { Work } from "../Sandbox/Work.ts"
+import { loadHostAdapter } from "./HostAdapter.ts"
 import { Conflicted, Merged, MergeError, type Outcome } from "./Outcome.ts"
 import { make as repositoryAt, output, type Repository } from "./Repository.ts"
 import { recordConflicts, type Strategy } from "./Strategy.ts"
@@ -95,9 +95,6 @@ const outcomeOf = (repository: Repository, change: string) =>
     return new Conflicted({ change, commit, onto, paths })
   })
 
-// The host adapter is loaded only when applying changed work.
-const hostAdapter = "@smthrs/jj/node/NodeJj"
-
 /**
  * Lands `work` in the host repository as one jj change on `onto`.
  *
@@ -125,87 +122,98 @@ export const apply = <E = never, R = never>(
   options: ApplyOptions<E, R>
 ): Effect.Effect<Outcome, MergeError | E, R | ChildProcessSpawner | FileSystem.FileSystem> =>
   work._tag === "Unchanged" ? Effect.succeed(work) : Effect.flatMap(
-    Effect.promise(() => import(hostAdapter) as Promise<typeof NodeJj>),
+    loadHostAdapter,
     ({ withRepositoryMutation }) =>
-      withRepositoryMutation(
-        "sandbox apply",
-        options.repository,
-        Effect.gen(function*() {
-          const repository = yield* repositoryAt(options.repository)
-          const spawner = yield* ChildProcessSpawner
-          const fs = yield* FileSystem.FileSystem
-          const change = yield* changeIdOf(options.key ?? `${work.session}\0${work.base}\0${work.patch}`)
-          const pending = `smithers-sandbox/${change}`
-          const exists = (yield* single(repository, `change_id(${change})`)).length > 0
-          const interrupted = (yield* single(repository, `bookmarks(exact:"${pending}")`)).length > 0
-          // Fetch before resolving `onto`: the fetch that brings the base usually moves `onto` too.
-          if (!exists) {
-            if ((yield* single(repository, work.base)).length === 0 && options.fetch !== false) {
-              yield* repository.jj(["git", "fetch", ...(options.fetch ?? [])])
+      Effect.gen(function*() {
+        const repository = yield* repositoryAt(options.repository)
+        const change = yield* changeIdOf(options.key ?? `${work.session}\0${work.base}\0${work.patch}`)
+        // Fetch before the fences: network latency must not block local snapshots.
+        // The fenced reads below re-check presence and resolve the refreshed onto.
+        if (
+          options.fetch !== false
+          && (yield* single(repository, `change_id(${change})`)).length === 0
+          && (yield* single(repository, work.base)).length === 0
+        ) {
+          yield* repository.jj(["git", "fetch", ...(options.fetch ?? [])])
+        }
+        return yield* withRepositoryMutation(
+          "sandbox apply",
+          options.repository,
+          Effect.gen(function*() {
+            const spawner = yield* ChildProcessSpawner
+            const fs = yield* FileSystem.FileSystem
+            const pending = `smithers-sandbox/${change}`
+            const exists = (yield* single(repository, `change_id(${change})`)).length > 0
+            const interrupted = (yield* single(repository, `bookmarks(exact:"${pending}")`)).length > 0
+            if (!exists) {
+              if ((yield* single(repository, work.base)).length === 0) {
+                return yield* new MergeError({
+                  reason: "base_not_found",
+                  message: `the work's base ${work.base} is not in ${options.repository}`
+                })
+              }
             }
-            if ((yield* single(repository, work.base)).length === 0) {
+            const onto = yield* single(repository, options.onto)
+            if (onto.length !== 1) {
               return yield* new MergeError({
-                reason: "base_not_found",
-                message: `the work's base ${work.base} is not in ${options.repository}`
+                reason: "onto_unresolved",
+                message: `${options.onto} names ${onto.length} commits in ${options.repository}`
               })
             }
-          }
-          const onto = yield* single(repository, options.onto)
-          if (onto.length !== 1) {
-            return yield* new MergeError({
-              reason: "onto_unresolved",
-              message: `${options.onto} names ${onto.length} commits in ${options.repository}`
-            })
-          }
-          if (!exists) {
-            const gitDir = (yield* repository.jj(["git", "root"])).trim()
-            const git = (args: ReadonlyArray<string>, env?: Record<string, string>, stdin?: string) =>
-              output(spawner, "git", ["--git-dir", gitDir, ...args], { cwd: options.repository, env, stdin })
-            // A private index, so the repository's own index and working copy are untouched.
-            const index = { GIT_INDEX_FILE: `${gitDir}/smithers-sandbox-${change}.index` }
-            const tree = yield* Effect.ensuring(
-              Effect.gen(function*() {
-                yield* git(["read-tree", work.base], index)
-                yield* Effect.mapError(
-                  git(["apply", "--cached", "--binary", "-"], index, work.patch),
-                  (cause) =>
-                    new MergeError({
-                      reason: "patch_rejected",
-                      message: `the patch does not apply to its base ${work.base}: ${cause.message}`
-                    })
-                )
-                return (yield* git(["write-tree"], index)).trim()
-              }),
-              Effect.ignore(fs.remove(index.GIT_INDEX_FILE, { force: true }))
-            )
-            // jj's built-in defaults set both to "", so an unconfigured identity reads as empty.
-            const name = (yield* repository.jj(["config", "get", "user.name"])).trim()
-            const email = (yield* repository.jj(["config", "get", "user.email"])).trim()
-            const signature = `${name || "Smithers"} <${email || "sandbox@smithers.invalid"}> ${
-              Math.floor((yield* Clock.currentTimeMillis) / 1000)
-            } +0000`
-            // jj takes the change id from the commit's `change-id` header on import.
-            const commit = (yield* git(
-              ["hash-object", "-t", "commit", "-w", "--stdin"],
-              undefined,
-              `tree ${tree}\nparent ${work.base}\nauthor ${signature}\ncommitter ${signature}\nchange-id ${change}\n\n${
-                options.message.endsWith("\n") ? options.message : `${options.message}\n`
-              }`
-            )).trim()
-            yield* git(["update-ref", `refs/heads/${pending}`, commit])
-            yield* repository.jj(["git", "import"])
-          }
-          if (!exists || interrupted) {
-            yield* repository.jj(["rebase", "-r", `change_id(${change})`, "-d", onto[0]!])
-            yield* repository.jj(["bookmark", "delete", pending])
-            yield* repository.jj(["git", "export"])
-          }
-          const landed = yield* outcomeOf(repository, change)
-          return landed
-        })
-      )
+            if (!exists) {
+              const gitDir = (yield* repository.jj(["git", "root"])).trim()
+              const git = (args: ReadonlyArray<string>, env?: Record<string, string>, stdin?: string) =>
+                output(spawner, "git", ["--git-dir", gitDir, ...args], { cwd: options.repository, env, stdin })
+              // A private index, so the repository's own index and working copy are untouched.
+              const index = { GIT_INDEX_FILE: `${gitDir}/smithers-sandbox-${change}.index` }
+              const tree = yield* Effect.ensuring(
+                Effect.gen(function*() {
+                  yield* git(["read-tree", work.base], index)
+                  yield* Effect.mapError(
+                    git(["apply", "--cached", "--binary", "-"], index, work.patch),
+                    (cause) =>
+                      new MergeError({
+                        reason: "patch_rejected",
+                        message: `the patch does not apply to its base ${work.base}: ${cause.message}`,
+                        cause
+                      })
+                  )
+                  return (yield* git(["write-tree"], index)).trim()
+                }),
+                Effect.ignore(fs.remove(index.GIT_INDEX_FILE, { force: true }))
+              )
+              // jj's built-in defaults set both to "", so an unconfigured identity reads as empty.
+              const name = (yield* repository.jj(["config", "get", "user.name"])).trim()
+              const email = (yield* repository.jj(["config", "get", "user.email"])).trim()
+              const signature = `${name || "Smithers"} <${email || "sandbox@smithers.invalid"}> ${
+                Math.floor((yield* Clock.currentTimeMillis) / 1000)
+              } +0000`
+              // jj takes the change id from the commit's `change-id` header on import.
+              const commit = (yield* git(
+                ["hash-object", "-t", "commit", "-w", "--stdin"],
+                undefined,
+                `tree ${tree}\nparent ${work.base}\nauthor ${signature}\ncommitter ${signature}\nchange-id ${change}\n\n${
+                  options.message.endsWith("\n") ? options.message : `${options.message}\n`
+                }`
+              )).trim()
+              yield* git(["update-ref", `refs/heads/${pending}`, commit])
+              yield* repository.jj(["git", "import"])
+            }
+            if (!exists || interrupted) {
+              yield* repository.jj(["rebase", "-r", `change_id(${change})`, "-d", onto[0]!])
+              yield* repository.jj(["bookmark", "delete", pending])
+              yield* repository.jj(["git", "export"])
+            }
+            const landed = yield* outcomeOf(repository, change)
+            return landed
+          })
+        )
+      })
   ).pipe(
-    Effect.catchTag("@smthrs/jj/JjError", (cause) => new MergeError({ reason: "vcs_failed", message: cause.message })),
+    Effect.catchTag(
+      "@smthrs/jj/JjError",
+      (cause) => new MergeError({ reason: "vcs_failed", message: cause.message, cause })
+    ),
     Effect.flatMap((landed) =>
       landed._tag === "Conflicted"
         ? Effect.flatMap(repositoryAt(options.repository), (repository) =>
