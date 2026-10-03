@@ -5,10 +5,11 @@ export function SetupAction({ action, onAction, inline = false, choiceLabels = {
   const id = useId()
   const [input, setInput] = useState<Record<string, string>>({})
   const values = Object.fromEntries((action.input ?? []).map(field => [field.name, input[field.name] ?? field.value ?? field.choices?.[0] ?? ""]))
+  const clearedInput = Object.fromEntries(Object.entries(input).filter(([name]) => action.input?.find(f => f.name === name)?.kind !== "secret"))
   const stepper = ["capacity", "parallel", "todo_daily_admissions"].includes(action.args?.field ?? "")
   const fewer = { ...action.args, value: String(Math.max(0, Number(values.value) - 1)) }
   const more = { ...action.args, value: String(Number(values.value) + 1) }
-  return <form className="setup-action" onSubmit={event => { event.preventDefault(); onAction(action.tag, { ...action.args, ...values }) }} data-flow={action.tag}>
+  return <form className="setup-action" onSubmit={event => { event.preventDefault(); onAction(action.tag, { ...action.args, ...values }); setInput(clearedInput) }} data-flow={action.tag}>
     {action.input?.map(field => inline && field.name === "model" && /jev/i.test(field.value ?? "") ? null : <div className="setup-field" key={field.name}>{inline ? null : stepper ? <span>{field.label}</span> : <label htmlFor={`${id}-${field.name}`}>{field.label}</label>}
       {stepper ? <span className="setup-stepper">
         <button type="button" data-flow={action.tag} disabled={!!action.disabled} aria-label={`Fewer ${field.label}`} onClick={event => { event.preventDefault(); onAction(action.tag, fewer) }}>−</button>

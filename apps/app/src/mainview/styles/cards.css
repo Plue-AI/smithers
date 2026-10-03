@@ -2934,11 +2934,11 @@
 .code-file-view .code-file-editor:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 
 /* SecretsView (T-UI-18): write-only forms and scope, from People.tsx. */
-.secrets-view { padding: 18px 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-sm); font-family: var(--font-ui); container-type: inline-size; }
+.secrets-view { font-family: var(--font-ui); font-size: var(--fs-small); container-type: inline-size; }
 .secrets-view h2 { margin: 0 0 16px; font-size: var(--fs-body); font-weight: 600; }
 .secrets-view .secrets-list { display: flex; flex-direction: column; gap: 6px; margin: 0 0 16px; padding: 0; list-style: none; }
 .secrets-view .secrets-list > li { display: flex; flex-wrap: wrap; align-items: start; gap: 6px 10px; font-size: var(--fs-small); }
-.secrets-view .secret-row { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 28px; }
+.secrets-view .secret-row { display: flex; flex: 1 0 auto; align-items: center; gap: 10px; min-width: 0; min-height: 28px; }
 .secrets-view .secret-row svg { flex: none; color: var(--text-muted); }
 .secrets-view code { min-width: 130px; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
 .secrets-view .secret-scope { color: var(--text-muted); white-space: nowrap; }
@@ -2952,9 +2952,13 @@
 .secrets-view input, .secrets-view select { box-sizing: border-box; width: 100%; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); color: var(--text); font: 12.5px var(--font-mono); }
 .secrets-view select { font-family: var(--font-ui); }
 .secrets-view .secret-add button, .secrets-view details button { border: 1px solid var(--border-strong); height: 32px; color: var(--text); }
-.secrets-view .setup-reason { color: var(--attention-text); font-size: var(--fs-caption); }
-.secrets-view :is(button, input, select, summary):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.secrets-view :disabled { cursor: default; }
+.secrets-view :is(button, input, select, summary):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.secrets-view :disabled { cursor: default; opacity: .5; }
+.secrets-view .secret-actions:has(details[open]) { flex-basis: 100%; }
+.secrets-view summary { list-style: none; }
+.secrets-view summary::-webkit-details-marker { display: none; }
+.secrets-view .secret-add .setup-field:first-child { flex: 0 0 150px; }
+.secrets-view .setup-field:has(select) { flex: 0 0 auto; }
 @container (max-width: 480px) {
   .secrets-view .secret-row { flex-basis: 100%; }
   .secrets-view code { min-width: 0; flex: 1; }

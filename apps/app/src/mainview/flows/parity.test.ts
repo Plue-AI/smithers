@@ -410,8 +410,16 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           const call = first.expression
           if (!ts.isPropertyAccessExpression(call.expression) || call.arguments.length !== 0 ||
             !/^(?:event|e)$/.test(call.expression.expression.getText(tree)) ||
-            !/^(?:preventDefault|stopPropagation)$/.test(call.expression.name.text)) return undefined
+            !/^(?:preventDefault|stopPropagation)$/.test(call.expression.name.text)) break
           statements.shift()
+        }
+        // A submitted action may also clear transient form state.
+        if (statements.length > 1) {
+          const cleanup = ts.factory.createArrowFunction(undefined, undefined, [], undefined,
+            ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+            ts.factory.createBlock(statements.slice(1)))
+          if (!presentationHandler(cleanup)) return undefined
+          statements.splice(1)
         }
         if (statements.length !== 1) return undefined
         const statement = statements[0]!
@@ -940,6 +948,15 @@ describe("View and Container catalog seam (C-UI-08)", () => {
         "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(previous => { onRetry(); return previous })} />"
       ]
     ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("an action may clear transient input without hiding extra commands", () => {
+    const prefix = 'const [input, setInput] = useState({}); '
+    expect(viewSeamViolations(prefix + '<form data-flow={action.tag} onSubmit={event => { event.preventDefault(); onAction(action.tag, values); setInput({}) }} />')).toEqual([])
+    for (const cleanup of ['mutate()', 'setInput(() => mutate())', 'onAction(other.tag)', 'model.value = "changed"']) {
+      expect(viewSeamViolations(prefix + `<form data-flow={action.tag} onSubmit={event => { event.preventDefault(); onAction(action.tag, values); ${cleanup} }} />`).length).toBeGreaterThan(0)
+    }
+    expect(viewSeamViolations(prefix + '<form data-flow={other.tag} onSubmit={() => { onAction(action.tag); setInput({}) }} />').length).toBeGreaterThan(0)
   })
 
   test("unbound, mismatched, direct command, hidden and alternate handlers are rejected", () => {

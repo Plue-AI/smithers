@@ -627,5 +627,4 @@ type SecretsViewProps = CardProps<SecretsCard>
 
 Values never enter the model. Add and Replace supply Value, Scope and optional
 Hosts through `Action.input`; Add also supplies Name. Replace expands locally.
-Rows show names and scope, without a Hosts count or Bind control. Scope changes
-are submitted with Replace; the View adds no independent scope action.
+Rows show names and scope, without a Hosts count or Bind control.

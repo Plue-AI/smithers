@@ -520,6 +520,7 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
       window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
     })
     await page.locator('.secrets-view summary').focus(); await page.keyboard.press("Enter")
+    await page.screenshot({ path: resolve(shots, `SecretsView-replace-open-${theme}-${width}.png`), fullPage: true })
     const form = page.locator('.secrets-view details form')
     await expect(form.locator('input[type="password"]')).toHaveValue("")
     await expect(form.locator('input[aria-label="Hosts"]')).toHaveValue("api.stripe.com, files.stripe.com")
@@ -530,9 +531,9 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
     expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([
       { kind: "action", value: { tag: "secrets.set", args: { name: "STRIPE_KEY", value: "replacement-value", scope: "all_branches", hosts: "" } } },
     ])
+    await expect(form.locator('input[type="password"]')).toHaveValue("")
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.addScriptTag({ path: axePath })
     expect(await page.evaluate(async () => (await (window as unknown as { axe: { run: () => Promise<{ violations: { impact: string }[] }> } }).axe.run()).violations.filter(v => v.impact === "serious" || v.impact === "critical"))).toEqual([])
-    await page.screenshot({ path: resolve(shots, `SecretsView-replace-open-${theme}-${width}.png`), fullPage: true })
   }
 })
