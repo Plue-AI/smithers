@@ -6,7 +6,7 @@ import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabiliti
 import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
-import { nameOf, parseSubmit } from "./registry"
+import { nameOf } from "./registry"
 
 /*
  * The code-intel flows (docs/code-intel/PLAN.md §4): `code.hover`,
@@ -70,45 +70,21 @@ const controllerFor = async (bootstrap: AppBootstrap) => {
   return createAppController(store, unavailableAgent, { bootstrap })
 }
 
-describe("the code.* flows", () => {
-  for (const [label, bootstrap] of [["native", NATIVE], ["web", WEB]] as const) {
-    test(`on the ${label} host with cloud.terminal the three flows are registered, listed with their grammars, and callable by the agent`, async () => {
+describe("code intelligence stays dark until guest validation lands", () => {
+  for (const [label, bootstrap] of [["native", NATIVE], ["web", WEB], ["no tunnel", WEB_WITHOUT_TUNNEL]] as const) {
+    test(`${label} exposes no code action merely because a tunnel exists`, async () => {
       const controller = await controllerFor(bootstrap)
-      const callable = new Set(controller.commands.callable().map(nameOf))
-      const disclosed = new Map(controller.commands.disclosed().map((descriptor) => [descriptor.name, descriptor]))
-      for (const name of CODE_FLOWS) {
-        expect(callable.has(name)).toBe(true)
-        expect(disclosed.has(name)).toBe(true)
-      }
-      const catalog = new Map(controller.commands.all().map((item) => [item.name, item]))
-      expect(catalog.get("code.hover")?.args).toBe("<path>:<line>:<col> [owner/repo]")
-      expect(catalog.get("code.definition")?.args).toBe("<path>:<line>:<col> [owner/repo]")
-      expect(catalog.get("code.diagnostics")?.args).toBe("<path> [owner/repo]")
-      for (const name of CODE_FLOWS) {
-        expect(catalog.get(name)?.runtime).toEqual(["cloud.terminal"])
-        expect(catalog.get(name)?.confirm).toBeUndefined()
-        expect(catalog.get(name)?.hidden).not.toBe(true)
+      try {
+        const callable = new Set(controller.commands.callable().map(nameOf))
+        const disclosed = new Set(controller.commands.disclosed().map(item => item.name))
+        for (const name of CODE_FLOWS) {
+          expect(controller.commands.find(name)).toBeUndefined()
+          expect(callable.has(name)).toBe(false)
+          expect(disclosed.has(name)).toBe(false)
+        }
+      } finally {
+        await controller.dispose()
       }
     })
   }
-
-  test("the slash door parses `/code.hover <path>:<line>:<col>` as the flow, not a prompt", async () => {
-    const controller = await controllerFor(WEB)
-    expect(parseSubmit("/code.hover src/x.ts:12:5", controller.commands.all())).toEqual({
-      kind: "command",
-      name: "code.hover",
-      args: "src/x.ts:12:5"
-    })
-  })
-
-  test("without the tunnel the flows are absent and the miss names the origin, never the native app", async () => {
-    const controller = await controllerFor(WEB_WITHOUT_TUNNEL)
-    for (const name of CODE_FLOWS) {
-      expect(controller.commands.find(name)).toBeUndefined()
-      expect(controller.commands.explainAbsent(name)).toEqual({
-        door: "origin",
-        reason: `/${name} is not available on this origin yet.`
-      })
-    }
-  })
 })

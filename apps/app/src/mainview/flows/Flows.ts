@@ -44,7 +44,6 @@ import { debugFlows, debugVerboseFlows } from "./entries/debug"
 import { egressFlows } from "./entries/egress"
 export { guideFlows } from "./entries/guide"
 import { envFlows } from "./entries/env"
-import { codeFlows } from "./entries/code"
 import {  filesFlows } from "./entries/files"
 import { findingsFlows } from "./entries/findings"
 import { flowFlows, flowRunStopAllFlows } from "./entries/flow"
@@ -143,7 +142,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...branchesFlows(actions),
   ...commitsFlows(actions),
   ...filesFlows(actions),
-  ...codeFlows(actions),
   ...githubFlows(actions),
   ...reposImportRetryFlows(actions),
   ...syncFlows(actions),

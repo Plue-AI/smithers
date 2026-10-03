@@ -113,9 +113,6 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
    * with a follow-up (dispatches its next run) and stopping it all confirm.
    */
   /* Code intelligence (docs/code-intel/PLAN.md §4): reads over the workspace LSP tunnel; none confirms. */
-  { name: "code.hover", args: "src/index.ts:3:7", confirm: false },
-  { name: "code.definition", args: "src/index.ts:3:17", confirm: false },
-  { name: "code.diagnostics", args: "src/index.ts", confirm: false }
 ]
 
 const memoryStorage = (): StorageApi => {
