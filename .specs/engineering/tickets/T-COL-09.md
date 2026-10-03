@@ -1,6 +1,6 @@
 # T-COL-09 Wiki co-editing on the live channel; delete POST+SSE
 
-Stage S3 · Size M · Depends on T-COL-08, T-APP-14a, T-FLW-10 · Unblocks T-REL-02 · Issue: [#3587](https://github.com/smithersai/smithers/issues/3587)
+Stage S3 · Size M · Depends on T-COL-08, T-APP-14a, T-FLW-10 · Unblocks T-INS-07, T-REL-02 · Issue: [#3587](https://github.com/smithersai/smithers/issues/3587)
 Spec: spec.md §2 (Live document), §6.2.4, §7.4.1–7.4.6, §7.6.1, §13.1–13.2 · Delta: delta.md §4 (wiki row, Modify [S3]) · Product: mvp.md J8.2, §6.11 Pages and editing, M-02
 Ready: 2026-10-03 smithers-8a sha256:396865c1ddf6
 

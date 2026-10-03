@@ -1,6 +1,6 @@
 # T-MCH-11 Member unix users, `team` group, no-sudo image, per-machine homes
 
-Stage S2 · Size L · Depends on T-MCH-02, T-ACC-02 · Unblocks T-COL-04, T-MCH-12, T-MNT-01, T-MNT-02, T-REL-02, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-07 · Issue: [#3570](https://github.com/smithersai/smithers/issues/3570)
+Stage S2 · Size L · Depends on T-MCH-02, T-ACC-02 · Unblocks T-COL-04, T-MCH-12, T-MNT-01, T-MNT-02, T-MNT-05, T-REL-02, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-07 · Issue: [#3570](https://github.com/smithersai/smithers/issues/3570)
 Spec: spec.md §5.5, §8.7, §8.10.3, §8.11.1, §9.1.2 (`open_session`), §17.1, §17.2 · Delta: delta.md §3 (per-member users row), §5 (`developer`/`root` delete row) · Product: mvp.md J6.1, J6.5, §6.8 Terminals, §6.15 SSH, M-18, M-29
 
 ## Goal

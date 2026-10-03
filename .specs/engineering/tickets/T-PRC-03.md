@@ -1,6 +1,6 @@
 # T-PRC-03 Check receipts required to close a ticket; one check runner
 
-Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3615](https://github.com/smithersai/smithers/issues/3615)
+Stage S1 · Size S · Depends on — · Unblocks T-MCH-01, T-REL-02 · Issue: [#3615](https://github.com/smithersai/smithers/issues/3615)
 Spec: spec.md §21.4 · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-22
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ruling 3; v1 §6 host-profile readers). #3663 is re-scoped to this ticket.
 

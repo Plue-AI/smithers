@@ -1,6 +1,6 @@
 # T-INS-05 Homebrew tap and release bottles; delete the Docker image
 
-Stage R · Size M · Depends on T-INS-01, T-INS-03, T-INS-08 · Unblocks T-DOC-01, T-INS-07 · Issue: [#3460](https://github.com/smithersai/smithers/issues/3460)
+Stage R · Size M · Depends on T-INS-01, T-INS-02, T-INS-03, T-INS-08 · Unblocks T-DOC-01, T-INS-07 · Issue: [#3460](https://github.com/smithersai/smithers/issues/3460)
 Spec: spec.md §16.1.0–§16.1.2 · Delta: delta.md §1 (Add: formula; Delete [R]: the Docker self-host image) · Product: mvp.md J1.1, §6.1 Install on a Mac, §12.5, M-09, M-10
 
 ## Goal
@@ -8,32 +8,48 @@ On a fresh Apple Silicon Mac, `brew install smithersai/tap/smithers` pours a pre
 
 ## Scope
 In:
+- Build against the T-INS-01 bundle manifest, T-INS-02 microVM-only launcher, T-INS-03 signing evidence and T-INS-08 keg-resolution contracts. If any dependency is unlanded, land the formula and release-job changes dark: no public tap bump or asset publication until the real bottle/start tests below pass; missing artifacts, invalid manifests or unavailable microVM execution fail closed, without source-build or process-execution fallback.
 - Tap repository `smithersai/homebrew-tap` (created 2026-10-02 by ops, private until the release stage; `brew tap` works with a token until then) with `Formula/smithers.rb`: installs the signed CLI installer archive (`packages/smithers/docs/guides/installer-releases.md`) and the T-INS-01 server bundle into `libexec` at the path `smthrs host start` resolves without `--bundle` (§16.1.2, T-INS-08), links `smthrs`, and signs `msb` the way T-INS-03 proved.
 - Release bottles for macOS arm64 come from a macOS job added to the existing `.github/workflows/release.yml`, which already builds per-platform artifacts (§16.1.0a). No Smithers host can build macOS binaries. Archives are GitHub Release assets of `smithersai/smithers` with sha256 in the formula (§16.1.1: no network service run by us).
-- Delete the Docker self-host image (§16.1.0): nothing consumes it, it was never published (#2481), and it can't host microVMs.
+- Delete the Docker self-host image (§16.1.0), its CI consumers and its documentation together. It was never published (#2481) and cannot host microVMs. Retain the lifecycle scripts and guard tests as T-INS-07 port sources, with no production invocation.
+- Runs outside the install: smithers-3f, macOS bottle building and qualification require macOS while branch machines are Linux (§16.1.0a), expires 2026-10-10; smithers-3f reviews renewal if release qualification is unfinished.
 
 Out:
 - `smthrs host start`, `stop`, `status` and the launchd plist (T-INS-08); `smthrs host upgrade`, `backup`, `restore` (T-INS-07).
 - A LAN certificate authority, `smthrs connect` or mDNS: never built.
 - HTTPS in front of the install (§16.3.4: docs only, for example Tailscale serve or Caddy). The quickstart (T-DOC-01).
+- Intel macOS and Linux host bottles, Cloud distribution, a second CLI or bundle assembler, notarization, automatic-login setup, root installers and LaunchDaemons. Preserve the existing signed CLI candidate and T-INS-08 per-user LaunchAgent.
+- Porting or deleting lifecycle guards and their scripts/tests (T-INS-07); new upgrade policy or implementation.
 
 ## Changes
-- `.github/workflows/release.yml` → a macOS arm64 job (GitHub-hosted runners are free for the public `smithersai/smithers`) that builds the bottle and the bundle archive, publishes them with the installer archives (same `SHA256SUMS` signing), and opens a formula bump in the tap.
-- Delete the Docker path: `distribution/{Dockerfile,entrypoint.sh,publish-image.sh,publish-image.test.mjs,test-image.sh,backup.sh,restore.sh,upgrade.sh}`, the jobs in `.github/workflows/distribution.yml:37-43` and `release.yml:512-516, 861-866`, `apps/app/scripts/mode-matrix/docker-web-selfhost.ts`, and `apps/site/src/content/docs/docs/self-hosting.mdx` (Docker only; T-DOC-01 replaces it with the quickstart). `distribution/lib.sh`, `version.env` and their Go tests stay until T-INS-07 ports their checks and deletes them.
-- `distribution/README.md` → delete the stale "Native application" section and the Docker image.
+- Reshape `.github/workflows/release.yml` using its existing macOS arm64 matrix, `installer-archive` and tag-bound signing steps. Reuse `scripts/installer-release.mjs` packing and verification and T-INS-01's restored assembler; extend the signed asset set for the bottle and bundle, publish verified assets to GitHub Releases, and open a formula bump in the tap. Do not route this install through the existing hosted installer bucket. The new formula is needed because no Homebrew formula exists in the named release paths; no second packer, signer or CLI.
+- `smithersai/homebrew-tap/Formula/smithers.rb` → preserve the CLI archive directory/runtime, stage and verify downloads as the installing user, install the manifest-matched bundle in `libexec`, link `smthrs` and apply the T-INS-03 qualified ad-hoc signing variant. smithers-3f approves the release/signing variant and tap publication; smithers-b8 approves the public CLI and default keg-resolution seam.
+- Delete the Docker path: `distribution/{Dockerfile,entrypoint.sh,publish-image.sh,publish-image.test.mjs,test-image.sh}`, the image steps in `.github/workflows/distribution.yml:35–43` and `release.yml:511–516`, the entire `distribution-publish` job at `release.yml:835–866`, `apps/app/scripts/mode-matrix/docker-web-selfhost.ts` and its Docker-only tests, and `apps/site/src/content/docs/docs/self-hosting.mdx` (T-DOC-01 owns the quickstart). Remove Docker mode invocations and image environment from `release.yml:520–530` and their registrations in `apps/app/scripts/run-packaged-mode-matrix.ts`; preserve other modes. Move the shared command executor imported by `mode-matrix/local-own.ts:8` into the existing command-execution seam before deleting its old module, subject to smithers-b8 review. Delete `scripts/repo-contract/distribution-image-tag.test.mjs` and only Docker-file assertions in `distribution/distribution_test.go` and `backend_build_test.go`; preserve backend-build and lifecycle checks. `distribution/{backup.sh,restore.sh,upgrade.sh,lib.sh,version.env}` and lifecycle Go tests stay as port sources until T-INS-07 ports their guards and deletes them. These cited workflow ranges were verified in the main-tracking clone on 2026-10-03.
+- `distribution/README.md` → remove Docker install instructions and image claims; retain only the Mac-install status and the lifecycle-port handoff to T-INS-07. There is no current "Native application" section to delete.
 
 ## Tests
-- Unit: `rg` over the repository finds no reference to `distribution/Dockerfile` or the image name.
-- Integration (macOS arm64 runner, clean user): `brew install --formula` from a local checkout of the tap pours the bottle without building from source; the poured `msb` keeps `com.apple.security.hypervisor`; `smthrs host start` with no `--bundle` runs the keg's bundle and `/readyz` answers 200.
-- Journey: C-J1-01, C-REL-02.
-
+- Deletion contract: scan executable code, CI, active docs and test registrations for `distribution/Dockerfile`, `ghcr.io/smithersai/smithers` image references and the removed Docker mode; require none. Exclude historical spec records. Compile/type-check the surviving mode imports and retain lifecycle guard cases.
+- C-REL-02 bottle boundary (macOS arm64, fresh user): invoke `brew install smithersai/tap/smithers` against the release candidate tap, not a local `--formula` source installation. Record the pour receipt, require no source compilation, and inspect the poured `msb` for `com.apple.security.hypervisor` and relocated library resolution. Run production `smthrs host start` without `--bundle`; require `/readyz` 200, `host status` naming the poured keg, one per-user `gui/<uid>` LaunchAgent and no privilege prompt. Repeat start and require one backend. Test expectations are literal fixtures, never read from spec files, formula code or implementation code at runtime.
+- C-REL-02 release verification faults: through the formula's actual fetch/install boundary, changed archive/checksum bytes and wrong workflow/tag/issuer signatures fail before extraction and leave the prior keg intact. A missing bottle fails release qualification without a source-build success receipt. At production `smthrs host start`, a missing bundle, changed manifest file or unavailable `msb` refuses startup with no repository execution on the host (T-INS-02, C-SEC-02).
+- C-J1-01 and C-J1-04: R install portions use the same public brew/start commands and record the setup handoff. Repository questions, dependency installation, tests and TODO work execute only in machines; never through a host-process test bypass.
+- C-REL-02 privilege boundary: capture process uid and command logs for the formula, bottle build/pour, signing and `host start`; no ticket-owned step uses root or `sudo`. All consume the qualified main release revision (workflow, formula, scripts, CLI candidate, manifest, bundle, entitlements and pinned third-party artifacts); rehearsal branch artifacts have no publication authority and also run unprivileged. Adding any root step requires smithers-3f's inventory of every input and its main/branch source; branch input blocks that step until a named validation test proves rejection of invalid input.
 ## Acceptance
 
 - [C-J1-04](../checks/C-J1-04.md): R part at its named layer.
 
-- [C-REL-02](../checks/C-REL-02.md): install and start on an erased Mac contact no Smithers-run host, need no Smithers account, and ask for `sudo` once.
-- [C-J1-01](../checks/C-J1-01.md): Homebrew install to the setup card, recorded.
+- [C-REL-02](../checks/C-REL-02.md): install and start on an erased Mac contact no Smithers-run host, need no Smithers account, and use no privilege escalation. Execute the bottle, verification-fault and privilege-boundary cases named above. §16.1.2 governs the per-user LaunchAgent; the check document's older sudo/daemon expectation does not authorize a root step.
+- [C-J1-01](../checks/C-J1-01.md): Homebrew install to the setup card, recorded, using §16.1.2's per-user LaunchAgent without sudo. Its older daemon/sudo wording requires check-owner reconciliation before the release receipt is accepted.
 
 ## Risks and notes
-- `brew upgrade` alone replaces the keg under a running launcher. Observation: the launcher crashes after a bare `brew upgrade`. T-INS-07 sequences upgrades; decide there whether the formula refuses a bare upgrade while running.
-- If T-INS-03 chose the fallback, C-J1-01 and C-REL-02 replace the `sudo` step with the documented automatic-login step; the tech lead updates them with the decision.
+- `brew upgrade` alone replaces the keg under a running launcher. T-INS-07 owns upgrade sequencing; smithers-b8 and smithers-3f decide its running-install guard together. This ticket adds no upgrade behavior; its formula cannot claim upgrade qualification.
+- T-INS-03 is signing/relocation evidence only and does not select another service. smithers-3f accepts the signing evidence; smithers-b8 approves the keg/CLI contract. smithers-8a resolves check-document conflicts against normative §16.1.2 before release qualification; no daemon or automatic-login fallback.
+- Owner pre-review is recorded below before implementation starts; under the parallel-build directive, owners review the draft post hoc. No owner answer is inferred from this draft.
+
+## Ready checklist
+1. Dependencies: T-INS-01 supplies the verified bundle, T-INS-02 the microVM-only launcher, T-INS-03 signing evidence, and T-INS-08 default keg resolution and the user service. Unlanded integrations land dark and publication fails closed until the named boundary checks pass.
+2. Exclusions: Scope names lifecycle/upgrade work, new assemblers/CLI/signers, other host platforms, Cloud, root installers, daemon and automatic-login alternatives, LAN/TLS and quickstart work. Guard port sources remain for T-INS-07.
+3. Tests: C-REL-02 exercises public brew install, production host start/status and actual verification failures with fixed expectations; C-J1-01/C-J1-04 record the release handoff. No runtime spec/code-derived expected values; smithers-8a reconciles stale check wording before accepting receipts.
+4. Decisions: smithers-3f accepts signing evidence and publication; smithers-b8 approves the CLI/keg seam; both own upgrade policy in T-INS-07; smithers-8a resolves normative check conflicts.
+5. Owner pre-review: smithers-3f must answer: Does the job reuse the existing pack/sign pipeline and fail closed before publication? Does the bottle preserve entitlements and relocation without any root step? Are all lifecycle port sources and guard cases preserved for T-INS-07? smithers-b8 must answer: Does the formula preserve the whole CLI runtime and default bundle resolution? Does removing the Docker mode preserve surviving imports and modes? Are public install/start semantics unchanged apart from the approved Mac distribution? No UI View or packages/ TypeScript library change is planned; expanding into either requires smithers-06 or smithers-38 respectively.
+6. Security: smithers-3f reviews signed-main artifact provenance and the no-root process logs (C-REL-02); repository execution uses T-INS-02 machines only and refuses unavailable isolation (C-SEC-02). No ticket-owned root step consumes any input; any added root step needs a complete source inventory and a named branch-input validation test before it runs.
+

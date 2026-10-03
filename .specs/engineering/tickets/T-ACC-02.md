@@ -1,6 +1,6 @@
 # T-ACC-02 Members on `collaborators`: roster, hourly recheck, revocation within 5 s, GitHub SSH keys
 
-Stage S1, S2 · Size M · Depends on S1 roster: T-ACC-01, T-ACC-03, T-GH-01 · S1 revocation: T-INS-02, T-SEC-01 · S1 takeover: T-STK-01 · S2 keys: — · Unblocks T-ACC-04, T-APP-01, T-APP-02, T-APP-04, T-APP-06, T-APP-16, T-FLW-13, T-GH-02, T-MCH-11, T-MNT-01, T-REL-02, T-STK-09, T-TRM-02 · Issue: [#3491](https://github.com/smithersai/smithers/issues/3491)
+Stage S1, S2 · Size M · Depends on S1 roster: T-ACC-01, T-ACC-03, T-GH-01 · S1 revocation: T-INS-02, T-SEC-01 · S1 takeover: T-STK-01 · S2 keys: — · Unblocks T-ACC-04, T-APP-01, T-APP-02, T-APP-04, T-APP-06, T-APP-16, T-FLW-13, T-GH-02, T-MCH-11, T-MNT-01, T-MNT-03, T-REL-02, T-STK-09, T-TRM-02 · Issue: [#3491](https://github.com/smithersai/smithers/issues/3491)
 Spec: spec.md §5.1.2–§5.1.4, §5.6, §8.10.2, §12.2 · Product: mvp.md J1.8, J3.2, §6.15, M-05, M-24
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ruling 1; v2 ticket merges; v1 §4). Absorbs T-ACC-02 ([#3495](https://github.com/smithersai/smithers/issues/3495)) and T-ACC-02 ([#3576](https://github.com/smithersai/smithers/issues/3576)).
 Ready: 2026-10-03 smithers-8a sha256:7a70c3c8b2cd

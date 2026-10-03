@@ -1,6 +1,6 @@
 # T-INS-02 Launcher passes isolation, GitHub, model and public-URL settings; microVM-only
 
-Stage S1 · Size M · Depends on first merge: T-INS-01, T-ACC-01; rest of S1: — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T-APP-05, T-APP-15, T-APP-16, T-COL-10, T-FLW-11, T-GH-01, T-GH-03, T-INS-04, T-INS-06, T-INS-08, T-MCH-08, T-MCH-14, T-MNT-01, T-REL-02, T-STK-04, T-STK-12, T-TRM-02 · Issue: [#3521](https://github.com/smithersai/smithers/issues/3521)
+Stage S1 · Size M · Depends on first merge: T-INS-01, T-ACC-01; rest of S1: — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T-APP-05, T-APP-15, T-APP-16, T-COL-10, T-FLW-11, T-GH-01, T-GH-03, T-INS-04, T-INS-05, T-INS-06, T-INS-08, T-MCH-01, T-MCH-08, T-MCH-14, T-MNT-01, T-REL-02, T-STK-02, T-STK-04, T-STK-12, T-TRM-02 · Issue: [#3521](https://github.com/smithersai/smithers/issues/3521)
 Spec: spec.md §1.1–§1.4, §3 (`install_settings`), §5.1.0, §8.2.1, §12.1.1, §17.3, §17.4 · Delta: delta.md §1 (Modify [S1] `NativeBackendProcess.ts`; Modify `isolation.go`) · Product: mvp.md §6.1, §9 Isolation, M-28, M-29, M-30
 
 ## Goal

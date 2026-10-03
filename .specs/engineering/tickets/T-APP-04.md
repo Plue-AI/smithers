@@ -1,6 +1,6 @@
 # T-APP-04 Confirm card: one-click confirmations and Review & merge
 
-Stage S1 · Size M · Depends on T-ACC-02, T-ACC-03 (Authorize and credential-scoped idempotency), T-ACC-04, T-CAT-01 (descriptors), T-STK-01, T-COL-02, T-UI-05, T-APP-22, T-APP-09 · Unblocks T-APP-01, T-APP-02, T-APP-05, T-APP-07, T-FLW-05, T-FLW-13, T-GH-06, T-MCH-08, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-STK-09, T-TRM-02 · Issue: [#3498](https://github.com/smithersai/smithers/issues/3498), [#3494](https://github.com/smithersai/smithers/issues/3494)
+Stage S1 · Size M · Depends on T-ACC-02, T-ACC-03 (Authorize and credential-scoped idempotency), T-ACC-04, T-CAT-01 (descriptors), T-STK-01, T-COL-02, T-UI-05, T-APP-22, T-APP-09 · Unblocks T-APP-01, T-APP-02, T-APP-05, T-APP-07, T-FLW-05, T-FLW-13, T-GH-06, T-MCH-08, T-MNT-01, T-MNT-03, T-REL-02, T-STK-02, T-STK-04, T-STK-09, T-TRM-02 · Issue: [#3498](https://github.com/smithersai/smithers/issues/3498), [#3494](https://github.com/smithersai/smithers/issues/3494)
 Spec: spec.md §3 (`approvals`), §5.2, §5.4, §6.1.2 (`agent`), §6.3 (`/api/confirmations`), §6.4, §10.6.1–10.6.2, §14.3 (Confirm), §14.5.1, §15.1.3–15.1.5, §19.3 · Product: mvp.md §2 rule 6, §6.10, §6.13, J6.4, M-05, M-21, Appendix A `/merge` and closing paragraph, Appendix B legend (A✓) and B.6
 Ready: 2026-10-03 smithers-8a sha256:fb2ddf35967e
 

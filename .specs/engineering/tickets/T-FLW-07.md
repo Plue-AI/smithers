@@ -1,6 +1,6 @@
 # T-FLW-07 Monitor: `/monitor`, cost, waits since, interrupted state, no fork filter
 
-Stage S1 · Size M · Depends on T-COL-02, T-APP-22, T-CAT-01 · Unblocks T-AGT-04, T-APP-02, T-APP-07, T-APP-17, T-REL-02 · Issue: [#3514](https://github.com/smithersai/smithers/issues/3514)
+Stage S1 · Size M · Depends on T-COL-02, T-APP-22, T-CAT-01 · Unblocks T-AGT-04, T-APP-02, T-APP-07, T-APP-17, T-MNT-04, T-REL-02 · Issue: [#3514](https://github.com/smithersai/smithers/issues/3514)
 Spec: spec.md §7.2 `run:<id>`, §11.6, §19.1 · Delta: delta.md §8 (monitor and runtime-event rows) · Product: mvp.md J11.1, §6.14 Monitor and Signals and approvals, Appendix A `/monitor`, `/run.inspect <id>`; AGENTS.md MVP scope (no fork or rewind controls)
 
 ## Goal

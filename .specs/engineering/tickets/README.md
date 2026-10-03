@@ -33,13 +33,13 @@ Depends on uses `first merge: …; rest of S1: …`. Only first-merge edges gate
 A ticket closes only with passing machine-written receipts for every named check, bound to the landed commit with verified log digests. Reports list receipt paths. Missing or unwritten Automation blocks closure; prose PASS and --force do not waive evidence (T-PRC-03, C-PRC-03).
 
 <!-- ready-frontier:start (generated; tech lead) -->
-**Ready frontier** (2026-10-03 15:26 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
+**Ready frontier** (2026-10-03 15:27 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
 
 - W0: 2 stamped, 4 pending. T-COL-01 `97d2f3b1853f`, T-COL-11 `640f6dcf1015`
-- S1: 10 stamped, 63 pending. T-INS-04 `78cb92746bf6`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
+- S1: 11 stamped, 62 pending. T-INS-04 `78cb92746bf6`, T-ACC-02 `7a70c3c8b2cd`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
 - S2: 4 stamped, 36 pending. T-AGT-01 `29aa84c2e61e`, T-AGT-02 `0435c9e09b24`, T-AGT-03 `ee2088b0987c`, T-APP-18 `d93ce26dfe3d`
 - S3: 2 stamped, 8 pending. T-COL-08 `3141eb3f61a0`, T-COL-09 `396865c1ddf6`
-- R: 1 stamped, 6 pending. T-INS-03 `bae4217452ca`
+- R: 2 stamped, 5 pending. T-INS-03 `bae4217452ca`, T-INS-07 `72846defd558`
 - M: 2 stamped, 4 pending. T-MNT-01 `2747b5025504`, T-AGT-04 `ee5f585f9ed4`
 <!-- ready-frontier:end -->
 
@@ -52,14 +52,14 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | --- | --- | --- | --- | --- | --- |
 | **Maintainer release: launch + 1 week** | | | | | |
 | [T-MNT-01](T-MNT-01.md) | Gate maintainer admission and expose passive incoming items | M | S | T-CAT-01, T-CUT-03, T-APP-04, T-STK-09, T-GH-02, T-GH-09, T-APP-01, T-ACC-02, T-ACC-03, T-ACC-04, T-INS-02, T-FLW-01, T-FLW-03, T-MCH-06, T-MCH-11 | C-MNT-01, C-MNT-06, C-SEC-03 |
-| [T-MNT-02](T-MNT-02.md) | Triage issues with duplicate and reproduction evidence | M | M | T-MNT-01, T-FLW-03, T-FLW-04, T-MCH-06, T-MCH-11, T-UI-19 | C-MNT-02, C-MNT-06, C-SEC-03 |
-| [T-MNT-03](T-MNT-03.md) | Approve exact author replies before publishing | M | S | T-MNT-02, T-APP-04, T-GH-09, T-UI-05 | C-MNT-03, C-MNT-06, C-SEC-03 |
-| [T-MNT-04](T-MNT-04.md) | Review outside PRs with the shared review step | M | M | T-MNT-01, T-FLW-01, T-FLW-04, T-MCH-06, T-UI-19 | C-MNT-04, C-MNT-06, C-SEC-03 |
-| [T-MNT-05](T-MNT-05.md) | Ship the day-seven maintainer upgrade and journey | M | S | T-MNT-03, T-MNT-04, T-INS-07, T-REL-01, T-DOC-03 | C-MNT-05, C-MNT-06, C-SEC-03 |
+| [T-MNT-02](T-MNT-02.md) | Triage issues with duplicate and reproduction evidence | M | M | T-MNT-01, T-FLW-03, T-FLW-04, T-MCH-06, T-MCH-11, T-UI-19, T-FLW-01, T-SEC-01 | C-MNT-02, C-MNT-06, C-SEC-02, C-SEC-03 |
+| [T-MNT-03](T-MNT-03.md) | Approve exact author replies before publishing | M | S | T-MNT-02, T-APP-04, T-GH-09, T-UI-05, T-ACC-02, T-ACC-04, T-CAT-01, T-FLW-01, T-SEC-01 | C-MNT-03, C-MNT-06, C-SEC-03 |
+| [T-MNT-04](T-MNT-04.md) | Review outside PRs with the shared review step | M | M | T-MNT-01, T-FLW-01, T-FLW-04, T-FLW-11, T-FLW-13, T-FLW-07, T-MCH-06, T-SEC-01, T-STK-02, T-UI-19 | C-MNT-04, C-MNT-06, C-SEC-03 |
+| [T-MNT-05](T-MNT-05.md) | Ship the day-seven maintainer upgrade and journey | M | S | T-MNT-03, T-MNT-04, T-INS-07, T-REL-01, T-DOC-03, T-DOC-01, T-SEC-01, T-MCH-11 | C-MNT-05, C-MNT-06, C-SEC-03 |
 | **Spikes** | | | | | |
 | [T-MCH-02](T-MCH-02.md) | Spike: virtiofs `/home` across two VMs (answered NO: homes are per machine) | W0 | S | — | C-SPK-02 |
 | [T-COL-01](T-COL-01.md) | Spike: relay round trip, Yjs keystroke p95 and jj capture cost in a disposable machine | W0 | S | — | C-SPK-03, C-SPK-07 |
-| [T-MCH-01](T-MCH-01.md) | Qualify machine sizing on 24 and 32 GB hosts; one host-profile reader | W0, S2 | S | W0: — · S2: T-INS-06, T-INS-08 | W0: C-SPK-05 · S2: C-MCH-04 |
+| [T-MCH-01](T-MCH-01.md) | Qualify machine sizing on 24 and 32 GB hosts; one host-profile reader | W0, S2 | S | W0: — · S2: T-INS-06, T-INS-08, T-INS-02, T-ACC-03, T-APP-03, T-APP-01, T-MCH-10, T-SEC-01, T-PRC-03 | W0: C-SPK-05 · S2: C-MCH-04 |
 | [T-INS-03](T-INS-03.md) | Record Homebrew signing and LaunchAgent evidence | R | S | T-INS-01 | C-SPK-06 |
 | [T-TRM-06](T-TRM-06.md) | Spike: daemon sessions carry VS Code Remote; revocation in 5 s | W0 | M | — | C-SPK-08 |
 | [T-COL-11](T-COL-11.md) | Spike: reference-host rerun and the ADR 0003 topology decision; capture growth, versions commit, kernel probes | W0, S1 | M | W0: T-COL-01 · S1: T-COL-10 | W0: C-SPK-03, C-SPK-07 · S1: C-SPK-03, C-SPK-07 |
@@ -69,8 +69,8 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-INS-08](T-INS-08.md) | Restore the launchd service code; `smthrs host start/stop/status` from a built bundle; setup-URL handoff | S1 | M | first merge: T-INS-01, T-INS-02, T-ACC-01; rest of S1: — | C-INS-06, C-SEC-04, C-SEC-02, C-J1-01, C-J1-04, C-REL-02 |
 | [T-INS-04](T-INS-04.md) | Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency | S1 | M | T-INS-02, T-INS-08, T-ACC-03, T-ACC-01, T-UI-01 | C-INS-01, C-INS-03, C-J1-04 |
 | [T-INS-06](T-INS-06.md) | Install setup backend: durable steps, model access API, squash check | S1 | M | first merge: T-INS-02, T-ACC-01; rest of S1: T-INS-04, T-GH-01, T-MCH-10, T-ACC-03, T-CUT-02, T-FLW-01 | C-J1-02, C-J1-03, C-J1-04, C-SEC-04 |
-| [T-INS-05](T-INS-05.md) | Homebrew tap and release bottles; delete the Docker image | R | M | T-INS-01, T-INS-03, T-INS-08 | C-J1-01, C-J1-04, C-REL-02 |
-| [T-INS-07](T-INS-07.md) | `smthrs host upgrade`, `backup`, `restore` with quiesce and a backup manifest (M-26) | R | L | T-INS-05, T-INS-08, T-MCH-06, T-MCH-07 | C-REL-03, C-REL-06 |
+| [T-INS-05](T-INS-05.md) | Homebrew tap and release bottles; delete the Docker image | R | M | T-INS-01, T-INS-02, T-INS-03, T-INS-08 | C-J1-01, C-J1-04, C-REL-02 |
+| [T-INS-07](T-INS-07.md) | `smthrs host upgrade`, `backup`, `restore` with quiesce and a backup manifest (M-26) | R | L | T-INS-05, T-INS-08, T-MCH-06, T-MCH-07, T-ACC-03, T-FLW-01, T-STK-04, T-TRM-07, T-COL-08, T-COL-09, T-GH-09, T-SEC-01 | C-REL-03, C-REL-06 |
 | **Access** | | | | | |
 | [T-ACC-01](T-ACC-01.md) | GitHub sign-in creates the owner; delete the single-owner password path | S1 | M | first merge: —; rest of S1: — | C-ACC-04, C-J1-04, C-SEC-04 |
 | [T-ACC-07](T-ACC-07.md) | Merged into T-INS-08 | — | — | — | — |
@@ -81,7 +81,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-ACC-06](T-ACC-06.md) | Merged into T-ACC-02 | — | — | — | — |
 | **Stack and TODOs** | | | | | |
 | [T-STK-01](T-STK-01.md) | The stack item is the TODO: extend `mythical_items` in place | S1 | L | first merge: T-INS-06; rest of S1: — | C-ACC-01, C-J1-04, C-J2-03, C-J2-04, C-STK-03, C-STK-06, C-STK-08 |
-| [T-STK-02](T-STK-02.md) | Placement: append, before, move, drop; stack order | S1 | M | T-STK-01, T-STK-12 | C-APP-02, C-J1-04, C-J4-02, C-J7-01 |
+| [T-STK-02](T-STK-02.md) | Placement: append, before, move, drop; stack order | S1 | M | T-STK-01, T-STK-12, T-ACC-03, T-CAT-01, T-APP-04, T-INS-02, T-FLW-01, T-SEC-01 | C-APP-02, C-J1-04, C-J4-02, C-J7-01 |
 | [T-STK-04](T-STK-04.md) | Merge: person session, one predicate and an in-flight fence, sha-bound, squash | S1 | L | first merge: T-STK-01, T-ACC-01; rest of S1: T-ACC-03, T-STK-12, T-ACC-04, T-APP-04, T-GH-02, T-GH-03, T-GH-09, T-INS-02 | C-ACC-02, C-J1-04, C-J2-05, C-J4-03 |
 | [T-STK-16](T-STK-16.md) | Merged into T-STK-04 | — | — | — | — |
 | [T-STK-05](T-STK-05.md) | Stop, resume, Retry and Retry with the current flow, drop, reopen | S1 | M | T-STK-01, T-FLW-11, T-FLW-03, T-STK-04, T-STK-02, T-MCH-08 (S1), T-FLW-04 | C-J1-04, C-J10-08, C-J4-02, C-J7-02, C-STK-03, C-STK-08 |

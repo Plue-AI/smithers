@@ -1,6 +1,6 @@
 # T-APP-01 Home card on the `home` topic
 
-Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-STK-05, T-APP-16, T-APP-07, T-APP-22, T-APP-02, T-APP-04, T-UI-06, T-GH-03, T-GH-07, T-INS-06, T-INS-02, T-FLW-01, T-FLW-03, T-FLW-04, T-FLW-02, T-CAT-01, T-ACC-02, T-ACC-04, T-STK-02, T-STK-04, T-STK-08, T-SEC-01 · Unblocks T-MNT-01, T-REL-01, T-REL-02 · Issue: [#3496](https://github.com/smithersai/smithers/issues/3496)
+Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-STK-05, T-APP-16, T-APP-07, T-APP-22, T-APP-02, T-APP-04, T-UI-06, T-GH-03, T-GH-07, T-INS-06, T-INS-02, T-FLW-01, T-FLW-03, T-FLW-04, T-FLW-02, T-CAT-01, T-ACC-02, T-ACC-04, T-STK-02, T-STK-04, T-STK-08, T-SEC-01 · Unblocks T-MCH-01, T-MNT-01, T-REL-01, T-REL-02 · Issue: [#3496](https://github.com/smithersai/smithers/issues/3496)
 Spec: spec.md §14.1, §14.2, §14.3 (Home), §14.5.2, §7.2, §4.1, §4.1.1, §4.1.2a, §4.4, §6.1.2, §8.2.1, §10.3, §10.6.1, §10.6.4, §12.3, §12.6, §15.1.5, §19.3 · Delta: delta.md §9 (card file and Home rows) · Product: mvp.md J4, §6.4 Home card, §4.1, §4.2, M-08, M-14
 Ready: 2026-10-03 smithers-8a sha256:39d410c114f4
 

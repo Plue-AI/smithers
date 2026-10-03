@@ -1,6 +1,6 @@
 # T-DOC-01 Quickstart and flows reference as in-app pages; one install page on the site
 
-Stage R · Size M · Depends on T-INS-05, T-APP-20 · Unblocks — · Issue: [#3458](https://github.com/smithersai/smithers/issues/3458)
+Stage R · Size M · Depends on T-INS-05, T-APP-20 · Unblocks T-MNT-05 · Issue: [#3458](https://github.com/smithersai/smithers/issues/3458)
 Spec: spec.md §16.3.4 and §17.6 (the quickstart documents Tailscale serve and Caddy and recommends HTTPS in front), §16.1.2 (the launchd fallback); content follows §1.4, §5.1.0, §5.3.1, §8.10.5, §11, §16 · Delta: delta.md §10 (Add: public docs) · Product: mvp.md M-35 (docs in the app), §12.4, §6.13 API, §8 (CLI and Smithers skill row), J1, J5, M-11, M-28, M-30
 
 ## Goal
