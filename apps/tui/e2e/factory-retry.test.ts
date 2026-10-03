@@ -42,17 +42,32 @@ it("TODO failures use safe status copy and retain diagnostics and request identi
   const replay = join(root, "pong.jsonl")
   writeFileSync(replay, readFileSync(join(app, "test", "fixtures", "pong.jsonl"), "utf8"))
   let status = 403
-  const requests: Array<{ request: string; title: string }> = []
+  const requests: Array<{ key: string | null; body: unknown }> = []
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch: async (request) => {
-      if (request.method !== "POST" || new URL(request.url).pathname !== "/api/repos/o/r/mythical/todos") {
+      const url = new URL(request.url)
+      if (request.method !== "POST" || url.pathname !== "/api/todos" || url.searchParams.get("repo") !== "o/r") {
         return new Response("{}", { status: 404 })
       }
-      requests.push(await request.json() as { request: string; title: string })
+      requests.push({ key: request.headers.get("idempotency-key"), body: await request.json() })
       return status === 200
-        ? Response.json(item("todo-40", 40, "queued"))
+        ? Response.json({
+          state: "requested",
+          todo: {
+            n: 40,
+            title: "Same TODO",
+            state: "queued",
+            amendments: 0,
+            lessons: 0,
+            branch: { id: "b40", name: "t40" },
+            created_by: { kind: "person", id: 1 },
+            seq: 1,
+            created_at: "2026-09-30T20:00:00Z",
+            updated_at: "2026-09-30T20:00:00Z"
+          }
+        }, { status: 202 })
         : new Response("private backend diagnostic", { status })
     }
   })
@@ -100,17 +115,18 @@ it("TODO failures use safe status copy and retain diagnostics and request identi
       expect(tui.screen().replace(/[┃\s]/g, "")).toContain("Details:/conversation")
       expect(tui.screen()).toContain("Ask Smithers")
       expect(tui.screen()).toMatch(/↑\S+ ↓\S+/)
-      for (const raw of [`HTTP ${status}`, "HTTP 403", "/api/repos/", "private backend diagnostic"]) {
+      for (const raw of [`HTTP ${status}`, "HTTP 403", "/api/todos", "private backend diagnostic"]) {
         expect(tui.screen()).not.toContain(raw)
       }
     }
     status = 200
     await send()
-    await tui.until((screen) => screen.includes("TODO #40 queued"), 10_000, "TODO recovery")
+    await tui.until((screen) => screen.includes("T40 Same TODO · queued"), 10_000, "TODO recovery")
     expect(requests).toHaveLength(6)
-    expect(requests[0]!.request).not.toBe(requests[1]!.request)
-    expect(requests.slice(1).map((request) => request.request)).toEqual(Array(5).fill(requests[1]!.request))
-    expect(requests.map((request) => request.title)).toEqual(Array(6).fill("Same TODO"))
+    expect(requests[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
+    expect(requests[0]!.key).not.toBe(requests[1]!.key)
+    expect(requests.slice(1).map((request) => request.key)).toEqual(Array(5).fill(requests[1]!.key))
+    expect(requests.map((request) => request.body)).toEqual(Array(6).fill({ title: "Same TODO" }))
   } finally {
     await tui?.stop()
     server.stop(true)

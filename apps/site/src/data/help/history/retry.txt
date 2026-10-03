@@ -1,9 +1,9 @@
-smthrs history retry — Give a blocked, rejected or declined issue a fresh set of attempts
+smthrs history retry — Give a blocked, rejected or declined TODO or issue a fresh set of attempts
 
 Usage: smthrs history retry <issue> [options]
 
 Arguments:
-  issue  Issue number (12 or #12) or item id
+  issue  TODO (T12), issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>

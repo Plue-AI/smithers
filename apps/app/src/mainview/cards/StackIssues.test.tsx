@@ -42,7 +42,8 @@ describe("the issue groups", () => {
     ]
     const groups = Object.fromEntries(states.map((state) => [state, issueGroupOf(item("i1", state))]))
     expect(groups).toEqual({
-      blocked: "needs-you", rejected: "needs-you", proposed: "needs-you",
+      // T-STK-01 Changes L39: an open PR is review, never a Needs you group.
+      blocked: "needs-you", rejected: "needs-you", proposed: "working",
       queued: "working", running: "working", delivering: "working", integrating: "working", verifying: "working",
       proposing: "working", waiting: "working", retrying: "working", unknown: "working",
       landed: "done", declined: "done", skipped: "done", cancelled: "done"
@@ -60,8 +61,8 @@ describe("the issue groups", () => {
       item("i7", "cancelled", { updatedAt: "2026-09-24T00:00:00Z" })
     ])
     expect(issueGroups(value).map((group) => [group.label, group.glyph, group.items.map((row) => row.id)])).toEqual([
-      ["Needs you", "◆", ["i2", "i1"]],
-      ["Working", "◐", ["i5", "i4", "i3"]],
+      ["Needs you", "◆", ["i1"]],
+      ["Working", "◐", ["i5", "i4", "i2", "i3"]],
       ["Done", "●", ["i7", "i6"]]
     ])
   })
@@ -123,9 +124,10 @@ describe("the issue groups", () => {
     // The reason is the row's one word, said once.
     expect(needs.split("3 attempts failed").length - 1).toBe(1)
     expect(needs).toContain(`data-flow="history.retry" data-flow-args="i5 ${REPO}"`)
-    expect(needs).toContain('data-state="proposed">PR open<')
-    expect(needs).toContain('href="https://github.com/pr/44"')
     const working = section(html, "working")
+    expect(needs).not.toContain('data-state="proposed"')
+    expect(working).toContain('data-state="proposed">PR open<')
+    expect(working).toContain('href="https://github.com/pr/44"')
     expect(working).toMatch(/<time[^>]*dateTime="2026-09-25T09:52:53Z"[^>]*data-testid="stack-item-i1-elapsed">\d+:\d{2}(:\d{2})?<\/time>/)
     expect(working).toContain("src/a.ts")
     expect(working).toContain('data-state="queued">queued<')

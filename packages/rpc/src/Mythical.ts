@@ -59,8 +59,6 @@ export const MYTHICAL_ROUTES = {
   retry: "/api/repos/{owner}/{repo}/mythical/items/{id}/retry",
   /** `POST`: a maintainer asks the stack to merge a proposed TODO's pull request at the head they saw (`{ head }`); answers the item. */
   land: "/api/repos/{owner}/{repo}/mythical/items/{id}/land",
-  /** `POST`: a maintainer files a TODO (`{ title, body }`); answers its queued {@link MythicalItemSchema}. */
-  todos: "/api/repos/{owner}/{repo}/mythical/todos",
   /** `PUT`: a coding host submits a lane result ({@link MythicalLaneSubmissionSchema}). */
   lanes: "/api/repos/{owner}/{repo}/mythical/lanes",
   /** `POST`: refresh the repository wiki now, or retry a failed refresh. */
@@ -520,8 +518,10 @@ export const MythicalItemSchema = z.object({
   humanEdited: z.boolean().optional(),
   /** Whether a proposed TODO waits on an unfinished review of its current head, which a person may retry. */
   reviewHeld: z.boolean().optional(),
-  /** The request id of the Smithers filing that made this TODO (`POST …/mythical/todos`). */
-  request: z.string().optional(),
+  /** The number n of the item's TODO, `T<n>`; absent while the item is not one. */
+  todoNumber: z.number().int().positive().optional(),
+  /** The title of an item with no issue (a TODO made in Smithers, a chat result). */
+  title: z.string().optional(),
   /** Whether a maintainer asked the stack to merge its pull request (their automerge label, or Land). */
   automerge: z.boolean().optional(),
   /** Why the item stopped or retries; `reason` is its sentence. */

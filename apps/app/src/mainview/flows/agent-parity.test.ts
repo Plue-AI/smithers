@@ -84,6 +84,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
 const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean }> = [
   { name: "todo", args: "T12", confirm: false },
   { name: "todo.new", args: "A TODO", confirm: false },
+  { name: "todo.new", args: '{"text":"A TODO","cardId":"draft-confirm"}', confirm: true },
   { name: "todo.answer", args: "T12 Yes", confirm: false },
   { name: "todo.steer", args: "T12 Keep the tests", confirm: false },
   { name: "todo.amend", args: "T12 Amend the prompt", confirm: true },

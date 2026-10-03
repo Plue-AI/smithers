@@ -25,6 +25,23 @@ type AccessToken struct {
 	SystemIssued   bool               `json:"system_issued"`
 }
 
+type Activity struct {
+	ID             string          `json:"id"`
+	BranchID       string          `json:"branch_id"`
+	Seq            int64           `json:"seq"`
+	At             time.Time       `json:"at"`
+	Actor          json.RawMessage `json:"actor"`
+	AskedBy        []byte          `json:"asked_by"`
+	Kind           string          `json:"kind"`
+	Summary        json.RawMessage `json:"summary"`
+	BurstID        pgtype.UUID     `json:"burst_id"`
+	SnapshotBefore pgtype.Text     `json:"snapshot_before"`
+	SnapshotAfter  pgtype.Text     `json:"snapshot_after"`
+	Files          pgtype.Int4     `json:"files"`
+	Github         bool            `json:"github"`
+	SourceKey      pgtype.Text     `json:"source_key"`
+}
+
 type AgentMessage struct {
 	ID           int64     `json:"id"`
 	SessionID    string    `json:"session_id"`
@@ -1542,6 +1559,8 @@ type MythicalItem struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LaneStartedAt     pgtype.Timestamptz `json:"lane_started_at"`
 	Outsider          bool               `json:"outsider"`
+	TodoID            pgtype.UUID        `json:"todo_id"`
+	PausedAt          pgtype.Timestamptz `json:"paused_at"`
 }
 
 type MythicalLane struct {
@@ -1949,6 +1968,20 @@ type ProductJobStream struct {
 	PrincipalID    string `json:"principal_id"`
 	Head           int64  `json:"head"`
 	RetentionFloor int64  `json:"retention_floor"`
+}
+
+type ProjectionEvent struct {
+	RepositoryID int64           `json:"repository_id"`
+	Topic        string          `json:"topic"`
+	Seq          int64           `json:"seq"`
+	At           time.Time       `json:"at"`
+	Payload      json.RawMessage `json:"payload"`
+}
+
+type ProjectionTopic struct {
+	RepositoryID int64  `json:"repository_id"`
+	Topic        string `json:"topic"`
+	LastSeq      int64  `json:"last_seq"`
 }
 
 type ProtectedBookmark struct {
@@ -2530,6 +2563,16 @@ type Stack struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type StackAttention struct {
+	ID           string          `json:"id"`
+	RepositoryID int64           `json:"repository_id"`
+	Kind         string          `json:"kind"`
+	Payload      json.RawMessage `json:"payload"`
+	State        string          `json:"state"`
+	CreatedAt    time.Time       `json:"created_at"`
+	SettledBy    []byte          `json:"settled_by"`
+}
+
 type StackChange struct {
 	ID           int64       `json:"id"`
 	StackID      int64       `json:"stack_id"`
@@ -2586,6 +2629,94 @@ type TeamRepo struct {
 	TeamID       int64     `json:"team_id"`
 	RepositoryID int64     `json:"repository_id"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type Todo struct {
+	ID             string             `json:"id"`
+	RepositoryID   int64              `json:"repository_id"`
+	Number         int64              `json:"number"`
+	Title          string             `json:"title"`
+	State          string             `json:"state"`
+	StateReason    string             `json:"state_reason"`
+	OwnerID        pgtype.Int8        `json:"owner_id"`
+	IssueNumber    pgtype.Int8        `json:"issue_number"`
+	FixesIssue     bool               `json:"fixes_issue"`
+	StackPosition  string             `json:"stack_position"`
+	BranchID       pgtype.UUID        `json:"branch_id"`
+	BranchName     string             `json:"branch_name"`
+	GithubBranch   pgtype.Text        `json:"github_branch"`
+	PRNumber       pgtype.Int8        `json:"pr_number"`
+	CreatedByActor json.RawMessage    `json:"created_by_actor"`
+	FlowName       string             `json:"flow_name"`
+	FlowDigest     pgtype.Text        `json:"flow_digest"`
+	Merging        []byte             `json:"merging"`
+	NeedsYou       json.RawMessage    `json:"needs_you"`
+	Failure        json.RawMessage    `json:"failure"`
+	Queue          json.RawMessage    `json:"queue"`
+	CurrentStep    pgtype.Text        `json:"current_step"`
+	Lessons        int32              `json:"lessons"`
+	MergedAt       pgtype.Timestamptz `json:"merged_at"`
+	DroppedAt      pgtype.Timestamptz `json:"dropped_at"`
+	Version        int64              `json:"version"`
+	CreateKey      pgtype.Text        `json:"create_key"`
+	CreateDigest   pgtype.Text        `json:"create_digest"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+}
+
+type TodoApproval struct {
+	TodoID       string    `json:"todo_id"`
+	MemberID     int64     `json:"member_id"`
+	PrHeadSha    string    `json:"pr_head_sha"`
+	CredentialID string    `json:"credential_id"`
+	At           time.Time `json:"at"`
+}
+
+type TodoAttempt struct {
+	TodoID    string             `json:"todo_id"`
+	Attempt   int32              `json:"attempt"`
+	RunID     string             `json:"run_id"`
+	StartedAt time.Time          `json:"started_at"`
+	EndedAt   pgtype.Timestamptz `json:"ended_at"`
+	Outcome   string             `json:"outcome"`
+	Evidence  json.RawMessage    `json:"evidence"`
+}
+
+type TodoEvent struct {
+	ID        int64           `json:"id"`
+	TodoID    string          `json:"todo_id"`
+	Seq       int64           `json:"seq"`
+	At        time.Time       `json:"at"`
+	Actor     json.RawMessage `json:"actor"`
+	Kind      string          `json:"kind"`
+	FromState pgtype.Text     `json:"from_state"`
+	ToState   string          `json:"to_state"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type TodoRevision struct {
+	TodoID        string          `json:"todo_id"`
+	Rev           int32           `json:"rev"`
+	Prompt        string          `json:"prompt"`
+	Acceptance    string          `json:"acceptance"`
+	SeedPatchBlob pgtype.Text     `json:"seed_patch_blob"`
+	AuthorActor   json.RawMessage `json:"author_actor"`
+	Reason        string          `json:"reason"`
+	IssueDigest   pgtype.Text     `json:"issue_digest"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type TodoWait struct {
+	WaitID    string             `json:"wait_id"`
+	TodoID    string             `json:"todo_id"`
+	Kind      string             `json:"kind"`
+	Owner     string             `json:"owner"`
+	Payload   json.RawMessage    `json:"payload"`
+	RunWaitID pgtype.Text        `json:"run_wait_id"`
+	OpenedAt  time.Time          `json:"opened_at"`
+	SettledAt pgtype.Timestamptz `json:"settled_at"`
+	SettledBy []byte             `json:"settled_by"`
+	Outcome   pgtype.Text        `json:"outcome"`
 }
 
 type User struct {

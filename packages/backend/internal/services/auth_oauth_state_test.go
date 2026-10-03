@@ -236,7 +236,7 @@ func TestAuthService_StartGitHubOAuth_CredentialFailureDoesNotPersistState(t *te
 				persisted = true
 				return db.OauthState{}, nil
 			}}, defaultAuthConfig(), nil, mockGitHubClient{authorizationErr: tc.err})
-			value, err := service.StartGitHubOAuth(context.Background(), "bound-verifier")
+			value, err := service.StartGitHubOAuth(context.Background(), "bound-verifier", "")
 			require.Error(t, err)
 			require.Empty(t, value)
 			require.False(t, persisted)
@@ -250,7 +250,7 @@ func TestAuthService_StartGitHubOAuth_LoadsCredentialsBeforePersistingState(t *t
 		require.Equal(t, arg.State, stateSeen, "credential resolution must precede persisting OAuth state")
 		return db.OauthState{}, nil
 	}}, defaultAuthConfig(), nil, mockGitHubClient{authorizationSeen: &stateSeen})
-	value, err := service.StartGitHubOAuth(context.Background(), "bound-verifier")
+	value, err := service.StartGitHubOAuth(context.Background(), "bound-verifier", "")
 	require.NoError(t, err)
 	require.Contains(t, value, stateSeen)
 }

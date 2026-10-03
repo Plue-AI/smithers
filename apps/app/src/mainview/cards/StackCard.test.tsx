@@ -327,22 +327,22 @@ describe("the Wiki row", () => {
   })
 })
 
-describe("filing a TODO (#2782)", () => {
-  test("New TODO opens history.todo's form for this repository, and a refused filing retries the same TODO", () => {
+describe("New TODO (todo.new)", () => {
+  test("New TODO opens todo.new's form for this repository, and a refused create retries the same TODO", () => {
     const html = render()
-    const door = JSON.stringify({ repo: REPO }).replaceAll('"', "&quot;")
-    expect(html).toContain(`data-testid="stack-todo" data-flow="history.todo" data-flow-args="${door}">New TODO</button>`)
-    const args = JSON.stringify({ title: "Fix the footer", repo: REPO })
-    const failed = render({ failure: { act: "todo", message: "only a maintainer the factory's policy names files a TODO", args } })
+    const door = JSON.stringify({}).replaceAll('"', "&quot;")
+    expect(html).toContain(`data-testid="stack-todo" data-flow="todo.new" data-flow-args="${door}">New TODO</button>`)
+    const args = JSON.stringify({ title: "Fix the footer", prompt: "Link it from every page.", repo: REPO })
+    const failed = render({ failure: { act: "todo", message: "this repository has no stack yet", args } })
     expect(failed).toContain('data-act="todo"')
-    expect(failed).toContain("<p>Smithers could not file this TODO.</p>")
-    expect(failed).toContain(`data-flow="history.todo" data-flow-args="${args.replaceAll('"', "&quot;")}">Retry</button>`)
-    expect(failed).toContain("only a maintainer the factory&#x27;s policy names files a TODO</pre>")
+    expect(failed).toContain("<p>Smithers could not add this TODO.</p>")
+    expect(failed).toContain(`data-flow="todo.new" data-flow-args="${args.replaceAll('"', "&quot;")}">Retry</button>`)
+    expect(failed).toContain("this repository has no stack yet</pre>")
   })
 
-  test("an absent history offers no TODO door: there is no stack to file on", () => {
+  test("an absent history offers no TODO door: there is no stack to append to", () => {
     const absent = { ...STACK, state: "absent" as const, items: [], changes: [], lanes: [] }
-    expect(render({ snapshot: { stack: absent, error: null } })).not.toContain("history.todo")
+    expect(render({ snapshot: { stack: absent, error: null } })).not.toContain("todo.new")
   })
 })
 

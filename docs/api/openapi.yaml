@@ -17752,64 +17752,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/mythical/todos:
-    post:
-      summary: POST /api/repos/{owner}/{repo}/mythical/todos
-      description: File a TODO on the repository's GitHub issues as a maintainer person and queue it on the stack. Answers the queued item.
-      operationId: post_api_repos_owner_repo_mythical_todos
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required:
-                - title
-              properties:
-                title:
-                  type: string
-                  maxLength: 256
-                body:
-                  type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '201':
-          description: The queued item
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/mythical/wiki:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/wiki
@@ -19046,6 +18988,174 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/branches/{b}/activity:
+    get:
+      summary: List a branch's activity
+      description: The branch's newest 200 activity entries, oldest first (spec §7.2 branch:<id>:activity). {b} is the branch id.
+      operationId: get_api_branches_b_activity
+      tags:
+        - Todos
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The branch's newest activity entries, oldest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchActivityList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/todos:
+    get:
+      summary: List the stack's TODOs
+      description: The repository's TODOs in stack order, the unmerged ones first with their place, then the merged and dropped ones. An install serves one repository; a server with several stacks takes repo=owner/name.
+      operationId: get_api_todos
+      tags:
+        - Todos
+      parameters:
+        - name: repo
+          in: query
+          required: false
+          description: The repository as owner/name, needed only when the server serves several stacks.
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The repository's TODOs in stack order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Make a TODO
+      description: Places a TODO at the end of the stack for the signed-in member, with its prompt as revision 1 and its item branch, and queues it for the stack engine. Only place append is served. The Idempotency-Key header is required; a repeat with the same key answers the TODO the first request made. Answers 202 requested; the TODO's states arrive as projection events.
+      operationId: post_api_todos
+      tags:
+        - Todos
+      x-smithers-opaque-body: true
+      parameters:
+        - name: repo
+          in: query
+          required: false
+          description: The repository as owner/name, needed only when the server serves several stacks.
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9._:-]{1,128}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TodoCreate'
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '202':
+          description: The request is persisted; the TODO is placed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoCreateAnswer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/todos/{n}:
+    get:
+      summary: Read a TODO
+      description: The TODO card of T<n> with its prompt revisions. {n} is 12 or T12.
+      operationId: get_api_todos_n
+      tags:
+        - Todos
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[Tt]?[1-9][0-9]*$'
+        - name: repo
+          in: query
+          required: false
+          description: The repository as owner/name, needed only when the server serves several stacks.
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The TODO card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Todo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -23212,6 +23322,275 @@ components:
           type: array
           items:
             type: string
+    TodoState:
+      type: string
+      enum:
+        - queued
+        - starting
+        - working
+        - needs_you
+        - paused
+        - failed
+        - in_review
+        - merged
+        - dropped
+    TodoActor:
+      description: REST actor identity reference; card actors resolve ids to display identities.
+      discriminator:
+        propertyName: kind
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, id]
+          properties:
+            kind:
+              type: string
+              enum: [person]
+            id:
+              type: integer
+              format: int64
+            via:
+              type: string
+            session:
+              type: string
+        - type: object
+          additionalProperties: false
+          required: [kind, agent, run]
+          properties:
+            kind:
+              type: string
+              enum: [agent]
+            agent:
+              type: string
+            run:
+              type: string
+            todo:
+              type: integer
+              format: int64
+              minimum: 1
+        - type: object
+          additionalProperties: false
+          required: [kind, name]
+          properties:
+            kind:
+              type: string
+              enum: [system]
+            name:
+              type: string
+    TodoCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        prompt:
+          type: string
+          description: Revision 1; defaults to the title.
+        acceptance:
+          type: string
+        place:
+          type: string
+          enum:
+            - append
+    TodoCreateAnswer:
+      type: object
+      required:
+        - state
+        - todo
+      properties:
+        state:
+          type: string
+          enum:
+            - requested
+        todo:
+          $ref: '#/components/schemas/Todo'
+    TodoList:
+      type: object
+      required:
+        - todos
+      properties:
+        todos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Todo'
+    Todo:
+      type: object
+      description: The TODO card model (spec §14.3). revisions is present on the card and absent from list rows.
+      required:
+        - n
+        - title
+        - state
+        - amendments
+        - lessons
+        - branch
+        - created_by
+        - seq
+        - created_at
+        - updated_at
+      properties:
+        n:
+          type: integer
+          format: int64
+        title:
+          type: string
+        state:
+          $ref: '#/components/schemas/TodoState'
+        state_reason:
+          type: string
+        owner:
+          type: integer
+          format: int64
+          description: The owning member's id.
+        place:
+          type: integer
+          format: int64
+          description: 1-based position among the unmerged TODOs.
+        queue:
+          type: object
+          additionalProperties: true
+        step:
+          type: string
+        needs_you:
+          type: object
+          additionalProperties: true
+        failure:
+          type: object
+          required:
+            - step
+            - class
+            - message
+            - retryable
+          properties:
+            step:
+              type: string
+            class:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
+        pr:
+          type: object
+          required:
+            - number
+          properties:
+            number:
+              type: integer
+              format: int64
+        amendments:
+          type: integer
+          format: int64
+        lessons:
+          type: integer
+        branch:
+          type: object
+          required:
+            - id
+            - name
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        issue:
+          type: object
+          required:
+            - number
+            - fixes
+          properties:
+            number:
+              type: integer
+              format: int64
+            fixes:
+              type: boolean
+        created_by:
+          $ref: '#/components/schemas/TodoActor'
+        seq:
+          type: integer
+          format: int64
+          description: The TODO's last committed event.
+        revisions:
+          type: array
+          items:
+            type: object
+            required:
+              - rev
+              - prompt
+              - reason
+              - author
+              - at
+            properties:
+              rev:
+                type: integer
+              prompt:
+                type: string
+              acceptance:
+                type: string
+              reason:
+                type: string
+                enum:
+                  - create
+                  - amend
+                  - from-issue
+              author:
+                $ref: '#/components/schemas/TodoActor'
+              at:
+                type: string
+                format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BranchActivityList:
+      type: object
+      required:
+        - entries
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            required:
+              - seq
+              - at
+              - actor
+              - kind
+              - summary
+            properties:
+              seq:
+                type: integer
+                format: int64
+              at:
+                type: string
+                format: date-time
+              actor:
+                $ref: '#/components/schemas/TodoActor'
+              asked_by:
+                allOf:
+                  - $ref: '#/components/schemas/TodoActor'
+                nullable: true
+              kind:
+                type: string
+                enum:
+                  - step
+                  - steer
+                  - question
+                  - answer
+                  - edit
+                  - change
+                  - github
+                  - rebase
+              summary:
+                type: object
+                additionalProperties: true
+              github:
+                type: boolean
   responses:
     BadRequest:
       description: Bad request

@@ -49,7 +49,7 @@ func TestSchemaContract_RequiredTablesExist(t *testing.T) {
 func TestSchemaContract_NoBranchCentricTables(t *testing.T) {
 	_, pool := newQueries(t)
 
-	disallowedTables := []string{"branches", "protected_branches", "renamed_branches"}
+	disallowedTables := []string{"branches", "protected_branches", "renamed_branches", "todo_workspaces"}
 	for _, table := range disallowedTables {
 		table := table
 		t.Run(table, func(t *testing.T) {

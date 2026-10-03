@@ -57,14 +57,14 @@ it("keeps a read with no numbers valid", () => {
   expect(panel).toMatchObject({ summary: "Factory", rows: [{ id: "factory:todo" }] })
 })
 
-it("leads the factory's issues with the row that names how to file a TODO", () => {
+it("leads the factory's issues with the row that names how to make a TODO", () => {
   const panel = Smithers.panel([], discovered, {
     metrics: "1 landed",
     rows: [{ id: "issue:x", label: "#1 T", details: [] }]
   })
   expect(Panels.decode(panel)).toEqual(panel)
   expect(panel.rows.slice(0, 2)).toEqual([
-    { id: "factory:todo", label: "File a TODO", details: [{ kind: "text", text: "/todo <title>" }] },
+    { id: "factory:todo", label: "Make a TODO", details: [{ kind: "text", text: "/todo <title>" }] },
     { id: "issue:x", label: "#1 T", details: [] }
   ])
 })

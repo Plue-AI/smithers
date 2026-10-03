@@ -141,6 +141,10 @@ var migrationRegistry = []migrationSpec{
 	{103, "migrations/0103_retire_chat_provider_dispatch.sql"},
 	{104, "migrations/0104_install_settings.sql"},
 	{105, "migrations/0105_github_app.sql"},
+	{106, "migrations/0106_members.sql"},
+	{107, "migrations/0107_todos.sql"},
+	{108, "migrations/0108_projection_events.sql"},
+	{109, "migrations/0109_activity.sql"},
 }
 
 type migration struct {

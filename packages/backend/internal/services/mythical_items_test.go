@@ -309,9 +309,26 @@ func (g *fakeMythicalGitHub) merge(number int64, commit string) {
 var maintainerTodo = gitHubLabelApplication{Label: todoLabel, ByMaintainer: true}
 
 type fakeMythicalLauncher struct {
-	mu       sync.Mutex
-	requests []flowdispatch.LaunchRequest
-	fail     int
+	onAdmit   func(context.Context, pgx.Tx)
+	mu        sync.Mutex
+	requests  []flowdispatch.LaunchRequest
+	fail      int
+	cancelled []string
+}
+
+// CancelRequestInTx records the cancel of a launch it admitted; one it
+// never admitted is unknown, as flowdispatch answers jobs.ErrNotFound. The
+// real cancel's journal is flowdispatch's contract, tested there.
+func (l *fakeMythicalLauncher) CancelRequestInTx(_ context.Context, _ pgx.Tx, _ jobs.Scope, requestID string) (jobs.Operation, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, seen := range l.requests {
+		if seen.RequestID == requestID {
+			l.cancelled = append(l.cancelled, requestID)
+			return jobs.Operation{}, nil
+		}
+	}
+	return jobs.Operation{}, jobs.ErrNotFound
 }
 
 // AdmitInTx records the launch only when the item's transaction commits, as
@@ -319,6 +336,9 @@ type fakeMythicalLauncher struct {
 func (l *fakeMythicalLauncher) AdmitInTx(ctx context.Context, tx pgx.Tx, request flowdispatch.LaunchRequest) (jobs.RequestReceipt, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.onAdmit != nil {
+		l.onAdmit(ctx, tx)
+	}
 	if l.fail > 0 {
 		l.fail--
 		return jobs.RequestReceipt{}, errors.New("dispatch unavailable")
@@ -444,6 +464,7 @@ func newMythicalOrchestration(t *testing.T) *mythicalOrchestration {
 	require.NoError(t, err)
 	row := f.poll()
 	require.Equal(t, "active", row.State, row.LastError)
+	t.Cleanup(func() { requireTodosProjected(t, f.pool, f.repoID) })
 	return o
 }
 
@@ -452,6 +473,24 @@ func (o *mythicalOrchestration) item(number int64) db.MythicalItem {
 	item, err := db.New(o.pool).GetMythicalItemByIssue(context.Background(), o.repoID, number)
 	require.NoError(o.t, err)
 	return item
+}
+
+// todoOf is issue #number's TODO as stored.
+func (o *mythicalOrchestration) todoOf(number int64) db.Todo {
+	o.t.Helper()
+	item := o.item(number)
+	require.True(o.t, item.TodoID.Valid, "issue #%d has no TODO", number)
+	todo, err := db.New(o.pool).GetTodo(context.Background(), uuidString(item.TodoID))
+	require.NoError(o.t, err)
+	return todo
+}
+
+// branch is the GitHub branch issue #number's TODO proposes on.
+func (o *mythicalOrchestration) branch(number int64) string {
+	o.t.Helper()
+	name, err := (&mythicalItemStep{s: o.service, q: o.service.queries()}).branch(context.Background(), o.item(number))
+	require.NoError(o.t, err)
+	return name
 }
 
 // wake makes the stack and every item due and runs one claim.
@@ -466,6 +505,7 @@ func (o *mythicalOrchestration) wake() db.MythicalStack {
 	err = o.service.PollOnce(ctx)
 	require.NoError(o.t, ctx.Err(), "mythical orchestration poll exceeded %s", pollTimeout)
 	require.NoError(o.t, err)
+	requireTodosProjected(o.t, o.pool, o.repoID)
 	row, err := db.New(o.pool).GetMythicalStack(ctx, o.repoID)
 	require.NoError(o.t, err)
 	return row
@@ -476,6 +516,9 @@ func (o *mythicalOrchestration) project(request flowdispatch.LaunchRequest, stat
 	o.t.Helper()
 	update := flowdispatch.ProjectionUpdate{State: state, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: request.Projection, RunID: runID,
 		Run: &flowruntime.FlowRuntimeRun{RunID: runID, FinalOutput: &output}}}
+	step := engineEvent(1, runtimeNodeScheduled, "fixture-action", runtimeActionCall, request.FlowID)
+	step.RunID = runID
+	update.Events = []flowruntime.FlowRuntimeEvent{step}
 	require.NoError(o.t, o.service.ProjectFlowRuntime(context.Background(), update))
 }
 
@@ -649,7 +692,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	item = o.item(7)
 	require.Equal(t, "proposed", item.State, item.Reason)
 	require.True(t, item.PRNumber.Valid)
-	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/issue-7")
+	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/"+o.branch(7))
 	assert.Equal(t, o.hostTree(candidate), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"))
 	assert.Equal(t, o.git(o.github.dir, "rev-parse", "refs/heads/main"), o.git(o.github.dir, "rev-parse", branchHead+"^"))
 	message := o.git(o.github.dir, "log", "-1", "--format=%B", branchHead)
@@ -680,20 +723,42 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Empty(t, o.github.merges, "an approved TODO without automerge waits for a person")
 	assert.Equal(t, "proposed", item.State)
 
-	// The owner squash-merges on GitHub; the main pull brings it to Smithers.
+	// GitHub reports the owner's squash merge before its main contains it.
 	o.git(o.work, "pull", "-q", "--ff-only", o.github.dir, "main")
-	o.git(o.work, "fetch", "-q", o.github.dir, "refs/heads/smithers/issue-7")
+	o.git(o.work, "fetch", "-q", o.github.dir, "refs/heads/"+o.branch(7))
 	o.git(o.work, "merge", "-q", "--squash", branchHead)
 	o.git(o.work, "commit", "-q", "-m", "📝 docs: add docs (#101)")
-	merged := o.publish()
+	merged := o.git(o.work, "rev-parse", "HEAD")
 	o.github.merge(item.PRNumber.Int64, merged)
 	// A person took the item's run over for a while: the adopted change's note names them.
 	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks = COALESCE(checks, '{}'::jsonb) || '{"drivers":[{"by":"will","run":"run_7","from":"2026-09-28T14:02:00Z","to":"2026-09-28T14:09:00Z","messages":3}]}'::jsonb WHERE id = $1`, item.ID)
 	require.NoError(t, err)
+	beforeMerge := stack
+	launches := len(o.launcher.requests)
+	stack = o.wake()
+	require.Equal(t, "active", stack.State, stack.LastError)
+	pending := o.item(7)
+	require.Equal(t, "proposed", pending.State, "a reported merge needs proof from GitHub main")
+	assert.Equal(t, string(TodoInReview), o.todoOf(7).State)
+	assert.Empty(t, pending.PRMergeCommit)
+	assert.Nil(t, mythicalChecksOf(pending).Completion, "no completion before landing")
+	assert.Equal(t, beforeMerge.LandedMain, stack.LandedMain)
+	assert.Equal(t, beforeMerge.TipCommit, stack.TipCommit, "the host has not imported the unconfirmed merge")
+	assert.Equal(t, beforeMerge.LandedMain, o.hostRef("refs/heads/main"))
+	assert.Equal(t, beforeMerge.LandedMain, o.git(o.github.dir, "rev-parse", "refs/heads/main"))
+	assert.Len(t, o.launcher.requests, launches, "pending proof starts no additional work")
+	assert.Empty(t, o.github.comments, "no evidence before the commit is on GitHub main")
+	assert.Empty(t, o.github.closed, "no close before the commit is on GitHub main")
+
+	// GitHub main now carries the merge; the main pull imports it for folding.
+	o.git(o.work, "push", "-q", o.github.dir, "main:refs/heads/main")
+	require.Equal(t, merged, o.publish())
+	o.github.closeErr = errors.New("GitHub is down")
 	stack = o.wake()
 	require.Equal(t, "active", stack.State, stack.LastError)
 	assert.Equal(t, merged, stack.LandedMain)
-	assert.Equal(t, "landed", o.item(7).State)
+	require.Equal(t, "landed", o.item(7).State)
+	assert.Equal(t, string(TodoMerged), o.todoOf(7).State)
 	assert.Contains(t, o.git(o.hostDir, "cat-file", "-p", stack.NotesCommit+":"+stack.TipCommit),
 		"drivers:\n  - by: \"will\"\n    run: \"run_7\"\n    from: \"2026-09-28T14:02:00Z\"\n    to: \"2026-09-28T14:09:00Z\"\n    messages: 3\n")
 	assert.Equal(t, o.hostTree(merged), o.hostTree(stack.TipCommit))
@@ -706,12 +771,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.EqualValues(t, 7, changes[0].IssueNumber.Int64)
 	assert.Equal(t, merged, changes[0].FoldedFrom)
 
-	// The issue hears of the landing only once GitHub main carries the merge
-	// commit: the fold alone is not evidence.
-	assert.Empty(t, o.github.comments, "no evidence before the commit is on GitHub main")
-	assert.Empty(t, o.github.closed, "no close before the commit is on GitHub main")
-	o.git(o.work, "push", "-q", o.github.dir, "main:refs/heads/main")
-	o.github.closeErr = errors.New("GitHub is down")
+	// The next poll delivers completion evidence, then retries the failed close.
 	o.wake()
 	require.Equal(t, []string{"#7 Landed on main: https://github.com/smithersai/smithers/commit/" + merged +
 		"\nChecks: CI green on " + short(item.PRHead) + "; review approve\nRun: run-request"}, o.github.comments, "built on the tip, the item was never re-verified")
@@ -820,7 +880,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	o.wake()
 	item = o.item(11)
 	require.Equal(t, "proposed", item.State, item.Reason)
-	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/issue-11")
+	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/"+o.branch(11))
 	assert.Equal(t, o.hostTree(item.CandidateHead), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"),
 		"the proposal is exactly the verified rebased tree")
 
@@ -937,6 +997,8 @@ func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
 	assert.Equal(t, "declined", o.item(31).State, "reopening the same text keeps the decline")
 
+	// §12.3.6: re-admission creates a new TODO and preserves the old history.
+	oldTodo := o.item(31).TodoID
 	// A new body revision queues it again.
 	edited := issue
 	edited.Body = "add the README line and a CHANGELOG entry"
@@ -946,6 +1008,10 @@ func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 	assert.Equal(t, MythicalBackfillCounts{Open: 2, Queued: 1, Skipped: 1}, counts)
 	assert.Equal(t, "queued", o.item(31).State)
 	assert.Equal(t, edited.Body, o.item(31).IssueBody)
+	require.NotEqual(t, oldTodo, o.item(31).TodoID)
+	old, err := o.service.queries().GetTodo(ctx, uuidString(oldTodo))
+	require.NoError(t, err)
+	require.Equal(t, "dropped", old.State)
 	decline()
 
 	// A new title revision queues it again too.
@@ -1129,8 +1195,8 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	tree := o.hostTree(candidate)
 	head := o.git(o.hostDir, "commit-tree", tree, "-p", main, "-m", "✨ feat: x")
 	o.git(o.hostDir, "update-ref", repohost.MythicalReservedRefNS+"keep/"+head, head)
-	o.git(o.hostDir, "push", "-q", o.github.dir, head+":refs/heads/smithers/issue-21")
-	pending, _ := json.Marshal(mythicalProposalOp{Branch: "smithers/issue-21", Expected: "", Head: head})
+	o.git(o.hostDir, "push", "-q", o.github.dir, head+":refs/heads/"+o.branch(21))
+	pending, _ := json.Marshal(mythicalProposalOp{Branch: o.branch(21), Expected: "", Head: head})
 	item.PendingOp = pending
 	_, err = db.New(o.pool).SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
@@ -1148,6 +1214,7 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	require.Error(t, err)
 
 	// A rejected item retried proposes on a new branch, never its closed PR.
+	closedBranch := o.branch(21)
 	o.github.mu.Lock()
 	o.github.pulls[item.PRNumber.Int64].State = "closed"
 	o.github.mu.Unlock()
@@ -1159,12 +1226,25 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
 	require.Equal(t, "rejected", o.item(21).State)
-	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	dropped := o.todoOf(21)
+	require.Equal(t, string(TodoDropped), dropped.State, "a PR closed on GitHub drops its TODO")
+	// §12.3.6: retry re-admits the issue as a new TODO, preserving the
+	// closed PR's terminal TODO rather than reviving its history.
+	revisions, err := db.New(o.pool).ListTodoRevisions(ctx, dropped.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "queued", view.State)
-	retried := o.item(21)
-	assert.False(t, retried.PRNumber.Valid)
-	assert.Equal(t, "smithers/issue-21-r1", mythicalBranch(retried))
+	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	require.NoError(t, err)
+	assert.Equal(t, "queued", o.item(21).State)
+	assert.NotEqual(t, dropped.ID, o.todoOf(21).ID)
+	assert.Equal(t, string(TodoQueued), o.todoOf(21).State)
+	old, err := db.New(o.pool).GetTodo(ctx, dropped.ID)
+	require.NoError(t, err)
+	assert.Equal(t, dropped, old)
+	oldRevisions, err := db.New(o.pool).ListTodoRevisions(ctx, dropped.ID)
+	require.NoError(t, err)
+	assert.Equal(t, revisions, oldRevisions)
+	assert.NotEqual(t, closedBranch, o.branch(21), "the new TODO must not reuse its closed PR branch")
+
 }
 
 // An outsider's approved item never changes a protected path; a maintainer's
@@ -1197,7 +1277,7 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "protected_paths", Kind: "stopped"}, mythicalChecksOf(item).Fault, "only a person lifts it")
 	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
-	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")
+	assert.Empty(t, o.git(o.github.dir, "branch", "--list", o.branch(31)), "nothing is pushed")
 
 	maintainer := mythicalIssue{Number: 32, Title: "Maintainer", Body: "fix ci", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, maintainer, maintainerTodo))
@@ -1268,4 +1348,13 @@ func TestMythicalBackfillSkipsOnlyTheUnansweredIssue(t *testing.T) {
 	_, err := o.service.Backfill(ctx, o.repoID)
 	require.NoError(t, err)
 	assert.Equal(t, "skipped", o.item(21).State, "the removed label withdraws the approval")
+}
+
+func TestMythicalReopenedHeadAllowsExplicitReviewRetry(t *testing.T) {
+	item := db.MythicalItem{State: "proposed", PRHead: "accepted", Checks: (mythicalChecks{ReopenedHead: "accepted", Review: &mythicalReview{Head: "accepted", Verdict: "failed"}}).encode()}
+	retried := mythicalRetryReview(item)
+	require.Empty(t, mythicalChecksOf(retried).ReopenedHead, "a person's explicit review retry is new input")
+	require.Nil(t, mythicalChecksOf(retried).Review)
+	require.Equal(t, item.PRHead, retried.PRHead)
+	require.Equal(t, item.State, retried.State)
 }

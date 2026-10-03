@@ -22,6 +22,10 @@ type countingMythicalLauncher struct {
 	attempts map[string]int
 }
 
+func (l *countingMythicalLauncher) CancelRequestInTx(ctx context.Context, tx pgx.Tx, scope jobs.Scope, requestID string) (jobs.Operation, error) {
+	return l.inner.CancelRequestInTx(ctx, tx, scope, requestID)
+}
+
 func (l *countingMythicalLauncher) AdmitInTx(ctx context.Context, tx pgx.Tx, request flowdispatch.LaunchRequest) (jobs.RequestReceipt, error) {
 	l.mu.Lock()
 	if l.attempts == nil {

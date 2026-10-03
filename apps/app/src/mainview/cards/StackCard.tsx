@@ -314,7 +314,7 @@ const WikiRow = ({ wiki, repo, onRunCommand }: {
   )
 }
 
-const RETRY_FLOW = { bootstrap: "history.bootstrap", backfill: "history.backfill", parallel: "history.parallel", retry: "history.retry", todo: "history.todo" } as const
+const RETRY_FLOW = { bootstrap: "history.bootstrap", backfill: "history.backfill", parallel: "history.parallel", retry: "history.retry", todo: "todo.new" } as const
 
 /* What each stack act's failure says; the seam's own words stay behind Details. */
 const STACK_ACT_FAILURES: Readonly<Record<Failure["act"] | "read", UserFailureCopy>> = {
@@ -322,7 +322,7 @@ const STACK_ACT_FAILURES: Readonly<Record<Failure["act"] | "read", UserFailureCo
   backfill: { fault: "infra", sentence: "Smithers could not backfill open issues.", actions: ["retry"] },
   parallel: { fault: "infra", sentence: "Smithers could not change the number of lanes.", actions: ["retry"] },
   retry: { fault: "infra", sentence: "Smithers could not retry this change.", actions: ["retry"] },
-  todo: { fault: "infra", sentence: "Smithers could not file this TODO.", actions: ["retry"] },
+  todo: { fault: "infra", sentence: "Smithers could not add this TODO.", actions: ["retry"] },
   read: { fault: "infra", sentence: "Smithers could not read this history.", actions: ["retry"] }
 }
 
@@ -356,7 +356,7 @@ const StackMachinery = ({ stack, repo, now, onRunCommand }: {
         <span data-testid="stack-lane-count">{counts.busy}/{counts.maxParallel} lanes</span>
       </p>
       <div className="world-card-row stack-admin">
-        <Button size="sm" data-testid="stack-todo" {...flowAction(onRunCommand, "history.todo", flowArgs("history.todo", { repo }))}>New TODO</Button>
+        <Button size="sm" data-testid="stack-todo" {...flowAction(onRunCommand, "todo.new", flowArgs("todo.new", {}))}>New TODO</Button>
         <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "history.backfill", repo)}>Backfill</Button>
         <Button size="sm" variant="ghost" aria-label="Fewer lanes" disabled={counts.maxParallel <= 1}
           {...flowAction(onRunCommand, "history.parallel", flowArgs("history.parallel", { value: counts.maxParallel - 1, repo }))}>−</Button>

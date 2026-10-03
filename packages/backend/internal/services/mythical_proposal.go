@@ -213,7 +213,7 @@ func (s *MythicalService) changeProposal(ctx context.Context, repositoryID, numb
 		if item.State == "skipped" {
 			item.Reason = mythicalProposalReason(item.Reason, checks)
 		}
-		saved, err := q.SaveMythicalItem(ctx, item)
+		saved, err := s.saveItem(ctx, item)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}

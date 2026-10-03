@@ -3,14 +3,6 @@
 -- The password owner (self_host_owners, local_credentials) is replaced: the
 -- owner is claimed by the first GitHub sign-in that carries the one-time
 -- setup token, whose digest lives in install_settings.
-CREATE TABLE install_settings (
-    key         TEXT PRIMARY KEY,
-    value       JSONB NOT NULL,
-    sealed      BOOLEAN NOT NULL DEFAULT FALSE,
-    updated_by  BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 -- Unix uids start at 20000; 19999 is the coding agent (spec §5.5.1).
 CREATE SEQUENCE members_unix_uid_seq START WITH 20000 MINVALUE 20000;
 

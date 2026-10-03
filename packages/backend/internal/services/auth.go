@@ -467,6 +467,7 @@ func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier 
 		State:           state,
 		ContextHash:     hashOAuthStateVerifier(stateVerifier),
 		RequestedScopes: requestedScopes,
+		SetupTokenDigest: setupTokenDigest,
 		ExpiresAt:       s.now().Add(10 * time.Minute),
 	})
 	if err != nil {

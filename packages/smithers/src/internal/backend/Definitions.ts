@@ -521,12 +521,12 @@ export const definitions = {
   },
   "history land": {
     description: "Land a proposed TODO's pull request once its review approves and CI is green",
-    args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
+    args: z.object({ "issue": z.string().describe("TODO (T12), issue number (12 or #12) or item id") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "history retry": {
-    description: "Give a blocked, rejected or declined issue a fresh set of attempts",
-    args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
+    description: "Give a blocked, rejected or declined TODO or issue a fresh set of attempts",
+    args: z.object({ "issue": z.string().describe("TODO (T12), issue number (12 or #12) or item id") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "history show": {
@@ -535,17 +535,17 @@ export const definitions = {
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "history todo": {
-    description: "File a TODO for the factory",
+    description: "Make a TODO for the factory",
     args: z.object({ "title": z.string().describe("TODO title") }),
     options: z.object({
-      "body": z.string().describe("TODO body").default(""),
-      "request": z.string().describe("Request id: sending it again returns the TODO already filed").optional(),
+      "body": z.string().describe("The coding agent's first prompt; the title when omitted").default(""),
+      "request": z.string().describe("Request id: sending it again returns the TODO already made").optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional()
     })
   },
   "history watch": {
-    description: "Follow one issue until its pull request is open or it stops",
-    args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
+    description: "Follow one TODO or issue until its pull request is open or it stops",
+    args: z.object({ "issue": z.string().describe("TODO (T12), issue number (12 or #12) or item id") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "issue close": {

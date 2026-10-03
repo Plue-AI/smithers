@@ -1,12 +1,9 @@
-smthrs auth local login — Log in to an owner backend
+smthrs host — Inspect this installation’s host
 
-Usage: smthrs auth local login [options]
+Usage: smthrs host <command>
 
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
+Commands:
+  status  Show host profile and machine limits
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

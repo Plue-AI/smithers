@@ -94,8 +94,12 @@ type MythicalItemView struct {
 	// ReviewHeld is whether a proposed TODO waits on a review of its current
 	// head that did not finish; a person may retry it (RetryItem).
 	ReviewHeld bool `json:"reviewHeld,omitempty"`
-	// Request is the request id of the Smithers filing that made this TODO.
-	Request string `json:"request,omitempty"`
+	// TodoNumber is the number n of the item's TODO, T<n> (spec §2); absent
+	// while the item is not one (an issue no member made a TODO).
+	TodoNumber int64 `json:"todoNumber,omitempty"`
+	// Title is the title of an item with no issue (a TODO made in Smithers,
+	// a chat result); an issue item's title is its issue's.
+	Title string `json:"title,omitempty"`
 	// Automerge is whether a maintainer asked the stack to merge this TODO's
 	// pull request (their automerge label, or Land through Smithers): it
 	// merges at the reviewed head once CI is green.
@@ -330,11 +334,16 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 	if err != nil {
 		return view, err
 	}
+	numbers, err := s.todoNumbers(ctx, repositoryID)
+	if err != nil {
+		return view, err
+	}
 	lanes := map[int32]MythicalLaneView{}
 	var workspaces []string
 	for _, item := range items {
 		row := mythicalItemView(item)
 		row.CostNanos = costs[item.ID.Bytes]
+		row.TodoNumber = numbers[item.TodoID.Bytes]
 		view.Items = append(view.Items, row)
 		if row.Lane != nil && !mythicalSettled(item.State) {
 			lane := MythicalLaneView{Index: *row.Lane, WorkspaceID: item.WorkspaceID, ItemID: row.ID, State: "busy"}
@@ -451,8 +460,8 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
 		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), Route: mythicalRouteView(item),
 		Placement:   mythicalChecksOf(item).Placement,
-		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, ReviewHeld: item.Source == "issue" && mythicalReviewHeld(item), DependsOn: []string{},
-		Request: mythicalChecksOf(item).FiledRequest, Automerge: mythicalChecksOf(item).Automerge}
+		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, ReviewHeld: item.Source != "chat" && mythicalReviewHeld(item), DependsOn: []string{},
+		Automerge: mythicalChecksOf(item).Automerge}
 	if failure, sentence := mythicalFailureOf(item); failure != nil {
 		row.Failure, row.Reason = failure, sentence
 	} else if mythicalDiagnostic(item.Reason) {
@@ -460,6 +469,8 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 	}
 	if item.IssueNumber.Valid {
 		row.Issue = &MythicalIssueView{Number: item.IssueNumber.Int64, Title: item.IssueTitle, URL: item.IssueURL}
+	} else {
+		row.Title = item.IssueTitle
 	}
 	if item.Lane.Valid {
 		lane := item.Lane.Int32
@@ -479,4 +490,30 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		row.CreatedAt = item.CreatedAt.Time.UTC().Format(time.RFC3339)
 	}
 	return row
+}
+
+// todoNumbers answers the number of each of a repository's TODOs, by id.
+func (s *MythicalService) todoNumbers(ctx context.Context, repositoryID int64) (map[[16]byte]int64, error) {
+	rows, err := s.queries().ListTodoNumbers(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	numbers := make(map[[16]byte]int64, len(rows))
+	for _, row := range rows {
+		numbers[pgUUIDFromString(row.ID).Bytes] = row.Number
+	}
+	return numbers, nil
+}
+
+// itemView is an item's view with its TODO's number.
+func (s *MythicalService) itemView(ctx context.Context, item db.MythicalItem) (MythicalItemView, error) {
+	view := mythicalItemView(item)
+	if item.TodoID.Valid {
+		todo, err := s.queries().GetTodo(ctx, uuidString(item.TodoID))
+		if err != nil {
+			return MythicalItemView{}, err
+		}
+		view.TodoNumber = todo.Number
+	}
+	return view, nil
 }

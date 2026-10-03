@@ -30,7 +30,7 @@ func (s *InstallSetupSessions) Exchange(ctx context.Context, token string) (stri
 	if token == "" || s.TokenDigest == ([32]byte{}) || subtle.ConstantTimeCompare(digest[:], s.TokenDigest[:]) != 1 {
 		return "", pkgerrors.Unauthorized("setup token required")
 	}
-	if _, err := db.New(s.Pool).GetSelfHostOwner(ctx); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := db.New(s.Pool).GetInstallOwnerUser(ctx); !errors.Is(err, pgx.ErrNoRows) {
 		if err != nil {
 			return "", err
 		}
@@ -51,7 +51,7 @@ func (s *InstallSetupSessions) Validate(ctx context.Context, session string) err
 		return pkgerrors.New(pkgerrors.CodeUnauthenticated, "setup session required")
 	}
 	q := db.New(s.Pool)
-	if _, err := q.GetSelfHostOwner(ctx); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := q.GetInstallOwnerUser(ctx); !errors.Is(err, pgx.ErrNoRows) {
 		if err != nil {
 			return err
 		}

@@ -20,7 +20,7 @@ import (
 // (roninjin10, a maintainer the policy names).
 func landingTodo(t *testing.T, number int64, file string) (*mythicalOrchestration, db.MythicalItem) {
 	t.Helper()
-	o := filingTodos(t)
+	o := signedInMaintainer(t)
 	issue := mythicalIssue{Number: number, Title: "Land", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
 	require.NoError(t, o.service.ObserveIssue(context.Background(), o.repoID, issue, maintainerTodo))
 	o.propose(number, file)

@@ -163,7 +163,7 @@ func mythicalFailureOf(item db.MythicalItem) (*MythicalFailureView, string) {
 	case "landed", "cancelled", "declined", "skipped":
 		return nil, ""
 	}
-	if item.Source == "issue" && mythicalReviewHeld(item) {
+	if item.Source != "chat" && mythicalReviewHeld(item) {
 		return &MythicalFailureView{Kind: mythicalFailReview, Fault: mythicalReviewFault(item)}, "The review did not finish"
 	}
 	fault := mythicalChecksOf(item).Fault

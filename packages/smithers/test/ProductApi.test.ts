@@ -88,14 +88,20 @@ describe("the generated product API client", () => {
     const exported = Object.entries(ProductApi).filter(([, value]) => typeof value === "function").map(([name]) => name)
       .sort()
     expect(exported).toEqual(expected)
-    // Reviewed MVP inventory: 534 operations minus 28 Pair, 6 marketplace and 4
-    // third-party OAuth application operations, plus the two install App setup
-    // operations added by T-GH-01, minus two repository-setup operations.
-    // T-INS quiesce adds two operations; ACC-01 removes five local-auth operations.
-    // Exact equality above remains
-    // independent of this count and every retained operation is exercised below.
-    expect(expected).toHaveLength(495)
+    // Main 631d6632 has 500 operations. Later main removes two repository-setup
+    // operations and adds two install-quiesce operations. ACC-01 removes five
+    // local-auth operations; T-STK-01 adds four and removes mythical/todos:
+    // 500 - 2 + 2 - 5 + 4 - 1 = 498. Exact export equality remains independent.
+    expect(expected).toHaveLength(498)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
+    for (const path of ["status", "bootstrap", "login", "password", "token"]) {
+      expect(spec.paths[`/api/auth/local/${path}`]).toBeUndefined()
+    }
+    expect(spec.paths["/api/repos/{owner}/{repo}/mythical/todos"]).toBeUndefined()
+    expect(operations.filter(({ path }) => path.startsWith("/api/todos") || path === "/api/branches/{b}/activity")
+      .map(({ path, method }) => `${method.toUpperCase()} ${path}`).sort()).toEqual([
+      "GET /api/branches/{b}/activity", "GET /api/todos", "GET /api/todos/{n}", "POST /api/todos"
+    ])
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
     ).sort()).toEqual(["DELETE /api/install/quiesce", "GET /api/install", "POST /api/install/quiesce", "POST /api/install/setup/app_manifest"])

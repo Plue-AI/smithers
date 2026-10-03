@@ -1,4 +1,4 @@
-smthrs history todo — File a TODO for the factory
+smthrs history todo — Make a TODO for the factory
 
 Usage: smthrs history todo <title> [options]
 

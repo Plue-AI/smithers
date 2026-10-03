@@ -563,7 +563,9 @@ export function App(props: AppProps) {
   const factoryRepo = useMemo(() => Factory.repository(props.host.cwd, process.env), [props.host.cwd])
   // `/todo` files through the session it resolves; the filer keeps a request id per unanswered TODO.
   const todoCloud = useRef<CloudSession.Cloud | undefined>(undefined)
-  const todoFiler = useRef(Factory.filer((path, body, signal) => todoCloud.current!.post(path, body, signal)))
+  const todoFiler = useRef(
+    Factory.filer((path, body, signal, headers) => todoCloud.current!.post(path, body, signal, headers))
+  )
   const factoryRetries = useRef(new Set<string>())
   const smithersShown = surface === `ui:${Smithers.id}`
   useEffect(() => {
@@ -1569,13 +1571,13 @@ export function App(props: AppProps) {
         void (async () => {
           try {
             const cloud = await CloudSession.signedIn(process.env)
-            if (cloud === undefined) return setStatus("Sign in to file a TODO: smthrs auth login", "warning")
+            if (cloud === undefined) return setStatus("Sign in to make a TODO: smthrs auth login", "warning")
             todoCloud.current = cloud
             const filed = await todoFiler.current(factoryRepo, title)
             if (filed.ok) {
-              setStatus(`TODO ${filed.item.issue === undefined ? "" : `#${filed.item.issue.number} `}queued`)
+              setStatus(Factory.todoLine(filed.todo))
             } else {
-              setStatus(`TODO not filed: ${filed.detail}${filed.settled ? "" : " · /todo again retries it"}`, "warning")
+              setStatus(`TODO not made: ${filed.detail}${filed.settled ? "" : " · /todo again retries it"}`, "warning")
             }
           } catch (error) {
             Log.write("factory.todo", error)

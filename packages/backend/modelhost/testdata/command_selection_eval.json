@@ -553,7 +553,7 @@
    "summary": "Set how many lanes work at once"
   },
   {
-   "name": "history.todo",
+   "name": "todo.new",
    "summary": "File a TODO for the coding factory and follow it to its pull request"
   },
   {
@@ -929,7 +929,7 @@
        "triggers.list": 0,
        "flow.create": 0,
        "box.suspend": 0,
-       "history.todo": 0,
+       "todo.new": 0,
        "review.setup": 0,
        "files.read": 0,
        "prs.land": 0,
@@ -1336,7 +1336,7 @@
        "agent.session.view": 0,
        "runs.steer": 0,
        "search.runs": 0,
-       "history.todo": 0,
+       "todo.new": 0,
        "change.resolve": 0,
        "auth.prompt": 0,
        "chat.commands": 0,
@@ -1511,7 +1511,7 @@
       "probabilities": {
        "box.terminal": 0,
        "card.history.forward": 0,
-       "history.todo": 0,
+       "todo.new": 0,
        "chat.filter.toggle": 0,
        "agent.session.view": 0,
        "wiki.cloud.new": 0,
@@ -1977,7 +1977,7 @@
        "repo.choose": 0,
        "issues.reopen": 0,
        "review.setup": 0,
-       "history.todo": 0,
+       "todo.new": 0,
        "env.view": 0,
        "secrets.move": 0,
        "wiki.view": 0,
@@ -2137,7 +2137,7 @@
        "box.open": 0,
        "ci.setup": 0,
        "model.recall": 0,
-       "history.todo": 0,
+       "todo.new": 0,
        "connect": 0,
        "flow.run": 0,
        "setup.retry": 0,

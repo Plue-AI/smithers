@@ -45,7 +45,7 @@ export interface FlowInput {
   readonly "history.parallel": { readonly value: number; readonly repo: string }
   readonly "history.retry": { readonly id: string; readonly repo: string }
   readonly "history.land": { readonly id: string; readonly head: string; readonly repo: string }
-  readonly "history.todo": { readonly title?: string; readonly body?: string; readonly repo: string }
+  readonly "todo.new": { readonly text?: string; readonly title?: string; readonly acceptance?: readonly string[]; readonly before?: number; readonly cardId?: string }
   readonly "history.view": { readonly view: "issues" | "metrics"; readonly repo: string }
   readonly "issues.close": { readonly number: number; readonly repo: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
@@ -198,7 +198,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "history.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
   "history.retry": payload => line(token(payload, "id"), token(payload, "repo")),
   "history.land": payload => line(token(payload, "id"), token(payload, "head"), token(payload, "repo")),
-  "history.todo": payload => JSON.stringify(payload),
+  "todo.new": payload => JSON.stringify(payload),
   "history.view": payload => line(token(payload, "view"), token(payload, "repo")),
   "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),

@@ -12,6 +12,7 @@ import {
 } from "../../rpc/src/Mythical.ts"
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
 import { accountLabel as cardAccountLabel, itemStateLabel, settled } from "../../rpc/src/StackView.ts"
+import { TodoCreateAnswerSchema, TodoStateSchema } from "../../rpc/src/Todo.ts"
 import { main } from "../src/cli/Entry.ts"
 import { Client } from "../src/internal/backend/Client.ts"
 import {
@@ -27,6 +28,7 @@ import {
   render,
   spendLabel,
   stateLabel,
+  todoLine,
   workerLine
 } from "../src/internal/backend/History.ts"
 
@@ -59,6 +61,25 @@ const stack = (items: Array<unknown>, extra: Record<string, unknown> = {}) => ({
   ...extra
 })
 
+/** A TODO made in chat: no issue, named by its number. */
+const chatTodo = (id: string, n: number, state: string, extra: Record<string, unknown> = {}) => {
+  const { issue: _issue, ...rest } = item(state, { id, todoNumber: n, ...extra })
+  return rest as ReturnType<typeof item>
+}
+/** One TODO as `/api/todos` answers it. */
+const todo = (n: number, title: string, state = "queued") => ({
+  n,
+  title,
+  state,
+  amendments: 0,
+  lessons: 0,
+  branch: { id: "b1", name: `t${n}` },
+  created_by: { kind: "person", id: 1 },
+  seq: 1,
+  created_at: "2026-09-29T11:00:00Z",
+  updated_at: "2026-09-29T11:00:00Z"
+})
+
 describe("history words match the app's History card", () => {
   const states = [...MythicalItemStateSchema.options[0].options, "something-new"]
   it.each(states)("labels, groups and settles %s as @smthrs/rpc does", (state) => {
@@ -67,6 +88,20 @@ describe("history words match the app's History card", () => {
     expect(stateLabel(wire)).toBe(state === "something-new" ? state : itemStateLabel(parsed))
     expect(groupOf(wire)).toBe(issueGroupOf(parsed))
     expect(outOfLanes(wire)).toBe(settled(parsed))
+  })
+  it("words each TODO state as the product does", () => {
+    expect(TodoStateSchema.options.map((state) => todoLine(todo(12, "Add dark mode", state)))).toEqual([
+      "queued",
+      "starting",
+      "working",
+      "needs you",
+      "paused",
+      "failed",
+      "in review",
+      "merged",
+      "dropped"
+    ].map((word) => `T12 Add dark mode · ${word}`))
+    expect(todoLine(todo(3, "\u001b]0;pwned\u0007Title\u001b[31m"))).toBe("T3 Title · queued")
   })
   it("names a conflict while retrying one", () => {
     const value = item("retrying", { integration: { conflict: { paths: ["a.ts", "b.ts"] } } }) as never
@@ -141,7 +176,7 @@ describe("history rendering", () => {
       )
     expect(render(stack([timed]), now)).toBe([
       "active · 1/2 lanes",
-      "◆ Needs you 1",
+      "◐ Working 1",
       "  #12 Fix login · PR open · checks passed",
       "    ✓ affected-lint abcdef0 0s · ✓ affected-test abcdef0 1m 04s · ✓ affected-docs abcdef0 · run run-1 · run run-2"
     ].join("\n"))
@@ -240,10 +275,17 @@ describe("history rendering", () => {
       "    $0.09"
     ].join("\n"))
   })
-  it("names a chat item by its stack change, else its id", () => {
+  it("names a chat item by its TODO and stack change, else its id", () => {
     const chat = { ...item("running"), issue: undefined }
     expect(itemLine(chat, [{ itemId: ID, title: "Add dark mode" }])).toBe("Add dark mode · implementing")
     expect(itemLine(chat)).toBe("0b8e5c3e · implementing")
+    const todo = { ...chat, todoNumber: 12 }
+    expect(itemLine(todo, [{ itemId: ID, title: "Add dark mode" }])).toBe("T12 Add dark mode · implementing")
+    expect(itemLine(todo)).toBe("T12 · implementing")
+    // The item's own title names it before any stack change does.
+    expect(itemLine({ ...todo, title: "Add dark mode" })).toBe("T12 Add dark mode · implementing")
+    // An issue's TODO keeps the issue's name.
+    expect(itemLine(item("running", { todoNumber: 12 }))).toBe("#12 Fix login · implementing")
   })
   it("strips terminal control sequences from untrusted issue text", () => {
     const hostile = item("queued", {
@@ -251,7 +293,7 @@ describe("history rendering", () => {
     })
     expect(itemLine(hostile)).toBe("#7 Title · queued")
   })
-  it("groups Needs you oldest first, Working by lane then queue, and Done from the last day", () => {
+  it("groups Needs you oldest first, Working by lane then in review then queue, and Done from the last day", () => {
     const text = render(
       stack([
         item("queued", { id: "q", issue: { number: 1, title: "Queued", url: "https://x.test/1" } }),
@@ -275,14 +317,14 @@ describe("history rendering", () => {
     )
     expect(text).toBe([
       "active · 1/2 lanes · main behind",
-      "◆ Needs you 2",
+      "◆ Needs you 1",
       "  #4 Old block · blocked",
-      "  #5 Open PR · PR open",
-      "◐ Working 3",
+      "◐ Working 4",
       "  #3 Lane zero · checking",
       "    lane 1",
       "  #2 Lane one · implementing",
       "    lane 2",
+      "  #5 Open PR · PR open",
       "  #1 Queued · queued",
       "● Done 1",
       "  #6 Landed today · landed"
@@ -369,8 +411,22 @@ const serve = async (handler: Handler) => {
       await main({
         argv: [...args, "--repo", "owner/repo", "--audience", "human"],
         env: { ...env },
-        stdout: { isTTY: true, columns: 100, write: (text) => void (output += text) },
-        stderr: { isTTY: false, columns: 100, write: (text) => void (error += text) },
+        stdout: {
+          isTTY: true,
+          columns: 100,
+          write: (text) => {
+            output += text
+            signals.emit("output", text)
+          }
+        },
+        stderr: {
+          isTTY: false,
+          columns: 100,
+          write: (text) => {
+            error += text
+            signals.emit("output", text)
+          }
+        },
         on: (signal, listener) => void signals.on(signal, listener),
         removeListener: (signal, listener) => void signals.removeListener(signal, listener),
         setExitCode: (value) => {
@@ -541,7 +597,10 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     try {
       const watched = await f.run(
         ["history", "watch", ID],
-        (signals) => setTimeout(() => signals.emit("SIGINT", "SIGINT"), 300)
+        (signals) =>
+          signals.on("output", (text: string) => {
+            if (text.includes("#12 Fix login · implementing")) signals.emit("SIGINT", "SIGINT")
+          })
       )
       expect(watched.code).not.toBe(0)
       expect(watched.error).toContain("#12 Fix login · implementing")
@@ -558,7 +617,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     try {
       const shown = await f.run(["history", "show"])
       expect(shown.code, shown.error).toBe(0)
-      expect(shown.output).toContain("active · 1/2 lanes\n◆ Needs you 1\n  #12 Fix login · PR open · https://x.test/5")
+      expect(shown.output).toContain("active · 1/2 lanes\n◐ Working 1\n  #12 Fix login · PR open · https://x.test/5")
       const raw = await f.run(["history", "show", "--json"])
       expect(JSON.parse(raw.output)).toEqual(snapshot)
       expect(f.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
@@ -703,34 +762,94 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("files a TODO under a request id, and resends the given id so a retry files it once", async () => {
+  it("makes a TODO through /api/todos under an Idempotency-Key, and resends the given key so a retry makes it once", async () => {
+    const answer = TodoCreateAnswerSchema.parse({ state: "requested", todo: todo(12, "Add dark mode") })
+    const keys: Array<unknown> = []
     const f = await serve((req, res) => {
-      if (req.method === "POST" && req.url === "/api/repos/owner/repo/mythical/todos") {
-        return json(
-          res,
-          item("queued", { issue: { number: 40, title: "Add dark mode", url: "https://x.test/40" } }),
-          201
-        )
+      if (req.method === "POST" && req.url === "/api/todos?repo=owner/repo") {
+        keys.push(req.headers["idempotency-key"])
+        if (req.headers["idempotency-key"] === "taken") {
+          return json(res, { code: "idempotency_conflict", message: "this key named another TODO" }, 409)
+        }
+        return json(res, answer, 202)
       }
-      json(res, { message: "only a maintainer the factory's policy names files a TODO" }, 403)
+      json(res, { message: "unexpected" }, 404)
     })
     try {
-      const filed = await f.run(["history", "todo", "Add dark mode", "--body", "Follow the system theme"])
-      expect(filed.code, filed.error).toBe(0)
-      expect(filed.output).toContain("#40 Add dark mode · queued")
-      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
-      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
-      expect((await f.run(["history", "todo", "  "])).code).toBe(2)
-      expect((await f.run(["history", "todo", "x", "--request", "bad id!"])).code).toBe(2)
-      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; body: string; request: string })
-      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/repos/owner/repo/mythical/todos")).toBe(
-        true
-      )
-      expect(sent).toHaveLength(3)
-      expect(sent[0]).toMatchObject({ title: "Add dark mode", body: "Follow the system theme" })
-      expect(sent[0]!.request).toMatch(/^[0-9a-f-]{36}$/)
-      expect(sent[1]!.request).toBe("abc-1")
-      expect(sent[2]!.request).toBe("abc-1")
+      const made = await f.run(["history", "todo", "Add dark mode", "--body", "Follow the system theme"])
+      expect(made.code, made.error).toBe(0)
+      expect(made.output.split("\n")).toContain("T12 Add dark mode · queued")
+      for (const key of ["abc-1", "abc-1", "T12:retry.1_x", "k".repeat(128)]) {
+        const resent = await f.run(["history", "todo", "Add dark mode", "--request", key])
+        expect(resent.code, resent.error).toBe(0)
+      }
+      const raw = await f.run(["history", "todo", "Add dark mode", "--request", "abc-1", "--json"])
+      expect(JSON.parse(raw.output)).toEqual(answer)
+      const conflict = await f.run(["history", "todo", "Add dark mode", "--request", "taken"])
+      expect(conflict.code).not.toBe(0)
+      expect(conflict.output + conflict.error).toContain("this key named another TODO")
+      const sentBefore = f.requests.length
+      // Neither a blank title nor a key the backend refuses is sent.
+      const badKeys = ["bad id!", "k".repeat(129), "a/b"]
+      for (const args of [["  "], ...badKeys.map((key) => ["x", "--request", key])]) {
+        expect((await f.run(["history", "todo", ...args])).code, args.join(" ")).toBe(2)
+      }
+      expect(f.requests).toHaveLength(sentBefore)
+      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/todos?repo=owner/repo")).toBe(true)
+      expect(f.requests.map((r) => JSON.parse(r.body))).toEqual([
+        { title: "Add dark mode", prompt: "Follow the system theme" },
+        ...Array.from({ length: 6 }, () => ({ title: "Add dark mode" }))
+      ])
+      expect(keys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+      expect(keys.slice(1)).toEqual(["abc-1", "abc-1", "T12:retry.1_x", "k".repeat(128), "abc-1", "taken"])
+    } finally {
+      await f.close()
+    }
+  })
+
+  it("follows, retries and lands a TODO named T12 through the history item whose todoNumber is 12", async () => {
+    const head = "d".repeat(40)
+    const T12 = "12121212-1212-4212-8212-121212121212", T13 = "13131313-1313-4313-8313-131313131313"
+    // Issue #12 is another item: a TODO reference never reads as an issue number.
+    const rows = [
+      item("blocked"),
+      chatTodo(T12, 12, "proposed", { pullRequest: { number: 41, url: "https://x.test/41", state: "open", head } }),
+      chatTodo(T13, 13, "blocked")
+    ]
+    const f = await serve((req, res) => {
+      if (req.method === "POST") {
+        const id = /\/items\/([^/]+)\//.exec(req.url ?? "")?.[1]
+        return json(res, rows.find((row) => row.id === id), 202)
+      }
+      if (req.url?.endsWith("/mythical/events")) return json(res, { message: "event streaming is not configured" }, 500)
+      if (/\/items\/T/i.test(req.url ?? "")) {
+        return json(res, { message: "item must be an item id or an issue number" }, 400)
+      }
+      items(req, res, rows)
+    })
+    try {
+      const watched = await f.run(["history", "watch", "T12"])
+      expect(watched.code, watched.error).toBe(0)
+      expect(watched.error).toContain("T12 · PR open · https://x.test/41")
+      const landed = await f.run(["history", "land", "t12"])
+      expect(landed.code, landed.error).toBe(0)
+      expect(landed.output).toContain("T12 · PR open")
+      const retried = await f.run(["history", "retry", "T13"])
+      expect(retried.code, retried.error).toBe(0)
+      expect(retried.output).toContain("T13 · blocked")
+      expect((await f.run(["history", "retry", "12"])).code).toBe(0)
+      const missing = await f.run(["history", "retry", "T99"])
+      expect(missing.code).not.toBe(0)
+      expect(missing.output + missing.error).toContain("T99 is not in the history")
+      const notLandable = await f.run(["history", "land", "T13"])
+      expect(notLandable.output + notLandable.error).toContain("T13 has no open pull request to land")
+      for (const bad of ["T0", "T", "T1x", "TT1"]) expect((await f.run(["history", "retry", bad])).code, bad).toBe(2)
+      expect(f.requests.some((r) => /\/items\/T/i.test(r.url))).toBe(false)
+      expect(f.requests.filter((r) => r.method === "POST").map((r) => `${r.url} ${r.body}`)).toEqual([
+        `/api/repos/owner/repo/mythical/items/${T12}/land {"head":"${head}"}`,
+        `/api/repos/owner/repo/mythical/items/${T13}/retry {}`,
+        `/api/repos/owner/repo/mythical/items/${ID}/retry {}`
+      ])
     } finally {
       await f.close()
     }

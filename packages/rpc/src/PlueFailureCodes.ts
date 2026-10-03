@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:ea18e05bd1ebb3fab740b155dcf833bfc11f607243e556c776e950345aa8d6d3"
+export const PLUE_FAILURE_DIGEST = "sha256:b3589e08bd5205192c8b0da6fa20f0436993136a80b9c4e7dedb8c44d75a1357"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -117,6 +117,7 @@ export const PLUE_FAILURE_CODES = [
   "idempotency_conflict",
   "idempotency_key_required",
   "image_required",
+  "install_repository_unset",
   "internal",
   "internal_error",
   "invalid_egress_audit_batch",
@@ -133,8 +134,10 @@ export const PLUE_FAILURE_CODES = [
   "landing_stack_in_flight",
   "language_server_missing",
   "listing_secret_detected",
+  "needs_github_access",
   "no_capacity",
   "non_replayable_operation",
+  "not_a_member",
   "not_found",
   "not_implemented",
   "operation_in_progress",
@@ -165,11 +168,13 @@ export const PLUE_FAILURE_CODES = [
   "secret_delivery_unavailable",
   "service_unavailable",
   "setup_request_reused",
+  "setup_token_invalid",
   "snapshot_in_use",
   "snapshot_not_found",
   "snapshot_too_large",
   "sse_unavailable",
   "stale_generation",
+  "todo_transition_refused",
   "token_generation_failed",
   "unauthorized",
   "unprocessable_entity",
@@ -326,6 +331,8 @@ export const PLUE_FAILURES = {
   "idempotency_key_required": { fault: "user", status: 400, retryAfter: 0 },
   /** The sandbox create request named neither an image nor a snapshot. */
   "image_required": { fault: "user", status: 400, retryAfter: 0 },
+  /** The install has no GitHub repository with the GitHub App installed yet; until setup records one only the owner may sign in. */
+  "install_repository_unset": { fault: "user", status: 409, retryAfter: 0 },
   /** plue failed in a way it does not have a name for. It is a defect, not a condition the caller can fix. */
   "internal": { fault: "bug", status: 500, retryAfter: 0 },
   /** A sandbox control operation failed in a way the controller does not have a name for. */
@@ -358,10 +365,14 @@ export const PLUE_FAILURES = {
   "language_server_missing": { fault: "user", status: 409, retryAfter: 0 },
   /** The share listing contains something that scans as a credential; it was not published. */
   "listing_secret_detected": { fault: "user", status: 400, retryAfter: 0 },
+  /** The person needs push access to the install's repository on GitHub. */
+  "needs_github_access": { fault: "user", status: 403, retryAfter: 0 },
   /** No worker in the pool has free CPU, memory or VM slots for the box, at placement or at resume. The box and its disk are untouched. */
   "no_capacity": { fault: "infra", status: 503, retryAfter: 30 },
   /** The recorded operation for this idempotency key cannot be replayed. */
   "non_replayable_operation": { fault: "user", status: 409, retryAfter: 0 },
+  /** The person is not a member of this install. */
+  "not_a_member": { fault: "user", status: 403, retryAfter: 0 },
   /** The addressed resource does not exist, or the caller may not see that it does. */
   "not_found": { fault: "user", status: 404, retryAfter: 0 },
   /** The route exists but its implementation does not. */
@@ -422,6 +433,8 @@ export const PLUE_FAILURES = {
   "service_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
   /** The setup request identity was already admitted with different input. */
   "setup_request_reused": { fault: "infra", status: 409, retryAfter: 0 },
+  /** Claiming the install needs the one-time setup token printed when it started; the token was missing, wrong or already used. */
+  "setup_token_invalid": { fault: "user", status: 403, retryAfter: 0 },
   /** The snapshot backs a live sandbox and cannot be changed or deleted. */
   "snapshot_in_use": { fault: "user", status: 409, retryAfter: 0 },
   /** The named sandbox snapshot does not exist. Distinct from not_found so a bad golden snapshot is diagnosable. */
@@ -432,6 +445,8 @@ export const PLUE_FAILURES = {
   "sse_unavailable": { fault: "infra", status: 503, retryAfter: 1 },
   /** The request carries an older placement generation than the one the worker holds; another actor moved the VM. */
   "stale_generation": { fault: "user", status: 409, retryAfter: 0 },
+  /** The TODO's current state does not allow that command or event. */
+  "todo_transition_refused": { fault: "user", status: 409, retryAfter: 0 },
   /** The controller could not mint the token the operation needs. */
   "token_generation_failed": { fault: "bug", status: 500, retryAfter: 0 },
   /** The request carried no credential, or one the server could not verify. */

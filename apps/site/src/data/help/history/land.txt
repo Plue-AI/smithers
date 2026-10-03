@@ -3,7 +3,7 @@ smthrs history land — Land a proposed TODO's pull request once its review appr
 Usage: smthrs history land <issue> [options]
 
 Arguments:
-  issue  Issue number (12 or #12) or item id
+  issue  TODO (T12), issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>

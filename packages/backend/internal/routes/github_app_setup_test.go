@@ -40,7 +40,7 @@ type githubAppSetupTestOwner struct {
 	err  error
 }
 
-func (o githubAppSetupTestOwner) GetSelfHostOwner(context.Context) (db.User, error) {
+func (o githubAppSetupTestOwner) GetInstallOwnerUser(context.Context) (db.User, error) {
 	return o.user, o.err
 }
 

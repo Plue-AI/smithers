@@ -2,7 +2,7 @@
 
 A minimal terminal coding agent over the Smithers cell harness.
 
-[User guide](https://smithers.sh/docs/tui/)
+[User guide](https://smithers.sh/docs/tui/) · [Recordings](docs/README.md) · [Playground](../tui-docs/README.md)
 
 The agent has no tools. Each model turn writes a JavaScript cell that calls
 flows through `ctx.call`. The TUI shows what each cell did, one row per flow
@@ -519,9 +519,10 @@ and the median issue→landed time, then the apps the directory's
 `.smithers/home.json` declares. It reads the stack again every 30 s while
 shown.
 On a retryable issue row, **a** Retry requests another attempt; `/retry #<issue>` does the same.
-`/todo <title>` files a TODO for the factory (`POST …/mythical/todos`) and answers at once;
-the status line settles when Cloud answers. An unanswered filing keeps its request id, so
-the same `/todo` again returns the TODO already filed instead of filing twice.
+`/todo <title>` files a TODO for the factory (`POST /api/todos?repo=owner/name`) and answers at once;
+the status line settles on the TODO, `T12 <title> · queued`, when Cloud answers. An unanswered
+filing keeps its request id, sent as the `Idempotency-Key`, so the same `/todo` again returns
+the TODO already made instead of making two.
 
 Every turn runs with `SmithersPlugin` from `@smthrs/agent`: the system prompt
 names the key packages and `smthrs` verbs, and `smithers.guide` returns the

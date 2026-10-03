@@ -19,7 +19,6 @@ export const systemFlows = [
   "todo.retry",
   "todo.drop",
   "todo.takeover",
-  "history.todo",
   "issue.implement",
   "runs.steer",
   "history.retry",

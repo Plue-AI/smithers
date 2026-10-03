@@ -19,7 +19,7 @@ SET used_at = NOW()
 WHERE digest = $1
   AND setup_session_digest = $2
   AND origin = $3
-  AND NOT EXISTS (SELECT 1 FROM self_host_owners)
+  AND NOT EXISTS (SELECT 1 FROM members WHERE role = 'owner')
   AND EXISTS (
     SELECT 1 FROM install_settings
     WHERE key = 'setup.session.' || $2::TEXT

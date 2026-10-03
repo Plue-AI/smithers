@@ -161,17 +161,6 @@ func (q *Queries) GetInstallOwnerUser(ctx context.Context) (User, error) {
 	return i, err
 }
 
-const getInstallSetting = `-- name: GetInstallSetting :one
-SELECT value FROM install_settings WHERE key = $1
-`
-
-func (q *Queries) GetInstallSetting(ctx context.Context, key string) (json.RawMessage, error) {
-	row := q.db.QueryRow(ctx, getInstallSetting, key)
-	var value json.RawMessage
-	err := row.Scan(&value)
-	return value, err
-}
-
 const getSignInMember = `-- name: GetSignInMember :one
 SELECT id, user_id, github_user_id, login, role, unix_uid, added_by, added_at, suspended_at, suspended_reason, removed_at, last_access_check_at FROM members
 WHERE github_user_id = $1

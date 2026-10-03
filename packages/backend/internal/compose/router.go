@@ -46,6 +46,7 @@ type routerExtras struct {
 	ModelStream         *routes.ModelStreamHandler
 	Catalog             *routes.PublicRepositoryCatalogHandler
 	Mythical            *routes.MythicalHandler
+	Todos               *routes.TodoHandler
 	UserRefs            *routes.UserRefHandler
 	AdminSystemStatus   *routes.AdminSystemStatusHandler
 	AdminSystemHealth   *routes.AdminSystemHealthHandler
@@ -1055,6 +1056,21 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/user/repos", repoHandler.CreateRepo)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteOrganization)).Post("/orgs/{org}/repos", repoHandler.CreateOrgRepo)
 
+			// TODOs (spec §6.3): an install serves one repository, so these
+			// routes name none; each resolver names the repository its
+			// permission is checked on, as for /repos/{owner}/{repo}.
+			if extras.Todos != nil && queries != nil {
+				todos := extras.Todos
+				readTodos := []func(http.Handler) http.Handler{middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)}
+				writeTodos := []func(http.Handler) http.Handler{middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)}
+				loadRead := []func(http.Handler) http.Handler{middleware.LoadRepoContext(queries), middleware.RequireRepoPermission(middleware.PermissionRead), withholdConversation, repoAPIQuota}
+				loadWrite := []func(http.Handler) http.Handler{middleware.LoadRepoContext(queries), middleware.RequireRepoPermission(middleware.PermissionWrite), repoAPIQuota}
+				r.With(append(append(readTodos, todos.ResolveStackRepository), loadRead...)...).Get("/todos", todos.List)
+				r.With(append(append(writeTodos, todos.ResolveStackRepository), loadWrite...)...).Post("/todos", todos.Create)
+				r.With(append(append(readTodos, todos.ResolveStackRepository), loadRead...)...).Get("/todos/{n}", todos.Get)
+				r.With(append(append(readTodos, todos.ResolveBranchRepository), loadRead...)...).Get("/branches/{b}/activity", todos.BranchActivity)
+			}
+
 			r.Route("/repos/{owner}/{repo}", func(r chi.Router) {
 				if queries != nil {
 					r.Use(middleware.LoadRepoContext(queries))
@@ -1131,7 +1147,6 @@ func buildRouter(
 					r.With(writeRepo...).Post("/mythical/backfill", extras.Mythical.Backfill)
 					r.With(adminRepo...).Put("/mythical/config", extras.Mythical.Config)
 					r.With(writeRepo...).Post("/mythical/items/{id}/retry", extras.Mythical.Retry)
-					r.With(writeRepo...).Post("/mythical/todos", extras.Mythical.Todos)
 					r.With(writeRepo...).Post("/mythical/items/{id}/land", extras.Mythical.Land)
 					r.With(writeRepo...).Put("/mythical/lanes", extras.Mythical.Lanes)
 					r.With(writeRepo...).Post("/mythical/wiki", extras.Mythical.Wiki)

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:ea18e05bd1ebb3fab740b155dcf833bfc11f607243e556c776e950345aa8d6d3",
+  "digest": "sha256:b3589e08bd5205192c8b0da6fa20f0436993136a80b9c4e7dedb8c44d75a1357",
   "faults": [
     "user",
     "wait",
@@ -348,6 +348,13 @@
       "doc": "The sandbox create request named neither an image nor a snapshot."
     },
     {
+      "code": "install_repository_unset",
+      "fault": "user",
+      "status": 409,
+      "retry_after": 0,
+      "doc": "The install has no GitHub repository with the GitHub App installed yet; until setup records one only the owner may sign in."
+    },
+    {
       "code": "internal",
       "fault": "bug",
       "status": 500,
@@ -460,6 +467,13 @@
       "doc": "The share listing contains something that scans as a credential; it was not published."
     },
     {
+      "code": "needs_github_access",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "The person needs push access to the install's repository on GitHub."
+    },
+    {
       "code": "no_capacity",
       "fault": "infra",
       "status": 503,
@@ -472,6 +486,13 @@
       "status": 409,
       "retry_after": 0,
       "doc": "The recorded operation for this idempotency key cannot be replayed."
+    },
+    {
+      "code": "not_a_member",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "The person is not a member of this install."
     },
     {
       "code": "not_found",
@@ -684,6 +705,13 @@
       "doc": "The setup request identity was already admitted with different input."
     },
     {
+      "code": "setup_token_invalid",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "Claiming the install needs the one-time setup token printed when it started; the token was missing, wrong or already used."
+    },
+    {
       "code": "snapshot_in_use",
       "fault": "user",
       "status": 409,
@@ -717,6 +745,13 @@
       "status": 409,
       "retry_after": 0,
       "doc": "The request carries an older placement generation than the one the worker holds; another actor moved the VM."
+    },
+    {
+      "code": "todo_transition_refused",
+      "fault": "user",
+      "status": 409,
+      "retry_after": 0,
+      "doc": "The TODO's current state does not allow that command or event."
     },
     {
       "code": "token_generation_failed",

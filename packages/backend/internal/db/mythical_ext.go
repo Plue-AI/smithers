@@ -289,7 +289,7 @@ const mythicalItemColumns = `id, repository_id, issue_number, issue_title, issue
 source, version, state, reason, attempt,
 generation, lane, workspace_id, base_commit, candidate_base, candidate_head, candidate_verified, request_run_id, vibe_run_id, verify_run_id,
 request_outcome, vibe_outcome, verify_outcome, summary, plan, integration, checks, pr_number, pr_url, pr_state, pr_head, pr_merge_commit,
-pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider`
+pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider, todo_id, paused_at`
 
 func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error) {
 	var i MythicalItem
@@ -298,7 +298,8 @@ func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error)
 		&i.ProposalRound, &i.Source, &i.Version, &i.State,
 		&i.Reason, &i.Attempt, &i.Generation, &i.Lane, &i.WorkspaceID, &i.BaseCommit, &i.CandidateBase, &i.CandidateHead, &i.CandidateVerified,
 		&i.RequestRunID, &i.VibeRunID, &i.VerifyRunID, &i.RequestOutcome, &i.VibeOutcome, &i.VerifyOutcome, &i.Summary, &plan, &integration,
-		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider)
+		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider,
+		&i.TodoID, &i.PausedAt)
 	i.Plan, i.Integration, i.Checks, i.PendingOp = rawJSON(plan), rawJSON(integration), rawJSON(checks), rawJSON(pending)
 	return i, err
 }
@@ -379,19 +380,28 @@ func (q *Queries) GetMythicalItem(ctx context.Context, id pgtype.UUID) (Mythical
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE id = $1`, id))
 }
 
-// GetMythicalItemByIssue returns a repository's item for one issue.
+// GetMythicalItemByTodo returns a repository's item for TODO T<number>.
+func (q *Queries) GetMythicalItemByTodo(ctx context.Context, repositoryID, number int64) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+		WHERE repository_id = $1 AND todo_id = (SELECT id FROM todos WHERE repository_id = $1 AND number = $2)`, repositoryID, number))
+}
+
+// GetMythicalItemByIssue returns a repository's issue item for one issue:
+// the item the issue door made for it.
 func (q *Queries) GetMythicalItemByIssue(ctx context.Context, repositoryID, issue int64) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
-		WHERE repository_id = $1 AND issue_number = $2`, repositoryID, issue))
+		WHERE repository_id = $1 AND issue_number = $2 AND source = 'issue'`, repositoryID, issue))
 }
 
 // InsertMythicalItem creates an issue item; an existing item for the same
-// issue is returned unchanged (inserted false).
+// issue is returned unchanged (inserted false). Only
+// services.MythicalService.insertIssueItem calls it, so the item's TODO is
+// projected in the same transaction.
 func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, bool, error) {
 	created, err := scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items
 		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider, checks)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10, $11)
-		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL DO NOTHING
+		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL AND source = 'issue' DO NOTHING
 		RETURNING `+mythicalItemColumns,
 		item.RepositoryID, item.IssueNumber, item.IssueTitle, item.IssueURL, item.IssueDigest, item.IssueBody, item.ApprovedDigest,
 		item.State, item.Reason, item.Outsider, jsonArg(item.Checks)))
@@ -403,6 +413,29 @@ func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (My
 	}
 	existing, err := q.GetMythicalItemByIssue(ctx, item.RepositoryID, item.IssueNumber.Int64)
 	return existing, false, err
+}
+
+// InsertMythicalTodoItem creates the work record of a TODO made in Smithers
+// (source 'todo'): queued, linked to its TODO, with no issue.
+func (q *Queries) InsertMythicalTodoItem(ctx context.Context, repositoryID int64, title string, todoID pgtype.UUID) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items (repository_id, issue_title, source, state, todo_id)
+		VALUES ($1, $2, 'todo', 'queued', $3)
+		RETURNING `+mythicalItemColumns, repositoryID, title, todoID))
+}
+
+// LinkMythicalItemTodo points an item at its TODO. Only the TODO projection
+// (services/todo_service.go) calls it, inside the item write's transaction.
+func (q *Queries) LinkMythicalItemTodo(ctx context.Context, itemID, todoID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `UPDATE mythical_items SET todo_id = $2 WHERE id = $1`, itemID, todoID)
+	return err
+}
+
+// ClearMythicalItemPause clears an item's paused_at: its TODO merged or
+// dropped. Only the TODO projection (services/todo_service.go) calls it,
+// inside the item write's transaction.
+func (q *Queries) ClearMythicalItemPause(ctx context.Context, itemID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `UPDATE mythical_items SET paused_at = NULL WHERE id = $1`, itemID)
+	return err
 }
 
 // InsertMythicalChatItem records a complete chat submission once per
@@ -467,6 +500,9 @@ func (q *Queries) MythicalItemCosts(ctx context.Context, repositoryID int64, ite
 // SaveMythicalItem writes every mutable field of item when its version is
 // still item.Version, and answers the saved row (version + 1). A concurrent
 // writer makes it answer pgx.ErrNoRows; the caller rereads and decides again.
+// todo_id and paused_at belong to the TODO and are never written here. Only
+// services.MythicalService.saveItemIn calls it, so the item's TODO is
+// projected in the same transaction (TestMythicalItemWritesGoThroughTheTodoProjection).
 // Outsider marks text from a non-maintainer approved by a maintainer's label.
 // LaneStartedAt records when the current attempt's lane launched.
 func (q *Queries) SaveMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, error) {

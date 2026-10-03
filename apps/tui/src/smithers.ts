@@ -22,7 +22,7 @@ const signIn: Panels.Row = {
 }
 
 /** The factory's first row: the composer command that files a TODO. */
-const fileTodo: Panels.Row = { id: "factory:todo", label: "File a TODO", details: text("/todo <title>") }
+const makeTodo: Panels.Row = { id: "factory:todo", label: "Make a TODO", details: text("/todo <title>") }
 
 export const panel = (
   apps: ReadonlyArray<Home.App>,
@@ -42,7 +42,7 @@ export const panel = (
       ? "Factory"
       : `${apps.length} apps`,
     rows: [
-      ...input === "signed-out" ? [signIn] : factory === undefined ? [] : [fileTodo, ...factory.rows],
+      ...input === "signed-out" ? [signIn] : factory === undefined ? [] : [makeTodo, ...factory.rows],
       // The apps the homepage declares (home.ts): the same list the app home shows as tiles. A row runs its flow when this directory discovers it.
       ...apps.map((app) => ({
         id: `app:${app.flow}`,

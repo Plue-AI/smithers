@@ -98,6 +98,18 @@ sql:
             go_type:
               import: "github.com/jackc/pgx/v5/pgtype"
               type: "Timestamptz"
+          - column: "todos.needs_you"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "todos.failure"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "todos.queue"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
           - column: "mythical_items.id"
             go_type:
               import: "github.com/jackc/pgx/v5/pgtype"

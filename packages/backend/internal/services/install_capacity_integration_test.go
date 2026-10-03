@@ -13,7 +13,7 @@ func TestInstallCapacityOwnerLowerRestoreAndPermissionPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	owner := int64(0)
 	require.NoError(t, pool.QueryRow(t.Context(), `INSERT INTO users(username,lower_username) VALUES ('capacityowner','capacityowner') RETURNING id`).Scan(&owner))
-	_, err := pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES ($1)`, owner)
+	_, err := pool.Exec(t.Context(), `INSERT INTO members(user_id,login,role) VALUES ($1,'owner','owner')`, owner)
 	require.NoError(t, err)
 	svc := InstallCapacityService{Queries: db.New(pool), Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
 	// C-MCH-04 steps 3–5: only the owner, never above the formula; write refusal preserves saved value.

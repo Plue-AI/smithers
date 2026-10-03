@@ -614,6 +614,96 @@ export type GitHubAppManifest = {
   default_events: Array<string>
 }
 
+export type TodoState = "queued" | "starting" | "working" | "needs_you" | "paused" | "failed" | "in_review" | "merged" | "dropped"
+
+/** REST actor identity reference; card actors resolve ids to display identities. */
+export type TodoActor = {
+  kind: "person"
+  id: number
+  via?: string
+  session?: string
+} | {
+  kind: "agent"
+  agent: string
+  run: string
+  todo?: number
+} | {
+  kind: "system"
+  name: string
+}
+
+export type TodoCreate = {
+  title: string
+  prompt?: string
+  acceptance?: string
+  place?: "append"
+}
+
+export type TodoCreateAnswer = {
+  state: "requested"
+  todo: Todo
+}
+
+export type TodoList = {
+  todos: Array<Todo>
+}
+
+/** The TODO card model (spec §14.3). revisions is present on the card and absent from list rows. */
+export type Todo = {
+  n: number
+  title: string
+  state: TodoState
+  state_reason?: string
+  owner?: number
+  place?: number
+  queue?: Record<string, unknown>
+  step?: string
+  needs_you?: Record<string, unknown>
+  failure?: {
+    step: string
+    class: string
+    message: string
+    retryable: boolean
+  }
+  pr?: {
+    number: number
+  }
+  amendments: number
+  lessons: number
+  branch: {
+    id: string
+    name: string
+  }
+  issue?: {
+    number: number
+    fixes: boolean
+  }
+  created_by: TodoActor
+  seq: number
+  revisions?: Array<{
+    rev: number
+    prompt: string
+    acceptance?: string
+    reason: "create" | "amend" | "from-issue"
+    author: TodoActor
+    at: string
+  }>
+  created_at: string
+  updated_at: string
+}
+
+export type BranchActivityList = {
+  entries: Array<{
+    seq: number
+    at: string
+    actor: TodoActor
+    asked_by?: TodoActor
+    kind: "step" | "steer" | "question" | "answer" | "edit" | "change" | "github" | "rebase"
+    summary: Record<string, unknown>
+    github?: boolean
+  }>
+}
+
 export type PostApiAdminGrantBody = AdminCreditGrantRequest
 
 export type PostApiAdminGrantResponse = AdminCreditGrantReceipt
@@ -1005,9 +1095,13 @@ export const getApiAuthAuth0Callback = (transport: Transport): Promise<GetApiAut
 
 export type GetApiAuthGithubResponse = AnyJSON
 
+export interface GetApiAuthGithubInput {
+  readonly query?: { readonly setup_token?: string; readonly return_to?: string }
+}
+
 /** GET /api/auth/github */
-export const getApiAuthGithub = (transport: Transport): Promise<GetApiAuthGithubResponse> =>
-  transport.request("GET", `/api/auth/github`) as Promise<GetApiAuthGithubResponse>
+export const getApiAuthGithub = (transport: Transport, input?: GetApiAuthGithubInput): Promise<GetApiAuthGithubResponse> =>
+  transport.request("GET", `/api/auth/github${search({ setup_token: input?.query?.setup_token, return_to: input?.query?.return_to })}`) as Promise<GetApiAuthGithubResponse>
 
 export type GetApiAuthGithubCallbackResponse = AnyJSON
 
@@ -1062,60 +1156,6 @@ export type PostApiAuthSseTicketResponse = MultiSSETicketResponse
 /** POST /api/auth/sse-ticket */
 export const postApiAuthSseTicket = (transport: Transport): Promise<PostApiAuthSseTicketResponse> =>
   transport.request("POST", `/api/auth/sse-ticket`) as Promise<PostApiAuthSseTicketResponse>
-
-export type GetApiAuthLocalStatusResponse = AnyJSON
-
-/** GET /api/auth/local/status */
-export const getApiAuthLocalStatus = (transport: Transport): Promise<GetApiAuthLocalStatusResponse> =>
-  transport.request("GET", `/api/auth/local/status`) as Promise<GetApiAuthLocalStatusResponse>
-
-export type PostApiAuthLocalBootstrapBody = AnyJSON
-
-export type PostApiAuthLocalBootstrapResponse = AnyJSON
-
-export interface PostApiAuthLocalBootstrapInput {
-  readonly body?: PostApiAuthLocalBootstrapBody
-}
-
-/** POST /api/auth/local/bootstrap */
-export const postApiAuthLocalBootstrap = (transport: Transport, input?: PostApiAuthLocalBootstrapInput): Promise<PostApiAuthLocalBootstrapResponse> =>
-  transport.request("POST", `/api/auth/local/bootstrap`, input?.body) as Promise<PostApiAuthLocalBootstrapResponse>
-
-export type PostApiAuthLocalLoginBody = AnyJSON
-
-export type PostApiAuthLocalLoginResponse = AnyJSON
-
-export interface PostApiAuthLocalLoginInput {
-  readonly body?: PostApiAuthLocalLoginBody
-}
-
-/** POST /api/auth/local/login */
-export const postApiAuthLocalLogin = (transport: Transport, input?: PostApiAuthLocalLoginInput): Promise<PostApiAuthLocalLoginResponse> =>
-  transport.request("POST", `/api/auth/local/login`, input?.body) as Promise<PostApiAuthLocalLoginResponse>
-
-export type PostApiAuthLocalPasswordBody = AnyJSON
-
-export type PostApiAuthLocalPasswordResponse = AnyJSON
-
-export interface PostApiAuthLocalPasswordInput {
-  readonly body?: PostApiAuthLocalPasswordBody
-}
-
-/** POST /api/auth/local/password */
-export const postApiAuthLocalPassword = (transport: Transport, input?: PostApiAuthLocalPasswordInput): Promise<PostApiAuthLocalPasswordResponse> =>
-  transport.request("POST", `/api/auth/local/password`, input?.body) as Promise<PostApiAuthLocalPasswordResponse>
-
-export type PostApiAuthLocalTokenBody = AnyJSON
-
-export type PostApiAuthLocalTokenResponse = AnyJSON
-
-export interface PostApiAuthLocalTokenInput {
-  readonly body?: PostApiAuthLocalTokenBody
-}
-
-/** POST /api/auth/local/token */
-export const postApiAuthLocalToken = (transport: Transport, input?: PostApiAuthLocalTokenInput): Promise<PostApiAuthLocalTokenResponse> =>
-  transport.request("POST", `/api/auth/local/token`, input?.body) as Promise<PostApiAuthLocalTokenResponse>
 
 export type GetApiBillingResponse = MultiBillingOverview
 
@@ -4604,22 +4644,6 @@ export interface PostApiReposOwnerRepoMythicalItemsIdRetryInput {
 export const postApiReposOwnerRepoMythicalItemsIdRetry = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdRetryInput): Promise<PostApiReposOwnerRepoMythicalItemsIdRetryResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/retry`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdRetryResponse>
 
-export type PostApiReposOwnerRepoMythicalTodosBody = {
-  title: string
-  body?: string
-}
-
-export type PostApiReposOwnerRepoMythicalTodosResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoMythicalTodosInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body: PostApiReposOwnerRepoMythicalTodosBody
-}
-
-/** POST /api/repos/{owner}/{repo}/mythical/todos */
-export const postApiReposOwnerRepoMythicalTodos = (transport: Transport, input: PostApiReposOwnerRepoMythicalTodosInput): Promise<PostApiReposOwnerRepoMythicalTodosResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/todos`, input.body) as Promise<PostApiReposOwnerRepoMythicalTodosResponse>
-
 export type PostApiReposOwnerRepoMythicalWikiBody = AnyJSON
 
 export type PostApiReposOwnerRepoMythicalWikiResponse = AnyJSON
@@ -4927,6 +4951,50 @@ export type PostApiTelemetryErrorsResponse = AnyJSON
 /** POST /api/telemetry/errors */
 export const postApiTelemetryErrors = (transport: Transport): Promise<PostApiTelemetryErrorsResponse> =>
   transport.request("POST", `/api/telemetry/errors`) as Promise<PostApiTelemetryErrorsResponse>
+
+export type GetApiBranchesBActivityResponse = BranchActivityList
+
+export interface GetApiBranchesBActivityInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/branches/{b}/activity: List a branch's activity */
+export const getApiBranchesBActivity = (transport: Transport, input: GetApiBranchesBActivityInput): Promise<GetApiBranchesBActivityResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/activity`) as Promise<GetApiBranchesBActivityResponse>
+
+export type GetApiTodosResponse = TodoList
+
+export interface GetApiTodosInput {
+  readonly query?: { readonly repo?: string }
+}
+
+/** GET /api/todos: List the stack's TODOs */
+export const getApiTodos = (transport: Transport, input?: GetApiTodosInput): Promise<GetApiTodosResponse> =>
+  transport.request("GET", `/api/todos${search({ repo: input?.query?.repo })}`) as Promise<GetApiTodosResponse>
+
+export type PostApiTodosBody = TodoCreate
+
+export type PostApiTodosResponse = TodoCreateAnswer
+
+export interface PostApiTodosInput {
+  readonly query?: { readonly repo?: string }
+  readonly body: PostApiTodosBody
+}
+
+/** POST /api/todos: Make a TODO */
+export const postApiTodos = (transport: Transport, input: PostApiTodosInput): Promise<PostApiTodosResponse> =>
+  transport.request("POST", `/api/todos${search({ repo: input.query?.repo })}`, input.body) as Promise<PostApiTodosResponse>
+
+export type GetApiTodosNResponse = Todo
+
+export interface GetApiTodosNInput {
+  readonly path: { readonly n: string }
+  readonly query?: { readonly repo?: string }
+}
+
+/** GET /api/todos/{n}: Read a TODO */
+export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Promise<GetApiTodosNResponse> =>
+  transport.request("GET", `/api/todos/${segment(input.path.n)}${search({ repo: input.query?.repo })}`) as Promise<GetApiTodosNResponse>
 
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }

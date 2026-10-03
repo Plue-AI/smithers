@@ -118,3 +118,11 @@ pnpm --filter @smthrs/rpc test
 bun test apps/app/src/mainview/Architecture.test.ts
 bun test apps/app/src/mainview/flows/cardActions.test.ts apps/app/src/mainview/flows/parity.test.ts
 ```
+
+## TODO API resource
+
+`@smthrs/rpc/Todo` decodes the REST `/api/todos` resource. `TodoCard` decodes
+its display model. Both share `TodoStateSchema`, `QueueSchema` and
+`NeedsYouKindSchema` from `CardPrimitives`. REST `ActorRefSchema` carries
+`person {id, via?, session?}`, `agent {agent, run, todo?}` or `system {name}`,
+discriminated by `kind`; cards resolve those ids to display identities.

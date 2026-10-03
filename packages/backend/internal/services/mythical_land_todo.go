@@ -3,7 +3,10 @@ package services
 import (
 	"context"
 	"errors"
+	"net/http"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,8 +39,8 @@ var mythicalHead = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // maintainer person. It never merges: it applies the automerge label, the
 // same authorization a maintainer's own label on GitHub is, and the stack
 // merges only as it does for that label, at the reviewed head once its
-// review approves and GitHub CI on it is green. The person is read as
-// FileTodo reads them: their linked GitHub account as it stands now, named by
+// review approves and GitHub CI on it is green. The person's linked GitHub
+// account is read as it stands now, named by
 // the policy (or no one) and a maintainer on GitHub. The App applies the
 // label, so GitHub names the App; the stack counts it only for the head
 // recorded here, and re-reads the person when it merges.
@@ -90,7 +93,7 @@ func (s *MythicalService) LandTodo(ctx context.Context, repositoryID, userID int
 		next.Checks = checks.encode()
 		// The gate runs on the next pass, not the next poll.
 		next.NextAttemptAt = pgtype.Timestamptz{}
-		saved, err := q.SaveMythicalItem(ctx, next)
+		saved, err := s.saveItem(ctx, next)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -100,7 +103,7 @@ func (s *MythicalService) LandTodo(ctx context.Context, repositoryID, userID int
 		if stack, err := q.GetMythicalStack(ctx, repositoryID); err == nil {
 			s.itemChanged(ctx, q, stack, saved.ID)
 		}
-		return mythicalItemView(saved), nil
+		return s.itemView(ctx, saved)
 	}
 	return MythicalItemView{}, pkgerrors.Conflict("the item kept changing; try again")
 }
@@ -173,4 +176,38 @@ func (st *mythicalItemStep) landedByMaintainer(ctx context.Context, item db.Myth
 		return false, nil
 	}
 	return st.s.github.Maintainer(ctx, *st.gh, account)
+}
+
+// personGitHubID is the numeric id of the GitHub account the person signed
+// in with: a "github" account, else the GitHub sign-in's historical
+// "workos" row (resolveUserGitHubAccessToken's order). A login is never
+// trusted from the profile: it can be renamed.
+func (s *MythicalService) personGitHubID(ctx context.Context, userID int64, act string) (int64, error) {
+	accounts, err := s.queries().ListUserOAuthAccounts(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	for _, provider := range []string{"github", "workos"} {
+		for _, account := range accounts {
+			if !strings.EqualFold(strings.TrimSpace(account.Provider), provider) {
+				continue
+			}
+			if id, err := strconv.ParseInt(strings.TrimSpace(account.ProviderUserID), 10, 64); err == nil && id > 0 {
+				return id, nil
+			}
+		}
+	}
+	return 0, pkgerrors.Forbidden("connect your GitHub account to " + act)
+}
+
+func (g *mythicalGitHubAPI) Account(ctx context.Context, gh mythicalGitHubRepo, id int64) (gitHubActor, error) {
+	var account gitHubActor
+	status, err := g.api.request(ctx, gh.Token, http.MethodGet, "/user/"+strconv.FormatInt(id, 10), nil, &account)
+	if err != nil {
+		return gitHubActor{}, err
+	}
+	if status != http.StatusOK {
+		return gitHubActor{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "read the account")
+	}
+	return account, nil
 }

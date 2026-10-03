@@ -1,12 +1,9 @@
-smthrs auth local bootstrap — Create and log in as the installation owner
+smthrs host status — Show host profile and machine limits
 
-Usage: smthrs auth local bootstrap [options]
+Usage: smthrs host status [options]
 
 Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

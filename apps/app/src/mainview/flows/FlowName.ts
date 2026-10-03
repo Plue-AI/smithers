@@ -139,7 +139,6 @@ export const FLOW_NAMES = [
   "history.retry",
   "history.land",
   "history.show",
-  "history.todo",
   "history.view",
   "input.mode",
   "issue.add-flow",

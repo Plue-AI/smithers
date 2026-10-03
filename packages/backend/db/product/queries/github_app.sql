@@ -27,7 +27,7 @@ SET used_at = NOW()
 WHERE digest = sqlc.arg(digest)
   AND setup_session_digest = sqlc.arg(setup_session_digest)
   AND origin = sqlc.arg(origin)
-  AND NOT EXISTS (SELECT 1 FROM self_host_owners)
+  AND NOT EXISTS (SELECT 1 FROM members WHERE role = 'owner')
   AND EXISTS (
     SELECT 1 FROM install_settings
     WHERE key = 'setup.session.' || sqlc.arg(setup_session_digest)::TEXT

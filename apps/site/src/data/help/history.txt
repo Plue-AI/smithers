@@ -7,10 +7,10 @@ Commands:
   bootstrap  Create the history from main's commits
   land       Land a proposed TODO's pull request once its review approves and CI is green
   parallel   Set how many lanes work at once
-  retry      Give a blocked, rejected or declined issue a fresh set of attempts
+  retry      Give a blocked, rejected or declined TODO or issue a fresh set of attempts
   show       Show the history: each issue's lane, checks and pull request
-  todo       File a TODO for the factory
-  watch      Follow one issue until its pull request is open or it stops
+  todo       Make a TODO for the factory
+  watch      Follow one TODO or issue until its pull request is open or it stops
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

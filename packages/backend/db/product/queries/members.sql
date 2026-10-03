@@ -37,9 +37,6 @@ INSERT INTO members (user_id, github_user_id, login, role)
 VALUES (sqlc.arg(user_id), sqlc.arg(github_user_id), sqlc.arg(login), 'owner')
 RETURNING *;
 
--- name: GetInstallSetting :one
-SELECT value FROM install_settings WHERE key = sqlc.arg(key);
-
 -- name: LockInstallSetting :one
 SELECT value FROM install_settings WHERE key = sqlc.arg(key) FOR UPDATE;
 

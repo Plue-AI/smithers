@@ -161,6 +161,17 @@ describe("stack metrics", () => {
     ).toBe("blocked")
   })
 
+  test("an open pull request is a TODO in review: the factory's, never a person's to act on", () => {
+    const groups = issueGroups(stack([
+      item("in-review", "proposed", { pullRequest: { number: 4, url: "https://github.com/o/r/pull/4", state: "open" } }),
+      item("blocked", "blocked"),
+      item("rejected", "rejected"),
+      item("queued", "queued")
+    ]), Date.parse("2026-09-29T12:00:00Z"))
+    expect(groups.find((group) => group.id === "needs-you")?.items.map((row) => row.id)).toEqual(["blocked", "rejected"])
+    expect(groups.find((group) => group.id === "working")?.items.map((row) => row.id)).toEqual(["in-review", "queued"])
+  })
+
   test("a typed failure is the word and reason line, even on an open pull request or over old conflict paths", () => {
     const review = item("held", "proposed", { reason: "The review did not finish", failure: { kind: "review", fault: "user" } })
     expect(issueWord(review)).toBe("The review did not finish")

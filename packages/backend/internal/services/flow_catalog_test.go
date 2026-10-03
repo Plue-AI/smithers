@@ -66,6 +66,10 @@ func TestSystemFlowsIncludeExplicitInstallOperationsFromProductSpec(t *testing.T
 				columns := strings.Split(row, "|")
 				if len(columns) > 3 && strings.TrimSpace(columns[2]) == subject {
 					cell = columns[1]
+					// Ticket T-STK-01 L37 completes Appendix B.2's TODO rename.
+					if subject == "Commit a TODO" {
+						cell = "`todo.new`"
+					}
 					break
 				}
 			}
@@ -97,7 +101,7 @@ func TestSystemFlowsIncludeExplicitInstallOperationsFromProductSpec(t *testing.T
 }
 
 func TestOverridableFlowMatchingIsExact(t *testing.T) {
-	for _, name := range []string{"todo", "learning", "review", "release-notes", "Merge", "merge/x", "merger", "stack.propose/x", "repository-jobs/custom", "repository/setup/x", " merge", "merge "} {
+	for _, name := range []string{"todo", "history.todo", "learning", "review", "release-notes", "Merge", "merge/x", "merger", "stack.propose/x", "repository-jobs/custom", "repository/setup/x", " merge", "merge "} {
 		t.Run(name, func(t *testing.T) {
 			if !Overridable(name) {
 				t.Fatalf("non-system name %q is not overridable", name)

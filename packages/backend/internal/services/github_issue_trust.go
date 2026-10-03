@@ -46,10 +46,6 @@ type gitHubLabelApplication struct {
 	// EventID is the live labeled event this application is, once the stack
 	// read the label as it stands (0 when it did not).
 	EventID int64
-	// FiledBy is the maintainer person who filed the issue's text through
-	// Smithers (MythicalService.FileTodo), set only on that filing, and
-	// FiledRequest the filing's request id.
-	FiledBy, FiledRequest string
 }
 
 // gitHubLabelApplied reads the label application from a stamped issue event.

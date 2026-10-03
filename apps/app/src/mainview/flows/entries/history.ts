@@ -76,28 +76,6 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     input: Schema.Struct({ value: Schema.Number, repo: RepoOptional }),
     handler: ({ value, repo }) => actions.setStackParallel(value, repo)
   }),
-  /*
-   * A TODO for the coding factory: the stack files it on the repository's
-   * GitHub issues as the maintainer's own and queues it (POST
-   * …/mythical/todos), acknowledged at once; its notice follows the factory
-   * until its pull request opens, it lands, or it stops. Filing starts
-   * credentialed work, so the agent's door confirms.
-   */
-  flow({
-    name: "history.todo",
-    summary: "File a TODO for the coding factory and follow it to its pull request",
-    runtime: ["cloud"],
-    args: "<title> [owner/repo]",
-    requires: ["signed-in"],
-    confirm: "file this TODO for the coding factory",
-    input: Schema.Struct({ title: Schema.NonEmptyString, body: Schema.optional(Schema.String), repo: RepoOptional }),
-    form: {
-      args: (payload) => JSON.stringify(payload),
-      submitLabel: "File",
-      fields: { title: { label: "TODO" }, body: { label: "Details", kind: "textarea" }, repo: { hidden: true } }
-    },
-    handler: ({ title, body, repo }) => actions.fileTodo(title, body, repo)
-  }),
   flow({
     name: "history.retry",
     summary: "Give a blocked, rejected or declined issue a fresh set of attempts",

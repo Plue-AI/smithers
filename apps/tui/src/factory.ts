@@ -17,6 +17,7 @@ import {
 } from "@smthrs/rpc/Mythical"
 import * as StackIssues from "@smthrs/rpc/StackIssues"
 import { itemReason, itemStateLabel, itemTitle, landable, retryable } from "@smthrs/rpc/StackView"
+import { type Todo, TodoCreateAnswerSchema, todoName, TODO_ROUTES } from "@smthrs/rpc/Todo"
 import * as Failures from "./failures.ts"
 import * as Log from "./log.ts"
 import type * as Panels from "./panels.ts"
@@ -47,20 +48,38 @@ export const load = async (
   return MythicalStackSchema.parse(await get(mythicalRoute("stack", owner, name), signal))
 }
 
-/** What filing a TODO came to: the queued item, or why not and whether the refusal is final. */
-export type Filing =
-  | { readonly ok: true; readonly item: MythicalItem }
-  | { readonly ok: false; readonly detail: string; readonly settled: boolean }
+/** Why Cloud did not do a request, and whether the refusal is final. */
+export interface Refusal {
+  readonly ok: false
+  readonly detail: string
+  readonly settled: boolean
+}
+
+/** What filing a TODO came to: the TODO Cloud persisted, or why not. */
+export type Filing = { readonly ok: true; readonly todo: Todo } | Refusal
+
+/** What a person's act on an item came to: the item as Cloud left it, or why not. */
+export type Act = { readonly ok: true; readonly item: MythicalItem } | Refusal
+
+/** A TODO in product words: `T12 Add dark mode · queued`. */
+export const todoLine = (todo: Todo): string =>
+  `${todoName(todo.n)} ${todo.title} · ${todo.state.replaceAll("_", " ")}`
 
 /**
- * Files TODOs with `POST …/mythical/todos`, each under one request id: the
- * same TODO filed again after an answer that never came (a dropped network,
- * a 5xx) resends that id, so the backend returns the TODO it already filed
- * instead of filing twice. A Cloud authentication refusal drops the id.
- * The same TODO filed while one is in flight joins it.
+ * Files TODOs with `POST /api/todos?repo=owner/name`, each under one request
+ * id sent as its `Idempotency-Key`: the same TODO filed again after an answer
+ * that never came (a dropped network, a 5xx) resends that key, so the backend
+ * answers the TODO it already made instead of making two. A Cloud
+ * authentication refusal drops the id. The same TODO filed while one is in
+ * flight joins it.
  */
 export const filer = (
-  post: (path: string, body: unknown, signal?: AbortSignal) => Promise<unknown>,
+  post: (
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+    headers?: Readonly<Record<string, string>>
+  ) => Promise<unknown>,
   newId: () => string = () => crypto.randomUUID()
 ): (repo: Repository, title: string, signal?: AbortSignal) => Promise<Filing> => {
   const requests = new Map<string, string>()
@@ -71,19 +90,19 @@ export const filer = (
     if (joined !== undefined) return joined
     const request = requests.get(key) ?? newId()
     requests.set(key, request)
-    const [owner, name] = repo.split("/") as [string, string]
-    const run = post(mythicalRoute("todos", owner, name), { title, request }, signal).then(
+    const path = `${TODO_ROUTES.todos}?repo=${repo.split("/").map(encodeURIComponent).join("/")}`
+    const run = post(path, { title }, signal, { "Idempotency-Key": request }).then(
       (body): Filing => {
-        let item: MythicalItem
+        let todo: Todo
         try {
-          item = MythicalItemSchema.parse(body)
+          todo = TodoCreateAnswerSchema.parse(body).todo
         } catch (error) {
-          // A successful HTTP answer with an unusable body may have filed
+          // A successful HTTP answer with an unusable body may have made
           // the TODO. Keep the request id until a validated answer arrives.
           return { ...failed(error), settled: false }
         }
         requests.delete(key)
-        return { ok: true, item }
+        return { ok: true, todo }
       },
       (error): Filing => {
         const refused = failed(error)
@@ -97,7 +116,7 @@ export const filer = (
 }
 
 /** Only a Cloud authentication refusal settles the filing; uncertain failures keep its request id. */
-const failed = (error: unknown): Filing & { readonly ok: false } => {
+const failed = (error: unknown): Refusal => {
   const failure = Failures.present("command", error)
   // The presenter logs unexpected failures; a returned Cloud refusal also
   // needs its diagnostic because it never reaches the host's catch boundary.
@@ -129,7 +148,7 @@ const issueAct = async (
   send: (item: MythicalItem, owner: string, name: string) => readonly [path: string, body: unknown],
   signal?: AbortSignal,
   presentFailure?: (error: unknown) => string
-): Promise<Filing> => {
+): Promise<Act> => {
   const [owner, name] = repo.split("/") as [string, string]
   let stack: MythicalStack
   try {
@@ -160,7 +179,7 @@ export const retry = (
   issue: number,
   signal?: AbortSignal,
   presentFailure?: (error: unknown) => string
-): Promise<Filing> =>
+): Promise<Act> =>
   issueAct(
     cloud,
     repo,
@@ -184,7 +203,7 @@ export const land = (
   issue: number,
   signal?: AbortSignal,
   presentFailure?: (error: unknown) => string
-): Promise<Filing> =>
+): Promise<Act> =>
   issueAct(
     cloud,
     repo,
@@ -216,7 +235,7 @@ const issueCommand = (
     issue: number,
     signal?: AbortSignal,
     presentFailure?: (error: unknown) => string
-  ) => Promise<Filing>
+  ) => Promise<Act>
 ) =>
 (
   argument: string,

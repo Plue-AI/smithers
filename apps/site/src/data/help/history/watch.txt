@@ -1,9 +1,9 @@
-smthrs history watch — Follow one issue until its pull request is open or it stops
+smthrs history watch — Follow one TODO or issue until its pull request is open or it stops
 
 Usage: smthrs history watch <issue> [options]
 
 Arguments:
-  issue  Issue number (12 or #12) or item id
+  issue  TODO (T12), issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>

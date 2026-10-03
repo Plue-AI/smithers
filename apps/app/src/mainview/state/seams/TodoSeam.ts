@@ -1,5 +1,10 @@
+import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
+import { toActor } from "../ProductActor"
+import type { ActorRefSchema, Todo } from "@smthrs/rpc/Todo"
+import { z } from "zod"
 import { todoActors, type ActorContext } from "../ProductActor"
-import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
+import { TodoCreateAnswerSchema, TodoCreateSchema, TodoListSchema, TodoSchema } from "@smthrs/rpc/Todo"
+import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
 import { Schema } from "effect"
@@ -29,6 +34,7 @@ export interface TodoSeamOptions {
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "todo", () => ({
+    projected: new Map<number, number>(), reads: new Map<number, number>(),
     sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision
   }))
@@ -83,10 +89,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
     const live = stillCurrent ?? (() => current(login, revision))
     if (!live()) return
-    const model = TodoCardSchema.parse(todoActors(value, options.actors?.()))
-    if (model.n !== n) throw new Error("TODO topic mismatch")
+    const model = TodoCardSchema.extend({ n: z.literal(n) }).parse(todoActors(value, options.actors?.()))
     const card = entry(n) ?? blank(n)
-    await write({ ...card, title: model.title, payload: { ...card.payload, model,
+    shared.projected.set(n, (shared.projected.get(n) ?? 0) + 1)
+    await write({ ...card, title: model.title, status: model.state === "merged" || model.state === "dropped" ? "acted" : "active", payload: { ...card.payload, model,
       requests: card.payload.requests.filter(request => !receipts.some(receipt => receipt.key === request.key && receipt.outcome)),
       ...(receipts.some(receipt => receipt.outcome?.status === "ok" && card.payload.requests.some(request => request.key === receipt.key && request.operation === "steer"))
         ? { answerDraft: undefined, answeredBy: undefined } : {})
@@ -154,7 +160,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         await fail("TODO admission was not confirmed.")
         return
       }
-      const n = request.n ?? (typeof result.n === "number" && Number.isInteger(result.n) && result.n > 0 ? result.n : undefined)
+      const admitted = request.operation === "create" ? TodoCreateAnswerSchema.safeParse(result) : undefined
+      const n = request.n ?? (admitted?.success ? admitted.data.todo.n : undefined)
       const latest = ctx.store.collections.cards.get(cardId)
       // A live receipt may have beaten the HTTP response; do not resurrect completed work.
       const held = latest?.kind === "todo" ? latest.payload.requests.find(r => r.key === request.key)
@@ -187,18 +194,57 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const updateOrCreate = async (row: TodoEntry, pending: Request) => write({ ...row, payload: { ...row.payload,
     requests: [...row.payload.requests.filter(old => old.key !== pending.key), pending] } })
+  // REST resources carry ids rather than card attribution. Resolve only recorded
+  // identities; leave unavailable display fields empty until their projection arrives.
+  const snapshotCard = (resource: Todo, previous?: TodoCard): TodoCard => {
+    const context = options.actors?.() ?? {}
+    const member = (id: number | undefined) => context.roster?.find(row => row.id === String(id))
+    const ref = (id: number | undefined) => {
+      const row = member(id)
+      return row ? { login: row.login, name: row.name, avatar_url: row.avatar_url }
+        : { login: "", name: "", avatar_url: PlaceholderAvatarUrl }
+    }
+    const actor = (wire: z.infer<typeof ActorRefSchema>) => {
+      if (wire.kind === "system") return toActor({ system: wire.name }, context.roster, context.runs, context.sessions)
+      if (wire.kind === "agent") return toActor({ agent: wire.agent, run: wire.run, todo: wire.todo }, context.roster, context.runs, context.sessions)
+      const row = member(wire.id)
+      if (row) return toActor({ person: row.id, via: wire.via, session: wire.session }, context.roster, context.runs, context.sessions)
+      return { kind: "person" as const, ...ref(wire.id), color_index: 7 }
+    }
+    return TodoCardSchema.parse({ ...previous, n: resource.n, title: resource.title, state: resource.state,
+      owner: resource.owner === undefined && previous ? previous.owner : ref(resource.owner),
+      place: resource.place, queue: resource.queue, step: resource.step, failure: resource.failure,
+      branch: { ...resource.branch, machine: previous?.branch.id === resource.branch.id ? previous.branch.machine : { state: "closed" } },
+      prompt_revisions: resource.revisions?.map(revision => ({ text: revision.prompt,
+        acceptance: revision.acceptance?.split("\n").filter(Boolean) ?? [], by: actor(revision.author), at: revision.at })) ?? previous?.prompt_revisions ?? [],
+      steps: previous?.steps ?? [], waits: resource.needs_you ? [{ id: resource.needs_you.run_wait_id ?? "",
+        kind: resource.needs_you.kind, prompt: resource.needs_you.prompt ?? "", since: resource.needs_you.since ?? "", actions: [] }] : [],
+      steers: previous?.steers ?? [], evidence: previous?.evidence ?? [], present: previous?.present ?? [],
+      pr: previous?.pr?.number === resource.pr?.number ? previous?.pr : undefined,
+      issue: previous?.issue && resource.issue?.number === previous.issue.number
+        ? { ...previous.issue, fixes: resource.issue.fixes } : undefined,
+      merge: resource.state === "merged" ? { state: "done", on_github: true }
+        : previous?.merge ?? { state: "waiting", on_github: false }, lessons: resource.lessons
+    })
+  }
   const showTodo = async (n: number) => {
     const refusal = signedIn(); if (refusal) return refusal
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
+    const read = (shared.reads.get(n) ?? 0) + 1
+    shared.reads.set(n, read)
+    const projected = shared.projected.get(n) ?? 0
+    const live = () => current(login, revision) && shared.reads.get(n) === read
     try {
       const response = await ctx.http(`${ctx.baseUrl}/api/todos/${n}`, { credentials: "include" })
-      if (!current(login, revision)) return
+      if (!live()) return
       if (!response.ok) return "Could not open the TODO."
-      const model = TodoCardSchema.parse(todoActors(await response.json(), options.actors?.()))
-      await applyProjection(n, model)
+      const model = TodoSchema.extend({ n: z.literal(n) }).parse(await response.json())
+      if (!live()) return
+      if ((shared.projected.get(n) ?? 0) === projected)
+        await applyProjection(n, snapshotCard(model, entry(n)?.payload.model), [], live)
       watch(n)
       return readResult(JSON.stringify(model))
-    } catch (error) { return unreachableSentence("TODOs", error) }
+    } catch (error) { return live() ? unreachableSentence("TODOs", error) : undefined }
   }
   const loadDraftPlaces = (id: string) => {
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
@@ -207,7 +253,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       try {
         const response = await ctx.http(`${ctx.baseUrl}/api/todos`, { credentials: "include" })
         if (!response.ok) failure = "Could not load TODO placement."
-        else options = TodoCardSchema.array().parse(await response.json()).filter((model): model is typeof model & { state: DraftCard["place"]["options"][number]["state"] } => model.state !== "merged" && model.state !== "dropped")
+        else options = TodoListSchema.parse(await response.json()).todos.filter((model): model is typeof model & { state: DraftCard["place"]["options"][number]["state"] } => model.state !== "merged" && model.state !== "dropped")
           .map(model => ({ n: model.n, title: model.title, state: model.state }))
       } catch { failure = "Could not load TODO placement." }
       if (!current(login, revision)) return
@@ -241,13 +287,15 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (row.payload.committed) return { value: `Committed T${row.payload.committed.n}` }
     const model = row.payload
     const place = model.place
+    if (place.mode === "before") return "Before placement is unavailable."
+    if (model.issue) return "Making a TODO from an issue is unavailable."
     if (!model.title.trim() || !model.prompt.trim()) return "A TODO needs a title and prompt."
     if (place.mode !== "append" && !place.options.some(option => option.n === place.n && !["merged", "dropped"].includes(option.state))) return "Choose an unmerged TODO."
     const pending = model.request ?? { key: model.idempotencyKey, owner: owner()!, operation: place.mode === "amend" ? "amend" as const : "create" as const,
       n: place.mode === "amend" ? place.n : undefined, state: "requested" as const,
-      body: { title: model.title, prompt: model.prompt, acceptance: model.acceptance,
-        ...(place.mode === "amend" ? {} : { place: { mode: place.mode, ...(place.mode !== "append" ? { n: place.n } : {}) } }),
-        ...(model.issue ? { issue: model.issue.number, fixes: model.issue.fixes } : {}) } }
+      body: place.mode === "amend"
+        ? { title: model.title, prompt: model.prompt, acceptance: model.acceptance.join("\n") }
+        : TodoCreateSchema.parse({ title: model.title, prompt: model.prompt, acceptance: model.acceptance.join("\n"), place: "append" }) }
     const retry: Request = { ...pending, state: "requested", error: undefined }
     await updateRequest(cardId, retry)
     send(cardId, retry)

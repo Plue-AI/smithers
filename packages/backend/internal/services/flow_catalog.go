@@ -11,7 +11,7 @@ var SystemFlows = []string{
 	// Product Appendix B.2: stack/TODO operations and their retained aliases.
 	"history.show", "history.view", "history.parallel", "history.bootstrap", "history.backfill",
 	"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "todo.takeover",
-	"history.todo", "issue.implement", "runs.steer", "history.retry",
+	"issue.implement", "runs.steer", "history.retry",
 	"branch.fork", "branch.add-to-stack", "branch.rebase",
 	// B.2: merge, members, settings/model access, and repository secrets.
 	"merge", "history.land", "prs.land", "change.land",

@@ -32,6 +32,7 @@ Commands:
   git-hooks     Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
   graph         Print the target graph without executing it
   history       Follow each issue's lane, checks and pull request
+  host          Inspect this installation’s host
   index         List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
   info          Report workspace and host configuration for diagnosis
   init          Initialize workspace and target declarations plus a starter flow, preserving existing files

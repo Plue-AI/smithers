@@ -3,11 +3,11 @@
  * snapshot in one of three groups, and the measured numbers above them. Pure,
  * so the card, the homepage block and their tests read one projection.
  *
- * - Needs you: a person acts now. `blocked` (out of attempts), `rejected`
- *   (its pull request closed unmerged; Retry sends it back), and `proposed`
- *   (its pull request is open and nothing merges it but a person).
- * - Working: the factory holds it. The lane states (ACTIVE_ITEM_STATES) and
- *   `queued`, waiting for a lane.
+ * - Needs you: a person acts now. `blocked` (out of attempts) and `rejected`
+ *   (its pull request closed unmerged; Retry sends it back).
+ * - Working: the factory holds it. The lane states (ACTIVE_ITEM_STATES),
+ *   `queued`, waiting for a lane, and `proposed`, its TODO in review (spec
+ *   §4.1.0), not a person's to act on until a review asks.
  * - Done: nothing more happens on its own. `landed`, and the grey outcomes
  *   `declined` and `cancelled` (declined keeps its Retry). `skipped` never
  *   entered the factory and is omitted. Given
@@ -42,7 +42,7 @@ export interface IssueGroup {
   readonly items: ReadonlyArray<MythicalItem>
 }
 
-const NEEDS_YOU: ReadonlySet<MythicalItem["state"]> = new Set(["blocked", "rejected", "proposed"])
+const NEEDS_YOU: ReadonlySet<MythicalItem["state"]> = new Set(["blocked", "rejected"])
 
 /**
  * The group an issue is listed under.
@@ -53,7 +53,7 @@ const NEEDS_YOU: ReadonlySet<MythicalItem["state"]> = new Set(["blocked", "rejec
 export const issueGroupOf = (item: MythicalItem): IssueGroupId =>
   NEEDS_YOU.has(item.state) ?
     "needs-you" :
-    ACTIVE_ITEM_STATES.has(item.state) || item.state === "queued" || item.state === "unknown" ?
+    ACTIVE_ITEM_STATES.has(item.state) || item.state === "queued" || item.state === "proposed" || item.state === "unknown" ?
     "working" :
     "done"
 

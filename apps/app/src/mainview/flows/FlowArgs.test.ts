@@ -28,6 +28,10 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
       '{"description":"Compare owner/other with today","repo":"will/flows"}',
       { description: "Compare owner/other with today", repo: "will/flows" })
   })
+  test("todo.new preserves structured Draft input", () => {
+    expect(flowArgs("todo.new", {text:"Link it.\nFrom every page.",title:"Footer"})).toBe(JSON.stringify({text:"Link it.\nFrom every page.",title:"Footer"}))
+  })
+
   test("flow.plan keeps input and comparison target through a box chooser continuation", () => {
     roundTrip("flow.plan", { name: "checks/fast", repo: "owner/repo", input: { branch: "topic" }, against: "older-plan" },
       'against=older-plan checks/fast owner/repo {"branch":"topic"}',

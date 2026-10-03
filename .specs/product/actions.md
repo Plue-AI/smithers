@@ -2,6 +2,13 @@
 
 Companion to [Appendix B](mvp.md). Appendix B lists what a person or agent can do. This appendix lists every `Flow.make`, `Action.make` and `AgentAction.make` tag that ships, so no shared UI behavior is missing from the Inspect view.
 
+## TODO command flows (T-STK-01)
+
+| id | kind | source | what | runs in | MVP | renders as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `todo.new` | flow | apps/app/src/mainview/flows/entries/todo.ts:40 | Draft a TODO; committing through the install API requires the member's confirmation | Install (browser command door) | Keep | Added the TODO |
+| `todo` | flow | apps/app/src/mainview/flows/entries/todo.ts:44 | Read a TODO through `/todo Tn` | Install (browser command door) | Keep | Showed the TODO |
+
 Inventoried from `main` on 2026-10-02 with:
 
 ```

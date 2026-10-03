@@ -98,8 +98,6 @@ type mythicalGitHub interface {
 	// Account reads the GitHub account with this numeric id as it stands
 	// now: its login follows a rename.
 	Account(ctx context.Context, gh mythicalGitHubRepo, id int64) (gitHubActor, error)
-	// CreateIssue opens an issue with this title and body.
-	CreateIssue(ctx context.Context, gh mythicalGitHubRepo, title, body string) (mythicalIssue, error)
 }
 
 // MythicalGitHubStore is what resolving a destination reads.

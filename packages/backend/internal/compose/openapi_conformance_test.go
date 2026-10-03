@@ -117,9 +117,6 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *routes.HostStatusHandler) chi.Router {
 	authHandler := &routes.AuthHandler{}
-	if config.IsSingleOwner(cfg.Auth) {
-		authHandler.LocalService = (*services.AuthService)(nil)
-	}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}
@@ -139,7 +136,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		routerExtras{
 			HostStatus:          host,
 			BillingCapabilities: services.BillingCapabilities{Overview: true, Plans: true, Checkout: true, Portal: true, Webhook: true},
-			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{},
+			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{}, Todos: &routes.TodoHandler{},
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),

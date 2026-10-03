@@ -280,6 +280,17 @@ repository_egress_policies,product,product migration 0092
 repository_git_usage,product,product migration 0097
 factory_issue_claims,product,durable shared implementation ownership
 repository_registration_reports,product,product migration 0096
-install_settings,product,product migration 0104; shared install settings from spec section 3
+install_settings,product,product migration 0104
 github_app,product,product migration 0105
 github_app_manifest_states,product,product migration 0105
+members,product,product migration 0106
+todos,product,product migration 0107
+todo_revisions,product,product migration 0107
+todo_events,product,product migration 0107
+todo_waits,product,product migration 0107
+todo_attempts,product,product migration 0107
+todo_approvals,product,product migration 0107
+stack_attention,product,product migration 0107
+projection_topics,product,product migration 0108
+projection_events,product,product migration 0108
+activity,product,product migration 0109

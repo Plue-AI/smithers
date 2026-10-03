@@ -475,7 +475,6 @@ export interface AppController extends IssueFlowsController {
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
   readonly controlTodo: TodoSeam["controlTodo"]
-  readonly fileTodo: StackSeam["fileTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
   readonly showSetup: InstallSeam["showSetup"]
@@ -1601,7 +1600,6 @@ export const createAppController = (
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
     controlTodo: todoSeam.controlTodo,
-    fileTodo: stackSeam.fileTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
     importRepository: repoImportSeam.importRepository,

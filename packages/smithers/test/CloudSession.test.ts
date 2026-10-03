@@ -164,6 +164,42 @@ describe("CloudSession.signedIn", () => {
     expect(seen).toHaveLength(2)
   })
 
+  it("POSTs extra headers such as an Idempotency-Key, which never replace the credential or the body type", async () => {
+    const seen: Array<Record<string, string | string[] | undefined>> = []
+    const server = createServer((request, response) => {
+      request.resume()
+      request.on("end", () => {
+        seen.push(request.headers)
+        response.writeHead(202, { "content-type": "application/json" })
+        response.end("{}")
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    servers.push(() => server.close())
+    const cloud = await CloudSession.signedIn({
+      HOME: home(),
+      XDG_CONFIG_HOME: home(),
+      SMITHERS_API_ORIGIN: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      SMITHERS_TOKEN: "tok_3"
+    })
+    await cloud!.post("/api/todos?repo=o/r", { title: "T" }, undefined, {
+      "Idempotency-Key": "key-1",
+      Authorization: "token stolen",
+      "Content-Type": "text/plain",
+      accept: "text/html"
+    })
+    await cloud!.post("/api/todos?repo=o/r", { title: "T" })
+    expect(seen.map((headers) => [
+      headers["idempotency-key"],
+      headers.authorization,
+      headers["content-type"],
+      headers.accept
+    ])).toEqual([
+      ["key-1", "token tok_3", "application/json", "application/json"],
+      [undefined, "token tok_3", "application/json", "application/json"]
+    ])
+  })
+
   it("never sends the token to another host, and refuses redirects", async () => {
     const at = await origin((path) => ({ status: 200, body: { path } }))
     const cloud = await CloudSession.signedIn({

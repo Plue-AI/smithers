@@ -1,9 +1,10 @@
 package services_test
 
-// The coding factory loop driven from the terminal (#2785): a person files
-// a TODO with `smthrs history todo`, watches the factory take it with
-// `smthrs history watch`, reads its check receipts, sees it land or stop
-// with a typed reason, and resumes it with `smthrs history retry`.
+// The coding factory loop driven from the terminal (#2785): a person makes
+// a TODO with `smthrs history todo` (T1, no GitHub issue), watches the
+// factory take it with `smthrs history watch T1`, reads its check receipts,
+// sees it land when a maintainer merges its PR on GitHub or stop with a
+// typed reason, and resumes it with `smthrs history retry`.
 //
 // Every command is the real `smthrs` process from this checkout, talking
 // HTTP to the real mythical routes, auth and repository middleware, stack
@@ -36,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,9 +135,19 @@ func (term *terminal) start(args ...string) *session {
 	cmd := exec.Command(term.node, full...)
 	cmd.Dir, cmd.Env = term.home, term.env
 	s := &session{cmd: cmd, done: make(chan error, 1)}
-	cmd.Stdout, cmd.Stderr = s, s
-	require.NoError(term.t, cmd.Start())
-	go func() { s.done <- cmd.Wait() }()
+	// This exercises a human terminal. Pipes intentionally select structured
+	// CLI output and cannot prove the interactive rendering/streaming contract.
+	master, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 160})
+	require.NoError(term.t, err)
+	term.t.Cleanup(func() { _ = cmd.Process.Kill(); _ = master.Close() })
+	copied := make(chan struct{})
+	go func() { _, _ = io.Copy(s, master); close(copied) }()
+	go func() {
+		err := cmd.Wait()
+		<-copied
+		_ = master.Close()
+		s.done <- err
+	}()
 	return s
 }
 
@@ -163,9 +175,9 @@ func (term *terminal) run(args ...string) (string, int) {
 }
 
 // item reads the item the way `history watch` reads it, and keeps the JSON.
-func (term *terminal) item(number int64, name string) map[string]any {
+func (term *terminal) item(ref string, name string) map[string]any {
 	term.t.Helper()
-	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/repos/%s/mythical/items/%d", term.origin, terminalRepo, number), nil)
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/repos/%s/mythical/items/%s", term.origin, terminalRepo, ref), nil)
 	require.NoError(term.t, err)
 	request.Header.Set("Authorization", "token "+term.token)
 	response, err := http.DefaultClient.Do(request)
@@ -186,7 +198,7 @@ func (term *terminal) item(number int64, name string) map[string]any {
 	return item
 }
 
-// serveBackend mounts the mythical routes as the product router does:
+// serveBackend mounts the mythical and TODO routes as the product router does:
 // token auth, the repository context, and the read/write permission gates.
 func serveBackend(t *testing.T, factory *services.TerminalFactory) *httptest.Server {
 	t.Helper()
@@ -208,8 +220,14 @@ func serveBackend(t *testing.T, factory *services.TerminalFactory) *httptest.Ser
 		r.With(readRepo...).Get("/mythical", handler.GetStack)
 		r.With(readRepo...).Get("/mythical/items/{ref}", handler.GetItem)
 		r.With(writeRepo...).Post("/mythical/items/{id}/retry", handler.Retry)
-		r.With(writeRepo...).Post("/mythical/todos", handler.Todos)
 	})
+	// The TODO routes, as the product router mounts them: no repository in
+	// the path, the stack's repository named for the same permission gates.
+	todos := &routes.TodoHandler{Service: factory.Service().Todos()}
+	router.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), todos.ResolveStackRepository,
+		middleware.LoadRepoContext(queries), middleware.RequireRepoPermission(middleware.PermissionWrite)).Post("/api/todos", todos.Create)
+	router.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), todos.ResolveStackRepository,
+		middleware.LoadRepoContext(queries), middleware.RequireRepoPermission(middleware.PermissionRead)).Get("/api/todos/{n}", todos.Get)
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 	return server
@@ -268,93 +286,103 @@ func TestTerminalFactoryLoop(t *testing.T) {
 		"SMITHERS_API_ORIGIN="+server.URL, "SMITHERS_AUTH_FILE="+filepath.Join(home, "auth.json"),
 		"SMITHERS_DISABLE_SYSTEM_KEYRING=1", "SMITHERS_AUDIENCE=human", "NO_COLOR=1")
 
-	// 1. File a TODO. The App opens the GitHub issue and the stack queues it.
+	// 1. Make a TODO. It is T1, with no GitHub issue, and the stack queues it.
 	out, code := term.run("history", "todo", "Add the footer link", "--body", "Make it findable.")
 	require.Equal(t, 0, code, out)
-	assert.Contains(t, out, "#700 Add the footer link · queued")
-	assert.Equal(t, "queued", term.item(700, "filed")["state"])
+	assert.Contains(t, out, "T1 Add the footer link · queued")
+	assert.Equal(t, "queued", term.item("T1", "made")["state"])
+	assert.Equal(t, "queued", factory.TodoState(1))
 
 	// 2. Watch the factory pick it up, implement it and open its pull request.
-	watch := term.start("history", "watch", "700")
-	watch.until(t, "#700 Add the footer link · queued")
-	term.note("factory: a lane picks #700 up and launches coding/request")
+	watch := term.start("history", "watch", "T1")
+	watch.until(t, "T1 Add the footer link · queued")
+	term.note("factory: a lane picks T1 up and launches coding/request")
 	factory.Wake()
-	watch.until(t, "#700 Add the footer link · running")
+	watch.until(t, "T1 Add the footer link · implementing")
 	term.note("factory: the lane's coding/request validates the change; affected-lint and affected-test pass on the candidate")
-	candidate := factory.Implement(700, "docs/footer.md")
+	candidate := factory.Implement(1, "docs/footer.md")
 	factory.Wake()
 	factory.Wake()
 	receipts := fmt.Sprintf("✓ affected-lint %s · ✓ affected-test %s", candidate[:7], candidate[:7])
 	watch.until(t, "PR open")
 	code = watch.exit(t)
-	term.record(watch, []string{"history", "watch", "700"}, code)
+	term.record(watch, []string{"history", "watch", "T1"}, code)
 	require.Equal(t, 0, code, watch.output())
-	assert.Contains(t, watch.output(), "#700 Add the footer link · PR open · checks passed")
+	assert.Contains(t, watch.output(), "T1 Add the footer link · PR open · checks passed")
 	assert.Contains(t, watch.output(), receipts, "the check receipts name the candidate the checks measured")
-	proposed := term.item(700, "proposed")
+	proposed := term.item("T1", "proposed")
 	assert.Equal(t, "proposed", proposed["state"])
 	checks := proposed["checks"].(map[string]any)
 	assert.Equal(t, "passed", checks["state"])
 	assert.Len(t, checks["receipts"], 2)
+	assert.Equal(t, "in_review", factory.TodoState(1))
 
-	// 3. The review approves and the maintainer's automerge lands it.
-	term.note("github: roninjin10 labels #700 automerge")
-	factory.Automerge(700)
-	term.note("factory: coding/review approves the pull request's head; GitHub merges it")
+	// 3. The review approves; a maintainer merges the pull request on GitHub.
+	term.note("factory: coding/review approves the pull request's head")
 	factory.Review(`"approve\n- Looks right."`)
-	state, reason := factory.State(700)
+	term.note("github: roninjin10 merges the pull request")
+	factory.MergeOnGitHub(1)
+	factory.Wake()
+	state, reason := factory.State(1)
 	require.Equal(t, "landed", state, reason)
-	require.NotEmpty(t, factory.Merged(700))
-	out, code = term.run("history", "watch", "700")
+	require.NotEmpty(t, factory.Merged(1))
+	assert.Equal(t, "merged", factory.TodoState(1))
+	out, code = term.run("history", "watch", "T1")
 	require.Equal(t, 0, code, out)
-	assert.Contains(t, out, "#700 Add the footer link · landed")
-	assert.Equal(t, "landed", term.item(700, "landed")["state"])
+	assert.Contains(t, out, "T1 Add the footer link · landed")
+	assert.Equal(t, "landed", term.item("T1", "landed")["state"])
 
 	// 4. A second TODO stops with a typed reason, and the watch says so.
 	out, code = term.run("history", "todo", "Add the header link")
 	require.Equal(t, 0, code, out)
-	watch = term.start("history", "watch", "701")
-	watch.until(t, "#701 Add the header link · queued")
+	assert.Contains(t, out, "T2 Add the header link · queued")
+	watch = term.start("history", "watch", "T2")
+	watch.until(t, "T2 Add the header link · queued")
 	factory.Wake()
-	watch.until(t, "#701 Add the header link · running")
-	term.note("factory: #701's coding/request fails: the model provider refused the lane's credentials (user fault)")
-	factory.Stop(701, "user", "flows/model/ModelError/authentication")
+	watch.until(t, "T2 Add the header link · implementing")
+	term.note("factory: T2's coding/request fails: the model provider refused the lane's credentials (user fault)")
+	factory.Stop(2, "user", "flows/model/ModelError/authentication")
 	factory.Wake()
 	code = watch.exit(t)
-	term.record(watch, []string{"history", "watch", "701"}, code)
+	term.record(watch, []string{"history", "watch", "T2"}, code)
 	assert.Equal(t, 1, code, "a stopped TODO ends the watch with exit 1:\n%s", watch.output())
-	assert.Contains(t, watch.output(), "#701 Add the header link · blocked · stopped: user: flows/model/ModelError/authentication")
-	blocked := term.item(701, "blocked")
+	assert.Contains(t, watch.output(), "T2 Add the header link · blocked · The run was stopped")
+	blocked := term.item("T2", "blocked")
 	assert.Equal(t, "blocked", blocked["state"])
-	assert.Equal(t, "stopped: user: flows/model/ModelError/authentication", blocked["reason"])
+	// Typed failure copy never exposes the diagnostic tag (MVP errors).
+	assert.Equal(t, "The run was stopped", blocked["reason"])
+	assert.Equal(t, map[string]any{"kind": "stopped", "fault": "user"}, blocked["failure"])
+	assert.NotContains(t, watch.output(), "flows/model/ModelError/authentication")
+	assert.Equal(t, "failed", factory.TodoState(2))
 
 	// 5. Retry: the person resumes it and it reaches its pull request.
-	out, code = term.run("history", "retry", "701")
+	out, code = term.run("history", "retry", "T2")
 	require.Equal(t, 0, code, out)
-	assert.Contains(t, out, "#701 Add the header link · queued")
-	assert.Equal(t, "queued", term.item(701, "retried")["state"])
-	watch = term.start("history", "watch", "701")
-	watch.until(t, "#701 Add the header link · queued")
-	term.note("factory: a lane picks #701 up again")
+	assert.Contains(t, out, "T2 Add the header link · queued")
+	assert.Equal(t, "queued", term.item("T2", "retried")["state"])
+	assert.Equal(t, "queued", factory.TodoState(2))
+	watch = term.start("history", "watch", "T2")
+	watch.until(t, "T2 Add the header link · queued")
+	term.note("factory: a lane picks T2 up again")
 	factory.Wake()
-	watch.until(t, "#701 Add the header link · running")
+	watch.until(t, "T2 Add the header link · implementing")
 	term.note("factory: this time coding/request validates the change")
-	candidate = factory.Implement(701, "docs/header.md")
+	candidate = factory.Implement(2, "docs/header.md")
 	factory.Wake()
 	factory.Wake()
 	code = watch.exit(t)
-	term.record(watch, []string{"history", "watch", "701"}, code)
+	term.record(watch, []string{"history", "watch", "T2"}, code)
 	require.Equal(t, 0, code, watch.output())
-	assert.Contains(t, watch.output(), "#701 Add the header link · PR open · checks passed")
+	assert.Contains(t, watch.output(), "T2 Add the header link · PR open · checks passed")
 	assert.Contains(t, watch.output(), fmt.Sprintf("✓ affected-lint %s · ✓ affected-test %s", candidate[:7], candidate[:7]))
-	assert.Equal(t, "proposed", term.item(701, "retried-proposed")["state"])
-	assert.Equal(t, 2, factory.Launches("coding/request")-1, "#701 ran twice, #700 once")
+	assert.Equal(t, "proposed", term.item("T2", "retried-proposed")["state"])
+	assert.Equal(t, 2, factory.Launches("coding/request")-1, "T2 ran twice, T1 once")
 
 	// The history as the terminal shows it at the end.
 	out, code = term.run("history", "show")
 	require.Equal(t, 0, code, out)
-	assert.Contains(t, out, "#700 Add the footer link")
-	assert.Contains(t, out, "#701 Add the header link")
+	assert.Contains(t, out, "T1 Add the footer link")
+	assert.Contains(t, out, "T2 Add the header link")
 
 	if term.receipts != "" {
 		require.NoError(t, os.WriteFile(filepath.Join(term.receipts, "transcript.txt"), []byte(term.transcript.String()), 0o644))

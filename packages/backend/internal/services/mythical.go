@@ -64,6 +64,8 @@ type MythicalService struct {
 	scratchRoot string
 	logger      *slog.Logger
 	now         func() time.Time
+	// todos projects every item write onto its TODO (mythical_item_write.go).
+	todos *TodoService
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
@@ -83,9 +85,17 @@ type MythicalService struct {
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
-	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
+	s := &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
 		logger: slog.Default(), now: time.Now}
+	s.todos = NewTodoService(store)
+	// The TODO projection reads the engine's clock, so a test's clock moves both.
+	s.todos.now = func() time.Time { return s.now() }
+	s.todos.endRun = s.cancelRunIn
+	return s
 }
+
+// Todos is the TODO service whose projection runs inside every item write.
+func (s *MythicalService) Todos() *TodoService { return s.todos }
 
 // SetPolicyReader wires the repo host the stack reads the owner's
 // committed factory policy through.
@@ -968,7 +978,7 @@ func (s *MythicalService) refreshMerged(ctx context.Context, r *mythicalRun) {
 		if err != nil || next == nil || next.State == item.State {
 			continue
 		}
-		if saved, err := q.SaveMythicalItem(ctx, *next); err == nil {
+		if saved, err := s.saveItem(ctx, *next); err == nil {
 			s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(saved.ID))
 		}
 	}

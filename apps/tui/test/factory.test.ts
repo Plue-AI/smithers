@@ -1,6 +1,7 @@
 import { Refused } from "@smthrs/cli/CliError"
 import * as CloudSession from "@smthrs/cli/CloudSession"
 import type { MythicalStack } from "@smthrs/rpc/Mythical"
+import { TodoSchema, TodoStateSchema } from "@smthrs/rpc/Todo"
 import { afterEach, expect, it } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { createServer } from "node:http"
@@ -21,6 +22,23 @@ const item = (id: string, state: string, extra: Record<string, unknown> = {}) =>
   issue: { number: Number(id), title: `Issue ${id}`, url: `https://github.com/o/r/issues/${id}` },
   ...extra
 })
+/** A TODO's `POST /api/todos` answer: persisted, not started. */
+const made = (n: number, title: string, state = "queued") => ({
+  state: "requested",
+  todo: {
+    n,
+    title,
+    state,
+    amendments: 0,
+    lessons: 0,
+    branch: { id: `b${n}`, name: `t${n}` },
+    created_by: { kind: "person", id: 1 },
+    seq: 1,
+    created_at: "2026-09-28T19:00:00Z",
+    updated_at: "2026-09-28T19:00:00Z"
+  }
+})
+const todos = "/api/todos?repo=o/r"
 const stack = {
   repository: "o/r",
   state: "active",
@@ -204,19 +222,19 @@ it("lists at most a group's worth of issues, then how many more", () => {
   expect(shown.at(-1)).toMatchObject({ id: "more:working", label: "… 5 more" })
 })
 
-it("files a TODO under one request id, resent after an unanswered filing and dropped after a refusal", async () => {
-  const sent: Array<{ path: string; body: { title: string; request: string } }> = []
+it("files a TODO under one Idempotency-Key, resent after an unanswered filing and dropped after a refusal", async () => {
+  const sent: Array<{ path: string; body: unknown; key: string | undefined }> = []
   const answers: Array<() => Promise<unknown>> = []
   let ids = 0
   const file = Factory.filer(
-    (path, body) => {
-      sent.push({ path, body: body as { title: string; request: string } })
+    (path, body, _signal, headers) => {
+      sent.push({ path, body, key: headers?.["Idempotency-Key"] })
       return answers.shift()!()
     },
     () => `id-${++ids}`
   )
-  const queued = item("40", "queued")
-  // A dropped network keeps the id: the same TODO again resends it and files once.
+  const queued = made(12, "Add dark mode")
+  // A dropped network keeps the id: the same TODO again resends it and makes it once.
   answers.push(() => Promise.reject(new Error("fetch failed")), () => Promise.resolve(queued))
   expect(await file("o/r", "Add dark mode")).toEqual({
     ok: false,
@@ -224,10 +242,10 @@ it("files a TODO under one request id, resent after an unanswered filing and dro
     settled: false
   })
   const filed = await file("o/r", "Add dark mode")
-  expect(filed.ok && filed.item.issue?.number).toBe(40)
-  expect(sent.map((each) => [each.path, each.body.request])).toEqual([
-    ["/api/repos/o/r/mythical/todos", "id-1"],
-    ["/api/repos/o/r/mythical/todos", "id-1"]
+  expect(filed.ok && Factory.todoLine(filed.todo)).toBe("T12 Add dark mode · queued")
+  expect(sent).toEqual([
+    { path: todos, body: { title: "Add dark mode" }, key: "id-1" },
+    { path: todos, body: { title: "Add dark mode" }, key: "id-1" }
   ])
   // An answered filing frees its id: the next filing of the text is a new TODO.
   answers.push(
@@ -236,7 +254,13 @@ it("files a TODO under one request id, resent after an unanswered filing and dro
   )
   expect(await file("o/r", "Add dark mode")).toMatchObject({ ok: false, settled: true })
   await file("o/r", "Add dark mode")
-  expect(sent.map((each) => each.body.request)).toEqual(["id-1", "id-1", "id-2", "id-3"])
+  expect(sent.map((each) => each.key)).toEqual(["id-1", "id-1", "id-2", "id-3"])
+})
+
+it("words each TODO state as the product does", () => {
+  const words = ["queued", "starting", "working", "needs you", "paused", "failed", "in review", "merged", "dropped"]
+  expect(TodoStateSchema.options.map((state) => Factory.todoLine(TodoSchema.parse(made(7, "Fix it", state).todo))))
+    .toEqual(words.map((word) => `T7 Fix it · ${word}`))
 })
 
 it("joins a TODO filed while the same one is in flight", async () => {
@@ -246,7 +270,7 @@ it("joins a TODO filed while the same one is in flight", async () => {
   const second = file("o/r", "Same")
   const other = file("o/x", "Same")
   expect(releases).toHaveLength(2)
-  for (const release of releases) release(item("41", "queued"))
+  for (const release of releases) release(made(41, "Same"))
   expect(await first).toBe(await second)
   expect((await other).ok).toBe(true)
 })
@@ -259,6 +283,7 @@ interface Received {
   readonly method: string
   readonly path: string
   readonly auth: string | undefined
+  readonly key: string | undefined
   readonly body: string
 }
 /** A Cloud origin on a local port: `reply` answers each request by method and path. */
@@ -274,6 +299,7 @@ const cloudAt = async (
         method: request.method ?? "",
         path: request.url ?? "",
         auth: request.headers.authorization,
+        key: request.headers["idempotency-key"] as string | undefined,
         body
       })
       const answer = reply(request.method ?? "", request.url ?? "")
@@ -303,7 +329,7 @@ it("keeps returned TODO refusals and uncertain failures diagnostic, private and 
   try {
     const received: Array<Received> = []
     let status = 403
-    const origin = await cloudAt(() => ({ status, body: status === 200 ? item("40", "queued") : {} }), received)
+    const origin = await cloudAt(() => ({ status, body: status === 200 ? made(40, "Same TODO") : {} }), received)
     const cloud = (await signIn(origin)())!
     let ids = 0
     const file = Factory.filer(cloud.post, () => `request-${++ids}`)
@@ -327,13 +353,10 @@ it("keeps returned TODO refusals and uncertain failures diagnostic, private and 
       settled: false
     })
     status = 200
-    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, item: { issue: { number: 40 } } })
-    expect(received.map((request) => JSON.parse(request.body).request)).toEqual([
-      "request-1",
-      "request-2",
-      "request-3",
-      "request-3"
-    ])
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, todo: { n: 40, title: "Same TODO" } })
+    expect(received.map((request) => [request.method, request.path, request.key, JSON.parse(request.body)])).toEqual(
+      ["request-1", "request-2", "request-3", "request-3"].map((key) => ["POST", todos, key, { title: "Same TODO" }])
+    )
     const lines = readFileSync(Log.path(), "utf8").trim().split("\n")
     expect(lines).toHaveLength(3)
     expect(lines[2]).toContain("HTTP 503")
@@ -357,10 +380,10 @@ it("uses typed refusal authority rather than diagnostic HTTP words to retain an 
     let attempts = 0
     let ids = 0
     const requests: string[] = []
-    const file = Factory.filer(async (_path, body) => {
-      requests.push((body as { request: string }).request)
+    const file = Factory.filer(async (_path, _body, _signal, headers) => {
+      requests.push(headers!["Idempotency-Key"]!)
       if (attempts++ === 0) throw new Refused({ code, fault, message: "private diagnostic mentions HTTP 403" })
-      return item("40", "queued")
+      return made(40, "Same TODO")
     }, () => `request-${++ids}`)
     const answer = await file("o/r", "Same TODO")
     expect(answer).toMatchObject({ ok: false, settled })
@@ -381,10 +404,10 @@ it("retains the TODO request for uncertain status metadata and old HTTP-looking 
   for (const failure of failures) {
     const requests: string[] = []
     let ids = 0
-    const file = Factory.filer(async (_path, body) => {
-      requests.push((body as { request: string }).request)
+    const file = Factory.filer(async (_path, _body, _signal, headers) => {
+      requests.push(headers!["Idempotency-Key"]!)
       if (requests.length === 1) throw failure
-      return item("40", "queued")
+      return made(40, "Same TODO")
     }, () => `request-${++ids}`)
     expect(await file("o/r", "Same TODO")).toMatchObject({ ok: false, settled: false })
     expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true })
@@ -393,20 +416,20 @@ it("retains the TODO request for uncertain status metadata and old HTTP-looking 
 })
 
 it("retains a TODO's identity through real HTTP waits, disconnection and duplicate input", async () => {
-  const received: Array<{ request: string }> = []
+  const received: Array<{ key: string | undefined; body: unknown }> = []
   let status = 408
   let disconnect = false
   const server = createServer((request, response) => {
     let body = ""
     request.on("data", (chunk) => (body += chunk))
     request.on("end", () => {
-      received.push(JSON.parse(body))
+      received.push({ key: request.headers["idempotency-key"] as string | undefined, body: JSON.parse(body) })
       if (disconnect) {
         request.socket.destroy()
         return
       }
       response.writeHead(status, { "content-type": "application/json" })
-      response.end(JSON.stringify(status === 201 ? item("40", "queued") : { httpStatus: 401, message: "HTTP 401" }))
+      response.end(JSON.stringify(status === 202 ? made(40, "Same TODO") : { httpStatus: 401, message: "HTTP 401" }))
     })
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -422,12 +445,13 @@ it("retains a TODO's identity through real HTTP waits, disconnection and duplica
   disconnect = true
   expect(await file("o/r", "Same TODO")).toMatchObject({ ok: false, settled: false })
   disconnect = false
-  status = 201
-  expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, item: { issue: { number: 40 } } })
+  status = 202
+  expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, todo: { n: 40 } })
   expect(received).toHaveLength(6)
-  expect(received.map((request) => request.request)).toEqual(Array(6).fill("request-1"))
+  expect(received.map((request) => request.key)).toEqual(Array(6).fill("request-1"))
+  expect(received.every((request) => JSON.stringify(request.body) === JSON.stringify({ title: "Same TODO" }))).toBe(true)
   expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true })
-  expect(received.at(-1)?.request).toBe("request-2")
+  expect(received.at(-1)?.key).toBe("request-2")
 })
 
 it("keeps a TODO's request id after an invalid HTTP 200 answer and recovers with the same request", async () => {
@@ -438,7 +462,8 @@ it("keeps a TODO's request id after an invalid HTTP 200 answer and recovers with
     const received: Array<Received> = []
     let valid = false
     const origin = await cloudAt(
-      () => ({ status: 200, body: valid ? item("40", "queued") : { id: "HTTP 403" } }),
+      // The retired filing route's answer, an item, is not a TODO; its diagnostic words never settle it.
+      () => ({ status: 200, body: valid ? made(40, "Same TODO") : { ...item("40", "queued"), id: "HTTP 403" } }),
       received
     )
     const cloud = (await signIn(origin)())!
@@ -453,8 +478,8 @@ it("keeps a TODO's request id after an invalid HTTP 200 answer and recovers with
     expect(diagnostic).toContain("state")
     expect(diagnostic.trim().split("\n")).toHaveLength(1)
     valid = true
-    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, item: { issue: { number: 40 } } })
-    expect(received.map((request) => JSON.parse(request.body).request)).toEqual(["request-1", "request-1"])
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, todo: { n: 40 } })
+    expect(received.map((request) => request.key)).toEqual(["request-1", "request-1"])
     expect(readFileSync(Log.path(), "utf8")).toBe(diagnostic)
   } finally {
     if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR

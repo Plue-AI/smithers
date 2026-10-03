@@ -30,16 +30,28 @@ const snapshot = (generation: number, items: MythicalItem[], extra: Partial<Myth
   limits: { maxParallel: 2 }, ...extra
 })
 
-/** A fake Smithers Cloud: the snapshot it serves, an event stream the test pushes hints into, and a log of writes. */
+/**
+ * A fake Smithers Cloud: the snapshot it serves, an event stream the test
+ * pushes hints into, a log of writes, and a log of the TODO routes' calls
+ * with each one's Idempotency-Key.
+ */
 const cloud = () => {
   let current: MythicalStack = snapshot(1, [])
   const writes: Array<{ method: string; path: string; body: string }> = []
+  const todoCalls: Array<{ method: string; url: string; body: string; key: string | null }> = []
   const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
-  const handlers = new Map<string, (body: string) => Promise<Response>>()
+  const handlers = new Map<string, (body: string, key: string | null) => Promise<Response>>()
   let reads = 0
   const fetchImpl = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const path = new URL(String(url), "https://test.invalid").pathname
+    const { pathname: path, search } = new URL(String(url), "https://test.invalid")
     const method = init?.method ?? "GET"
+    if (path === "/api/todos" || path.startsWith("/api/todos/")) {
+      const body = typeof init?.body === "string" ? init.body : ""
+      const key = new Headers(init?.headers).get("idempotency-key")
+      todoCalls.push({ method, url: `${path}${search}`, body, key })
+      const handler = handlers.get(`${method} ${path}`)
+      return handler ? handler(body, key) : Response.json({ code: "not_found", fault: "user", message: "no such TODO" }, { status: 404 })
+    }
     if (path === `${BASE}/events`) {
       const body = new ReadableStream<Uint8Array>({ start: controller => { streams.add(controller) } })
       return new Response(body, { headers: { "content-type": "text/event-stream" } })
@@ -49,7 +61,7 @@ const cloud = () => {
       const body = typeof init?.body === "string" ? init.body : ""
       writes.push({ method, path, body })
       const handler = handlers.get(`${method} ${path}`)
-      if (handler) return handler(body)
+      if (handler) return handler(body, null)
       return Response.json(current, { status: 202 })
     }
     return Response.json([])
@@ -60,6 +72,7 @@ const cloud = () => {
     fetchImpl: profile.fetchImpl,
     profileReads: profile.reads,
     writes,
+    todoCalls,
     handlers,
     reads: () => reads,
     set: (next: MythicalStack) => { current = next },
@@ -497,245 +510,6 @@ test("signed out, History parks behind sign-in and reads nothing", async () => {
   await controller.commands.run("history.show", REPO)
   expect(fake.reads()).toBe(0)
   expect(stackCard(store)).toBeUndefined()
-})
-
-/*
- * history.todo (#2782): a TODO filed for the coding factory through
- * POST …/mythical/todos, acknowledged before the filing answers, durable on
- * the History card, and followed in one notice through the factory's lanes
- * until its pull request opens, it lands, or it stops.
- */
-const todoKey = (key: string) => `stack.todo.${encodeURIComponent(REPO)}#${key}`
-const todoToasts = (store: AppStore) => [...store.collections.toasts.values()].filter(row => row.key.startsWith(todoKey("")))
-const filed = (id: string, title: string) => Response.json(item(id, "queued", { issue: { number: 9, title, url: `https://github.com/${REPO}/issues/9` } }), { status: 201 })
-
-test("history.todo answers before the filing does, keeps Chat usable, and follows the TODO until its pull request opens", async () => {
-  const { store, controller, fake } = await setup()
-  fake.set(snapshot(1, []))
-  const filing = deferred<Response>()
-  fake.handlers.set(`POST ${BASE}/todos`, () => filing.promise)
-  const asked = await controller.commands.run("history.todo", JSON.stringify({ title: " Add the footer link ", body: "Make it findable.", repo: REPO }))
-  expect(asked).toMatchObject({ status: "executed", value: "Requested" })
-  // The request is durable before the filing answers.
-  const pending = stackCard(store)?.payload.todos ?? []
-  expect(pending).toMatchObject([{ title: "Add the footer link", body: "Make it findable." }])
-  expect(pending[0]?.item).toBeUndefined()
-  await waitFor(() => fake.writes.length === 1)
-  expect(fake.writes[0]).toMatchObject({ method: "POST", path: `${BASE}/todos` })
-  const sent = JSON.parse(fake.writes[0]!.body) as { title: string; body: string; request: string }
-  expect(sent).toEqual({ title: "Add the footer link", body: "Make it findable.", request: `${pending[0]!.key}-${pending[0]!.requestedAt.toString(36)}` })
-  // Chat and the other acts stay usable meanwhile.
-  expect(await controller.commands.run("history.view", `metrics ${REPO}`)).toMatchObject({ status: "executed" })
-  // The same TODO asked again joins the filing in flight.
-  expect(await controller.commands.run("history.todo", JSON.stringify({ title: "Add the footer link", body: "Make it findable.", repo: REPO }))).toMatchObject({ status: "executed", value: "Requested" })
-  expect(stackCard(store)?.payload.todos).toHaveLength(1)
-  const key = todoKey(pending[0]!.key)
-  await waitFor(() => toast(store, key)?.status === "running")
-  expect(toast(store, key)?.title).toBe("Add the footer link")
-
-  fake.set(snapshot(2, [item("i9", "queued")]))
-  filing.resolve(filed("i9", "Add the footer link"))
-  await waitFor(() => stackCard(store)?.payload.todos?.[0]?.item === "i9")
-  await waitFor(() => toast(store, key)?.detail === "queued")
-  expect(fake.writes).toHaveLength(1)
-
-  await waitFor(() => fake.streams() === 1)
-  fake.set(snapshot(3, [item("i9", "running", { lane: 0 })]))
-  fake.hint(3)
-  await waitFor(() => toast(store, key)?.detail === "implementing")
-  fake.set(snapshot(4, [item("i9", "verifying", { lane: 0, checks: { state: "pending", failed: [] } })]))
-  fake.hint(4)
-  await waitFor(() => toast(store, key)?.detail === "checking")
-  // The TODO's notice is the only one: no lane notice repeats it.
-  await new Promise(resolve => setTimeout(resolve, 60))
-  expect(toast(store, itemKey("i9"))).toBeUndefined()
-  expect(toast(store, key)?.status).toBe("running")
-
-  fake.set(snapshot(5, [item("i9", "proposed", { pullRequest: { number: 41, url: `https://github.com/${REPO}/pull/41`, state: "open" } })]))
-  fake.hint(5)
-  await waitFor(() => toast(store, key)?.status === "ok")
-  expect(toast(store, key)?.detail).toBe("PR #41")
-  await waitFor(() => stackCard(store)?.payload.todos === undefined)
-  expect(stackCard(store)?.payload.failure).toBeNull()
-})
-
-test("a refused filing fails on the card and its notice, and Retry files it again", async () => {
-  const { store, controller, fake } = await setup()
-  fake.set(snapshot(1, []))
-  fake.handlers.set(`POST ${BASE}/todos`, async () => Response.json({ message: "only a maintainer the factory's policy names files a TODO" }, { status: 403 }))
-  expect(await controller.commands.run("history.todo", JSON.stringify({ title: "Fix the footer", repo: REPO }))).toMatchObject({ status: "executed", value: "Requested" })
-  const args = JSON.stringify({ title: "Fix the footer", repo: REPO })
-  await waitFor(() => stackCard(store)?.payload.failure?.act === "todo")
-  expect(stackCard(store)?.payload.failure).toMatchObject({ act: "todo", args })
-  expect(stackCard(store)?.payload.todos).toBeUndefined()
-  await waitFor(() => todoToasts(store)[0]?.status === "failed")
-  expect(todoToasts(store)[0]?.action).toEqual({ flow: "history.todo", args, label: "Retry" })
-
-  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i3", "Fix the footer"))
-  fake.set(snapshot(2, [item("i3", "landed")]))
-  expect(await controller.commands.run("history.todo", args)).toMatchObject({ status: "executed", value: "Requested" })
-  expect(stackCard(store)?.payload.failure).toBeNull()
-  await waitFor(() => todoToasts(store).some(row => row.status === "ok" && row.detail === "landed"))
-})
-
-test("a rejected TODO filing request stays retryable instead of claiming the TODO was filed", async () => {
-  const { store, controller, fake } = await setup()
-  fake.set(snapshot(1, []))
-  fake.handlers.set(`POST ${BASE}/todos`, async () => { throw new TypeError("private transport diagnostic") })
-  await controller.commands.run("history.todo", JSON.stringify({ title: "Fix the footer", repo: REPO }))
-  await waitFor(() => todoToasts(store)[0]?.status === "failed")
-  expect(todoToasts(store)[0]?.detail).toBe("Could not reach Smithers Cloud. Nothing answered at all — that's the connection, not something you did. Try it again.")
-  expect(todoToasts(store)[0]?.action).toMatchObject({ flow: "history.todo", label: "Retry" })
-  expect(stackCard(store)?.payload.todos).toHaveLength(1)
-})
-
-test("an unexpected TODO follow failure keeps its diagnostic out of the notice", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const fake = cloud()
-  const reports: string[] = []
-  let failTodoWrite = false
-  const guarded = new Proxy(store, {
-    get(target, property, receiver) {
-      if (property !== "dispatch") return Reflect.get(target, property, receiver)
-      return (transition: Parameters<AppStore["dispatch"]>[0]) => {
-        if (failTodoWrite && transition.type === "card.upsert" && transition.card.kind === "stack"
-          && transition.card.payload.todos?.some((row) => row.item === "i3")) {
-          failTodoWrite = false
-          throw new Error("private TODO follow diagnostic")
-        }
-        return target.dispatch(transition)
-      }
-    }
-  })
-  const controller = createAppController(guarded, unavailableAgent, {
-    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity", "cloud"], authFlow: "redirect", sandbox: null },
-    fetchImpl: fake.fetchImpl,
-    toastDebounceMs: 20,
-    clientErrors: { report: (_kind, error) => reports.push(String(error)), reported: () => reports.length }
-  })
-  await signIn(store)
-  expect(fake.profileReads).toEqual([])
-  fake.set(snapshot(1, []))
-  fake.handlers.set(`POST ${BASE}/todos`, async () => {
-    failTodoWrite = true
-    return filed("i3", "Fix the footer")
-  })
-  await controller.commands.run("history.todo", JSON.stringify({ title: "Fix the footer", repo: REPO }))
-  await waitFor(() => todoToasts(store)[0]?.status === "failed")
-  expect(todoToasts(store)[0]?.detail).toBe("Smithers lost track of this TODO. Open History to see its state.")
-  expect(todoToasts(store)[0]?.action).toBeUndefined()
-  expect(fake.writes).toHaveLength(1)
-  expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("private TODO follow diagnostic")
-  expect(reports).toHaveLength(1)
-  expect(reports[0]).toContain("private TODO follow diagnostic")
-  expect(reports[0]).toContain(`stack.todo.follow ${REPO}`)
-})
-
-test("a TODO the factory stops settles failed with the stop's words and Retry", async () => {
-  const { store, controller, fake } = await setup()
-  fake.set(snapshot(1, [item("i5", "queued")]))
-  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i5", "Issue i5"))
-  await controller.commands.run("history.todo", JSON.stringify({ title: "Issue i5", repo: REPO }))
-  await waitFor(() => fake.streams() === 1)
-  fake.set(snapshot(2, [item("i5", "blocked", { reason: "out of attempts" })]))
-  fake.hint(2)
-  await waitFor(() => todoToasts(store)[0]?.status === "failed")
-  expect(todoToasts(store)[0]).toMatchObject({ detail: "blocked · out of attempts", action: { flow: "history.retry", args: `i5 ${REPO}`, label: "Retry" } })
-  // The card's issue list, not a failure row, keeps the stopped TODO.
-  expect(stackCard(store)?.payload.failure).toBeNull()
-  expect(stackCard(store)?.payload.todos).toBeUndefined()
-})
-
-test("a TODO without a title opens its form instead of filing; a typed line files its title in the active repository", async () => {
-  const { store, fake, controller } = await setup()
-  expect(await controller.commands.run("history.todo", JSON.stringify({ repo: REPO }))).toMatchObject({ status: "form", flow: "history.todo", fields: ["title"] })
-  expect(fake.writes).toEqual([])
-  await store.dispatch({ type: "repositories.loaded", actor: "system",
-    repositories: [{ id: REPO, org: "smithersai", ownerKind: "org", name: "smithers", head: null }] }).isPersisted.promise
-  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i2", "Fix the footer link"))
-  expect(await controller.commands.run("history.todo", "Fix the footer link")).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => fake.writes.length === 1)
-  expect(JSON.parse(fake.writes[0]!.body)).toMatchObject({ title: "Fix the footer link" })
-  expect(JSON.parse(fake.writes[0]!.body)).not.toHaveProperty("body")
-})
-
-test("a reload reconnects filed TODOs: a followed one is not sent again, an unanswered one is sent again under its request id", async () => {
-  const storage = new Map<string, string>()
-  const local = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value) }, removeItem: (key: string) => { storage.delete(key) } }
-  const first = await createAppStore({ kind: "localStorage", storage: local })
-  await first.dispatch({ type: "card.upsert", actor: "system", card: {
-    id: `stack:${REPO}`, kind: "stack", title: `History · ${REPO}`, status: "active", createdAt: 1, ordinal: 1,
-    payload: { repo: REPO, failure: null, todos: [
-      { key: "a", title: "Issue i4", body: "", requestedAt: 1, item: "i4" },
-      { key: "b", title: "Issue i6", body: "", requestedAt: 36 },
-      { key: "c", title: "Refused", body: "", requestedAt: 1 }
-    ] }
-  } }).isPersisted.promise
-  await first.dispose?.()
-  const fake = cloud()
-  fake.set(snapshot(1, [item("i4", "running", { lane: 0 }), item("i6", "queued")]))
-  fake.handlers.set(`POST ${BASE}/todos`, async (body) => (JSON.parse(body) as { request: string }).request === "b-10"
-    ? filed("i6", "Issue i6") : Response.json({ message: "only a maintainer the factory's policy names files a TODO" }, { status: 403 }))
-  const { store } = await setup(fake, await createAppStore({ kind: "localStorage", storage: local }))
-  await waitFor(() => toast(store, todoKey("a"))?.detail === "implementing")
-  await waitFor(() => toast(store, todoKey("c"))?.status === "failed")
-  await waitFor(() => stackCard(store)?.payload.todos?.find(row => row.key === "b")?.item === "i6")
-  expect(fake.writes.map(write => JSON.parse(write.body).request).sort()).toEqual(["b-10", "c-1"])
-  expect(stackCard(store)?.payload.todos?.map(row => row.key)).toEqual(["a", "b"])
-  await waitFor(() => fake.streams() === 1)
-  fake.set(snapshot(2, [item("i4", "landed"), item("i6", "declined", { reason: "a duplicate of #4" })]))
-  fake.hint(2)
-  await waitFor(() => toast(store, todoKey("a"))?.status === "ok" && toast(store, todoKey("b"))?.status === "failed")
-  expect(toast(store, todoKey("b"))?.detail).toBe("declined · a duplicate of #4")
-  await waitFor(() => stackCard(store)?.payload.todos === undefined)
-})
-
-test("a filing whose answer is unknown keeps its request, and Retry sends the same request id", async () => {
-  const { store, controller, fake } = await setup()
-  fake.set(snapshot(1, []))
-  fake.handlers.set(`POST ${BASE}/todos`, async () => Response.json({ message: "upstream timed out" }, { status: 503 }))
-  const args = JSON.stringify({ title: "Fix the footer", repo: REPO })
-  await controller.commands.run("history.todo", args)
-  await waitFor(() => stackCard(store)?.payload.failure?.act === "todo")
-  expect(stackCard(store)?.payload.todos).toHaveLength(1)
-  await waitFor(() => todoToasts(store)[0]?.status === "failed")
-  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i3", "Fix the footer"))
-  fake.set(snapshot(2, [item("i3", "running", { lane: 0 })]))
-  expect(await controller.commands.run("history.todo", args)).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => stackCard(store)?.payload.todos?.[0]?.item === "i3")
-  const ids = fake.writes.map(write => (JSON.parse(write.body) as { request: string }).request)
-  expect(ids).toHaveLength(2)
-  expect(ids[1]).toBe(ids[0])
-  expect(stackCard(store)?.payload.failure).toBeNull()
-})
-
-test("the TODO's notice takes over a lane notice raised before the filing answered", async () => {
-  const { store, controller, fake } = await setup()
-  const filing = deferred<Response>()
-  fake.set(snapshot(1, [item("i8", "running", { lane: 0 })]))
-  fake.handlers.set(`POST ${BASE}/todos`, () => filing.promise)
-  await controller.commands.run("history.show", REPO)
-  await controller.commands.run("history.todo", JSON.stringify({ title: "Issue i8", repo: REPO }))
-  await waitFor(() => toast(store, itemKey("i8"))?.status === "running")
-  filing.resolve(filed("i8", "Issue i8"))
-  await waitFor(() => toast(store, itemKey("i8")) === undefined)
-  await waitFor(() => todoToasts(store)[0]?.detail === "implementing")
-})
-
-test("a followed TODO missing from several fresh snapshots stops its notice instead of running forever", async () => {
-  const { store, controller, fake } = await setup()
-  fake.set(snapshot(1, [item("i2", "queued")]))
-  fake.handlers.set(`POST ${BASE}/todos`, async () => filed("i2", "Issue i2"))
-  await controller.commands.run("history.todo", JSON.stringify({ title: "Issue i2", repo: REPO }))
-  await waitFor(() => todoToasts(store)[0]?.detail === "queued")
-  await waitFor(() => fake.streams() === 1)
-  fake.set(snapshot(2, []))
-  for (const generation of [2, 3, 4]) {
-    fake.hint(generation)
-    await new Promise(resolve => setTimeout(resolve, 1_100))
-  }
-  await waitFor(() => todoToasts(store)[0]?.status === "failed", 3_000)
-  expect(todoToasts(store)[0]?.detail).toBe("The history no longer lists this TODO. Open History to see it.")
 })
 
 test("Land (history.land) is acknowledged at once and its notice follows the TODO until it lands (#3059)", async () => {

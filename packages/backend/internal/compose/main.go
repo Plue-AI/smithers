@@ -331,6 +331,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	runtimeStores := resolveProductRuntimeStores(options.RuntimeStores, queries)
+	var installSetupTokenDigest [32]byte
 	if config.IsSingleOwner(cfg.Auth) && options.topology.servesHTTP() {
 		// Until the owner claims the install, every start issues a one-time
 		// setup token and prints its URL for the launcher (spec §5.1.0).
@@ -340,6 +341,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return fmt.Errorf("issue setup token: %w", err)
 		}
 		if setupToken != "" {
+			installSetupTokenDigest = sha256.Sum256([]byte(setupToken))
 			if _, err := fmt.Fprintf(stdout, "Setup URL: %s/setup?token=%s\n", strings.TrimRight(config.PublicOrigin(cfg), "/"), setupToken); err != nil {
 				return fmt.Errorf("print setup URL: %w", err)
 			}
@@ -932,6 +934,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	auditCleaner := cleanup.NewAuditCleaner(queries, time.Hour, 90*24*time.Hour)
 	webhookDeliveryCleaner := cleanup.NewWebhookDeliveryCleaner(queries, time.Hour, 30, 1000)
+	projectionEventCleaner := cleanup.NewProjectionEventCleaner(services.NewProjectionRetention(pool), 10*time.Minute)
 	workflowLogCleaner := cleanup.NewWorkflowLogCleaner(queries)
 
 	workspaceCleaner := cleanup.NewWorkspaceCleaner(workspaceService, 5*time.Minute)
@@ -1401,7 +1404,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), apiAllowedOrigins(cfg)),
 			Store:   gitHubAppStore, Owners: queries,
 			AllowedOrigins: apiAllowedOrigins(cfg),
-			Sessions:       &services.InstallSetupSessions{Pool: pool, TokenDigest: sha256.Sum256([]byte(cfg.Auth.BootstrapToken))},
+			Sessions:       &services.InstallSetupSessions{Pool: pool, TokenDigest: installSetupTokenDigest},
 		}
 	}
 	router := buildRouter(
@@ -1467,7 +1470,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		gitHubWebhookHandler,
 		smithersMetrics,
 		routerExtras{HostStatus: hostStatus, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
-			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
+			Mythical: mythicalHandler, Todos: &routes.TodoHandler{Service: mythicalService.Todos()}, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
 			AdminWorkspaces:    &routes.AdminWorkspaceHandler{Service: adminManageService},
@@ -1707,6 +1710,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		workflowArtifactCleaner.Start(workerCtx)
 		auditCleaner.Start(workerCtx)
 		webhookDeliveryCleaner.Start(workerCtx)
+		projectionEventCleaner.Start(workerCtx)
 		workflowLogCleaner.Start(workerCtx)
 		workspaceCleaner.Start(workerCtx)
 	}
@@ -1842,6 +1846,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			workflowArtifactCleaner.Stop()
 			auditCleaner.Stop()
 			webhookDeliveryCleaner.Stop()
+			projectionEventCleaner.Stop()
 			workflowLogCleaner.Stop()
 			workspaceCleaner.Stop()
 		}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -199,7 +200,7 @@ func TestMythicalAutomergeRefusesAMovedHead(t *testing.T) {
 	o.propose(70, "seventy.md")
 	head := o.item(70).PRHead
 	moved := o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "outside push")
-	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-70", moved)
+	o.git(o.github.dir, "update-ref", "refs/heads/"+o.branch(70), moved)
 	o.answerReviews(`"approve"`)
 	item := o.item(70)
 	assert.Equal(t, "proposed", item.State)
@@ -822,7 +823,7 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	// Someone pushed to the pull request: its new head is theirs.
 	item = start(77, "seventy-seven.md")
 	head := item.PRHead
-	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-77",
+	o.git(o.github.dir, "update-ref", "refs/heads/"+o.branch(77),
 		o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "a person's push"))
 	o.answerReviews(`"approve"`)
 	item = o.item(77)
@@ -1528,7 +1529,9 @@ func TestMythicalSnapshotShowsATodosMetrics(t *testing.T) {
 	checks := mythicalChecksOf(landed)
 	checks.Drivers = []mythicalDriver{{By: "will", Run: "run-383", From: "2026-09-29T08:00:00Z", Messages: 2}}
 	landed.State, landed.Checks = "landed", checks.encode()
-	_, err = o.service.queries().SaveMythicalItem(ctx, landed)
+	landed.PRNumber = pgtype.Int8{Int64: 383, Valid: true}
+	landed.PRMergeCommit = o.git(o.github.dir, "rev-parse", "refs/heads/main")
+	_, err = o.service.saveItem(ctx, landed)
 	require.NoError(t, err)
 
 	view, err := o.service.Snapshot(ctx, o.repoID, "o/smithers", "", MythicalViewer{UserID: o.userID})
@@ -1539,8 +1542,11 @@ func TestMythicalSnapshotShowsATodosMetrics(t *testing.T) {
 		require.NoError(t, err)
 		wire[item.Issue.Number] = string(encoded)
 	}
-	assert.Contains(t, wire[383], `"route":{"as":"close","landed":"change"},"humanEdited":true,"costNanos":20000000`,
-		"a close that landed a change is a misroute")
+	var metrics map[string]any
+	require.NoError(t, json.Unmarshal([]byte(wire[383]), &metrics))
+	assert.Equal(t, map[string]any{"as": "close", "landed": "change"}, metrics["route"], "a close that landed a change is a misroute")
+	assert.Equal(t, true, metrics["humanEdited"])
+	assert.Equal(t, float64(20_000_000), metrics["costNanos"])
 	assert.Contains(t, wire[384], `"route":{"as":"implement","landed":"close"}`, "an implement that closed is a misroute")
 	assert.NotContains(t, wire[384], `humanEdited`)
 	assert.NotContains(t, wire[384], `costNanos`)
@@ -1585,6 +1591,17 @@ func TestMythicalFollowOutageHolds(t *testing.T) {
 // pull request: the retry pushes its branch again, never a second one
 // (Fable r4 L-A).
 func TestMythicalRetryKeepsAnOpenPullRequest(t *testing.T) {
+	testMythicalRetryKeepsAnOpenPullRequest(t, true)
+}
+
+// A rebase clears verification; failed checks must not make Retry depend
+// on the old PR head still being a verified candidate (Fable 11:53).
+func TestMythicalRetryKeepsAnUnverifiedRebuildPullRequest(t *testing.T) {
+	testMythicalRetryKeepsAnOpenPullRequest(t, false)
+}
+
+func testMythicalRetryKeepsAnOpenPullRequest(t *testing.T, verified bool) {
+	t.Helper()
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 392, Title: "Keep", State: "open", TextByMaintainer: true,
@@ -1593,18 +1610,57 @@ func TestMythicalRetryKeepsAnOpenPullRequest(t *testing.T) {
 	item := o.item(392)
 	require.True(t, item.PRNumber.Valid)
 	require.Equal(t, "open", item.PRState)
+	if !verified {
+		// Save the current-generation rebuild facts through the guarded
+		// production writer, then let its failed checks block it below.
+		item.Generation++
+		item.State, item.CandidateVerified = "verifying", false
+		var err error
+		item, err = o.service.saveItem(ctx, item)
+		require.NoError(t, err)
+	}
 	stopped := mythicalChecksOf(item)
 	stopped.Fault = &mythicalFault{Class: "policy", Tag: "launch_bound"}
 	item.State, item.Checks = "blocked", stopped.encode()
-	_, err := o.service.queries().SaveMythicalItem(ctx, item)
+	_, err := o.service.saveItem(ctx, item)
 	require.NoError(t, err)
+	todoID := uuidString(item.TodoID)
+	_, err = o.pool.Exec(ctx, `INSERT INTO todo_attempts(todo_id, attempt, run_id, evidence) VALUES ($1, 1, 'earlier-run', '{"sha":"earlier-head"}')`, todoID)
+	require.NoError(t, err)
+	var priorSeq int64
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT max(seq) FROM todo_events WHERE todo_id=$1`, todoID).Scan(&priorSeq))
 	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
+	var state string
+	var attempts, synthetic, retryEvents int
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT state FROM todos WHERE id=$1`, todoID).Scan(&state))
+	require.Equal(t, "queued", state, "§4.1 retry changes lifecycle state only")
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM todo_attempts WHERE todo_id=$1`, todoID).Scan(&attempts))
+	require.Equal(t, 2, attempts, "exactly one fresh attempt")
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE kind IN ('admit','run_started','pr_opened')), count(*) FILTER (WHERE kind='retry') FROM todo_events WHERE todo_id=$1 AND seq>$2`, todoID, priorSeq).Scan(&synthetic, &retryEvents))
+	require.Zero(t, synthetic, "no grant, run or proposal observed during Retry")
+	require.Equal(t, 1, retryEvents)
+	var evidence string
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT evidence->>'sha' FROM todo_attempts WHERE todo_id=$1 AND attempt=1`, todoID).Scan(&evidence))
+	require.Equal(t, "earlier-head", evidence)
 	retried := o.item(392)
+	require.Equal(t, TodoInReview, ProjectItemState(retried, db.Todo{State: state}), "current open PR remains visible")
 	assert.Equal(t, item.PRNumber, retried.PRNumber, "the open pull request is kept")
 	assert.Equal(t, item.ProposalRound, retried.ProposalRound, "no second branch")
 	assert.Equal(t, item.PRHead, retried.PRHead, "the branch is pushed again from its head")
+
+	// §4.1 queued -> starting is admission, never an effect of Retry.
+	o.wake()
+	admitted := o.item(392)
+	require.Equal(t, "running", admitted.State, admitted.Reason)
+	require.True(t, admitted.Lane.Valid, "the engine granted a real lane")
+	var grants int
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM todo_events WHERE todo_id=$1 AND seq>$2 AND kind='admit'`, todoID, priorSeq).Scan(&grants))
+	require.Equal(t, 1, grants, "one observed grant after actual admission")
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT state FROM todos WHERE id=$1`, todoID).Scan(&state))
+	require.Equal(t, "starting", state, "admission waits for a real runtime step")
+	require.Equal(t, item.PRNumber, admitted.PRNumber, "admission keeps the same PR")
 }
 
 // A review whose admission keeps failing parks at the outage bound: once

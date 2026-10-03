@@ -17,6 +17,7 @@ describe("cloud transport", () => {
     if ("error" in read) throw new Error(read.error)
     expect(read.response.headers.get("link")).toBe("next")
     await client.send("POST", "/repos", { name: "sample" })
+    await client.send("POST", "/todos", { title: "x" }, "the TODO", undefined, { "idempotency-key": "k-1" })
     await client.send("DELETE", "/repos/1")
     expect(calls).toEqual([
       { path: "https://app.example/api/repos", init: undefined },
@@ -26,6 +27,14 @@ describe("cloud transport", () => {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: "{\"name\":\"sample\"}"
+        }
+      },
+      {
+        path: "https://app.example/api/todos",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json", "idempotency-key": "k-1" },
+          body: "{\"title\":\"x\"}"
         }
       },
       { path: "https://app.example/api/repos/1", init: { method: "DELETE" } }

@@ -1,11 +1,12 @@
 /**
  * The repository history from the terminal: the coding factory's stack as the
  * app's History card reads it (`GET …/mythical`, D-20), its writes, a TODO
- * filed for the factory, and a watch that follows one issue through the
- * lanes. The watch reads the one item (`GET …/mythical/items/{id|issue}`,
- * which finds it however many items the snapshot's bound leaves out) on
- * every hint from `…/mythical/events`, or on a poll without one. Writes are
- * acknowledged at once; the stack does the work.
+ * made for the factory (`POST /api/todos`), and a watch that follows one
+ * TODO or issue through the lanes. The watch reads the one item (`GET
+ * …/mythical/items/{id|issue}`, which finds it however many items the
+ * snapshot's bound leaves out; a TODO `T12` from the snapshot by its
+ * `todoNumber`) on every hint from `…/mythical/events`, or on a poll without
+ * one. Writes are acknowledged at once; the stack does the work.
  *
  * The words and groups mirror `@smthrs/rpc/StackView` and
  * `@smthrs/rpc/StackIssues`, which this published package cannot depend on;
@@ -21,9 +22,11 @@ import type { Handler } from "./Resources.ts"
 
 /** Nothing more happens without a person or a new issue event (`isSettledItemState`). */
 const SETTLED = new Set(["skipped", "declined", "cancelled", "landed", "rejected", "blocked"])
-const NEEDS_YOU = new Set(["blocked", "rejected", "proposed"])
-/** The request ids the backend accepts. */
-const REQUEST = /^[A-Za-z0-9-]{1,64}$/
+const NEEDS_YOU = new Set(["blocked", "rejected"])
+/** The `Idempotency-Key` values `POST /api/todos` accepts. */
+const REQUEST = /^[A-Za-z0-9._:-]{1,128}$/
+/** A TODO reference as `target` normalizes it: `T12`. */
+const TODO_REF = /^T[1-9]\d*$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DAY_MS = 86_400_000
 /**
@@ -82,9 +85,13 @@ export const outOfLanes = (item: Values): boolean => SETTLED.has(str(item.state)
  */
 export const itemLine = (item: Values, changes: ReadonlyArray<unknown> = []): string => {
   const issue = object(item.issue), checks = object(item.checks), pull = object(item.pullRequest)
+  // An item without an issue is named by its TODO, `T12`, and its title (else its stack change's).
   const title = issue.number !== undefined
     ? `#${str(issue.number)} ${str(issue.title)}`
-    : str(changes.map(object).find((change) => change.itemId === item.id)?.title) || str(item.id).slice(0, 8)
+    : [
+      item.todoNumber === undefined ? "" : `T${str(item.todoNumber)}`,
+      str(item.title) || str(changes.map(object).find((change) => change.itemId === item.id)?.title)
+    ].filter(Boolean).join(" ") || str(item.id).slice(0, 8)
   const paths = list(object(object(item.integration).conflict).paths).map(str)
   const reason = item.failure === undefined && str(item.state) === "retrying" && paths.length > 0
     ? paths.join(", ")
@@ -98,6 +105,15 @@ export const itemLine = (item: Values, changes: ReadonlyArray<unknown> = []): st
     str(pull.url)
   ].filter(Boolean).map(clean).join(" · ")
 }
+
+/**
+ * One TODO as `POST /api/todos` answers it: `T12 Add dark mode · queued`. Its
+ * stored state in product words: `needs_you` is "needs you", `in_review` "in review".
+ * @private
+ * @since 1.0.0
+ */
+export const todoLine = (todo: Values): string =>
+  [`T${str(todo.n)} ${str(todo.title)}`, str(todo.state).replaceAll("_", " ")].map(clean).join(" · ")
 
 /**
  * How long a check ran, as `mythicalReceiptDuration` shows it: `42s`, `1m 04s`, `2h 05m`.
@@ -271,31 +287,41 @@ export const render = (value: unknown, now = Date.now()): string => {
 const stackPath = (c: Client, o: Values, suffix = "") => `${c.repoPath(o.repo)}/mythical${suffix}`
 const read = async (c: Client, o: Values): Promise<Values> => object(await c.request("GET", stackPath(c, o)))
 
-/** `12`, `#12`, or an item id, as the item route names it. */
+/** A TODO (`T12`), an issue (`12`, `#12`) or an item id, as `one` finds it: `T12`, `12` or the id. */
 const target = (value: unknown): string => {
   const raw = str(value).trim()
   if (UUID.test(raw)) return raw.toLowerCase()
+  const todo = /^[Tt]([1-9]\d{0,14})$/.exec(raw)
+  if (todo !== null) return `T${todo[1]}`
   if (!/^#?\d{1,15}$/.test(raw) || Number(raw.replace("#", "")) <= 0) {
-    throw new UsageError({ message: "Expected an issue number (12 or #12) or an item id" })
+    throw new UsageError({ message: "Expected a TODO (T12), an issue number (12 or #12) or an item id" })
   }
   return String(Number(raw.replace("#", "")))
 }
-const named = (ref: string): string => UUID.test(ref) ? ref : `#${ref}`
+const named = (ref: string): string => UUID.test(ref) || TODO_REF.test(ref) ? ref : `#${ref}`
 /**
- * One item by id or issue number, however many the history holds; undefined
- * while it holds none. The item route's 404 is checked against the snapshot,
- * so a missing repository or access still fails instead of reading as a
- * wait, and a server without the route still answers from the snapshot.
+ * One item by id, issue number or TODO, however many the history holds;
+ * undefined while it holds none. The item route's 404 is checked against the
+ * snapshot, so a missing repository or access still fails instead of reading
+ * as a wait, and a server without the route still answers from the snapshot.
+ * The item route names no TODO, so a TODO is the snapshot item whose
+ * `todoNumber` it names.
  */
 const one = async (c: Client, o: Values, ref: string): Promise<Values | undefined> => {
-  try {
-    return object(await c.request("GET", stackPath(c, o, `/items/${esc(ref)}`)))
-  } catch (error) {
-    if (!(error instanceof APIError) || error.status !== 404) throw error
-    return list((await read(c, o)).items).map(object).find((item) =>
-      UUID.test(ref) ? str(item.id).toLowerCase() === ref : String(object(item.issue).number) === ref
-    )
+  if (!TODO_REF.test(ref)) {
+    try {
+      return object(await c.request("GET", stackPath(c, o, `/items/${esc(ref)}`)))
+    } catch (error) {
+      if (!(error instanceof APIError) || error.status !== 404) throw error
+    }
   }
+  return list((await read(c, o)).items).map(object).find((item) =>
+    TODO_REF.test(ref)
+      ? `T${str(item.todoNumber)}` === ref
+      : UUID.test(ref)
+      ? str(item.id).toLowerCase() === ref
+      : String(object(item.issue).number) === ref
+  )
 }
 
 /**
@@ -414,10 +440,16 @@ export const history: Record<string, Handler> = {
   "history todo": (c, a, o) => {
     const title = str(a.title).trim()
     if (!title) throw new UsageError({ message: "A TODO needs a title" })
-    // One id names the filing: sending it again (`--request`) after an unknown answer returns the TODO already filed.
+    // One key names the request: sending it again (`--request`) after an unknown answer returns the TODO already made.
     const request = str(o.request) || randomUUID()
-    if (!REQUEST.test(request)) throw new UsageError({ message: "A request id is 1 to 64 letters, digits or hyphens" })
-    return c.request("POST", stackPath(c, o, "/todos"), { title, body: str(o.body), request })
+    if (!REQUEST.test(request)) {
+      throw new UsageError({
+        message: "A request id is 1 to 128 letters, digits, dots, underscores, colons or hyphens"
+      })
+    }
+    return c.request("POST", `/api/todos?repo=${c.repo(o.repo)}`, { title, prompt: str(o.body) || undefined }, {
+      headers: { "Idempotency-Key": request }
+    })
   },
   "history backfill": (c, _a, o) => c.request("POST", stackPath(c, o, "/backfill"), {}),
   "history bootstrap": (c, _a, o) => c.request("POST", stackPath(c, o, "/bootstrap"), {}),
@@ -438,7 +470,7 @@ export const humans: Record<string, (value: unknown) => string> = {
   "history watch": (value) => itemLine(object(value)),
   "history retry": (value) => itemLine(object(value)),
   "history land": (value) => itemLine(object(value)),
-  "history todo": (value) => itemLine(object(value)),
+  "history todo": (value) => todoLine(object(object(value).todo)),
   "history backfill": (value) => render(value),
   "history bootstrap": (value) => render(value),
   "history parallel": (value) => render(value)

@@ -47473,7 +47473,6 @@ Usage: smthrs auth <command>
 Commands:
   connect      Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
   connections  List connected subscriptions
-  local        Set up and log in to an owner backend
   login        Log in to Smithers
   logout       Log out of Smithers
   revoke       Revoke a connected subscription
@@ -47539,124 +47538,6 @@ Usage: smthrs auth connections [options]
 Options:
   --org <string>
   --verbose       Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local
-
-```text
-smthrs auth local — Set up and log in to an owner backend
-
-Usage: smthrs auth local <command>
-
-Commands:
-  bootstrap  Create and log in as the installation owner
-  login      Log in to an owner backend
-  status     Show owner setup status
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local bootstrap
-
-```text
-smthrs auth local bootstrap — Create and log in as the installation owner
-
-Usage: smthrs auth local bootstrap [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local login
-
-```text
-smthrs auth local login — Log in to an owner backend
-
-Usage: smthrs auth local login [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local status
-
-```text
-smthrs auth local status — Show owner setup status
-
-Usage: smthrs auth local status [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -49571,10 +49452,10 @@ Commands:
   bootstrap  Create the history from main's commits
   land       Land a proposed TODO's pull request once its review approves and CI is green
   parallel   Set how many lanes work at once
-  retry      Give a blocked, rejected or declined issue a fresh set of attempts
+  retry      Give a blocked, rejected or declined TODO or issue a fresh set of attempts
   show       Show the history: each issue's lane, checks and pull request
-  todo       File a TODO for the factory
-  watch      Follow one issue until its pull request is open or it stops
+  todo       Make a TODO for the factory
+  watch      Follow one TODO or issue until its pull request is open or it stops
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -49657,7 +49538,7 @@ smthrs history land — Land a proposed TODO's pull request once its review appr
 Usage: smthrs history land <issue> [options]
 
 Arguments:
-  issue  Issue number (12 or #12) or item id
+  issue  TODO (T12), issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>
@@ -49714,12 +49595,12 @@ Global Options:
 ## history retry
 
 ```text
-smthrs history retry — Give a blocked, rejected or declined issue a fresh set of attempts
+smthrs history retry — Give a blocked, rejected or declined TODO or issue a fresh set of attempts
 
 Usage: smthrs history retry <issue> [options]
 
 Arguments:
-  issue  Issue number (12 or #12) or item id
+  issue  TODO (T12), issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>
@@ -49773,7 +49654,7 @@ Global Options:
 ## history todo
 
 ```text
-smthrs history todo — File a TODO for the factory
+smthrs history todo — Make a TODO for the factory
 
 Usage: smthrs history todo <title> [options]
 
@@ -49806,16 +49687,73 @@ Global Options:
 ## history watch
 
 ```text
-smthrs history watch — Follow one issue until its pull request is open or it stops
+smthrs history watch — Follow one TODO or issue until its pull request is open or it stops
 
 Usage: smthrs history watch <issue> [options]
 
 Arguments:
-  issue  Issue number (12 or #12) or item id
+  issue  TODO (T12), issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>
   --verbose            Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs host
+https://smithers.sh/docs/reference/cli/host/
+
+```text
+smthrs host — Inspect this installation’s host
+
+Usage: smthrs host <command>
+
+Commands:
+  status  Show host profile and machine limits
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## host status
+
+```text
+smthrs host status — Show host profile and machine limits
+
+Usage: smthrs host status [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53758,6 +53696,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
 | [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
 | [`history`](/docs/reference/cli/history/) | Follow each issue's lane, checks and pull request |
+| [`host`](/docs/reference/cli/host/) | Inspect this installation’s host |
 | [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |

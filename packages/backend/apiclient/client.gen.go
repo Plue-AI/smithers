@@ -1103,6 +1103,106 @@ type GitHubAppManifestHookAttributes struct {
 	Active bool   `json:"active"`
 }
 
+// TodoState is generated from docs/api/openapi.yaml.
+type TodoState string
+
+// TodoActor — REST actor identity reference; card actors resolve ids to display identities.
+type TodoActor = json.RawMessage
+
+// TodoCreate is generated from docs/api/openapi.yaml.
+type TodoCreate struct {
+	Title      string  `json:"title"`
+	Prompt     *string `json:"prompt,omitempty"`
+	Acceptance *string `json:"acceptance,omitempty"`
+	Place      *string `json:"place,omitempty"`
+}
+
+// TodoCreateAnswer is generated from docs/api/openapi.yaml.
+type TodoCreateAnswer struct {
+	State string `json:"state"`
+	Todo  Todo   `json:"todo"`
+}
+
+// TodoList is generated from docs/api/openapi.yaml.
+type TodoList struct {
+	Todos []Todo `json:"todos"`
+}
+
+// Todo — The TODO card model (spec §14.3). revisions is present on the card and absent from list rows.
+type Todo struct {
+	N           int64                      `json:"n"`
+	Title       string                     `json:"title"`
+	State       TodoState                  `json:"state"`
+	StateReason *string                    `json:"state_reason,omitempty"`
+	Owner       *int64                     `json:"owner,omitempty"`
+	Place       *int64                     `json:"place,omitempty"`
+	Queue       map[string]json.RawMessage `json:"queue,omitempty"`
+	Step        *string                    `json:"step,omitempty"`
+	NeedsYou    map[string]json.RawMessage `json:"needs_you,omitempty"`
+	Failure     *TodoFailure               `json:"failure,omitempty"`
+	Pr          *TodoPr                    `json:"pr,omitempty"`
+	Amendments  int64                      `json:"amendments"`
+	Lessons     int64                      `json:"lessons"`
+	Branch      TodoBranch                 `json:"branch"`
+	Issue       *TodoIssue                 `json:"issue,omitempty"`
+	CreatedBy   TodoActor                  `json:"created_by"`
+	Seq         int64                      `json:"seq"`
+	Revisions   []TodoRevisionsItem        `json:"revisions,omitempty"`
+	CreatedAt   time.Time                  `json:"created_at"`
+	UpdatedAt   time.Time                  `json:"updated_at"`
+}
+
+// TodoFailure is generated from docs/api/openapi.yaml.
+type TodoFailure struct {
+	Step      string `json:"step"`
+	Class     string `json:"class"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+}
+
+// TodoPr is generated from docs/api/openapi.yaml.
+type TodoPr struct {
+	Number int64 `json:"number"`
+}
+
+// TodoBranch is generated from docs/api/openapi.yaml.
+type TodoBranch struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// TodoIssue is generated from docs/api/openapi.yaml.
+type TodoIssue struct {
+	Number int64 `json:"number"`
+	Fixes  bool  `json:"fixes"`
+}
+
+// TodoRevisionsItem is generated from docs/api/openapi.yaml.
+type TodoRevisionsItem struct {
+	Rev        int64     `json:"rev"`
+	Prompt     string    `json:"prompt"`
+	Acceptance *string   `json:"acceptance,omitempty"`
+	Reason     string    `json:"reason"`
+	Author     TodoActor `json:"author"`
+	At         time.Time `json:"at"`
+}
+
+// BranchActivityList is generated from docs/api/openapi.yaml.
+type BranchActivityList struct {
+	Entries []BranchActivityListEntriesItem `json:"entries"`
+}
+
+// BranchActivityListEntriesItem is generated from docs/api/openapi.yaml.
+type BranchActivityListEntriesItem struct {
+	Seq     int64                      `json:"seq"`
+	At      time.Time                  `json:"at"`
+	Actor   TodoActor                  `json:"actor"`
+	AskedBy json.RawMessage            `json:"asked_by,omitempty"`
+	Kind    string                     `json:"kind"`
+	Summary map[string]json.RawMessage `json:"summary"`
+	Github  *bool                      `json:"github,omitempty"`
+}
+
 // PostAPIAdminUsersUsernameEraseBody is generated from docs/api/openapi.yaml.
 type PostAPIAdminUsersUsernameEraseBody struct {
 	RequestDate string `json:"request_date"`
@@ -1123,6 +1223,12 @@ type PostAPIAdminUsersUsernameEraseResponse struct {
 type GetAPIAgentConversationsParams struct {
 	After *string
 	Limit *int64
+}
+
+// GetAPIAuthGithubParams is the query of GET /api/auth/github.
+type GetAPIAuthGithubParams struct {
+	SetupToken *string
+	ReturnTo   *string
 }
 
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
@@ -1289,12 +1395,6 @@ type PostAPIReposOwnerRepoMythicalItemsIDLandBody struct {
 	Head string `json:"head"`
 }
 
-// PostAPIReposOwnerRepoMythicalTodosBody is generated from docs/api/openapi.yaml.
-type PostAPIReposOwnerRepoMythicalTodosBody struct {
-	Title string  `json:"title"`
-	Body  *string `json:"body,omitempty"`
-}
-
 // GetAPIReposOwnerRepoEgressPolicyResponse is generated from docs/api/openapi.yaml.
 type GetAPIReposOwnerRepoEgressPolicyResponse struct {
 	AllowDomains []string   `json:"allow_domains"`
@@ -1383,6 +1483,21 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	StopReason     *string    `json:"stop_reason,omitempty"`
 	FailureMessage *string    `json:"failure_message,omitempty"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+}
+
+// GetAPITodosParams is the query of GET /api/todos.
+type GetAPITodosParams struct {
+	Repo *string
+}
+
+// PostAPITodosParams is the query of POST /api/todos.
+type PostAPITodosParams struct {
+	Repo *string
+}
+
+// GetAPITodosNParams is the query of GET /api/todos/{n}.
+type GetAPITodosNParams struct {
+	Repo *string
 }
 
 // GetAPIUserGithubAppInstallationsResponse is generated from docs/api/openapi.yaml.
@@ -1848,9 +1963,16 @@ func (c *Client) GetAPIAuthAuth0Callback(ctx context.Context) (AnyJSON, error) {
 }
 
 // GetAPIAuthGithub calls GET /api/auth/github.
-func (c *Client) GetAPIAuthGithub(ctx context.Context) (AnyJSON, error) {
+func (c *Client) GetAPIAuthGithub(ctx context.Context, params GetAPIAuthGithubParams) (AnyJSON, error) {
+	query := url.Values{}
+	if params.SetupToken != nil {
+		query.Set("setup_token", *params.SetupToken)
+	}
+	if params.ReturnTo != nil {
+		query.Set("return_to", *params.ReturnTo)
+	}
 	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/auth/github", nil, nil, &out)
+	err := c.do(ctx, "GET", "/api/auth/github", query, nil, &out)
 	return out, err
 }
 
@@ -1924,41 +2046,6 @@ func (c *Client) PostAPIAuthLogout(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PostAPIAuthSSETicket(ctx context.Context) (MultiSSETicketResponse, error) {
 	var out MultiSSETicketResponse
 	err := c.do(ctx, "POST", "/api/auth/sse-ticket", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIAuthLocalStatus calls GET /api/auth/local/status.
-func (c *Client) GetAPIAuthLocalStatus(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/auth/local/status", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalBootstrap calls POST /api/auth/local/bootstrap.
-func (c *Client) PostAPIAuthLocalBootstrap(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/bootstrap", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalLogin calls POST /api/auth/local/login.
-func (c *Client) PostAPIAuthLocalLogin(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/login", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalPassword calls POST /api/auth/local/password.
-func (c *Client) PostAPIAuthLocalPassword(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/password", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalToken calls POST /api/auth/local/token.
-func (c *Client) PostAPIAuthLocalToken(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/token", nil, body, &out)
 	return out, err
 }
 
@@ -4453,13 +4540,6 @@ func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDRetry(ctx context.Context, 
 	return out, err
 }
 
-// PostAPIReposOwnerRepoMythicalTodos calls POST /api/repos/{owner}/{repo}/mythical/todos.
-func (c *Client) PostAPIReposOwnerRepoMythicalTodos(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoMythicalTodosBody) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/todos", nil, body, &out)
-	return out, err
-}
-
 // PostAPIReposOwnerRepoMythicalWiki calls POST /api/repos/{owner}/{repo}/mythical/wiki.
 func (c *Client) PostAPIReposOwnerRepoMythicalWiki(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -4623,6 +4703,46 @@ func (c *Client) GetAPISearchUsers(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/telemetry/errors", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIBranchesBActivity calls GET /api/branches/{b}/activity.
+func (c *Client) GetAPIBranchesBActivity(ctx context.Context, b string) (BranchActivityList, error) {
+	var out BranchActivityList
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/activity", nil, nil, &out)
+	return out, err
+}
+
+// GetAPITodos calls GET /api/todos.
+func (c *Client) GetAPITodos(ctx context.Context, params GetAPITodosParams) (TodoList, error) {
+	query := url.Values{}
+	if params.Repo != nil {
+		query.Set("repo", *params.Repo)
+	}
+	var out TodoList
+	err := c.do(ctx, "GET", "/api/todos", query, nil, &out)
+	return out, err
+}
+
+// PostAPITodos calls POST /api/todos.
+func (c *Client) PostAPITodos(ctx context.Context, params PostAPITodosParams, body TodoCreate) (TodoCreateAnswer, error) {
+	query := url.Values{}
+	if params.Repo != nil {
+		query.Set("repo", *params.Repo)
+	}
+	var out TodoCreateAnswer
+	err := c.do(ctx, "POST", "/api/todos", query, body, &out)
+	return out, err
+}
+
+// GetAPITodosN calls GET /api/todos/{n}.
+func (c *Client) GetAPITodosN(ctx context.Context, n string, params GetAPITodosNParams) (Todo, error) {
+	query := url.Values{}
+	if params.Repo != nil {
+		query.Set("repo", *params.Repo)
+	}
+	var out Todo
+	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(n), query, nil, &out)
 	return out, err
 }
 

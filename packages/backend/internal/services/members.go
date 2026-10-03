@@ -113,7 +113,7 @@ func (s *MemberService) VerifySetupToken(ctx context.Context, token string) erro
 	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
 		return pkgerrors.Internal("failed to read the setup token").WithCause(err)
 	}
-	if err != nil || !setupTokenMatches(stored, SetupTokenDigest(token)) {
+	if err != nil || !setupTokenMatches(stored.Value, SetupTokenDigest(token)) {
 		return errSetupTokenInvalid()
 	}
 	return nil
@@ -132,7 +132,7 @@ func (s *MemberService) claimOwner(ctx context.Context, signIn GitHubSignIn) (db
 	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
 		return db.User{}, pkgerrors.Internal("failed to read the setup token").WithCause(err)
 	}
-	if err != nil || !setupTokenMatches(stored, signIn.SetupTokenDigest) {
+	if err != nil || !setupTokenMatches(stored.Value, signIn.SetupTokenDigest) {
 		return db.User{}, errSetupTokenInvalid()
 	}
 	if err := s.requirePush(ctx, signIn.Login, true); err != nil {
@@ -266,7 +266,7 @@ type installRepositorySetting struct {
 // GitHub App.
 type SettingsInstallRepository struct {
 	queries interface {
-		GetInstallSetting(ctx context.Context, key string) (json.RawMessage, error)
+		GetInstallSetting(ctx context.Context, key string) (db.InstallSetting, error)
 	}
 	installations *GitHubUserReposService
 }
@@ -295,7 +295,7 @@ func (r *SettingsInstallRepository) InstallRepository(ctx context.Context) (Inst
 		return InstallRepository{}, false, pkgerrors.Internal("failed to read the install repository").WithCause(err)
 	}
 	var setting installRepositorySetting
-	if err := json.Unmarshal(raw, &setting); err != nil || setting.Owner == "" || setting.Name == "" {
+	if err := json.Unmarshal(raw.Value, &setting); err != nil || setting.Owner == "" || setting.Name == "" {
 		return InstallRepository{}, false, pkgerrors.Internal("the install repository setting is invalid")
 	}
 	installation, found, err := r.installations.lookupRepoInstallation(ctx, setting.Owner, setting.Name)
@@ -305,7 +305,7 @@ func (r *SettingsInstallRepository) InstallRepository(ctx context.Context) (Inst
 	if !found {
 		return InstallRepository{}, false, pkgerrors.New(pkgerrors.CodeInstallRepositoryUnset, "the GitHub App is not installed on "+setting.Owner+"/"+setting.Name)
 	}
-	token, err := mintGitHubInstallationToken(ctx, installation.ID, &gitHubInstallationTokenScope{
+	token, err := (&RepoConnectionService{githubAppCredentials: r.installations.githubAppCredentials}).mintGitHubInstallationToken(ctx, installation.ID, &gitHubInstallationTokenScope{
 		Repositories: []string{setting.Name},
 		Permissions:  map[string]string{"metadata": "read"},
 	})

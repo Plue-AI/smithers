@@ -229,6 +229,11 @@ const (
 	CodeBuildCacheBusy Code = "build_cache_busy"
 )
 
+// TODOs (spec §4.1): a command or event the TODO's state does not allow.
+const (
+	CodeTodoTransitionRefused Code = "todo_transition_refused"
+)
+
 // Microsandbox control plane: the request was wrong.
 const (
 	CodeImageRequired           Code = "image_required"
@@ -552,6 +557,9 @@ var registry = map[Code]Entry{
 	// is what has to be honest. One second is the real pacing — the slots are
 	// held by requests in flight, not by a refilling window.
 	CodeBuildCacheBusy: {Status: http.StatusTooManyRequests, Fault: FaultWait, RetryAfter: 1, Doc: "The build cache is at its own concurrency ceiling; the caller is inside its budget and the identical request works once a slot frees."},
+	// A TODO's state refuses the transition asked of it (spec §4.1); the
+	// message names the state and the trigger.
+	CodeTodoTransitionRefused: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The TODO's current state does not allow that command or event."},
 	// The sandbox create request named neither an image nor a snapshot.
 	CodeImageRequired: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The sandbox create request named neither an image nor a snapshot."},
 	// The operation requires an idempotency key and the request carried

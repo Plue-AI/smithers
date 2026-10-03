@@ -224,7 +224,7 @@ func TestFactoryIssueOwnershipMythicalPhaseGapAndRevisedGeneration(t *testing.T)
 	// worker test independently proves cancel-before-launch settlement.
 	item := f.o.item(f.issue.Number)
 	item.State = "cancelled"
-	_, err = db.New(f.pool).SaveMythicalItem(ctx, item)
+	_, err = f.o.service.saveItem(ctx, item)
 	require.NoError(t, err)
 	require.NoError(t, f.o.service.ObserveIssue(ctx, f.o.repoID, edited, maintainerTodo))
 	require.Equal(t, "queued", f.o.item(f.issue.Number).State)
@@ -436,7 +436,7 @@ func TestFactoryIssueOwnershipHTTPWorkerCancellationAndHandoff(t *testing.T) {
 	// The domain explicitly ends this item; a role can acquire the now quiet issue.
 	item := f.o.item(f.issue.Number)
 	item.State = "cancelled"
-	_, err = db.New(f.pool).SaveMythicalItem(ctx, item)
+	_, err = f.o.service.saveItem(ctx, item)
 	require.NoError(t, err)
 	f.wake(t)
 	fresh := f.claim(t)
@@ -457,6 +457,8 @@ func TestFactoryIssueOwnershipHTTPWorkerCancellationAndHandoff(t *testing.T) {
 		op, e := f.store.Get(ctx, scope, uuidString(fresh.OperationID))
 		return e == nil && op.State == jobs.StateCompleted
 	}, 5*time.Second, 5*time.Millisecond)
+	// §12.3.6: a new admission makes a new TODO after cancellation.
+	require.NoError(t, f.o.service.ObserveIssue(ctx, f.o.repoID, f.issue, maintainerTodo))
 	_, err = f.commit(t, "request")
 	require.NoError(t, err)
 	require.Equal(t, "mythical", f.claim(t).OwnerKind)
@@ -538,7 +540,7 @@ func TestFactoryIssueOwnershipDeferredApprovalRevocation(t *testing.T) {
 			f.proof(t, uuidString(claim.OperationID), "cancelled", "cancelled")
 			item := f.o.item(f.issue.Number)
 			item.State = "cancelled"
-			_, err = db.New(f.pool).SaveMythicalItem(ctx, item)
+			_, err = f.o.service.saveItem(ctx, item)
 			require.NoError(t, err)
 			f.wake(t)
 			require.Equal(t, claim.ID, f.claim(t).ID, "stale queued payload cannot acquire the now quiet issue")

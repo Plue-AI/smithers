@@ -22,7 +22,7 @@ func TestHostStatusAuthenticatedHTTPModelPostgres(t *testing.T) {
 	q := db.New(pool)
 	u, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "hostowner", LowerUsername: "hostowner"})
 	require.NoError(t, err)
-	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES ($1)`, u.ID)
+	_, err = pool.Exec(t.Context(), `INSERT INTO members(user_id,login,role) VALUES ($1,'owner','owner')`, u.ID)
 	require.NoError(t, err)
 	actor := u.ID
 	token := func(value, scope string) string {

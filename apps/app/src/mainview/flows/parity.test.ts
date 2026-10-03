@@ -197,11 +197,6 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   // Choosing this document's writer is a human tab gesture, not an app command.
   // The human credential continuation opened by auth.sign-in. Passwords stay
   // in the form and its auth controller, outside the command journal.
-  "../LocalAuthPanel.tsx": [
-    "onSubmit={submit}",
-    "close(event.currentTarget.ownerDocument)",
-    "onClick: () => auth.open()"
-  ],
   // Bootstrap recovery runs before a controller exists. Backend selection
   // stays in the boot adapter; its credential must never enter a command journal.
   "../AppRoot.tsx": ["onClick={() => window.location.reload()}"], // saved-store failure blocks the command journal; Reload reopens storage
@@ -1051,8 +1046,6 @@ describe("launch-law parity: every affordance is a command", () => {
     const startup = files["../StartupError.tsx"]!
     expect(startup).toContain("await switchBackend(origin, token)")
     expect(startup).toContain("switchBackendTarget(target, token, window.location.origin)")
-    expect(files["../LocalAuthPanel.tsx"]).toContain("void auth.submit({")
-    expect(files["../LocalAuthPanel.tsx"]).toContain("auth.close()")
     expect(files["../HelpBubble.tsx"]).toContain("onDismiss()")
     expect(files["../InputModeMenu.tsx"]).toContain("data-flow=\"input.mode\"")
     for (const file of ["../App.tsx"]) {
@@ -1096,7 +1089,6 @@ describe("launch-law parity: every affordance is a command", () => {
       "../ChatFilterMenu.tsx": 2,
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 3,
-      "../LocalAuthPanel.tsx": 4, // Includes the failed read's Retry, a FailureNotice action.
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
       "../StorageRecoveryButton.tsx": 1,
       "../WorldSurface.tsx": 15, // The wiki spaces (#1922): the switch, New page, Graph, Edit (wiki.view), History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.

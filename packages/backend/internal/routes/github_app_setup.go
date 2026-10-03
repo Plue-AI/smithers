@@ -25,7 +25,7 @@ type GitHubAppSetupService interface {
 	ResumeInstallation(context.Context) error
 }
 type GitHubAppSetupOwners interface {
-	GetSelfHostOwner(context.Context) (db.User, error)
+	GetInstallOwnerUser(context.Context) (db.User, error)
 }
 type GitHubAppSetupCredentials interface {
 	Load(context.Context) (services.GitHubAppCredentials, error)
@@ -53,7 +53,7 @@ func (h *GitHubAppSetupHandler) authorize(w http.ResponseWriter, r *http.Request
 		pkgerrors.WriteError(w, pkgerrors.Internal("install setup is unavailable"))
 		return false
 	}
-	owner, err := h.Owners.GetSelfHostOwner(r.Context())
+	owner, err := h.Owners.GetInstallOwnerUser(r.Context())
 	if errors.Is(err, pgx.ErrNoRows) {
 		if h.Sessions == nil {
 			pkgerrors.WriteError(w, pkgerrors.Internal("setup session authority unavailable"))
