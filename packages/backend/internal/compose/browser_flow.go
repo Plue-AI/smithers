@@ -16,7 +16,6 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -37,12 +36,10 @@ var browserFlowProcedures = map[string]bool{
 	"Steer": true, "Signal": true, "List": true,
 	"Projection.Snapshot": true, "Approval.Submit": true,
 	"Run.Fork": true, "Run.Verify": true,
-	"Registration.Report": true,
 }
 
 type browserFlowAPI struct {
-	registrationPool *pgxpool.Pool
-	repos            interface {
+	repos interface {
 		GetRepoView(context.Context, *db.User, string, string) (services.RepoView, error)
 	}
 	queries interface {
@@ -58,10 +55,6 @@ type browserFlowAPI struct {
 	// limit is the account-wide API budget. Reads a run's progress polls
 	// (Projection.Snapshot, List) stay out of it, as the box relay always did.
 	limit func(http.Handler) http.Handler
-	// reports shares registration reports of public repositories across
-	// accounts (#2158); observed dedupes what a relayed journal asks it to record.
-	reports  registrationReports
-	observed registrationObserved
 }
 
 // browserFlowDispatcher is the box's flow seam (flowdispatch.Service).
@@ -116,9 +109,6 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 	}
 	if !provision && !browserFlowProcedures[request.Procedure] {
 		browserFlowRefusal(w, http.StatusBadRequest, "The workflow seam does not relay this procedure.")
-		return request, flowruntime.Target{}, db.Workspace{}, false
-	}
-	if !provision && registrationDecision(request.Payload, request.Procedure) && !registrationAdmin(w, r, true) {
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	if !provision {
@@ -272,36 +262,12 @@ func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 		browserFlowRefusal(w, 400, "Invalid workflow request.")
 		return
 	}
-	var adminRequest browserFlowRequest
-	decoded := json.Unmarshal(body, &adminRequest) == nil
-	if decoded && registrationDecision(adminRequest.Payload, adminRequest.Procedure) {
-		if !registrationAdmin(w, r, true) {
-			return
-		}
-		if adminRequest.Procedure == "Signal" {
-			browserFlowRefusal(w, 400, "Answer this question through the approvals inbox.")
-			return
-		}
-	}
-	if decoded && (adminRequest.Procedure == "Registration.Reviews" || registrationDecision(adminRequest.Payload, adminRequest.Procedure)) {
-		serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { api.registrationRPC(w, r, adminRequest) })
-		if api.limit != nil {
-			api.limit(serve).ServeHTTP(w, r)
-		} else {
-			serve.ServeHTTP(w, r)
-		}
-		return
-	}
 	r.Body = io.NopCloser(strings.NewReader(string(body)))
 	request, target, workspace, ok := api.prepare(w, r, false)
 	if !ok {
 		return
 	}
 	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if request.Procedure == "Registration.Report" {
-			api.registrationReport(w, r, request.Payload)
-			return
-		}
 		api.relay(w, r, request, target, workspace)
 	})
 	if api.limit == nil || request.Procedure == "Projection.Snapshot" || request.Procedure == "List" {
@@ -342,9 +308,6 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 		browserFlowUnavailable(w, err, request.Procedure)
 		return
 	}
-	if snapshot {
-		api.observeRegistration(answer)
-	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(answer)
 }
@@ -352,9 +315,6 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 // mountBrowserFlow serves the browser Flow seam. The OpenAPI conformance test
 // walks the same mounts.
 func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries, browser *browserFlowAPI) {
-	if browser.reports == nil && browser.registrationPool != nil {
-		browser.reports = services.NewRegistrationReports(browser.registrationPool)
-	}
 	access := func(limited bool) []func(http.Handler) http.Handler {
 		chain := []func(http.Handler) http.Handler{
 			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),

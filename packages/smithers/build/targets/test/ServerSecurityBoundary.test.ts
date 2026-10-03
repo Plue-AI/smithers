@@ -44,8 +44,7 @@ describe("deployed server security boundaries", () => {
           "packages/backend/internal/middleware/run_credential.go",
           "packages/backend/internal/services/repo.go",
           "packages/backend/internal/services/repo_permissions.go",
-          "packages/backend/internal/db/workspace.sql.go",
-          "packages/backend/internal/compose/registration_review.go"
+          "packages/backend/internal/db/workspace.sql.go"
         ]
       ) {
         expect(authorization).toContain(gate)
