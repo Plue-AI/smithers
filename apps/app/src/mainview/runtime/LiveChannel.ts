@@ -109,7 +109,8 @@ export class LiveChannel {
       return
     }
     if (frame.t === "err" && typeof frame.code === "string") {
-      this.publish(topic, entry, { ...entry.snapshot, error: frame.code })
+      entry.awaitingSnapshot = true
+      this.publish(topic, entry, { topic, error: frame.code })
       return
     }
     if (frame.t !== "snap" && frame.t !== "delta") return
@@ -132,7 +133,7 @@ export class LiveChannel {
   }
   private publish(topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
     entry.snapshot = snapshot
-    if (this.collection.has(topic)) this.collection.update(topic, row => { Object.assign(row, snapshot); if (!snapshot.error) delete row.error })
+    if (this.collection.has(topic)) this.collection.update(topic, row => { Object.assign(row, snapshot); if (!("data" in snapshot)) row.data = undefined; if (snapshot.cursor === undefined) row.cursor = undefined; if (!snapshot.error) row.error = undefined })
     else this.collection.insert(snapshot)
     for (const listener of entry.listeners) listener()
   }
