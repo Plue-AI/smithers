@@ -5,7 +5,7 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/flows-jj", "crates/smithers-ffi"]
+members = ["crates/flows-jj", "crates/smithers-ffi", "crates/smithers-machined"]
 
 [workspace.dependencies]
 # Both browser flows and the repository service use the same jj store format.

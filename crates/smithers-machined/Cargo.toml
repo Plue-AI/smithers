@@ -1,0 +1,27 @@
+[package]
+name = "smithers-machined"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[features]
+default = []
+testing = ["dep:tempfile", "dep:serde"]
+killpoints = []
+documents = ["dep:yrs"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros", "process"] }
+rustix = { version = "1.1.4", features = ["fs", "net", "process", "pty", "termios", "thread", "mount"] }
+sha2 = "0.10"
+hmac = "0.12"
+getrandom = "0.3"
+yrs = { version = "=0.27.4", optional = true, features = ["small-client"] }
+tempfile = { version = "3", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
