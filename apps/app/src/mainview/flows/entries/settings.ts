@@ -15,7 +15,8 @@ const object: Grammar = args => {
   return { error: "Enter settings as a JSON object" }
 }
 const count = (field: string): Grammar => args => args?.trim().startsWith("{") ? object(args)
-  : { payload: args?.trim() ? { [field]: Number(args.trim()) } : {} }
+  : !args?.trim() ? { payload: {} } : Number.isFinite(Number(args.trim()))
+    ? { payload: { [field]: Number(args.trim()) } } : { error: "Enter a number" }
 const key: Grammar = args => {
   const parsed = object(args)
   if ("payload" in parsed) { const { role, provider } = parsed.payload; return { payload: {

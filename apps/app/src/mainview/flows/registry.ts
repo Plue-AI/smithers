@@ -328,18 +328,10 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
     .map((row) => row.name)
 }
 
-/*
- * ── The namespace tree ─────────────────────────────────────────────────
- *
- * A flow's namespace is its dotted head (`auth.sign-in` → `auth`). Every
- * Namespaced flows live in one; the only bare names are the surface
- * switches (`chat`, `wiki`, `connect`, `flows`, `plugins`, `subagents`), which ARE the top
- * level of the app and read wrong under any prefix. The hidden `world` alias of `wiki`
- * (entries/world.ts) never lists, so it needs no place here.
- */
 
-/** The surface switches: the one legitimate top-level leaves. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki"]
+
+/** Built-in top-level leaves, distinct from repository-owned flows. */
+export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "settings", "todo"]
 
 export interface Namespace {
   readonly id: string

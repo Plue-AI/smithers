@@ -35,7 +35,7 @@ const form = (submitLabel: string) => ({ submitLabel,
 
 export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({ name: "draft.discard", summary: "Discard a private Draft", hidden: true,
-    input: Schema.Struct({ draft: Text }), args: "<draft>",
+    input: Schema.Struct({ draft: Text }), args: "<draft>", grammar: args => ({ payload: args?.trim() ? { draft: args.trim() } : {} }),
     handler: ({ draft }) => actions.dismissTodoDraft(draft) }),
   flow({ name: "todo.new", summary: "Write and place a TODO", args: "[text]", input: TodoNewInput,
     grammar: todoGrammar("text", false), form: form("Commit"),

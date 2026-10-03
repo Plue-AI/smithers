@@ -152,16 +152,10 @@ const ready = async (services: AppServices, state: "signed-in" | "signed-out" = 
   return { store, controller }
 }
 
-/*
- * The listed bare leaves that are neither the app's surface switches nor its
- * own tutorial replay door: exactly the repository's.
- */
-/** Any retained bare app flow must be distinguished from repository-owned leaves. */
-const APP_BARE_FLOWS: string[] = []
 const repositoryLeaves = (controller: Awaited<ReturnType<typeof ready>>["controller"]): Array<string> =>
   visibleItems(controller.commands)
     .map((command) => command.name)
-    .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && !APP_BARE_FLOWS.includes(name))
+    .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name))
 
 const treeNames = (rows: ReturnType<Awaited<ReturnType<typeof ready>>["controller"]["slashTree"]>): Array<string> =>
   rows.map((entry) => (entry.kind === "flow" ? entry.flow.name : entry.kind === "namespace" ? `${entry.namespace.id}/` : `note:${entry.text}`))

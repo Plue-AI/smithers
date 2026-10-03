@@ -2,11 +2,13 @@ import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
 import type { SeamContext } from "./SeamContext"
 import { readResult, unreachableSentence } from "./SeamContext"
+
+class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
 
 export type TodoEntry = Extract<Card, { kind: "todo" }>
 export type DraftEntry = Extract<Card, { kind: "draft" }>
@@ -84,7 +86,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const live = stillCurrent ?? (() => current(login, revision))
     if (!live()) return
     const model = TodoCardSchema.parse(todoActors(value, options.actors?.()))
-    if (model.n !== n) throw new Error("TODO topic mismatch")
+    if (model.n !== n) throw new TodoTopicMismatch()
     const card = entry(n) ?? blank(n)
     await write({ ...card, title: model.title, payload: { ...card.payload, model,
       requests: card.payload.requests.filter(request => !receipts.some(receipt => receipt.key === request.key && receipt.outcome)),

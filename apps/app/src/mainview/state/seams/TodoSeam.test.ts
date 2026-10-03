@@ -200,7 +200,7 @@ describe("TodoSeam — admission and live completion", () => {
       if (!result || typeof result === "string") throw new Error("Expected a TODO read")
       expect(JSON.parse(result.value)).toEqual(JSON.parse(JSON.stringify(fixtures.in_review.model)))
       expect(h.todo().payload.model).toEqual(fixtures.in_review.model)
-      await expect(h.seam.applyTodoProjection(13, fixtures.in_review.model)).rejects.toThrow("TODO topic mismatch")
+      await expect(h.seam.applyTodoProjection(13, fixtures.in_review.model)).rejects.toMatchObject({ _tag: "TodoTopicMismatch", message: "TODO topic mismatch" })
       await h.seam.controlTodo(12, "stop")
       await waitFor(() => h.todo().payload.requests[0]?.state === "failed")
       expect(h.todo().payload.requests[0]?.error).toBe("TODO admission was not confirmed.")

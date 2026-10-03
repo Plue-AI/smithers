@@ -167,6 +167,7 @@ describe("the controller's command surface", () => {
       "store",
       "localAuth",
       "stackSnapshots",
+      "installSnapshots",
       "wikiIndexes",
       "wikiAttachments",
       "controlFocus",

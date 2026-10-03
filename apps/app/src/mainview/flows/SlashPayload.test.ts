@@ -308,14 +308,7 @@ test("run source parsing preserves repository context for slash-shaped run IDs",
 })
 
 
-/*
- * The declaration/grammar gate. Argument grammar lives in one table, keyed by
- * name, beside declarations that carry their own `args` hint and input schema;
- * a declaration the table forgets decodes to the EMPTY payload, so what the
- * human typed is discarded in silence. `triggers.register` shipped exactly
- * that: it declares `[owner/repo]`, forwards `repo` to registerTrigger, and
- * had no decoder, so a named repository never reached it.
- */
+/* Argument-bearing flows need a table decoder or a declaration grammar. */
 describe("every declaration that takes arguments names a decoder", () => {
   /** Registration never invokes a handler, so every controller call answers with nothing. */
   const inertActions = new Proxy({}, { get: () => () => undefined }) as CommandActions
@@ -323,8 +316,8 @@ describe("every declaration that takes arguments names a decoder", () => {
   test("a flow declaring an args hint carries a decoder, in the table or on the declaration", () => {
     const undecoded = [...baseFlows(inertActions), ...adminFlows(inertActions)]
       .filter((entry) => entry.metadata.args !== undefined)
+      .filter((entry) => !hasGrammar(nameOf(entry)) && entry.metadata.grammar === undefined)
       .map(nameOf)
-      .filter((name) => !hasGrammar(name))
     expect(undecoded).toEqual([])
   })
 

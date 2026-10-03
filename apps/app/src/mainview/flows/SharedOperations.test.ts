@@ -1,8 +1,4 @@
-/*
- * The GUI binds the shared app operations (#2125): each GUI flow of a shared
- * namespace is the shared declaration plus a controller handler, never a
- * second copy of its name, input or rules.
- */
+/* Shared wiki declarations retain their schema and rules when bound to the GUI. */
 import { describe, expect, test } from "bun:test"
 import { wikiOperations, wikiSurfaceOperations } from "@smthrs/ui/app-operations/wiki"
 import { bind, type AppOperation, type CommandActions } from "./entries/Declare"
@@ -12,12 +8,13 @@ import { nameOf } from "./registry"
 /** Handlers are never called here: binding reads only the declarations. */
 const unused = {} as CommandActions
 
-const bound = [...wikiSurfaceFlows(unused), ...wikiFlows(unused)]
+const all = [...wikiSurfaceFlows(unused), ...wikiFlows(unused)]
+const bound = all.filter(entry => nameOf(entry) !== "wiki.save")
 const shared: ReadonlyArray<AppOperation> = [...wikiSurfaceOperations, ...wikiOperations].filter(operation => operation.name !== "wiki.ask")
 
 describe("GUI wiki flows", () => {
   test("register exactly the retained shared operations, in their order", () => {
-    expect(bound.map(nameOf)).toEqual(shared.map((declared) => declared.name))
+    expect(all.map(nameOf)).toEqual([...shared.map((declared) => declared.name), "wiki.save"])
   })
 
   test("the public wiki question operation remains available without an app door", () => {
