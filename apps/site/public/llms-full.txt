@@ -2923,6 +2923,8 @@ Use environment variables for defaults; command-line flags override them.
 | `CEREBRAS_API_KEY` | Cerebras; preferred for chat when set. |
 | `SMITHERS_OPENAI_COMPATIBLE_BASE_URL` | An OpenAI-compatible endpoint. |
 
+A terminal credit refusal marks its model, or every model on its account, `no credit` in the picker for the rest of the session. Timed quota windows can recover. Work asked of an exhausted model runs once on a model that has answered, or the chat model, and says so. A model you choose is never replaced.
+
 Worker completions and monitors require a connected ChatGPT subscription, directly or through the account pool. They need no separate judge key.
 
 ## Settings
@@ -28191,8 +28193,10 @@ observations (`ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`,
 `SteeringDrained`), and the terminal set (`Suspended`, `PermissionRequired`,
 `TurnClosed`, `Resolved`, `Aborted`).
 
-Capacity transitions are `SeatFailedOver` (`from`, `to`, `code`, optional
-`resetAtEpochMillis`), `ModelParked` (`seat`, `wakeAt`, `source`, `code`), and
+Capacity attempts emit `ModelSelected` (`seat`) with the actual selected seat,
+including recovery to the primary and later frames continuing on a backup.
+Transitions are `SeatFailedOver` (`from`, `to`, `code`, optional
+`resetAtEpochMillis`, `retryAfterMillis`, `httpStatus`, `quotaScope`), `ModelParked` (`seat`, `wakeAt`, `source`, `code`), and
 `ModelUnparked` (`seat`, `at`).
 
 Two of them record what a step was asked, so a reader can open one step and
@@ -35145,6 +35149,7 @@ itself, so nothing about the request's settlement is known.
 | `ModelError`                               | error class | As described above.                                                                                                                                             |
 | `isContextOverflow(providerCode, message)` | refinement  | Whether a provider's own code and message describe a context overflow. Protocol adapters call it ahead of their generic bad-request branch.                     |
 | `isQuotaExhausted(providerCode, message)`  | refinement  | Whether a provider's own code and message describe an exhausted account rather than a transient rate limit, so a durable consumer can park instead of retrying. |
+| `isTerminalRefusal(error)` | classification | Whether the normalized refusal requires intervention rather than a quota cooldown; shared with agent quota policy and failure actions. |
 
 ## `FailureCopy`
 
@@ -35153,7 +35158,9 @@ itself, so nothing about the request's settlement is known.
 [`Fault.of(error).class`](/docs/reference/api/flow/#fault), one of `user`, `wait`, `infra`,
 `dependency`, `bug`, `factory`, and `policy`; actions are `resume`,
 `switch-model`, `wait`, and `details`. A model seat supplies the provider name
-for a limit. Unknown errors have a generic headline. Raw messages and stacks
+for a limit, through `provider(seat)`: `OpenAI`, `Anthropic`, `Claude Code`,
+`Kimi`, `Gemini`, `OpenRouter`, `Cerebras`, else `Model`. An account out of
+quota or credit offers `switch-model` first. Unknown errors have a generic headline. Raw messages and stacks
 belong in technical details, never in the headline. A bare string is never
 read for a fault: the fault arrives typed. A `SeatUnresolved` anywhere on the
 cause chain reads "Model sign-in required" with the host's own sign-in

@@ -56,7 +56,15 @@ import * as Approvals from "./approvals.ts"
 import * as Box from "./box.ts"
 import * as Changes from "./changes.ts"
 import * as Context from "./context.ts"
-import { type Available, delegateModels, detectWithoutClaude, routing, workerFallbackSeats } from "./models.ts"
+import * as Credit from "./credit.ts"
+import {
+  type Available,
+  delegateModels,
+  detectWithoutClaude,
+  routedSeats,
+  routing,
+  workerFallbackSeats
+} from "./models.ts"
 import * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
 import * as Replay from "./replay.ts"
@@ -71,7 +79,14 @@ export type { Box } from "./box.ts"
 export type Outcome =
   /** `unchecked`: the run finished but no judge could check `answer`. */
   | { readonly _tag: "done"; readonly answer: string; readonly unchecked?: true }
-  | { readonly _tag: "failed"; readonly message: string; readonly detail: string; readonly error?: unknown }
+  | {
+    readonly _tag: "failed"
+    readonly message: string
+    readonly detail: string
+    readonly error?: unknown
+    /** The seat whose model call was last requested, when one was. */
+    readonly seat?: string
+  }
   | { readonly _tag: "cancelled" }
 
 export interface TurnInput {
@@ -161,6 +176,8 @@ export interface Host {
   readonly judged: boolean
   /** Whether a worker with no chosen model runs on `Seat.auto`; false on test fakes. */
   readonly routes?: boolean
+  /** Which model accounts ran out of credit this session; every turn this host runs records it. */
+  readonly credit?: Credit.Ledger
   readonly run: (input: TurnInput) => Turn
   /** Absent on hosts that approve nothing, such as test fakes. */
   readonly approvals?: {
@@ -271,7 +288,8 @@ export const make = (options: {
   const env = options.environment
   const available = options.available ?? detectWithoutClaude(env)
   const judge = options.judge ?? NodeControl.layerSeatEvaluator(env).pipe(Layer.provide(executor))
-  const catalog = routing(available, env, true)
+  const credit = Credit.make(available.models, routedSeats(available))
+  const catalog = routing(available, env, true, credit.spent)
   // The operator's stance, validated where `smithers run` validates it.
   const stance = NodeControl.supervisorStance(env)
   const ledgerOptions = options.ledger === undefined ? {} : { ledger: options.ledger }
@@ -495,6 +513,8 @@ export const make = (options: {
     const executionId = `tui-${hostId}-${index}`
     const callMs = options.callMs ?? Sandbox.defaultLimits.callMs
     const session = `tui-${process.pid}-${index}`
+    /** The seat of this turn's latest model call. */
+    let requested: string | undefined
     const program = Effect.gen(function*() {
       // Each worker routes on its own; a retry or resume is handed the seat and variant it was routed to.
       const decision = input.seat !== Seat.auto
@@ -550,7 +570,10 @@ export const make = (options: {
       // operator set the fallback order.
       const fallbackSeats = input.role === "worker" && !chosen.startsWith("replay:")
         ? yield* Effect.forEach(
-          input.fallbackSeats ?? workerFallbackSeats(chosen, available, env, route?.backups),
+          // A backup whose account has no credit is never tried.
+          (input.fallbackSeats ?? workerFallbackSeats(chosen, available, env, route?.backups)).filter((backup) =>
+            !credit.spent(backup)
+          ),
           (name) => Effect.flatMap(SeatResolver.SeatResolver, (resolver) => resolver.resolve(name))
         )
         : []
@@ -690,6 +713,15 @@ export const make = (options: {
         Stream.runForEach((journaled) =>
           Effect.gen(function*() {
             const event = receipts(journaled)
+            // Frame intent is replaced by the actual seat selected for each attempt.
+            if (event._tag === "model-requested" || event._tag === "model-selected") requested = event.seat
+            if (event._tag === "seat-failed-over") {
+              if (Credit.exhausted({ ...event, _tag: "flows/model/ModelError" })) {
+                credit.spend(event.from, Credit.scopeOf({ ...event, _tag: "flows/model/ModelError" }))
+              }
+              requested = event.to
+            }
+            if (event._tag === "model-settled" && requested !== undefined) credit.answered(requested)
             if (event._tag === "resolved") answer = text(event.message.content)
             if (event._tag === "model-requested" || event._tag === "model-retried") reply = ""
             if (event._tag === "model-delta" && event.delta.type === "text-delta") reply += event.delta.text
@@ -726,7 +758,16 @@ export const make = (options: {
         const notice = capNotice(Cause.squash(exit.cause), `${input.role ?? "coordinator"} ${executionId}`)
         // A panel's runs are the tab's; only the tab names its cap.
         if (notice !== undefined && input.budget === undefined) Log.alert("host.cap", notice)
-        resolve({ _tag: "failed", message: describe(exit.cause), detail, error: Cause.squash(exit.cause) })
+        const error = Cause.squash(exit.cause)
+        // Only terminal credit refusals persist; timed capacity windows can recover.
+        if (Credit.exhausted(error)) credit.spend(requested ?? input.seat, Credit.scopeOf(error))
+        resolve({
+          _tag: "failed",
+          message: describe(exit.cause),
+          detail,
+          error,
+          ...(requested === undefined ? {} : { seat: requested })
+        })
       })
     })
     return { done, cancel: () => void runtime.runFork(Fiber.interrupt(fiber)) }
@@ -755,6 +796,7 @@ export const make = (options: {
     ...(options.budget?.tokens === undefined ? {} : { runCap: options.budget.tokens.max }),
     judged: true,
     routes: catalog !== undefined,
+    credit,
     memory,
     run,
     approvals,

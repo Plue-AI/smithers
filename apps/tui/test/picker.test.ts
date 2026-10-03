@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test"
 import * as Catalog from "../src/catalog.ts"
+import * as Credit from "../src/credit.ts"
 import type * as Extension from "../src/extension.ts"
 import * as Models from "../src/models.ts"
+import * as Palette from "../src/palette.ts"
 import * as Picker from "../src/picker.ts"
 import type * as Session from "../src/session.ts"
 import * as Timeline from "../src/timeline.ts"
@@ -91,13 +93,12 @@ test("an auto-routed worker model picker does not call the chat seat current", (
   ])
 })
 
-test("chat model picker lists seat identities and marks the chat seat without reading files", () => {
+test("chat model picker lists models by name and provider and marks the chat seat without reading files", () => {
   expect(rows({ kind: "model", query: "", selected: 1 })).toEqual([
     {
       key: sol,
       label: "Sol",
       hint: "OpenAI",
-      detail: sol,
       current: false,
       value: sol
     },
@@ -105,11 +106,101 @@ test("chat model picker lists seat identities and marks the chat seat without re
       key: "replay:small",
       label: "Small",
       hint: "Replay",
-      detail: "replay:small",
       current: true,
       value: "replay:small"
     }
   ])
+})
+
+test.each(["model", "worker-model"] as const)(
+  "%s picker lists models with credit first and says which have none",
+  (kind) => {
+    const picker: Picker.Picker = kind === "model"
+      ? { kind, query: "", selected: 0 }
+      : { kind, id: "worker-2", query: "", selected: 0 }
+    const listed = [
+      { seat: "openai:gpt-6.1-sol", label: "GPT-6.1 Sol", provider: "OpenAI" },
+      { seat: "cerebras:qwen-3.8-27b", label: "Qwen 3.8", provider: "Cerebras" },
+      { seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5", provider: "Anthropic" },
+      { seat: "anthropic:claude-sonnet-5-5", label: "Claude Sonnet 5.5", provider: "Anthropic" }
+    ]
+    const credit = Credit.make(listed)
+    credit.spend("openai:gpt-6.1-sol")
+    credit.spend("opus")
+    const shown = Picker.rows(
+      picker,
+      listed,
+      "cerebras:qwen-3.8-27b",
+      Timeline.all,
+      [],
+      noFiles,
+      [],
+      flows,
+      [],
+      [],
+      credit.spent
+    )
+    expect(shown.map((row) => [row.label, row.hint, row.detail])).toEqual([
+      ["Qwen 3.8", "Cerebras", undefined],
+      ["GPT-6.1 Sol", "OpenAI", "no credit"],
+      ["Claude Opus 5.5", "Anthropic", "no credit"],
+      ["Claude Sonnet 5.5", "Anthropic", "no credit"]
+    ])
+    // A query keeps the split: what has credit, then what has none.
+    expect(
+      Picker.rows({ ...picker, query: "o" }, listed, "x", Timeline.all, [], noFiles, [], flows, [], [], credit.spent)
+        .map((row) => row.detail === "no credit")
+    ).toEqual(
+      Picker.rows({ ...picker, query: "o" }, listed, "x", Timeline.all, [], noFiles, [], flows, [], [], credit.spent)
+        .map((row) => row.detail === "no credit").toSorted()
+    )
+  }
+)
+
+test("palette actions and the credit filter retain their own arguments", () => {
+  const worker: Tab = {
+    id: "worker:α",
+    depth: 0,
+    title: "Credit merge",
+    prompt: "Review",
+    seat: sol,
+    file: "worker.jsonl",
+    status: "failed",
+    startedAt: 1,
+    failure: {
+      headline: "OpenAI quota exhausted",
+      fault: "wait",
+      line: "Restore account quota and resume.",
+      actions: ["switch-model", "resume", "details"]
+    }
+  }
+  const acts = Palette.actions({ diff: false, tabs: [worker], runs: [], monitors: [], views: [] })
+  const action: Extension.Action = { kind: "open", surface: "ui:credit:review" }
+  const actions = [{ key: "review", label: "Credit merge result", action }]
+  const credit = Credit.make(models)
+  credit.spend(sol)
+  const checked: string[] = []
+  const spent = (seat: string) => {
+    checked.push(seat)
+    return credit.spent(seat)
+  }
+  const list = (picker: Picker.Picker) =>
+    Picker.rows(picker, models, sol, Timeline.all, [worker], () => [], [], flows, actions, acts, spent)
+  const palette = list({ kind: "palette", query: "Credit merge", selected: 0 })
+  expect(palette.map((row) => row.label).toSorted()).toEqual(["Credit merge result", "Resume", "Switch model"])
+  expect(Object.fromEntries(palette.map((row) => [row.label, JSON.parse(row.value)]))).toEqual({
+    "Switch model": { kind: "act", act: { act: "worker", id: worker.id, action: "model" } },
+    Resume: { kind: "act", act: { act: "worker", id: worker.id, action: "retry" } },
+    "Credit merge result": { kind: "action", action }
+  })
+  expect(checked).toEqual([])
+  // The same arguments let the model picker apply credit without consuming palette acts.
+  expect(list({ kind: "model", query: "", selected: 0 }).map((row) => [row.value, row.detail])).toEqual([
+    ["replay:small", undefined],
+    [sol, "no credit"]
+  ])
+  expect(checked).toContain(sol)
+  expect(checked).toContain("replay:small")
 })
 
 test("worker model picker marks its own seat rather than the chat seat", () => {
@@ -165,7 +256,6 @@ test.each(["model", "worker-model"] as const)(
       key: "replay:small",
       label: "Small",
       hint: "Replay",
-      detail: "replay:small",
       current: kind === "model",
       value: "replay:small"
     }])

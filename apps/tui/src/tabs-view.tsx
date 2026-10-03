@@ -243,7 +243,7 @@ export function WorkerView(props: {
   const facts = [
     ...(tab.driver === undefined ? [] : [`${tab.driver.by} since ${clock(tab.driver.from)}`]),
     tab.harness === undefined
-      ? Tabs.model(tab.seat, props.models)
+      ? Tabs.seatName(tab, props.models)
       : `${tab.harness.vendor}${
         tab.harness.session === undefined ? "" : ` · session ${tab.harness.session.slice(0, 8)}`
       }`,

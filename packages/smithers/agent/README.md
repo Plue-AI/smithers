@@ -411,6 +411,14 @@ overflow and 5xx failures do not create a quota park. Exhausting those fallbacks
 returns the last provider error. The declared order is part of flow identity,
 and durable replay does not repeat completed provider calls.
 
+Terminal credit refusals (`out_of_credit` or an unclassified
+`quota_exceeded`) skip the refused account for later frames of that invocation;
+explicit model scope skips only that model. Timed refusals remain eligible after
+their cooldown, including when the remaining backup must park. Durable replay
+reconstructs the skips; a new run can try replenished credit. Hosts retain
+session-wide credit decisions and
+enforce a pinned model by passing `fallbackSeats: []`.
+
 ## Quota-aware waits
 
 A `rate_limited` or `quota_exceeded` answer is not a defect report: the provider

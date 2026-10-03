@@ -177,6 +177,7 @@ itself, so nothing about the request's settlement is known.
 | `ModelError`                               | error class | As described above.                                                                                                                                             |
 | `isContextOverflow(providerCode, message)` | refinement  | Whether a provider's own code and message describe a context overflow. Protocol adapters call it ahead of their generic bad-request branch.                     |
 | `isQuotaExhausted(providerCode, message)`  | refinement  | Whether a provider's own code and message describe an exhausted account rather than a transient rate limit, so a durable consumer can park instead of retrying. |
+| `isTerminalRefusal(error)` | classification | Whether the normalized refusal requires intervention rather than a quota cooldown; shared with agent quota policy and failure actions. |
 
 ## `FailureCopy`
 
@@ -185,7 +186,9 @@ itself, so nothing about the request's settlement is known.
 [`Fault.of(error).class`](https://flow.smithers.sh/reference/api/#fault), one of `user`, `wait`, `infra`,
 `dependency`, `bug`, `factory`, and `policy`; actions are `resume`,
 `switch-model`, `wait`, and `details`. A model seat supplies the provider name
-for a limit. Unknown errors have a generic headline. Raw messages and stacks
+for a limit, through `provider(seat)`: `OpenAI`, `Anthropic`, `Claude Code`,
+`Kimi`, `Gemini`, `OpenRouter`, `Cerebras`, else `Model`. An account out of
+quota or credit offers `switch-model` first. Unknown errors have a generic headline. Raw messages and stacks
 belong in technical details, never in the headline. A bare string is never
 read for a fault: the fault arrives typed. A `SeatUnresolved` anywhere on the
 cause chain reads "Model sign-in required" with the host's own sign-in

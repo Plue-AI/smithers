@@ -820,6 +820,21 @@ const unansweredAsk = () => {
 }
 
 describe("AgentSession", () => {
+  it("preserves refusal scope and leaves live seat selection out of durable ordinals", () => {
+    expect(AgentSession.trace({
+      _tag: "model-selected", eventType: "flows.harness.model-selected.v1", seat: "backup"
+    } as Parameters<typeof AgentSession.trace>[0])).toBeUndefined()
+    const event = {
+      _tag: "seat-failed-over", eventType: "flows.harness.seat-failed-over.v1",
+      from: "primary", to: "backup", code: "quota_exceeded",
+      retryAfterMillis: 10, quotaScope: "model", httpStatus: 429
+    } as Parameters<typeof AgentSession.trace>[0]
+    expect(AgentSession.trace(event)).toMatchObject({
+      eventType: "control.agent.seat-failed-over",
+      payload: { from: "primary", to: "backup", retryAfterMillis: 10, quotaScope: "model", httpStatus: 429 }
+    })
+  })
+
   it.each([false, true])("claim-demanded journal row carries usage and refused=%s", (refused) => {
     const usage = { inputTokens: 321, outputTokens: 17 }
     const event = {

@@ -9,7 +9,7 @@
 import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
 import * as AnthropicMessages from "../src/AnthropicMessages.ts"
-import { isContextOverflow, isQuotaExhausted, ModelError } from "../src/ModelError.ts"
+import { isContextOverflow, isQuotaExhausted, isTerminalRefusal, ModelError } from "../src/ModelError.ts"
 import * as OpenAIResponses from "../src/OpenAIResponses.ts"
 
 describe("isContextOverflow", () => {
@@ -158,5 +158,39 @@ describe("protocol classification", () => {
     // from the terminal codes and puts it on the same backoff as a dropped
     // connection.
     expect(new ModelError({ code: "call_timeout", message: "budget" }).retryable).toBe(true)
+  })
+})
+
+describe("isTerminalRefusal", () => {
+  it("distinguishes quota windows and model scope from exhausted account credit", () => {
+    const error = { code: "quota_exceeded" as const }
+    expect(isTerminalRefusal(error)).toBe(true)
+    expect(isTerminalRefusal({ ...error, quotaScope: "account" })).toBe(true)
+    expect(isTerminalRefusal({ ...error, quotaScope: "model" })).toBe(false)
+    expect(isTerminalRefusal({ ...error, resetAtEpochMillis: 1 })).toBe(false)
+    expect(isTerminalRefusal({ ...error, retryAfterMillis: 0 })).toBe(false)
+    expect(isTerminalRefusal({ code: "rate_limited" })).toBe(false)
+  })
+
+  it("keeps terminal codes and HTTP statuses terminal even when a reset is supplied", () => {
+    for (
+      const code of [
+        "authentication",
+        "invalid_request",
+        "no_route",
+        "content_policy",
+        "context_overflow",
+        "out_of_credit",
+        "invalid_provider_output"
+      ] as const
+    ) {
+      expect(isTerminalRefusal({ code, resetAtEpochMillis: 1 })).toBe(true)
+    }
+    for (const httpStatus of [400, 401, 402, 403, 404, 405, 409, 410, 413, 422]) {
+      expect(isTerminalRefusal({ code: "quota_exceeded", quotaScope: "model", retryAfterMillis: 1, httpStatus })).toBe(
+        true
+      )
+    }
+    expect(isTerminalRefusal({ code: "rate_limited", httpStatus: 429 })).toBe(false)
   })
 })

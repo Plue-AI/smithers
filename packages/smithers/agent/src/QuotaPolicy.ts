@@ -37,7 +37,7 @@
  */
 
 import { HarnessError } from "@smthrs/harness/HarnessError"
-import { ModelError } from "@smthrs/model/ModelError"
+import { isTerminalRefusal, ModelError } from "@smthrs/model/ModelError"
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -245,60 +245,7 @@ const quotaCodes: ReadonlySet<string> = new Set(["rate_limited", "quota_exceeded
 const isQuotaRefusal = (error: ModelError): boolean =>
   quotaCodes.has(error.code) || error.httpStatus === 429 || error.httpStatus === 529
 
-/**
- * The codes that describe the request or the account rather than a window.
- *
- * A bad key does not become a good key by waiting, a model that does not exist
- * does not appear, and a refused prompt is not refused because the provider was
- * busy. Retrying one of these is pure latency charged to the person watching
- * the run, so the classifier answers `None` and the typed `ModelError` reaches
- * the run card with the provider's own message.
- *
- * @category classification
- * @since 0.1.0
- */
-const terminalCodes: ReadonlySet<string> = new Set([
-  "authentication",
-  "invalid_request",
-  "no_route",
-  "content_policy",
-  "context_overflow",
-  "out_of_credit",
-  "invalid_provider_output"
-])
-
-/**
- * Statuses that are terminal whatever the provider's code says.
- *
- * `402` is the one that matters: payment required means the account has no
- * balance, and a balance is restored by a person, not by a timer.
- */
-const terminalStatuses: ReadonlySet<number> = new Set([400, 401, 402, 403, 404, 405, 409, 410, 413, 422])
-
-/**
- * Whether a refusal can never be waited out.
- *
- * Exhausted credit is the case this exists for. `quota_exceeded` covers both an
- * account that has run out of money and a subscription window that has closed,
- * and the two are told apart by whether the provider named a deadline: a window
- * that reopens says when (`resetAtEpochMillis` or `retryAfterMillis`), and an
- * empty balance says nothing because there is nothing to say. A run that parked
- * eight times at the default minute on `credit_balance_exhausted` — "You have no
- * credits remaining" — spent eight minutes to reach the failure it had in hand
- * at the first attempt.
- * An explicit model scope rules out account balance exhaustion and permits
- * the bounded default cooldown even when that model's reset is unknown.
- *
- * @param error the normalized provider failure
- * @since 0.1.0
- * @category classification
- */
-export const isTerminalRefusal = (error: ModelError): boolean => {
-  if (error.httpStatus !== undefined && terminalStatuses.has(error.httpStatus)) return true
-  if (terminalCodes.has(error.code)) return true
-  if (error.code !== "quota_exceeded" || error.quotaScope === "model") return false
-  return error.resetAtEpochMillis === undefined && error.retryAfterMillis === undefined
-}
+export { isTerminalRefusal } from "@smthrs/model/ModelError"
 
 /**
  * The `ModelError` a failure is, or wraps.

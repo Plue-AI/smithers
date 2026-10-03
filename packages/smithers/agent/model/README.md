@@ -90,13 +90,13 @@ The root entry point exports these namespaces. Each is also importable from
 - **`Framing`**: Byte-stream framing, chosen independently of the protocol that interprets the frames.
   `Framing`, `sse`, `ndjson`
 - **`FailureCopy`**: Safe headlines and actions for typed model and harness failures.
-  `Fault`, `Action`, `Description`, `describe`
+  `Fault`, `Action`, `Description`, `provider`, `describe`
 - **`Model`**: The one provider seam: a request in, a stream of typed events out.
   `ModelFailure`, `Model`, `make`, `layer`, `makeNoop`, `layerNoop`
 - **`ModelCatalog`**: Static facts about known provider models, read from a model id alone.
   `contextWindowTokensFor`
 - **`ModelError`**: The provider-neutral failure vocabulary, and the refinements that recognize a context overflow and an exhausted account in a provider's own wording.
-  `ModelErrorCode`, `isContextOverflow`, `isQuotaExhausted`, `ModelError`
+  `ModelErrorCode`, `isContextOverflow`, `isQuotaExhausted`, `isTerminalRefusal`, `ModelError`
 - **`ModelEvent`**: The normalized events one model call emits, and the fold that turns them back into a single durable assistant message.
   `Usage`, `TextStart`, `TextDelta`, `TextEnd`, `ThinkingStart`, `ThinkingDelta`, `ThinkingEnd`, `ToolCallStart`, `ToolCallDelta`, `ToolCallEnd`, `ToolResult`, `UsageEvent`, `Retry`, `Settle`, `ModelEvent`, `settledMessage`
 - **`ModelRequest`**: The serializable, credential-free declaration of one model call.

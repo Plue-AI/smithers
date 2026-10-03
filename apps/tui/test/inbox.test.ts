@@ -123,7 +123,7 @@ describe("the overview inbox", () => {
 
   it("reads window and cache percent from the footer's usage", () => {
     const [section] = rows([tab("a", "running")], [], () => used(40_000, 36_400, 122_000))
-    expect(section!.rows[0]).toMatchObject({ seat: "sol", clock: "1m", window: 61, cache: 91 })
+    expect(section!.rows[0]).toMatchObject({ seat: "GPT-6.1 Sol", clock: "1m", window: 61, cache: 91 })
     expect(Inbox.meter(section!.rows[0]!)).toBe("61% 91%")
     expect(Inbox.meter({})).toBe("")
   })

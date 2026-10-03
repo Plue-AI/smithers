@@ -86,7 +86,7 @@ describe("failed worker status", () => {
         id: request.id,
         status: "parked",
         wakeAt: "2026-09-24T14:20:00.000Z",
-        summary: "waits for ChatGPT reset · 14:20"
+        summary: "waits for OpenAI reset · 14:20"
       }
     })
     expect(JSON.parse(f.workspace.context())[0]).toMatchObject({ status: "parked", wakeAt: "2026-09-24T14:20:00.000Z" })

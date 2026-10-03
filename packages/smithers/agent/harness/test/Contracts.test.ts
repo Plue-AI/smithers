@@ -395,12 +395,19 @@ describe("AgentEvent", () => {
           params: ModelRequest.GenerationParams.make({ maxTokens: 1024 })
         })
       }),
+      new AgentEvent.ModelSelected({
+        eventType: "flows.harness.model-selected.v1",
+        seat: "secondary"
+      }),
       new AgentEvent.SeatFailedOver({
         eventType: AgentEvent.eventType.seatFailedOver,
         from: "first",
         to: "second",
         code: "rate_limited",
-        resetAtEpochMillis: 1000
+        resetAtEpochMillis: 1000,
+        retryAfterMillis: 1000,
+        quotaScope: "model",
+        httpStatus: 429
       }),
       new AgentEvent.ModelParked({
         eventType: AgentEvent.eventType.modelParked,

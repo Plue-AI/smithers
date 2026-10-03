@@ -3,6 +3,7 @@ import * as FailureCopy from "@smthrs/model/FailureCopy"
 import { ModelError } from "@smthrs/model/ModelError"
 import { afterEach, describe, expect, it } from "bun:test"
 import { FailureCard } from "../src/panel-view.tsx"
+import * as Tabs from "../src/tabs.ts"
 import * as Transcript from "../src/transcript.ts"
 import type * as Workspace from "../src/workspace.ts"
 
@@ -24,7 +25,7 @@ const tab = {
   message: "secret raw provider response",
   detail: "secret stack",
   failure: {
-    headline: "ChatGPT usage limit reached",
+    headline: "OpenAI usage limit reached",
     fault: "wait",
     line: "Resets Sep 30, 02:00 PM.",
     actions: ["resume", "switch-model", "wait", "details"]
@@ -32,6 +33,31 @@ const tab = {
 } satisfies Workspace.Tab
 
 describe("worker failure card", () => {
+  it("retains Wait for reset through quota copy, worker actions, and the rendered card", async () => {
+    for (const timing of [{ resetAtEpochMillis: Date.now() + 60_000 }, { retryAfterMillis: 60_000 }]) {
+      const failure = FailureCopy.describe(
+        new ModelError({ code: "quota_exceeded", message: "wait", ...timing }),
+        tab.seat
+      )
+      const failed = { ...tab, failure }
+      expect(Tabs.actions(failed).map((action) => action.keys[0])).toContain("w")
+      expect(Tabs.actions(failed).find((action) => action.id === "wait")?.label).toBe("Wait for reset")
+      setup = await testRender(<FailureCard tab={failed} transcript={Transcript.empty} details={false} />, {
+        width: 100,
+        height: 8
+      })
+      await setup.renderOnce()
+      expect(setup.captureCharFrame()).toContain("[w] Wait for reset")
+      setup.renderer.destroy()
+      setup = undefined
+    }
+    const terminal = {
+      ...tab,
+      failure: FailureCopy.describe(new ModelError({ code: "quota_exceeded", message: "empty" }), tab.seat)
+    }
+    expect(Tabs.actions(terminal).map((action) => action.keys[0])).toEqual(["m", "r"])
+  })
+
   it("shows a body-load refusal in expanded details without a private stack", async () => {
     setup = await testRender(
       <FailureCard
@@ -60,7 +86,7 @@ describe("worker failure card", () => {
     })
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
-    expect(frame).toContain("ChatGPT usage limit reached")
+    expect(frame).toContain("OpenAI usage limit reached")
     expect(frame).toContain("No files changed")
     expect(frame).toContain("[r] Resume here")
     expect(frame).not.toContain("secret raw")
@@ -79,7 +105,7 @@ describe("worker failure card", () => {
       )
       await setup.renderOnce()
       const frame = setup.captureCharFrame()
-      expect(frame.split("\n")[0]?.trim()).toBe("failed: ChatGPT usage limit reached")
+      expect(frame.split("\n")[0]?.trim()).toBe("failed: OpenAI usage limit reached")
       expect(frame).not.toContain("fault")
       expect(frame).not.toContain("cap reached")
       expect(frame).not.toContain("needs you")
@@ -87,6 +113,42 @@ describe("worker failure card", () => {
       setup.renderer.destroy()
       setup = undefined
     }
+  })
+
+  for (const code of ["quota_exceeded", "out_of_credit"] as const) {
+    for (const width of [80, 110]) {
+      it(`offers Switch model first for ${code} at ${width} columns`, async () => {
+        const failure = FailureCopy.describe(new ModelError({ code, message: "private provider reply" }), tab.seat)
+        setup = await testRender(
+          <FailureCard tab={{ ...tab, failure }} transcript={Transcript.empty} details={false} />,
+          { width, height: 8 }
+        )
+        await setup.renderOnce()
+        const frame = setup.captureCharFrame()
+        expect(frame).toContain(failure.headline)
+        expect(frame).toMatch(/\[m\] Switch model +\[r\] Resume here/)
+        expect(frame).not.toContain("Wait for reset")
+        expect(frame).not.toContain("waiting")
+        expect(frame).not.toContain("private provider reply")
+      })
+    }
+  }
+
+  it("renders only the actions offered by the failure", async () => {
+    setup = await testRender(
+      <FailureCard
+        tab={{ ...tab, failure: { ...tab.failure, actions: ["resume", "details"] } }}
+        transcript={Transcript.empty}
+        details={false}
+      />,
+      { width: 80, height: 8 }
+    )
+    await setup.renderOnce()
+    const frame = setup.captureCharFrame()
+    expect(frame).toContain("[r] Resume here")
+    expect(frame).toContain("[ctrl+o] Details")
+    expect(frame).not.toContain("Switch model")
+    expect(frame).not.toContain("Wait for reset")
   })
 
   it("shows raw diagnostics only when details are open", async () => {

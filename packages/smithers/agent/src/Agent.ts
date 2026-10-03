@@ -592,7 +592,7 @@ const withRequestPlugins = (
   })
 }
 
-/** Keeps one frame on available seats, parking only when every route is cooling. */
+/** Keeps frames on available seats, parking only when every recoverable route is cooling. */
 const withCapacity = (
   seats: ReadonlyArray<{ readonly seat: Seat.Seat; readonly engine: EngineLike.EngineLike }>,
   capacity: Options["capacity"],
@@ -608,6 +608,11 @@ const withCapacity = (
   const policy = QuotaPolicy.makeDefault({ defaultWaitMillis: 15 * 60_000, maxWaitMillis: Infinity })
   const maxParks = capacity?.maxParks ?? QuotaPolicy.defaultMaxParks
   let parkCount = 0
+  // Terminal credit refusals are skipped within this invocation. Durable replay
+  // reconstructs them from recorded refusals; session-wide policy belongs to the host.
+  const spent = new Set<string>()
+  const isSpent = (entry: { readonly key: string; readonly accountKey: string }): boolean =>
+    spent.has(entry.key) || spent.has(entry.accountKey)
   const sealStepWithEvents = (
     step: EngineLike.SealedModelStep,
     emit: (event: AgentEvent.AgentEvent) => Effect.Effect<void>
@@ -636,16 +641,18 @@ const withCapacity = (
             }))
           })
           const selected = entries.findIndex((entry, index) =>
-            !tried.has(index) && (coolingFor(entry)?.wakeAt ?? 0) <= now
+            !tried.has(index) && !isSpent(entry) &&
+            (coolingFor(entry)?.wakeAt ?? 0) <= now
           )
           if (selected < 0) {
-            const availableParks = entries.flatMap((entry) => {
+            const recoverable = entries.filter((entry) => !isSpent(entry))
+            const availableParks = recoverable.flatMap((entry) => {
               const park = coolingFor(entry)
               return park === undefined ? [] : [{ entry, park }]
             })
             // Overflow and provider failures try each configured seat once;
             // they do not invent a quota reset or enter a timed park.
-            if (availableParks.length !== entries.length) return Stream.fail(lastError!)
+            if (recoverable.length === 0 || availableParks.length !== recoverable.length) return Stream.fail(lastError!)
             const earliest = availableParks.sort((a, b) => a.park.wakeAt - b.park.wakeAt)[0]!
             if (
               capacity?.park === false ||
@@ -700,10 +707,17 @@ const withCapacity = (
                 from: entries[previous]!.seat.id,
                 to: entry.seat.id,
                 code: model.code,
-                resetAtEpochMillis: model.resetAtEpochMillis
+                resetAtEpochMillis: model.resetAtEpochMillis,
+                retryAfterMillis: model.retryAfterMillis,
+                httpStatus: model.httpStatus,
+                quotaScope: model.quotaScope
               })
             )
           }
+          yield* emit(new AgentEvent.ModelSelected({
+            eventType: AgentEvent.eventType.modelSelected,
+            seat: entry.seat.id
+          }))
           const changed = {
             ...step,
             request: entry.request,
@@ -737,13 +751,17 @@ const withCapacity = (
                   veryHard: false
                 }) === "backup"
                 const canFailOver = model !== undefined && seatsLeft > 0 &&
-                  (backup || model.code === "authentication" || model.code === "context_overflow")
+                  (backup || model.code === "authentication" || model.code === "context_overflow" ||
+                    model.code === "out_of_credit")
                 if (Option.isNone(classified) && !canFailOver) return Stream.failCause(cause)
                 if (Option.isNone(classified)) {
                   // This seat was selectable, so its cooldowns had expired. A refusal
                   // with no reset leaves it without a park to wait for.
                   cooling.delete(entry.key)
                   cooling.delete(entry.accountKey)
+                  if (model?.code === "quota_exceeded" || model?.code === "out_of_credit") {
+                    spent.add(model.quotaScope === "model" ? entry.key : entry.accountKey)
+                  }
                 }
                 if (Option.isSome(classified)) {
                   const park = yield* Action.make({

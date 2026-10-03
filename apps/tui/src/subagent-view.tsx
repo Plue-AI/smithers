@@ -437,25 +437,34 @@ export function GraphView(props: {
   )
 }
 
-/** Fixed columns right of the name: seat, clock, window and cache; each value leaves a space before the next. */
-const columns = { seat: 9, clock: 8, meter: 10 } as const
+/** Fixed columns right of the name: clock, window and cache; each value leaves a space before the next. */
+const columns = { clock: 8, meter: 10 } as const
+
+/**
+ * The model column's width in a pane `inner` cells wide: the longest model
+ * name among `rows` and its space, short of leaving a name under a dozen cells.
+ */
+export const seatColumn = (rows: ReadonlyArray<Pick<Inbox.Row, "seat">>, inner: number): number =>
+  Math.max(9, Math.min(1 + Math.max(0, ...rows.map((row) => stringWidth(row.seat))), inner - 28))
 
 /**
  * A tree row right of its `lead` cells in a pane `inner` cells wide: the name
- * clipped to fit, the gap, and the fixed seat, clock and meter columns. A
- * narrow pane keeps the names readable: the meter column goes first.
+ * clipped to fit, the gap, and the model column `seat` cells wide, then the
+ * clock and meter columns. A narrow pane keeps the names readable: the meter
+ * column goes first.
  */
 export const treeRow = (
   row: Inbox.Row,
   lead: number,
-  inner: number
+  inner: number,
+  seat: number
 ): { readonly title: string; readonly gap: number; readonly aside: string } => {
-  const meter = inner - columns.seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
+  const meter = inner - seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
   const pad = (text: string, width: number) => SubagentCard.clip(text, width - 1).padEnd(width)
-  const aside = `${pad(row.seat, columns.seat)}${pad(row.clock, columns.clock)}${
+  const aside = `${pad(row.seat, seat)}${pad(row.clock, columns.clock)}${
     meter === 0 ? "" : SubagentCard.clip(Inbox.meter(row), meter)
   }`
-  const right = columns.seat + columns.clock + meter
+  const right = seat + columns.clock + meter
   // One space always separates the clipped name from the seat column.
   const title = SubagentCard.clip(row.name, Math.max(1, inner - 2 - lead - right))
   return { title, gap: Math.max(1, inner - 1 - lead - stringWidth(title) - right), aside }
@@ -504,6 +513,7 @@ export function Overview(props: {
 }) {
   const { tree: treeWidth, cards: rightWidth, grid: gridWidth } = overviewWidths(props.width)
   const inner = treeWidth - 2
+  const seat = seatColumn(Inbox.flat(props.sections), inner)
   const tree = useRef<ScrollBoxRenderable>(null)
   const grid = useRef<ScrollBoxRenderable>(null)
   if (props.scrollRef !== undefined && props.selected !== chat) {
@@ -537,7 +547,7 @@ export function Overview(props: {
   const nodeRow = (each: Inbox.Row) => {
     const glyph = rowGlyph(each, props.cards.now)
     const lead = `  ${"  ".repeat(each.level)}${glyph.glyph} `
-    const { title, gap, aside } = treeRow(each, stringWidth(lead), inner)
+    const { title, gap, aside } = treeRow(each, stringWidth(lead), inner, seat)
     const chosen = props.selected === each.key
     return line(
       each.key,

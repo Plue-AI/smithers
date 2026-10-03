@@ -10,6 +10,8 @@ import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Activity from "./activity.ts"
 import * as Approvals from "./approvals.ts"
 import * as Changes from "./changes.ts"
+import * as Credit from "./credit.ts"
+import * as Models from "./models.ts"
 import type * as Panels from "./panels.ts"
 import * as Shell from "./shell.ts"
 
@@ -453,7 +455,13 @@ const onlyDone = (cell: CellItem): boolean =>
 /** Folds one harness event, observed at `at` milliseconds, into the transcript. */
 export const apply = (transcript: Transcript, event: Activity.Observed, at: number): Transcript => {
   if (event._tag === "seat-failed-over") {
-    return note(transcript, `↪ switched to ${event.to}`, at)
+    return note(
+      transcript,
+      Credit.exhausted({ ...event, _tag: "flows/model/ModelError" })
+        ? Credit.notice(event.from, event.to)
+        : `↪ switched to ${Models.labelOf(event.to, [])}`,
+      at
+    )
   }
   if (
     event._tag === "supervisor-settled" && transcript.contextAssessment?.scope === event.scope &&

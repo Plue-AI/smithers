@@ -12,6 +12,9 @@
 
 ### Added
 
+- `ModelError.isTerminalRefusal` shares the quota cooldown classification with
+  agent hosts and failure copy. Recoverable quota cards retain Wait for reset.
+
 - `ModelCatalog` knows Cerebras's `qwen-3.8-27b`: a 128K context window (the
   paid tier; the free trial serves 64K) instead of the unknown-model floor.
 
@@ -30,6 +33,17 @@
 - Optional `ModelError.quotaScope: "model" | "account"` records a classifier's
   quota boundary. It survives schema round trips, HTTP error normalization,
   and streamed-error redaction. Existing serialized errors still decode.
+
+- `FailureCopy.provider(seat)`: the account name a seat's provider prefix
+  gives (`OpenAI`, `Anthropic`, `Claude Code`, `Kimi`), the one table a
+  failure and a parked worker's reset line read.
+
+### Changed
+
+- `FailureCopy.describe` names OpenAI limits `OpenAI` rather than `ChatGPT`,
+  as the model picker does, and a `moonshot:` seat `Kimi`. `quota_exceeded`
+  and `out_of_credit` offer `switch-model` first and no longer offer `wait`:
+  an account with no credit left does not recover by waiting (#3043).
 
 ### Fixed
 

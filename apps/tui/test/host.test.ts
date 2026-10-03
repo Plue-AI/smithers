@@ -405,7 +405,7 @@ test("Host.run exposes non-parked usage-limit copy for a failure card", async ()
     }).done
     expect(outcome._tag).toBe("failed")
     const copy = FailureCopy.describe(outcome._tag === "failed" ? outcome.error : undefined, "openai:gpt-6-sol")
-    expect(copy.headline).toBe("ChatGPT usage limit reached")
+    expect(copy.headline).toBe("OpenAI usage limit reached")
     expect(copy.line).not.toContain("usage limit has been reached")
   } finally {
     await host.dispose()
@@ -846,7 +846,7 @@ describe("Host.run under a provider quota refusal", () => {
       expect(events.some((event) => event._tag === "model-parked")).toBe(false)
       expect(outcome._tag).toBe("failed")
       expect(FailureCopy.describe(outcome._tag === "failed" ? outcome.error : undefined, "openai:gpt-test"))
-        .toMatchObject({ headline: "ChatGPT usage limit reached", fault: "wait" })
+        .toMatchObject({ headline: "OpenAI usage limit reached", fault: "wait" })
       expect(asked).toBe(1)
     } finally {
       await host.dispose()

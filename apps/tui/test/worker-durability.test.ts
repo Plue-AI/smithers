@@ -93,7 +93,7 @@ describe("worker durability", () => {
       await flush()
       const parked = f.workspace.snapshot().tabs[0]!
       expect(parked).toMatchObject({ status: "parked", wakeAt, parks: 1 })
-      expect(f.workspace.panel("review").summary).toBe("waits for ChatGPT reset · 14:20")
+      expect(f.workspace.panel("review").summary).toBe("waits for OpenAI reset · 14:20")
       expect(f.workspace.read("review")).toMatchObject({ status: "parked", wakeAt: new Date(wakeAt).toISOString() })
       jest.advanceTimersByTime(599_999)
       await flush()
@@ -156,7 +156,7 @@ describe("worker durability", () => {
       const tab = f.workspace.snapshot().tabs[0]!
       expect(tab.status).toBe("failed")
       expect(tab.failure).toMatchObject({
-        headline: "ChatGPT usage limit reached",
+        headline: "OpenAI usage limit reached",
         fault: "wait",
         line: `Still limited after ${QuotaPolicy.defaultMaxParks} waits.`
       })
@@ -242,7 +242,7 @@ describe("worker durability", () => {
     )
     expect(
       f.workspace.transcript("review").items.some((item) =>
-        item.kind === "note" && item.text.includes("↪ switched to anthropic:claude")
+        item.kind === "note" && item.text === "↪ switched to claude"
       )
     ).toBe(true)
     expect(f.workspace.snapshot().tabs[0]?.activeSeat).toBe("anthropic:claude")
@@ -416,7 +416,7 @@ describe("worker durability", () => {
     await tick()
     expect(f.workspace.snapshot().tabs[0]?.status).toBe("failed")
     const receipt = Session.load(f.workspace.snapshot().tabs[0]!.file).findLast((record) => record.type === "outcome")
-    expect(receipt).toMatchObject({ type: "outcome", outcome: { headline: "ChatGPT usage limit reached" } })
+    expect(receipt).toMatchObject({ type: "outcome", outcome: { headline: "OpenAI usage limit reached" } })
     expect(receipt?.type === "outcome" && "error" in receipt.outcome).toBe(false)
     f.workspace.waitForReset(request.id)
     expect(f.workspace.snapshot().tabs[0]?.status).toBe("parked")
@@ -487,7 +487,7 @@ describe("worker durability", () => {
     await tick()
     const tab = first.workspace.snapshot().tabs[0]!
     const failure = {
-      headline: "ChatGPT usage limit reached",
+      headline: "OpenAI usage limit reached",
       fault: "wait",
       line: "Resets Sep 30 14:00.",
       actions: ["resume", "switch-model", "wait", "details"]

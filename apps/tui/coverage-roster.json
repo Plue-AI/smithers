@@ -16,6 +16,7 @@
   "src/complete.ts",
   "src/composer.ts",
   "src/context.ts",
+  "src/credit.ts",
   "src/contributions.ts",
   "src/cursor.ts",
   "src/deadline.ts",

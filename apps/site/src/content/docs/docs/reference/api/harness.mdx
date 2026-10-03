@@ -921,8 +921,10 @@ observations (`ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`,
 `SteeringDrained`), and the terminal set (`Suspended`, `PermissionRequired`,
 `TurnClosed`, `Resolved`, `Aborted`).
 
-Capacity transitions are `SeatFailedOver` (`from`, `to`, `code`, optional
-`resetAtEpochMillis`), `ModelParked` (`seat`, `wakeAt`, `source`, `code`), and
+Capacity attempts emit `ModelSelected` (`seat`) with the actual selected seat,
+including recovery to the primary and later frames continuing on a backup.
+Transitions are `SeatFailedOver` (`from`, `to`, `code`, optional
+`resetAtEpochMillis`, `retryAfterMillis`, `httpStatus`, `quotaScope`), `ModelParked` (`seat`, `wakeAt`, `source`, `code`), and
 `ModelUnparked` (`seat`, `at`).
 
 Two of them record what a step was asked, so a reader can open one step and

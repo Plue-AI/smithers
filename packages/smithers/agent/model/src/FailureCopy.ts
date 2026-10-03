@@ -8,7 +8,7 @@ import * as Faults from "@smthrs/flow/Fault"
 import * as Schema from "effect/Schema"
 import * as Evaluator from "./Evaluator.ts"
 // A value import, so the model rows register wherever this copy is read.
-import { ModelErrorCode } from "./ModelError.ts"
+import { isTerminalRefusal, ModelErrorCode } from "./ModelError.ts"
 
 /**
  * Whose action can repair a stopped run: the registered class of the failure.
@@ -42,6 +42,8 @@ type ErrorRecord = {
   readonly cause?: unknown
   readonly resetAtEpochMillis?: unknown
   readonly retryAfterMillis?: unknown
+  readonly quotaScope?: unknown
+  readonly httpStatus?: unknown
   readonly status?: unknown
   readonly seat?: unknown
   readonly route?: unknown
@@ -53,19 +55,25 @@ type ErrorRecord = {
 const record = (value: unknown): ErrorRecord | undefined =>
   typeof value === "object" && value !== null ? value : undefined
 
-const provider = (seat: string | undefined): string => {
-  const prefix = seat?.split(":")[0]
-  return prefix === "openai" ? "ChatGPT" : prefix === "anthropic" ?
-    "Anthropic" :
-    prefix === "gemini" ?
-    "Gemini" :
-    prefix === "kimi-k3" ?
-    "Kimi" :
-    prefix === "openrouter"
-    ? "OpenRouter"
-    : prefix === "cerebras"
-    ? "Cerebras"
-    : "Model"
+const providers: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
+  cerebras: "Cerebras",
+  "claude-code": "Claude Code",
+  gemini: "Gemini",
+  moonshot: "Kimi",
+  openai: "OpenAI",
+  openrouter: "OpenRouter"
+}
+
+/**
+ * The account a seat or route runs on, by its provider prefix: `OpenAI`,
+ * `Anthropic`, or `Model` when the prefix is unknown.
+ * @category utilities
+ * @since 1.0.0
+ */
+export const provider = (seat: string | undefined): string => {
+  const prefix = seat?.split(":")[0] ?? ""
+  return Object.hasOwn(providers, prefix) ? providers[prefix]! : "Model"
 }
 
 const isModelCode = Schema.is(ModelErrorCode)
@@ -90,16 +98,9 @@ const model: Record<ModelErrorCode, readonly [string, string, ReadonlyArray<Acti
     "wait",
     "details"
   ]],
-  quota_exceeded: ["quota exhausted", "Restore account quota and resume.", [
-    "resume",
-    "switch-model",
-    "wait",
-    "details"
-  ]],
-  out_of_credit: ["Hosted credit exhausted", "Add credit and resume.", [
-    "resume",
-    "details"
-  ]],
+  // An account with no credit left: another model is the way on.
+  quota_exceeded: ["quota exhausted", "Restore account quota and resume.", ["switch-model", "resume", "details"]],
+  out_of_credit: ["Hosted credit exhausted", "Add credit and resume.", ["switch-model", "resume", "details"]],
   content_policy: ["Model declined the request", "Change the request and resume.", [
     "resume",
     "switch-model",
@@ -281,7 +282,15 @@ export const describe = (error: unknown, seat?: string): Description => {
             hour12: false
           }).replace(",", "")
         }.`,
-      actions
+      actions: code === "quota_exceeded" && !isTerminalRefusal({
+          code,
+          httpStatus: typeof found.httpStatus === "number" ? found.httpStatus : undefined,
+          quotaScope: found.quotaScope === "model" || found.quotaScope === "account" ? found.quotaScope : undefined,
+          resetAtEpochMillis: typeof found.resetAtEpochMillis === "number" ? found.resetAtEpochMillis : undefined,
+          retryAfterMillis: typeof found.retryAfterMillis === "number" ? found.retryAfterMillis : undefined
+        }) ?
+        ["switch-model", "resume", "wait", "details"] :
+        actions
     }
   }
   if (found?._tag === "/harness/HarnessError" && typeof code === "string" && code in harness) {

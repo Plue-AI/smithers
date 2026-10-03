@@ -3,12 +3,12 @@
  * worker list and the worker view: its status glyph and color, its model,
  * its clock, and the actions its status allows.
  */
+import type * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
 import * as Budget from "./budget.ts"
 import * as Keys from "./keys.ts"
-import { aliases as seatAliases, delegateModels } from "./models.ts"
-import type { Model } from "./models.ts"
+import { labelOf, type Model } from "./models.ts"
 import { color } from "./theme.ts"
 import type { Tab } from "./workspace.ts"
 
@@ -56,23 +56,9 @@ export const styleOf = (
 
 export const live = WorkerControls.live
 
-// A delegate alias wins where both tables name a seat (`cerebras`, not `qwen`).
-const aliases = new Map<string, string>(
-  [...Object.entries(seatAliases), ...Object.entries(delegateModels)].map(([alias, seat]) => [seat, alias])
-)
-
-/** The shortest name that tells seats apart: its seat alias (`opus`, `sol`), else the picker's label, else the model id. */
-export const model = (seat: string, models: ReadonlyArray<Model>): string => {
-  // Claude Code runs an alias or a full seat: `claude-code:opus` is `opus`.
-  const bare = seat.startsWith("claude-code:") ? seat.slice("claude-code:".length) : seat
-  return aliases.get(bare) ?? (Object.hasOwn(seatAliases, bare) ? bare : undefined) ??
-    models.find((each) => each.seat === seat)?.label ??
-    (seat.startsWith("replay:") ? "replay" : seat.slice(seat.indexOf(":") + 1))
-}
-
-/** Who runs a worker: its wrapped harness (`claude`, `codex`), else its model's short name. */
+/** Who runs a worker: its wrapped harness (`claude`, `codex`), else the model answering, as the picker names it. */
 export const seatName = (tab: Pick<Tab, "seat" | "activeSeat" | "harness">, models: ReadonlyArray<Model>): string =>
-  tab.harness?.vendor ?? model(tab.activeSeat ?? tab.seat, models)
+  tab.harness?.vendor ?? labelOf(tab.activeSeat ?? tab.seat, models)
 
 /** From the request until settlement; a settled tab's clock stops. */
 export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): number =>
@@ -123,7 +109,22 @@ export const bindings = registered.map(({ id, binding, label, when }) => {
 
 export type Action = (typeof bindings)[number]
 
-export const actions = (tab: Worker): ReadonlyArray<Action> => bindings.filter((binding) => binding.when(tab))
+/** The failure offer each recovery action answers. */
+const offers: Partial<Record<ActionId, FailureCopy.Action>> = { retry: "resume", model: "switch-model", wait: "wait" }
+
+/** What a worker's state allows; the recovery actions a failure offers come in its order. */
+export const actions = (tab: Worker): ReadonlyArray<Action> => {
+  const allowed = bindings.filter((binding) => binding.when(tab))
+  const offered = tab.failure?.actions ?? []
+  const rank = (action: Action) => {
+    const offer = offers[action.id]
+    return offer === undefined ? -1 : offered.indexOf(offer)
+  }
+  // Offered actions trade places among themselves; every other action keeps its own.
+  const ordered = allowed.filter((action) => rank(action) >= 0).toSorted((a, b) => rank(a) - rank(b))
+  let next = 0
+  return allowed.map((action) => rank(action) < 0 ? action : ordered[next++]!)
+}
 
 /** The action a registry binding runs on this worker, if its state allows it. */
 export const actionFor = (binding: string, tab: Worker) => actions(tab).find((each) => each.binding === binding)

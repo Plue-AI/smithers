@@ -4,6 +4,11 @@
 
 ### Added
 
+- `AgentEvent.ModelSelected` names the actual seat used by each capacity
+  attempt. Exhaustive event matches must handle `model-selected`.
+  `SeatFailedOver` also preserves optional retry delay, HTTP status and quota
+  scope so hosts can distinguish timed windows and model refusals.
+
 - `CellTurn.make({ serverTools })`: provider-run tools (such as the
   provider's web search) every frame's request declares, while the frame
   still forbids declared tool calls. Absent, requests are unchanged.

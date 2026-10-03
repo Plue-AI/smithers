@@ -205,6 +205,7 @@ export function App(props: AppProps) {
       }),
       seatOf: props.seatOf ?? ((declared) => Models.seatOf(declared, props.models)),
       delegable: Models.delegable(props.models),
+      chatSeat: (): string => live.current.seat,
       contribute
     })
   const [workspace, setWorkspace] = useState(() => makeWorkspace(restored.current?.workspace))
@@ -929,7 +930,8 @@ export function App(props: AppProps) {
           search?.hits ?? [],
           catalog,
           paletteActions,
-          paletteActs
+          paletteActs,
+          props.host.credit?.spent
         ),
     [picker, props.models, seat, filter, tabsKey, search?.hits, catalog, actionsKey, actsKey]
   )
@@ -1097,7 +1099,7 @@ export function App(props: AppProps) {
       workerSeat: props.workerSeat ?? props.seat,
       background: `${workspace.context()}\nFlow runs: ${runs.context()}\nMonitors: ${monitors.context()}\nAgents: ${
         Agents.context(runs.listed())
-      }\nDelegate models (pass as model, not agent): ${Models.delegable(props.models).join(", ") || "none"}`,
+      }\n${Models.delegateContext(Models.delegable(props.models), props.host.credit?.spent ?? (() => false))}`,
       runtime: {
         publish: (contribution) => {
           if (contribution.kind !== "panel") return contribute("runtime:chat", contribution)

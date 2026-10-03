@@ -51,16 +51,23 @@ export const subagent = (
 ): SubagentCard.Subagent => {
   const cells = Undo.run(transcript)
   return {
-    // A run whose every change was undone says so; its files stay listed, as `d` still shows them.
-    title: Undo.undone(cells) ? `${tabTitle(tab)} · undone` : tabTitle(tab),
+    // A failed card names what failed: `review: Review · OpenAI quota exhausted`.
+    title: tab.status === "failed" && tab.failure !== undefined
+      ? `${tabTitle(tab)} · ${tab.failure.headline}`
+      : Undo.undone(cells) ? `${tabTitle(tab)} · undone`
+      : tabTitle(tab),
     status: tab.status,
     model: Tabs.seatName(tab, models),
     startedAt: tab.startedAt,
     ...(tab.endedAt === undefined ? {} : { endedAt: tab.endedAt }),
-    entries: cells.flatMap((cell): Array<SubagentCard.Entry> => [
-      ...(cell.prose.trim() === "" ? [] : [{ kind: "text" as const, text: cell.prose }]),
-      ...cell.calls.map(entry)
-    ]),
+    // A model change (`↪ GPT-6.1 Sol has no credit · using Qwen 3.8`) reads where it happened.
+    entries: transcript.items.flatMap((item): Array<SubagentCard.Entry> =>
+      item.kind === "note"
+        ? item.text.startsWith("↪ ") ? [{ kind: "text", text: item.text }] : []
+        : item.kind === "cell"
+        ? [...(item.prose.trim() === "" ? [] : [{ kind: "text" as const, text: item.prose }]), ...item.calls.map(entry)]
+        : []
+    ),
     files: cells.flatMap((cell) =>
       cell.calls.flatMap((call) =>
         (call.patches ?? []).map((each) => ({ path: each.path, ...SubagentCard.diffCounts(each.patch) }))

@@ -916,6 +916,9 @@ export const trace = (
         eventType: "control.agent.turn-opened",
         payload: { seat: event.seat, contextDigest: event.contextDigest }
       }
+    case "model-selected":
+      // Live host routing notification; it takes no durable trace ordinal.
+      return undefined
     case "model-requested":
       // What the call was asked, so a reader can open this one step and ask
       // it again: see {@link tracedRequest}.
@@ -1422,7 +1425,10 @@ export const trace = (
           from: event.from,
           to: event.to,
           code: event.code,
-          resetAtEpochMillis: event.resetAtEpochMillis
+          resetAtEpochMillis: event.resetAtEpochMillis,
+          retryAfterMillis: event.retryAfterMillis,
+          httpStatus: event.httpStatus,
+          quotaScope: event.quotaScope
         }
       }
     case "model-parked":

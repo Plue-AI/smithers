@@ -70,6 +70,13 @@
 
 ### Fixed
 
+- A terminal credit refusal (`quota_exceeded` or `out_of_credit`) skips its
+  account in later frames of the same agent invocation; explicit model scope
+  skips only that model. Timed quota cooldowns still recover on durable resume,
+  including when a backup must wait after the primary exhausts credit. Fresh
+  runs can retry replenished credit; cancellation remains terminal for
+  the cancelled execution (#3043).
+
 - A latency budget's clock starts at the run's first budget decision again.
   The resume an engine port records when it is built had started it, so setup
   before the first model call was charged to the allowance.

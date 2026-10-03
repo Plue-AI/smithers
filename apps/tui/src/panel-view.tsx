@@ -23,6 +23,12 @@ export function FailureCard(
   const diagnostics = tab.detail?.includes(message ?? "") && tab.detail !== ""
     ? tab.detail
     : [message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")
+  const actions = {
+    "switch-model": "[m] Switch model",
+    resume: "[r] Resume here",
+    wait: "[w] Wait for reset",
+    details: "[ctrl+o] Details"
+  } as const
   return (
     <box style={{ flexShrink: 0, paddingLeft: 1, marginBottom: 1 }}>
       <text fg={color.danger}>{Tabs.outcome(tab)}</text>
@@ -30,8 +36,7 @@ export function FailureCard(
       {hints
         ? (
           <text fg={color.brand}>
-            [r] Resume here [m] Switch model{"   "}
-            {failure.actions.includes("wait") ? "[w] Wait for reset   " : ""}[ctrl+o] Details
+            {failure.actions.map((action) => actions[action]).join("   ")}
           </text>
         )
         : null}

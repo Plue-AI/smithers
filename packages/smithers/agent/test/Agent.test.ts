@@ -302,6 +302,7 @@ const drive = <A, E>(
 const flows = [descriptor("fs/list", { tier: "sealed" }), descriptor("fs/write", { tier: "irreversible" })]
 
 const collect = (options: {
+  readonly session?: string | undefined
   readonly maxFrames?: number | undefined
   readonly seat?: Seat.Seat | undefined
   readonly fallbackSeats?: ReadonlyArray<Seat.Seat> | undefined
@@ -332,7 +333,7 @@ const collect = (options: {
     const agent = yield* Agent.Agent
     const events: Array<AgentEvent.AgentEvent> = []
     yield* agent.run({
-      session: "session-1",
+      session: options.session ?? "session-1",
       seat: options.seat ?? Seat.make({
         id: "anthropic:test-model",
         modelId: "test-model",
@@ -598,6 +599,348 @@ describe("capacity seat chain", () => {
     expect(JSON.stringify(outcome)).toContain("still unavailable")
     expect(requests).toEqual(["first", "second"])
     expect(events.some((event) => event._tag === "model-parked")).toBe(false)
+  })
+
+  it.each(
+    [
+      { code: "quota_exceeded", quotaScope: undefined, httpStatus: 429 },
+      { code: "quota_exceeded", quotaScope: "model", httpStatus: 402 },
+      { code: "out_of_credit", quotaScope: undefined, httpStatus: 402 }
+    ] as const
+  )(
+    "asks a seat refused for lack of credit ($code/$quotaScope/$httpStatus) once per invocation: later frames go straight to its backup",
+    async (refusal) => {
+      const contacted: Array<string> = []
+      const first = Model.make({
+        stream: () =>
+          Stream.suspend(() => {
+            contacted.push("first")
+            return Stream.fail(new ModelError({ ...refusal, message: "no credit left" }))
+          })
+      })
+      const answers = recordedCells([], ["console.log(1)", "ctx.done('fallback')"])
+      const second = Model.make({
+        stream: (request) => {
+          contacted.push("second")
+          return answers.stream(request)
+        }
+      })
+      const events: AgentEvent.AgentEvent[] = []
+      const outcome = await drive(collect({
+        model: first,
+        seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+        fallbackSeats: [Seat.make({
+          id: "second",
+          modelId: "second",
+          model: second,
+          route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+          contextWindowTokens: 0
+        })],
+        registry: registryOf([]),
+        sink: events,
+        modelRetryPolicy: Schedule.recurs(0)
+      }))
+      expect(outcome._tag).toBe("completed")
+      expect(contacted).toEqual(["first", "second", "second"])
+      expect(events.filter((event) => event._tag === "seat-failed-over")).toHaveLength(1)
+      expect(events.filter((event) => event._tag === "model-selected").map((event) => event.seat))
+        .toEqual(["first", "second", "second"])
+      expect(events.some((event) => event._tag === "model-parked")).toBe(false)
+    }
+  )
+
+  it.each(["account", "model"] as const)("skips terminal credit refusals at %s scope", async (quotaScope) => {
+    const contacted: Array<string> = []
+    const first = Model.make({
+      stream: () =>
+        Stream.suspend(() => {
+          contacted.push("first")
+          return Stream.fail(new ModelError({ code: "quota_exceeded", quotaScope, httpStatus: 402, message: "empty" }))
+        })
+    })
+    const answering = (id: string) => {
+      const answers = recordedCells([], ["console.log(1)", "ctx.done('done')"])
+      return Model.make({
+        stream: (request) => {
+          contacted.push(id)
+          return answers.stream(request)
+        }
+      })
+    }
+    const sibling = answering("sibling")
+    const other = answering("other")
+    const outcome = await drive(collect({
+      model: first,
+      seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+      fallbackSeats: [
+        Seat.make({ id: "sibling", modelId: "sibling", model: sibling, route, contextWindowTokens: 0 }),
+        Seat.make({
+          id: "other",
+          modelId: "other",
+          model: other,
+          route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+          contextWindowTokens: 0
+        })
+      ],
+      registry: registryOf([]),
+      modelRetryPolicy: Schedule.recurs(0)
+    }))
+    expect(outcome._tag).toBe("completed")
+    expect(contacted).toEqual(quotaScope === "account" ? ["first", "other", "other"] : ["first", "sibling", "sibling"])
+  })
+
+  it.each(
+    [
+      { resetAtEpochMillis: 6_000, retryAfterMillis: undefined, quotaScope: undefined, waitMillis: 5_000 },
+      { resetAtEpochMillis: undefined, retryAfterMillis: 5_000, quotaScope: undefined, waitMillis: 5_000 },
+      { resetAtEpochMillis: undefined, retryAfterMillis: undefined, quotaScope: "model", waitMillis: 900_000 }
+    ] as const
+  )(
+    "recovers quota after its cooldown ($resetAtEpochMillis/$retryAfterMillis/$quotaScope)",
+    async ({ waitMillis, ...refusal }) => {
+      const events: Array<AgentEvent.AgentEvent> = []
+      let calls = 0
+      const answers = recordedCells([], ["ctx.done('recovered')"])
+      const model = Model.make({
+        stream: (request) =>
+          Stream.suspend(() =>
+            ++calls === 1
+              ? Stream.fail(new ModelError({ code: "quota_exceeded", message: "window closed", ...refusal }))
+              : answers.stream(request)
+          )
+      })
+      const outcome = await Effect.gen(function*() {
+        const engine = yield* FlowRuntime.FlowRuntime
+        const scope = yield* Effect.scope
+        yield* TestClock.setTime(1_000)
+        let settled = Deferred.makeUnsafe<Outcome>()
+        yield* engine.register(driveFlow, () =>
+          Effect.onExit(
+            collect({ model, registry: registryOf([]), sink: events }),
+            (exit) => Effect.asVoid(Deferred.succeed(settled, classify(exit)))
+          )).pipe(Scope.provide(scope))
+        yield* engine.execute(driveFlow, { executionId: "exec-1", payload: {}, discard: true })
+        expect((yield* Deferred.await(settled))._tag).toBe("suspended")
+        yield* awaitParked(engine, driveFlow)
+        settled = Deferred.makeUnsafe<Outcome>()
+        yield* engine.resume(driveFlow, "exec-1")
+        expect((yield* Deferred.await(settled))._tag).toBe("suspended")
+        yield* awaitParked(engine, driveFlow)
+        expect(calls).toBe(1)
+        settled = Deferred.makeUnsafe<Outcome>()
+        yield* TestClock.adjust(waitMillis)
+        return yield* Deferred.await(settled)
+      }).pipe(
+        Effect.provide(Layer.mergeAll(FlowEngine.layerMemory, NodeCrypto.layer, Safety.layer)),
+        Effect.provide(TestClock.layer()),
+        Effect.provideService(Metric.MetricRegistry, new Map()),
+        Effect.scoped,
+        Effect.runPromise
+      )
+      expect(outcome._tag).toBe("completed")
+      expect(calls).toBe(2)
+      expect(events.filter((event) => event._tag === "model-parked")).toHaveLength(1)
+      expect(events.filter((event) => event._tag === "model-unparked")).toHaveLength(1)
+    }
+  )
+
+  it("reports the actual seat when a primary recovers during a backup frame", async () => {
+    const contacted: Array<string> = []
+    const events: AgentEvent.AgentEvent[] = []
+    const answers = recordedCells([], ["ctx.done('primary recovered')"])
+    const first = Model.make({
+      stream: (request) => Stream.suspend(() => {
+        contacted.push("first")
+        return contacted.length === 1
+          ? Stream.fail(new ModelError({
+            code: "quota_exceeded", message: "brief reset", retryAfterMillis: 10, quotaScope: "model", httpStatus: 429
+          }))
+          : answers.stream(request)
+      })
+    })
+    const second = Model.make({
+      stream: (request) => Stream.unwrap(Effect.gen(function*() {
+        contacted.push("second")
+        yield* Effect.sleep("40 millis")
+        return recordedCells([], ["console.log(1)"]).stream(request)
+      }))
+    })
+    const outcome = await drive(collect({
+      model: first,
+      seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+      fallbackSeats: [Seat.make({
+        id: "second", modelId: "second", model: second,
+        route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) }, contextWindowTokens: 0
+      })],
+      registry: registryOf([]), sink: events, modelRetryPolicy: Schedule.recurs(0)
+    }))
+    expect(outcome._tag).toBe("completed")
+    expect(contacted).toEqual(["first", "second", "first"])
+    expect(events.filter((event) => event._tag === "model-selected").map((event) => event.seat))
+      .toEqual(["first", "second", "first"])
+    expect(events.filter((event) => event._tag === "seat-failed-over")).toMatchObject([{
+      from: "first", to: "second", code: "quota_exceeded", retryAfterMillis: 10, quotaScope: "model", httpStatus: 429
+    }])
+  })
+
+  it("waits for a timed backup after terminal credit refusal", async () => {
+    const contacted: Array<string> = []
+    const events: Array<AgentEvent.AgentEvent> = []
+    const first = Model.make({
+      stream: () =>
+        Stream.suspend(() => {
+          contacted.push("first")
+          return Stream.fail(new ModelError({ code: "quota_exceeded", message: "empty" }))
+        })
+    })
+    let secondCalls = 0
+    const answers = recordedCells([], ["ctx.done('recovered')"])
+    const second = Model.make({
+      stream: (request) =>
+        Stream.suspend(() => {
+          contacted.push("second")
+          return secondCalls++ === 0
+            ? Stream.fail(new ModelError({ code: "quota_exceeded", resetAtEpochMillis: 6_000, message: "wait" }))
+            : answers.stream(request)
+        })
+    })
+    const outcome = await Effect.gen(function*() {
+      const engine = yield* FlowRuntime.FlowRuntime
+      const scope = yield* Effect.scope
+      yield* TestClock.setTime(1_000)
+      let settled = Deferred.makeUnsafe<Outcome>()
+      yield* engine.register(driveFlow, () =>
+        Effect.onExit(
+          collect({
+            model: first,
+            registry: registryOf([]),
+            sink: events,
+            seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+            fallbackSeats: [Seat.make({
+              id: "second",
+              modelId: "second",
+              model: second,
+              route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+              contextWindowTokens: 0
+            })]
+          }),
+          (exit) => Effect.asVoid(Deferred.succeed(settled, classify(exit)))
+        )).pipe(Scope.provide(scope))
+      yield* engine.execute(driveFlow, { executionId: "exec-1", payload: {}, discard: true })
+      expect((yield* Deferred.await(settled))._tag).toBe("suspended")
+      yield* awaitParked(engine, driveFlow)
+      settled = Deferred.makeUnsafe<Outcome>()
+      yield* TestClock.adjust("5 seconds")
+      return yield* Deferred.await(settled)
+    }).pipe(
+      Effect.provide(Layer.mergeAll(FlowEngine.layerMemory, NodeCrypto.layer, Safety.layer)),
+      Effect.provide(TestClock.layer()),
+      Effect.provideService(Metric.MetricRegistry, new Map()),
+      Effect.scoped,
+      Effect.runPromise
+    )
+    expect(outcome._tag).toBe("completed")
+    // Replay reconstructs the terminal refusal while the timed backup recovers.
+    expect(contacted).toEqual(["first", "second", "second"])
+    expect(events.filter((event) => event._tag === "model-parked")).toHaveLength(1)
+    expect(events.filter((event) => event._tag === "model-unparked")).toHaveLength(1)
+  })
+
+  it("cancels a parked backup and retries the primary only in a fresh execution", async () => {
+    const contacted: Array<string> = []
+    let replenished = false
+    const answers = recordedCells([], ["ctx.done('recovered')"])
+    const first = Model.make({
+      stream: (request) =>
+        Stream.suspend(() => {
+          contacted.push("first")
+          return replenished
+            ? answers.stream(request)
+            : Stream.fail(new ModelError({ code: "quota_exceeded", message: "empty" }))
+        })
+    })
+    const second = Model.make({
+      stream: () =>
+        Stream.suspend(() => {
+          contacted.push("second")
+          return Stream.fail(new ModelError({ code: "quota_exceeded", retryAfterMillis: 5_000, message: "wait" }))
+        })
+    })
+    const outcome = await Effect.gen(function*() {
+      const engine = yield* FlowRuntime.FlowRuntime
+      const scope = yield* Effect.scope
+      let settled = Deferred.makeUnsafe<Outcome>()
+      yield* engine.register(driveFlow, () =>
+        Effect.onExit(
+          collect({
+            session: replenished ? "session-retry" : "session-1",
+            model: first,
+            registry: registryOf([]),
+            seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+            fallbackSeats: [Seat.make({
+              id: "second",
+              modelId: "second",
+              model: second,
+              route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+              contextWindowTokens: 0
+            })]
+          }),
+          (exit) => Effect.asVoid(Deferred.succeed(settled, classify(exit)))
+        )).pipe(Scope.provide(scope))
+      yield* engine.execute(driveFlow, { executionId: "exec-1", payload: {}, discard: true })
+      expect((yield* Deferred.await(settled))._tag).toBe("suspended")
+      yield* awaitParked(engine, driveFlow)
+      yield* engine.interrupt(driveFlow, "exec-1")
+      replenished = true
+      yield* engine.resume(driveFlow, "exec-1")
+      yield* TestClock.adjust("1 hour")
+      expect(contacted).toEqual(["first", "second"])
+      settled = Deferred.makeUnsafe<Outcome>()
+      yield* engine.execute(driveFlow, { executionId: "exec-2", payload: {}, discard: true })
+      return yield* Deferred.await(settled)
+    }).pipe(
+      Effect.provide(Layer.mergeAll(FlowEngine.layerMemory, NodeCrypto.layer, Safety.layer)),
+      Effect.provide(TestClock.layer()),
+      Effect.provideService(Metric.MetricRegistry, new Map()),
+      Effect.scoped,
+      Effect.runPromise
+    )
+    expect(outcome._tag).toBe("completed")
+    expect(contacted).toEqual(["first", "second", "first"])
+  })
+
+  it("fails a later frame with the refusal when the backup that answered runs out of credit too", async () => {
+    const contacted: Array<string> = []
+    const refusing = (id: string, after: number) => {
+      let calls = 0
+      const answers = recordedCells([], ["console.log(1)", "ctx.done('fallback')"])
+      return Model.make({
+        stream: (request) => {
+          contacted.push(id)
+          return calls++ < after
+            ? answers.stream(request)
+            : Stream.fail(new ModelError({ code: "quota_exceeded", message: `${id} has no credit` }))
+        }
+      })
+    }
+    const first = refusing("first", 0)
+    const second = refusing("second", 1)
+    const outcome = await drive(collect({
+      model: first,
+      seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
+      fallbackSeats: [Seat.make({
+        id: "second",
+        modelId: "second",
+        model: second,
+        route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+        contextWindowTokens: 0
+      })],
+      registry: registryOf([]),
+      modelRetryPolicy: Schedule.recurs(0)
+    }))
+    expect(outcome._tag).toBe("failed")
+    expect(JSON.stringify(outcome)).toContain("second has no credit")
+    expect(contacted).toEqual(["first", "second", "second"])
   })
 
   it("fails without parking when only some exhausted seats are cooling", async () => {

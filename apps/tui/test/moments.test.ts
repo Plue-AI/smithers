@@ -65,7 +65,7 @@ it("peeks at a park with its reset and count, a backup seat, and a failure by it
       () => Transcript.empty
     )
   )
-    .toEqual(["parked · resets 14:05 · 3/8", "sol → luna"])
+    .toEqual(["parked · resets 14:05 · 3/8", "GPT-6.1 Sol → GPT-6 Luna"])
   expect(
     Inbox.peek(
       row(

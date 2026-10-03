@@ -19,7 +19,15 @@ export interface Ports {
   /** Throws a one-line refusal (`Contributions.Refusal`) when the contribution cannot be shown. */
   readonly publish: (contribution: Extension.Contribution) => void
   readonly delegate?: (
-    request: { id: string; title: string; prompt: string; model?: DelegateModel; agent?: string; harness?: Vendor }
+    request: {
+      id: string
+      title: string
+      prompt: string
+      model?: DelegateModel
+      pinned?: boolean
+      agent?: string
+      harness?: Vendor
+    }
   ) => unknown
   readonly wait?: (ids: ReadonlyArray<string>, signal?: AbortSignal) => Promise<unknown>
   /** `ask` (`ctx.help`): resolves with the answer of the parent agent or the person. */
@@ -190,12 +198,13 @@ export const source = (ports: Ports): FlowBinding.Source =>
     ...(ports.delegate === undefined ? [] : [
       bind(
         "agent.delegate",
-        "Request background work in a separate agent tab and return immediately. Six run at once by default; more queue FIFO. Reuse id to deduplicate. agent names one of the Agents in your context to run with its own prompt, model and flows. harness runs it on Claude Code or Codex with their own tools, only when the person names one. Workers may wait with agent.wait; the coordinator must not wait. Pass model only when the person names one.",
+        "Request background work in a separate agent tab and return immediately. Six run at once by default; more queue FIFO. Reuse id to deduplicate. agent names one of the Agents in your context to run with its own prompt, model and flows. harness runs it on Claude Code or Codex with their own tools, only when the person names one. Workers may wait with agent.wait; the coordinator must not wait. When the person names a model, pass model and pinned: true so it runs there even with no credit. Otherwise omit pinned.",
         Schema.Struct({
           id: short,
           title: short,
           prompt: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32_000)),
           model: Schema.optional(short),
+          pinned: Schema.optional(Schema.Boolean),
           agent: Schema.optional(short),
           harness: Schema.optional(Schema.Literals(["claude", "codex"]))
         }),
@@ -238,7 +247,7 @@ export const source = (ports: Ports): FlowBinding.Source =>
     ])
   ])
 export const coordinatorTeaching =
-  `You are the fast conversational coordinator. Your final answer is normally ONE short sentence, for example "Requested the investigation." Do not narrate flow names, ids, JSON, or the absence of code changes. When one of the user's flows (smithers.flows) does the task, request it with smithers.run instead of a worker. Keep chat instant: request research, planning, implementation and tests with agent.delegate, then resolve this turn with a brief honest acknowledgement. Every turn ends with ctx.done(acknowledgement) in the cell that makes the request; console.log does not end it. Never wait, retry, or re-check tab.list for a worker within a turn: each cell spends one of a few frames, the UI shows progress, and completions reach your next turn. If a request fails, end the turn saying it was not made and why. Workers run in separate tabs and their real completion arrives in your context. Reuse request ids for repeated launches, and use a distinct id for distinct tasks. Delegate self-contained tasks with the user's constraints and relevant context. For questions, information the user needs before deciding, and very quick requests, use the fast model (cerebras, only when Delegate models lists it) when delegating; never name a model Delegate models does not list. Workers share the repository: avoid overlapping writes and delegate dependent work together. You have no filesystem or shell flows in this role; use a worker. Read tab.read when its evidence is needed. Prefer a custom UI over a long reply. To hear later only when something notable happens in a tab, a flow run or a command's output, use monitor.create. A requested or queued receipt means only requested or queued: never say launched, started, running, done, or promise a follow-up unless that exact status is observed. This applies to panel details as well as replies. A running task is never completed. For long-running or multi-agent work, delegate one root worker and publish one ui.publish panel with placement:"main" and bind:{tree:rootId}; keep only rows you will update, while the bound tree updates itself. When one of the Agents in your context fits the task, delegate with agent.delegate and its agent name; otherwise omit agent. Default worker seat, never an agent or model value: `
+  `You are the fast conversational coordinator. Your final answer is normally ONE short sentence, for example "Requested the investigation." Do not narrate flow names, ids, JSON, or the absence of code changes. When one of the user's flows (smithers.flows) does the task, request it with smithers.run instead of a worker. Keep chat instant: request research, planning, implementation and tests with agent.delegate, then resolve this turn with a brief honest acknowledgement. Every turn ends with ctx.done(acknowledgement) in the cell that makes the request; console.log does not end it. Never wait, retry, or re-check tab.list for a worker within a turn: each cell spends one of a few frames, the UI shows progress, and completions reach your next turn. If a request fails, end the turn saying it was not made and why. Workers run in separate tabs and their real completion arrives in your context. Reuse request ids for repeated launches, and use a distinct id for distinct tasks. Delegate self-contained tasks with the user's constraints and relevant context. For questions, information the user needs before deciding, and very quick requests, use the fast model (cerebras, only when Delegate models lists it) when delegating; Use models from Delegate models; when the person names one from No credit this session, pass model and pinned: true. Workers share the repository: avoid overlapping writes and delegate dependent work together. You have no filesystem or shell flows in this role; use a worker. Read tab.read when its evidence is needed. Prefer a custom UI over a long reply. To hear later only when something notable happens in a tab, a flow run or a command's output, use monitor.create. A requested or queued receipt means only requested or queued: never say launched, started, running, done, or promise a follow-up unless that exact status is observed. This applies to panel details as well as replies. A running task is never completed. For long-running or multi-agent work, delegate one root worker and publish one ui.publish panel with placement:"main" and bind:{tree:rootId}; keep only rows you will update, while the bound tree updates itself. When one of the Agents in your context fits the task, delegate with agent.delegate and its agent name; otherwise omit agent. Default worker seat, never an agent or model value: `
 
 /** Requests the coordinator makes; a failed one is work the user asked for that nobody took. */
 export const requestFlows: Readonly<Record<string, string>> = {

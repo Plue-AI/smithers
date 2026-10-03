@@ -61,13 +61,6 @@ const claudeCode: ReadonlyArray<Omit<Model, "provider">> = Providers.claudeCodeS
     seat
 }))
 
-/** Every seat the picker can offer, whichever providers are detected. */
-export const offered: ReadonlyArray<Omit<Model, "provider">> = [
-  ...Object.values(byProvider).flat(),
-  ...anthropic,
-  ...claudeCode
-]
-
 export interface Available {
   readonly models: ReadonlyArray<Model>
   readonly defaultSeat: string | undefined
@@ -200,17 +193,25 @@ const graphSeats = (available: Available): ReadonlyArray<SeatRouter.GraphSeat> =
 /**
  * The catalog a worker routes over, when it may route: the host is judged
  * and `SMITHERS_TUI_WORKER_SEAT`, an operator's explicit choice, is unset.
- * The routing graph's seats that run here, and the default system-prompt
- * variants, picked in the same call.
+ * The routing graph's seats that run here, less those `spent` says have no
+ * credit, and the default system-prompt variants, picked in the same call.
  */
 export const routing = (
   available: Available,
   environment: Readonly<Record<string, string | undefined>>,
-  judged: boolean
+  judged: boolean,
+  spent: (seat: string) => boolean = () => false
 ): SeatRouter.Service | undefined =>
   !judged || environment.SMITHERS_TUI_WORKER_SEAT !== undefined
     ? undefined
-    : { candidates: Effect.succeed(graphSeats(available)), variants: SeatRouter.defaultVariants }
+    : {
+      // Read at each route, so a model that ran out of credit is skipped from then on.
+      candidates: Effect.sync(() => graphSeats(available).filter((alias) => !spent(alias))),
+      variants: SeatRouter.defaultVariants
+    }
+
+/** The seats an `auto` worker routes over here, in the router's order. */
+export const routedSeats = (available: Available): ReadonlyArray<string> => graphSeats(available)
 
 const providerOf = (seat: string): string => seat.slice(0, seat.indexOf(":"))
 /** Every provider a seat here names, plus the replay seat the tests drive. */
@@ -263,14 +264,56 @@ export const delegable = (available: ReadonlyArray<Model>): ReadonlyArray<Delega
   })
 }
 
+/**
+ * The coordinator's delegate models: those with credit, then, apart, those
+ * whose account refused this session, which run only when the person names one.
+ */
+export const delegateContext = (
+  names: ReadonlyArray<DelegateModel>,
+  spent: (seat: string) => boolean
+): string => {
+  const refused = names.filter((name) => spent(delegateSeat(name)))
+  const listed = names.filter((name) => !refused.includes(name))
+  return `Delegate models (pass as model, not agent): ${listed.join(", ") || "none"}${
+    refused.length === 0 ? "" : `\nNo credit this session (pass only with pinned: true): ${refused.join(", ")}`
+  }`
+}
+
 /** The seat passed to the host for a named delegate model. Claude aliases stay aliases for its resolver. */
 export const delegateSeat = (name: DelegateModel): string =>
   Object.hasOwn(delegateModels, name)
     ? delegateModels[name as keyof typeof delegateModels]
     : seatOf(name, []) ?? name
 
-/** A seat's display name: an available model's label, a known model's, or the seat itself. */
-export const labelOf = (seat: string, available: ReadonlyArray<Model>): string =>
-  available.find((model) => model.seat === seat)?.label ??
-    offered.find((model) => model.seat === seat)?.label ??
-    seat
+/**
+ * A seat's one name on every surface: the picker's label, else the seat
+ * catalog's (`Providers.describeSeat`: `GPT-6.1 Sol`, also for an alias), else
+ * its model id. A Claude Code seat is named as the model it runs; a replay
+ * seat is `replay`.
+ */
+export const labelOf = (seat: string, available: ReadonlyArray<Model>): string => {
+  const bare = seat.startsWith("claude-code:") ? seat.slice("claude-code:".length) : seat
+  const expanded = Object.hasOwn(delegateModels, bare)
+    ? delegateModels[bare as keyof typeof delegateModels]
+    : Providers.expandSeat(bare)
+  return available.find((model) => model.seat === seat)?.label ??
+    Providers.describeSeat(expanded)?.label ??
+    (seat.startsWith("replay:") ? "replay" : seat.slice(seat.indexOf(":") + 1))
+}
+
+/**
+ * The account a seat runs on: its provider, with a Claude alias on the
+ * Anthropic key when one is set, else on Claude Code. Every model of one
+ * account shares its credit.
+ */
+export const routeOf = (seat: string, available: ReadonlyArray<Model>): string => {
+  const bare = seat.trim().toLowerCase()
+  const expanded = Object.hasOwn(delegateModels, bare)
+    ? delegateModels[bare as keyof typeof delegateModels]
+    : Providers.expandSeat(bare)
+  const colon = expanded.indexOf(":")
+  const provider = colon < 0 ? expanded : expanded.slice(0, colon)
+  if (provider !== "anthropic" || bare.startsWith("anthropic:")) return provider
+  const keyed = available.some((model) => model.seat.startsWith("anthropic:"))
+  return keyed || !available.some((model) => model.seat.startsWith("claude-code:")) ? provider : "claude-code"
+}

@@ -17,7 +17,7 @@ describe("FailureCopy.describe", () => {
       })
     })
     expect(FailureCopy.describe(error, "openai:gpt-6-sol")).toMatchObject({
-      headline: "ChatGPT usage limit reached",
+      headline: "OpenAI usage limit reached",
       fault: "wait",
       actions: ["resume", "switch-model", "wait", "details"]
     })
@@ -196,7 +196,7 @@ describe("FailureCopy.describe", () => {
   it.each([
     ["anthropic:claude", "Anthropic"],
     ["gemini:pro", "Gemini"],
-    ["kimi-k3:default", "Kimi"],
+    ["moonshot:kimi-k3", "Kimi"],
     ["openrouter:model", "OpenRouter"],
     ["cerebras:qwen", "Cerebras"],
     ["custom:model", "Model"]
@@ -219,6 +219,81 @@ describe("FailureCopy.describe", () => {
         Object.assign(new ModelError({ code: "quota_exceeded", message: "raw" }), { seat: "gemini:pro" })
       ).headline
     ).toBe("Gemini quota exhausted")
+  })
+
+  it("offers another model first when an account has no credit left", () => {
+    for (const code of ["quota_exceeded", "out_of_credit"] as const) {
+      expect(FailureCopy.describe(new ModelError({ code, message: "raw" }), "openai:gpt-6.1-sol").actions).toEqual([
+        "switch-model",
+        "resume",
+        "details"
+      ])
+    }
+    expect(FailureCopy.describe(new ModelError({ code: "quota_exceeded", message: "raw" }), "anthropic").headline)
+      .toBe("Anthropic quota exhausted")
+  })
+
+  it.each([
+    { resetAtEpochMillis: Date.UTC(2030, 0, 1) },
+    { retryAfterMillis: 60_000 },
+    { quotaScope: "model" as const },
+    { quotaScope: "account" as const, retryAfterMillis: 60_000 }
+  ])("offers waiting for a recoverable quota refusal %j", (detail) => {
+    const error = new ModelError({ code: "quota_exceeded", message: "raw", ...detail })
+    // Durable errors and live class instances expose the same recovery actions.
+    for (const value of [error, JSON.parse(JSON.stringify(error))]) {
+      expect(FailureCopy.describe({ cause: value }, "openai:gpt-6.1-sol").actions).toEqual([
+        "switch-model",
+        "resume",
+        "wait",
+        "details"
+      ])
+    }
+  })
+
+  it.each([
+    { code: "quota_exceeded" as const, httpStatus: 402 },
+    { code: "quota_exceeded" as const, quotaScope: "account" as const },
+    { code: "out_of_credit" as const }
+  ])("omits waiting when a quota refusal requires intervention %j", (detail) => {
+    const timed = detail.httpStatus === 402 || detail.code === "out_of_credit"
+      ? { resetAtEpochMillis: Date.UTC(2030, 0, 1), retryAfterMillis: 60_000 }
+      : {}
+    expect(FailureCopy.describe(new ModelError({ message: "raw", ...detail, ...timed })).actions).toEqual([
+      "switch-model",
+      "resume",
+      "details"
+    ])
+  })
+
+  it("names an account by its seat's provider prefix, as the model picker does", () => {
+    expect(
+      [
+        "openai:gpt-6.1-sol",
+        "anthropic:claude-opus-5-5",
+        "claude-code:opus",
+        "moonshot:kimi-k3",
+        "gemini:pro",
+        "openrouter:x",
+        "cerebras:qwen-3.8-27b",
+        "openai",
+        "unknown:model",
+        "constructor:x",
+        undefined
+      ].map(FailureCopy.provider)
+    ).toEqual([
+      "OpenAI",
+      "Anthropic",
+      "Claude Code",
+      "Kimi",
+      "Gemini",
+      "OpenRouter",
+      "Cerebras",
+      "OpenAI",
+      "Model",
+      "Model",
+      "Model"
+    ])
   })
 
   it("maps request, provider, and harness codes without using their messages", () => {

@@ -159,6 +159,33 @@ export class ModelError extends Schema.TaggedError<ModelError>()("flows/model/Mo
   }
 }
 
+const terminalCodes: ReadonlySet<string> = new Set([
+  "authentication",
+  "invalid_request",
+  "no_route",
+  "content_policy",
+  "context_overflow",
+  "out_of_credit",
+  "invalid_provider_output"
+])
+const terminalStatuses: ReadonlySet<number> = new Set([400, 401, 402, 403, 404, 405, 409, 410, 413, 422])
+
+/**
+ * Whether a refusal requires intervention rather than a quota cooldown.
+ * A model-scoped quota or a named reset can recover; terminal HTTP statuses
+ * and exhausted credit cannot be waited out.
+ * @category classification
+ * @since 1.0.0-rc.1
+ */
+export const isTerminalRefusal = (
+  error: Pick<ModelError, "code" | "httpStatus" | "quotaScope" | "resetAtEpochMillis" | "retryAfterMillis">
+): boolean => {
+  if (error.httpStatus !== undefined && terminalStatuses.has(error.httpStatus)) return true
+  if (terminalCodes.has(error.code)) return true
+  if (error.code !== "quota_exceeded" || error.quotaScope === "model") return false
+  return error.resetAtEpochMillis === undefined && error.retryAfterMillis === undefined
+}
+
 /**
  * Whose problem each model failure is. The request is our agent's own
  * construction, so a rejected or overflowing one is the factory's, never the

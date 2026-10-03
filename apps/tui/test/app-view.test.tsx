@@ -77,13 +77,13 @@ test("composer leaves an unjudged worker as auto, without naming the chat model"
   expect(frame).not.toContain("Replay")
 })
 
-test("composer names a driven Claude Code seat by its alias", async () => {
+test("composer names a driven Claude Code seat by the model it runs, as the picker does", async () => {
   const frame = await draw(
     <text>
       <AppView.ComposerModel seat="replay:chat" models={composerModels} worker={{ seat: "claude-code:opus" }} />
     </text>
   )
-  expect(frame).toContain("opus")
+  expect(frame).toContain("Claude Opus 5.5")
   expect(frame).not.toContain("Chat model")
 })
 

@@ -10,7 +10,7 @@ import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as Asks from "./asks.ts"
 import type * as Flows from "./flows.ts"
 import { settled } from "./lifecycle.ts"
-import type { Model } from "./models.ts"
+import * as Models from "./models.ts"
 import type * as Monitors from "./monitors.ts"
 import { tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
@@ -77,7 +77,7 @@ export const rows = (input: {
   readonly runs: ReadonlyArray<Flows.Run>
   readonly transcript: (id: string) => Transcript.Transcript
   readonly contextWindow: (seat: string) => number
-  readonly models: ReadonlyArray<Model>
+  readonly models: ReadonlyArray<Models.Model>
   readonly now: number
   /** Open asks; those the person holds put their asker under Needs you. */
   readonly asks?: ReadonlyArray<Asks.Ask>
@@ -98,7 +98,7 @@ export const rows = (input: {
       worker: tab,
       status: tab.status,
       name: tabTitle(tab),
-      seat: tab.harness?.vendor ?? Tabs.model(seat, input.models),
+      seat: Tabs.seatName(tab, input.models),
       clock: tab.status === "parked" && tab.wakeAt !== undefined
         ? at(tab.wakeAt)
         : tab.status === "queued"
@@ -205,7 +205,7 @@ export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript
   if (tab === undefined) return []
   // A backup seat answering, as `fable → sol`.
   const backup = tab.activeSeat !== undefined && tab.activeSeat !== tab.seat
-    ? [`${Tabs.model(tab.seat, [])} → ${Tabs.model(tab.activeSeat, [])}`]
+    ? [`${Models.labelOf(tab.seat, [])} → ${Models.labelOf(tab.activeSeat, [])}`]
     : []
   if (tab.failure !== undefined) {
     return [Tabs.outcome(tab), tab.failure.line, ...backup].filter((line) => line !== "")

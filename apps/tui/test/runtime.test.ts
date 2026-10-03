@@ -304,7 +304,9 @@ it("accepts seat names in the delegate flow", async () => {
   )
   const delegate = bindings.find((binding) => binding.descriptor.name === "agent.delegate")!
   // The coordinator's own pick is not a person's choice; an unnamed model is routed by Jev.
-  expect(delegate.descriptor.description).toEndWith(" Pass model only when the person names one.")
+  expect(delegate.descriptor.description).toEndWith(
+    " When the person names a model, pass model and pinned: true so it runs there even with no credit. Otherwise omit pinned."
+  )
   const input = { id: "test", title: "Test", prompt: "Test work" }
   const call = (value: unknown) => delegate.run({ input: value } as Parameters<typeof delegate.run>[0])
   for (const model of [...Object.keys(Models.delegateModels), "opus", "claude-code:opus", "sonnet"]) {
@@ -312,7 +314,11 @@ it("accepts seat names in the delegate flow", async () => {
   }
   expect((await Effect.runPromise(call(input))).outcome).toBe("success")
   expect((await Effect.runPromise(call({ ...input, model: "" }))).outcome).toBe("failure")
-  expect(requests).toHaveLength(Object.keys(Models.delegateModels).length + 4)
+  // A model the person named is pinned; the flag reaches the workspace as given.
+  expect((await Effect.runPromise(call({ ...input, model: "opus", pinned: true }))).outcome).toBe("success")
+  expect(requests.at(-1)).toEqual({ ...input, model: "opus", pinned: true })
+  expect((await Effect.runPromise(call({ ...input, model: "opus", pinned: "yes" }))).outcome).toBe("failure")
+  expect(requests).toHaveLength(Object.keys(Models.delegateModels).length + 5)
 })
 
 it("teaches the coordinator honest receipts and the panel block contract", () => {
@@ -881,14 +887,17 @@ it("never offers a GPT-5.6 model as a picker, delegate, default or worker seat",
   const openAiFirst = await Models.detect({ OPENAI_API_KEY: "test" })
   const seats = [
     ...available.models.map((model) => model.seat),
-    ...Models.offered.map((model) => model.seat),
+    ...Object.values(Models.aliases),
     ...Object.values(Models.delegateModels),
     available.defaultSeat,
     available.workerSeat,
     openAiFirst.defaultSeat,
     openAiFirst.workerSeat
   ]
-  const labels = [...available.models, ...Models.offered].map((model) => model.label)
+  const labels = [
+    ...available.models.map((model) => model.label),
+    ...Object.values(Models.aliases).map((seat) => Models.labelOf(seat, []))
+  ]
   expect(available.models.length).toBeGreaterThan(0)
   expect(seats.filter((seat) => seat === undefined || /5\.6/.test(seat))).toEqual([])
   expect(labels.filter((label) => /5\.6/.test(label))).toEqual([])

@@ -71,24 +71,34 @@ describe("worker status", () => {
     expect(Tabs.style("cancelled", 0)).toEqual({ glyph: "■", tone: color.faint })
   })
 
-  it("names the model by its delegate alias, its label, then its id", () => {
-    expect(Tabs.model("openai:gpt-6.1-sol", models)).toBe("sol")
-    expect(Tabs.model("anthropic:claude-x", [{ seat: "anthropic:claude-x", label: "Claude X", provider: "anthropic" }]))
+  it("names the model as the picker does: its label, then the seat catalog's, then its id", () => {
+    expect(Models.labelOf("openai:gpt-6.1-sol", [])).toBe("GPT-6.1 Sol")
+    expect(
+      Models.labelOf("anthropic:claude-x", [{ seat: "anthropic:claude-x", label: "Claude X", provider: "anthropic" }])
+    )
       .toBe("Claude X")
-    expect(Tabs.model("test:worker", [])).toBe("worker")
-    expect(Tabs.model("replay:/tmp/sessions/fix-add.jsonl", [])).toBe("replay")
+    // An alias, a delegate name and the seat they name read alike.
+    expect(["openai:gpt-6-luna", "luna", "cerebras", "qwen"].map((seat) => Models.labelOf(seat, []))).toEqual([
+      "GPT-6 Luna",
+      "GPT-6 Luna",
+      "Qwen 3.8",
+      "Qwen 3.8"
+    ])
+    expect(Models.labelOf("test:worker", [])).toBe("worker")
+    expect(Models.labelOf("replay:/tmp/sessions/fix-add.jsonl", [])).toBe("replay")
   })
 
-  it("names a Claude seat by its seat alias, not the picker's long label", () => {
+  it("names every route to one Claude model alike", () => {
     const claude = [
       { seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5", provider: "anthropic" },
       { seat: "claude-code:opus", label: "Claude Opus 5.5", provider: "claude-code" }
     ]
-    expect(Tabs.model("anthropic:claude-opus-5-5", claude)).toBe("opus")
-    expect(Tabs.model("claude-code:opus", claude)).toBe("opus")
-    expect(Tabs.model("claude-code:anthropic:claude-fable-5-1", [])).toBe("fable")
-    // A delegate alias still wins where both name the seat.
-    expect(Tabs.model(Models.delegateModels.cerebras, [])).toBe("cerebras")
+    for (const seat of ["anthropic:claude-opus-5-5", "claude-code:opus", "opus"]) {
+      expect(Models.labelOf(seat, claude)).toBe("Claude Opus 5.5")
+    }
+    expect(Models.labelOf("claude-code:anthropic:claude-fable-5-1", [])).toBe("Claude Fable 5.1")
+    expect(Models.labelOf(Models.delegateModels.cerebras, [])).toBe("Qwen 3.8")
+    expect(Models.labelOf("cerebras", [])).toBe("Qwen 3.8")
   })
 
   it("counts elapsed time to the end once settled", () => {
@@ -109,6 +119,25 @@ describe("worker actions", () => {
     expect(keys("failed")).toEqual(["r", "m"])
     expect(keys("failed", { headline: "Usage limit", fault: "wait", line: "", actions: ["resume", "wait"] } as never))
       .toEqual(["r", "m", "w"])
+    // No credit: another model first, and no wait for a reset that will not come.
+    expect(
+      keys("failed", {
+        headline: "OpenAI quota exhausted",
+        fault: "wait",
+        line: "",
+        actions: ["switch-model", "resume", "details"]
+      })
+    )
+      .toEqual(["m", "r"])
+    expect(
+      keys("failed", {
+        headline: "Model route unavailable",
+        fault: "dependency",
+        line: "",
+        actions: ["switch-model", "resume", "details"]
+      })
+    )
+      .toEqual(["m", "r"])
     expect(keys("cancelled")).toEqual(["r"])
     expect(keys("done")).toEqual([])
     // While the person drives it, stop is the only button; ctrl+y releases.
@@ -226,7 +255,7 @@ describe("WorkerList", () => {
     )
     const frame = captureCharFrame()
     expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
-    expect(frame).toContain("sol · 3.0s")
+    expect(frame).toContain("GPT-6.1 Sol · 3.0s")
     expect(frame).toContain(`${Tabs.style("queued", 4_000).glyph} Worker b`)
     const row = find(frame, "Worker b")
     await mockMouse.click(row.x, row.y)
@@ -357,7 +386,7 @@ describe("WorkerView", () => {
     )
     const frame = captureCharFrame()
     expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
-    expect(frame).toContain("sol · 3.0s")
+    expect(frame).toContain("GPT-6.1 Sol · 3.0s")
     expect(frame).toContain("3.0s")
     expect(frame).toContain("↑18k ↓2.3k")
     expect(frame).toContain("Audit the auth middleware.")
@@ -440,7 +469,7 @@ describe("WorkerView", () => {
     const frame = captureCharFrame()
     expect(frame).toContain("✓ Check docs · done at 2s")
     expect(frame).toContain("● Check docs")
-    expect(frame).toContain("Done 2s · sol")
+    expect(frame).toContain("Done 2s · GPT-6.1 Sol")
     expect(frame).toContain("◉ Check docs done")
     expect(frame.indexOf("Split the review.")).toBeLessThan(frame.indexOf("✓ Check docs · done"))
     expect(frame.indexOf("✓ Check docs · done")).toBeLessThan(frame.indexOf("◉ Check docs done"))
@@ -548,8 +577,8 @@ describe("WorkerView", () => {
 describe("seat names", () => {
   it("names a wrapped worker by its vendor and any other by its model", () => {
     const base = { seat: "openai:gpt-6.1-sol" }
-    expect(Tabs.seatName(base, [])).toBe("sol")
+    expect(Tabs.seatName(base, [])).toBe("GPT-6.1 Sol")
     expect(Tabs.seatName({ ...base, harness: { vendor: "claude" } }, [])).toBe("claude")
-    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6-luna" }, [])).toBe("luna")
+    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6-luna" }, [])).toBe("GPT-6 Luna")
   })
 })

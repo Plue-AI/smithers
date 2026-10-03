@@ -64,7 +64,17 @@ first available non-Cerebras seat (usually the ChatGPT subscription from
 failure a worker tries its routing graph's backups that run here;
 `SMITHERS_TUI_WORKER_SEATS=a,b` sets that fallback order instead, for routed
 and resumed workers too. The picker lists only
-providers this machine can reach. Print mode (`-p`) runs the prompt as one
+providers this machine can reach. A terminal quota refusal (`OpenAI quota exhausted`)
+marks the refused model, or every model when the refusal covers the account,
+`no credit` in the picker, listed last, for the rest of the session: routing and backups skip them, and a worker asked for
+one runs once on the model that last answered, else the chat model, with the
+line `↪ GPT-6.1 Sol has no credit · using Qwen 3.8`, and without backups. Its
+failure card offers **m** Switch model before **r** Resume. A model the person
+pinned (one they named in chat, or chose with **m**) runs alone: it is never
+replaced and never fails over. Chat keeps its **--model** or **/model** choice.
+The worker environment override sets a default, which may be replaced after a
+quota refusal. Every surface names a model as the picker does.
+Print mode (`-p`) runs the prompt as one
 worker on the worker seat, or `--model`: it can delegate and wait like any
 worker, and an ask that reaches the person fails, since nobody is at the
 terminal.
@@ -341,8 +351,8 @@ settling to `Ran 3 subagents ✓` only when every one is done (`✗` when any
 failed, else `■`); one settled worker heads its card `■ <title> · stopped at 6s`,
 one column below 69 columns, up to four across. A card has its lane-colored
 `▌` rail, glyph and title, `… +N earlier`, its last five steps (`├ Read x ✓`,
-`├ Ran node check.mjs  exit 1 ✗`, `└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · sol` or
-`Done 1m 04s · sol`. A focused card shows its worker keys (`[x Stop] [s Steer]`).
+`├ Ran node check.mjs  exit 1 ✗`, `└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · GPT-6.1 Sol` or
+`Done 1m 04s · GPT-6.1 Sol`. A failed card's title names its failure (`review · OpenAI quota exhausted`). A focused card shows its worker keys (`[x Stop] [s Steer]`).
 A worker tab's own children show the same way. `◉ <worker> done` or
 `◉ <worker> failed: <cause>` or `◉ <worker> stopped` marks where a worker
 settled; its focused card offers `[r Resume]`. `/filter` shows or hides each kind of row;

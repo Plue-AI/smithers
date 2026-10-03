@@ -17,7 +17,7 @@ import type * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
 import type * as Host from "./host.ts"
 import * as Lifecycle from "./lifecycle.ts"
-import { type DelegateModel, delegateModels, delegateSeat, seatOf as modelSeatOf } from "./models.ts"
+import { type DelegateModel, delegateModels, delegateSeat, routeOf, seatOf as modelSeatOf } from "./models.ts"
 import * as Panels from "./panels.ts"
 import * as Session from "./session.ts"
 import * as Steering from "./steering.ts"
@@ -68,6 +68,8 @@ export interface Tab {
   readonly unchecked?: true
   /** The delegate model asked for; retry keeps it. */
   readonly model?: DelegateModel
+  /** The person chose this tab's model: it runs there even when that model's account has no credit. */
+  readonly pinned?: true
   /** The custom agent this tab runs; `digest` is recorded once its body is read. */
   readonly agent?: { readonly name: string; readonly digest?: string }
   /** A typed agent failure. */
@@ -115,6 +117,8 @@ export interface Request {
   readonly agent?: string | undefined
   /** Who asked; only a person may start a `disable-model-invocation` agent. Default `agent`. */
   readonly by?: "user" | "agent"
+  /** The person named `model`: it runs there even when its account has no credit. */
+  readonly pinned?: boolean | undefined
   /** Run it on a wrapped harness (Claude Code, Codex) instead of the cell harness. */
   readonly harness?: Wrapped.Vendor | undefined
 }
@@ -202,6 +206,8 @@ export class Workspace {
       seatOf?: (declared: string) => string | undefined
       /** Delegate models a request may name; absent, any. */
       delegable?: ReadonlyArray<DelegateModel>
+      /** The chat's model now: a known-working stand-in for a worker whose model has no credit. */
+      chatSeat?: () => string
       /** A worker's status item or key, owned `runtime:<tab id>`; throws a one-line refusal. */
       contribute?: (owner: string, contribution: Extension.Contribution) => void
     }
@@ -373,7 +379,9 @@ export class Workspace {
   /** Namespaces a child under its parent and refuses delegation beyond depth three. */
   requestChild = (parent: Tab, request: Request): { id: string; status: Tab["status"] } => {
     if (parent.depth >= 3) throw new AgentDepthExceeded()
-    return this.open({ ...request, id: `${parent.id}/${request.id}` }, undefined, parent.id, parent.depth + 1)
+    // Only the person pins a model; an agent's choice of one is not a pin.
+    const { pinned: _pinned, ...child } = request
+    return this.open({ ...child, id: `${parent.id}/${request.id}` }, undefined, parent.id, parent.depth + 1)
   }
   /** A worker waits for its own children while its pool slot is available to queued work. */
   wait = (
@@ -454,7 +462,7 @@ export class Workspace {
    */
   private open(
     request: Request,
-    kept?: Pick<Tab, "seat" | "variant" | "backups" | "panel" | "answered">,
+    kept?: Pick<Tab, "seat" | "variant" | "backups" | "panel" | "answered" | "pinned">,
     parent?: string,
     depth = 0,
     prior?: Tab,
@@ -545,6 +553,10 @@ export class Workspace {
       startedAt: prior?.startedAt ?? Date.now(),
       ...(parks === undefined || parks === 0 ? {} : { parks }),
       ...(request.model === undefined ? {} : { model: request.model }),
+      // A model the person named is a pin; a relaunch keeps whatever its tab had.
+      ...((kept === undefined ? request.pinned === true && request.model !== undefined : kept.pinned === true)
+        ? { pinned: true as const }
+        : {}),
       ...(request.agent === undefined ? {} : { agent: { name: request.agent } }),
       ...(prior?.caps === undefined ? {} : { caps: prior.caps }),
       ...(request.harness !== undefined
@@ -775,9 +787,11 @@ export class Workspace {
     if (now === undefined) return
     const { answered, backups, panel, variant, ...rest } = now
     // A routed tab keeps `auto`, or the seat and route a retry carries.
-    const seat = now.model === undefined
-      ? profile.seat ?? (this.routes ? now.seat : this.options.workerSeat)
-      : delegateSeat(now.model)
+    const seat = now.model !== undefined
+      ? delegateSeat(now.model)
+      : now.pinned === true
+      ? now.seat
+      : profile.seat ?? (this.routes ? now.seat : this.options.workerSeat)
     const ready: Tab = {
       ...rest,
       seat,
@@ -789,6 +803,10 @@ export class Workspace {
     }
     this.tabs.put(ready)
     this.launch(ready, writer, history, profile)
+  }
+  /** The account `seat` runs on, as a failure names it: `openai`, `anthropic`, `claude-code`. */
+  private account(seat: string): string {
+    return this.options.host.credit?.account(seat) ?? routeOf(seat, [])
   }
   private async describe(tab: Tab): Promise<void> {
     const short = (text: string) => {
@@ -802,7 +820,10 @@ export class Workspace {
       : short(tab.prompt)
     // The worker's own seat: the task never goes to a provider the user did not pick for it. A wrapped
     // worker's provider is its vendor, which is never asked for a title.
-    if (!tab.seat.startsWith("replay:") && tab.seat !== Seat.auto && tab.harness === undefined) {
+    if (
+      !tab.seat.startsWith("replay:") && tab.seat !== Seat.auto && tab.harness === undefined &&
+      this.options.host.credit?.spent(tab.seat) !== true
+    ) {
       try {
         const generated = await this.options.host.describe?.({ title: tab.title, prompt: tab.prompt, seat: tab.seat })
         description = generated?.replace(/\s+/g, " ").trim().slice(0, 80) || description
@@ -828,6 +849,20 @@ export class Workspace {
       tab.id,
       Transcript.user(this.transcripts.get(tab.id) ?? Transcript.empty, tab.prompt, false, at)
     )
+    // A model whose account has no credit is skipped, once, for a known-working one, unless the person pinned it.
+    const instead = tab.pinned === true || tab.harness !== undefined || tab.seat.startsWith("replay:")
+      ? undefined
+      : this.options.host.credit?.instead(tab.seat, this.options.chatSeat?.() ?? this.options.workerSeat)
+    if (instead !== undefined) {
+      const { variant: _variant, backups: _backups, panel: _panel, answered: _answered, ...rest } = tab
+      tab = { ...rest, seat: instead.to }
+      this.tabs.put(tab)
+      const text = this.options.host.credit!.notice(instead.from, instead.to)
+      writer.append({ type: "note", at, text })
+      this.transcripts.set(tab.id, Transcript.note(this.transcript(tab.id), text, at))
+    }
+    // A pinned model, or the stand-in, is the run's only model: no backup replaces it.
+    const alone = tab.pinned === true || instead !== undefined
     // A taken-over worker waiting for its driver frees its seat, and takes one back to go on.
     const steering = Steering.make({
       parked: () => {
@@ -856,7 +891,9 @@ export class Workspace {
           else this.members.delete(tab.id)
           this.changed()
         },
-        ...(tab.model === undefined && agent?.fallbackSeats !== undefined
+        ...(alone
+          ? { fallbackSeats: [] }
+          : tab.model === undefined && agent?.fallbackSeats !== undefined
           ? { fallbackSeats: agent.fallbackSeats }
           : {}),
         source: tab.id,
@@ -924,6 +961,9 @@ export class Workspace {
           if (event._tag !== "aborted") {
             this.transcripts.set(tab.id, Transcript.apply(this.transcript(tab.id), event, at))
           }
+          if (event._tag === "model-selected") {
+            this.tabs.put({ ...(this.tabs.get(tab.id) ?? tab), activeSeat: event.seat })
+          }
           if (event._tag === "seat-failed-over") {
             this.tabs.put({ ...(this.tabs.get(tab.id) ?? tab), activeSeat: event.to })
           }
@@ -975,8 +1015,12 @@ export class Workspace {
           return
         }
         const at = Date.now()
+        // Named after the account of the seat whose call failed: a quota refusal names it.
         const described = outcome._tag === "failed"
-          ? FailureCopy.describe(outcome.error ?? outcome.message, this.tabs.get(tab.id)?.activeSeat ?? tab.seat)
+          ? FailureCopy.describe(
+            outcome.error ?? outcome.message,
+            this.account(outcome.seat ?? this.tabs.get(tab.id)?.activeSeat ?? tab.seat)
+          )
           : undefined
         const parks = current?.parks ?? 0
         const told = described?.fault === "wait" && parks >= QuotaPolicy.defaultMaxParks
@@ -1440,7 +1484,7 @@ export class Workspace {
         : tab?.status === "queued"
         ? "Queued."
         : tab?.status === "parked"
-        ? `waits for ${seatProvider(tab.activeSeat ?? tab.seat)} reset · ${
+        ? `waits for ${FailureCopy.provider(this.account(tab.activeSeat ?? tab.seat))} reset · ${
           new Date(tab.wakeAt ?? Date.now()).toLocaleTimeString("en-US", {
             hour: "2-digit",
             minute: "2-digit",
@@ -1548,10 +1592,17 @@ export class Workspace {
     this.tabs.forget(id)
     try {
       // Keeps the agent, the model, the seat and its routed variant; the agent's file is read again, so edits apply.
-      // A seat the user picks is not routed, so it runs without the variant.
+      // A seat the user picks replaces the model asked for and is pinned; it is not routed, so it runs without the variant.
       return this.open(
-        { id, title: tab.title, prompt: tab.prompt, model: tab.model, agent: tab.agent?.name, by: "user" },
-        seat === undefined ? tab : { seat },
+        {
+          id,
+          title: tab.title,
+          prompt: tab.prompt,
+          model: seat === undefined ? tab.model : undefined,
+          agent: tab.agent?.name,
+          by: "user"
+        },
+        seat === undefined ? tab : { seat, pinned: true },
         tab.parent,
         tab.depth,
         tab
@@ -1605,14 +1656,6 @@ export class Workspace {
     for (const entry of queued) entry.resume?.()
   }
 }
-/** The provider whose reset a parked tab waits for. */
-const seatProvider = (seat: string): string =>
-  seat.startsWith("openai:") ?
-    "ChatGPT" :
-    seat.startsWith("anthropic:")
-    ? "Anthropic"
-    : seat.split(":")[0] ?? "model"
-
 /** The failure card's single progress and file-impact line. */
 export const failureLine = (tab: Tab, transcript: Transcript.Transcript): string => {
   const steps = transcript.items.filter((item) => item.kind === "cell" && item.status !== "writing").length

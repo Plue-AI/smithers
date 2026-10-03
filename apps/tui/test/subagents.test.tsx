@@ -324,6 +324,17 @@ describe("the worker tree", () => {
     expect(panel.rows[0]?.label).toContain("● a")
     expect(panel.rows[0]?.label).toContain("1m 04s")
   })
+  it("names each row's model as every other surface does", () => {
+    const tabs = [
+      tab("a", "done", { seat: "openai:gpt-6.1-sol" }),
+      tab("a/x", "running", { parent: "a", seat: "sonnet", activeSeat: "cerebras:qwen-3.8-27b" }),
+      tab("a/y", "running", { parent: "a", seat: "auto", harness: { vendor: "claude" } })
+    ]
+    const labels = Tree.panel("a", tabs, () => Transcript.empty, 1).rows.map((row) => row.label)
+    expect(labels[0]).toContain("● a  GPT-6.1 Sol  ")
+    expect(labels[1]).toContain(" a/x  Qwen 3.8  ")
+    expect(labels[2]).toContain(" a/y  claude  ")
+  })
 })
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
@@ -482,23 +493,67 @@ describe("the Summary overview's tree row", () => {
     window: 20,
     cache: 48
   } as const
-  it("keeps a space between the clipped name and every fixed column", () => {
-    const line = SubagentView.treeRow(row, 4, 64)
+  const seat = SubagentView.seatColumn([row, { seat: "GPT-6.1 Sol" }], 64)
+  it("sizes the model column to the longest model name, short of squeezing names under a dozen cells", () => {
+    expect(seat).toBe("Claude Opus 5.5".length + 1)
+    expect(SubagentView.seatColumn([{ seat: "fn" }], 64)).toBe(9)
+    expect(SubagentView.seatColumn([{ seat: "openrouter:anthropic/claude-sonnet-4.5" }], 46)).toBe(18)
+    expect(SubagentView.seatColumn([], 64)).toBe(9)
+  })
+  it("keeps a space between the clipped name and every column, and the whole model name", () => {
+    const line = SubagentView.treeRow(row, 4, 64, seat)
     const text = `${line.title}${" ".repeat(line.gap)}${line.aside}`
     expect(4 + text.length).toBeLessThanOrEqual(64 - 1)
-    expect(text).toMatch(/… +Claude … +11m 43s +20% 48%$/)
+    expect(text).toMatch(/… +Claude Opus 5\.5 +11m 43s +20% 48%$/)
   })
   it("pads short values to the same columns, so rows line up", () => {
-    const a = SubagentView.treeRow({ ...row, seat: "opus", clock: "4s" }, 4, 64)
-    const b = SubagentView.treeRow(row, 4, 64)
+    const a = SubagentView.treeRow({ ...row, seat: "Qwen 3.8", clock: "4s" }, 4, 64, seat)
+    const b = SubagentView.treeRow(row, 4, 64, seat)
     expect(a.aside.indexOf("20%")).toBe(b.aside.indexOf("20%"))
     expect(a.title.length + a.gap).toBe(b.title.length + b.gap)
   })
   it("drops the meter first in a narrow pane and still separates the clock", () => {
-    const line = SubagentView.treeRow(row, 4, 36)
+    const line = SubagentView.treeRow(row, 4, 46, seat)
     expect(line.aside).not.toContain("%")
-    expect(`${line.title}${" ".repeat(line.gap)}${line.aside}`).toMatch(/… +Claude … +11m 43s *$/)
+    expect(`${line.title}${" ".repeat(line.gap)}${line.aside}`).toMatch(/… +Claude Opus 5\.5 +11m 43s *$/)
   })
+  for (const width of [80, 110]) {
+    it(`draws every model name whole at ${width} columns`, async () => {
+      const rows = [
+        { ...row, key: "a", name: "Review", seat: "GPT-6.1 Sol", clock: "4s" },
+        { ...row, key: "b", name: "Docs", seat: "Claude Sonnet 5.5", clock: "9s" }
+      ]
+      const { captureCharFrame } = await mount(
+        <SubagentView.Overview
+          sections={[{ group: "working", rows }]}
+          selected={SubagentView.chat}
+          pane="tree"
+          width={width}
+          cards={{
+            transcript: () => Transcript.empty,
+            models: [],
+            now: 0,
+            lane: () => color.info,
+            focused: undefined,
+            open: new Set(),
+            onOpen: () => {},
+            onFiles: () => {},
+            onAction: () => {}
+          }}
+          tabs={[]}
+          onSelect={() => {}}
+          review={null}
+        />,
+        width,
+        12
+      )
+      const frame = captureCharFrame()
+      expect(frame).toMatch(/◐ Review +GPT/)
+      expect(frame).toMatch(/GPT-6\.1 Sol +4s/)
+      expect(frame).toMatch(/Claude Sonnet 5\.5 +9s/)
+      expect(frame).not.toContain("…")
+    })
+  }
 })
 
 /** Separate messages make separate real delegation batches. */

@@ -327,6 +327,18 @@ export class ModelRequested extends Schema.TaggedClass<ModelRequested>(
 }) {}
 
 /**
+ * The host selected the seat that will receive this capacity attempt.
+ * @category events
+ * @since 1.0.0-rc.1
+ */
+export class ModelSelected extends Schema.TaggedClass<ModelSelected>(
+  "flows/harness/AgentEvent/ModelSelected"
+)("model-selected", {
+  eventType: Schema.Literal("flows.harness.model-selected.v1"),
+  seat: Schema.String
+}) {}
+
+/**
  * A capacity refusal moved the current frame to another seat.
  * @category events
  * @since 1.0.0-rc.1
@@ -338,7 +350,10 @@ export class SeatFailedOver extends Schema.TaggedClass<SeatFailedOver>(
   from: Schema.String,
   to: Schema.String,
   code: ModelError.ModelErrorCode,
-  resetAtEpochMillis: Schema.optional(Schema.Number)
+  resetAtEpochMillis: Schema.optional(Schema.Number),
+  retryAfterMillis: Schema.optional(Schema.Number),
+  httpStatus: Schema.optional(Schema.Number),
+  quotaScope: Schema.optional(Schema.Literals(["account", "model"]))
 }) {}
 
 /**
@@ -1638,6 +1653,7 @@ export const AgentEvent = Schema.Union([
   TurnOpened,
   ModelDelta,
   ModelRequested,
+  ModelSelected,
   SeatFailedOver,
   ModelParked,
   ModelUnparked,
@@ -1721,6 +1737,7 @@ export const eventType = {
   disciplineArmed: "flows.harness.discipline-armed.v1",
   modelDelta: "flows.harness.model-delta.v1",
   modelRequested: "flows.harness.model-requested.v1",
+  modelSelected: "flows.harness.model-selected.v1",
   seatFailedOver: "flows.harness.seat-failed-over.v1",
   modelParked: "flows.harness.model-parked.v1",
   modelUnparked: "flows.harness.model-unparked.v1",
