@@ -110,7 +110,7 @@ for (const theme of ["light", "dark"]) test(`Paper tone mappings ${theme}`, () =
       const node = document.createElement("span")
       node.dataset.tone = tone
       document.body.append(node)
-      expect(getComputedStyle(node).getPropertyValue("--tone").trim()).toBe(`var(${token})`)
+      expect(getComputedStyle(node).getPropertyValue("--tone").trim()).toBe(getComputedStyle(node).getPropertyValue(token).trim())
       node.remove()
     }
   } finally { css.remove() }

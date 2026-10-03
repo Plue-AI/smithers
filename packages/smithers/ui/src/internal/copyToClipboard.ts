@@ -38,6 +38,7 @@ function legacyCopy(text: string): CopyResult {
   field.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
   try {
     document.body.append(field);
+    field.focus({ preventScroll: true });
     field.select();
     return document.execCommand("copy")
       ? { ok: true }
