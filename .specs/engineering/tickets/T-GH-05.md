@@ -1,6 +1,6 @@
 # T-GH-05 Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-STK-07, T-GH-09, T-STK-02, T-STK-12, T-STK-13, T-ACC-03, T-FLW-11, T-MCH-14, T-APP-19b · Unblocks T-APP-01, T-GH-03, T-GH-04, T-GH-06, T-GH-07, T-REL-02, T-STK-04, T-STK-10 · Issue: [#3517](https://github.com/smithersai/smithers/issues/3517)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-STK-07, T-GH-09, T-STK-02, T-STK-12, T-STK-13, T-ACC-03, T-FLW-11, T-MCH-14, T-APP-19b · Unblocks T-APP-01, T-GH-03, T-GH-04, T-GH-06, T-REL-02, T-STK-04, T-STK-10 · Issue: [#3517](https://github.com/smithersai/smithers/issues/3517)
 Spec: spec.md §3.0, §4.1, §4.1.2a, §6.1.2 (in-card), §10.6.2, §10.6.4, §12.1.2 (`administration: read`), §12.3 (checks, approved, merged, closed rows), §12.4.1, §14.5.2 · Delta: delta.md §7 "PR closed → dropped…" · Product: mvp.md J10.5, §6.3 (checks, merged, closed, branch protection rows), M-22
 
 ## Goal

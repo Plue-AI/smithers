@@ -20,6 +20,8 @@ Automation: `apps/app/e2e/real/install-origins.spec.ts` (new) and the listener p
 6. Grep the served JavaScript bundle for `randomUUID(`, `crypto.subtle` and `serviceWorker.register`.
 
 ## Pass when
+
+- T-INS-04 consumes copyText exported by T-UI-01 (follow-up). On plain HTTP, exercise the production chat Copy command and CommandGesture with the native clipboard absent and with its write refused. Both pass their write as `onCopy` to the shared helper and reach its `execCommand` fallback. Assert one successful copy, awaited writes and `clipboard-unavailable` when both paths refuse. No caller implements a second fallback.
 - Step 1: every listener is on `127.0.0.1` or `[::1]`; all connections from B are refused.
 - Step 2: HTTP 4000 and SSH 2222 (when T-TRM-03 has landed) listen on loopback and on the configured bind; PostgreSQL stays on loopback.
 - Step 3: `isSecureContext` is false on P and true on L and S; every action succeeds on all three origins in both browsers; pasted text equals the copied text; the live channel delivers a delta on each origin.

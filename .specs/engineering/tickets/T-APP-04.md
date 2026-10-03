@@ -1,6 +1,6 @@
 # T-APP-04 Confirm card: one-click confirmations and Review & merge
 
-Stage S1 · Size M · Depends on T-ACC-05, T-STK-04, T-UI-05, T-APP-19, T-APP-08, T-APP-16, T-APP-22, T-APP-09, T-STK-05, T-ACC-06 · Unblocks T-APP-01, T-APP-02, T-APP-05, T-CAT-02, T-FLW-05, T-FLW-13, T-MNT-03, T-REL-02, T-TRM-02 · Issue: [#3498](https://github.com/smithersai/smithers/issues/3498)
+Stage S1 · Size M · Depends on T-ACC-05, T-STK-04, T-UI-05, T-APP-19, T-APP-08, T-APP-16, T-APP-22, T-APP-09, T-STK-05, T-ACC-06 · Unblocks T-APP-01, T-APP-02, T-APP-05, T-FLW-05, T-FLW-13, T-MNT-03, T-REL-02, T-TRM-02 · Issue: [#3498](https://github.com/smithersai/smithers/issues/3498)
 Spec: spec.md §5.2, §5.4, §6.1.2 (`agent`), §6.4, §7.2 (`confirmations`), §10.6.1–10.6.2, §14.3 (Confirm), §14.5.1, §15.1.3–15.1.5, §19.3 · Delta: delta.md §2 (Add `person_confirmations`, the Confirm card), §6 (Delete `change.land` as a TODO merge path) · Product: mvp.md §2 rule 6, §6.10, §6.13, M-05, M-21, Appendix A `/merge` and closing paragraph, Appendix B legend (A✓)
 
 ## Goal

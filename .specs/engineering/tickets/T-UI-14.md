@@ -1,6 +1,6 @@
 # T-UI-14 Commands view (/help)
 
-Stage S1 · Size S · Depends on T-UI-01, T-APP-19b · Unblocks T-CAT-01, T-REL-02 · Issue: [#3551](https://github.com/smithersai/smithers/issues/3551)
+Stage S1 · Size S · Depends on T-APP-19b · Unblocks T-CAT-01, T-REL-02 · Issue: [#3551](https://github.com/smithersai/smithers/issues/3551)
 Spec: spec.md §14.2.1, §6.1 · Delta: delta.md §9 · Product: mvp.md Appendix B · Props: [ui-components.md § T-UI-14](../ui-components.md)
 
 ## Goal
@@ -14,6 +14,7 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-CAT-01 and revi
 ## Scope
 
 In:
+- Lands before T-UI-01 (tech lead 2026-10-02, edge cut): CommandsView uses existing Paper styling and its reconciled CommandsCard contract. No replacement actor/state implementation. Keep T-APP-19b and the design review; mount the real View with its committed fixtures and keyboard-disclosure tests. If design actually introduces a shared primitive call, restore that concrete prerequisite rather than copying it.; its integration test with T-UI-01 runs after T-UI-01 lands and gates C-UI-12 and C-UI-13 (S1 schema, View and wiring exit).
 - Commands entries include synopsis, description and agent: run|confirm|never from T-APP-19b. Catalog tags remain an opaque placeholder enum until T-CAT-01 replaces it. Check: C-UI-12.
 - Keep Advanced collapsed initially and keyboard-operable. Copy descriptions row for row from product Appendix A, covering all 57 rows. Render agent policy as a muted trailing mark: confirm → "Asks first", never → "Only you"; run has no mark. Check: C-UI-12.
 - `CommandsView`: groups, the collapsed Advanced group, and each command's synopsis, description and policy mark (confirm: "Asks first"; never: "Only you"; run: none).
@@ -58,7 +59,7 @@ Out:
 
 T-UI-02 through T-UI-14 go Ready together after T-APP-19b lands with smithers-38's §21.1 review. Local props permit drafting only. This UI lane makes no piecemeal schema change. Check: C-UI-08.
 
-1. Dependencies: T-UI-01 supplies primitives and T-APP-19b supplies the landed CommandsCard schema, opaque tag type and committed Commands fixtures. T-CAT-01 already depends on this View; live catalog generation is downstream and cannot be a View prerequisite.
+1. Dependencies: T-APP-19b supplies the landed CommandsCard schema, opaque tag type and committed Commands fixtures. T-CAT-01 already depends on this View; live catalog generation is downstream and cannot be a View prerequisite. Landing condition for the T-UI-01 edge cut: CommandsView uses existing Paper styling and its reconciled CommandsCard contract. No replacement actor/state implementation. Keep T-APP-19b and the design review; mount the real View with its committed fixtures and keyboard-disclosure tests. If design actually introduces a shared primitive call, restore that concrete prerequisite rather than copying it.; its integration test with T-UI-01 runs after T-UI-01 lands and gates C-UI-12 and C-UI-13 (S1 schema, View and wiring exit).
 2. Exclusions: Scope excludes catalog generation/registration, role filtering, other command doors, execution, hidden/in-card rows and separate permission policy.
 3. Tests: C-UI-12 mounts the production CommandsView export in `apps/app/src/mainview/cards/views/Views.test.tsx` and `apps/app/e2e/playwright/view-stories.spec.ts` (both new). Committed literal cases cover supplied group order, synopsis and description, confirm/never trailing marks and no run mark, Advanced collapsed initially and expanded by keyboard, and empty groups. Tags remain opaque; any supplied action calls onAction once and local disclosure dispatches no command. Both themes and widths pass. Expected values come from neither spec files nor the runtime catalog or registry. T-CAT-01 owns production `/help` dispatch and catalog parity under C-CAT-01/C-UI-13.
 4. Decisions: smithers-06 signs visual/copy conformance, Will decides catalog/product changes, and smithers-8a accepts seam changes with smithers-b8 and smithers-38.

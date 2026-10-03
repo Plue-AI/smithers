@@ -1,6 +1,6 @@
 # T-GH-08 Follow `main` by default; sync health and Retry
 
-Stage S1 · Size S · Depends on T-GH-02, T-UI-06, T-APP-19, T-GH-07, T-FLW-03, T-ACC-03, T-COL-02, T-APP-19b · Unblocks T-APP-01, T-APP-03, T-APP-08, T-REL-02 · Issue: [#3453](https://github.com/smithersai/smithers/issues/3453)
+Stage S1 · Size S · Depends on T-GH-02, T-UI-06, T-APP-19, T-FLW-03, T-ACC-03, T-COL-02, T-APP-19b · Unblocks T-APP-01, T-APP-03, T-APP-08, T-REL-02 · Issue: [#3453](https://github.com/smithersai/smithers/issues/3453)
 Spec: spec.md §4.4, §6.3 (`/api/github/sync`), §7.2 (`home`), §7.2.1, §12.2.3, §12.3 (`main` moved row), §12.6, §14.3 (Home `main`) · Delta: delta.md §7 "`mirror: pull` is the default…", "Health model…" · Product: mvp.md J10.4, J10.6, §6.3 "`main` moves", "Sync status", Appendix A `/github`, Appendix B.2 (`github.app`, `github.reconcile`)
 
 ## Goal
@@ -10,6 +10,7 @@ The install's repository follows GitHub's `main` with no declaration, and the Ho
 
 - Keep the existing HomeCard main row with fresh, stale, refused and limited health variants. Register github.retry once in CatalogTagSchema, CardCommandInput and HomeCardCallbacks via T-APP-19b (#3601); reuse that registration for Home actions. Supply fixtures for all four health variants. Check: C-J10-06.
 In (adopted owner pre-review):
+- Lands before T-GH-07 (tech lead 2026-10-02, edge cut): Health aggregation, persistence and stale timer can land independently. The new install follow worker and POST Retry refuse **503 infra/sync_not_ready** until the guarded rewrite handler and machine-only main-moved loader are registered. This is a proposed API envelope; no public success/“fresh” state is fabricated. Without the handler, do not advance refs, load flows, acknowledge rewrite settlement, or use the old main-pull worker as a fallback. GH-07 later qualifies force-push/owner reset/races before enabling follow and Retry.; its integration test with T-GH-07 runs after T-GH-07 lands and gates C-J10-06 and C-J10-07 (S1 follow/Retry/rewrite exit).
 - Retry immediately schedules all streams subject to their persisted retry_at and shared budget admission. It sends no upstream request during a 429 pause or exhausted budget. Persist success/health inputs and recover the independent stale-boundary timer on startup; crossing 120 s publishes a stale home delta without a poll. Remove old main-pull routes only from install composition and preserve Plue routes/workers. Check: C-J10-06.
 
 
@@ -65,7 +66,7 @@ Out:
 
 ## Ready checklist
 
-1. T-GH-02 supplies scheduler/error/budget inputs; T-GH-07 supplies guarded rewrite handling; T-FLW-03 supplies machine-only main-moved loads; T-ACC-03 supplies member/delegated authorization and catalog policy; T-COL-02 supplies live home publication and inherits the actor credential seam. T-UI-06 and T-APP-19 fix the existing Home model/View seam. Home/Settings rendering remains T-APP-01/03's downstream work.
+1. T-GH-02 supplies scheduler/error/budget inputs; T-FLW-03 supplies machine-only main-moved loads; T-ACC-03 supplies member/delegated authorization and catalog policy; T-COL-02 supplies live home publication and inherits the actor credential seam. T-UI-06 and T-APP-19 fix the existing Home model/View seam. Home/Settings rendering remains T-APP-01/03's downstream work. Landing condition for the T-GH-07 edge cut: Health aggregation, persistence and stale timer can land independently. The new install follow worker and POST Retry refuse **503 infra/sync_not_ready** until the guarded rewrite handler and machine-only main-moved loader are registered. This is a proposed API envelope; no public success/“fresh” state is fabricated. Without the handler, do not advance refs, load flows, acknowledge rewrite settlement, or use the old main-pull worker as a fallback. GH-07 later qualifies force-push/owner reset/races before enabling follow and Retry.; its integration test with T-GH-07 runs after T-GH-07 lands and gates C-J10-06 and C-J10-07 (S1 follow/Retry/rewrite exit).
 2. Out explicitly excludes App setup/permissions, GitHub pushes, host evaluation, budget tuning, external-agent mutation through the read-only skill, Views and downstream rendering/rebases.
 3. The integration test uses production startup, GET/POST sync routes and the live home subscription. C-J10-06 uses actual card/canonical command dispatch after T-APP-01/03 wiring lands. C-UI-13 uses committed inventory/model fixtures, not spec-derived expectations. Assert literal 120-second thresholds, precedence, errors and delta counts; no runtime spec reads or production-derived expected values.
 4. smithers-3f approves health timers, projection transactions and always-follow dispatch; smithers-b8 signs off /github and route cutover; smithers-38 approves the home decoder; smithers-8a decides clock-offset contract changes and any cadence/budget change. Checks: C-J10-06, C-UI-13.

@@ -1,6 +1,6 @@
 # T-ACC-04 Delegated credentials with `via`; `smthrs login --agent`; attribution
 
-Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02, T-INS-04 · Unblocks T-ACC-05, T-ACC-06, T-APP-09, T-APP-23, T-CAT-02, T-COL-02, T-GH-04, T-REL-02, T-STK-04, T-STK-07, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
+Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-ACC-05, T-ACC-06, T-APP-09, T-APP-23, T-CAT-02, T-GH-04, T-REL-02, T-STK-04, T-STK-07, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Add `delegated` + `via`; Add actor `via` on audit) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
 
 ## Goal
@@ -8,6 +8,7 @@ Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, �
 
 ## Scope
 In (adopted owner pre-review):
+- Lands before T-INS-04 (tech lead 2026-10-02, edge cut): ACC-04 lands stored-kind migration, attribution and host mint/revoke APIs against ACC-03/02. Install OAuth start/callback, exchange and public minting remain unmounted or return **503 infra/credential_issuer_unavailable** before cookies, token mint or disclosure unless the INS-04 effective-origin provider is installed. This code is a proposed new refusal contract, requiring the named API owner's review. Never fall back to the old global-origin middleware. INS-04 integration then wires the provider and runs the actual configured-origin OAuth/login matrix before enabling those routes.; its integration test with T-INS-04 runs after T-INS-04 lands and gates C-ACC-01 and C-J6-02 (S1 configured-origin credential exit).
 - Backfill stored credential kind/profile metadata in both compositions, but change authorization only in the install composition. Update every credential classifier caller, including the Git HTTP proxy, to resolve install authority from immutable stored kind, actor class and scope profile; system_issued, scopes and userType cannot recreate person authority. Preserve Plue PAT outcomes. Set explicit finite expiries: CLI delegated credentials expire after 30 days; turn and terminal credentials expire after 1 hour. Renewal requires a fresh active-member and subject check and creates a new immutable credential identity. Revoke turn credentials on completion or cancellation; revoke terminal credentials within 5 s of close; suspension/removal immediately denies authorization and physically revokes credentials within 5 s. No renewal outlives the owning turn or terminal session. Check: C-ACC-01.
 
 Approved integration requirements (In):
@@ -90,7 +91,7 @@ Out:
 - `smthrs auth login --admin` tokens (`packages/smithers/src/internal/backend/Auth.ts:120-125`) serve Plue operators. They're out of scope; `/api/admin/*` isn't mounted on the install (T-CUT-02).
 
 ## Ready checklist
-1. Dependencies: T-ACC-03 supplies fail-closed authorization, T-ACC-02 active-member status and revocation seam, T-INS-04 real configured-origin OAuth. Confirmations, turn runner and terminal token installation remain downstream.
+1. Dependencies: T-ACC-03 supplies fail-closed authorization, T-ACC-02 active-member status and revocation seam. Confirmations, turn runner and terminal token installation remain downstream. Landing condition for the T-INS-04 edge cut: ACC-04 lands stored-kind migration, attribution and host mint/revoke APIs against ACC-03/02. Install OAuth start/callback, exchange and public minting remain unmounted or return **503 infra/credential_issuer_unavailable** before cookies, token mint or disclosure unless the INS-04 effective-origin provider is installed. This code is a proposed new refusal contract, requiring the named API owner's review. Never fall back to the old global-origin middleware. INS-04 integration then wires the provider and runs the actual configured-origin OAuth/login matrix before enabling those routes.; its integration test with T-INS-04 runs after T-INS-04 lands and gates C-ACC-01 and C-J6-02 (S1 configured-origin credential exit).
 2. Exclusions: confirmation storage/dispatch, host turns, context preflight, terminal files, actor views, presence and Plue admin tokens are explicit; Plue PAT policy changes require a separate decision.
 3. Tests: real OAuth/token routes and production dispatcher, registered login command and audit persistence use fixed outcomes. Turn-runner lifetime cases remain pending for T-APP-23; no runtime spec or code oracle.
 4. Decisions: smithers-3f credential/schema/TTL/scopes, smithers-b8 public CLI/API, smithers-38 library seams, smithers-8a cross-composition contracts; Will alone decides product-policy changes.

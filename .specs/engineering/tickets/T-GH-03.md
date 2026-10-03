@@ -1,6 +1,6 @@
 # T-GH-03 PR shape: slug branch, body, item-only diff; later items' PRs are drafts until next
 
-Stage S1 · Size M · Depends on T-STK-01, T-STK-10, T-GH-09, T-STK-12, T-STK-02, T-STK-15, T-GH-05, T-INS-04, T-INS-02, T-ACC-03 · Unblocks T-APP-02, T-REL-02 · Issue: [#3452](https://github.com/smithersai/smithers/issues/3452)
+Stage S1 · Size M · Depends on T-STK-01, T-STK-10, T-GH-09, T-STK-12, T-STK-02, T-STK-15, T-GH-05, T-INS-04, T-INS-02, T-ACC-03 · Unblocks T-REL-02 · Issue: [#3452](https://github.com/smithersai/smithers/issues/3452)
 Spec: spec.md §8.1.1, §10.3.2, §10.6.3, §12.4.1 (PR title), §12.4.2, §12.5, §14.3 (Diff), §16.3.1 · Delta: delta.md §6 "PRs stay based on `main`", §7 · Product: mvp.md J10.1, §3 (TODO `T12`), §4.2 "Merging", §6.3 "From Smithers to GitHub", M-22
 
 ## Goal

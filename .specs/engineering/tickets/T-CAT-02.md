@@ -1,6 +1,6 @@
 # T-CAT-02 CLI doors for Appendix A; skill generated from the catalog
 
-Stage S1 · Size M · Depends on T-CAT-01, T-ACC-04, T-ACC-05, T-APP-04, T-STK-01, T-STK-02, T-STK-06, T-APP-19b · Unblocks T-APP-06, T-APP-23, T-CUT-03, T-FLW-05, T-FLW-07, T-FLW-08, T-FLW-13, T-REL-02, T-TRM-02 · Issue: [#3448](https://github.com/smithersai/smithers/issues/3448)
+Stage S1 · Size M · Depends on T-CAT-01, T-ACC-04, T-ACC-05, T-STK-01, T-STK-02, T-STK-06, T-APP-19b · Unblocks T-APP-06, T-APP-23, T-CUT-03, T-FLW-05, T-FLW-08, T-FLW-13, T-REL-02, T-TRM-02 · Issue: [#3448](https://github.com/smithersai/smithers/issues/3448)
 Spec: spec.md §5.4, §6.1.1–§6.1.3, §6.4, §15.3 · Delta: delta.md §9 (CLI mount consumes descriptors; skill generator) · Product: mvp.md §2 rule 1, §6.13 "Smithers skill", "CLI", §8 (CLI and skill: Keep), J6.3–J6.4, M-21, Appendix A, Appendix B.6
 
 ## Goal
@@ -14,6 +14,7 @@ Approved integration requirements (In):
 - A-27 CLI rulings: `/terminal` uses `workspace ssh`, `shell` and `exec`. `/search` and `/github` status carry X and use the same read-only skill as the app agent. `/secrets`, `/members` and `/settings` open the app card for the person, and delegated mutations are refused; GitHub App changes require the Owner's session. Checks: C-CAT-02, C-CAT-03, C-ACC-01.
 
 In:
+- Lands before T-APP-04 (tech lead 2026-10-02, edge cut): Source CLI/parser/skill can land and report actual server outcomes. Until the private app consumer is installed, server dispatch returns **403 permission/confirm_in_app**, “Confirm in the app,” for S1 delegated todo.new; other unavailable confirmation consumers return **503 infra/confirmation_unavailable**. No fabricated 202, TODO or merge. Keep production CLI→router refusal tests at landing; run CLI→private card→person approval integration after APP-04 and before enabling those commands' success paths.; its integration test with T-APP-04 runs after T-APP-04 lands and gates C-ACC-02 and C-CAT-02 (S1 CLI/private approval exit).
 - `Commands.ts:mount` builds one CLI action command per descriptor that lists `external_agent`, and builds the person card doors separately from their catalog descriptors. UI-only rows (⌘K, `/help`, `/stop`, `/theme`) have none. `/secrets`, `/members` and `/settings` have person CLI doors that open the app card, with no external-agent action path. Checks: C-CAT-02, C-CAT-03.
   - Positional arguments come from `Tn` (TODO ids), `#n` (issues and PRs), `<name>`, `<path>` and `<branch>`; options come from the rest of the payload.
   - One generic handler sends the payload to the descriptor's HTTP binding.
@@ -66,7 +67,7 @@ Out:
 - Before start, smithers-b8 approves the CLI/skill public contract, hidden-group mechanism and person card doors; smithers-38 approves the catalog subpath and generator mode; smithers-3f approves credential, confirmation and execution seams. Will decides any product-policy change; smithers-8a resolves conflicts with the normative spec. This ticket does not change catalog policy.
 
 ## Ready checklist
-1. Dependencies: T-CAT-01 supplies descriptors; T-ACC-04/05 supply attributed delegated dispatch and confirmations; T-APP-04 supplies the person approval consumer; T-STK-01/02/06 supply the TODO storage, creation and steer routes used in acceptance. Feature routes outside these tests remain feature-ticket work and fail closed while absent.
+1. Dependencies: T-CAT-01 supplies descriptors; T-ACC-04/05 supply attributed delegated dispatch and confirmations; T-STK-01/02/06 supply the TODO storage, creation and steer routes used in acceptance. Feature routes outside these tests remain feature-ticket work and fail closed while absent. Landing condition for the T-APP-04 edge cut: Source CLI/parser/skill can land and report actual server outcomes. Until the private app consumer is installed, server dispatch returns **403 permission/confirm_in_app**, “Confirm in the app,” for S1 delegated todo.new; other unavailable confirmation consumers return **503 infra/confirmation_unavailable**. No fabricated 202, TODO or merge. Keep production CLI→router refusal tests at landing; run CLI→private card→person approval integration after APP-04 and before enabling those commands' success paths.; its integration test with T-APP-04 runs after T-APP-04 lands and gates C-ACC-02 and C-CAT-02 (S1 CLI/private approval exit).
 2. Exclusions: server feature routes, app catalog work, TUI hiding, SSH behavior, credentials/confirmation implementation and host execution are named under Out.
 3. Tests: CatalogCli and CatalogSkill invoke the source CLI dispatcher; CatalogCli.integration invokes it against the install router. A committed literal fixture pins expectations independently of runtime code and spec files (C-CAT-02/03).
 4. Decisions: smithers-b8 approves the CLI/skill contract; smithers-38 approves catalog/generator seams; smithers-3f approves backend security seams; Will decides product changes and smithers-8a resolves spec conflicts.

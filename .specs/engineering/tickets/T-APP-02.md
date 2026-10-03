@@ -1,6 +1,6 @@
 # T-APP-02 TODO card and Draft card
 
-Stage S1 · Size L · Depends on T-STK-01, T-APP-08, T-UI-03, T-UI-04, T-APP-19, T-STK-02, T-ACC-06, T-APP-16, T-STK-05, T-STK-06, T-STK-07, T-STK-08, T-STK-10, T-STK-15, T-GH-03, T-GH-06, T-STK-09, T-FLW-07, T-APP-04, T-APP-09, T-UI-23, T-MCH-10, T-APP-15 · Unblocks T-APP-01, T-APP-03, T-APP-05, T-REL-02 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
+Stage S1 · Size L · Depends on T-STK-01, T-APP-08, T-UI-03, T-UI-04, T-APP-19, T-STK-02, T-ACC-06, T-APP-16, T-STK-05, T-STK-06, T-STK-07, T-STK-08, T-STK-10, T-STK-15, T-GH-06, T-STK-09, T-FLW-07, T-APP-04, T-APP-09, T-UI-23, T-MCH-10, T-APP-15 · Unblocks T-APP-01, T-APP-03, T-APP-05, T-REL-02 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
 Spec: spec.md §14.2, §14.3 (TODO, Draft), §5.6, §8.6.1, §14.5.1, §4.1, §6.1.4, §6.2.1–6.2.2, §10.2, §10.4, §10.5.4, §10.6, §10.7, §10.8, §12.3, §12.5.1, §15.1.5, §19.3 · Delta: delta.md §9 (Add cards [S1] TODO, Draft), §6 · Product: mvp.md J2, J4, J9, §4.1, §4.2, §6.6 TODO card, Appendix A "TODOs and the stack"
 
 ## Goal
@@ -12,6 +12,7 @@ Design (smithers-06) builds the `TodoView` and the `DraftView`, with the CSS, in
 
 ## Scope
 In:
+- Lands before T-GH-03 (tech lead 2026-10-02, edge cut): Land Todo/Draft decoders, adapters and available production-backed actions against APP-19's real schemas and literal PR/diff fixtures in unit tests. Until the GH-03 producer supplies authoritative accepted-generation PR/diff data, its card section stays unavailable; handlers refuse **503 infra/pr_projection_unavailable** before effect when that producer is required. This is a proposed reviewed envelope. No fake PR URL, diff, head or inferred Merge-ready state. Retain all other listed dependencies. GH-03 then qualifies real topic golden/PR/diff/card and merge integration before that section activates or APP-02 closes.; its integration test with T-GH-03 runs after T-GH-03 lands and gates C-UI-13 and C-J4-02 (S1 PR/diff/card/merge exit).
 - `todo` card on the `todo:<n>` topic, embedded and maximized from one component:
   - header: title, state word (Queued with its queue position, Starting while the machine wakes and the coding agent launches, Working with its current step, §4.1), owner avatar;
   - meta: place ("next to merge", "3rd in stack"), "from #i" or "closed #i" for a linked issue, owner;
@@ -88,7 +89,7 @@ Out:
 
 ## Ready checklist
 
-1. Depends on lists lifecycle, steers, independent waits/conflict controls, amendments, evidence/PR/foreign-push/issue drafting, Inspect, Confirm, actor/View seams, tool detection and main-file reads, in addition to the private/shared Draft writer and live topics. S2 navigation stays outside S1.
+1. Depends on lists lifecycle, steers, independent waits/conflict controls, amendments, evidence/foreign-push/issue drafting, Inspect, Confirm, actor/View seams, tool detection and main-file reads, in addition to the private/shared Draft writer and live topics. S2 navigation stays outside S1. Landing condition for the T-GH-03 edge cut: Land Todo/Draft decoders, adapters and available production-backed actions against APP-19's real schemas and literal PR/diff fixtures in unit tests. Until the GH-03 producer supplies authoritative accepted-generation PR/diff data, its card section stays unavailable; handlers refuse **503 infra/pr_projection_unavailable** before effect when that producer is required. This is a proposed reviewed envelope. No fake PR URL, diff, head or inferred Merge-ready state. Retain all other listed dependencies. GH-03 then qualifies real topic golden/PR/diff/card and merge integration before that section activates or APP-02 closes.; its integration test with T-GH-03 runs after T-GH-03 lands and gates C-UI-13 and C-J4-02 (S1 PR/diff/card/merge exit).
 2. Out names backend semantics, issue admission, Confirm, moved-off/Branch/live presence, notifications, learning, Settings visuals, toolchain expansion and package installation. Shared image.add belongs here so Draft and Settings do not depend on each other.
 3. Acceptance runs the production catalog dispatcher, CardRenderers/Containers, composed TODO and main-file routes, private/shared subscriptions and wiki page creation. Golden rows, action/error matrices, answer Markdown and image diffs have independent literal expectations.
 4. smithers-8a accepts ownership/stage changes; smithers-06 accepts the View callbacks; smithers-b8 owns command/API behavior; smithers-38 accepts RPC decoders/helpers; smithers-3f accepts transaction/revision/security seams.

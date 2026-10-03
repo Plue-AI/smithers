@@ -1,6 +1,6 @@
 # T-INS-04 Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency
 
-Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03, T-STK-01 · Unblocks T-ACC-04, T-COL-02, T-GH-03, T-GH-11, T-GH-12, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
+Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03, T-STK-01 · Unblocks T-COL-02, T-GH-03, T-GH-11, T-GH-12, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
 Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 
 ## Goal
@@ -20,14 +20,14 @@ In:
 - No secure-context API in the browser app (§16.3.2):
   - one UUID helper on `crypto.getRandomValues` replaces `crypto.randomUUID()` in the 34 files that call it (29 outside tests, 62 calls under `apps/app/src`), with a lint ban;
   - the single `crypto.subtle` use, `apps/app/src/mainview/wiki/CloudWiki.ts:127`, moves to the synchronous SHA-256 of `@smthrs/crypto` (`packages/smithers/flows/crypto/src/Sha256.ts`);
-  - the clipboard falls back to a hidden textarea and `document.execCommand("copy")`;
+  - the clipboard uses copyText exported by T-UI-01 (follow-up) from `@smthrs/ui`; its shared helper falls back to a hidden textarea and `document.execCommand("copy")`. Check: C-INS-01;
   - no service worker or push.
 - `GET /api/install` reports each origin with its scheme, so Settings can mark an http origin "unencrypted" (§17.6; T-APP-03 renders it).
 
 Out:
 - Any Tailscale check, `tailscale serve` call or TLS code (§0, §16.3.4). Tailscale serve and Caddy appear only in the quickstart (T-DOC-01).
 - A LAN certificate authority, `smthrs connect` or mDNS: never built (no CA exists anywhere, §17.4).
-- Webhooks through a public URL (§12.2.4, optional). The SSH gateway itself (T-TRM-03). Setup steps (T-INS-06). The Settings card (T-APP-03).
+- Webhooks through a public URL (§12.2.4, optional). The SSH gateway itself (T-TRM-03). Setup steps (T-INS-06). The Settings card (T-APP-03). The shared clipboard export and fallback implementation belong to T-UI-01 (follow-up), not this ticket. Check: C-INS-01.
 
 ## Changes
 
@@ -39,7 +39,7 @@ Out:
 - WebSocket upgrade origin check against the effective origin, for `ws://` and `wss://` (T-COL-02 consumes it).
 - `apps/app/src/mainview/randomId.ts` (new): RFC 4122 version 4 from `getRandomValues`; every `crypto.randomUUID()` under `apps/app/src` moves to it.
 - `apps/app/src/mainview/wiki/CloudWiki.ts:127` → `@smthrs/crypto`; the slug output is unchanged.
-- `packages/smithers/ui/src/internal/copyToClipboard.ts` → the `execCommand` fallback; `apps/app/src/mainview/flows/entries/chat.ts:128-138` and `apps/app/src/mainview/flows/CommandGesture.ts:48-56` call it.
+- Consume copyText exported by T-UI-01 (follow-up) from `@smthrs/ui`, backed by `packages/smithers/ui/src/internal/copyToClipboard.ts`. T-UI-01 owns the export and `execCommand` fallback. Route `apps/app/src/mainview/flows/entries/chat.ts` and `apps/app/src/mainview/flows/CommandGesture.ts` through this helper and pass their clipboard write as `onCopy`. Remove chat’s early refusal when `navigator.clipboard` is absent so the shared fallback runs. Retain awaited writes and normalized failure results. Check: C-INS-01.
 - Lint ban: `apps/app/lint/conformance/SecureContext.test.ts` (new) fails on `crypto.randomUUID`, `crypto.subtle`, `navigator.serviceWorker` or a direct `navigator.clipboard` in `apps/app/src/mainview/**` and `packages/smithers/ui/src/**` outside the two helpers. `eslint.config.js:7` opts both trees out of ESLint, so the conformance suite is their lint.
 - `docs/api/openapi/install.yaml` (new), referenced from `docs/api/openapi/_root.yaml`; `packages/backend/internal/compose/openapi_conformance_test.go:220` passes; regenerate `packages/backend/apiclient/client.gen.go`.
 
@@ -49,7 +49,7 @@ Out:
 - Boundary: `packages/backend/internal/compose/serving_integration_test.go` (new, C-INS-03) sends requests through the composed install router, including effective-origin middleware before authentication, and changes real listeners through `PUT /api/install`. `packages/smithers/test/host-service.integration.test.ts` invokes the registered `host start --bind --origin` flags. Literal fixtures supply origins, cookie attributes, redirect URIs, status codes and clipboard/slug golden values; no oracle reads spec Markdown or production helpers. The real live-channel upgrade cases run when T-COL-02 consumes this middleware; they are not replaced by a test-only upgrade route.
 - unit `apps/app/src/mainview/randomId.test.ts`: version and variant bits; 10^5 ids without collision; works with `crypto.randomUUID` removed from the global.
 - unit: `wikiAttachmentSlug` returns the same slugs as the old `crypto.subtle` path for fixed inputs (golden values).
-- unit `copyToClipboard`: no `navigator.clipboard` → `execCommand` path; both refused → `clipboard-unavailable`.
+- Unit and browser checks consume the public `copyText` export: no `navigator.clipboard` uses `execCommand`; a refused native write uses the fallback; both paths refused return `clipboard-unavailable`. Chat and CommandGesture pass their write as `onCopy`, await it and copy exactly once. An absent clipboard reaches the fallback through the production chat command. Check: C-INS-01.
 - unit `apps/app/lint/conformance/SecureContext.test.ts`: the ban, plus a fixture with one planted violation of each kind.
 - unit `packages/backend/internal/middleware/effective_origin_test.go` (new): a table over socket peer (loopback, LAN), `Host`, `X-Forwarded-Host` and `X-Forwarded-Proto` covering each configured origin, the three loopback hosts, an unknown host (421), a forwarded host from a LAN peer (ignored), any forwarded proto (ignored), and the `/readyz` and host-relay exemptions.
 - integration (Go, real PostgreSQL): origin validation, including two origins with one `Host` value refused; first sign-in, session refresh, sign-out and a live-channel reconnect at a loopback origin, a plain-HTTP LAN origin and an https origin behind a loopback proxy, each with the expected cookie attributes and `redirect_uri`; an `Origin` that differs from the effective origin gets 403; a cookie mutation without `Origin` or CSRF token gets 403; a `PUT` takes effect on the next request with no restart; a bind change serves on the new address before the old listener closes, and the loopback listener never closes; an origin missing from the App's callback URLs yields the one-line fix.
@@ -76,5 +76,5 @@ Out:
 2. Exclusions: TLS/Tailscale automation, CA, mDNS, connect, optional webhooks, SSH gateway, setup orchestration and Settings card are explicit.
 3. Tests: C-INS-03 uses the composed router, real listeners and registered CLI flags; C-INS-01 uses real browsers with fixed outcomes. Real live/SSH checks run in their consumer tickets; no runtime spec or implementation oracle.
 4. Decisions: smithers-3f approves serving/authentication, smithers-b8 API/CLI, smithers-38 library helpers, smithers-06 visible copy, smithers-8a shared seams; Will decides policy exceptions.
-5. Owner pre-review before start: smithers-3f: Is socket-peer trust captured before RealIP? Does listener replacement preserve loopback and owner/CSRF gates? smithers-b8: Do host flags and OpenAPI match the served contract? smithers-38: Are UUID, hash and clipboard helpers shared without another policy? smithers-06: Does changed clipboard copy fit the existing view? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: "ok. It uses `copyText` from @smthrs/ui, which T-UI-01 exports with the execCommand fallback."
+5. Owner pre-review before start: smithers-3f: Is socket-peer trust captured before RealIP? Does listener replacement preserve loopback and owner/CSRF gates? smithers-b8: Do host flags and OpenAPI match the served contract? smithers-38: Are UUID, hash and clipboard helpers shared without another policy? smithers-06: Does changed clipboard copy fit the existing view? smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-06: answered 18:3x, ok. Design condition: use copyText exported by T-UI-01 (follow-up) from `@smthrs/ui`, including its `execCommand` fallback. Check: C-INS-01. smithers-38: answered 19:4x, changes applied (tech lead adopts).
 6. Security: no repository execution is added; §1.3/M-29 and T-INS-02 remain prerequisites. smithers-3f reviews origin spoofing, CSRF and public bind exposure in C-INS-03.

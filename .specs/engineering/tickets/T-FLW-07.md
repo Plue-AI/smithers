@@ -1,6 +1,6 @@
 # T-FLW-07 Monitor: `/monitor`, cost, waits since, interrupted state, no fork filter
 
-Stage S1 · Size M · Depends on T-COL-02, T-UI-12, T-APP-19, T-APP-22, T-CAT-01, T-CAT-02 · Unblocks T-APP-02, T-APP-07, T-APP-17, T-REL-02, T-STK-10 · Issue: [#3514](https://github.com/smithersai/smithers/issues/3514)
+Stage S1 · Size M · Depends on T-COL-02, T-UI-12, T-APP-19, T-APP-22, T-CAT-01 · Unblocks T-APP-02, T-APP-07, T-APP-17, T-REL-02, T-STK-10 · Issue: [#3514](https://github.com/smithersai/smithers/issues/3514)
 Spec: spec.md §7.2 `run:<id>`, §11.6, §19.1 · Delta: delta.md §8 (monitor and runtime-event rows) · Product: mvp.md J11.1, §6.14 Monitor and Signals and approvals, Appendix A `/monitor`, `/run.inspect <id>`; AGENTS.md MVP scope (no fork or rewind controls)
 
 ## Goal
@@ -15,6 +15,7 @@ Design (smithers-06) builds every visual component and its styles: the monitor v
 - The `run:<id>` projection follows T-UI-12: `attempts[].steps[]` keyed per step instance, usage only for model calls, stable `phases[].cells[]` ids, and waits with `settled {by, at}`. Load journal on tab open; `replay {at, last}` projects a sequence with reads only. Render `presentation` in `custom`. Check: C-J11-04.
 
 In:
+- Lands before T-CAT-02 (tech lead 2026-10-02, edge cut): FLW-07 registers monitor/inspect in the real CAT-01 authority and ships its real app/HTTP/live slice. CAT-02 independently generates the CLI and skill from those descriptors. Keep CLI/skill parity as a joint S1 exit check; no handwritten second monitor CLI.; its integration test with T-CAT-02 runs after T-CAT-02 lands and gates C-CAT-02 and C-CAT-03 (joint S1 monitor/inspect CLI/skill parity exit).
 - Stage 1. T-COL-02 builds the base `run:<id>` topic (run summary and steps) in S1. This ticket adds cost, waits, labels, the Engine row, the journal, the custom view and the interrupted state to it.
 - `/monitor` lists every run, background runs included, each with its state and its Inspect door. `/run.inspect <id>` opens one run's monitor. Both are `agent: run` (Appendix B.2).
 - Step labels (§11.6.2): each step's title comes from its Appendix C row's Inspect rendering (`.specs/product/actions.md`, for example "Planned the change", "Edited retry.ts"). Engine bookkeeping tags (quota parking, sealed steps, boundaries, output counts, `agent/trace/checkpoint`, `agent/send` stamps; Appendix C.23) collapse into one "Engine" row per run and never show as steps.
@@ -83,7 +84,7 @@ Out:
 - Risk: tags built at runtime (`<cell-call:flow>`, `<quota-park>/<session>`) don't match a literal Appendix C id. Confirmed if a fixture journal shows a raw id. Match the angle-bracket rows by pattern.
 
 ## Ready checklist
-1. Dependencies: T-COL-02 supplies live run topics and transitively the authorizer; T-CAT-01/T-CAT-02 supply monitor/inspect registration and CLI doors; T-UI-12/T-APP-19 supply Views and schemas; T-APP-22 supplies legacy decoding. T-APP-07 consumes this ticket and qualifies summary production later; missing summaries are a supported label-only landing state (§11.6.3), so it is not a safe-landing precondition.
+1. Dependencies: T-COL-02 supplies live run topics and transitively the authorizer; T-CAT-01 supplies monitor/inspect registration; T-UI-12/T-APP-19 supply Views and schemas; T-APP-22 supplies legacy decoding. T-APP-07 consumes this ticket and qualifies summary production later; missing summaries are a supported label-only landing state (§11.6.3), so it is not a safe-landing precondition. Landing condition for the T-CAT-02 edge cut: FLW-07 registers monitor/inspect in the real CAT-01 authority and ships its real app/HTTP/live slice. CAT-02 independently generates the CLI and skill from those descriptors. Keep CLI/skill parity as a joint S1 exit check; no handwritten second monitor CLI.; its integration test with T-CAT-02 runs after T-CAT-02 lands and gates C-CAT-02 and C-CAT-03 (joint S1 monitor/inspect CLI/skill parity exit).
 2. Exclusions: Out excludes transport, manual signals/triggers, DevTools changes, S2 reconcile semantics, Views/CSS, fork/rewind writes, a second summarizer and repository-code rendering.
 3. Boundary tests: authenticated production event ingest → served trace/live topics → catalog monitor/inspect → Container, with literal journal/label/cost oracles (C-J11-01/C-J11-04/C-UI-13). No runtime spec or pricing/projection-derived expectations.
 4. Decisions: smithers-3f accepts metering attribution, ingest authentication and thrash normalization; smithers-38 accepts gateway folds and serializable presentation; smithers-b8 signs off command/API and Container wiring; smithers-06 accepts the View seam. Will through smithers-8a decides new user-visible labels or changed detector behavior.

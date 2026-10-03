@@ -50,6 +50,6 @@ Out:
 2. Exclusions: dashboards, external telemetry, aggregation, billing, logs, estimated effort and host repository execution are explicit.
 3. Boundary: C-REL-04 exercises the authenticated production GET route with literal expected JSON and refusal cases, then reviews separate annotated-session evidence.
 4. Decisions: smithers-3f approves read-only data/query design; smithers-b8 signs off the API; the alpha owner selects and documents the sample. Will decides changes to product targets or kill signals.
-5. Owner pre-review before start: smithers-3f verifies owner-only read transactions and honest missing sources. smithers-b8 verifies automated response fields and the explicit manual effort source. The alpha owner verifies sampling and annotation coverage. smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
+5. Owner pre-review before start: smithers-3f verifies owner-only read transactions and honest missing sources. smithers-b8 verifies automated response fields and the explicit manual effort source. The alpha owner verifies sampling and annotation coverage. smithers-3f: answered 18:2x, ok. smithers-b8: answered, BLOCKING edits applied (tech lead adopts). smithers-38: answered 19:4x, ok.
 6. Security: the scorecard executes SQL only and never loads repository modules. C-REL-04 exercises credential refusals. No attributed effort ingestion ships.
 

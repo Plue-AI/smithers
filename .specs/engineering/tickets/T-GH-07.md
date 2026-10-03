@@ -1,6 +1,6 @@
 # T-GH-07 Force-push to `main` becomes Needs you for the owner
 
-Stage S1 · Size S · Depends on T-GH-02, T-STK-07, T-GH-05, T-ACC-03, T-FLW-03, T-APP-19b · Unblocks T-APP-01, T-APP-08, T-GH-08, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
+Stage S1 · Size S · Depends on T-GH-02, T-STK-07, T-ACC-03, T-FLW-03, T-APP-19b · Unblocks T-APP-01, T-APP-08, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
 Spec: spec.md §4.1.2a, §6.1.2 (in-card), §10.1, §10.5.1, §10.8.1, §11.3.1, §12.3 (`main` rewritten row), §14.5.2 · Delta: delta.md §7 "Force-push to `main`…" · Product: mvp.md §6.3 "`main` rewritten on GitHub", M-22
 
 ## Goal
@@ -10,6 +10,7 @@ When `main` on GitHub is rewritten (not a fast-forward), the owner sees it on th
 
 - Consume one kind-discriminated HomeCard attention union via T-APP-19b (#3601): common id, revision, text and actions[]; force_push adds old/new, order adds optional todo. Bind main.reset-to-github to {id, old, new} and order.ok to {id, revision}. Land this shared contract together with T-GH-05. Check: C-J10-07.
 In (adopted owner pre-review):
+- Lands before T-GH-05 (tech lead 2026-10-02, edge cut): Make the one `POST /api/stack/attention/{id}` dispatcher a small packaged route module landing with GH-07 (or STK-07), keyed by attention kind/action. Register reset against STK-07 + ACC-03; unregistered `ok` refuses with **503 infra/attention_handler_unavailable**, a proposed reviewed envelope. GH-05 later registers its real order.ok handler in that same dispatcher, without another route/policy table. Test reset through the real router; run combined reset/OK/merge serialization tests when GH-05/STK-04 integrate.; its integration test with T-GH-05 runs after T-GH-05 lands and gates C-J10-07 and C-STK-07 (S1 reset/OK/merge serialization exit).
 - Reset, ordinary main pulls and merge dispatch share the repository operation serialization boundary and the existing repo-host write lock. Under that boundary, reread the attention/merge fence and reset binding before the expected-old ref write; retain the operation claim through settlement. Persist reset intent before writing. After the ref reaches new, atomically commit attention settlement, projections and durable main-moved intents keyed to that reset intent. Stack and machine-only flow-load consumers apply each intent idempotently after commit. Recovery at old keeps attention open, at new finishes settlement/intents once, and at a legitimate third tip preserves it with attention open. Check: C-J10-07.
 
 In:
@@ -59,7 +60,7 @@ Out:
 
 ## Ready checklist
 
-1. T-GH-02 supplies refs dispatch; T-STK-07 supplies attention storage; T-GH-05 supplies the shared attention route; T-ACC-03 supplies owner-session authorization and inherits the catalog; T-FLW-03 supplies the machine-only main-moved flow loader. Rebase execution and Home rendering remain downstream acceptance dependencies.
+1. T-GH-02 supplies refs dispatch; T-STK-07 supplies attention storage; T-ACC-03 supplies owner-session authorization and inherits the catalog; T-FLW-03 supplies the machine-only main-moved flow loader. Rebase execution and Home rendering remain downstream acceptance dependencies. Landing condition for the T-GH-05 edge cut: Make the one `POST /api/stack/attention/{id}` dispatcher a small packaged route module landing with GH-07 (or STK-07), keyed by attention kind/action. Register reset against STK-07 + ACC-03; unregistered `ok` refuses with **503 infra/attention_handler_unavailable**, a proposed reviewed envelope. GH-05 later registers its real order.ok handler in that same dispatcher, without another route/policy table. Test reset through the real router; run combined reset/OK/merge serialization tests when GH-05/STK-04 integrate.; its integration test with T-GH-05 runs after T-GH-05 lands and gates C-J10-07 and C-STK-07 (S1 reset/OK/merge serialization exit).
 2. Out excludes agent resets/confirmations, extra command doors, automatic reset, GitHub main writes, Views/Containers, rebase execution and recovery of discarded GitHub-only work.
 3. C-J10-07 starts the production refs worker and calls the composed attention route. Fault tests restart the real install composition around the durable reset intent. Commit literal role, ref and unchanged-table fixtures; no test reads spec files or derives expected results from production code at runtime. Assert no machine flow-load admission before confirmation and one bound load after it.
 4. smithers-3f approves guarded mirror writes and reset recovery; smithers-b8 signs off the public route/catalog contract; smithers-8a accepts the note for already-merged commits removed from main and the shared-route policy split; Will decides changes to that product behavior. Check: C-J10-07.

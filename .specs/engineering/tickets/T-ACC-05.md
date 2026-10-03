@@ -1,6 +1,6 @@
 # T-ACC-05 Person confirmations
 
-Stage S1 · Size M · Depends on T-ACC-04, T-CAT-01, T-STK-01, T-COL-02 · Unblocks T-APP-04, T-APP-23, T-CAT-02, T-FLW-05, T-FLW-13, T-GH-06, T-GH-09, T-MCH-08, T-MNT-01, T-MNT-03, T-REL-02, T-STK-02, T-STK-04, T-STK-09, T-STK-15, T-STK-16, T-TRM-02 · Issue: [#3494](https://github.com/smithersai/smithers/issues/3494)
+Stage S1 · Size M · Depends on T-ACC-04, T-CAT-01, T-STK-01, T-COL-02 · Unblocks T-APP-04, T-APP-23, T-CAT-02, T-FLW-05, T-FLW-13, T-GH-06, T-MCH-08, T-MNT-01, T-MNT-03, T-REL-02, T-STK-02, T-STK-04, T-STK-09, T-STK-15, T-STK-16, T-TRM-02 · Issue: [#3494](https://github.com/smithersai/smithers/issues/3494)
 Spec: spec.md §5.4, §5.2 ("confirmation only"), §3 (`person_confirmations`), §6.3 (`/api/confirmations`), §7.2 (`confirmations` topic), §14.3 (Confirm card), §14.5.1, §15.1.3–§15.1.5 · Delta: delta.md §2 (Add `person_confirmations` + `/api/confirmations`; CLI `/merge` creates a confirmation) · Product: mvp.md §2 rule 6, §6.13 "CLI", J6.4, M-05, M-21, Appendix A closing note, Appendix B legend (A✓) and B.6
 
 ## Goal
@@ -95,5 +95,5 @@ Out:
 2. Exclusions: Confirm view/conversation storage, catalog policy, merge mechanics, new command handlers, notifications, host repository execution, Plue policy and S1 scope expansion are explicit.
 3. Tests: C-ACC-02 uses composed command/confirmation routes, real TODO persistence and real private subscriptions with literal fixtures; real merge/fault cases run in T-STK-04 and remain pending until installed.
 4. Decisions: smithers-3f backend semantics, smithers-b8 public outcomes, smithers-38 catalog consumer, smithers-8a merge seam; Will decides product exceptions. person_confirmations needs planned ownership under C-PRC-02.
-5. Owner pre-review before start: smithers-3f: Does approval recheck current role/revision and prevent duplicate effects? Does a missing handler leave the row unapproved? smithers-b8: Do API/CLI responses expose only permitted fields? smithers-38: Does production dispatch consume the catalog once? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered 18:23, ok.
+5. Owner pre-review before start: smithers-3f: Does approval recheck current role/revision and prevent duplicate effects? Does a missing handler leave the row unapproved? smithers-b8: Do API/CLI responses expose only permitted fields? smithers-38: Does production dispatch consume the catalog once? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered 18:23, ok. smithers-38: answered 19:4x, ok.
 6. Security: only the named active member’s session approves; private topics never reach agents or other members. §1.3/M-29 still gates repository execution in machines; smithers-3f reviews C-ACC-02/C-SEC-02, including S1 terminal refusal.

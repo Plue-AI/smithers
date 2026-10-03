@@ -21,13 +21,13 @@ In:
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
 Out:
-- Do not export a new clipboard helper or change rpc schemas in this UI lane. T-UI-01 owns copyText; T-APP-19b owns all schema gaps. Check: C-UI-08.
+- Do not export a new clipboard helper or change rpc schemas in this UI lane. Consume copyText exported by T-UI-01 (follow-up); T-APP-19b owns all schema gaps. Check: C-UI-08.
 - Topic subscriptions, Containers, command dispatch, permission decisions and product copy changes. Will decides copy changes; smithers-06 reviews their presentation (§14.6b).
 - Installation, GitHub App manifest exchange, OAuth, key validation or storage, toolchain detection, image builds, capacity calculation, Obsidian sync and browser notification permission. This ticket renders their supplied states; T-APP-03 and T-FLW-12 own wiring.
 
 ## Changes
 
-- Copy uses copyText exported by T-UI-01 from @smthrs/ui, including its execCommand fallback for plain HTTP. smithers-38 approves that export. This adds no prerequisite beyond T-UI-01. Render the reconciled Setup/Settings fields. Check: C-UI-12.
+- Copy uses copyText exported by T-UI-01 (follow-up) from `@smthrs/ui`, backed by the existing internal `copyToClipboard` helper with its `execCommand` fallback for plain HTTP. T-UI-01 owns that export and fallback. Render the reconciled Setup/Settings fields. Check: C-UI-12.
 
 - Render the third model role as "Decisions"; keep "AI Gateway key" on its key field. When This Mac has capacity 0, render "No machine fits", the supplied limiting term and its fix link on one line. Add the zero-capacity story; it is absent from the mock. Check: C-UI-12.
 
@@ -39,7 +39,7 @@ Out:
 
 ## Tests
 
-- Assert the literal seven-step order with app_manifest, blocked fix URL, zero-capacity limit and fix, health values and Obsidian last sync. Exercise Copy with navigator.clipboard unavailable through T-UI-01's copyText export and assert one copy with no setup or key-storage effect. Check: C-UI-12.
+- Assert the literal seven-step order with app_manifest, blocked fix URL, zero-capacity limit and fix, health values and Obsidian last sync. Exercise Copy with navigator.clipboard unavailable through copyText exported by T-UI-01 (follow-up) and with a refused native write; assert the shared `execCommand` fallback and one copy with no setup or key-storage effect. Check: C-UI-12.
 
 - Assert the literal Decisions role label and key label. Render the zero-capacity story at 390 px and assert "No machine fits", the limiting term and fix link on one line. Retain setup-step and key-error coverage (J1 s1–30; States s42–s43). Check: C-UI-12.
 
@@ -67,5 +67,5 @@ T-UI-02 through T-UI-14 go Ready together after T-APP-19b lands with smithers-38
 2. Exclusions: Out names the runtime effects and adjacent surfaces this presentation ticket must not implement.
 3. Tests: C-UI-12 case `SetupView and SettingsView render setup and settings states` renders production exports and asserts committed literal output/callback expectations; C-UI-08 checks the seam. No spec or production-derived runtime oracle.
 4. Decisions: smithers-06 accepts visuals and screenshots; Will decides product changes; smithers-8a accepts ADR/spec changes after smithers-b8 seam and smithers-38 API approval.
-5. Owner pre-review before start: smithers-06: answered 18:10 with these changes (mock 21b445a6) smithers-b8: answered, BLOCKING edits applied (tech lead adopts); smithers-38: answered, BLOCKING edits applied (tech lead adopts).
+5. Owner pre-review before start: smithers-06: answered 18:10 with these changes (mock 21b445a6) smithers-b8: answered, BLOCKING edits applied (tech lead adopts); smithers-38: answered, BLOCKING edits applied (tech lead adopts). smithers-38: answered 19:4x, changes applied (tech lead adopts). Shared clipboard export and fallback are routed to frozen T-UI-01 as a follow-up; completion requires that follow-up. Check: C-UI-12.
 6. Security: This presentation executes no repository code, shell commands or imported tool text. smithers-b8 pre-reviews data-only rendering and absence of RPC/fetch or host execution; wiring that executes repository code requires machine-only execution (M-29) and smithers-3f review.
