@@ -30,32 +30,6 @@ func TestStackGitHubEnrich_ResolverErrorDegradesToDefaults(t *testing.T) {
 	assert.Equal(t, "https://github.com/Owner/Repo/pull/9", response.Changes[0].PRURL)
 }
 
-// Installation tokens live about an hour; a stack read must reuse the cached
-// token instead of minting one per request.
-func TestStackGitHubInstallationToken_MintsOncePerInstallation(t *testing.T) {
-	const installationID = int64(987654321)
-	invalidateCachedInstallationToken(installationID)
-	t.Cleanup(func() { invalidateCachedInstallationToken(installationID) })
-
-	var mints atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mints.Add(1)
-		exp := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-		_, _ = w.Write([]byte(`{"token":"install-token","expires_at":"` + exp + `"}`))
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
-	setTestCallerCredentials(t, "ID", "123")
-	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
-
-	for range 3 {
-		token, err := newTestStackGitHubInstallationToken(t, context.Background(), installationID)
-		require.NoError(t, err)
-		assert.Equal(t, "install-token", token)
-	}
-	assert.Equal(t, int32(1), mints.Load())
-}
-
 // Per-change GitHub lookups run concurrently under one overall deadline, so a
 // slow GitHub cannot hold a stack read for minutes.
 func TestStackGitHubEnrich_ParallelWithDeadline(t *testing.T) {

@@ -15,13 +15,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-const stackZTooSmallRSAPrivateKey = `-----BEGIN RSA PRIVATE KEY-----
-MIGrAgEAAiEAx+vsfPEJbd2hd/GRgjQERudJbzpSn5MQPSruNFMOUCkCAwEAAQIg
-GfKa/RRjvui3HlQyKI4Lx9UMEajseZdTSVs2VpzvwmkCEQDLovhYu5/C5dzFN81S
-p2RzAhEA+1RmepiMfV+/PwSJscdt8wIRAKx1fdwwMlJuN7Wy16nraC8CECl7f8Ki
-ZSXYZNeA5z05nnMCEQCM59wSzPLYCH88FkOwAgXk
------END RSA PRIVATE KEY-----`
-
 func stackZOwnedRepo(userID int64) db.Repository {
 	return db.Repository{ID: 42, Name: "demo", LowerName: "demo", UserID: pgtype.Int8{Int64: userID, Valid: true}}
 }
@@ -118,40 +111,14 @@ func TestStack_Z_DirectAccessHelpersAndGitHubState(t *testing.T) {
 	require.ErrorContains(t, err, "missing pull")
 }
 
-func TestStack_Z_GitHubTokenAndJSONErrorBranches(t *testing.T) {
+func TestStack_Z_GitHubJSONErrorBranches(t *testing.T) {
 	ctx := context.Background()
-
-	setTestCallerCredentials(t, "ID", "123")
-	setTestCallerCredentials(t, "PEM", stackZTooSmallRSAPrivateKey)
-	_, err := newTestStackGitHubInstallationToken(t, ctx, 1)
-	require.Error(t, err)
-
-	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
-	t.Setenv(envGitHubAppAPIBaseURL, "http://[::1")
-	_, err = newTestStackGitHubInstallationToken(t, ctx, 1)
-	require.Error(t, err)
-
-	closed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	closedURL := closed.URL
-	closed.Close()
-	t.Setenv(envGitHubAppAPIBaseURL, closedURL)
-	_, err = newTestStackGitHubInstallationToken(t, ctx, 1)
-	require.Error(t, err)
-
-	emptyMessage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	t.Cleanup(emptyMessage.Close)
-	t.Setenv(envGitHubAppAPIBaseURL, emptyMessage.URL)
-	_, err = newTestStackGitHubInstallationToken(t, ctx, 1)
-	require.ErrorContains(t, err, "github installation token request failed")
 
 	jsonClosed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	jsonClosedURL := jsonClosed.URL
 	jsonClosed.Close()
 	t.Setenv(envGitHubAppAPIBaseURL, jsonClosedURL)
-	err = callStackGitHubJSON(ctx, "token", "/path", nil)
+	err := callStackGitHubJSON(ctx, "token", "/path", nil)
 	require.Error(t, err)
 
 	jsonEmptyMessage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

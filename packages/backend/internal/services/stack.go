@@ -660,12 +660,6 @@ type stackGitHubCheckRunList struct {
 	CheckRuns []stackGitHubCheckRun `json:"check_runs"`
 }
 
-type stackGitHubTokenResponse struct {
-	Message   string `json:"message"`
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
-}
-
 // stackGitHubEnrichTimeout bounds all GitHub lookups for one stack read, and
 // stackGitHubEnrichConcurrency bounds how many changes are looked up at once.
 // Changes that miss the deadline keep their local defaults.
@@ -714,7 +708,7 @@ func (s *StackService) enrichStackResponseWithGitHub(
 		return nil
 	}
 
-	token, err := createStackGitHubInstallationToken(ctx, installationID, s.githubAppCredentials)
+	installation, err := NewRepoConnectionService(nil, s.githubAppCredentials).CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
 	if err != nil {
 		for index := range response.Changes {
 			applyStackChangeDefaults(&response.Changes[index], owner, repo)
@@ -740,7 +734,7 @@ func (s *StackService) enrichStackResponseWithGitHub(
 				return
 			}
 			defer func() { <-sem }()
-			state, err := loadStackGitHubState(enrichCtx, token, owner, repo, prNumber)
+			state, err := loadStackGitHubState(enrichCtx, installation.Token, owner, repo, prNumber)
 			if err == nil {
 				states[index] = &state
 			}
@@ -975,71 +969,6 @@ func normalizeStackPRState(value string) string {
 		return ""
 	}
 	return trimmed
-}
-
-func createStackGitHubInstallationToken(ctx context.Context, installationID int64, stores ...GitHubAppCredentialReader) (string, error) {
-	if installationID <= 0 {
-		return "", stdErrors.New("invalid installation id")
-	}
-	var store GitHubAppCredentialReader
-	if len(stores) > 0 {
-		store = stores[0]
-	}
-	if _, err := loadGitHubAppCredentials(ctx, store); err != nil {
-		return "", err
-	}
-	// Installation tokens live about an hour; share the per-installation cache.
-	if cached, ok := getCachedInstallationToken(installationID); ok {
-		return cached.token, nil
-	}
-
-	jwtToken, err := githubAppJWT(ctx, store)
-	if err != nil {
-		return "", err
-	}
-
-	endpoint := fmt.Sprintf(
-		"%s/app/installations/%d/access_tokens",
-		strings.TrimRight(githubAPIBaseURL(), "/"),
-		installationID,
-	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader("{}"))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Authorization", "Bearer "+jwtToken)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "smithers-server")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	httpClient := observability.NewHTTPClient(10 * time.Second)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var payload stackGitHubTokenResponse
-	_ = json.Unmarshal(bodyBytes, &payload)
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		message := strings.TrimSpace(payload.Message)
-		if message == "" {
-			message = "github installation token request failed"
-		}
-		return "", stdErrors.New(message)
-	}
-
-	token := strings.TrimSpace(payload.Token)
-	if token == "" {
-		return "", stdErrors.New("github installation token response was missing token")
-	}
-	if expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(payload.ExpiresAt)); err == nil {
-		storeCachedInstallationToken(installationID, token, expiresAt)
-	}
-	return token, nil
 }
 
 func callStackGitHubJSON(ctx context.Context, token, path string, out any) error {

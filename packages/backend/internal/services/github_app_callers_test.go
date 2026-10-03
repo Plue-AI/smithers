@@ -86,10 +86,6 @@ func newTestGitHubUserReposService(t *testing.T, queries GitHubUserReposDB, decr
 func newTestStackService(t *testing.T, queries StackQuerier, opts ...StackServiceOption) *StackService {
 	return NewStackService(queries, append(opts, WithStackGitHubAppCredentialStore(testCallerCredentials(t)))...)
 }
-func newTestStackGitHubInstallationToken(t *testing.T, ctx context.Context, id int64) (string, error) {
-	return createStackGitHubInstallationToken(ctx, id, testCallerCredentials(t))
-}
-
 func TestStoredGitHubAppPermissionsURLUsesAppOwner(t *testing.T) {
 	for _, test := range []struct{ kind, owner, want string }{
 		{"org", "team", "https://github.com/organizations/team/settings/apps/team-install/permissions"},
@@ -119,6 +115,4 @@ func TestStoredCredentialsGateCachedInstallationTokens(t *testing.T) {
 	repoService := NewRepoConnectionService(notConfiguredStatusDB(), fixture)
 	_, err := repoService.CreateGitHubInstallationTokenForInternalInstallation(context.Background(), id)
 	require.Error(t, err, "cached tokens must not bypass a broken credential store")
-	_, err = createStackGitHubInstallationToken(context.Background(), id, fixture)
-	require.Error(t, err, "stack token cache must not bypass a broken credential store")
 }

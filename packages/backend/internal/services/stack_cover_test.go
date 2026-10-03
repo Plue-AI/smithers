@@ -171,12 +171,6 @@ func TestStack_Cov_NormalizationDefaultsAndGitHubHelpers(t *testing.T) {
 	err = callStackGitHubJSON(context.Background(), "token", "/denied", &out)
 	require.ErrorContains(t, err, "denied")
 
-	_, err = newTestStackGitHubInstallationToken(t, context.Background(), 0)
-	require.ErrorContains(t, err, "invalid installation id")
-	setTestCallerCredentials(t, "ID", "123")
-	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
-	_, err = newTestStackGitHubInstallationToken(t, context.Background(), 123)
-	require.ErrorContains(t, err, "denied")
 }
 
 func TestStack_Cov_ServiceFailureBranches(t *testing.T) {

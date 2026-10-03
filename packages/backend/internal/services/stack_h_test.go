@@ -227,8 +227,6 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 			_, _ = w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"}]}`))
 		case strings.Contains(r.URL.Path, "/pulls/12"):
 			_, _ = w.Write([]byte(`{"head":{"sha":"sha-1"},"html_url":"https://github.test/pr/12","state":"open"}`))
-		case strings.Contains(r.URL.Path, "/access_tokens"):
-			_, _ = w.Write([]byte(`{"token":"install-token"}`))
 		default:
 			http.Error(w, `{"message":"missing"}`, http.StatusNotFound)
 		}
@@ -241,20 +239,6 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 	assert.Equal(t, "open", state.PRState)
 	assert.Equal(t, "approved", state.ReviewStatus)
 	assert.Equal(t, "passing", state.CIStatus)
-
-	setTestCallerCredentials(t, "ID", "123")
-	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
-	token, err := newTestStackGitHubInstallationToken(t, ctx, 456)
-	require.NoError(t, err)
-	assert.Equal(t, "install-token", token)
-
-	badTokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	t.Cleanup(badTokenServer.Close)
-	t.Setenv(envGitHubAppAPIBaseURL, badTokenServer.URL)
-	_, err = newTestStackGitHubInstallationToken(t, ctx, 456)
-	require.ErrorContains(t, err, "missing token")
 
 	badJSONServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{not-json`))
