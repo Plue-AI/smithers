@@ -18,8 +18,8 @@ Out: product runtime, check implementations, live-issue closure in tests, claim 
 
 ## Changes
 - Reuse `scripts/check-run.mjs` (66 lines), `scripts/check-evidence.mjs` (93), `scripts/check-receipts.test.mjs`, `scripts/check-commands.json` and the `issue-claim.mjs` proxy write path.
-- Delete the second runner (36a199e19, f2ffe7735, 86deb6462): `scripts/checks/run-check.mjs` (500), `run-check.test.mjs` (698), `qualify.mjs`, `thin.mjs`, `commands.mjs` and their targets in `scripts/PACKAGE.ts` and `.smithers/target-index.json`. Merge any binding still needed (including the Playwright population parsing from f2ffe7735) into `check-commands.json`.
-- With `run-check.mjs` go its `hostProfile()` (`:237`) and the `SMITHERS_CHECK_HEALTH_FILE` health-line parser (`:265-268`). A check that needs host facts reads `/api/install` (T-INS-06); the Go host profile is the one reader.
+- Duplicate runner, qualifier, obligation manifest and targets removed. Proposed bindings, including Playwright population contracts, are retained as unapproved `pendingBinding` data in `scripts/check-commands.json`.
+- Duplicate host-profile and ops-health-line parsing removed. Checks needing host facts read `/api/install` (T-INS-06); the Go host profile is the one reader.
 - Inventory and approve mappings for every named check, including the unparsable entries C-REL-01, C-STK-01, C-SPK-03, C-SPK-07, C-GH-01, C-DUR-03, C-UI-08, C-UI-13, C-MCH-05, C-AGT-01, C-AGT-02 and C-MNT-01 through C-MNT-06. smithers-22 approves each mapping.
 
 ## Tests

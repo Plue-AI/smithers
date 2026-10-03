@@ -23,7 +23,89 @@
     "C-ACC-04": {
       "status": "pending-owner",
       "reason": "Absent: packages/backend/internal/compose/signin_gate_integration_test.go",
-      "ticket": "T-ACC-01"
+      "ticket": "T-ACC-01",
+      "pendingBinding": {
+        "files": [
+          "packages/backend/internal/compose/signin_gate_integration_test.go"
+        ],
+        "commands": [
+          {
+            "argv": [
+              "go",
+              "test",
+              "-json",
+              "-count=1",
+              "./packages/backend/internal/compose",
+              "-run",
+              "^(TestOwnerSignInClaimsTheInstallWithTheSetupToken|TestOwnerSignInRefusesAClaimWithoutTheSetupToken|TestOwnerSignInConcurrentClaimsYieldOneOwner|TestOwnerSignInTokenDiesAtTheClaim|TestOwnerSignInNeedsPushOnGitHub|TestOwnerSignInRefusesASecondGitHubUser|TestOwnerSignInClaimsBeforeTheRepositoryIsChosen|TestInstallHasNoLocalPasswordRoutes)$"
+            ],
+            "files": [
+              "packages/backend/internal/compose/owner_signin_integration_test.go"
+            ],
+            "reporter": "go",
+            "expectedCaseIds": [
+              "TestOwnerSignInClaimsTheInstallWithTheSetupToken",
+              "TestOwnerSignInRefusesAClaimWithoutTheSetupToken",
+              "TestOwnerSignInConcurrentClaimsYieldOneOwner",
+              "TestOwnerSignInTokenDiesAtTheClaim",
+              "TestOwnerSignInNeedsPushOnGitHub",
+              "TestOwnerSignInRefusesASecondGitHubUser",
+              "TestOwnerSignInClaimsBeforeTheRepositoryIsChosen",
+              "TestInstallHasNoLocalPasswordRoutes"
+            ],
+            "prerequisites": [
+              "PG18"
+            ],
+            "env": {
+              "SMITHERS_REQUIRE_DATABASE_TESTS": "1"
+            }
+          }
+        ],
+        "unboundSubcases": [
+          "roster-signin (T-ACC-02)"
+        ],
+        "subcases": {
+          "owner-claim-and-refusals": {
+            "files": [
+              "packages/backend/internal/compose/owner_signin_integration_test.go"
+            ],
+            "commands": [
+              {
+                "argv": [
+                  "go",
+                  "test",
+                  "-json",
+                  "-count=1",
+                  "./packages/backend/internal/compose",
+                  "-run",
+                  "^(TestOwnerSignInClaimsTheInstallWithTheSetupToken|TestOwnerSignInRefusesAClaimWithoutTheSetupToken|TestOwnerSignInConcurrentClaimsYieldOneOwner|TestOwnerSignInTokenDiesAtTheClaim|TestOwnerSignInNeedsPushOnGitHub|TestOwnerSignInRefusesASecondGitHubUser|TestOwnerSignInClaimsBeforeTheRepositoryIsChosen|TestInstallHasNoLocalPasswordRoutes)$"
+                ],
+                "files": [
+                  "packages/backend/internal/compose/owner_signin_integration_test.go"
+                ],
+                "reporter": "go",
+                "expectedCaseIds": [
+                  "TestOwnerSignInClaimsTheInstallWithTheSetupToken",
+                  "TestOwnerSignInRefusesAClaimWithoutTheSetupToken",
+                  "TestOwnerSignInConcurrentClaimsYieldOneOwner",
+                  "TestOwnerSignInTokenDiesAtTheClaim",
+                  "TestOwnerSignInNeedsPushOnGitHub",
+                  "TestOwnerSignInRefusesASecondGitHubUser",
+                  "TestOwnerSignInClaimsBeforeTheRepositoryIsChosen",
+                  "TestInstallHasNoLocalPasswordRoutes"
+                ],
+                "prerequisites": [
+                  "PG18"
+                ],
+                "env": {
+                  "SMITHERS_REQUIRE_DATABASE_TESTS": "1"
+                }
+              }
+            ]
+          }
+        },
+        "provenance": "T-ACC-01 Tests; acc lane owner_signin_integration_test.go, read 2026-10-03 UTC; roster stays unbound"
+      }
     },
     "C-AGT-01": {
       "status": "pending-owner",
@@ -166,7 +248,33 @@
     "C-INS-05": {
       "status": "pending-owner",
       "reason": "Absent: apps/app/scripts/server-bundle.integration.test.ts",
-      "ticket": "T-INS-01"
+      "ticket": "T-INS-01",
+      "pendingBinding": {
+        "commands": [
+          {
+            "argv": [
+              "bun",
+              "test",
+              "./apps/app/scripts/server-bundle.integration.test.ts"
+            ],
+            "files": [
+              "apps/app/scripts/server-bundle.integration.test.ts"
+            ],
+            "reporter": "bun",
+            "prerequisites": [
+              "darwin-arm64",
+              "PG18",
+              "msb",
+              "build-budget"
+            ],
+            "env": {
+              "SMITHERS_REQUIRE_DATABASE_TESTS": "1",
+              "SMITHERS_REQUIRE_MICROVM_TESTS": "1"
+            }
+          }
+        ],
+        "provenance": "T-INS-01 integration file; apps/app bun:test runner contract"
+      }
     },
     "C-INS-06": {
       "status": "pending-owner",
@@ -591,7 +699,170 @@
     "C-SEC-04": {
       "status": "pending-owner",
       "reason": "Absent: packages/backend/internal/services/setup_claim_integration_test.go, apps/app/scripts/server-bundle.integration.test.ts",
-      "ticket": "T-ACC-01"
+      "ticket": "T-ACC-01",
+      "pendingBinding": {
+        "files": [
+          "packages/backend/internal/services/setup_claim_integration_test.go",
+          "apps/app/scripts/server-bundle.integration.test.ts"
+        ],
+        "commands": [
+          {
+            "argv": [
+              "go",
+              "test",
+              "-json",
+              "-count=1",
+              "./packages/backend/internal/compose",
+              "-run",
+              "^(TestOwnerSignInClaimsTheInstallWithTheSetupToken|TestOwnerSignInRefusesAClaimWithoutTheSetupToken|TestOwnerSignInConcurrentClaimsYieldOneOwner|TestOwnerSignInTokenDiesAtTheClaim|TestOwnerSignInNeedsPushOnGitHub|TestOwnerSignInRefusesASecondGitHubUser|TestOwnerSignInClaimsBeforeTheRepositoryIsChosen|TestInstallHasNoLocalPasswordRoutes)$"
+            ],
+            "files": [
+              "packages/backend/internal/compose/owner_signin_integration_test.go"
+            ],
+            "reporter": "go",
+            "expectedCaseIds": [
+              "TestOwnerSignInClaimsTheInstallWithTheSetupToken",
+              "TestOwnerSignInRefusesAClaimWithoutTheSetupToken",
+              "TestOwnerSignInConcurrentClaimsYieldOneOwner",
+              "TestOwnerSignInTokenDiesAtTheClaim",
+              "TestOwnerSignInNeedsPushOnGitHub",
+              "TestOwnerSignInRefusesASecondGitHubUser",
+              "TestOwnerSignInClaimsBeforeTheRepositoryIsChosen",
+              "TestInstallHasNoLocalPasswordRoutes"
+            ],
+            "prerequisites": [
+              "PG18"
+            ],
+            "env": {
+              "SMITHERS_REQUIRE_DATABASE_TESTS": "1"
+            }
+          },
+          {
+            "argv": [
+              "bun",
+              "test",
+              "./apps/app/scripts/server-bundle.integration.test.ts"
+            ],
+            "files": [
+              "apps/app/scripts/server-bundle.integration.test.ts"
+            ],
+            "reporter": "bun",
+            "prerequisites": [
+              "darwin-arm64",
+              "PG18",
+              "msb",
+              "build-budget"
+            ],
+            "env": {
+              "SMITHERS_REQUIRE_DATABASE_TESTS": "1",
+              "SMITHERS_REQUIRE_MICROVM_TESTS": "1"
+            }
+          }
+        ],
+        "unboundSubcases": [
+          "native-startup (T-ACC-07)",
+          "provisional-owner-and-setup-session-refusals (T-ACC-01)"
+        ],
+        "subcases": {
+          "setup-claim": {
+            "files": [
+              "packages/backend/internal/compose/owner_signin_integration_test.go"
+            ],
+            "commands": [
+              {
+                "argv": [
+                  "go",
+                  "test",
+                  "-json",
+                  "-count=1",
+                  "./packages/backend/internal/compose",
+                  "-run",
+                  "^(TestOwnerSignInClaimsTheInstallWithTheSetupToken|TestOwnerSignInRefusesAClaimWithoutTheSetupToken|TestOwnerSignInConcurrentClaimsYieldOneOwner|TestOwnerSignInTokenDiesAtTheClaim|TestOwnerSignInNeedsPushOnGitHub|TestOwnerSignInRefusesASecondGitHubUser|TestOwnerSignInClaimsBeforeTheRepositoryIsChosen|TestInstallHasNoLocalPasswordRoutes)$"
+                ],
+                "files": [
+                  "packages/backend/internal/compose/owner_signin_integration_test.go"
+                ],
+                "reporter": "go",
+                "expectedCaseIds": [
+                  "TestOwnerSignInClaimsTheInstallWithTheSetupToken",
+                  "TestOwnerSignInRefusesAClaimWithoutTheSetupToken",
+                  "TestOwnerSignInConcurrentClaimsYieldOneOwner",
+                  "TestOwnerSignInTokenDiesAtTheClaim",
+                  "TestOwnerSignInNeedsPushOnGitHub",
+                  "TestOwnerSignInRefusesASecondGitHubUser",
+                  "TestOwnerSignInClaimsBeforeTheRepositoryIsChosen",
+                  "TestInstallHasNoLocalPasswordRoutes"
+                ],
+                "prerequisites": [
+                  "PG18"
+                ],
+                "env": {
+                  "SMITHERS_REQUIRE_DATABASE_TESTS": "1"
+                }
+              }
+            ]
+          },
+          "setup-token-digests": {
+            "commands": [
+              {
+                "argv": [
+                  "go",
+                  "test",
+                  "-json",
+                  "-count=1",
+                  "./packages/backend/internal/services",
+                  "-run",
+                  "^(TestMintSetupTokenStoresOnlyTheDigest|TestMintSetupTokenReplacesTheTokenOnEachStart|TestMintSetupTokenIssuesNothingOnceAnOwnerExists|TestSetupTokenDigestIgnoresSurroundingSpace)$"
+                ],
+                "files": [
+                  "packages/backend/internal/services/setup_token_test.go"
+                ],
+                "reporter": "go",
+                "expectedCaseIds": [
+                  "TestMintSetupTokenStoresOnlyTheDigest",
+                  "TestMintSetupTokenReplacesTheTokenOnEachStart",
+                  "TestMintSetupTokenIssuesNothingOnceAnOwnerExists",
+                  "TestSetupTokenDigestIgnoresSurroundingSpace"
+                ],
+                "prerequisites": [],
+                "env": {}
+              }
+            ]
+          },
+          "native-startup": {
+            "files": [
+              "packages/backend/internal/services/setup_claim_integration_test.go"
+            ],
+            "commands": []
+          },
+          "packaged-relay": {
+            "commands": [
+              {
+                "argv": [
+                  "bun",
+                  "test",
+                  "./apps/app/scripts/server-bundle.integration.test.ts"
+                ],
+                "files": [
+                  "apps/app/scripts/server-bundle.integration.test.ts"
+                ],
+                "reporter": "bun",
+                "prerequisites": [
+                  "darwin-arm64",
+                  "PG18",
+                  "msb",
+                  "build-budget"
+                ],
+                "env": {
+                  "SMITHERS_REQUIRE_DATABASE_TESTS": "1",
+                  "SMITHERS_REQUIRE_MICROVM_TESTS": "1"
+                }
+              }
+            ]
+          }
+        },
+        "provenance": "acc lane setup_token_test.go and owner_signin_integration_test.go, read 2026-10-03 UTC; native-startup stays unbound"
+      }
     },
     "C-SEC-05": {
       "status": "pending-owner",
@@ -628,7 +899,37 @@
     "C-STK-01": {
       "status": "pending-owner",
       "reason": "Declared go-test regex matches no test names in packages/backend/internal/services; T-STK-01 implementation required",
-      "ticket": "T-STK-01"
+      "ticket": "T-STK-01",
+      "pendingBinding": {
+        "commands": [
+          {
+            "argv": [
+              "go",
+              "test",
+              "-json",
+              "-count=1",
+              "./packages/backend/internal/services",
+              "-run",
+              "^(TestTodoTransition.*|TestProjectItemState.*|TestTodoItemPath.*|TestTodoLearningDone.*)$"
+            ],
+            "files": [
+              "packages/backend/internal/services/todo_state_test.go"
+            ],
+            "reporter": "go",
+            "expectedCaseIds": [
+              "TestTodoTransitionAllowsExactlyTheSpecTable",
+              "TestTodoTransitionRefusesShortcuts",
+              "TestTodoTransitionGuards",
+              "TestProjectItemStateMapsEveryItemState",
+              "TestProjectItemStateTerminalStatesWin",
+              "TestProjectItemStateFollowsTheTodosHistory",
+              "TestTodoItemPathCrossesOnlySpecEdges",
+              "TestTodoLearningDoneOnlyCountsLessons"
+            ]
+          }
+        ],
+        "provenance": "C-STK-01 Automation/Steps; QA pepper-todo-state.md names TestTodoTransitionAllowsExactlyTheSpecTable"
+      }
     },
     "C-STK-02": {
       "status": "pending-owner",
@@ -727,7 +1028,130 @@
     "C-UI-12": {
       "status": "pending-owner",
       "reason": "Absent: apps/app/src/mainview/cards/views/Views.test.tsx, apps/app/e2e/playwright/view-stories.spec.ts",
-      "ticket": "T-UI-01"
+      "ticket": "T-UI-01",
+      "pendingBinding": {
+        "commands": [
+          {
+            "argv": [
+              "bun",
+              "test",
+              "src/mainview/cards/views/Views.test.tsx"
+            ],
+            "cwd": "apps/app",
+            "files": [
+              "apps/app/src/mainview/cards/views/Views.test.tsx"
+            ],
+            "reporter": "bun",
+            "expectedCaseIds": []
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "playwright",
+              "test",
+              "--config",
+              "playwright.config.ts",
+              "e2e/playwright/view-stories.spec.ts",
+              "--reporter=json"
+            ],
+            "cwd": "apps/app",
+            "files": [
+              "apps/app/e2e/playwright/view-stories.spec.ts",
+              "apps/app/playwright.config.ts"
+            ],
+            "reporter": "playwright",
+            "expectedCaseIds": [],
+            "prerequisites": [
+              "build-budget"
+            ],
+            "env": {
+              "SMITHERS_VIEW_STORIES": "1",
+              "SMITHERS_E2E_BROWSER": "chromium"
+            }
+          }
+        ],
+        "unboundSubcases": [
+          {
+            "name": "T-PRC-03-population",
+            "reason": "Both attempted targets failed before reporting named cases; expectedCaseIds require real execution"
+          },
+          {
+            "name": "T-UI-02-04-action-removal-and-callbacks",
+            "reason": "Setup/Settings/TODO early returns bypass generic action removal; Setup/Settings do not assert other callback silence"
+          },
+          {
+            "name": "T-UI-02-copy-effect-isolation",
+            "reason": "Clipboard fallback cases assert one copy but do not assert absence of setup/key-storage effects"
+          },
+          {
+            "name": "T-UI-03-full-draft-input",
+            "reason": "No Draft View story or full Draft input/callback assertions"
+          },
+          {
+            "name": "T-UI-11-editor-updates-and-pins",
+            "reason": "No identity/scroll/cursor preservation across model updates or approved export/pin receipt assertion"
+          },
+          {
+            "name": "T-UI-12-monitor-replay-and-custom-slot",
+            "reason": "No Monitor story or replay-only callback/custom-slot security assertions"
+          },
+          {
+            "name": "T-UI-13-agent-draft-opening",
+            "reason": "No Agent View story"
+          }
+        ],
+        "subcases": {
+          "unit": {
+            "commands": [
+              {
+                "argv": [
+                  "bun",
+                  "test",
+                  "src/mainview/cards/views/Views.test.tsx"
+                ],
+                "cwd": "apps/app",
+                "files": [
+                  "apps/app/src/mainview/cards/views/Views.test.tsx"
+                ],
+                "reporter": "bun",
+                "expectedCaseIds": []
+              }
+            ]
+          },
+          "playwright": {
+            "commands": [
+              {
+                "argv": [
+                  "pnpm",
+                  "exec",
+                  "playwright",
+                  "test",
+                  "--config",
+                  "playwright.config.ts",
+                  "e2e/playwright/view-stories.spec.ts",
+                  "--reporter=json"
+                ],
+                "cwd": "apps/app",
+                "files": [
+                  "apps/app/e2e/playwright/view-stories.spec.ts",
+                  "apps/app/playwright.config.ts"
+                ],
+                "reporter": "playwright",
+                "expectedCaseIds": [],
+                "prerequisites": [
+                  "build-budget"
+                ],
+                "env": {
+                  "SMITHERS_VIEW_STORIES": "1",
+                  "SMITHERS_E2E_BROWSER": "chromium"
+                }
+              }
+            ]
+          }
+        },
+        "provenance": "qa-c12 2026-10-03: ran Views.test.tsx with bun from apps/app and view-stories.spec.ts via playwright.config.ts with JSON reporter; both failed before named population; REPORT-qa-c12.md records gaps"
+      }
     },
     "C-UI-13": {
       "status": "pending-owner",

@@ -14,7 +14,7 @@ Out: admission, positions and release (T-MCH-06); the `parallel` setting (T-STK-
 
 ## Changes
 - Use as is (landed `56c3fb2f4`): `packages/backend/microsandbox/hostprofile.go` (`HostProfile`, `Detect`, `Sizing`), `capacity.go`, `services/install_capacity.go` and their tests. Change only the calibrated constants if C-SPK-05 requires it, and record them in spec.md §8.2.1.
-- Reshape, host-profile readers 3 → 1: the Go profile is the only hardware reader. The `hostProfile()` and health-line parsing in `scripts/checks/run-check.mjs:237-268` (`SMITHERS_CHECK_HEALTH_FILE`, added by `86deb6462`) go with that runner under v2 ruling 3; receipts that need host facts read them from the install API. `packages/testing/src/HostSuite.ts:57` `HostProfile` declares host capabilities for a conformance suite, not hardware, and stays.
+- Reshape, host-profile readers 3 → 1: the Go profile is the only hardware reader. The duplicate check runner’s hardware probe and ops-health-line parser are removed; receipts that need host facts read them from the install API. `packages/testing/src/HostSuite.ts:57` `HostProfile` declares host capabilities for a conformance suite, not hardware, and stays.
 - Reuse `scripts/spikes/mch-01-memory/` for the calibration run; delete the harness after the verdict is recorded, keeping the verdict file.
 - New: none.
 

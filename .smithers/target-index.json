@@ -45668,6 +45668,32 @@
     }
   },
   {
+    "label": "//scripts/repo-contract:specTranscriptions",
+    "package": "scripts/repo-contract",
+    "name": "specTranscriptions",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/repo-contract/spec-transcriptions.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/repo-contract/**/*.mjs",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/repo-contract/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts/repo-contract:testScriptWiring",
     "package": "scripts/repo-contract",
     "name": "testScriptWiring",
@@ -45982,54 +46008,6 @@
       {
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
-        "exclude": []
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "scripts/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//scripts:checkRunner",
-    "package": "scripts",
-    "name": "checkRunner",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "scripts/checks/run-check.test.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "scripts/checks/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": ".specs/qa/validation-plan.md"
-      },
-      {
-        "kind": "file",
-        "path": ".specs/engineering/spec.md"
-      },
-      {
-        "kind": "file",
-        "path": ".specs/product/mvp.md"
-      },
-      {
-        "kind": "glob",
-        "pattern": ".specs/engineering/checks/*.md",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": ".specs/engineering/tickets/*.md",
         "exclude": []
       }
     ],
@@ -47767,55 +47745,6 @@
       {
         "kind": "file",
         "path": "scripts/test-pins.md"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "scripts/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//scripts:thinQualification",
-    "package": "scripts",
-    "name": "thinQualification",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "exclusive": true,
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "scripts/checks/qualify.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "scripts/checks/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": ".specs/qa/validation-plan.md"
-      },
-      {
-        "kind": "file",
-        "path": ".specs/engineering/spec.md"
-      },
-      {
-        "kind": "file",
-        "path": ".specs/product/mvp.md"
-      },
-      {
-        "kind": "glob",
-        "pattern": ".specs/engineering/checks/*.md",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": ".specs/engineering/tickets/*.md",
-        "exclude": []
       }
     ],
     "outputs": [],

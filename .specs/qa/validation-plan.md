@@ -54,7 +54,7 @@ Future work claims its issue before starting and refreshes before expiry. Commen
 ## 2. Closed requirement manifest
 
 QA owns the generator for `appendices/requirements.json` and its generated `appendices/requirements.md`. These are planned deliverables. The manifest is a generated qualification view, not an editable copy of the contract or a mutable result row.
-The full denominator covers every product §2 rule, §9 row, numbered P0 step and nested setup step, §12 item/inclusion, observable M-01 through M-37 decision, §6 behavior, Appendix A/B/C policy and retained-history obligation. Preserve the 288 research requirements as aliases, not the denominator. Full-stage and release qualification require closed inventories. G-THIN can use its own reviewed, pinned, finite list and minimal immutable writer while the comprehensive generator is built in parallel.
+The full denominator covers every product §2 rule, §9 row, numbered P0 step and nested setup step, §12 item/inclusion, observable M-01 through M-37 decision, §6 behavior, Appendix A/B/C policy and retained-history obligation. Preserve the 288 research requirements as aliases, not the denominator. Full-stage and release qualification require closed inventories. G-THIN records its reviewed, pinned dependency and safety closure with the shared check receipts while the comprehensive generator is built in parallel.
 
 | Fields | Authority and treatment |
 | --- | --- |
@@ -73,7 +73,7 @@ Generation and maintenance:
 3. QA compares coverage to the source line by line; 8a reviews independent oracles; 98 approves scope. Generation enumerates requirements, not expected behavior computed from source prose. Acceptance tests use reviewed literal fixtures or independent reference models, never generated normative text or the production transition table.
 4. Regenerate qualification views on source/check/ticket/catalog changes and before nomination; reject stale source/generator identities. Honor Ready stamps and in-flight freeze. New obligations become follow-up tickets unless security, data loss or Will's binding rules require correction. Current gate obligations and frozen implementation scope are separate records.
 5. Re-execute affected results after implementation/oracle/source/environment changes. No cross-SHA transfer by assertion. Approved mandatory obligations cannot be removed by risk ranking.
-Gate PASS requires a nonempty complete required set, valid joins/source identities, compatible selected PASS results (accepted RESOLVED only for spike obligations), every expected case/artifact and no unresolved mandatory failure. Select attempts through reviewed fix/supersession/equivalence receipts, never last-success-wins. Emit denominator digest, counts and rejected obligation ids. The finite thin list certifies G-THIN only; interim queue records cannot certify full-stage/release scope.
+Gate PASS requires a nonempty complete required set, valid joins/source identities, compatible selected PASS results (accepted RESOLVED only for spike obligations), every expected case/artifact and no unresolved mandatory failure. Select attempts through reviewed fix/supersession/equivalence receipts, never last-success-wins. Emit denominator digest, counts and rejected obligation ids. The reviewed thin-path closure proves G-THIN only; interim queue records cannot certify full-stage/release scope.
 
 ### Normative coverage anchors
 
@@ -155,7 +155,7 @@ S1 safety fixture subcases do not pull release-command implementation forward. E
 
 ```
 main observations -> G-MAIN-TRIAGE (operations only)
-pinned bundle + finite thin obligations + runtime/safety closure -> G-THIN
+pinned bundle + shared check receipts + runtime/safety closure -> G-THIN
 S1 J1/J2 + dogfood closure -> G-DOGFOOD-START (independent of full S1)
 G-MAIN + G-W0 + full S1 denominator -> G-S1 -> G-S2 -> G-S3 -> G-R
 G-TKT closes each ticket's owned obligations, not the entire shared check
@@ -200,7 +200,7 @@ The earlier timing conflict was: §12 item 6 required a launch-day install to up
 
 | Order | Deliverable / owner | Exit evidence / current limitation |
 | --- | --- | --- |
-| 1 | Reviewed finite G-THIN list and minimal immutable writer / QA Sol; full generator in parallel | Enumerated expected ids; reject missing rows/empty scans; retrievable raw receipt. No HTML prerequisite. |
+| 1 | Reviewed G-THIN dependency closure and shared check receipts / QA Sol; full generator in parallel | Enumerated expected ids; reject missing rows/empty scans; retrievable raw receipt. No HTML prerequisite. |
 | 2 | Reuse testkit/testdb + postgresfixture, fast unit and full-scope coverage / QA Sol + 3f/38 | Real PG18 per-test DB; no services skip; cover state/permission/generation seams before browser expansion. |
 | 3 | Minimum githubfake HTTP endpoints / GH lane under 22, QA extends | Access/create/propose/merge REST, GraphQL drafts, smart HTTP and effect log; then ETags/pages/rate/kill hooks. Document engineering's fake-GitHub integration exception. |
 | 4 | Single real-VM self-hosted browser J1→J2 driver / QA journeys Sol + b8/3f | T-INS-01 → T-INS-02 → T-INS-08 · T-ACC-01 → T-ACC-03 · T-STK-01 → T-STK-12 → T-STK-04. Real second-browser access and person merge. No Cloud sign-in or chat stub qualifies. |
