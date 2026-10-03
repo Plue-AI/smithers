@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -23,10 +24,6 @@ import (
 //     never exist. A relation may be created again only after a DROP/RENAME.
 //   - A table counts as installed if some migration creates it and no later
 //     migration drops or renames it away.
-
-// knownMigrationGaps freezes historical gaps in the numeric sequence. Main has
-// none today; adding a number here hides a gap, so do not.
-var knownMigrationGaps = []int{}
 
 // tablesCreatedByGo are product tables that migrate.go creates itself (the
 // ledger), so no .sql file mentions them.
@@ -81,6 +78,9 @@ func checkMigrationNames(dir string) []string {
 	files, problems := readMigrationDir(dir)
 	byVersion := map[int][]string{}
 	for _, f := range files {
+		if f.version == 0 {
+			problems = append(problems, "migration numbers must start at 0001")
+		}
 		byVersion[f.version] = append(byVersion[f.version], f.name)
 	}
 	max := 0
@@ -93,7 +93,7 @@ func checkMigrationNames(dir string) []string {
 		}
 	}
 	for v := 1; v <= max; v++ {
-		if _, ok := byVersion[v]; !ok && !containsInt(knownMigrationGaps, v) {
+		if _, ok := byVersion[v]; !ok {
 			problems = append(problems, fmt.Sprintf("gap: no migration numbered %04d", v))
 		}
 	}
@@ -101,22 +101,8 @@ func checkMigrationNames(dir string) []string {
 	return problems
 }
 
-func containsInt(xs []int, x int) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
-}
-
 var (
-	lineCommentRE  = regexp.MustCompile(`--[^\n]*`)
-	blockCommentRE = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	dollarBodyRE   = regexp.MustCompile(`(?s)\$([A-Za-z_]*)\$.*?\$([A-Za-z_]*)\$`)
-	stringLitRE    = regexp.MustCompile(`'(?:[^']|'')*'`)
-
-	ident = `(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)(?:\.(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*))?`
+	ident = `(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)(?:\s*\.\s*(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*))?`
 
 	createTableRE = regexp.MustCompile(`(?i)\bCREATE\s+(?:(?:UNLOGGED|TEMP|TEMPORARY)\s+)?TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(` + ident + `)`)
 	createIndexRE = regexp.MustCompile(`(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(IF\s+NOT\s+EXISTS\s+)?(` + ident + `)\s+ON\s+(?:ONLY\s+)?(` + ident + `)`)
@@ -127,16 +113,121 @@ var (
 )
 
 func normIdent(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(strings.ToLower(s), "public.")
-	return strings.ReplaceAll(s, `"`, "")
+	// PostgreSQL folds only unquoted identifiers. Strip the public schema,
+	// including its quoted spelling, but preserve other schema identities.
+	parts := regexp.MustCompile(`"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*`).FindAllString(s, -1)
+	for i, p := range parts {
+		if strings.HasPrefix(p, `"`) {
+			parts[i] = strings.ReplaceAll(p[1:len(p)-1], `""`, `"`)
+		} else {
+			parts[i] = strings.ToLower(p)
+		}
+	}
+	if len(parts) == 2 && parts[0] == "public" {
+		parts = parts[1:]
+	}
+	return strings.Join(parts, ".")
 }
 
-func stripSQL(sql string) string {
-	sql = blockCommentRE.ReplaceAllString(sql, " ")
-	sql = lineCommentRE.ReplaceAllString(sql, " ")
-	sql = dollarBodyRE.ReplaceAllString(sql, " ")
-	return stringLitRE.ReplaceAllString(sql, "''")
+// A lexical pass, never SQL execution. Mask literals/comments while retaining
+// offsets and quoted identifiers. Comments nest; dollar delimiters must match.
+func stripSQL(sql string) (string, error) {
+	out := []byte(sql)
+	mask := func(a, b int) {
+		for i := a; i < b; i++ {
+			if out[i] != '\n' {
+				out[i] = ' '
+			}
+		}
+	}
+	dollar := regexp.MustCompile(`^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$`)
+	for i := 0; i < len(sql); {
+		start := i
+		switch {
+		case strings.HasPrefix(sql[i:], "--"):
+			if end := strings.IndexByte(sql[i:], '\n'); end >= 0 {
+				i += end
+			} else {
+				i = len(sql)
+			}
+			mask(start, i)
+		case strings.HasPrefix(sql[i:], "/*"):
+			i += 2
+			depth := 1
+			for i < len(sql) && depth > 0 {
+				if strings.HasPrefix(sql[i:], "/*") {
+					depth++
+					i += 2
+				} else if strings.HasPrefix(sql[i:], "*/") {
+					depth--
+					i += 2
+				} else {
+					i++
+				}
+			}
+			if depth != 0 {
+				return "", fmt.Errorf("unterminated SQL comment")
+			}
+			mask(start, i)
+		case sql[i] == '\'':
+			escaped := i > 0 && (sql[i-1] == 'E' || sql[i-1] == 'e')
+			i++
+			closed := false
+			for i < len(sql) {
+				if escaped && sql[i] == '\\' {
+					i += 2
+					continue
+				}
+				if sql[i] == '\'' {
+					if i+1 < len(sql) && sql[i+1] == '\'' {
+						i += 2
+						continue
+					}
+					i++
+					closed = true
+					break
+				}
+				i++
+			}
+			if !closed {
+				return "", fmt.Errorf("unterminated SQL string")
+			}
+			mask(start, i)
+		case sql[i] == '"':
+			i++
+			closed := false
+			for i < len(sql) {
+				if sql[i] == '"' {
+					if i+1 < len(sql) && sql[i+1] == '"' {
+						i += 2
+						continue
+					}
+					i++
+					closed = true
+					break
+				}
+				i++
+			}
+			if !closed {
+				return "", fmt.Errorf("unterminated SQL identifier")
+			}
+		case sql[i] == '$':
+			tag := dollar.FindString(sql[i:])
+			if tag == "" {
+				i++
+				continue
+			}
+			end := strings.Index(sql[i+len(tag):], tag)
+			if end < 0 {
+				return "", fmt.Errorf("unterminated SQL dollar body")
+			}
+			i += len(tag) + end + len(tag)
+			mask(start, i)
+		default:
+			i++
+		}
+	}
+	return string(out), nil
 }
 
 type objectOwner struct {
@@ -184,6 +275,7 @@ func (w *schemaWalk) drop(kind, name string) {
 
 type schemaEvent struct {
 	pos  int
+	end  int
 	kind string // table, index, type, other, rename, drop
 	m    []string
 }
@@ -191,7 +283,11 @@ type schemaEvent struct {
 func walkSchema(files []migrationFile) *schemaWalk {
 	w := &schemaWalk{live: map[string]objectOwner{}, tables: map[string]string{}, indexTable: map[string]string{}}
 	for _, f := range files {
-		sql := stripSQL(f.sql)
+		sql, err := stripSQL(f.sql)
+		if err != nil {
+			w.problems = append(w.problems, f.name+": "+err.Error())
+			continue
+		}
 		var events []schemaEvent
 		for kind, re := range map[string]*regexp.Regexp{"table": createTableRE, "index": createIndexRE, "type": createTypeRE, "other": createOtherRE, "rename": renameRE, "drop": dropRE} {
 			for _, loc := range re.FindAllStringSubmatchIndex(sql, -1) {
@@ -203,7 +299,7 @@ func walkSchema(files []migrationFile) *schemaWalk {
 						m = append(m, sql[loc[i]:loc[i+1]])
 					}
 				}
-				events = append(events, schemaEvent{loc[0], kind, m})
+				events = append(events, schemaEvent{loc[0], loc[1], kind, m})
 			}
 		}
 		sort.Slice(events, func(i, j int) bool { return events[i].pos < events[j].pos })
@@ -213,7 +309,7 @@ func walkSchema(files []migrationFile) *schemaWalk {
 			case "table":
 				name := normIdent(m[2])
 				w.create("rel", name, f.name, m[1] != "")
-				if _, ok := w.tables[name]; !ok {
+				if _, ok := w.tables[name]; !ok && !regexp.MustCompile(`(?i)^\s+PARTITION\s+OF\b`).MatchString(sql[ev.end:]) {
 					w.tables[name] = f.name
 				}
 			case "index":
@@ -264,33 +360,101 @@ func checkDuplicateObjects(dir string) []string {
 
 // checkOwnership compares tables that survive the migrations with the product
 // rows of an ownership.csv (same header and rules as ownershipRows).
-func checkOwnership(dir, csvPath string) []string {
-	files, problems := readMigrationDir(dir)
-	live := walkSchema(files).tables
+// planned:<ticket> owner:<engineering-owner> is the §21.3 reservation.
+var plannedStatusRE = regexp.MustCompile(`^planned:(T-[A-Z0-9]+-[0-9]+[a-z]?) owner:([A-Za-z0-9][A-Za-z0-9_-]*)$`)
+var migrationTicketRE = regexp.MustCompile(`(?m)^-- Ticket: (T-[A-Z0-9]+-[0-9]+[a-z]?)\s*$`)
+
+type ownershipRow struct{ target, status, ticket string }
+
+func readOwnership(csvPath string) (map[string]ownershipRow, []string) {
 	f, err := os.Open(csvPath)
 	if err != nil {
-		return append(problems, err.Error())
+		return nil, []string{err.Error()}
 	}
 	defer f.Close()
 	rows, err := csv.NewReader(f).ReadAll()
-	if err != nil || len(rows) < 2 {
-		return append(problems, fmt.Sprintf("ownership.csv unreadable: %v", err))
+	if err != nil {
+		return nil, []string{fmt.Sprintf("ownership.csv unreadable: %v", err)}
 	}
-	owners := map[string]string{}
+	if len(rows) == 0 || strings.Join(rows[0], ",") != "table,target_owner,status" {
+		return nil, []string{"invalid ownership.csv header"}
+	}
+	owners := map[string]ownershipRow{}
+	var problems []string
 	for _, r := range rows[1:] {
-		owners[r[0]] = r[1]
+		if len(r) != 3 || r[0] == "" || r[2] == "" {
+			problems = append(problems, "invalid ownership.csv row")
+			continue
+		}
+		if r[1] != "product" && r[1] != "private" && r[1] != "retired" {
+			problems = append(problems, "unknown target owner: "+r[1])
+			continue
+		}
+		if _, ok := owners[r[0]]; ok {
+			problems = append(problems, "table "+r[0]+" is listed twice")
+			continue
+		}
+		row := ownershipRow{target: r[1], status: r[2]}
+		if strings.HasPrefix(r[2], "planned:") {
+			m := plannedStatusRE.FindStringSubmatch(r[2])
+			if m == nil {
+				problems = append(problems, "invalid planned status: "+r[2])
+				continue
+			}
+			row.ticket = m[1]
+		}
+		owners[r[0]] = row
 	}
-	for t, file := range live {
-		switch o, ok := owners[t]; {
-		case !ok:
-			problems = append(problems, fmt.Sprintf("table %s (created by %s) has no row in ownership.csv", t, file))
-		case o != "product":
-			problems = append(problems, fmt.Sprintf("table %s (created by %s) is marked %q in ownership.csv", t, file, o))
+	return owners, problems
+}
+
+func checkOwnership(dir, csvPath string) []string {
+	files, problems := readMigrationDir(dir)
+	walk := walkSchema(files)
+	live := walk.tables
+	problems = append(problems, walk.problems...)
+	owners, invalid := readOwnership(csvPath)
+	problems = append(problems, invalid...)
+	tickets := map[string]string{}
+	for _, f := range files {
+		matches := migrationTicketRE.FindAllStringSubmatch(f.sql, -1)
+		if len(matches) > 1 {
+			problems = append(problems, "ambiguous migration ticket: "+f.name)
+		} else if len(matches) == 1 {
+			tickets[f.name] = matches[0][1]
+		}
+		sql, err := stripSQL(f.sql)
+		if err != nil {
+			continue
+		}
+		names := []string{}
+		for _, m := range createTableRE.FindAllStringSubmatch(sql, -1) {
+			names = append(names, normIdent(m[2]))
+		}
+		for _, m := range renameRE.FindAllStringSubmatch(sql, -1) {
+			if strings.EqualFold(m[1], "table") {
+				names = append(names, normIdent(m[3]))
+			}
+		}
+		for _, name := range names {
+			row, ok := owners[name]
+			if ok && row.ticket != "" && row.ticket != tickets[f.name] {
+				problems = append(problems, fmt.Sprintf("table %s is reserved for %s, not migration %s ticket %q", name, row.ticket, f.name, tickets[f.name]))
+			}
 		}
 	}
-	for t, o := range owners {
-		if _, ok := live[t]; o == "product" && !ok && !tablesCreatedByGo[t] {
-			problems = append(problems, fmt.Sprintf("ownership.csv lists product table %s that no migration leaves installed", t))
+
+	for table, file := range live {
+		switch row, ok := owners[table]; {
+		case !ok:
+			problems = append(problems, fmt.Sprintf("table %s (created by %s) has no row in ownership.csv", table, file))
+		case row.target != "product":
+			problems = append(problems, fmt.Sprintf("table %s (created by %s) is marked %q in ownership.csv", table, file, row.target))
+		}
+	}
+	for table, row := range owners {
+		if _, ok := live[table]; row.target == "product" && row.ticket == "" && !ok && !tablesCreatedByGo[table] {
+			problems = append(problems, fmt.Sprintf("ownership.csv lists product table %s that no migration leaves installed", table))
 		}
 	}
 	sort.Strings(problems)
@@ -304,53 +468,61 @@ func report(t *testing.T, problems []string) {
 	}
 }
 
-func TestQAMigrationNamesUniqueAndGapless(t *testing.T) {
+func TestMigrationGateMigrationNamesUniqueAndGapless(t *testing.T) {
 	report(t, checkMigrationNames("migrations"))
 }
 
 // Every file the embed picks up is registered, and every registered path is a
 // file in the embed, in order, versions 1..N.
-func TestQAMigrationRegistryMatchesEmbed(t *testing.T) {
+func checkRegistryParity(source fs.FS, registry []migrationSpec) []string {
+	files, err := fs.Glob(source, "migrations/*.sql")
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	if len(files) != len(registry) {
+		problems = append(problems, fmt.Sprintf("%d embedded files, %d registry entries", len(files), len(registry)))
+	}
+	for i, s := range registry {
+		if i >= len(files) || files[i] != s.path || s.version != i+1 {
+			problems = append(problems, fmt.Sprintf("registry/embed mismatch at version %d", i+1))
+		}
+		m := migrationNameRE.FindStringSubmatch(path.Base(s.path))
+		if m == nil {
+			problems = append(problems, "invalid registry filename: "+s.path)
+		} else if n, _ := strconv.Atoi(m[1]); n != s.version {
+			problems = append(problems, "registry filename/version mismatch: "+s.path)
+		}
+	}
+	return problems
+}
+
+func TestMigrationGateMigrationRegistryMatchesEmbed(t *testing.T) {
+	report(t, checkRegistryParity(migrations, migrationRegistry))
 	files, err := fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg := map[string]int{}
-	for i, s := range migrationRegistry {
-		reg[s.path] = s.version
-		if s.version != i+1 {
-			t.Errorf("registry entry %d (%s) has version %d", i+1, s.path, s.version)
-		}
-		if _, err := fs.Stat(migrations, s.path); err != nil {
-			t.Errorf("registry lists %s, which is not embedded", s.path)
-		}
+	disk, err := os.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, f := range files {
-		if _, ok := reg[f]; !ok {
-			t.Errorf("embedded %s is missing from migrationRegistry", f)
-		}
-	}
-	if len(files) != len(migrationRegistry) {
-		t.Errorf("%d embedded files, %d registry entries", len(files), len(migrationRegistry))
-	}
-	// The embed must see everything on disk too (a subdirectory or odd name would be skipped).
-	disk, _ := os.ReadDir("migrations")
 	if len(disk) != len(files) {
 		t.Errorf("migrations/ holds %d entries, embed matches %d .sql files", len(disk), len(files))
 	}
 }
 
-func TestQAMigrationNoDuplicateObjects(t *testing.T) {
+func TestMigrationGateMigrationNoDuplicateObjects(t *testing.T) {
 	report(t, checkDuplicateObjects("migrations"))
 }
 
-func TestQAMigrationOwnershipExhaustive(t *testing.T) {
+func TestMigrationGateMigrationOwnershipExhaustive(t *testing.T) {
 	report(t, checkOwnership("migrations", "../ownership.csv"))
 }
 
 // Regression: the 0104 collision. Two files with the same number both
 // creating install_settings must trip the name and object checks, naming both.
-func TestQAMigrationRegressionFixtureDuplicate0104(t *testing.T) {
+func TestMigrationGateMigrationRegressionFixtureDuplicate0104(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{"0104_stk_install_settings.sql", "0104_gh_install_settings.sql"} {
 		if err := os.WriteFile(filepath.Join(dir, n), []byte("CREATE TABLE install_settings (id bigint PRIMARY KEY);\n"), 0o644); err != nil {
@@ -375,7 +547,7 @@ func TestQAMigrationRegressionFixtureDuplicate0104(t *testing.T) {
 
 // Different numbers, same table: only the object check fires. IF NOT EXISTS
 // does not excuse it. A DROP between them does.
-func TestQAMigrationRegressionFixtureObjects(t *testing.T) {
+func TestMigrationGateMigrationRegressionFixtureObjects(t *testing.T) {
 	write := func(files map[string]string) string {
 		dir := t.TempDir()
 		for n, s := range files {
@@ -410,27 +582,4 @@ func TestQAMigrationRegressionFixtureObjects(t *testing.T) {
 	if !strings.Contains(got, "unlisted (created by 0001_a.sql)") || !strings.Contains(got, "ghost") {
 		t.Errorf("ownership fixture not flagged: %s", got)
 	}
-}
-
-// QA_MIGRATION_LANE_DIR points at a directory of extra migration files (a
-// lane's 0104*.sql). They are added to main's and every check runs.
-func TestQAMigrationLaneOverlay(t *testing.T) {
-	extra := os.Getenv("QA_MIGRATION_LANE_DIR")
-	if extra == "" {
-		t.Skip("QA_MIGRATION_LANE_DIR not set")
-	}
-	dir := t.TempDir()
-	for _, src := range []string{"migrations", extra} {
-		entries, err := os.ReadDir(src)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range entries {
-			b, _ := os.ReadFile(filepath.Join(src, e.Name()))
-			os.WriteFile(filepath.Join(dir, e.Name()), b, 0o644)
-		}
-	}
-	report(t, checkMigrationNames(dir))
-	report(t, checkDuplicateObjects(dir))
-	report(t, checkOwnership(dir, "../ownership.csv"))
 }

@@ -12,6 +12,7 @@
  * `node`.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as rootPackage } from "../PACKAGE.ts"
 
 /**
  * Everything under `scripts/`, digested as the input of every gate here.
@@ -827,9 +828,22 @@ const lint = Smithers.EsLint({
 })
 
 const commit = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/commit.test.mjs")]),
-  srcs: [Smithers.file("//scripts/commit.mjs")],
-  deps: []
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/commit.test.mjs"),
+    Smithers.file("//scripts/renumber-migration.test.mjs"),
+    Smithers.file("//scripts/migration-landing.test.mjs")
+  ]),
+  srcs: [
+    ...sources,
+    Smithers.file("//PACKAGE.ts"),
+    Smithers.file("//packages/backend/db/product/migrate.go"),
+    Smithers.file("//packages/backend/db/product/migration_gate_test.go"),
+    Smithers.file("//packages/backend/db/product/migration_registry_test.go"),
+    Smithers.file("//packages/backend/db/ownership.csv"),
+    Smithers.file("//go.mod"),
+    Smithers.file("//go.sum")
+  ],
+  deps: [rootPackage.backendSQLC, rootPackage.backendGoModules]
 })
 
 /** Exercises real Bun coverage collection and sealed process receipts. */

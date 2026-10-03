@@ -5,12 +5,14 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
 
+import { fixtureEnv, schemaFixture } from "./migration-fixture.mjs"
+
 const script = resolve(import.meta.dirname, "commit.mjs")
 const copyHygiene = (directory) => {
   mkdirSync(join(directory, "scripts"))
   copyFileSync(resolve(import.meta.dirname, "check-tracked-hygiene.mjs"), join(directory, "scripts/check-tracked-hygiene.mjs"))
 }
-const command = (cwd, bin, args) => spawnSync(bin, args, { cwd, encoding: "utf8" })
+const command = (cwd, bin, args) => spawnSync(bin, args, { cwd, encoding: "utf8", env: fixtureEnv })
 const ok = (cwd, bin, args) => {
   const result = command(cwd, bin, args)
   assert.equal(result.status, 0, result.stderr)
@@ -22,6 +24,7 @@ for (const vcs of ["git", "jj"]) {
     const remote = mkdtempSync(join(tmpdir(), "smithers-commit-remote-"))
     try {
       copyHygiene(directory)
+      schemaFixture(directory)
       ok(directory, "git", ["init", "-b", "main"])
       ok(directory, "git", ["config", "user.name", "Commit test"])
       ok(directory, "git", ["config", "user.email", "test@example.com"])

@@ -350,12 +350,26 @@ const backendSQLC = Smithers.Shell.Build({
   timeout: "15m"
 })
 
+// Default migration gate is independent of PostgreSQL; the full backend suite
+// below retains its real services and runs this gate as a prerequisite.
+const backendGo = Smithers.Shell.Test({
+  shell: "export GOMODCACHE=\"${GOMODCACHE:-$PWD/.backend-go-modcache}\"; unset DATABASE_URL SMITHERS_TEST_DATABASE_URL SMITHERS_REQUIRE_DATABASE_TESTS; go test -count=1 -run 'TestMigrationGate|TestMigrationRegistry' ./packages/backend/db/product/",
+  env: { GOFLAGS: "-buildvcs=false -mod=readonly", GOPROXY: "off" },
+  data: [
+    backendGoModules,
+    Smithers.file("//go.mod"),
+    Smithers.file("//go.sum"),
+    Smithers.glob("//packages/backend/**/*")
+  ],
+  sandbox: { network: false }
+})
+
 // `go test` streams megabytes of logs, so its failures rarely reach the
 // output tail a failed target reports; they are repeated on stderr.
 // The backup, restore and upgrade-recovery suites run the PostgreSQL programs
 // on PATH (`postgres` in the go-backend job, pkgs.postgresql_18 on the Cloud
 // machine); without them the suite fails instead of skipping them.
-const backendGo = Smithers.Shell.Test({
+const backendGoIntegration = Smithers.Shell.Test({
   shell: "export PATH=\"$PWD/.backend-sqlc:$PATH\"; if [ -z \"${SMITHERS_POSTGRES_TEST_BIN:-}\" ]; then pg_ctl_path=$(command -v pg_ctl) || { echo 'PostgreSQL 18 programs (pg_ctl, initdb, pg_dump, psql) must be on PATH for the backend backup and restore tests' >&2; exit 1; }; export SMITHERS_POSTGRES_TEST_BIN=\"${pg_ctl_path%/*}\"; fi; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export SMITHERS_WIKI_TEST_FFI=\"$SMITHERS_FFI_LIBRARY_PATH\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; sh scripts/test-backend-consumer.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
   env: {
     GOFLAGS: "-buildvcs=false -mod=readonly",
@@ -366,6 +380,7 @@ const backendGo = Smithers.Shell.Test({
     SMITHERS_TEST_DATABASE_URL: "postgres://smithers:smithers-backend-test@127.0.0.1:55435/postgres?sslmode=disable"
   },
   data: [
+    backendGo,
     backendGoModules,
     backendSQLC,
     Smithers.file("//scripts/check-go-boundaries.py"),
@@ -467,7 +482,7 @@ const ci = Smithers.GithubCiGen({
     { name: "documentation parity", verb: Smithers.Verb.Docs, pattern: "//packages/...", job: "test" },
     { name: "example typecheck", verb: Smithers.Verb.Build, pattern: "//examples/...", job: "test" },
     { name: "example suite", verb: Smithers.Verb.Test, pattern: "//examples/...", job: "test" },
-    { name: "shared Go backend", verb: Smithers.Verb.Test, pattern: "//:backendGo", job: "go-backend" },
+    { name: "shared Go backend", verb: Smithers.Verb.Test, pattern: "//:backendGoIntegration", job: "go-backend" },
     { name: "native FFI compiler and tests", verb: Smithers.Verb.Build, pattern: "//:nativeFfi", job: "rust-ffi" },
     { name: "web bundle compatibility", verb: Smithers.Verb.Test, pattern: "//scripts:webBundleContract" }
   ],
@@ -897,7 +912,7 @@ const ci = Smithers.GithubCiGen({
         postgres,
         docker: dockerImageStore
       }),
-      steps: [{ name: "Build and test shared backend", verb: Smithers.Verb.Test, pattern: "//:backendGo" }]
+      steps: [{ name: "Build and test shared backend", verb: Smithers.Verb.Test, pattern: "//:backendGoIntegration" }]
     }
   ]
 })
@@ -1234,6 +1249,7 @@ export const Package = Smithers.Package({
     backendGoModules,
     backendSQLC,
     backendGo,
+    backendGoIntegration,
     nativeFfi,
     commit,
     changelog,

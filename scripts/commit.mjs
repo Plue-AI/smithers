@@ -48,7 +48,10 @@ try {
       run("jj", ["commit", "-m", message])
       run("jj", ["bookmark", "set", "main", "-r", "@-"])
     } else console.log("No uncommitted changes.")
-    if (push) run("jj", ["git", "push", "--remote", "origin", "-b", "main"])
+    if (push) {
+      run("go", ["test", "-run", "TestMigrationGate|TestMigrationRegistry", "./packages/backend/db/product/"])
+      run("jj", ["git", "push", "--remote", "origin", "-b", "main"])
+    }
     console.log(`main: ${run("jj", ["log", "-r", "main", "--no-graph", "-T", "commit_id"], true)}`)
   } else {
     if (run("git", ["branch", "--show-current"], true) !== "main") throw new Error("The shared checkout must be on main.")
@@ -57,7 +60,10 @@ try {
       run("git", ["add", "--all"])
       run("git", ["commit", "-m", message])
     } else console.log("No uncommitted changes.")
-    if (push) run("git", ["push", "origin", "main"])
+    if (push) {
+      run("go", ["test", "-run", "TestMigrationGate|TestMigrationRegistry", "./packages/backend/db/product/"])
+      run("git", ["push", "origin", "main"])
+    }
     console.log(`main: ${run("git", ["rev-parse", "main"], true)}`)
   }
 } finally { rmSync(lock, { recursive: true, force: true }) }

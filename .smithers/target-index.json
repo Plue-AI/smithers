@@ -11,6 +11,38 @@
     "inputs": [
       {
         "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//:backendGoModules"
+    ],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//:backendGoIntegration",
+    "package": "",
+    "name": "backendGoIntegration",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
         "path": "scripts/check-go-boundaries.py"
       },
       {
@@ -81,6 +113,7 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//:backendGo",
       "//:backendGoModules",
       "//:backendSQLC",
       "//:nativeFfi",
@@ -45949,11 +45982,61 @@
       },
       {
         "kind": "file",
-        "path": "scripts/commit.mjs"
+        "path": "scripts/renumber-migration.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/migration-landing.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migrate.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migration_gate_test.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migration_registry_test.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/ownership.csv"
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//:backendGoModules",
+      "//:backendSQLC"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
