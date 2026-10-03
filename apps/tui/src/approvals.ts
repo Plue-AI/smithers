@@ -392,19 +392,19 @@ interface Quiet {
   readonly options: RegExp
 }
 
-const quiet: Readonly<Record<string, Quiet>> = {
-  cat: { options: /^$/ },
-  git: {
+const quiet: ReadonlyMap<string, Quiet> = new Map([
+  ["cat", { options: /^$/ }],
+  ["git", {
     subcommands: ["status", "diff", "log", "show"],
     options: /^(?:--|-[0-9]+|-[bps]|--cached|--name-only|--name-status|--oneline|--porcelain|--short|--staged|--stat)$/
-  },
-  grep: { options: /^-[cilnrw]+$/ },
-  head: { options: /^-(?:n|[0-9]+)$/ },
-  ls: { options: /^-[1aAhlR]+$/ },
-  pwd: { options: /^$/ },
-  tail: { options: /^-(?:n|[0-9]+)$/ },
-  wc: { options: /^-[clw]+$/ }
-}
+  }],
+  ["grep", { options: /^-[cilnrw]+$/ }],
+  ["head", { options: /^-(?:n|[0-9]+)$/ }],
+  ["ls", { options: /^-[1aAhlR]+$/ }],
+  ["pwd", { options: /^$/ }],
+  ["tail", { options: /^-(?:n|[0-9]+)$/ }],
+  ["wc", { options: /^-[clw]+$/ }]
+])
 
 /**
  * What a declared-read-only command does: `reads`, `runs` Git's configured
@@ -446,7 +446,7 @@ const installed = (program: string, root: string, base: string): boolean => {
 export const readOnly = (shell: string, root: string, base = root): Reading => {
   if (!/^[\w./-]+(?: [\w./-]+)*$/.test(shell)) return false
   const [program, ...rest] = shell.split(" ")
-  const allowed = quiet[program!]
+  const allowed = quiet.get(program!)
   if (allowed === undefined) return false
   const subcommand = allowed.subcommands === undefined ? 0 : 1
   if (subcommand === 1 && !allowed.subcommands!.includes(rest[0] ?? "")) return false

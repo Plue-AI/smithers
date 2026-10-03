@@ -565,7 +565,10 @@ describe("read-only declarations", () => {
       "wc --files0-from check.mjs",
       "./cat check.mjs",
       "/bin/cat check.mjs",
-      "src/cat check.mjs"
+      "src/cat check.mjs",
+      "toString",
+      "constructor -x",
+      "hasOwnProperty check.mjs"
     ], false)
   })
 
