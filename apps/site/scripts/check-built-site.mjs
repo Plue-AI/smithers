@@ -16,7 +16,7 @@ const decode = (value) => value.replaceAll("&amp;", "&").replaceAll("&#39;", "'"
 function readRedirects(root) {
   const path = join(root, "_redirects")
   if (!existsSync(path)) return []
-  return readFileSync(path, "utf8").split("\n").flatMap((line, index) => {
+  const rules = readFileSync(path, "utf8").split("\n").flatMap((line, index) => {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith("#")) return []
     const [source, destination, status = "302", extra] = trimmed.split(/\s+/)
@@ -32,8 +32,18 @@ function readRedirects(root) {
     const pattern = new RegExp(
       "^" + source.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("(.*)") + "$"
     )
-    return [{ source, destination, pattern }]
+    return [{ source, destination, pattern, line: index + 1 }]
   })
+  // Cloudflare counts every rule from the first dynamic (splat) rule onward as
+  // dynamic and refuses publish past 100 dynamic or 2,000 static rules
+  // (error 100324, 2026-10-03). Keep splat rules at the end of the file.
+  const firstDynamic = rules.findIndex((rule) => rule.source.includes("*"))
+  const dynamic = firstDynamic === -1 ? 0 : rules.length - firstDynamic
+  if (dynamic > 100) {
+    throw new Error(`_redirects:${rules[firstDynamic].line}: ${dynamic} rules from the first splat rule onward count as dynamic (Cloudflare limit 100); move splat rules to the end`)
+  }
+  if (rules.length - dynamic > 2000) throw new Error(`_redirects: ${rules.length - dynamic} static rules exceed Cloudflare's 2,000 limit`)
+  return rules
 }
 
 /*

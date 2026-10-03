@@ -56,6 +56,15 @@ test("splat redirects and literal exceptions resolve in file order", (t) => {
   assert.deepEqual(checkBuiltSite(root).failures, [])
 })
 
+test("more than 100 rules after the first splat rule fail, matching Cloudflare's dynamic-rule limit", (t) => {
+  const literals = Array.from({ length: 101 }, (_, i) => `/old${i} /new/ 301`).join("\n")
+  const pages = { "new/index.html": "<h1>New</h1>", "api/x/index.html": "<h1>x</h1>" }
+  const late = fixture(t, { ...pages, "_redirects": `/api/* /api/:splat/ 301\n${literals}\n` })
+  assert.throws(() => checkBuiltSite(late), /102 rules from the first splat rule onward count as dynamic/)
+  const ordered = fixture(t, { ...pages, "_redirects": `${literals}\n/api/* /api/:splat/ 301\n` })
+  assert.deepEqual(checkBuiltSite(ordered).failures, [])
+})
+
 test("missing redirect destinations and cycles fail even without a page linking them", (t) => {
   const root = fixture(t, {
     "index.html": "<h1>Home</h1>",

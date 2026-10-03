@@ -832,7 +832,6 @@
 # Order is load-bearing because Cloudflare uses the first matching rule.
 # /api/* has no rule here: the app Worker answers that prefix before assets
 # (see scripts/check-built-site.mjs).
-/reference/*  /docs/reference/:splat/           301
 
 # Concept slugs are explicit because renamed or removed concepts must not be
 # laundered through a splat into a 404.
@@ -995,3 +994,7 @@
 /docs/learn/troubleshooting/  /docs/installation/  301
 /docs/learn/wiki  /docs/installation/  301
 /docs/learn/wiki/  /docs/installation/  301
+
+# Splat rules go last: Cloudflare counts every rule after the first splat as
+# dynamic (limit 100). scripts/check-built-site.mjs enforces this.
+/reference/*  /docs/reference/:splat/           301
