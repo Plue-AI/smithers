@@ -12,7 +12,7 @@ import { Effect, Exit, Fiber } from "effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
@@ -1113,6 +1113,60 @@ describe("a run remembers what the person decided", () => {
         return { before, after }
       }), root)
     expect(result).toEqual({ before: { unasked: 0, code }, after: { unasked: 0, git, code } })
+  })
+
+  it("holds a denial through a hard link to the refused file, by any route and either name", async () => {
+    const root = scripted()
+    writeFileSync(join(root, "NOTES.md"), "existing\n")
+    linkSync(join(root, "NOTES.md"), join(root, "alias.txt"))
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        const allow = (call: Cell.Call) =>
+          Effect.gen(function*() {
+            const fiber = yield* Effect.forkChild(authorize(call))
+            yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+            yield* Fiber.join(fiber)
+          })
+        const write = yield* Effect.forkChild(authorize(notes("write")))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+        yield* Fiber.await(write)
+        yield* allow(callOf("write", { path: "a.js", content: "x" }))
+        yield* allow(callOf("bash", { command: "true" }))
+        const messages: Array<string | undefined> = []
+        for (
+          const call of [
+            callOf("write", { path: "alias.txt", content: "x" }),
+            callOf("edit", { path: "alias.txt", oldString: "existing", newString: "x" }),
+            callOf("apply_patch", {
+              input: "*** Begin Patch\n*** Update File: alias.txt\n@@\n-existing\n+x\n*** End Patch"
+            }),
+            callOf("bash", { command: "printf x | tee alias.txt" }),
+            callOf("bash", { command: "sort -oalias.txt" })
+          ]
+        ) messages.push(exitMessage(yield* Effect.exit(authorize(call))))
+        return { messages, pending: (yield* grants.list).length }
+      }), root)
+    expect(result.messages).toHaveLength(5)
+    for (const message of result.messages) expect(message).toStartWith(Approvals.deniedPrefix)
+    expect(result.messages.slice(3)).toEqual([
+      "Denied: bash printf x | tee alias.txt. It names NOTES.md, whose change the person refused for the rest of the run; do not change it another way.",
+      "Denied: bash sort -oalias.txt. It names NOTES.md, whose change the person refused for the rest of the run; do not change it another way."
+    ])
+    expect(result.pending).toBe(0)
+    expect(readFileSync(join(root, "NOTES.md"), "utf8")).toBe("existing\n")
+    // The reverse: refusing the link's name holds for the original.
+    const reverse = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        const write = yield* Effect.forkChild(authorize(callOf("write", { path: "alias.txt", content: "x" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+        yield* Fiber.await(write)
+        return exitMessage(yield* Effect.exit(authorize(notes("edit"))))
+      }), root)
+    expect(reverse).toStartWith(Approvals.deniedPrefix)
   })
 
   it("holds a denial for the same file spelled in another case where the volume ignores case", async () => {

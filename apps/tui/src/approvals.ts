@@ -724,10 +724,20 @@ export type Decision =
   /** Ask, even where an allowance covers it: it may reach a refused file. */
   | { readonly _tag: "ask" }
 
-/** Whether `path` is the same file as the refused `refused`, as their volume compares names. */
+/**
+ * Whether `path` is the refused file: the same name as its volume compares
+ * names, or, both existing, the same file through another hard link.
+ */
 const same = (refused: string, path: string): boolean => {
   const key = comparing(refused)
-  return key(refused) === key(path)
+  if (key(refused) === key(path)) return true
+  try {
+    const one = statSync(refused)
+    const other = statSync(path)
+    return one.dev === other.dev && one.ino === other.ino
+  } catch {
+    return false
+  }
 }
 
 /** Whether a command has a word naming the refused file, alone or as an option's attached value. */
@@ -760,7 +770,7 @@ const internal = (resource: string): boolean => /\/\.(git|jj)(\/|$)/i.test(resou
  *
  * - `y` allows that identical request again in the run.
  * - `n` denies it again, and denies the change: any later write of the same
- *   file through edit, write or apply_patch, and
+ *   file (by any name or hard link) through edit, write or apply_patch, and
  *   any shell call with a word naming it or a declared write covering it.
  *   From then on, anything else that could write it asks, even under `a` or
  *   an earlier `y`: every command, and every write not to one named file.
