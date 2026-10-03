@@ -128,6 +128,35 @@ describe("durable execution snapshots", () => {
     }
   )
 
+  it("restores from the pinned checkout despite branch helper and lockfile edits", async () => {
+    // spec §11.4.1: branch helpers/lockfiles never supply Retry or Resume source.
+    await run(Effect.gen(function*() {
+      const { fs, root, helper, executable, digest } = yield* fixture
+      const branch = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-editable-" })
+      yield* fs.makeDirectory(`${branch}/flows/snapshot`, { recursive: true })
+      yield* fs.writeFileString(`${branch}/flows/snapshot/flow.ts`, "throw 'BRANCH_IMPORT_MARKER'")
+      yield* fs.writeFileString(`${branch}/flows/snapshot/helper.ts`, "throw 'BRANCH_HELPER_MARKER'")
+      yield* fs.writeFileString(`${branch}/pnpm-lock.yaml`, "changed branch lockfile")
+      // Recreate the service, as machine restart does, using only the pinned root.
+      const snapshots = yield* Snapshot.makeFileSystem({ root })
+      const restored = yield* snapshots.restore(digest)
+      expect(new TextDecoder().decode(restored.modules.get(helper)!.bytes))
+        .toBe('export const value = "approved"')
+      // This unit observes verified loader bytes; the fixture has no installed package environment.
+      let loads = 0
+      yield* Executable.fromDescriptor(executable.descriptor, {
+        delegates: [], snapshots,
+        load: (_specifier, closure) => {
+          loads++
+          expect(new TextDecoder().decode(closure!.modules.get(helper)!.bytes))
+            .toBe('export const value = "approved"')
+          return Effect.succeed({ default: flow })
+        }
+      })
+      expect(loads).toBe(1)
+    }))
+  })
+
   it("retains markdown verification diagnostics before snapshot admission", async () => {
     await run(Effect.gen(function*() {
       const { fs, root } = yield* fixture

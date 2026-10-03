@@ -48,6 +48,7 @@ import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
 import * as LocalLanding from "./local-landing.ts"
 import { nativeActions, NativeCoding, nativeLayer, type NativeOptions } from "./native.ts"
+import { type PinnedTodoSource, preparePinnedSource } from "./pinned-source.ts"
 import { evidenceOnly } from "./planning-authority.ts"
 import { memoryLayer, type MemoryOptions } from "./planning-memory.ts"
 import { planningWikiLayers } from "./planning-wiki.ts"
@@ -82,6 +83,8 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
+  /** Install-owned Starting pin; absent for ordinary scratch-branch hosts. */
+  readonly pinnedTodoSource?: PinnedTodoSource | undefined
   /** Exact system names from the backend's packaged flow catalog. */
   readonly systemFlows: ReadonlyArray<string>
   /** Same operator credential used by Serve; enables the existing native gateway delegation. */
@@ -399,7 +402,13 @@ const effectiveSeats = (options: Pick<Options, "planning" | "seats">): Readonly<
 })
 
 /** Both platform entries call this one recipe; no second executor or store. */
-export const layer = (platform: NativeControl.Platform, options: Options, suppliedSeats?: SeatResolver.Service) => {
+export const layer = (platform: NativeControl.Platform, incoming: Options, suppliedSeats?: SeatResolver.Service) => {
+  const options: Options = {
+    ...incoming,
+    ...(incoming.pinnedTodoSource === undefined ? {} : {
+      pinnedTodoSource: { ...incoming.pinnedTodoSource, pin: Object.freeze({ ...incoming.pinnedTodoSource.pin }) }
+    })
+  }
   configured(options)
   // Refuse before provisioning builtins, starting native processes or opening stores.
   const evaluator = platform.evaluator ?? evaluatorLayer(process.env)
@@ -434,6 +443,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         // Host-owned immutable wiki publication and scratch cleanup use the trusted
         // FS. Model actions and check processes retain the native host's guards.
         const fs = yield* FileSystem.FileSystem
+        const executionRoot = options.pinnedTodoSource === undefined ?
+          options.repositoryPath :
+          yield* preparePinnedSource(options.repositoryPath, options.pinnedTodoSource).pipe(Effect.orDie)
         const wikiEnabled = options.planning?.wiki === true
         const reviewerPolicy = !wikiEnabled ? undefined : yield* runningWikiPolicy
         const wikiOutput = !wikiEnabled
@@ -479,16 +491,26 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         )
         const builtins = yield* provisionHostBuiltins(stateRoot, repositoryPolicy, options)
         const registry = Layer.effect(Registry.Registry)(
-          Effect.map(Registry.Registry, (base) =>
-            bindRepositoryRegistry(
-              wikiOptions === undefined ?
-                base
-                : bindWikiRegistry(base, wikiCheckPolicy(wikiOptions)),
-              builtins.registry,
-              repositoryPolicy,
-              options.systemFlows
-            ))
-        ).pipe(Layer.provide(native.layerRegistry(options.repositoryPath)))
+          Effect.flatMap(Registry.Registry, (base) =>
+            Effect.gen(function*() {
+              // Check the admitted identity before catalog construction; no builtin or branch fallback.
+              if (options.pinnedTodoSource !== undefined) {
+                yield* base.loadBody(options.pinnedTodoSource.pin.flowName, options.pinnedTodoSource.pin.digest)
+              }
+              return bindRepositoryRegistry(
+                wikiOptions === undefined ?
+                  base
+                  : bindWikiRegistry(base, wikiCheckPolicy(wikiOptions)),
+                builtins.registry,
+                repositoryPolicy,
+                options.systemFlows,
+                options.pinnedTodoSource === undefined ? undefined : {
+                  name: options.pinnedTodoSource.pin.flowName,
+                  digest: options.pinnedTodoSource.pin.digest
+                }
+              )
+            }))
+        ).pipe(Layer.provide(native.layerRegistry(executionRoot)), Layer.orDie)
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(
           memoryLayer({
             ...options.planning,
@@ -697,6 +719,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         const host = native.layerHost(
           {
             root: options.repositoryPath,
+            executionRoot,
             stateRoot,
             credential: options.credential,
             expectedSourceRevision: options.runtimeSourceRevision,

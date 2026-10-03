@@ -21343,6 +21343,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-pinned-source.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-builtin-routes.test.ts"
       },
       {

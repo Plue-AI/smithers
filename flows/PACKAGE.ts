@@ -245,6 +245,7 @@ const codingPolicy = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding-host.test.ts"),
+    Smithers.file("//flows/test/coding-pinned-source.test.ts"),
     Smithers.file("//flows/test/coding-builtin-routes.test.ts"),
     Smithers.file("//flows/test/coding-runtime-bridge.test.ts"),
     Smithers.file("//flows/test/coding-gates.test.ts"),

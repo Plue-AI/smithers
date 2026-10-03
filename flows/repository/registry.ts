@@ -390,10 +390,11 @@ export const bindRepositoryRegistry = (
   base: Registry.Registry,
   builtins: Registry.Registry,
   policy: string,
-  systemFlows: ReadonlyArray<string>
+  systemFlows: ReadonlyArray<string>,
+  pinned?: { readonly name: string; readonly digest: string }
 ): Registry.Registry => {
   const names = new Set(systemFlows)
-  const bundled = (name: string) => names.has(name)
+  const bundled = (name: string) => name !== pinned?.name && names.has(name)
   // Legacy packaged delegates retain their codecs and policy fence. These
   // describe builtin schemas; they do not reserve repository names.
   const reservedSchemas = (descriptor: Descriptor.FlowDescriptor) =>
@@ -423,7 +424,7 @@ export const bindRepositoryRegistry = (
       descriptor
   }
   const owned = (name: string) =>
-    bundled(name)
+    pinned?.name === name ? Effect.succeed(base) : bundled(name)
       ? Effect.succeed(builtins)
       : base.getOption(name).pipe(Effect.map((found) => Option.isSome(found) ? base : builtins))
   const get = (name: string) => owned(name).pipe(Effect.flatMap((registry) => registry.get(name)), Effect.map(derived))
@@ -438,6 +439,16 @@ export const bindRepositoryRegistry = (
     ))
   const loadBody: Registry.Registry["loadBody"] = (name, expected) =>
     Effect.gen(function*() {
+      if (pinned?.name === name) {
+        if (expected !== undefined && expected !== pinned.digest) {
+          return yield* registryError({
+            code: "execution_changed",
+            method: "loadBody",
+            description: "TODO flow pin differs from the admitted run"
+          })
+        }
+        return yield* base.loadBody(name, pinned.digest)
+      }
       const registry = yield* owned(name), original = yield* registry.get(name), descriptor = derived(original)
       if (expected !== undefined && Descriptor.executionDigest(descriptor) !== expected) {
         return yield* registryError({
