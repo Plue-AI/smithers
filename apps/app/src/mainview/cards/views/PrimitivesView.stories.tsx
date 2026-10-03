@@ -1,4 +1,4 @@
-import { ActorChip, actorName, type Actor } from "./ActorChip"
+import { ActorChip, type Actor } from "./ActorChip"
 import { StateWord } from "./StateWord"
 import { toneTokens } from "./Tone"
 import type { ViewStory } from "./stories"
@@ -21,11 +21,19 @@ for (const agent of ["smithers", "coding", "reviewer", "claude-code", "codex", "
 for (let color_index = 0; color_index < 6; color_index++) actors.push([`member-color-${color_index}`, { kind: "person", ...ben, color_index }])
 // Self-contained avatar, so screenshots never depend on external image servers.
 actors.push(["person-avatar", { kind: "person", ...ben, avatar_url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%23376f91'/%3E%3Ctext x='24' y='32' text-anchor='middle' fill='white' font-size='24'%3EB%3C/text%3E%3C/svg%3E" }])
+const actorLabels: Record<string, string> = {
+  person: "Ben", "person-ssh": "Maya via SSH", "person-terminal": "Maya's terminal", "person-cli": "Maya via CLI",
+  system: "System", github: "@octocat", outside: "Changed outside Smithers", smithers: "Smithers", "smithers-for-ben": "Smithers for Ben",
+  coding: "Coding agent", "coding-for-ben": "Coding agent for Ben", reviewer: "Reviewer", "reviewer-for-ben": "Reviewer for Ben",
+  "claude-code": "Claude Code", "claude-code-for-ben": "Claude Code for Ben", codex: "Codex", "codex-for-ben": "Codex for Ben",
+  external: "External agent", "external-for-ben": "External agent for Ben", "person-avatar": "Ben",
+  "member-color-0": "Ben", "member-color-1": "Ben", "member-color-2": "Ben", "member-color-3": "Ben", "member-color-4": "Ben", "member-color-5": "Ben",
+}
 const states: TodoState[] = ["queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"]
 export const stories: ViewStory[] = [
   ...actors.map(([name, actor]) => ({
-    name: `actor-${name}`, expect: [actorName(actor)],
-    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip actor={actor} size="s" /><ActorChip actor={actor} size="m" live /><span>{actorName(actor)}</span></div>
+    name: `actor-${name}`, expect: [actorLabels[name]!],
+    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip actor={actor} size="s" /><ActorChip actor={actor} size="m" live /><span>{actorLabels[name]}</span></div>
   })),
   ...states.flatMap(state => [false, true].map(withStep => ({
     name: `state-${state}${withStep ? "-step" : ""}`,

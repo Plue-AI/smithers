@@ -1,6 +1,6 @@
 .mvp-state { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; max-width: 100%; box-sizing: border-box; padding: 2px 8px 2px 7px; border-radius: var(--r-full); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; overflow-wrap: anywhere; }
 .mvp-glyph { flex: none; }
-.mvp-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
+.mvp-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: currentColor; }
 .mvp-state[data-state="working"], .mvp-state[data-state="starting"] { background: var(--brand-soft); color: var(--action-primary); }
 .mvp-state[data-state="needs_you"] { background: var(--attention-wash); color: var(--attention-text); }
 .mvp-state[data-state="failed"] { background: var(--danger-soft); color: var(--danger); }

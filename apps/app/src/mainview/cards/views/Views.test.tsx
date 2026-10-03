@@ -27,7 +27,7 @@ for (const path of paths) {
   for (const story of stories) for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
     test(`${path}/${story.name} ${theme} ${width}`, async () => {
       document.documentElement.dataset.theme = theme
-      window.innerWidth = width
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width })
       const mountedStory = await mounted(story)
       const { host, onAction, onView } = mountedStory
       try {

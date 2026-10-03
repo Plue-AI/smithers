@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { createRoot } from "react-dom/client"
 import type { StoryModule, ViewStory } from "./stories"
 import "../../styles/tokens.css"
