@@ -871,7 +871,7 @@
     },
     "C-SPK-02": {
       "status": "pending-owner",
-      "reason": "run.sh exists but does not parse --decision-evidence: argv[1] is treated as output directory (run.sh:31); owner must repair declaration/CLI, not guess alternate argv",
+      "reason": "Decision CLI implemented; awaiting retained reference-host evidence, security review and authenticated owner approval of argv/host",
       "ticket": "T-MCH-02"
     },
     "C-SPK-03": {

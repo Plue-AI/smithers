@@ -45921,6 +45921,28 @@
     }
   },
   {
+    "label": "//scripts/spikes/mch-02-virtiofs-homes:test",
+    "package": "scripts/spikes/mch-02-virtiofs-homes",
+    "name": "test",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/mch-02-virtiofs-homes/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/spikes/mch-02-virtiofs-homes/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:apiBaseline",
     "package": "scripts",
     "name": "apiBaseline",

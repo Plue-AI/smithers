@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # C-SPK-02: local msb 0.6.16, DefaultImage; no package dependencies.
 set -euo pipefail
-cd "$(dirname "$0")"
-if [[ "${1:-}" == "--concurrent" ]]; then
-  shift
-  exec python3 -B concurrent.py "$@"
+if [[ "${1:-}" == "--decision-evidence" && "$#" == 2 ]]; then
+  exec python3 -B "$(dirname "$0")/verdict.py" --decision-evidence "$2"
 fi
+cd "$(dirname "$0")"
+# T-MCH-02: the historical coordinator below lacks a reviewed main-pinned
+# root-input inventory. Refuse all reruns before resolving msb or scratch paths.
+echo 'C-SPK-02 reruns refused: reviewed main-pinned root inputs unavailable' >&2
+exit 2
 exec python3 -B - "$@" <<'PY'
 import csv
 import datetime as dt

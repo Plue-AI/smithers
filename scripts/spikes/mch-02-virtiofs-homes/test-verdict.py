@@ -259,5 +259,282 @@ class VerdictTests(unittest.TestCase):
         self.assertIs(self.cli(report, False)["matrix_passed"], True)
 
 
+def retained_fixture(root):
+    # C-SPK-02 Result and steps 2-9: independent historical NO oracle.
+    report = evidence("B")
+    report["layouts"].update(evidence("A")["layouts"])
+    report.update(msb_version="msb 0.6.16", revision="a" * 40,
+                  image="node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b")
+    logs = []
+    for layout in ('A', 'B'):
+        mounts = (f'--mount-dir /scratch/A/homes:/home' if layout == 'A' else
+                  '--mount-dir /scratch/B/homes/ben:/home/ben:uid=20001,gid=20001 '
+                  '--mount-dir /scratch/B/homes/alice:/home/alice:uid=20002,gid=20002')
+        for vm in (1, 2):
+            logs.append(dict(command=f"msb create {report['image']} -n {layout}{vm} {mounts}",
+                             exit_code=0, stdout='', stderr=''))
+        for action in ('stop', 'start'):
+            logs.append(dict(command=f'msb {action} -q {layout}1', exit_code=0, stdout='', stderr=''))
+    def put(name, value):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value) + "\n")
+    for layout in ("A", "B"):
+        data = report["layouts"][layout]
+        original = data["steps"]
+        steps = []
+        for phase in ("initial", "reboot", "second_vm"):
+            steps.append(dict(phase=phase, kind="mount_root", member=".", exit_code=0,
+                              stdout="0:0 700 /home\n"))
+            for row in original:
+                if row["phase"] != phase: continue
+                row = copy.deepcopy(row)
+                if layout == "A" and row["kind"] in ("read", "write"):
+                    row.update(exit_code=1)
+                    row["data"].update(errno="EACCES", value=None)
+                steps.append(row)
+                if layout == "A" and phase == "initial" and row["kind"] == "chown":
+                    steps.append(dict(phase=phase, kind="mkdir", member=row["member"], exit_code=0))
+        for row in steps:
+            row.setdefault("command", ["stat", "fixture"])
+            row["stdout"] = row.get("stdout", "") if row["kind"] == "mount_root" else json.dumps(row.get("data"))
+            row["stderr"] = ""
+            row["vm"] = 2 if row["phase"] == "second_vm" else 1
+            if "actor_uid" in row:
+                row["data"]["groups"] = []
+                row["stdout"] = json.dumps(row["data"])
+        data["steps"] = steps
+        for phase in ("initial", "reboot", "second_vm"):
+            raw = [{k: v for k, v in row.items() if k != "vm"}
+                   for row in steps if row["phase"] == phase]
+            logs.append(dict(command=f"msb exec --stream -u 0 {layout}{2 if phase == 'second_vm' else 1} -- node matrix {layout} {phase}", exit_code=0,
+                             stdout=json.dumps(raw), stderr=""))
+        if layout == "A":
+            for row in data["samples"]:
+                row.update(observed=None, write_exit_code=1, read_exit_code=1)
+        import csv
+        with (root / f"{layout}-delays.csv").open("w") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(data["samples"][0]))
+            writer.writeheader(); writer.writerows(data["samples"])
+        (root / f"{layout}-host-ls-ln.txt").write_text("drwx------ 2 501 20 64 Oct 2 12:00 ben\ndrwx------ 2 501 20 64 Oct 2 12:00 alice\n")
+    hot = dict(attempt=dict(command="msb modify vm --mount-dir third", exit_code=1, stdout="", stderr="unsupported"),
+               guest_after=dict(command="msb exec vm -- stat /home/carol", exit_code=1, stdout="", stderr="absent"))
+    report["layouts"]["B"]["hot_add"] = hot
+    logs.extend(hot.values())
+    matrix = copy.deepcopy(report)
+    atomic = atomic_evidence()
+    atomic["workers"][0]["shared_reads"][0] = dict(error="ENOENT", observed=None)
+    manifest = [dict(path=f"vm{vm}-{seq}", exists=True, correct=True, sha256="b" * 64)
+                for vm in ("1", "2") for seq in range(1, 1001)]
+    for guest in atomic["guests"]: guest["manifest"] = copy.deepcopy(manifest)
+    workers = [dict(vm=vm, uid=20001, gid=20001, completed=True, iterations=1000)
+               for vm in ("1", "2")]
+    concurrent = dict(completed=True, errors=[], unremoved_vms=[], msb_version="msb 0.6.16",
+                      image=report["image"], revision="a" * 40, host=dict(uid=501),
+                      atomic=atomic, files=dict(workers=workers),
+                      sqlite={mode: dict(workers=copy.deepcopy(workers)) for mode in ("DELETE", "WAL")},
+                      locks=[dict(path=path, holder=holder, contender=other, held_during_attempt=True,
+                                  holder_receipt=dict(command=f"flock holder {path} {holder}", exit_code=0, stdout="LOCK_HELD\n", stderr=""),
+                                  contender_receipt=dict(command=f"flock contender {path} {other}", exit_code=0, stdout="", stderr=""))
+                             for path in (".claude", ".config/gh", ".npm/_cacache")
+                             for holder, other in (("1", "2"), ("2", "1"))])
+    clog = []
+    for phase, rows in (("files", workers), ("atomic", atomic["workers"]),
+                        ("sqlite-delete", concurrent["sqlite"]["DELETE"]["workers"]),
+                        ("sqlite-wal", concurrent["sqlite"]["WAL"]["workers"])):
+        for row in rows:
+            stdout = "RESULT " + json.dumps(row) + "\n"
+            path = root / f"concurrent/{phase}-vm{row['vm']}.stdout"
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_text(stdout)
+            clog.append(dict(command=f"msb exec {phase}-{row['vm']}", exit_code=0,
+                             stdout=stdout, stderr=""))
+    for guest in atomic['guests']:
+        clog.append(dict(command=f"msb exec verify-{guest['vm']}", exit_code=0,
+                         stdout=json.dumps(guest) + '\n', stderr=''))
+    for row in concurrent['locks']:
+        clog.extend([row['holder_receipt'], row['contender_receipt']])
+    put("concurrent/atomic-manifest.json", manifest)
+    put("concurrent/results.json", concurrent)
+    (root / "concurrent/commands.jsonl").write_text("".join(json.dumps(row) + "\n" for row in clog))
+    (root / "concurrent/create-help.txt").write_text("--mount-dir uid=<N>,gid=<N>\n")
+    (root / "concurrent/host-ls-ln.txt").write_text("host-owned fixture\n")
+    report["concurrent"] = concurrent
+    report["concurrent_exit_code"] = 1
+    # Oracle is transcribed from C-SPK-02 Result; cached fields never suffice.
+    report["verdict"] = dict(passed=False, partial=False, matrix_passed=True, atomic_passed=False,
+        layouts={"A": dict(passed=False, reasons=[
+            reason for member in ("ben", "alice") for reason in
+            [f"{member}: owner write failed"] +
+            [f"{phase}/{member}: read as {20001 if member == 'ben' else 20002} failed expectation"
+             for phase in ("initial", "reboot", "second_vm")]] +
+            ["requires 100/100 successful fresh cross-VM samples"], p95_ms=1000),
+                 "B": dict(passed=True, reasons=[], p95_ms=1000)},
+        reasons=["Concurrent atomic-write step 6 failed or incomplete."])
+    put("results.json", report); put("matrix-results.json", matrix)
+    put("check-summary.json", report["verdict"])
+    (root / "commands.jsonl").write_text("".join(json.dumps(row) + "\n" for row in logs))
+
+
+class DecisionCommandTests(unittest.TestCase):
+    def command(self, *args):
+        return subprocess.run(["bash", str(pathlib.Path(__file__).with_name("run.sh")), *args],
+                              capture_output=True, text=True)
+
+    def test_decision_evidence_retains_no(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            retained_fixture(root)
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            run = self.command("--decision-evidence", tmp)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            receipt = json.loads(run.stdout)
+            self.assertEqual(receipt["hypothesis"], "NO")
+            self.assertIs(receipt["hypothesis_verdict"]["passed"], False)
+            self.assertIs(receipt["shared_homes_enabled"], False)
+            self.assertEqual(receipt["homes"], "per-machine")
+            self.assertEqual(receipt["lock_classifications"], ["uncontrolled"] * 6)
+            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_decision_evidence_preserves_callers_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); retained_fixture(root)
+            run = subprocess.run(["bash", str(pathlib.Path(__file__).with_name("run.sh").resolve()),
+                                  "--decision-evidence", "."], cwd=root, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(run.stdout)["hypothesis"], "NO")
+
+    def test_decision_evidence_refuses_truncated_and_forged_logs(self):
+        for name in ("commands.jsonl", "matrix-results.json", "results.json", "check-summary.json",
+                     "A-delays.csv", "B-delays.csv", "A-host-ls-ln.txt", "B-host-ls-ln.txt",
+                     "concurrent/results.json", "concurrent/atomic-manifest.json",
+                     "concurrent/commands.jsonl", "concurrent/atomic-vm1.stdout",
+                     "concurrent/files-vm2.stdout", "concurrent/sqlite-wal-vm1.stdout"):
+            for fault in ("absent", "empty", "truncated", "symlink"):
+                with self.subTest(name=name, fault=fault), tempfile.TemporaryDirectory() as tmp:
+                    root = pathlib.Path(tmp); retained_fixture(root)
+                    path = root / name
+                    content = path.read_text()
+                    if fault == "empty": path.write_text("")
+                    elif fault == "truncated": path.write_text(content[:len(content)//2])
+                    elif fault == "absent": path.unlink()
+                    else:
+                        path.unlink(); path.symlink_to(root / "results.json")
+                    run = self.command("--decision-evidence", tmp)
+                    self.assertNotEqual(run.returncode, 0, run.stdout)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); retained_fixture(root)
+            report = json.loads((root / "results.json").read_text())
+            report["verdict"]["passed"] = True
+            (root / "results.json").write_text(json.dumps(report))
+            self.assertNotEqual(self.command("--decision-evidence", tmp).returncode, 0)
+
+    def test_decision_evidence_separates_controlled_lock_receipts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); retained_fixture(root)
+            report = json.loads((root / "results.json").read_text())
+            for row in report["concurrent"]["locks"]:
+                row.update(same_vm_receipt=dict(command="flock same-vm", exit_code=1),
+                           held_during_attempt=True, controlled=True, exclusion=False)
+            with (root / "concurrent/commands.jsonl").open("a") as stream:
+                for row in report["concurrent"]["locks"]:
+                    stream.write(json.dumps(dict(row["same_vm_receipt"], stdout="", stderr="")) + "\n")
+                    row["same_vm_receipt"].update(stdout="", stderr="")
+            (root / "results.json").write_text(json.dumps(report) + "\n")
+            (root / "concurrent/results.json").write_text(json.dumps(report["concurrent"]) + "\n")
+            run = self.command("--decision-evidence", tmp)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(run.stdout)["lock_classifications"], ["controlled"] * 6)
+            self.assertEqual(json.loads(run.stdout)["hypothesis"], "NO")
+
+    def test_decision_evidence_rejects_wrong_identity_and_duplicate_matrix(self):
+        for fault in ("root_host", "guest_groups", "stat_owner", "duplicate", "missing", "sample_count"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp); retained_fixture(root)
+                report = json.loads((root / "results.json").read_text())
+                steps = report["layouts"]["A"]["steps"]
+                if fault == "root_host": report["host_uid"] = 0
+                elif fault == "guest_groups": next(r for r in steps if r["kind"] == "read")["data"]["groups"] = [0]
+                elif fault == "stat_owner": next(r for r in steps if r["kind"] == "stat")["data"]["uid"] = 0
+                elif fault == "duplicate": steps.append(copy.deepcopy(steps[0]))
+                elif fault == "missing": steps.pop()
+                else: report["layouts"]["A"]["samples"].pop()
+                (root / "results.json").write_text(json.dumps(report) + "\n")
+                self.assertNotEqual(self.command("--decision-evidence", tmp).returncode, 0)
+
+    def test_decision_evidence_does_not_execute_command_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); retained_fixture(root)
+            log = root / "commands.jsonl"
+            text = log.read_text().replace("msb create ", f"msb create ; touch {root}/EXECUTED; ")
+            log.write_text(text)
+            run = self.command("--decision-evidence", tmp)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertFalse((root / "EXECUTED").exists())
+
+    def test_review_mutations_refuse_even_when_duplicate_records_agree(self):
+        for fault in ('atomic_host', 'guest_manifest', 'final_reads', 'create', 'mount_uid',
+                      'restart', 'matrix_stdout', 'locks', 'shared_reads', 'guest_raw'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp); retained_fixture(root)
+                report = json.loads((root / 'results.json').read_text())
+                logs = [json.loads(line) for line in (root / 'commands.jsonl').read_text().splitlines()]
+                atomic = report['concurrent']['atomic']
+                if fault == 'atomic_host': del atomic['host']
+                elif fault == 'guest_manifest':
+                    for g in atomic['guests']: g['manifest'] = [dict(path=m['path']) for m in g['manifest']]
+                elif fault == 'final_reads': atomic['guests'][0]['final_reads'] = ['garbage']
+                elif fault == 'shared_reads': atomic['workers'][0]['shared_reads'][0] = dict(error='ENOENT')
+                elif fault == 'locks': report['concurrent']['locks'] = [{}] * 6
+                elif fault in ('create', 'mount_uid', 'restart'):
+                    for r in logs:
+                        if fault == 'create' and ' create ' in r['command']: r['command'] = 'msb create unrelated'
+                        elif fault == 'mount_uid': r['command'] = r['command'].replace('uid=20001', 'uid=0')
+                        elif fault == 'restart' and ' stop ' in r['command']: r['command'] = 'msb inspect A1'
+                elif fault == 'matrix_stdout':
+                    for data in report['layouts'].values():
+                        for r in data['steps']:
+                            if r['kind'] != 'mount_root': r['stdout'] = ''
+                    for r in logs:
+                        if r['stdout'].startswith('['):
+                            rows = json.loads(r['stdout'])
+                            for row in rows:
+                                if row['kind'] != 'mount_root': row['stdout'] = ''
+                            r['stdout'] = json.dumps(rows)
+                else:
+                    path = root / 'concurrent/commands.jsonl'
+                    path.write_text(''.join(line + '\n' for line in path.read_text().splitlines()
+                                            if 'verify-' not in line))
+                for name, value in [('results.json', report),
+                                    ('matrix-results.json', {k:v for k,v in report.items() if k not in
+                                     ('concurrent', 'concurrent_exit_code', 'verdict')}),
+                                    ('concurrent/results.json', report['concurrent'])]:
+                    (root / name).write_text(json.dumps(value) + '\n')
+                (root / 'commands.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in logs))
+                self.assertNotEqual(self.command('--decision-evidence', tmp).returncode, 0)
+
+    def test_decision_evidence_refuses_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for content in (None, "{", "{}", json.dumps(full_evidence())):
+                path = pathlib.Path(tmp) / "results.json"
+                if content is not None: path.write_text(content)
+                run = self.command("--decision-evidence", tmp)
+                self.assertNotEqual(run.returncode, 0, run.stdout)
+                self.assertIn("evidence", run.stderr.lower())
+
+    def test_rerun_refuses_until_trusted_root_inputs_exist(self):
+        # T-MCH-02 Security preconditions: until reviewed main-pinned inputs
+        # exist, every rerun refuses before lifecycle dispatch. No fake msb.
+        for args in ((), ("--concurrent",), ("--rerun",),
+                     ("--image", "/tmp/branch"), ("--mount-dir", "/tmp/outside")):
+            with self.subTest(args=args):
+                run = self.command(*args)
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn("reruns refused", run.stderr.lower())
+        run = subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name("concurrent.py"))],
+                             capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("reruns refused", run.stderr.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

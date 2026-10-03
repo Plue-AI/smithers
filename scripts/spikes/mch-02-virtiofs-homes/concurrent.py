@@ -159,6 +159,9 @@ def lock_result(path, holder, contender, held, tried, control, held_during_attem
 
 
 def main():
+    print("C-SPK-02 reruns refused: reviewed main-pinned root inputs unavailable", file=sys.stderr)
+    return 2
+
     args = sys.argv[1:]
     locks_only = bool(args and args[0] == '--locks-only')
     if locks_only:
