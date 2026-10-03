@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod"
-import type { CardCallbacks, CardProps } from "./CardAction.ts"
+import { ActionSchema, type CardCallbacks, type CardProps } from "./CardAction.ts"
 import { CardErrorSchema, MODEL_ROLES, ModelRoleIdSchema } from "./CardPrimitives.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
@@ -92,7 +92,7 @@ export const SetupCardSchema = z.object({
     memory_gb: z.number().nonnegative(),
     disk_free_gb: z.number().nonnegative(),
     capacity: z.number().int().nonnegative(),
-    limit: z.object({ term: z.string(), fix: z.string() }).optional()
+    limit: z.object({ term: z.string(), fix: ActionSchema }).optional()
   }),
   github: z.object({
     owner: z.string().optional(),

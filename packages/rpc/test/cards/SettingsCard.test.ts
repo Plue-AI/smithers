@@ -73,3 +73,39 @@ describe("Settings daily TODO admissions (spec §10.4.1b)", () => {
     expect(SettingsCardSchema.safeParse({ ...fixtures.ready.model, todo_daily_admissions: value }).success).toBe(false)
   })
 })
+
+describe("Settings failed address apply", () => {
+  test("keeps the working bind and typed failure transition", () => {
+    const address = SettingsCardSchema.parse(fixtures.address_failed.model).address
+    expect(address.bind).toBe("0.0.0.0:8080")
+    expect(address.failed).toEqual({
+      from: "0.0.0.0:8080",
+      to: "0.0.0.0:9090",
+      reason: { class: "infra", message: "Address already in use" }
+    })
+    expect(SettingsCardSchema.parse(ready).address).not.toHaveProperty("failed")
+  })
+  test.each(["Address already in use", { message: "Address already in use" }, { class: "infra" }])(
+    "rejects an untyped or incomplete failure %j",
+    (reason) => {
+      const model = fixtures.address_failed.model
+      expect(
+        SettingsCardSchema.safeParse({
+          ...model,
+          address: { ...model.address, failed: { ...model.address.failed, reason } }
+        }).success
+      ).toBe(false)
+    }
+  )
+  test.each(["localhost", "NETWORK", ""])("rejects listen mode %j after failure", (listen) => {
+    const model = fixtures.address_failed.model
+    expect(SettingsCardSchema.safeParse({ ...model, address: { ...model.address, listen } }).success).toBe(false)
+  })
+  test("inherits the capacity fix action", () => {
+    expect(SettingsCardSchema.parse(fixtures.no_capacity.model).this_mac.limit!.fix).toEqual({
+      tag: "settings",
+      label: "Close apps to free 6 GB",
+      args: { step: "machine" }
+    })
+  })
+})
