@@ -1600,3 +1600,42 @@ test("Lessons receipt names pages without inventing navigation", async () => {
     expect(host.innerHTML).toBe("")
   } finally { await act(async () => root.unmount()) }
 })
+
+// T-UI-21: document safety at the actual wiki-adapter boundary, plus absent gestures.
+import { DocsView } from "./DocsView"
+import { fixtures as docsFixtures } from "@smthrs/rpc/fixtures/Docs"
+describe("DocsView", () => {
+  test("raw HTML stays inert in the read-only document", async () => {
+    const fixture = docsFixtures.hostile
+    const rendered = await mounted({ name: "hostile", expect: [], render: callbacks => <DocsView {...fixture} {...callbacks} /> })
+    try {
+      expect(rendered.host.querySelector("script,img,iframe")).toBeNull()
+      const source = rendered.host.querySelector<HTMLTextAreaElement>("textarea")!
+      expect(source.readOnly).toBe(true)
+      expect(source.value).toContain("&lt;script>alert(1)&lt;/script>")
+      expect(source.value).toContain("&lt;img src=x onerror=alert(1)>")
+      await act(async () => rendered.host.querySelectorAll<HTMLButtonElement>("nav button")[1]!.click())
+      expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos" }]])
+    } finally { await rendered.close() }
+  })
+  test("absent and disabled navigation cannot dispatch", async () => {
+    for (const fixture of [docsFixtures.inert, docsFixtures.disabled]) {
+      const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...fixture} {...callbacks} /> })
+      try {
+        const buttons = [...rendered.host.querySelectorAll<HTMLButtonElement>("nav button")]
+        expect(buttons.map(button => button.disabled)).toEqual([true, true, true])
+        await act(async () => buttons[1]!.click())
+        expect(rendered.onAction).toHaveBeenCalledTimes(0)
+        if (fixture === docsFixtures.disabled) expect(rendered.host.textContent).toContain("Unavailable")
+      } finally { await rendered.close() }
+    }
+  })
+  test("missing page shows the requested slug and supplied fallback", async () => {
+    const rendered = await mounted({ name: "missing", expect: [], render: callbacks => <DocsView {...docsFixtures.not_found} {...callbacks} /> })
+    try {
+      expect(rendered.host.querySelector(".mvp-docs-missing")?.textContent).toBe("Page not found: deploy-to-kubernetes")
+      expect(rendered.host.querySelector("h2")?.textContent).toBe("Quickstart")
+      expect(rendered.host.querySelector('[aria-current="page"]')?.textContent).toBe("Quickstart")
+    } finally { await rendered.close() }
+  })
+})

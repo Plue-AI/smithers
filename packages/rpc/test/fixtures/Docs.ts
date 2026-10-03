@@ -28,6 +28,13 @@ export const fixtures = {
       expect: ["Put HTTPS in front"]
     }
   ),
+  inert: story<DocsCard, {}, "open">("No navigation gesture", { toc, page: quickstart }, { expect: ["Quickstart"] }),
+  disabled: story<DocsCard, {}, "open">("Navigation unavailable", { toc, page: quickstart }, {
+    gestures: { open: { ...open("quickstart"), disabled: { reason: "Unavailable" } } }, expect: ["Quickstart"]
+  }),
+  hostile: story<DocsCard, {}, "open">("Inert HTML", { toc, page: { ...quickstart, markdown: "# Quickstart\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[Blocked](javascript:alert)\n\n[Heading](#put-https-in-front)\n\n## Put HTTPS in front\n" } }, {
+    gestures: { open: { ...open("quickstart"), args: { source: "docs-card" } } }, expect: ["Quickstart"]
+  }),
   not_found: story<DocsCard, {}, "open">(
     "A missing page shows the first page",
     { toc, page: quickstart, not_found: "deploy-to-kubernetes" },

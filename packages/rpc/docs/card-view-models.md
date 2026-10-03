@@ -38,7 +38,7 @@ recorded cards; view models do not replace that history decoder.
 | BranchCard         | BranchCardSchema, BranchCard                 | Machine, item or scratch, rebase, presence, terminals and activity        |
 | TerminalCard       | TerminalCardSchema, TerminalCard             | Owner, agents, watchers, command and frozen state                         |
 | SecretsCard        | SecretsCardSchema, SecretsCard               | Secret names, scopes, bound hosts and row actions; no values              |
-| DocsCard           | DocsCardSchema, DocsCard                     | Bundled table of contents, page, anchor and not-found state               |
+| DocsCard           | DocsCard (TypeScript)                     | Bundled table of contents, page, anchor and not-found state               |
 | DebugApiCard       | DebugApiCardSchema, DebugApiCard             | API operations, the selection, a pending mutation and the exchange        |
 | ProposalCard       | ProposalCardSchema, ProposalCard             | Evidence, references, state and the TODO it became                        |
 

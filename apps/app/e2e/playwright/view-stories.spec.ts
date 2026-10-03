@@ -575,3 +575,30 @@ test("File Copy failure remains visible and retains recovered text", async ({ pa
   await expect(page.locator('.code-notice pre')).toHaveText('  description: "Build",\n')
   await expect(page.getByRole("button", { name: "Reapply", exact: true })).toBeEnabled()
 })
+
+test("Docs document links are gestures and HTML remains inert", async ({ page }) => {
+  await page.goto("/view-stories.html?story=DocsView/Inert%20HTML")
+  await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+  await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe")).toHaveCount(0)
+  await page.evaluate(() => {
+    const receipts: unknown[] = []
+    Object.assign(window, { docsReceipts: receipts })
+    window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("link", { name: "Heading", exact: true }).click()
+  expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
+    { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "quickstart#put-https-in-front" } } }
+  ])
+  await page.goto("/view-stories.html?story=DocsView/The%20quickstart%20page")
+  await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+  await page.evaluate(() => {
+    Object.assign(window, { docsReceipts: [] })
+    window.addEventListener("story-callback", event => (window as unknown as { docsReceipts: unknown[] }).docsReceipts.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("link", { name: "TODOs", exact: true }).click()
+  expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
+    { kind: "action", value: { tag: "docs", args: { page: "todos" } } }
+  ])
+  await page.goto("/view-stories.html?story=DocsView/Scrolled%20to%20a%20heading")
+  await expect(page.locator('[id="quickstart#put-https-in-front"]')).toBeVisible()
+})

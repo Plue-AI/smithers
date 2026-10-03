@@ -634,3 +634,14 @@ Rows show names and scope, without a Hosts count or Bind control.
 `ProposalCard.ts` retains the evidence/ref projection: `{id, title, evidence: string[], refs: {label, url}[], state: open | accepted | dismissed, todo?: {n, title}}`. `ProposalViewProps` uses `CardProps<ProposalCard, {}, "todo">`; the optional TODO gesture opens the accepted TODO. Supplied actions render in order (Make TODO, Dismiss). Evidence starts expanded for open proposals, collapsed otherwise.
 
 `LessonsReceipt` is `{todo: number, lessons: {title, ref}[]}`. `LessonsReceiptViewProps` uses `CardProps<LessonsReceipt, {}, string>`; gestures keyed by lesson ref open wiki pages or proposals. Without a gesture the title is plain text. The receipt does not alter the merged TODO state (M-15). Retained zod schemas preserve existing boundary validation tests; Views use their TypeScript types only.
+
+### T-UI-21 Docs (bundled pages)
+
+`DocsViewProps = CardProps<DocsCard, {}, "open">` from `@smthrs/rpc/DocsCard`.
+`DocsCard` is a TypeScript projection: `toc[] {slug, title}`, `page {slug, title,
+summary, markdown}`, `anchor?`, `not_found?`. The missing slug appears above the
+supplied fallback page. The read-only wiki Markdown adapter renders entity-escaped
+HTML. TOC and document links dispatch the supplied `open` gesture with
+`{...args, page: "<slug>#<anchor>"}`; absent or disabled gestures are inert.
+The adapter's heading scroll handle follows `anchor`. At 390px the rail wraps
+above the page. No router, loader or authorization belongs to this View.

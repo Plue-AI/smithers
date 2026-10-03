@@ -3012,3 +3012,27 @@
 .proposal-view .proposal-page { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .proposal-view .smithers-card-header { flex-wrap: wrap; }
 .proposal-view .proposal-actions .flow-control:last-child:not(:first-child) { margin-left: auto; }
+
+/* DocsView (T-UI-21): bundled pages, read-only wiki typography. */
+.mvp-docs { display: grid; grid-template-columns: 160px minmax(0, 1fr); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-family: var(--font-ui); }
+.mvp-docs nav { display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; border-right: 1px solid var(--border); }
+.mvp-docs nav button { text-align: left; padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font: inherit; font-size: var(--fs-small); cursor: pointer; overflow-wrap: anywhere; }
+.mvp-docs nav button[aria-current] { color: var(--text); background: var(--surface-2); font-weight: 600; }
+.mvp-docs button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.mvp-docs button:disabled { cursor: default; }
+.mvp-docs nav span { font-size: var(--fs-caption); color: var(--text-muted); }
+.mvp-docs .mvp-docs-page { min-width: 0; padding: 24px; overflow-wrap: anywhere; }
+.mvp-docs header h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: -.02em; }
+.mvp-docs header p { margin: 0 0 20px; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-docs .mvp-docs-missing { margin: 0 0 20px; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-docs .mvp-docs-markdown { min-width: 0; }
+.mvp-docs .milkdown { background: transparent; color: var(--text); }
+.mvp-docs .milkdown .ProseMirror { padding: 0; font-family: var(--font-ui); }
+.mvp-docs .milkdown pre, .mvp-docs .milkdown table { max-width: 100%; overflow: auto; }
+.mvp-docs .sui-markdown-editor-fallback { box-sizing: border-box; width: 100%; min-height: 240px; color: var(--text); background: var(--surface); }
+.mvp-docs footer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+@media (max-width: 600px) {
+  .mvp-docs { grid-template-columns: minmax(0, 1fr); }
+  .mvp-docs nav { flex-direction: row; flex-wrap: wrap; padding: 12px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .mvp-docs .mvp-docs-page { padding: 20px 16px; }
+}
