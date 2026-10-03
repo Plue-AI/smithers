@@ -1408,6 +1408,47 @@ test.each(
   expect(seen).toEqual({ changed: [undefined], filled: [], chat: [`a${typed}`] })
 })
 
+test.each(
+  [
+    ["backspace", {}, askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" })],
+    ["delete", {}, askForm(0, ["sum", "plus"], undefined, { armedAt: Date.now() - 500, lead: "a" })],
+    ["left", {}, askForm(0, [], undefined, { armedAt: later(), lead: "a" })],
+    ["home", {}, askForm(2, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" })],
+    ["u", { ctrl: true }, askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" })],
+    ["w", { ctrl: true }, askForm(0, [], undefined, { armedAt: Date.now() - 500, lead: "a" })]
+  ] as const
+)("an editing key after the chat's a hands the a and the key back to the chat: %s %o", (name, modifiers, form) => {
+  const { seen, act } = askAct()
+  const event = key(name, modifiers)
+  Dispatch.formKey(event, form, act)
+  // The chat's input takes the key itself once it holds the `a` again.
+  expect(event.defaultPrevented).toBe(false)
+  expect(seen).toEqual({ changed: [undefined], filled: [], chat: ["a"] })
+})
+
+test.each(["down", "up", "tab", "pageup", "pagedown"])(
+  "after the chat's a, %s stays with the form and the a stays out of the chat",
+  (name) => {
+    const { seen, act } = askAct()
+    Dispatch.formKey(key(name), askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), act)
+    expect(seen.chat).toEqual([])
+    expect(seen.changed.every((form) => form !== undefined)).toBe(true)
+  }
+)
+
+test("an editing key without the chat's a, or once the cursor moved, stays in the form", () => {
+  for (
+    const form of [
+      askForm(0, ["sum", "plus"], undefined, { armedAt: later() }),
+      askForm(1, ["sum", "plus"], undefined, { armedAt: later(), moved: true, lead: "a" })
+    ]
+  ) {
+    const { seen, act } = askAct()
+    Dispatch.formKey(key("backspace"), form, act)
+    expect(seen).toEqual({ changed: [], filled: [], chat: [] })
+  }
+})
+
 test("typing ahead without the chat's a stays in the form", () => {
   const { seen, act } = askAct()
   Dispatch.formKey(key("d"), askForm(0, ["sum", "plus"], undefined, { armedAt: later() }), act)

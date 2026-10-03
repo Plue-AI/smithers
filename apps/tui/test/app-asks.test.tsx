@@ -457,3 +457,27 @@ test.each(["New name?", Array.from({ length: 18 }, (_, index) => `Question line 
     expect(await answered()).toMatchObject({ answer: "total" })
   }
 )
+
+test.each([
+  ["backspace", "a\x7fhelp\r", "help"],
+  ["left then typing", "a\x1b[Dx\r", "xa"],
+  ["ctrl+u", "a\x15help\r", "help"]
+])("an editing key after the chat's a edits that a in the chat (%s)", async (_name, burst, prompt) => {
+  await delegate("add")
+  const answered = await ask(1, "New name for add()?", ["sum", "plus"])
+  let settled = false
+  void answered().then(() => {
+    settled = true
+  })
+  await waitFor(() => frame().includes("Summary ◆1"))
+  await settle()
+  await act(async () => {
+    setup!.renderer.stdin.emit("data", Buffer.from(burst))
+    await setImmediate()
+  })
+  await waitFor(() => turns.length === 3)
+  expect(turns[2]!.input.prompt).toBe(prompt)
+  expect(frame()).not.toContain("enter Answer")
+  expect(settled).toBe(false)
+  expect(frame()).toContain("Summary ◆1")
+})

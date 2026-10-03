@@ -392,8 +392,9 @@ export const checklistKey = (key: KeyEvent, state: { readonly rows: number }, ac
  * Keys in an ask's answer form: arrows or tab move the cursor, a number picks
  * its option, enter answers, esc goes back and leaves the ask open. Other
  * typing goes to `other…`. Until `armedAt`, unless the cursor moved, enter and
- * numbers wait. After the chat's `a`, ordinary typing returns to the chat with
- * that `a` until an arrow or tab selects the answer, regardless of elapsed time.
+ * numbers wait. After the chat's `a`, typing and editing keys return to the
+ * chat with that `a` until an arrow or tab selects the answer, regardless of
+ * elapsed time; an editing key then edits it there.
  */
 const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
   readonly change: (next: FlowForm | undefined) => void
@@ -441,6 +442,13 @@ const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
       ask: { ...ask, choice: ask.options.length },
       error: undefined
     })
+  }
+  // The form keeps the keys that select an answer or scroll its question.
+  const kept = ["tab", "down", "up", "pageup", "pagedown"].includes(key.name)
+  if (ask.lead !== undefined && ask.moved !== true && !kept) {
+    // The chat's input is focused again before this key reaches it, so the key edits the `a`.
+    act.change(undefined)
+    return act.chat(ask.lead)
   }
   if (lines === 0) {
     if (key.name === "tab" || key.name === "down" || key.name === "up") return choose(0)
