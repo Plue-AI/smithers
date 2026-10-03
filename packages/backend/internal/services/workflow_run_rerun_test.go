@@ -388,7 +388,7 @@ func TestWorkflowRunService_DispatchForEvent_NilInputs_StoresNilDispatchInputs(t
 		},
 	}
 
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: repoID,
 		UserID:       1,

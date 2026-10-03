@@ -406,7 +406,7 @@ func makeWorkflowDef(id, repoID int64, name string, isActive bool, configJSON st
 
 func TestWorkflowRunService_DispatchForEvent_InvalidRepoID_ReturnsError(t *testing.T) {
 	t.Parallel()
-	svc := NewWorkflowRunService(&mockWorkflowRunQuerier{})
+	svc := newCurrentPushTestService(&mockWorkflowRunQuerier{})
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 0,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -416,7 +416,7 @@ func TestWorkflowRunService_DispatchForEvent_InvalidRepoID_ReturnsError(t *testi
 
 func TestWorkflowRunService_DispatchForEvent_EmptyEventType_ReturnsError(t *testing.T) {
 	t.Parallel()
-	svc := NewWorkflowRunService(&mockWorkflowRunQuerier{})
+	svc := newCurrentPushTestService(&mockWorkflowRunQuerier{})
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 1,
 		Event:        TriggerEvent{Ref: "main"},
@@ -426,7 +426,7 @@ func TestWorkflowRunService_DispatchForEvent_EmptyEventType_ReturnsError(t *test
 
 func TestWorkflowRunService_DispatchForEvent_NilQuerier_ReturnsInternalError(t *testing.T) {
 	t.Parallel()
-	svc := NewWorkflowRunService(nil)
+	svc := newCurrentPushTestService(nil)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 1,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -459,7 +459,7 @@ func TestWorkflowRunService_DispatchForEvent_ValidatesRepositorySecrets(t *testi
 		},
 	}
 
-	svc := NewWorkflowRunService(
+	svc := newCurrentPushTestService(
 		mock,
 		WithWorkflowRunSecretInjector(NewSecretInjector(&mockSecretInjectionQuerier{
 			listSecretValuesFn: func(_ context.Context, repositoryID int64) ([]db.ListSecretValuesRow, error) {
@@ -485,14 +485,14 @@ func TestWorkflowRunService_DispatchForEvent_ValidatesRepositorySecrets(t *testi
 func TestWorkflowRunService_DispatchForEvent_NoDefinitions_ReturnsEmptyResults(t *testing.T) {
 	t.Parallel()
 	mock := &mockWorkflowRunQuerier{}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, results)
-	assert.Equal(t, 1, mock.listDefsCount)
+	assert.Equal(t, 2, mock.listDefsCount)
 }
 
 func TestWorkflowRunService_DispatchForEvent_InactiveDefinitions_Skipped(t *testing.T) {
@@ -504,7 +504,7 @@ func TestWorkflowRunService_DispatchForEvent_InactiveDefinitions_Skipped(t *test
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -523,7 +523,7 @@ func TestWorkflowRunService_DispatchForEvent_NoTriggerMatch_Skipped(t *testing.T
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -545,7 +545,7 @@ func TestWorkflowRunService_DispatchForEvent_MatchingPush_CreatesRun(t *testing.
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: "abc123"},
@@ -574,7 +574,7 @@ func TestWorkflowRunService_AlertRemediationRunBindsBeforeDispatchCommit(t *test
 			return makeWorkflowDef(definitionID, 42, "remediate", true, `{"on":{"webhook":{"event":"monitoring_alert"}},"jobs":{"fix":{}}}`), nil
 		},
 	}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunDefinitionCommitLoader(&recordingWorkflowDefinitionCommitLoader{
+	svc := newCurrentPushTestService(mock, WithWorkflowRunDefinitionCommitLoader(&recordingWorkflowDefinitionCommitLoader{
 		result: workflowLoadResultForPath(
 			".smithers/workflows/remediate.tsx",
 			`{"on":{"webhook":{"event":"monitoring_alert"}},"jobs":{"fix":{}}}`,
@@ -622,7 +622,7 @@ func TestWorkflowRunService_AlertRemediationBindingFailureAbortsRowCreation(t *t
 			return 0, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunDefinitionCommitLoader(&recordingWorkflowDefinitionCommitLoader{
+	svc := newCurrentPushTestService(mock, WithWorkflowRunDefinitionCommitLoader(&recordingWorkflowDefinitionCommitLoader{
 		result: workflowLoadResultForPath(
 			".smithers/workflows/remediate.tsx",
 			`{"on":{"webhook":{"event":"monitoring_alert"}},"jobs":{"fix":{}}}`,
@@ -671,7 +671,7 @@ func TestWorkflowRunService_DispatchForEvent_BillingDenied_CreatesNoRun(t *testi
 		},
 	}
 	policy := &denyWorkflowDispatchBillingPolicy{}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunBillingPolicy(policy))
+	svc := newCurrentPushTestService(mock, WithWorkflowRunBillingPolicy(policy))
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: "abc123"},
@@ -725,7 +725,7 @@ func TestWorkflowRunService_DispatchForEvent_PostsInProgressGitHubCheckRun(t *te
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunGitHubCheckRunService(checkRunService), WithWorkflowRunGitHubInstallationResolver(&mockRunnerInstallationResolver{
+	svc := newCurrentPushTestService(mock, WithWorkflowRunGitHubCheckRunService(checkRunService), WithWorkflowRunGitHubInstallationResolver(&mockRunnerInstallationResolver{
 		resolveFn: func(_ context.Context, ownerUserID, ownerOrgID int64, owner, repo string) (int64, error) {
 			assert.Equal(t, int64(1), ownerUserID)
 			assert.Equal(t, int64(0), ownerOrgID)
@@ -759,7 +759,7 @@ func TestWorkflowRunService_DispatchForEvent_MatchingPush_CreatesStepAndTask(t *
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -804,7 +804,7 @@ func TestWorkflowRunService_DispatchForEvent_IncludesChangeIDInTaskPayload(t *te
 		},
 	}
 
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event: TriggerEvent{
@@ -837,7 +837,7 @@ func TestWorkflowRunService_DispatchForEvent_UsesRepositoryDefaultBookmarkWhenRe
 		},
 	}
 
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "schedule"},
@@ -865,7 +865,7 @@ func TestWorkflowRunService_DispatchForEvent_CreatesPendingCommitStatus(t *testi
 		},
 	}
 	statusWriter := &mockWorkflowRunCommitStatusWriter{}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunCommitStatusWriter(statusWriter))
+	svc := newCurrentPushTestService(mock, WithWorkflowRunCommitStatusWriter(statusWriter))
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
@@ -898,7 +898,7 @@ func TestWorkflowRunService_DispatchForEvent_CreatesPendingCommitStatusForLandin
 		},
 	}
 	statusWriter := &mockWorkflowRunCommitStatusWriter{}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunCommitStatusWriter(statusWriter))
+	svc := newCurrentPushTestService(mock, WithWorkflowRunCommitStatusWriter(statusWriter))
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
@@ -933,7 +933,7 @@ func TestWorkflowRunService_DispatchForEvent_ResolvesScheduledRunCommitBeforeCre
 	}
 	resolver := &recordingWorkflowBookmarkCommitResolver{commit: commitSHA}
 	statusWriter := &mockWorkflowRunCommitStatusWriter{}
-	svc := NewWorkflowRunService(
+	svc := newCurrentPushTestService(
 		mock,
 		WithWorkflowRunCommitStatusWriter(statusWriter),
 		WithWorkflowRunBookmarkCommitResolver(resolver),
@@ -971,7 +971,7 @@ func TestWorkflowRunService_DispatchForEvent_StatusInsertFailureAbortsRun(t *tes
 	}
 	statusWriter := &mockWorkflowRunCommitStatusWriter{}
 
-	_, err := NewWorkflowRunService(mock, WithWorkflowRunCommitStatusWriter(statusWriter)).DispatchForEvent(
+	_, err := newCurrentPushTestService(mock, WithWorkflowRunCommitStatusWriter(statusWriter)).DispatchForEvent(
 		context.Background(),
 		DispatchForEventInput{
 			RepositoryID: 42,
@@ -987,7 +987,7 @@ func TestWorkflowRunService_DispatchForEvent_StatusInsertFailureAbortsRun(t *tes
 	assert.Empty(t, statusWriter.published)
 }
 
-func TestWorkflowRunService_DispatchForEvent_UsesLoadedDefinitionsSnapshot(t *testing.T) {
+func TestWorkflowRunService_DispatchForEvent_LoadedPushCannotCreateInactiveReference(t *testing.T) {
 	t.Parallel()
 
 	listCalled := false
@@ -1009,7 +1009,7 @@ func TestWorkflowRunService_DispatchForEvent_UsesLoadedDefinitionsSnapshot(t *te
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
@@ -1028,10 +1028,10 @@ func TestWorkflowRunService_DispatchForEvent_UsesLoadedDefinitionsSnapshot(t *te
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, results, 1)
-	assert.True(t, ensureCalled)
-	assert.False(t, listCalled)
-	assert.Equal(t, int64(77), results[0].WorkflowDefinitionID)
+	assert.Empty(t, results)
+	assert.False(t, ensureCalled)
+	assert.True(t, listCalled)
+	assert.Empty(t, mock.createRunCalls)
 }
 
 func TestWorkflowRunService_DispatchForEvent_PersistsExplicitTaskSecretPolicies(t *testing.T) {
@@ -1049,7 +1049,7 @@ func TestWorkflowRunService_DispatchForEvent_PersistsExplicitTaskSecretPolicies(
 			}`)}, nil
 		},
 	}
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: strings.Repeat("a", 40)},
 	})
@@ -1084,7 +1084,7 @@ func TestWorkflowRunService_DispatchForEvent_RejectsInvalidTaskSecretPolicyBefor
 			}`)}, nil
 		},
 	}
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: strings.Repeat("a", 40)},
 	})
@@ -1110,7 +1110,7 @@ func TestWorkflowRunService_DispatchForEvent_EmptyLoadedSnapshotDoesNotFallbackT
 			return db.WorkflowDefinition{}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         42,
@@ -1123,7 +1123,7 @@ func TestWorkflowRunService_DispatchForEvent_EmptyLoadedSnapshotDoesNotFallbackT
 	})
 	require.NoError(t, err)
 	assert.Empty(t, results)
-	assert.False(t, listCalled)
+	assert.True(t, listCalled)
 	assert.False(t, ensureCalled)
 }
 
@@ -1145,7 +1145,7 @@ func TestWorkflowRunService_DispatchForEvent_IfFalse_CreatesSkippedStepAndTask(t
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
@@ -1175,7 +1175,7 @@ func TestWorkflowRunService_DispatchForEvent_Needs_CreateBlockedDependentTask(t 
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
@@ -1215,7 +1215,7 @@ func TestWorkflowRunService_DispatchForEvent_NeedsIf_IsDeferredUntilDependencies
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
@@ -1259,7 +1259,7 @@ func TestWorkflowRunService_DispatchForEvent_MultipleJobs_CreatesMultipleStepsTa
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1287,7 +1287,7 @@ func TestWorkflowRunService_DispatchForEvent_SortsStepPositionsByJobName(t *test
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1314,7 +1314,7 @@ func TestWorkflowRunService_DispatchForEvent_MultipleMatchingDefs_CreatesMultipl
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1336,7 +1336,7 @@ func TestWorkflowRunService_DispatchForEvent_LandingRequest_CreatesRun(t *testin
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "landing_request", Action: "opened"},
@@ -1355,7 +1355,7 @@ func TestWorkflowRunService_DispatchForEvent_LandingRequest_WrongAction_NoRun(t 
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "landing_request", Action: "closed"},
@@ -1374,7 +1374,7 @@ func TestWorkflowRunService_DispatchForEvent_Issue_CreatesRun(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "issues", Action: "opened"},
@@ -1394,7 +1394,7 @@ func TestWorkflowRunService_DispatchForEvent_WorkflowDispatch_CreatesRun(t *test
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "workflow_dispatch", Ref: "refs/heads/release-1"},
@@ -1415,7 +1415,7 @@ func TestWorkflowRunService_DispatchForEvent_WorkflowDispatch_NoTrigger_NoRun(t 
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "workflow_dispatch", Ref: "main"},
@@ -1434,7 +1434,7 @@ func TestWorkflowRunService_DispatchForEvent_ListDefsError_ReturnsInternalError(
 			return nil, errors.New("db unavailable")
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1454,7 +1454,7 @@ func TestWorkflowRunService_DispatchForEvent_CreateRunError_ReturnsInternalError
 			return db.WorkflowRun{}, errors.New("insert failed")
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1474,7 +1474,7 @@ func TestWorkflowRunService_DispatchForEvent_CreateStepError_ReturnsInternalErro
 			return db.WorkflowStep{}, errors.New("step insert failed")
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1494,7 +1494,7 @@ func TestWorkflowRunService_DispatchForEvent_CreateTaskError_ReturnsInternalErro
 			return db.WorkflowTask{}, errors.New("task insert failed")
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1516,7 +1516,7 @@ func TestWorkflowRunService_DispatchForEvent_MalformedJobsConfig_IsRejectedBefor
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1534,7 +1534,7 @@ func TestWorkflowRunService_DispatchForEvent_EmptyJobsConfig_IsRejectedBeforeRun
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1634,7 +1634,7 @@ func TestWorkflowRunService_DispatchForEvent_InvalidDAG_ReturnsError(t *testing.
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1654,7 +1654,7 @@ func TestWorkflowRunService_DispatchForEvent_InvalidIfExpression_IsRejectedBefor
 		},
 	}
 
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})
@@ -1679,7 +1679,7 @@ func TestWorkflowRunService_DispatchForEvent_JobLimit_IsRejectedBeforeRunCreatio
 			return []db.WorkflowDefinition{makeWorkflowDef(1, 42, "ci", true, string(config))}, nil
 		},
 	}
-	_, err = NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err = newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})
@@ -1705,7 +1705,7 @@ func TestWorkflowRunService_DispatchForEvent_RootJobsPending_DependentJobsBlocke
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1743,7 +1743,7 @@ func TestWorkflowRunService_DispatchForEvent_NeedsInPayload(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1782,7 +1782,7 @@ func TestWorkflowRunService_DispatchForEvent_AllRootJobs_AllPending(t *testing.T
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1827,7 +1827,7 @@ func TestWorkflowRunService_DispatchesWorkflowRunWebhookOnCreate(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunWebhookDispatcher(dispatcher))
+	svc := newCurrentPushTestService(mock, WithWorkflowRunWebhookDispatcher(dispatcher))
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1852,7 +1852,7 @@ func TestWorkflowRunService_NoWebhookDispatchWithoutDispatcher(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1872,7 +1872,7 @@ func TestWorkflowRunService_DispatchesWebhookForEachMatchingRun(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock, WithWorkflowRunWebhookDispatcher(dispatcher))
+	svc := newCurrentPushTestService(mock, WithWorkflowRunWebhookDispatcher(dispatcher))
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -1903,7 +1903,7 @@ func TestDispatchForEvent_WithDefinitionID_TargetsSingleDefinition(t *testing.T)
 			return def, nil
 		},
 	}
-	svc := NewWorkflowRunService(q)
+	svc := newCurrentPushTestService(q)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         repoID,
@@ -1927,7 +1927,7 @@ func TestDispatchForEvent_WithDefinitionID_InactiveDefinition_ReturnsEmpty(t *te
 			return def, nil
 		},
 	}
-	svc := NewWorkflowRunService(q)
+	svc := newCurrentPushTestService(q)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         repoID,
@@ -1949,7 +1949,7 @@ func TestDispatchForEvent_WithDefinitionID_NoTriggerMatch_ReturnsEmpty(t *testin
 			return def, nil
 		},
 	}
-	svc := NewWorkflowRunService(q)
+	svc := newCurrentPushTestService(q)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         repoID,
@@ -1971,7 +1971,7 @@ func TestDispatchForEvent_WithoutDefinitionID_MatchesAll(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(q)
+	svc := newCurrentPushTestService(q)
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: repoID,
@@ -1979,7 +1979,7 @@ func TestDispatchForEvent_WithoutDefinitionID_MatchesAll(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
-	assert.Equal(t, 1, q.listDefsCount)
+	assert.Equal(t, 2, q.listDefsCount)
 	assert.Equal(t, 0, q.getDefCount) // should not get single def
 }
 
@@ -1996,7 +1996,7 @@ func TestWorkflowRunService_DispatchForEvent_TargetedUnparseableConfig_ReturnsEr
 			return makeWorkflowDef(arg.ID, arg.RepositoryID, "ci", true, `{"on":`), nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	defID := int64(9)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         42,
@@ -2014,7 +2014,7 @@ func TestWorkflowRunService_DispatchForEvent_TargetedMissingWorkflowDispatchTrig
 			return makeWorkflowDef(arg.ID, arg.RepositoryID, "ci", true, `{"on":{"push":{}}}`), nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	defID := int64(9)
 	_, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         42,
@@ -2034,7 +2034,7 @@ func TestWorkflowRunService_DispatchForEvent_BroadcastUnparseableConfig_StillSki
 			}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
@@ -2067,7 +2067,7 @@ func (q *txBeginErrWorkflowRunQuerier) RebindWorkflowRunQueries(pgx.Tx) Workflow
 func TestWorkflowRunService_CancelRun_UsesTransactionWhenSupported(t *testing.T) {
 	t.Parallel()
 	mock := &txBeginErrWorkflowRunQuerier{mockWorkflowRunQuerier: &mockWorkflowRunQuerier{}}
-	err := NewWorkflowRunService(mock).CancelRun(context.Background(), 42, 7)
+	err := newCurrentPushTestService(mock).CancelRun(context.Background(), 42, 7)
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 	assert.Equal(t, 1, mock.beginTxCalls)
 	assert.Empty(t, mock.cancelRunCalls, "cancel must not proceed without the transaction")
@@ -2076,7 +2076,7 @@ func TestWorkflowRunService_CancelRun_UsesTransactionWhenSupported(t *testing.T)
 func TestWorkflowRunService_ResumeRun_UsesTransactionWhenSupported(t *testing.T) {
 	t.Parallel()
 	mock := &txBeginErrWorkflowRunQuerier{mockWorkflowRunQuerier: &mockWorkflowRunQuerier{}}
-	err := NewWorkflowRunService(mock).ResumeRun(context.Background(), 42, 7)
+	err := newCurrentPushTestService(mock).ResumeRun(context.Background(), 42, 7)
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 	assert.Equal(t, 1, mock.beginTxCalls)
 	assert.Empty(t, mock.resumeRunCalls, "resume must not proceed without the transaction")
@@ -2091,7 +2091,7 @@ func TestWorkflowRunService_DispatchForEvent_UsesTransactionWhenSupported(t *tes
 			}, nil
 		},
 	}}
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})

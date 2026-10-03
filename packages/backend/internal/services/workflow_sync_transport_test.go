@@ -45,7 +45,7 @@ func workflowTransportRepoAndHost(t *testing.T, bad workflowTransportCase, withG
 	queries := &mockWorkflowSyncQuerier{
 		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
 			require.Equal(t, int64(42), id)
-			return db.Repository{ID: id, Name: "demo", UserID: pgtype.Int8{Int64: 7, Valid: true}}, nil
+			return db.Repository{ID: id, Name: "demo", DefaultBookmark: "main", UserID: pgtype.Int8{Int64: 7, Valid: true}}, nil
 		},
 		getUserByIDFn: func(_ context.Context, id int64) (db.User, error) {
 			require.Equal(t, int64(7), id)
@@ -53,6 +53,9 @@ func workflowTransportRepoAndHost(t *testing.T, bad workflowTransportCase, withG
 		},
 	}
 	host := &mockWorkflowSyncRepoHost{
+		getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+			return repohost.Bookmark{TargetCommitID: "commit-1"}, nil
+		},
 		listFilesAtChangeFn: func(_ context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error) {
 			require.Equal(t, "alice", owner)
 			require.Equal(t, "demo", repo)
@@ -197,7 +200,7 @@ func TestWorkflowTransportPreservationWinsDuplicateDefinition(t *testing.T) {
 		}},
 		FileErrors: []WorkflowLoadFileError{{Path: transportBadPath, Error: "incomplete response", PreserveExisting: true}},
 	}
-	require.NoError(t, NewWorkflowSyncService(queries, nil, nil).PersistDefinitions(context.Background(), 42, result))
+	require.NoError(t, NewWorkflowSyncService(queries, nil, nil).persistCurrentDefinitions(context.Background(), 42, result))
 	assert.Empty(t, queries.upsertCalls)
 	assert.Empty(t, queries.deactivateCalls)
 	assert.Empty(t, queries.disableWorkflowTriggerCalls)

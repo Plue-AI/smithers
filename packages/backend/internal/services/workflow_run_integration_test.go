@@ -70,7 +70,7 @@ func TestWorkflowRunServiceIntegration_DispatchForEvent_LandingRequestCreatesRun
 	})
 	require.NoError(t, err)
 
-	svc := NewWorkflowRunService(queries)
+	svc := newCurrentPushTestService(queries)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: repoID,
 		Event: TriggerEvent{
@@ -151,7 +151,7 @@ func TestWorkflowRunServiceIntegration_DispatchForEvent_ScheduleMatchesOnlySched
 	})
 	require.NoError(t, err)
 
-	svc := NewWorkflowRunService(queries)
+	svc := newCurrentPushTestService(queries)
 	scheduleResults, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: repoID,
 		Event:        TriggerEvent{Type: "schedule"},
@@ -204,7 +204,7 @@ func TestWorkflowRunServiceIntegration_DispatchForEvent_PushCreatesRun(t *testin
 	})
 	require.NoError(t, err)
 
-	svc := NewWorkflowRunService(queries)
+	svc := newCurrentPushTestService(queries)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: repoID,
 		Event: TriggerEvent{
@@ -259,7 +259,7 @@ func TestWorkflowRunServiceIntegration_DispatchForEvent_TargetedDispatch(t *test
 	})
 	require.NoError(t, err)
 
-	svc := NewWorkflowRunService(queries)
+	svc := newCurrentPushTestService(queries)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID:         repoID,
 		WorkflowDefinitionID: &def2.ID,
@@ -287,7 +287,7 @@ func TestWorkflowRunServiceIntegration_DispatchForEvent_CreatesPendingCommitStat
 	require.NoError(t, err)
 
 	commitStatusService := NewCommitStatusService(queries)
-	svc := NewWorkflowRunService(queries, WithWorkflowRunCommitStatusWriter(commitStatusService))
+	svc := newCurrentPushTestService(queries, WithWorkflowRunCommitStatusWriter(commitStatusService))
 
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: repoID,

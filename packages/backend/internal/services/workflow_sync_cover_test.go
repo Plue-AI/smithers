@@ -68,7 +68,7 @@ func TestWorkflowSync_Cov_PersistDecodeScheduleAndStaleBranches(t *testing.T) {
 	configJSON, err := json.Marshal(config)
 	require.NoError(t, err)
 
-	err = svc.PersistDefinitions(context.Background(), 42, WorkflowLoadResult{
+	err = svc.persistCurrentDefinitions(context.Background(), 42, WorkflowLoadResult{
 		Definitions: []LoadedWorkflowDefinition{{
 			Name:   "ci",
 			Path:   ".smithers/workflows/ci.ts",
@@ -85,7 +85,7 @@ func TestWorkflowSync_Cov_PersistDecodeScheduleAndStaleBranches(t *testing.T) {
 	assert.NotEmpty(t, queries.deactivateCalls)
 	assert.NotEmpty(t, queries.createWorkflowTriggerCalls)
 
-	err = svc.PersistDefinitions(context.Background(), 42, WorkflowLoadResult{
+	err = svc.persistCurrentDefinitions(context.Background(), 42, WorkflowLoadResult{
 		Definitions: []LoadedWorkflowDefinition{{Name: "bad", Path: ".smithers/workflows/bad.ts", Config: []byte(`{`)}},
 	})
 	require.Error(t, err)

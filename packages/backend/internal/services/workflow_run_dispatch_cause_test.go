@@ -60,7 +60,7 @@ func TestWorkflowRunService_DispatchForEvent_TaskCreateFailure_ReportsDriverCaus
 		},
 	}
 
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})
@@ -91,7 +91,7 @@ func TestWorkflowRunService_DispatchForEvent_StepCreateFailure_ReportsDriverCaus
 		},
 	}
 
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})
@@ -119,7 +119,7 @@ func TestWorkflowRunService_DispatchForEvent_RunCreateFailure_ReportsDriverCause
 		},
 	}
 
-	_, err := NewWorkflowRunService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
+	_, err := newCurrentPushTestService(mock).DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})

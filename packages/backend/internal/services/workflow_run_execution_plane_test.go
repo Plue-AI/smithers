@@ -23,7 +23,7 @@ func dispatchExecutionPlaneRun(t *testing.T, config string) db.CreateWorkflowRun
 			return []db.WorkflowDefinition{makeWorkflowDef(1, 42, "ci", true, config)}, nil
 		},
 	}
-	svc := NewWorkflowRunService(mock)
+	svc := newCurrentPushTestService(mock)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: "cafebabe"},

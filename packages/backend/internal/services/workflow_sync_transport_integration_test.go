@@ -37,6 +37,9 @@ func TestWorkflowTransportUnreadableResponsesPreserveDatabaseRows(t *testing.T) 
 			// A fake repo-host can return malformed transport metadata that a real
 			// repo-host would normally prevent; the parser records any unsafe call.
 			host := &mockWorkflowSyncRepoHost{
+				getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+					return repohost.Bookmark{TargetCommitID: "commit-1"}, nil
+				},
 				listFilesAtChangeFn: func(_ context.Context, _, _, _, _ string) ([]repohost.ChangeFile, error) {
 					return []repohost.ChangeFile{{Path: transportBadPath}}, nil
 				},
@@ -88,6 +91,12 @@ func TestWorkflowTransportReadFailureRetryAndRemoval(t *testing.T) {
 	phase := "unreadable"
 	// The fake host controls three commit snapshots; the parser receives only the retry.
 	host := &mockWorkflowSyncRepoHost{
+		getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+			if phase == "removed" {
+				return repohost.Bookmark{TargetCommitID: "removal-commit"}, nil
+			}
+			return repohost.Bookmark{TargetCommitID: phase + "-commit"}, nil
+		},
 		listFilesAtChangeFn: func(_ context.Context, _, _, _, _ string) ([]repohost.ChangeFile, error) {
 			if phase == "removed" {
 				return nil, nil

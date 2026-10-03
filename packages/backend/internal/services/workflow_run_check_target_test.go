@@ -79,7 +79,8 @@ func TestWorkflowRunCheckRun_MirrorPostsOnItsGitHubSource(t *testing.T) {
 			svc, q, checks, resolved := newSourcedCheckRunService(t, tc.sources, tc.destination)
 			ctx := context.Background()
 
-			results, err := svc.DispatchForEvent(ctx, DispatchForEventInput{
+			fixture := &currentPushTestService{WorkflowRunService: svc, service: svc}
+			results, err := fixture.DispatchForEvent(ctx, DispatchForEventInput{
 				RepositoryID: 100,
 				Event:        TriggerEvent{Type: "push", Ref: "main", CommitSHA: "cafebabe"},
 			})

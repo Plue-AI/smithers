@@ -68,6 +68,9 @@ type WorkflowLoadFileError struct {
 type WorkflowLoadResult struct {
 	Definitions []LoadedWorkflowDefinition
 	FileErrors  []WorkflowLoadFileError
+	// Only a snapshot loaded by this service may change repository-wide state.
+	repositoryID int64
+	commitSHA    string
 }
 
 // WorkflowSyncService discovers TypeScript workflow files and syncs them into DB.
@@ -75,6 +78,10 @@ type WorkflowSyncService struct {
 	queries  WorkflowSyncQuerier
 	repoHost WorkflowSyncRepoHostClient
 	parser   WorkflowParser
+	// Serialize writes per repository using the shared refcounted key registry.
+	// Recheck the head under the lock so an old writer cannot finish after the
+	// writer that deactivated a removed definition. Idle keys are evicted.
+	persistLocks userLockRegistry
 }
 
 // NewWorkflowSyncService constructs a workflow sync service.
@@ -128,8 +135,13 @@ func (s *WorkflowSyncService) ResolveBookmarkCommit(ctx context.Context, repoID 
 	return commitID, nil
 }
 
-// SyncWorkflowsFromCommit discovers, parses, and persists workflow definitions for a commit snapshot.
+// SyncWorkflowsFromCommit ignores superseded and side-branch snapshots. Only
+// the authoritative default bookmark's current head owns repository definitions.
 func (s *WorkflowSyncService) SyncWorkflowsFromCommit(ctx context.Context, repoID int64, commitSHA string) error {
+	current, err := s.isDefaultHeadCommit(ctx, repoID, commitSHA)
+	if err != nil || !current {
+		return err
+	}
 	result, err := s.LoadDefinitionsFromCommit(ctx, repoID, commitSHA)
 	if err != nil {
 		return err
@@ -164,7 +176,7 @@ func (s *WorkflowSyncService) LoadDefinitionsFromCommit(ctx context.Context, rep
 		return WorkflowLoadResult{}, fmt.Errorf("list workflow files: %w", err)
 	}
 
-	result := WorkflowLoadResult{}
+	result := WorkflowLoadResult{repositoryID: repoID, commitSHA: commitSHA}
 	loaded := 0
 	for _, fileInfo := range files {
 		if !isTypeScriptWorkflowPath(fileInfo.Path) {
@@ -252,7 +264,43 @@ func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int
 	if s.queries == nil {
 		return fmt.Errorf("workflow sync dependencies are not configured")
 	}
+	if result.repositoryID != repoID || strings.TrimSpace(result.commitSHA) == "" {
+		return fmt.Errorf("workflow snapshot provenance is required")
+	}
+	s.persistLocks.acquire(repoID)
+	defer s.persistLocks.release(repoID)
+	// Loading/parsing may take minutes. Re-read the head here so a snapshot
+	// overtaken during discovery cannot re-arm definitions deleted by a push.
+	current, err := s.isDefaultHeadCommit(ctx, repoID, result.commitSHA)
+	if err != nil || !current {
+		return err
+	}
+	return s.persistCurrentDefinitions(ctx, repoID, result)
+}
 
+func (s *WorkflowSyncService) isDefaultHeadCommit(ctx context.Context, repoID int64, commitSHA string) (bool, error) {
+	if repoID <= 0 {
+		return false, fmt.Errorf("repository id must be positive")
+	}
+	if strings.TrimSpace(commitSHA) == "" {
+		return false, fmt.Errorf("commit sha is required")
+	}
+	if s == nil || s.queries == nil {
+		return false, fmt.Errorf("workflow sync dependencies are not configured")
+	}
+	repository, err := s.queries.GetRepoByID(ctx, repoID)
+	if err != nil {
+		return false, fmt.Errorf("load repository: %w", err)
+	}
+	head, err := s.ResolveBookmarkCommit(ctx, repoID, repository.DefaultBookmark)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(commitSHA) == head, nil
+}
+
+// persistCurrentDefinitions applies an already-authorized current snapshot.
+func (s *WorkflowSyncService) persistCurrentDefinitions(ctx context.Context, repoID int64, result WorkflowLoadResult) error {
 	existingDefs, err := s.queries.ListWorkflowDefinitionsByRepo(ctx, db.ListWorkflowDefinitionsByRepoParams{
 		RepositoryID: repoID,
 		PageSize:     1000,

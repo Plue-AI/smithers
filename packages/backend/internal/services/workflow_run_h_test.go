@@ -26,26 +26,26 @@ type workflowRunHNoUpdaterQuerier struct {
 
 func TestWorkflowRun_H_DispatchForEventErrorBranches(t *testing.T) {
 	ctx := context.Background()
-	_, err := NewWorkflowRunService(&mockWorkflowRunQuerier{}).DispatchForEvent(ctx, DispatchForEventInput{
+	_, err := newCurrentPushTestService(&mockWorkflowRunQuerier{}).DispatchForEvent(ctx, DispatchForEventInput{
 		RepositoryID: 0,
 		Event:        TriggerEvent{Type: "push"},
 	})
 	assert.Equal(t, 400, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{}).DispatchForEvent(ctx, DispatchForEventInput{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{}).DispatchForEvent(ctx, DispatchForEventInput{
 		RepositoryID: 1,
 		Event:        TriggerEvent{},
 	})
 	assert.Equal(t, 400, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(nil).DispatchForEvent(ctx, DispatchForEventInput{
+	_, err = newCurrentPushTestService(nil).DispatchForEvent(ctx, DispatchForEventInput{
 		RepositoryID: 1,
 		Event:        TriggerEvent{Type: "push"},
 	})
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 
 	defID := int64(9)
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		getDefFn: func(context.Context, db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
 			return db.WorkflowDefinition{}, errors.New("definition lookup failed")
 		},
@@ -56,7 +56,7 @@ func TestWorkflowRun_H_DispatchForEventErrorBranches(t *testing.T) {
 	})
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		getDefFn: func(context.Context, db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
 			return db.WorkflowDefinition{}, pgx.ErrNoRows
 		},
@@ -67,7 +67,7 @@ func TestWorkflowRun_H_DispatchForEventErrorBranches(t *testing.T) {
 	})
 	assert.Equal(t, 404, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		ensureDefRefFn: func(context.Context, db.EnsureWorkflowDefinitionReferenceParams) (db.WorkflowDefinition, error) {
 			return db.WorkflowDefinition{}, errors.New("ensure failed")
 		},
@@ -79,11 +79,11 @@ func TestWorkflowRun_H_DispatchForEventErrorBranches(t *testing.T) {
 			Path:   ".smithers/workflows/ci.tsx",
 			Config: []byte(`{"on":{"push":{}}}`),
 		}},
-		Event: TriggerEvent{Type: "push"},
+		Event: TriggerEvent{Type: "workflow_dispatch"},
 	})
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return nil, errors.New("list failed")
 		},
@@ -93,7 +93,7 @@ func TestWorkflowRun_H_DispatchForEventErrorBranches(t *testing.T) {
 	})
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		getDefFn: func(context.Context, db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
 			return makeWorkflowDef(1, 1, "bad", true, `{"on":`), nil
 		},
@@ -104,7 +104,7 @@ func TestWorkflowRun_H_DispatchForEventErrorBranches(t *testing.T) {
 	})
 	assert.Equal(t, 422, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		getDefFn: func(context.Context, db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
 			return makeWorkflowDef(1, 1, "manual", true, `{"on":{"push":{}}}`), nil
 		},
@@ -120,7 +120,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	ctx := context.Background()
 	matchingDef := makeWorkflowDef(1, 42, "ci", true, `{"on":{"push":{}},"jobs":{"build":{}}}`)
 
-	_, err := NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err := newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{matchingDef}, nil
 		},
@@ -133,7 +133,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	})
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{matchingDef}, nil
 		},
@@ -158,7 +158,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 			return db.WorkflowTask{ID: 50, WorkflowStepID: arg.WorkflowStepID}, nil
 		},
 	}
-	_, err = NewWorkflowRunService(q).DispatchForEvent(ctx, DispatchForEventInput{
+	_, err = newCurrentPushTestService(q).DispatchForEvent(ctx, DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "main"},
 	})
@@ -167,7 +167,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	// Malformed job configs are rejected up front instead of dispatching a
 	// best-effort run with no steps.
 	invalidJobsDef := makeWorkflowDef(2, 42, "ci", true, `{"on":{"push":{}},"jobs":{"build":{"steps":"bad"}}}`)
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{invalidJobsDef}, nil
 		},
@@ -177,7 +177,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	})
 	assert.Equal(t, 400, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{
 				makeWorkflowDef(3, 42, "bad-if", true, `{"on":{"push":{}},"jobs":{"build":{"if":"bad syntax"}}}`),
@@ -189,7 +189,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	})
 	assert.Equal(t, 400, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{
 				makeWorkflowDef(4, 42, "cycle", true, `{"on":{"push":{}},"jobs":{"build":{"needs":["test"]},"test":{"needs":["build"]}}}`),
@@ -201,7 +201,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	})
 	assert.Equal(t, 400, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{matchingDef}, nil
 		},
@@ -214,7 +214,7 @@ func TestWorkflowRun_H_CreateRunForDefinitionBranches(t *testing.T) {
 	})
 	assert.Equal(t, 500, workflowRunAPIStatus(t, err))
 
-	_, err = NewWorkflowRunService(&mockWorkflowRunQuerier{
+	_, err = newCurrentPushTestService(&mockWorkflowRunQuerier{
 		listDefsFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return []db.WorkflowDefinition{matchingDef}, nil
 		},

@@ -421,8 +421,8 @@ func WithWorkflowRunSecretInjector(injector *SecretInjector) WorkflowRunServiceO
 }
 
 // WithWorkflowRunDefinitionCommitLoader wires commit-scoped workflow loading
-// into WorkflowRunService. Alert remediation dispatch fails closed when this
-// dependency is unavailable.
+// into WorkflowRunService. Push and alert remediation dispatch fail closed
+// when this dependency is unavailable.
 func WithWorkflowRunDefinitionCommitLoader(loader WorkflowDefinitionCommitLoader) WorkflowRunServiceOption {
 	return func(s *workflowRunService) {
 		s.definitionLoader = loader
@@ -430,7 +430,7 @@ func WithWorkflowRunDefinitionCommitLoader(loader WorkflowDefinitionCommitLoader
 }
 
 // WithWorkflowRunBookmarkCommitResolver wires authoritative repo-host bookmark
-// resolution into commit-scoped alert remediation dispatch.
+// resolution into workflow dispatch, including the push current-head check.
 func WithWorkflowRunBookmarkCommitResolver(resolver WorkflowBookmarkCommitResolver) WorkflowRunServiceOption {
 	return func(s *workflowRunService) {
 		s.bookmarkResolver = resolver
@@ -456,6 +456,7 @@ func (s *workflowRunService) DispatchForEvent(ctx context.Context, input Dispatc
 	if s.queries == nil {
 		return nil, pkgerrors.Internal("workflow run store unavailable")
 	}
+	pushEvent := NormalizeTriggerName(normalizeTriggerEvent(input.Event).Type) == "push"
 
 	type dispatchDefinition struct {
 		definition    db.WorkflowDefinition
@@ -478,7 +479,7 @@ func (s *workflowRunService) DispatchForEvent(ctx context.Context, input Dispatc
 			return nil, pkgerrors.Internal("failed to fetch workflow definition").WithCause(err)
 		}
 		defs = []dispatchDefinition{{definition: def, config: def.Config, enforceActive: true}}
-	} else if input.UseLoadedDefinitions {
+	} else if input.UseLoadedDefinitions && !pushEvent {
 		for _, loaded := range input.LoadedDefinitions {
 			ref, err := s.queries.EnsureWorkflowDefinitionReference(ctx, db.EnsureWorkflowDefinitionReferenceParams{
 				RepositoryID: input.RepositoryID,
@@ -512,6 +513,29 @@ func (s *workflowRunService) DispatchForEvent(ctx context.Context, input Dispatc
 	}
 
 	var results []WorkflowRunResult
+	var pushConfigs map[string]json.RawMessage
+	if pushEvent {
+		current, err := s.isCurrentRefHeadPush(ctx, input)
+		if err != nil || !current {
+			return nil, err
+		}
+		if s.definitionLoader == nil {
+			return nil, pkgerrors.Internal("commit-scoped workflow loader unavailable for push")
+		}
+		// Every push entry point uses the exact tree, including targeted GitHub
+		// deliveries and a push-hook load failure. Never fall back to DB config.
+		loaded, err := s.definitionLoader.LoadDefinitionsFromCommit(ctx, input.RepositoryID, input.Event.CommitSHA)
+		if err != nil {
+			return nil, pkgerrors.Internal("failed to load push workflows at trigger commit").WithCause(err)
+		}
+		pushConfigs = make(map[string]json.RawMessage, len(loaded.Definitions))
+		for _, def := range loaded.Definitions {
+			pushConfigs[def.Path] = def.Config
+		}
+		for _, fileErr := range loaded.FileErrors {
+			delete(pushConfigs, fileErr.Path)
+		}
+	}
 
 	// 2. For each definition, check trigger match and create a run if matched.
 	for _, candidate := range defs {
@@ -522,6 +546,13 @@ func (s *workflowRunService) DispatchForEvent(ctx context.Context, input Dispatc
 		commitScopedAlert := input.Event.Type == AlertRemediationTriggerEvent
 		if candidate.enforceActive && !def.IsActive && !commitScopedAlert {
 			continue
+		}
+		if pushConfigs != nil {
+			config, exists := pushConfigs[def.Path]
+			if !def.IsActive || !exists {
+				continue
+			}
+			candidate.config = config
 		}
 
 		if !commitScopedAlert {
@@ -545,6 +576,13 @@ func (s *workflowRunService) DispatchForEvent(ctx context.Context, input Dispatc
 			}
 		}
 
+		// A head may move while files are loaded or earlier definitions run.
+		if pushConfigs != nil {
+			current, err := s.isCurrentRefHeadPush(ctx, input)
+			if err != nil || !current {
+				return results, err
+			}
+		}
 		result, err := s.createRunForDefinition(ctx, def, candidate.config, input)
 		if err != nil {
 			return nil, err
@@ -553,6 +591,30 @@ func (s *workflowRunService) DispatchForEvent(ctx context.Context, input Dispatc
 	}
 
 	return results, nil
+}
+
+func (s *workflowRunService) isCurrentRefHeadPush(ctx context.Context, input DispatchForEventInput) (bool, error) {
+	commit := strings.TrimSpace(input.Event.CommitSHA)
+	if commit == "" {
+		return false, nil // ref deletion or a push without an immutable revision
+	}
+	if s.bookmarkResolver == nil {
+		return false, pkgerrors.Internal("workflow ref head resolver unavailable for push")
+	}
+	repository, err := s.resolveRunRepository(ctx, input.RepositoryID)
+	if err != nil {
+		return false, err
+	}
+	bookmark := normalizeBranchRef(strings.TrimSpace(input.Event.Ref))
+	if bookmark == "" {
+		bookmark = repository.DefaultBookmark
+	}
+	// Dispatch follows the pushed ref; only persistence follows the default ref.
+	head, err := s.bookmarkResolver.ResolveBookmarkCommit(ctx, input.RepositoryID, bookmark)
+	if err != nil || strings.TrimSpace(head) == "" {
+		return false, pkgerrors.Internal("failed to resolve workflow ref head for push").WithCause(err)
+	}
+	return commit == strings.TrimSpace(head), nil
 }
 
 func (s *workflowRunService) createRunForDefinition(

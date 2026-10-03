@@ -124,11 +124,11 @@ func TestWorkflowSync_H_PersistDefinitionsErrorBranches(t *testing.T) {
 		listWorkflowDefinitionsByRepoFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
 			return nil, errors.New("list failed")
 		},
-	}, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{})
+	}, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "list workflow definitions")
 
-	err = NewWorkflowSyncService(&mockWorkflowSyncQuerier{}, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{
+	err = NewWorkflowSyncService(&mockWorkflowSyncQuerier{}, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{
 		Definitions: []LoadedWorkflowDefinition{{Name: "bad", Path: ".smithers/workflows/bad.ts", Config: json.RawMessage(`{`)}},
 	})
 	require.Error(t, err)
@@ -138,7 +138,7 @@ func TestWorkflowSync_H_PersistDefinitionsErrorBranches(t *testing.T) {
 		upsertWorkflowDefinitionFn: func(context.Context, db.UpsertWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
 			return db.WorkflowDefinition{}, errors.New("upsert failed")
 		},
-	}, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
+	}, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upsert workflow definition")
 
@@ -149,7 +149,7 @@ func TestWorkflowSync_H_PersistDefinitionsErrorBranches(t *testing.T) {
 		disableWorkflowTriggersByRepositoryPathFn: func(context.Context, db.DisableWorkflowTriggersByRepositoryPathParams) error {
 			return errors.New("disable failed")
 		},
-	}, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
+	}, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sync workflow triggers")
 
@@ -160,7 +160,7 @@ func TestWorkflowSync_H_PersistDefinitionsErrorBranches(t *testing.T) {
 		createWorkflowTriggerFn: func(context.Context, db.CreateWorkflowTriggerParams) (db.WorkflowTrigger, error) {
 			return db.WorkflowTrigger{}, errors.New("trigger failed")
 		},
-	}, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
+	}, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sync workflow triggers")
 
@@ -171,7 +171,7 @@ func TestWorkflowSync_H_PersistDefinitionsErrorBranches(t *testing.T) {
 		deleteWorkflowScheduleSpecsByDefinitionFn: func(context.Context, int64) error {
 			return errors.New("delete schedule failed")
 		},
-	}, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
+	}, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{Definitions: []LoadedWorkflowDefinition{baseDef}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sync schedule specs")
 }
@@ -226,7 +226,7 @@ func TestWorkflowSync_H_StaleAndScheduleBranches(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := NewWorkflowSyncService(tc.q, nil, nil).PersistDefinitions(ctx, 1, WorkflowLoadResult{})
+			err := NewWorkflowSyncService(tc.q, nil, nil).persistCurrentDefinitions(ctx, 1, WorkflowLoadResult{})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.want)
 		})

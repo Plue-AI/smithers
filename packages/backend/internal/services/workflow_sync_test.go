@@ -395,7 +395,7 @@ func TestWorkflowSyncService_PersistDefinitions_UpsertsSchedulesAndDeactivatesIn
 	}
 
 	svc := NewWorkflowSyncService(queries, &mockWorkflowSyncRepoHost{}, &mockWorkflowSyncParser{})
-	err := svc.PersistDefinitions(context.Background(), 42, WorkflowLoadResult{
+	err := svc.persistCurrentDefinitions(context.Background(), 42, WorkflowLoadResult{
 		Definitions: []LoadedWorkflowDefinition{
 			{
 				Name:   "build",
@@ -446,9 +446,10 @@ func TestWorkflowSyncService_SyncWorkflowsFromCommit_OrgRepo_UsesOrgAsOwner(t *t
 	queries := &mockWorkflowSyncQuerier{
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return db.Repository{
-				ID:    99,
-				Name:  "platform",
-				OrgID: pgtype.Int8{Int64: 11, Valid: true},
+				ID:              99,
+				DefaultBookmark: "main",
+				Name:            "platform",
+				OrgID:           pgtype.Int8{Int64: 11, Valid: true},
 			}, nil
 		},
 		getOrgByIDFn: func(_ context.Context, id int64) (db.Organization, error) {
@@ -458,6 +459,9 @@ func TestWorkflowSyncService_SyncWorkflowsFromCommit_OrgRepo_UsesOrgAsOwner(t *t
 	}
 
 	repoHost := &mockWorkflowSyncRepoHost{
+		getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+			return repohost.Bookmark{TargetCommitID: "change-1"}, nil
+		},
 		listFilesAtChangeFn: func(_ context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error) {
 			assert.Equal(t, "acme", owner)
 			assert.Equal(t, "platform", repo)

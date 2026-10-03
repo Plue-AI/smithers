@@ -342,7 +342,7 @@ func TestDispatchForEvent_PushRunCancelsPreviousPushRunForSameRef(t *testing.T) 
 	q.seedRun(supersedeRun(11756, 7, "refs/heads/main", "push", "queued"))
 	q.nextRunID = 11762
 
-	svc := NewWorkflowRunService(q)
+	svc := newCurrentPushTestService(q)
 	results, err := svc.DispatchForEvent(context.Background(), DispatchForEventInput{
 		RepositoryID: 42,
 		Event:        TriggerEvent{Type: "push", Ref: "refs/heads/main", CommitSHA: "abc123"},
