@@ -1,3 +1,6 @@
+import type { Action } from "@smthrs/rpc/CardAction"
+import { BranchView } from "./BranchView"
+import { fixtures as branchFixtures } from "@smthrs/rpc/fixtures/Branch"
 import { stories as terminalStories } from "./TerminalView.stories"
 import { createRoot } from "./testDom"
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
@@ -130,6 +133,29 @@ for (const path of paths) {
             expect(onAction).toHaveBeenCalledTimes(0)
           }
           expect(host.querySelectorAll('[aria-label="Copy SSH line"]')).toHaveLength(1)
+          const controls = [...host.querySelectorAll<HTMLElement>(".branch-actions > [data-flow], .branch-actions .flow-control > button")]
+          expect(controls.map(control => control.dataset.flow)).toEqual(story.actions!.map(action => action.tag))
+          for (const [index, control] of controls.entries()) {
+            const action = story.actions![index]! as Action
+            const values = Object.fromEntries((action.input ?? []).map(field => [field.name, field.value ?? field.choices?.[0] ?? "Fixture input"]))
+            await act(async () => {
+              for (const field of control.querySelectorAll<HTMLInputElement>("input")) {
+                const definition = action.input!.find(input => input.label === field.getAttribute("aria-label"))!
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, values[definition.name])
+                field.dispatchEvent(new Event("input", { bubbles: true }))
+              }
+            })
+            onAction.mockClear(); onView.mockClear()
+            const button = control instanceof HTMLButtonElement ? control : control.querySelector<HTMLButtonElement>("button")!
+            expect(button.disabled).toBe(!!action.disabled)
+            if (action.disabled) expect(host.textContent).toContain(action.disabled.reason)
+            await act(async () => {
+              if (action.disabled || control instanceof HTMLButtonElement) button.click()
+              else control.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+            })
+            expect(onAction.mock.calls).toEqual(action.disabled ? [] : [[action.tag, { ...action.args, ...values }]])
+            expect(onView).toHaveBeenCalledTimes(0)
+          }
           return
         }
         const interactions = story.interactions ?? []
@@ -1259,8 +1285,6 @@ test("Terminal gives the working agent its own avatar and acting-for label", asy
     expect(item.host.querySelector('.mvp-avatar[data-kind="agent"]')!.hasAttribute("data-live")).toBe(true)
   } finally { await item.close() }
 })
-import { BranchView } from "./BranchView"
-import { fixtures as branchFixtures } from "@smthrs/rpc/fixtures/Branch"
 
 test("Branch actions retain burst identities, forms, omissions and supplied order", async () => {
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
@@ -1268,8 +1292,8 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
   try {
     await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
     expect(host.textContent!.match(/Changed outside Smithers/g)).toHaveLength(1)
-    expect([...host.querySelectorAll(".branch-actions button[data-flow], .branch-activity button[data-flow]")].map(button => button.textContent)).toEqual(["Diff", "Diff", "Fork", "New terminal", "Steer"])
-    await act(async () => host.querySelectorAll<HTMLButtonElement>('button[data-flow="diff"]')[1]!.click())
+    expect([...host.querySelectorAll(".branch-actions button[data-flow], .branch-activity button[data-flow]")].map(button => button.textContent)).toEqual(["Diff", "Steer", "New terminal", "Fork"])
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('button[data-flow="diff"]')[0]!.click())
     expect(onAction.mock.calls).toEqual([["diff", { branch: "todo/12", burst: "burst-6" }]])
     onAction.mockClear()
     await act(async () => host.querySelector<HTMLButtonElement>('.branch-location button[data-flow="file"]')!.click())
@@ -1354,4 +1378,44 @@ test("Branch SSH copies the supplied host line without a flow", async () => {
     if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor)
     else Reflect.deleteProperty(navigator, "clipboard")
   }
+})
+
+test("Branch activity limits embedded rows and retains full-list answer ordering", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock(() => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
+    expect(host.querySelectorAll(".branch-activity li[data-kind]")).toHaveLength(5)
+    expect(host.querySelector(".branch-activity li")!.textContent).toBe("5 earlier")
+    expect(host.textContent).not.toContain("Implement card projections")
+    expect(host.querySelectorAll('.branch-activity button[data-flow="diff"]')).toHaveLength(1)
+    await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ tab: "activity", maximized: true }} onAction={onAction} onView={onView} />))
+    expect(host.querySelectorAll(".branch-activity li[data-kind]")).toHaveLength(10)
+    expect(host.textContent).toContain("Implement card projections")
+    expect(host.textContent).not.toContain("5 earlier")
+    expect(host.querySelectorAll(".branch-activity [data-unanswered]")).toHaveLength(0)
+    const activity = branchFixtures.active.model.activity
+    await act(async () => root.render(<BranchView {...branchFixtures.active} model={{ ...branchFixtures.active.model, activity: [...activity, { ...activity[2]!, id: "new-question", text: "Still waiting?" }] }} onAction={onAction} onView={onView} />))
+    expect(host.querySelector(".branch-activity li")!.textContent).toBe("6 earlier")
+    expect(host.querySelectorAll(".branch-activity [data-unanswered]")).toHaveLength(1)
+    expect(host.querySelector(".branch-activity [data-unanswered]")!.textContent).toContain("Still waiting?")
+    expect(onAction).toHaveBeenCalledTimes(0)
+    expect(onView).toHaveBeenCalledTimes(0)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("Branch place, plain branch presence and unknown terminal use product copy", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock(() => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.answered} model={{ ...branchFixtures.answered.model, item: { ...branchFixtures.answered.model.item!, place: 1 } }} onAction={onAction} onView={onView} />))
+    expect(host.textContent).toContain("Next to merge")
+    expect(host.querySelector(".branch-presence .branch-location")).toBeNull()
+    expect(host.querySelector(".branch-presence .branch-muted")!.textContent).toBe("here")
+    await act(async () => root.render(<BranchView {...branchFixtures.rebase_waiting_for} model={{ ...branchFixtures.rebase_waiting_for.model, terminals: [] }} onAction={onAction} onView={onView} />))
+    expect(host.querySelector(".branch-notice .branch-muted")!.textContent).toBe("Waiting for Ben · a terminal")
+    expect(host.textContent).not.toContain("terminal-1")
+    await act(async () => root.render(<BranchView {...branchFixtures.waking} onAction={onAction} onView={onView} />))
+    expect(host.querySelector(".branch-spin")!.getAttribute("aria-hidden")).toBe("true")
+  } finally { await act(async () => root.unmount()); host.remove() }
 })

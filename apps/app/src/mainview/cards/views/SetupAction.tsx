@@ -15,7 +15,7 @@ export function SetupAction({ action, onAction, inline = false }: { action: Acti
         <output>{values[field.name]}</output>
         <button type="button" data-flow={action.tag} disabled={!!action.disabled} aria-label={`More ${field.label}`} onClick={event => { event.preventDefault(); onAction(action.tag, more) }}>+</button>
       </span> : field.kind === "choice" ? <select aria-label={inline ? field.label : undefined} id={`${id}-${field.name}`} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })}>{field.choices?.map(choice => <option key={choice}>{choice}</option>)}</select>
-        : <input aria-label={inline ? field.label : undefined} id={`${id}-${field.name}`} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })} />}
+        : <input placeholder={inline ? field.label : undefined} aria-label={inline ? field.label : undefined} id={`${id}-${field.name}`} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })} />}
     </div>)}
     {stepper ? null : <button type="submit" data-flow={action.tag} data-primary={action.primary || undefined} disabled={!!action.disabled}>{action.label}</button>}
     {action.disabled && <span className="setup-reason">{action.disabled.reason}</span>}

@@ -46,13 +46,13 @@ const steer: Action = {
   tag: "todo.steer",
   label: "Steer",
   args: { n: "12" },
-  input: [{ name: "text", label: "Steer", kind: "text", required: true, multiline: true }]
+  input: [{ name: "text", label: "Steer the coding agent", kind: "text", required: true, multiline: true }]
 }
 const diff = (burst: string): Action => ({ tag: "diff", label: "Diff", args: { branch: "todo/12", burst } })
 
-export const fixtures = {
+const states = {
   awake: story("Item branch, machine awake", base, {
-    actions: [{ tag: "box.suspend", label: "Sleep", args: { branch: "todo/12" } }, fork, newTerminal, steer],
+    actions: [{ tag: "box.suspend", label: "Sleep", args: { branch: "todo/12" } }, steer, newTerminal, fork],
     expect: ["todo/12", "Card model contracts", "ssh -p 2222 todo-12@mac-mini.local"]
   }),
   asleep: story("Machine asleep", { ...base, machine: { state: "asleep" } }, {
@@ -79,7 +79,7 @@ export const fixtures = {
   }),
   rebase_waiting_for: story(
     "Rebase pending, waiting for a write in Ben's terminal",
-    { ...base, rebase: { state: "pending", onto: "main", waiting_for: { actor: person, terminal: "terminal-1" } } },
+    { ...base, terminals: [{ id: "terminal-1", title: "Checks", owner: person, agents: [], watchers: [], frozen: false }], rebase: { state: "pending", onto: "main", waiting_for: { actor: person, terminal: "terminal-1" } } },
     { expect: ["Ben"] }
   ),
   rebasing: story("Rebasing", { ...base, rebase: { state: "rebasing", onto: "T8" } }, { expect: ["T8"] }),
@@ -104,7 +104,7 @@ export const fixtures = {
   ),
   moved_off: story(
     "Moved off to T15",
-    { ...base, moved_off: { by: person, item: 15 } },
+    { ...base, item: { ...base.item!, state: "needs_you", step: undefined }, moved_off: { by: person, item: 15 } },
     {
       actions: [
         { tag: "todo.return-to-item", label: "Return to T15", args: { n: "15" }, primary: true },
@@ -124,7 +124,7 @@ export const fixtures = {
     actions: [{ tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" } }], expect: ["packages/rpc/src/HomeCard.ts"]
   }),
   answered: story("Answer the coding agent", { ...base, presence: [{ actor: person, where: { kind: "branch" } }] }, {
-    actions: [{ tag: "todo.answer", label: "Answer", args: { n: "12", wait: "question-1" }, primary: true, input: [{ name: "text", label: "Answer the coding agent", kind: "text", required: true }] }, steer], expect: ["todo/12"]
+    actions: [{ tag: "todo.answer", label: "Answer", args: { n: "12", wait: "question-1" }, primary: true, input: [{ name: "text", label: "Answer the coding agent", kind: "text", required: true }] }, steer, newTerminal, fork], expect: ["todo/12"]
   }),
   active: story(
     "People and agents working together",
@@ -224,9 +224,26 @@ export const fixtures = {
       ]
     },
     {
-      actions: [fork, newTerminal, steer],
+      actions: [steer, newTerminal, fork],
       gestures: { file: { tag: "file", label: "Open file", args: { branch: "todo/12" } }, terminal: { tag: "terminal.watch", label: "Open terminal" }, item: { tag: "todo", label: "Open TODO" } },
-      expect: ["Implement card projections", "Pushed a commit", "Checks", "flows/todo/instructions/implementer.md"]
+      expect: ["Changed outside Smithers", "Pushed a commit", "Checks"]
     }
   )
+} satisfies Record<string, Story<BranchCard>>
+
+
+export const fixtures = {
+  ...states,
+  active_files: story("People and agents' changed files", states.active.model, {
+    actions: states.active.actions,
+    gestures: states.active.gestures,
+    view: { maximized: false, tab: "files" },
+    expect: ["todo/12", "flows/todo/instructions/implementer.md"]
+  }),
+  active_terminals: story("People and agents' terminals", states.active.model, {
+    actions: states.active.actions,
+    gestures: states.active.gestures,
+    view: { maximized: false, tab: "terminals" },
+    expect: ["todo/12", "Checks", "pnpm check", "Implement"]
+  })
 } satisfies Record<string, Story<BranchCard>>
