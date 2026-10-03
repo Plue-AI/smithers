@@ -156,7 +156,8 @@ The code table, the type derived from it, and the lookups over it.
 ### ERROR_REFERENCE_URL
 
 ```ts
-const ERROR_REFERENCE_URL: "https://smithers.sh/docs/reference/errors"
+const ERROR_REFERENCE_URL:
+  "https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md"
 ```
 
 The documentation page every code points at, and the value of every instance's

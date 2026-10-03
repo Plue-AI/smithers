@@ -24,7 +24,7 @@ the documentation URL; `cause` is present only when the caller supplied one.
 
 ## message, summary, and the documentation URL
 
-The constructor appends `" See https://smithers.sh/docs/reference/errors"` to the
+The constructor appends `" See https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md"` to the
 summary and stores the un-suffixed text as `summary`.
 
 The append is idempotent by construction. Before appending, the constructor
@@ -35,10 +35,10 @@ same `message` and `summary` rather than a growing tail:
 
 ```ts
 const first = new SmithersError("INVALID_INPUT", "no bot token")
-first.message // "no bot token See https://smithers.sh/docs/reference/errors"
+first.message // "no bot token See https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md"
 
 const wrapped = new SmithersError("INVALID_INPUT", first.message)
-wrapped.message // "no bot token See https://smithers.sh/docs/reference/errors"
+wrapped.message // "no bot token See https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md"
 wrapped.summary // "no bot token"
 ```
 

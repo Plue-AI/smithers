@@ -94,6 +94,7 @@ describe("IntegrationError", () => {
 
   it("carries a reason and provider-safe details", () => {
     const error = new IntegrationError("poll-failed", "getUpdates failed", { sourceId: "telegram" })
+    expect(error.message).toBe(`getUpdates failed See ${ERROR_REFERENCE_URL}`)
     expect(error.reason).toBe("poll-failed")
     expect(error.code).toBe("INTEGRATION_ERROR")
     expect(error.details).toEqual({ reason: "poll-failed", sourceId: "telegram" })

@@ -119,7 +119,7 @@ console.log(JSON.stringify(error))
 {
   "code": "INTEGRATION_ERROR",
   "summary": "poll failed",
-  "docsUrl": "https://smithers.sh/docs/reference/errors",
+  "docsUrl": "https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md",
   "details": { "reason": "poll-failed" }
 }
 ```

@@ -1,5 +1,13 @@
 # @smthrs/errors
 
+## [Unreleased]
+
+### Changed
+
+- Changed `ERROR_REFERENCE_URL` and the documentation suffix in every
+  `SmithersError` message to link to the package-owned error code reference on
+  GitHub instead of the removed website page.
+
 ## [1.0.0-rc.0] - 2026-08-31
 
 ### Added

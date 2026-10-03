@@ -14,14 +14,14 @@
  * The documentation page every code points at.
  *
  * This URL is appended to the message of every `SmithersError`, so it reaches
- * a user in a log line they cannot edit. It has to resolve on the live site:
- * it was `https://smithers.sh/reference/errors` and 404ed, because the page
- * lives under `/docs/`.
+ * a user in a log line they cannot edit. It points at the package-owned
+ * Markdown reference on GitHub.
  *
  * @category constants
  * @since 1.0.0
  */
-export const ERROR_REFERENCE_URL = "https://smithers.sh/docs/reference/errors"
+export const ERROR_REFERENCE_URL =
+  "https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md"
 
 /**
  * What a code means and when it is raised.

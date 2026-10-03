@@ -47,11 +47,11 @@ describe("SmithersError", () => {
 
   // Spelled out rather than interpolated on purpose: this is the string a user
   // reads in a log, so a change to ERROR_REFERENCE_URL has to be deliberate
-  // enough to edit a test. The URL moved under /docs/ because the bare
-  // /reference/errors path 404s on the live site.
+  // enough to edit a test. The reference lives in the package-owned Markdown
+  // so the message does not depend on the removed website page.
   it("freezes the wire-visible message format", () => {
     expect(new SmithersError("INVALID_INPUT", "no bot token").message).toBe(
-      "no bot token See https://smithers.sh/docs/reference/errors"
+      "no bot token See https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md"
     )
   })
 

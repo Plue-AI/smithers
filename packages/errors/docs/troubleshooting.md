@@ -72,7 +72,7 @@ details, { name: "MyError" })`. A subclass does the same through `super`.
 ## The message has no documentation URL
 
 **Symptom.** `error.message` equals `error.summary`, with no
-`See https://smithers.sh/docs/reference/errors` at the end.
+`See https://github.com/smithersai/smithers/blob/main/packages/errors/docs/reference/error-codes.md` at the end.
 
 **Cause.** One of two rules suppressed it. Either the caller passed
 `{ includeDocsUrl: false }`, or the summary was empty or entirely whitespace. A
