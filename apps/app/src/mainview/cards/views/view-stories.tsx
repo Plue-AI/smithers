@@ -2,7 +2,7 @@
 import { createRoot } from "react-dom/client"
 import type { StoryModule, ViewStory } from "./stories"
 import "../../styles/tokens.css"
-import "../../styles/views.css"
+import "../../styles/cards.css"
 import "./view-stories.css"
 
 const modules = import.meta.glob<StoryModule>("./*.stories.tsx", { eager: true })

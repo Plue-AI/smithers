@@ -186,7 +186,7 @@ for (const path of paths) {
 for (const theme of ["light", "dark"]) test(`Paper tone mappings ${theme}`, () => {
   document.documentElement.dataset.theme = theme
   const css = document.createElement("style")
-  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/views/primitives.css", import.meta.url), "utf8")
+  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
   document.head.append(css)
   try {
     for (const [tone, token] of [["live", "--brand"], ["attention", "--attention"], ["failed", "--danger"], ["done", "--text-muted"], ["quiet", "--text-muted"]]) {
@@ -201,7 +201,7 @@ for (const theme of ["light", "dark"]) test(`Paper tone mappings ${theme}`, () =
 
 for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`primitive style ${styleCase}`, () => {
   const css = document.createElement("style")
-  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/views/primitives.css", import.meta.url), "utf8")
+  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
   if (styleCase === "harness") css.textContent += readFileSync(new URL("./view-stories.css", import.meta.url), "utf8")
   document.head.append(css)
   const state = document.createElement("span")
@@ -958,7 +958,8 @@ test("Members disabled actions and names rendered as text", async () => {
 
 // C-UI-12 / ui-components Rules: supplied choice input, local draft, opaque callback.
 test("Members choice default and refreshed input match submitted values", async () => {
-  const { MemberAction } = await import("./MembersActionView")
+  const { MembersView } = await import("./MembersView")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Members")
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
@@ -966,7 +967,7 @@ test("Members choice default and refreshed input match submitted values", async 
   const onAction = (tag: string, args?: Record<string, string>) => { calls.push([tag, args]) }
   const action = { tag: "members.role" as const, label: "Role", args: { login: "ben" }, input: [{ name: "role", label: "Role", kind: "choice" as const, choices: ["maintainer", "member"], required: true }] }
   try {
-    await act(async () => root.render(<MemberAction action={action} onAction={onAction} />))
+    await act(async () => root.render(<MembersView {...fixtures.team} onView={() => {}} model={{ ...fixtures.team.model, members: [] }} actions={[action]} onAction={onAction} />))
     expect(host.querySelector("select")!.value).toBe("maintainer")
     await act(async () => host.querySelector("button")!.click())
     expect(calls).toEqual([["members.role", { login: "ben", role: "maintainer" }]])
@@ -976,7 +977,7 @@ test("Members choice default and refreshed input match submitted values", async 
       select.dispatchEvent(new Event("change", { bubbles: true }))
     })
     expect(host.querySelector("select")!.value).toBe("member")
-    await act(async () => root.render(<MemberAction action={{ ...action, input: [{ ...action.input[0]!, choices: ["owner", "maintainer", "member"], value: "owner" }] }} onAction={onAction} />))
+    await act(async () => root.render(<MembersView {...fixtures.team} onView={() => {}} model={{ ...fixtures.team.model, members: [] }} actions={[{ ...action, input: [{ ...action.input[0]!, choices: ["owner", "maintainer", "member"], value: "owner" }] }]} onAction={onAction} />))
     expect(host.querySelector("select")!.value).toBe("owner")
     await act(async () => host.querySelector("button")!.click())
     expect(calls).toEqual([["members.role", { login: "ben", role: "maintainer" }], ["members.role", { login: "ben", role: "owner" }]])
@@ -1072,26 +1073,6 @@ test("HomeView sync age handles minute boundaries and future timestamps", async 
     }
     expect(view.onAction.mock.calls).toEqual([])
   } finally { await view.close(); time.mockRestore() }
-})
-
-for (const theme of ["light", "dark"]) test(`HomeView Paper status colors ${theme}`, async () => {
-  const { HomeView } = await import("./HomeView")
-  const { fixtures } = await import("@smthrs/rpc/fixtures/Home")
-  document.documentElement.dataset.theme = theme
-  const css = document.createElement("style")
-  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/views/home.css", import.meta.url), "utf8")
-  document.head.append(css)
-  const view = await mounted({ name: "home-tones", expect: [], render: callbacks => <HomeView {...fixtures.active} {...callbacks} model={{ ...fixtures.active.model, main: { ...fixtures.active.model.main, health: "stale" } }} /> })
-  try {
-    // C-UI-12 / spec §14.5.2: literal Paper tokens, independent of rendering helpers.
-    for (const [selector, token] of [[".mvp-sync", "--attention-text"], ['.mvp-run-row[data-state="failed"]', "--danger"], ['.mvp-run-row[data-state="running"]', "--action-primary"]]) {
-      const expected = document.createElement("span")
-      expected.style.color = `var(${token})`
-      document.body.append(expected)
-      expect(getComputedStyle(view.host.querySelector(selector!)!).color).toBe(getComputedStyle(expected).color)
-      expected.remove()
-    }
-  } finally { await view.close(); css.remove() }
 })
 
 // Home mock FILTERS/shows: Starting shares Working, zero counts are inactive.

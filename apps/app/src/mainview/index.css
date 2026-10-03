@@ -2,12 +2,11 @@
 @import "./styles/tokens.css";
 @import "./styles/base.css";
 @import "./styles/chat.css";
-@import "./styles/cards.css";
 @import "./styles/flow-graph.css";
 @import "./styles/github-cards.css";
 @import "./styles/surfaces.css";
 @import "./styles/chrome.css";
 @import "./styles/identity.css";
 @import "./styles/threads.css";
-@import "./styles/views.css";
+@import "./styles/cards.css";
 @config "../../tailwind.config.js";

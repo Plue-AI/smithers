@@ -351,20 +351,8 @@
       "export": "HomeActionView"
     },
     {
-      "file": "cards/views/TodoActionView.tsx",
-      "export": "TodoActionView"
-    },
-    {
       "file": "cards/views/FlowActionView.tsx",
       "export": "FlowActionView"
-    },
-    {
-      "file": "cards/views/CommandActionView.tsx",
-      "export": "CommandActionView"
-    },
-    {
-      "file": "cards/views/MembersActionView.tsx",
-      "export": "MemberAction"
     },
     {
       "file": "cards/views/EdgeGroupView.tsx",
