@@ -125,6 +125,9 @@ importers:
       mermaid:
         specifier: ^11.17.2
         version: 11.17.2
+      playwright:
+        specifier: 1.62.1
+        version: 1.62.1
       react:
         specifier: 19.2.8
         version: 19.2.8
