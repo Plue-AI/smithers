@@ -1728,6 +1728,13 @@ console.log("reverted");`,
       5_000,
       "worker tab"
     )
+    // Alt+V shows the run's diff; the composer keeps its draft under it.
+    await tui.type("draft")
+    await tui.press("\x1bv")
+    await tui.until((screen) => screen.includes("Fixer  1 file +1 −1") && screen.includes("a + b"), 5_000, "run diff")
+    await tui.press(key.escape)
+    await tui.until((screen) => screen.includes("Continue Fixer") || screen.includes("draft"), 5_000, "back to tab")
+    expect(tui.screen()).toContain("draft")
     await tui.press(key.tab)
     await tui.until((screen) => screen.includes("alt+v Diff  alt+u Undo"), 5_000, "worker rows")
     // Alt+U undoes the whole run, whatever row the view shows.
