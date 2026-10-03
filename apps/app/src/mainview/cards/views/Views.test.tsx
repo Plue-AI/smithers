@@ -1606,7 +1606,10 @@ import { DocsView } from "./DocsView"
 import { fixtures as docsFixtures } from "@smthrs/rpc/fixtures/Docs"
 describe("DocsView", () => {
   test("raw HTML stays inert in the read-only document", async () => {
-    const fixture = docsFixtures.hostile
+    const fixture = { ...docsFixtures.hostile, model: { ...docsFixtures.hostile.model, page: {
+      ...docsFixtures.hostile.model.page,
+      markdown: docsFixtures.hostile.model.page.markdown + "\n`a < b`\n\n```html\n<div>example</div>\n```\n"
+    } } }
     const rendered = await mounted({ name: "hostile", expect: [], render: callbacks => <DocsView {...fixture} {...callbacks} /> })
     try {
       expect(rendered.host.querySelector("script,img,iframe")).toBeNull()
@@ -1614,7 +1617,9 @@ describe("DocsView", () => {
       expect(source.readOnly).toBe(true)
       expect(source.value).toContain("&lt;script>alert(1)&lt;/script>")
       expect(source.value).toContain("&lt;img src=x onerror=alert(1)>")
-      await act(async () => rendered.host.querySelectorAll<HTMLButtonElement>("nav button")[1]!.click())
+      expect(source.value).toContain("`a < b`")
+      expect(source.value).toContain("```html\n<div>example</div>\n```")
+      await act(async () => rendered.host.querySelectorAll<HTMLAnchorElement>("nav a")[1]!.click())
       expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos" }]])
     } finally { await rendered.close() }
   })
@@ -1622,13 +1627,28 @@ describe("DocsView", () => {
     for (const fixture of [docsFixtures.inert, docsFixtures.disabled]) {
       const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...fixture} {...callbacks} /> })
       try {
-        const buttons = [...rendered.host.querySelectorAll<HTMLButtonElement>("nav button")]
-        expect(buttons.map(button => button.disabled)).toEqual([true, true, true])
-        await act(async () => buttons[1]!.click())
+        const buttons = [...rendered.host.querySelectorAll<HTMLAnchorElement>("nav a")]
+        expect(buttons.map(button => button.getAttribute("aria-disabled"))).toEqual(fixture === docsFixtures.inert ? [] : ["true", "true", "true"])
+        await act(async () => buttons[1]?.click())
         expect(rendered.onAction).toHaveBeenCalledTimes(0)
         if (fixture === docsFixtures.disabled) expect(rendered.host.textContent).toContain("Unavailable")
       } finally { await rendered.close() }
     }
+  })
+  test("supplied actions retain order, args, and disabled reason", async () => {
+    const actions: import("@smthrs/rpc/CardAction").Action[] = [
+      { tag: "docs", label: "Open", args: { page: "flows", source: "button" } },
+      { tag: "docs", label: "Retry", disabled: { reason: "Unavailable" } },
+    ]
+    const rendered = await mounted({ name: "actions", expect: [], render: callbacks => <DocsView {...docsFixtures.page} actions={actions} {...callbacks} /> })
+    try {
+      const buttons = [...rendered.host.querySelectorAll<HTMLButtonElement>("footer button")]
+      expect(buttons.map(button => button.textContent)).toEqual(["Open", "Retry"])
+      await act(async () => { buttons[0]!.click(); buttons[1]!.click() })
+      expect(rendered.onAction.mock.calls).toEqual([["docs", { page: "flows", source: "button" }]])
+      expect(buttons[1]!.disabled).toBe(true)
+      expect(rendered.host.querySelector("footer")?.textContent).toBe("OpenRetryUnavailable")
+    } finally { await rendered.close() }
   })
   test("missing page shows the requested slug and supplied fallback", async () => {
     const rendered = await mounted({ name: "missing", expect: [], render: callbacks => <DocsView {...docsFixtures.not_found} {...callbacks} /> })

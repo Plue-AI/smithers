@@ -2817,7 +2817,7 @@
 .draft-seed code { font: var(--fs-caption) var(--font-mono); overflow-wrap: anywhere; }
 .draft-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-1); margin-top: var(--sp-3); }
 .draft-action { display: flex; flex-direction: column; gap: 4px; }
-.draft-actions button { padding: 6px 12px; border: 1px solid transparent; border-radius: var(--r-1); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-small); cursor: pointer; }
+.draft-actions button { padding: 6px 12px; border: 1px solid transparent; border-radius: var(--r-1); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-small); text-decoration: none; cursor: pointer; }
 .draft-actions button:hover { background: var(--hover); }
 .draft-actions button[data-primary] { background: var(--action-primary); color: var(--on-action-primary); }
 .draft-actions button:disabled { opacity: .6; cursor: default; }
@@ -3016,10 +3016,10 @@
 /* DocsView (T-UI-21): bundled pages, read-only wiki typography. */
 .mvp-docs { display: grid; grid-template-columns: 160px minmax(0, 1fr); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-family: var(--font-ui); }
 .mvp-docs nav { display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; border-right: 1px solid var(--border); }
-.mvp-docs nav button { text-align: left; padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font: inherit; font-size: var(--fs-small); cursor: pointer; overflow-wrap: anywhere; }
-.mvp-docs nav button[aria-current] { color: var(--text); background: var(--surface-2); font-weight: 600; }
-.mvp-docs button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.mvp-docs button:disabled { cursor: default; }
+.mvp-docs nav a { text-align: left; padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font: inherit; font-size: var(--fs-small); text-decoration: none; cursor: pointer; overflow-wrap: anywhere; }
+.mvp-docs nav a[aria-current] { color: var(--text); background: var(--surface-2); font-weight: 600; }
+.mvp-docs button:focus-visible, .mvp-docs nav a:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.mvp-docs button:disabled, .mvp-docs nav a[aria-disabled="true"] { cursor: default; }
 .mvp-docs nav span { font-size: var(--fs-caption); color: var(--text-muted); }
 .mvp-docs .mvp-docs-page { min-width: 0; padding: 24px; overflow-wrap: anywhere; }
 .mvp-docs header h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: -.02em; }
@@ -3036,3 +3036,8 @@
   .mvp-docs nav { flex-direction: row; flex-wrap: wrap; padding: 12px; border-right: 0; border-bottom: 1px solid var(--border); }
   .mvp-docs .mvp-docs-page { padding: 20px 16px; }
 }
+.mvp-docs .mvp-docs-markdown .milkdown .ProseMirror { padding: 0; font-size: var(--fs-small); line-height: 1.55; }
+.mvp-docs .milkdown .ProseMirror h1 { font-size: 22px; line-height: 1.3; margin: 20px 0 12px; }
+.mvp-docs .milkdown .ProseMirror h2 { font-size: 18px; line-height: 1.3; margin: 20px 0 8px; }
+.mvp-docs .milkdown .ProseMirror h3 { font-size: var(--fs-body); margin: 16px 0 8px; }
+.mvp-docs .milkdown .ProseMirror code { color: var(--text); }

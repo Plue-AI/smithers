@@ -403,6 +403,31 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
     if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) || ts.isFunctionDeclaration(expression)) {
       if (!expression.body) return undefined
       if (ts.isBlock(expression.body)) {
+        // Link adapters return a handled flag, and optional gestures need guards.
+        // Permit those pure guards while still rejecting every extra effect.
+        if (expression.body.statements.some(statement => ts.isIfStatement(statement))) {
+          const tags: ts.Expression[] = []
+          let valid = true
+          const inspect = (node: ts.Node): void => {
+            if (mutates(node) || ts.isNewExpression(node)) valid = false
+            if (ts.isCallExpression(node)) {
+              const callee = node.expression
+              if (ts.isPropertyAccessExpression(callee) && /^(event|e)$/.test(callee.expression.getText(tree)) &&
+                /^(preventDefault|stopPropagation)$/.test(callee.name.text) && node.arguments.length === 0) return
+              const tag = calledTag(node, new Set(seen))
+              if (tag) tags.push(tag)
+              else valid = false
+              return
+            }
+            if (ts.isReturnStatement(node) && node.expression &&
+              node.expression.kind !== ts.SyntaxKind.TrueKeyword &&
+              node.expression.kind !== ts.SyntaxKind.FalseKeyword) valid = false
+            ts.forEachChild(node, inspect)
+          }
+          inspect(expression.body)
+          if (valid && tags.length === 1) return tags[0]
+          return undefined
+        }
         const statements = [...expression.body.statements]
         while (statements.length > 1) {
           const first = statements[0]!
@@ -582,7 +607,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           violations.push(`${name} must call onAction(action.tag) or change presentation`)
         } else if (
           tag &&
-          (!dataFlow || unwrap(dataFlow).getText(tree).replace(/\s/g, "") !== tag.getText(tree).replace(/\s/g, ""))
+          (!dataFlow || unwrap(dataFlow).getText(tree).replace(/\s|\?/g, "") !== tag.getText(tree).replace(/\s|\?/g, ""))
         ) {
           violations.push(`${name} must carry the same action.tag in data-flow`)
         }
@@ -835,6 +860,14 @@ describe("View and Container catalog seam (C-UI-08)", () => {
       )
     ).toEqual([])
     expect(viewSeamViolations("// <button onClick={() => bad()} />\nconst view = <p>onClick is text</p>")).toEqual([])
+  })
+
+  test("guarded link callbacks retain exactly one catalog effect", () => {
+    expect(viewSeamViolations('const follow = href => { const page = links[href]; if (page && open && !open.disabled) onAction(open.tag, { ...open.args, page }); return true }; const view = <MarkdownEditor data-flow={open?.tag} onLinkClick={follow} />')).toEqual([])
+    for (const effect of ['fetch(page)', 'localStorage.clear()', 'onRetry()', 'new Worker(page)', 'model.page = page', 'onAction(other.tag)']) {
+      expect(viewSeamViolations(`const follow = href => { if (open) onAction(open.tag, { page: href }); ${effect}; return true }; const view = <MarkdownEditor data-flow={open?.tag} onLinkClick={follow} />`).length).toBeGreaterThan(0)
+    }
+    expect(viewSeamViolations('const follow = href => { if (open) onAction(open.tag, { page: href }); return true }; const view = <MarkdownEditor data-flow={other?.tag} onLinkClick={follow} />').length).toBeGreaterThan(0)
   })
 
   test("view patches and transient React or DOM handlers preserve the seam", () => {

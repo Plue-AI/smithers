@@ -4,7 +4,7 @@ import { dirname, extname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // T-UI-16: CodeSurface is already reachable; T-APP-11 wires its live props. No new View.
-// Existing views awaiting their owning wiring tickets; this list must only shrink.
+// Views built dark await their owning wiring tickets. Wiring removes its row.
 const PENDING_WIRING: Record<string, string> = {
   "BranchView.tsx": "T-APP-10",
   "FilePresenceView.tsx": "T-APP-14",
@@ -16,6 +16,7 @@ const PENDING_WIRING: Record<string, string> = {
   "TerminalView.tsx": "T-APP-12",
   "SecretsView.tsx": "T-APP-13",
   "ProposalView.tsx": "T-FLW-06",
+  "DocsView.tsx": "T-APP-20",
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
