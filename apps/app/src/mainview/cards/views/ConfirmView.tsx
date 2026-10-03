@@ -44,7 +44,7 @@ export function ConfirmView({ model, actions, onAction }: ConfirmViewProps) {
             {evidence.reviewing ? <span>Review running on <span className="confirm-mono">{evidence.revision}</span></span> : evidence.previous ? <span className="confirm-previous">Reviewed <span className="confirm-mono">{evidence.previous.revision}</span> · same change</span> : null}
           </div>
           {stale ? <p className="confirm-stale">You approved {review.approved_revision}. Review {evidence.revision}.</p> : null}
-          {review.merge.state !== "ready" ? <p className="confirm-merge-reason" data-state={review.merge.state}>{review.merge.detail ?? (review.merge.reason ? reasons[review.merge.reason] : review.merge.state === "done" ? "Merged into main" : "Merging")}</p> : null}
+          {review.merge.state !== "ready" ? <p className="confirm-merge-reason" data-state={review.merge.state}>{review.merge.reason === "order" && review.merge.detail ? `Merges after ${review.merge.detail}` : review.merge.detail ?? (review.merge.reason ? reasons[review.merge.reason] : review.merge.state === "done" ? "Merged into main" : "Merging")}</p> : null}
         </> : null}
       </>}
       {model.text === undefined ? null : <p className="confirm-text">{model.text}</p>}
