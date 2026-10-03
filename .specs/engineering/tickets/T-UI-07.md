@@ -2,6 +2,7 @@
 
 Stage S1 · Size L · Depends on T-UI-01, T-APP-19b · Unblocks T-AGT-03, T-APP-16, T-APP-17, T-APP-22, T-APP-23, T-REL-02 · Issue: [#3544](https://github.com/smithersai/smithers/issues/3544)
 Spec: spec.md §14.2.1, §14.1, §14.5.1, §15.1.2 · Delta: delta.md §9 · Product: mvp.md §6.3, M-08 · Props: [ui-components.md § T-UI-07](../ui-components.md)
+Ready: 2026-10-02 smithers-8a sha256:8cc667bfc04b
 
 ## Goal
 

@@ -2,7 +2,7 @@
 
 Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3615](https://github.com/smithersai/smithers/issues/3615)
 Spec: spec.md §21.4 · Delta: delta.md (engineering process) · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-22
-Ready: 2026-10-02 smithers-8a sha256:0770a6fe91e5
+Ready: VOID 2026-10-02 22:13 smithers-8a: product's 20:07 close-reason amendment changes scope; restamp after it is recorded here
 
 ## Goal
 
