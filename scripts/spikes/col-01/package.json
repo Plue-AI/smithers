@@ -1,0 +1,9 @@
+{
+  "name": "smithers-col01-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "yjs": "13.6.32",
+    "@playwright/test": "1.62.1"
+  }
+}

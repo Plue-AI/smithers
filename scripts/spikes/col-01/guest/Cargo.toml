@@ -1,0 +1,25 @@
+[package]
+name = "col01-guest"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+yrs = "=0.27.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[[bin]]
+name = "col01-echo"
+path = "../echo/main.rs"
+
+[[bin]]
+name = "col01-dochost"
+path = "../dochost/main.rs"
+
+[profile.release]
+opt-level = 2
+strip = true

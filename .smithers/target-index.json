@@ -46053,6 +46053,163 @@
     }
   },
   {
+    "label": "//scripts/spikes/col-01:keystrokes",
+    "package": "scripts/spikes/col-01",
+    "name": "keystrokes",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/col-01/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*.go",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "hosts": [
+      "darwin"
+    ],
+    "source": {
+      "file": "scripts/spikes/col-01/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts/spikes/col-01:rtt",
+    "package": "scripts/spikes/col-01",
+    "name": "rtt",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/col-01/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*.go",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "hosts": [
+      "darwin"
+    ],
+    "source": {
+      "file": "scripts/spikes/col-01/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts/spikes/col-01:snapshot",
+    "package": "scripts/spikes/col-01",
+    "name": "snapshot",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/col-01/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*.go",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "hosts": [
+      "darwin"
+    ],
+    "source": {
+      "file": "scripts/spikes/col-01/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts/spikes/col-01:test",
+    "package": "scripts/spikes/col-01",
+    "name": "test",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/col-01/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*.go",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "hosts": [
+      "darwin",
+      "linux"
+    ],
+    "source": {
+      "file": "scripts/spikes/col-01/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts/spikes/mch-02-virtiofs-homes:test",
     "package": "scripts/spikes/mch-02-virtiofs-homes",
     "name": "test",

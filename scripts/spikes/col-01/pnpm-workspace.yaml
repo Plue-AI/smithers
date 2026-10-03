@@ -1,0 +1,4 @@
+packages:
+  - .
+overrides:
+  lib0: 0.2.117
