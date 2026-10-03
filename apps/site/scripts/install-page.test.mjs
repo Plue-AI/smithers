@@ -107,3 +107,15 @@ test("the site has no empty documentation pages", () => {
     assert.ok(readFileSync(join(content, path), "utf8").trim().length > 0, `empty documentation page: ${path}`)
   }
 })
+
+test("planned setup puts Address and App before the owner claim and repository", () => {
+  const section = installation.split("## Complete setup\n")[1]?.split("\n## ")[0]
+  assert.ok(section, "setup section must exist")
+  assert.match(section, /\*\*Planned\.\*\*/)
+  assert.deepEqual([...section.matchAll(/^\d+\. \*\*([^*]+)\*\*/gm)].map(match => match[1]),
+    ["Address:", "GitHub App:", "Owner sign-in:", "Repository:", "Model access:"])
+  for (const claim of [/This Mac/, /network address/, /callback is registered/, /through the new App/,
+    /squash merging/, /retry/, /\*\*fast\*\*/, /\*\*coding\*\*/, /\*\*Decisions\*\*/,
+    /provider key or ChatGPT sign-in/, /AI Gateway key/, /Without a fast-model key/]) assert.match(section, claim)
+  assert.doesNotMatch(section, /\bjev\b/i)
+})

@@ -48,7 +48,7 @@ Smithers maintains your codebase. It turns issues into reviewed, tested changes 
 
 - An Apple Silicon Mac running macOS and Homebrew.
 - A GitHub repository with squash merging enabled.
-- A coding-model provider key or ChatGPT sign-in, and an AI Gateway key for Jev.
+- A coding-model provider key or ChatGPT sign-in, and an AI Gateway key for Decisions.
 
 Once the package ships, run on your Mac:
 
@@ -67,9 +67,15 @@ brew install smithersai/tap/smithers
 
 Replace `studio-mini.local` with your Mac's LAN hostname. The planned options are `--bind <addr>` and `--origin <url>`.
 
-## Claim the install
+## Complete setup
 
-**Planned.** Open the printed setup URL. Sign in with GitHub to become the owner. Claiming the install invalidates the token; later sign-ins require membership on the install's roster.
+**Planned.** Open the printed setup link. The setup card will guide you in this order:
+
+1. **Address:** choose **This Mac** or a network address your teammates will use. Address comes first because the GitHub App's sign-in callback is registered to it.
+2. **GitHub App:** create the App through GitHub's app-manifest flow.
+3. **Owner sign-in:** sign in with GitHub through the new App to claim the install. Claiming invalidates the setup token.
+4. **Repository:** choose the repository and install the App on it. Setup checks that GitHub allows squash merging; if it does not, enable squash merging on GitHub and retry.
+5. **Model access:** connect the three roles: **fast** for the app agent and summaries (Cerebras by default), **coding** through a provider key or ChatGPT sign-in, and **Decisions** through an AI Gateway key. Without a fast-model key, the app agent uses the coding model.
 
 The rest of the docs will be in the app at `/docs`.
 
