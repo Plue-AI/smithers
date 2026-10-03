@@ -51,11 +51,6 @@ import * as Digest from "@smthrs/core/Digest"
 import * as Flow from "@smthrs/flow/Flow"
 ```
 
-Core namespaces remain available at both root and subpath imports. New flow
-declarations use `@smthrs/flow`; Core's options-object constructor is deprecated. Prefer the subpath form when you import
-one or two modules into a large file, because it keeps the namespace name in
-the import specifier where a reader can see it.
-
 ## What is not public
 
 Two subpath families are blocked in the package's export map and are not part

@@ -17,7 +17,6 @@
  * @since 1.0.0-rc.1
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as Fault from "@smthrs/flow/Fault"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
@@ -63,7 +62,7 @@ export const knowledge = {
     },
     {
       name: "@smthrs/core",
-      about: "Schema-first flow signatures over @smthrs/flow; Flow.make({ name, input, output, effects })."
+      about: "Flow metadata: annotations, effects, placement, and Markdown lowering."
     },
     {
       name: "@smthrs/agent",
@@ -218,32 +217,35 @@ const port = <A>(call: () => A) =>
  * @since 1.0.0-rc.1
  */
 export const guide: FlowBinding.Binding = FlowBinding.make({
-  flow: Flow.make({
+  flow: ({
+    capabilities: [],
     name: "smithers.guide",
     description:
       "Smithers facts: key @smthrs packages, smthrs CLI verbs, and the flow authoring recipe. topic is packages, cli, authoring, or all.",
     input: Schema.Struct({ topic: Schema.optional(Topic) }),
     output: Schema.Json,
     effects: sealed
-  }),
+  } as const),
   handler: ({ topic }) =>
     Effect.succeed(json(topic === undefined || topic === "all" ? knowledge : { [topic]: knowledge[topic] }))
 })
 
 const bindings = (ports: Ports): ReadonlyArray<FlowBinding.Binding> => [
   FlowBinding.make({
-    flow: Flow.make({
+    flow: ({
+      capabilities: [],
       name: "smithers.flows",
       description: "List the project's Smithers flows a model may start: name and description.",
       input: Schema.Struct({}),
       output: Schema.Json,
       effects: live
-    }),
+    } as const),
     handler: () => port(ports.list),
     publicError
   }),
   FlowBinding.make({
-    flow: Flow.make({
+    flow: ({
+      capabilities: [],
       name: "smithers.run",
       description:
         "Request a Smithers flow run in a background tab and return immediately. Reuse id to deduplicate. Requested is not completed. Read with smithers.inspect.",
@@ -254,18 +256,19 @@ const bindings = (ports: Ports): ReadonlyArray<FlowBinding.Binding> => [
       }),
       output: Schema.Json,
       effects: live
-    }),
+    } as const),
     handler: (request) => port(() => ports.run(request)),
     publicError
   }),
   FlowBinding.make({
-    flow: Flow.make({
+    flow: ({
+      capabilities: [],
       name: "smithers.inspect",
       description: "Read a Smithers flow run's status, recent steps, and result. Does not wait; do not poll in a loop.",
       input: Schema.Struct({ id: short }),
       output: Schema.Json,
       effects: live
-    }),
+    } as const),
     handler: ({ id }) => port(() => ports.inspect(id)),
     publicError
   })

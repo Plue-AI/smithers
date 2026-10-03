@@ -4,7 +4,6 @@
  * @since 1.0.0
  */
 
-import { Flow } from "@smthrs/core"
 import * as Schema from "effect/Schema"
 import * as Glob from "./Glob.ts"
 import * as Grep from "./Grep.ts"
@@ -119,18 +118,17 @@ export const capabilities: ReadonlyArray<string> = Object.freeze(
  */
 export const make = (options: {
   readonly model?: string | undefined
-}) =>
-  Flow.make({
-    name,
-    description,
-    input: Input,
-    output: Output,
-    model: options.model,
-    flows,
-    prompt: description,
-    capabilities,
-    effects
-  })
+}) => ({
+  name,
+  description,
+  input: Input,
+  output: Output,
+  model: options.model,
+  flows,
+  prompt: description,
+  capabilities,
+  effects
+} as const)
 
 /**
  * Default explore declaration with seat-selected model injection.

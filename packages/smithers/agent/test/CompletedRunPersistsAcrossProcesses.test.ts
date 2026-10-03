@@ -21,7 +21,6 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlLive, type ControlRuntime, type ControlSchema, SqlControlRuntime } from "@smthrs/control"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
@@ -112,13 +111,14 @@ const controlFlows: ReadonlyArray<ControlRuntime.MemoryFlow> = [
   }
 ]
 
-const noteFlow = CoreFlow.make({
+const noteFlow = {
+  capabilities: [],
   name: "note/save",
   description: "Save one line to the run's note log.",
   input: Schema.Struct({ text: Schema.String }),
   output: Schema.Struct({ saved: Schema.Number }),
   effects: { reads: [], writes: ["/notes/**"], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /** One cell call and a settled turn: the `hello` flow of the smoke, in miniature. */
 const doneFrame = `await ctx.call("note/save", { text: "done" })

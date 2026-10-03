@@ -5,11 +5,12 @@
  */
 
 import type * as Flow from "@smthrs/core/Flow"
-import { isFlow } from "@smthrs/core/Flow"
+import * as RuntimeFlow from "@smthrs/flow/Flow"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import { fileSpecifier } from "@smthrs/registry/Executable"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { FsError } from "./FsError.ts"
 import * as Boundary from "./internal/Boundary.ts"
 
@@ -375,7 +376,9 @@ const exportMissing = (): FsError => loadFailed("The selected flow module has no
  * @category constructors
  * @since 0.1.0
  */
-export const load = (input: Route): Effect.Effect<Flow.Any, FsError> =>
+export const load = (
+  input: Route
+): Effect.Effect<Pick<Flow.Any, "name" | "description" | "input" | "output">, FsError> =>
   Effect.gen(function*() {
     const route = yield* snapshot(input)
     if (route.kind !== "module") {
@@ -391,6 +394,18 @@ export const load = (input: Route): Effect.Effect<Flow.Any, FsError> =>
       try: () => import(/* @vite-ignore */ fileSpecifier(route.sourcePath)) as Promise<{ readonly default?: unknown }>,
       catch: importFailed
     })
-    if (!isFlow(module.default)) return yield* Effect.fail(exportMissing())
-    return module.default
+    if (RuntimeFlow.isFlow(module.default)) {
+      return {
+        name: module.default._tag,
+        description: module.default.description,
+        input: module.default.payloadSchema,
+        output: module.default.successSchema
+      }
+    }
+    if (
+      typeof module.default !== "object" || module.default === null ||
+      !("input" in module.default) || !Schema.isSchema(module.default.input) ||
+      !("output" in module.default) || !Schema.isSchema(module.default.output)
+    ) return yield* Effect.fail(exportMissing())
+    return module.default as Pick<Flow.Any, "name" | "description" | "input" | "output">
   })

@@ -18,7 +18,7 @@ import { FsError } from "./FsError.ts"
  */
 export interface Invocation {
   readonly name: string
-  readonly flow: Flow.Any
+  readonly flow: Pick<Flow.Any, "name" | "description" | "input" | "output">
   readonly input: unknown
 }
 

@@ -43,12 +43,11 @@ Because the declaration is data, a larger flow can name it and inherit both its
 capabilities and its effect envelope, without importing the handler at all:
 
 ```ts
-import * as Flow from "@smthrs/core/Flow"
 import * as Read from "@smthrs/std/Read"
 import * as Schema from "effect/Schema"
 
 /** A step that reads a file. It declares what `read` declares. */
-export const ReadTarget = Flow.make({
+export const ReadTarget = ({
   name: "read-target",
   input: Schema.Struct({ path: Schema.String }),
   output: Read.Output,

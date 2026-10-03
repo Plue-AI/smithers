@@ -3,7 +3,7 @@
  *
  * @since 0.1.0
  */
-import { Flow } from "@smthrs/core"
+
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import { Cause, Context, Effect, Option, SchemaTransformation } from "effect"
 import * as Schema from "effect/Schema"
@@ -468,11 +468,15 @@ describe("SchemaBridge", () => {
       })
     }
     const load = vi.spyOn(Route, "load").mockImplementation((route) =>
-      Effect.succeed(Flow.make({
-        name: route.name,
-        input: inputs[route.name]!,
-        output: Schema.Void
-      }))
+      Effect.succeed(
+        {
+          capabilities: [],
+          effects: undefined,
+          name: route.name,
+          input: inputs[route.name]!,
+          output: Schema.Void
+        } as const
+      )
     )
     try {
       const cli = await Effect.runPromise(

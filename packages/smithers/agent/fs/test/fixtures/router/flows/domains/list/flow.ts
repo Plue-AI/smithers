@@ -1,3 +1,10 @@
-import { Flow } from "@smthrs/core"
+import * as Schema from "effect/Schema"
 
-export default Flow.make({ name: "domains/list", description: "List domains." })
+export default ({
+  capabilities: [],
+  effects: undefined,
+  input: Schema.Void,
+  output: Schema.Unknown,
+  name: "domains/list",
+  description: "List domains."
+} as const)

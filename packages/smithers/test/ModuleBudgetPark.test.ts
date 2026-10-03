@@ -26,7 +26,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import * as Application from "../src/Application.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
@@ -74,7 +74,7 @@ const definition = {
 const source = `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({
+export default ({
   name: "steps",
   description: ${JSON.stringify(definition.description)},
   input: Schema.Struct({}), output: Schema.Unknown,
@@ -121,7 +121,7 @@ const parkedModuleRun = async (
     )
     const modules = Executable.layer({
       delegates: [Steps],
-      load: () => Effect.succeed({ default: CoreFlow.make(definition) })
+      load: () => Effect.succeed({ default: definition })
     }).pipe(Layer.provideMerge(Layer.mergeAll(Interpreter.layer(Steps), Step.layer)), Layer.orDie)
     const registry = NodeControl.layerRegistry(root)
     const engine = NodeControl.engineDurable(root, registry)

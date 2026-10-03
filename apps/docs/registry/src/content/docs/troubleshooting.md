@@ -244,7 +244,8 @@ its initialization. No action handler is executed to validate the layer.
 ### invalid_module
 
 **What happened.** The module at the descriptor's path loaded and its default
-export is not a `Flow.make` value.
+export is neither a tagged flow nor a schema/metadata record. Retained modules
+using the removed Core object-form constructor also receive this typed refusal.
 
 **What to change.** Default-export the flow. A module flow's entry file is read
 without evaluation during discovery and imported for real here, so a file whose

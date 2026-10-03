@@ -1,6 +1,6 @@
 "use server"
 
-import { Flow } from "@smthrs/core"
+import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 
@@ -11,7 +11,7 @@ import { Schema } from "effect"
  * records, so a sibling run derives a different address, finds nothing, and
  * runs the delegate again.
  */
-export default Flow.make({
+export default ({
   name: "cacheable-scoped",
   description: "Delegates to the agent and keeps its result inside one run.",
   input: Schema.Struct({ name: Schema.String }),
@@ -24,5 +24,6 @@ export default Flow.make({
     mode: "hermetic",
     onConflict: "serialize",
     tier: "sealed"
-  }
-}).pipe(Flow.annotate(CacheEnvironment.CachePolicyAnnotation, { scope: "run" }))
+  },
+  annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, { scope: "run" })
+} as const)

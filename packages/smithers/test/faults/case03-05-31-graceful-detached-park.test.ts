@@ -53,7 +53,7 @@ writeFileSync(
     "import { Flow } from \"@smthrs/core\"",
     "import { Schema } from \"effect\"",
     "",
-    "export default Flow.make({",
+    "export default ({",
     // The registry name the path derives; `@smthrs/core` requires it.
     "  name: \"idle\",",
     "  description: \"Waits for an external executor.\",",

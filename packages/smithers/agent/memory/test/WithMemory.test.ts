@@ -1,8 +1,8 @@
 import * as Annotations from "@smthrs/core/Annotations"
-import * as Flow from "@smthrs/core/Flow"
 import * as Graph from "@smthrs/core/Graph"
 import * as Node from "@smthrs/core/Node"
 import * as Placement from "@smthrs/core/Placement"
+import { Action, Flow } from "@smthrs/flow"
 import * as Trellis from "@smthrs/patterns/Trellis"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -23,11 +23,10 @@ const policy: WithMemory.Policy = {
 }
 
 const passthrough = (name: string) =>
-  Flow.make({
-    name,
-    input: Schema.Unknown,
-    output: Schema.Unknown,
-    body: (input) => Node.succeed(input)
+  Flow.make(name, {
+    payload: { input: Schema.Unknown },
+    success: Schema.Unknown,
+    body: ({ input }) => Node.succeed(input)
   })
 
 const author = passthrough("author")
@@ -39,7 +38,10 @@ const envelope: Trellis.Envelope = { fuel: 2, depth: 2, fanout: 2 }
 const planned = (flow: Trellis.TrellisFlow<unknown>): ReadonlyArray<string> =>
   Graph.nodes(Graph.build(flow, { input: "ship it" })).map((node) => `${node.kind}:${node.id}`)
 
-const annotation = <I, S>(flow: Flow.Any, key: Parameters<typeof Annotations.getOption<I, S>>[1]): S | undefined =>
+const annotation = <I, S>(
+  flow: WithMemory.Declared,
+  key: Parameters<typeof Annotations.getOption<I, S>>[1]
+): S | undefined =>
   Option.getOrUndefined(
     Annotations.getOption((flow as unknown as { readonly annotations: never }).annotations, key)
   )
@@ -147,14 +149,14 @@ describe("WithMemory", () => {
 
   it("annotates the flow and every flow it declares", () => {
     const nested = [passthrough("first"), passthrough("second")]
-    const parent = Flow.make({
+    const parent = {
       name: "parent",
       input: Schema.Unknown,
       output: Schema.Unknown,
       // "by-name" is an unresolved registry reference, which a policy carries
       // through untouched because there is no flow yet to annotate.
       flows: [...nested, "by-name"]
-    })
+    }
 
     const scoped = WithMemory.withMemory(parent, policy)
 
@@ -171,23 +173,29 @@ describe("WithMemory", () => {
   })
 
   it("keeps the annotations the tree already carried", () => {
-    const child = Flow.make({
+    const child = {
       name: "child",
       input: Schema.Unknown,
       output: Schema.Unknown,
       model: "smart",
-      flows: [Flows.recall]
-    }).pipe(Flow.within(Placement.local()))
-    const parent = Flow.make({
+      flows: [Flows.recall],
+      annotations: Annotations.add(Annotations.empty, Annotations.Placement, Placement.local())
+    }
+    const parent = {
       name: "parent",
       input: Schema.Unknown,
       output: Schema.Unknown,
       model: "smart",
-      flows: [child]
-    }).pipe(Flow.within(Placement.local()), Flow.annotate(Annotations.Priority, 7))
+      flows: [child],
+      annotations: Annotations.add(
+        Annotations.add(Annotations.empty, Annotations.Placement, Placement.local()),
+        Annotations.Priority,
+        7
+      )
+    }
 
     const scoped = WithMemory.withMemory(parent, policy)
-    const scopedChild = WithMemory.children(scoped)[0] as Flow.Any
+    const scopedChild = WithMemory.children(scoped)[0] as WithMemory.Declared
 
     expect(annotation(scoped, Annotations.Placement)).toEqual(Placement.local())
     expect(annotation(scoped, Annotations.Priority)).toEqual(7)
@@ -202,13 +210,13 @@ describe("WithMemory", () => {
     // them. A copy that answers `Flow.Any` has no schema types left to read, so
     // the binding call stops compiling. The annotation below is that
     // requirement, checked by `tsc` rather than at run time.
-    const scoped: Flow.Flow<typeof Flows.RecallInput, typeof Flows.RecallOutput, never> = WithMemory.withMemory(
+    const scoped: typeof Flows.recall = WithMemory.withMemory(
       Flows.recall,
       policy
     )
     // The existential stays available for the flows a pattern passes around,
     // which is what `MemoryTrellis.parts` and `Trellis.MakeOptions` carry.
-    const erased: Flow.Any = WithMemory.withMemory(Flows.recall as Flow.Any, policy)
+    const erased: WithMemory.Declared = WithMemory.withMemory(Flows.recall as WithMemory.Declared, policy)
 
     expect(scoped.input).toBe(Flows.RecallInput)
     expect(scoped.output).toBe(Flows.RecallOutput)
@@ -248,13 +256,16 @@ describe("WithMemory", () => {
   })
 
   it("hands the policy to the leaf the trellis calls and to the memory flows that leaf declares", () => {
-    const agent = Flow.make({
+    const agent = {
       name: "leaf-agent",
+      call:
+        Action.make("leaf-agent", { payload: { input: Schema.Unknown }, success: Schema.Unknown, tier: "irreversible" })
+          .call,
       input: Schema.Unknown,
       output: Schema.Unknown,
       model: "smart",
       flows: [Flows.recall, Flows.remember]
-    })
+    }
     const scoped = MemoryTrellis.parts({ author, leaf: agent, envelope, memory: policy })
 
     expect(WithMemory.policyOf(scoped.leaf)).toEqual(policy)
@@ -266,19 +277,22 @@ describe("WithMemory", () => {
   })
 
   it("resolves a delegated leaf's recall to the trellis namespace over the real store", async () => {
-    const agent = Flow.make({
+    const agent = {
       name: "leaf-agent",
+      call:
+        Action.make("leaf-agent", { payload: { input: Schema.Unknown }, success: Schema.Unknown, tier: "irreversible" })
+          .call,
       input: Schema.Unknown,
       output: Schema.Unknown,
       model: "smart",
       flows: [Flows.recall]
-    })
+    }
     const rows = await Effect.runPromise(
       Effect.gen(function*() {
         yield* remembered("flow-trellis", "ledger", "durable ledger rows")
         yield* remembered("flow-elsewhere", "other", "durable elsewhere rows")
         const scoped = MemoryTrellis.parts({ author, leaf: agent, envelope, memory: policy })
-        const recall = WithMemory.children(scoped.leaf)[0] as Flow.Any
+        const recall = WithMemory.children(scoped.leaf)[0] as WithMemory.Declared
         return yield* Flows.runRecallFor(recall, { banks: [], query: "durable" })
       }).pipe(
         Effect.provide(RecallKeyword.layer),
@@ -290,22 +304,28 @@ describe("WithMemory", () => {
   })
 
   it("reaches the trellis namespace through the handler a host binds", async () => {
-    const agent = Flow.make({
+    const agent = {
       name: "leaf-agent",
+      call:
+        Action.make("leaf-agent", { payload: { input: Schema.Unknown }, success: Schema.Unknown, tier: "irreversible" })
+          .call,
       input: Schema.Unknown,
       output: Schema.Unknown,
       model: "smart",
       flows: [Flows.recall, Flows.remember]
-    })
+    }
     const result = await Effect.runPromise(
       Effect.gen(function*() {
         yield* remembered("flow-trellis", "ledger", "durable ledger rows")
         yield* remembered("flow-elsewhere", "other", "durable elsewhere rows")
         const scoped = MemoryTrellis.parts({ author, leaf: agent, envelope, memory: policy })
         // The declarations a host binds are the ones the leaf hands the model.
-        const [boundRecall, boundRemember] = WithMemory.children(scoped.leaf) as ReadonlyArray<Flow.Any>
-        const rows = yield* Flows.handlersFor(boundRecall as Flow.Any).recall({ banks: [], query: "durable" })
-        yield* Flows.handlersFor(boundRemember as Flow.Any).remember({
+        const [boundRecall, boundRemember] = WithMemory.children(scoped.leaf) as ReadonlyArray<WithMemory.Declared>
+        const rows = yield* Flows.handlersFor(boundRecall as WithMemory.Declared).recall({
+          banks: [],
+          query: "durable"
+        })
+        yield* Flows.handlersFor(boundRemember as WithMemory.Declared).remember({
           bank: "",
           key: "written",
           text: "written through the bound handler"

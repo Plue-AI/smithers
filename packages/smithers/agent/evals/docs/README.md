@@ -47,13 +47,12 @@ This script scores one case, compares the run with a committed
 `baseline.json`, prints the Markdown report, and exits with the gate's grade.
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Baseline, CaseExecutor, Gate, Regression, Report, Runner, Suite } from "@smthrs/evals"
 import { Binding, Scorer } from "@smthrs/scorers"
 import { Effect, Layer } from "effect"
 import { readFile } from "node:fs/promises"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const polite = Scorer.make({
   id: "example/polite",

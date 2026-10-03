@@ -22,7 +22,6 @@
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
-import * as CoreFlow from "@smthrs/core/Flow"
 import { Action } from "@smthrs/flow"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
@@ -515,14 +514,15 @@ export const envelope = (): ReadonlyArray<string> => [
  * @category flows
  * @since 1.0.0-rc.0
  */
-export const mappingFlow = CoreFlow.make({
+export const mappingFlow = {
+  capabilities: [],
   name: "migrate/mapping",
   description:
     "Look up the migration mapping row for one 0.x construct: its 1.0 target, the module the target lives in, the translation rule, and the class the scanner gave it.",
   input: Schema.Struct({ construct: Schema.String }),
   output: Contract.MappingRow,
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
 /**
  * The mapping table this package binds into the agent's catalog.

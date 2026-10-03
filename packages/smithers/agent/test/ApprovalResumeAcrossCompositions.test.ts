@@ -28,7 +28,6 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlLive, ControlRuntime, ControlSchema, SqlControlRuntime } from "@smthrs/control"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
@@ -117,13 +116,14 @@ const controlFlows: ReadonlyArray<ControlRuntime.MemoryFlow> = [
   }
 ]
 
-const noteFlow = CoreFlow.make({
+const noteFlow = {
+  capabilities: [],
   name: "note/save",
   description: "Save one line to the run's note log.",
   input: Schema.Struct({ text: Schema.String }),
   output: Schema.Struct({ saved: Schema.Number }),
   effects: { reads: [], writes: ["/notes/**"], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /**
  * One frame: ask, then write the decision down.

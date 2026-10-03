@@ -9,7 +9,6 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import * as CoreFlow from "../../flows/core/src/Flow.ts"
 
 const runtime = process.argv[2]
 const driftRescan = process.argv[3] === "drift-rescan"
@@ -37,8 +36,8 @@ try {
     `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({ name: "native", description: "Portable native delegate", input: Schema.Struct({ value: Schema.String }), output: Schema.String,
-  capabilities: [], flows: ["portable/Delegate"], effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" } })
+export default ({  name: "native", description: "Portable native delegate", input: Schema.Struct({ value: Schema.String }), output: Schema.String,
+  capabilities: [], flows: ["portable/Delegate"], effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }  })
 `
   )
   const Probe = Action.make("portable/Probe", {
@@ -86,7 +85,7 @@ export default Flow.make({ name: "native", description: "Portable native delegat
     delegates: [Delegate],
     load: () =>
       Effect.succeed({
-        default: CoreFlow.make({
+        default: ({
           // The registry name the module's path derives.
           name: "native",
           description: "Portable native delegate",
@@ -220,8 +219,8 @@ export default Flow.make({ name: "native", description: "Portable native delegat
         `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({ description: "Changed after approval", input: Schema.Struct({ value: Schema.String }), output: Schema.String,
-  capabilities: [], flows: ["portable/Delegate"], effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" } })
+export default ({  description: "Changed after approval", input: Schema.Struct({ value: Schema.String }), output: Schema.String,
+  capabilities: [], flows: ["portable/Delegate"], effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }  })
 `
       )
     }

@@ -180,13 +180,14 @@ export const recallEffects = Effects.make({
  * @category flows
  * @since 0.1.0
  */
-export const remember = Flow.make({
+export const remember = {
+  capabilities: [],
   name: rememberName,
   description: rememberDescription,
   input: RememberInput,
   output: RememberOutput,
   effects: rememberEffects
-})
+} as const
 
 /**
  * Declaration for advisory memory recall.
@@ -194,13 +195,14 @@ export const remember = Flow.make({
  * @category flows
  * @since 0.1.0
  */
-export const recall = Flow.make<typeof RecallInput, typeof RecallOutput, never>({
+export const recall = {
+  capabilities: [],
   name: recallName,
   description: recallDescription,
   input: RecallInput,
   output: RecallOutput,
   effects: recallEffects
-})
+} as const
 
 /**
  * Resolves the recall slot to a supplied signature.
@@ -212,7 +214,8 @@ export const recall = Flow.make<typeof RecallInput, typeof RecallOutput, never>(
  * @category constructors
  * @since 0.1.0
  */
-export const bindRecall = (supplied: Flow.Any): DurableFlow.Any => Pattern.bind(Recall.slot, supplied.flow)
+export const bindRecall = (supplied: Flow.Any | DurableFlow.Any): DurableFlow.Any =>
+  Pattern.bind(Recall.slot, "flow" in supplied ? supplied.flow : supplied)
 
 /**
  * Runtime binding for the remember declaration, carrying explicit provenance.
@@ -307,7 +310,7 @@ const validatePolicyBank = (bank: string, policy: WithMemory.Policy): Effect.Eff
  * @since 0.1.0
  */
 export const runRecallFor = (
-  flow: Flow.Any,
+  flow: WithMemory.Declared,
   input: Recall.Input
 ): Effect.Effect<Recall.Output, MemoryError, Recall.Recall> => {
   const policy = WithMemory.policyOf(flow)
@@ -341,7 +344,7 @@ export const runRecallFor = (
  * @since 0.1.0
  */
 export const runRememberFor = (
-  flow: Flow.Any,
+  flow: WithMemory.Declared,
   input: RememberInputType,
   provenance: MemoryStore.Provenance = {}
 ): Effect.Effect<typeof RememberOutput.Type, MemoryError, MemoryStore.MemoryStore> => {
@@ -395,7 +398,7 @@ export interface Handlers {
  * @since 0.1.0
  */
 export const handlersFor = (
-  flow: Flow.Any,
+  flow: WithMemory.Declared,
   provenance: MemoryStore.Provenance = {}
 ): Handlers => ({
   remember: (input) => runRememberFor(flow, input, provenance),

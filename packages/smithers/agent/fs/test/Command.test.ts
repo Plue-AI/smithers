@@ -1,4 +1,3 @@
-import { Flow } from "@smthrs/core"
 import { Cause, Effect, Option, Schema } from "effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as Command from "../src/Command.ts"
@@ -235,7 +234,7 @@ describe("Command.call decoded boundary", () => {
   afterEach(() => vi.restoreAllMocks())
 
   const surfaceFor = async (input: Schema.Top, output: Schema.Top) => {
-    const flow = Flow.make({ name: "scalar", input, output })
+    const flow = { capabilities: [], effects: undefined, name: "scalar", input, output } as const
     vi.spyOn(Route, "load").mockReturnValue(Effect.succeed(flow))
     return Effect.runPromise(Command.make([makeRoute("scalar")]))
   }
@@ -340,11 +339,13 @@ describe("Command.call decoded boundary", () => {
   })
 
   it("detaches input before pending route loading", async () => {
-    const flow = Flow.make({
+    const flow = {
+      capabilities: [],
+      effects: undefined,
       name: "scalar",
       input: Schema.Struct({ number: Schema.Number }),
       output: Schema.Number
-    })
+    } as const
     let release: (() => void) | undefined
     vi.spyOn(Route, "load").mockImplementation(() =>
       Effect.promise(() =>

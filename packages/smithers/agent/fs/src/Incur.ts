@@ -31,7 +31,7 @@ type IncurContext = {
 
 type SelectedRoute = {
   readonly route: Route.Route
-  readonly flow: Flow.Any
+  readonly flow: Pick<Flow.Any, "name" | "description" | "input" | "output">
   readonly schema: SchemaBridge.CommandSchema
 }
 

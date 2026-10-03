@@ -26,7 +26,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import * as Application from "../src/Application.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
@@ -111,7 +111,7 @@ const probe = {
 const probeSource = `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({
+export default ({
   name: "probe",
   description: ${JSON.stringify(probe.description)},
   input: Schema.Struct({}), output: Schema.Unknown,
@@ -170,7 +170,7 @@ const runAll = async (root: string, flowIds: ReadonlyArray<string>) => {
   )
   const modules = Executable.layer({
     delegates: [Probe],
-    load: () => Effect.succeed({ default: CoreFlow.make(probe) })
+    load: () => Effect.succeed({ default: probe })
   }).pipe(Layer.provideMerge(Layer.mergeAll(Interpreter.layer(Probe), Pinger.layer)), Layer.orDie)
   const registry = NodeControl.layerRegistry(root)
   const engine = NodeControl.engineDurable(root, registry)

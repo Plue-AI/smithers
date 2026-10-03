@@ -1,6 +1,6 @@
 "use server"
 
-import { Flow } from "@smthrs/core"
+import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 
@@ -11,7 +11,7 @@ import { Schema } from "effect"
  * test run, so a second run addressing the same invocation finds the row the
  * first one recorded and never starts the delegate.
  */
-export default Flow.make({
+export default ({
   name: "cacheable",
   description: "Delegates to the agent and declares a reusable result.",
   input: Schema.Struct({ name: Schema.String }),
@@ -24,5 +24,9 @@ export default Flow.make({
     mode: "hermetic",
     onConflict: "serialize",
     tier: "sealed"
-  }
-}).pipe(Flow.annotate(CacheEnvironment.CachePolicyAnnotation, { ttlMs: 60_000, scope: "shared" }))
+  },
+  annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, {
+    ttlMs: 60_000,
+    scope: "shared"
+  })
+} as const)

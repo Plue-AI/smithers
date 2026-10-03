@@ -28,11 +28,10 @@ https://evals.smithers.sh/installation/.
 ## Example
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { CaseExecutor, Runner, Suite } from "@smthrs/evals"
 import { Effect, Layer } from "effect"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const executor = CaseExecutor.make((suiteCase) =>
   Effect.succeed({

@@ -18,8 +18,10 @@
 
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import * as Annotations from "./Annotations.ts"
 import * as Effects from "./Effects.ts"
 import * as Flow from "./Flow.ts"
+import { build } from "./internal/Signature.ts"
 import * as skillFrontmatter from "./internal/skillFrontmatter.ts"
 import * as Placement from "./Placement.ts"
 
@@ -151,12 +153,16 @@ export const lowerMarkdown = (
   frontmatter: MarkdownFrontmatter,
   body: string
 ): Flow.Flow<typeof input, typeof output> => {
-  const flow = Flow.make({
+  const flow = build({
+    error: Schema.Never,
+    annotations: Annotations.empty,
+    body: undefined,
     name: frontmatter.name,
     description: frontmatter.description,
     input,
     output,
-    capabilities: frontmatter.capabilities,
+    capabilities: [...new Set(frontmatter.capabilities ?? [])].sort(),
+    effects: undefined,
     ...(frontmatter.effects === undefined
       ? {}
       : {

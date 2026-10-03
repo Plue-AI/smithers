@@ -76,7 +76,7 @@ const invoke = (
 const saved = (id: string) => ({
   id,
   description: `Digest the week's ${id}.`,
-  flowSource: `export default Flow.make({ name: "${id}" })`,
+  flowSource: `export default ({ name: "${id}" })`,
   testSource: `it("runs ${id}", () => {})`,
   fixtureJson: `{ "calls": [] }`
 })
@@ -305,14 +305,16 @@ describe("flows/show-script", () => {
   it("teaches the host's own rules and template when it has them", async () => {
     const source = PromoteFlows.source(services(ran(), FlowStore.makeMemory()), {
       bestPractices: "One rule: the payload carries everything.",
-      template: 'export default Flow.make("example", { payload: {}, success: Schema.String, prompt: () => "Answer" })\n'
+      template:
+        "export default Flow.make(\"example\", { payload: {}, success: Schema.String, prompt: () => \"Answer\" })\n"
     })
 
     const result = await Effect.runPromise(invoke(source, "flows/show-script", {}))
 
     expect(result.value).toMatchObject({
       bestPractices: "One rule: the payload carries everything.",
-      template: 'export default Flow.make("example", { payload: {}, success: Schema.String, prompt: () => "Answer" })\n'
+      template:
+        "export default Flow.make(\"example\", { payload: {}, success: Schema.String, prompt: () => \"Answer\" })\n"
     })
   })
 })

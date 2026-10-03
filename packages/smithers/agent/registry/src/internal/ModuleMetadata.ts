@@ -458,19 +458,14 @@ export const tokenize = (source: string, reading: SlashReading = "likely"): Read
 const findFlowObject = (source: string): FlowObject | undefined => {
   const tokens = tokenize(source)
   for (let index = 0; index <= tokens.length - 6; index++) {
-    if (
-      tokens[index]?.value !== "export" ||
-      tokens[index + 1]?.value !== "default" ||
-      tokens[index + 2]?.value !== "Flow" ||
-      tokens[index + 3]?.value !== "." ||
-      tokens[index + 4]?.value !== "make" ||
-      tokens[index + 5]?.value !== "("
-    ) {
-      continue
-    }
+    if (tokens[index]?.value !== "export" || tokens[index + 1]?.value !== "default") continue
+    const record = tokens[index + 2]?.value === "(" && tokens[index + 3]?.value === "{"
+    const constructor = tokens[index + 2]?.value === "Flow" && tokens[index + 3]?.value === "." &&
+      tokens[index + 4]?.value === "make" && tokens[index + 5]?.value === "("
+    if (!record && !constructor) continue
 
     let parentheses = 1
-    for (let argumentIndex = index + 6; argumentIndex < tokens.length; argumentIndex++) {
+    for (let argumentIndex = index + (record ? 3 : 6); argumentIndex < tokens.length; argumentIndex++) {
       const token = tokens[argumentIndex]
       if (token?.value === "(") {
         parentheses++

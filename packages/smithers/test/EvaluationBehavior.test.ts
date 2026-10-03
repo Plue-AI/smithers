@@ -65,7 +65,7 @@ import { Suite, CaseExecutor } from ${JSON.stringify(new URL("../agent/evals/src
 import * as Flow from ${JSON.stringify(new URL("../flows/core/src/Flow.ts", import.meta.url).href)}
 import * as Scorer from ${JSON.stringify(new URL("../agent/scorers/src/Scorer.ts", import.meta.url).href)}
 import * as Binding from ${JSON.stringify(new URL("../agent/scorers/src/Binding.ts", import.meta.url).href)}
-const target = Flow.make({ name: "evaluation-behavior-target" })
+const target = ({ name: "evaluation-behavior-target" })
 const scorer = Scorer.make({
   id: "evaluation-behavior/exact", version: "1", name: "exact",
   score: ({ output }) => ${

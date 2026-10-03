@@ -1,5 +1,11 @@
+import * as Schema from "effect/Schema"
 "use client"
 
-import { Flow } from "@smthrs/core"
-
-export default Flow.make({ name: "directives/panel", description: "Runs in the client." })
+export default ({
+  capabilities: [],
+  effects: undefined,
+  input: Schema.Void,
+  output: Schema.Unknown,
+  name: "directives/panel",
+  description: "Runs in the client."
+} as const)

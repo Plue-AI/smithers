@@ -28,7 +28,6 @@
  * @since 0.1.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as Fault from "@smthrs/flow/Fault"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import type { HarnessError } from "@smthrs/harness/HarnessError"
@@ -110,14 +109,15 @@ const lifecycle = { reads: [], writes: [], mode: "expected", onConflict: "serial
  * @category flows
  * @since 0.1.0
  */
-export const spawnFlow = Flow.make({
+export const spawnFlow = {
+  capabilities: [],
   name: "agent/spawn",
   description:
     "Start a child agent and return its id without waiting; its label is its identity, so concurrent children of one flow need distinct labels.",
   input: SpawnInput,
   output: SpawnOutput,
   effects: lifecycle
-})
+} as const
 
 /**
  * The `agent/send` declaration.
@@ -125,13 +125,14 @@ export const spawnFlow = Flow.make({
  * @category flows
  * @since 0.1.0
  */
-export const sendFlow = Flow.make({
+export const sendFlow = {
+  capabilities: [],
   name: "agent/send",
   description: "Send a steering message to a running child agent.",
   input: SendInput,
   output: SendOutput,
   effects: lifecycle
-})
+} as const
 
 /**
  * The `agent/await` declaration.
@@ -139,14 +140,15 @@ export const sendFlow = Flow.make({
  * @category flows
  * @since 0.1.0
  */
-export const awaitFlow = Flow.make({
+export const awaitFlow = {
+  capabilities: [],
   name: "agent/await",
   description:
     "Wait for a child agent to finish and return its output. A child still running after timeoutSeconds fails with still_running; await it again to keep waiting.",
   input: AwaitInput,
   output: AwaitOutput,
   effects: lifecycle
-})
+} as const
 
 /**
  * A child lifecycle refusal the agent can see and route around.

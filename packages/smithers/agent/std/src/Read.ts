@@ -18,7 +18,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -137,7 +136,7 @@ export const capabilities = [capability("fs:read", "/**")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 /**
  * What a call to this flow does, for a reader of a run.

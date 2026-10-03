@@ -1,5 +1,11 @@
+import * as Schema from "effect/Schema"
 "use sandbox"
 
-import { Flow } from "@smthrs/core"
-
-export default Flow.make({ name: "directives/sandboxed", description: "Runs in a sandbox." })
+export default ({
+  capabilities: [],
+  effects: undefined,
+  input: Schema.Void,
+  output: Schema.Unknown,
+  name: "directives/sandboxed",
+  description: "Runs in a sandbox."
+} as const)

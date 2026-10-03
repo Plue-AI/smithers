@@ -1,6 +1,6 @@
 "use server"
 
-import { Flow } from "@smthrs/core"
+import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 
@@ -12,7 +12,7 @@ import { Schema } from "effect"
  * age no test run reaches (`ttlMs`), which is why the fixture that carries them
  * cannot tell a policy that reached the runtime from one that did not.
  */
-export default Flow.make({
+export default ({
   name: "scoped",
   description: "Declares a run-scoped cache policy.",
   input: Schema.Struct({ name: Schema.String }),
@@ -24,5 +24,6 @@ export default Flow.make({
     mode: "hermetic",
     onConflict: "serialize",
     tier: "sealed"
-  }
-}).pipe(Flow.annotate(CacheEnvironment.CachePolicyAnnotation, { scope: "run" }))
+  },
+  annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, { scope: "run" })
+} as const)

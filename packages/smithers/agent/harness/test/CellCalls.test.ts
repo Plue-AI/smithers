@@ -7,12 +7,12 @@
  */
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
-import * as Flow from "@smthrs/core/Flow"
+
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
 import { registryError } from "@smthrs/registry/RegistryError"
-import { Cause, Effect, Exit, FileSystem, Layer, Option, Result, Schema } from "effect"
+import { Cause, Effect, Exit, Layer, Option, Result, Schema } from "effect"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -30,7 +30,7 @@ const moduleFlow = [
   `import { Flow } from "@smthrs/core"`,
   `import { Schema } from "effect"`,
   ``,
-  `export default Flow.make({`,
+  `export default ({`,
   `  name: "list",`,
   `  description: "Lists the files the run may read.",`,
   `  input: Schema.Struct({ path: Schema.String }),`,
@@ -255,12 +255,14 @@ describe("CellCalls.make", () => {
 
   it("dispatches to an executable binding disclosed through the same registry", async () => {
     const seen: Array<unknown> = []
-    const count = Flow.make({
+    const count = {
+      capabilities: [],
+      effects: undefined,
       name: "count",
       description: "Counts characters.",
       input: Schema.Struct({ text: Schema.String }),
       output: Schema.Struct({ length: Schema.Number })
-    })
+    } as const
     const binding = FlowBinding.make({
       flow: count,
       handler: (input) => Effect.sync(() => (seen.push(input), { length: input.text.length }))
@@ -286,12 +288,14 @@ describe("CellCalls.make", () => {
     const descriptor = await discovered("list")
     let ran = false
     const binding = FlowBinding.make({
-      flow: Flow.make({
+      flow: ({
+        capabilities: [],
+        effects: undefined,
         name: "list",
         description: "A different list.",
         input: Schema.Struct({}),
         output: Schema.Struct({})
-      }),
+      } as const),
       handler: () => Effect.sync(() => ((ran = true), {}))
     })
     const catalog = Result.getOrThrow(FlowBinding.catalogResult([binding]))
@@ -343,12 +347,14 @@ describe("CellCalls.make", () => {
 
   it("answers from the executable binding even when an implementation shares the name", async () => {
     const seen: Array<string> = []
-    const count = Flow.make({
+    const count = {
+      capabilities: [],
+      effects: undefined,
       name: "count",
       description: "Counts characters.",
       input: Schema.Struct({ text: Schema.String }),
       output: Schema.Struct({ length: Schema.Number })
-    })
+    } as const
     const binding = FlowBinding.make({
       flow: count,
       handler: (input) => Effect.sync(() => (seen.push("binding"), { length: input.text.length }))
@@ -377,11 +383,13 @@ describe("CellCalls.make", () => {
   })
 
   it("refuses input the bound declaration's own schema rejects", async () => {
-    const count = Flow.make({
+    const count = {
+      capabilities: [],
+      effects: undefined,
       name: "count",
       input: Schema.Struct({ text: Schema.String }),
       output: Schema.Struct({ length: Schema.Number })
-    })
+    } as const
     const binding = FlowBinding.make({
       flow: count,
       handler: (input) => Effect.succeed({ length: input.text.length })

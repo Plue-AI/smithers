@@ -1090,7 +1090,7 @@ const defaultAgent: string // "agent"
 ```
 
 The delegate a descriptor runs on when it names no single flow of its own. A
-markdown skill and a bodiless `Flow.make({ model })` both say a model does the
+markdown skill and a bodiless binding record with `model` both say a model does the
 work; neither names the code that drives one.
 
 ### Executable.fromDescriptor, Executable.fromRegistry

@@ -23,7 +23,6 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlLive, ControlRuntime, ControlSchema, SqlControlRuntime } from "@smthrs/control"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { AttemptEvidenceQuarantined } from "@smthrs/engine-store/Errors"
@@ -118,13 +117,14 @@ const controlFlows: ReadonlyArray<ControlRuntime.MemoryFlow> = [
   }
 ]
 
-const noteFlow = CoreFlow.make({
+const noteFlow = {
+  capabilities: [],
   name: "note/save",
   description: "Save one line to the run's note log.",
   input: Schema.Struct({ text: Schema.String }),
   output: Schema.Struct({ saved: Schema.Number }),
   effects: { reads: [], writes: ["/notes/**"], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /** A cell that parks on the durable clock: 150 s is above the 60 s in-memory threshold. */
 const timerFrame = `await ctx.call("wait", { seconds: 150, reason: "engine park pin" })

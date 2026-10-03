@@ -73,7 +73,12 @@ export type Result = typeof Result.Type
  * @category models
  * @since 0.1.0
  */
-export interface Scorer<E = never> extends Flow.Flow<typeof Input, typeof Result> {
+export interface Scorer<E = never> extends
+  Pick<
+    Flow.Flow<typeof Input, typeof Result>,
+    "name" | "description" | "input" | "output" | "error" | "capabilities" | "effects"
+  >
+{
   readonly scorerKey: string
   readonly score: (input: Input) => Effect.Effect<Result, E | ScorerError>
 }
@@ -88,10 +93,13 @@ export interface Scorer<E = never> extends Flow.Flow<typeof Input, typeof Result
  * @since 0.1.0
  */
 export type MakeOptions<E = never> =
-  & Omit<
-    Parameters<typeof Flow.make<typeof Input, typeof Result>>[0],
-    "input" | "output" | "body" | "model" | "flows"
-  >
+  & {
+    readonly name?: string | undefined
+    readonly description?: string | undefined
+    readonly capabilities?: ReadonlyArray<string> | undefined
+    readonly effects?: import("@smthrs/core/Effects").Declaration | undefined
+    readonly error?: typeof Schema.Never | undefined
+  }
   & {
     /** Stable module-owned scorer identity. */
     readonly id: string
@@ -157,7 +165,16 @@ export const make = <E = never>(options: MakeOptions<E>): Scorer<E> => {
   // name to be addressed by, `id` is already the stable module-owned identity
   // this scorer is known by, and an anonymous declaration would otherwise have
   // to be given one somewhere that does not know what the scorer is.
-  const flow = Flow.make({ ...rest, name: rest.name ?? id, input: Input, output: Result })
+  const flow = {
+    ...rest,
+    name: rest.name ?? id,
+    description: rest.description,
+    input: Input,
+    output: Result,
+    error: Schema.Never,
+    capabilities: [...new Set(rest.capabilities ?? [])].sort(),
+    effects: rest.effects
+  }
   return Object.assign(flow, { scorerKey, score })
 }
 

@@ -30,7 +30,7 @@ export interface Execution {
   readonly output: unknown
   readonly stepKey: string
   readonly latencyMs: number
-  readonly target: Flow.Any
+  readonly target: Pick<Flow.Any, "name">
 }
 
 /**

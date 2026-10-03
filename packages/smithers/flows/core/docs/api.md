@@ -27,67 +27,7 @@ For the trust boundary and the model behind these signatures, see [Plan time](./
 
 ## Flow
 
-Schema-described signatures, and the combinators that decorate one. `Flow.make`
-lowers what an author declares onto the values [`@smthrs/flow`](/api/flow)
-executes: a declared action, which is what a host supplies an implementation
-for, and a flow whose body is one call to that action. A signature that
-declares its own `body` keeps the body and needs no action.
-
-### Flow.make (deprecated)
-
-```ts
-const make: <
-  I extends Schema.Top = typeof Schema.Void,
-  O extends Schema.Top = typeof Schema.Unknown,
-  Err extends Schema.Top = typeof Schema.Never,
-  Requires = Action.Requirement<string>
->(config: MakeOptions<I, O, Err, Requires>) => Flow<I, O, Err, Requires>
-```
-
-Deprecated compatibility adapter. Author new declarations with the tagged
-`Flow.make` from `@smthrs/flow`; the adapter's `flow` property is that same
-canonical model. Existing metadata and primitive input wrapping are retained.
-
-For existing callers, `name` is required and is the tag the flow, the action,
-and every plan that records a call carry; `Flow.make` throws `TypeError`
-without one rather than minting an empty tag. A declaration loaded from a file
-takes the name its loader derives from the path.
-
-```ts
-import { Action } from "@smthrs/flow"
-import { Effect, Schema } from "effect"
-
-const read = Action.make("std/read", {
-  payload: Schema.Struct({ path: Schema.String }),
-  success: Schema.String,
-  capabilities: ["fs"]
-})
-
-const layer = read.toLayer(({ path }) => Effect.succeed(path))
-```
-
-### Flow.MakeOptions
-
-```ts
-interface MakeOptions<I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires> {
-  readonly name?: string | undefined
-  readonly description?: string | undefined
-  readonly input?: I | undefined
-  readonly output?: O | undefined
-  readonly error?: Err | undefined
-  readonly capabilities?: ReadonlyArray<string> | undefined
-  readonly effects?: Effects.Declaration | undefined
-  readonly model?: Seat | readonly [Seat, ...Seat[]] | undefined
-  readonly flows?: ReadonlyArray<Reference> | undefined
-  readonly prompt?: string | undefined
-  readonly body?: ((input: I["Type"]) => Node.Node<O["Type"], Err["Type"], Requires>) | undefined
-}
-```
-
-`input` defaults to `Schema.Void`, `output` to `Schema.Unknown`, and `error` to
-`Schema.Never`. `capabilities` is sorted and deduplicated. `model`, `flows`,
-and `prompt` are advisory metadata a catalog and a decorator read back; the
-collaborator array is copied.
+Metadata signatures retained for Markdown lowering. Author executable flows with `Flow.make(tag, options)` from `@smthrs/flow`.
 
 ### Flow.Flow
 
@@ -320,7 +260,7 @@ The model lives in [`@smthrs/plan`](/api/plan#effects), the lowest package this
 one and the library that executes a flow both depend on. `@smthrs/core/Effects`
 re-exports it and adds nothing, so a declaration narrowed here and a declaration
 narrowed by `@smthrs/flow` are narrowed by the same rule. The plan reference
-documents `Declaration`, `MakeOptions`, `make`, `covers`, `narrow`,
+documents `Declaration`, `make`, `covers`, `narrow`,
 `NarrowResult`, `overlaps`, `sealed`, and the prepared matching API `Graph.build`
 uses.
 

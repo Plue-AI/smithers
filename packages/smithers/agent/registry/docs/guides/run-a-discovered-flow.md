@@ -279,5 +279,5 @@ exported so a custom loader can make the same one without depending on
 syntax: concatenating one unescaped truncates the specifier and imports the
 wrong module, or none.
 
-A module must default-export a `Flow.make` value. Anything else is
+A module must default-export a tagged `@smthrs/flow` value or a schema/metadata record. Anything else is
 `ExecutableError { code: "invalid_module" }`.

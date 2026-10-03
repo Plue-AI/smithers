@@ -8,7 +8,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { envelope } from "./internal/Declaration.ts"
@@ -143,7 +142,7 @@ export const capabilities: ReadonlyArray<string> = []
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 /**
  * Acknowledges a plan update with Codex's exact response text.

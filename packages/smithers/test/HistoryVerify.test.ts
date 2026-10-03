@@ -19,14 +19,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, expect, it, vi } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import { appendHistoryCommands } from "../src/cli/HistoryCommands.ts"
 import * as Verify from "../src/history/Verify.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
 const moduleSource = `import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({name:"steps",description:"Steps",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Steps"]})
+export default ({ effects: undefined, name:"steps",description:"Steps",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Steps"] })
 `
 
 const ran: Array<string> = []
@@ -64,7 +64,7 @@ const modulesFor = (second: typeof Second) => {
     delegates: [Steps],
     load: () =>
       Effect.succeed({
-        default: CoreFlow.make({
+        default: ({
           name: "steps",
           description: "Steps",
           input: Schema.Unknown,

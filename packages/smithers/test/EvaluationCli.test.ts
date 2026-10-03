@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Binding from "../agent/scorers/src/Binding.ts"
 import * as Scorer from "../agent/scorers/src/Scorer.ts"
-import * as Flow from "../flows/core/src/Flow.ts"
+
 import * as CliError from "../src/CliError.ts"
 import { createEvalCli } from "../src/evaluation/EvalCli.ts"
 import * as Evaluation from "../src/evaluation/Evaluation.ts"
@@ -37,7 +37,7 @@ const serve = async (root: string, args: Array<string>) => {
 }
 
 const result = async (score: number): Promise<Evaluation.RunArtifact> => {
-  const target = Flow.make({ name: "eval-cli-target" })
+  const target = { name: "eval-cli-target" }
   const scorer = Scorer.make({
     id: "cli/evaluation/exact",
     version: "1",
@@ -77,7 +77,7 @@ describe("evaluation CLI", () => {
         `import * as Scorer from "${base}/packages/smithers/agent/scorers/src/Scorer.ts"`,
         `import * as Binding from "${base}/packages/smithers/agent/scorers/src/Binding.ts"`,
         `import * as CaseExecutor from "${base}/packages/smithers/agent/evals/src/CaseExecutor.ts"`,
-        "const target = Flow.make({ name: 'trial-target' })",
+        "const target = ({ name: 'trial-target' })",
         "const scorer = Scorer.make({ id: 'cli/trials', version: '1', name: 'trial', score: ({ output }) => Effect.succeed({ score: output }) })",
         "export const suite = { name: 'trials', concurrency: 1, cases: [{ name: 'one', input: 1 }], bindings: [Binding.make({ scorer, appliesTo: target })] }",
         "let calls = 0",

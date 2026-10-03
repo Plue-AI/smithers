@@ -10,7 +10,6 @@
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import * as Digest from "@smthrs/core/Digest"
-import * as Flow from "@smthrs/core/Flow"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Registry from "@smthrs/registry/Registry"
 import { Cause, Context, Effect, Exit, Option, Result, Schema } from "effect"
@@ -22,14 +21,14 @@ import { HarnessError } from "../src/HarnessError.ts"
 const Echo = Schema.Struct({ text: Schema.String })
 const Echoed = Schema.Struct({ text: Schema.String, length: Schema.Number })
 
-const echo = Flow.make({
+const echo = {
   name: "echo",
   description: "Echo one string back.",
   input: Echo,
   output: Echoed,
   capabilities: ["fs:read:/**"],
   effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
 /**
  * A declaration that names nothing.
@@ -115,7 +114,13 @@ describe("FlowBinding.descriptorOf", () => {
   })
 
   it("defaults an undeclared effect envelope to the unshareable tier", () => {
-    const bare = Flow.make({ name: "bare", input: Schema.Struct({}), output: Schema.Struct({}) })
+    const bare = {
+      capabilities: [],
+      effects: undefined,
+      name: "bare",
+      input: Schema.Struct({}),
+      output: Schema.Struct({})
+    } as const
     const descriptor = FlowBinding.descriptorOf(bare)
 
     expect(descriptor.effects).toEqual({
@@ -215,7 +220,13 @@ describe("FlowBinding.make", () => {
       )
     )
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "opaque", input: NonProjectable, output: Schema.Struct({}) }),
+      flow: ({
+        capabilities: [],
+        effects: undefined,
+        name: "opaque",
+        input: NonProjectable,
+        output: Schema.Struct({})
+      } as const),
       handler: () => Effect.succeed({})
     })
 
@@ -259,7 +270,8 @@ describe("FlowBinding.make", () => {
     const Input = Schema.Struct({ env: Schema.optional(Schema.String) })
     let observed: unknown
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "optional", input: Input, output: Schema.Struct({}) }),
+      flow:
+        ({ capabilities: [], effects: undefined, name: "optional", input: Input, output: Schema.Struct({}) } as const),
       handler: (input) =>
         Effect.sync(() => {
           observed = input
@@ -277,7 +289,7 @@ describe("FlowBinding.make", () => {
     const Input = Schema.Struct({ env: Schema.optional(Schema.String) })
     const observed: Array<unknown> = []
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "list", input: Input, output: Schema.Struct({}) }),
+      flow: ({ capabilities: [], effects: undefined, name: "list", input: Input, output: Schema.Struct({}) } as const),
       handler: (input) =>
         Effect.sync(() => {
           observed.push(input)
@@ -310,7 +322,7 @@ describe("FlowBinding.make", () => {
     const original = Schema.decodeUnknownResult(Input)(input)
     const retried = Schema.decodeUnknownResult(Input)({ count: "many" })
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "count", input: Input, output: Schema.Struct({}) }),
+      flow: ({ capabilities: [], effects: undefined, name: "count", input: Input, output: Schema.Struct({}) } as const),
       handler: () => Effect.succeed({})
     })
 
@@ -361,7 +373,13 @@ describe("FlowBinding.make", () => {
     const field = `required_${"x".repeat(800)}`
     const Input = Schema.Struct({ [field]: Schema.String })
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "bounded-input", input: Input, output: Schema.Struct({}) }),
+      flow: ({
+        capabilities: [],
+        effects: undefined,
+        name: "bounded-input",
+        input: Input,
+        output: Schema.Struct({})
+      } as const),
       handler: () => Effect.succeed({})
     })
 
@@ -377,7 +395,8 @@ describe("FlowBinding.make", () => {
     const Input = Schema.Struct({ env: Schema.NullOr(Schema.String) })
     let observed: unknown
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "nullable", input: Input, output: Schema.Struct({}) }),
+      flow:
+        ({ capabilities: [], effects: undefined, name: "nullable", input: Input, output: Schema.Struct({}) } as const),
       handler: (input) =>
         Effect.sync(() => {
           observed = input
@@ -398,7 +417,13 @@ describe("FlowBinding.make", () => {
     "https://example.invalid/?api_key=SYNTHETIC_STRING_SECRET"
   ])("keeps host credentials out of call results for failure %#", async (failure) => {
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "lookup", input: Schema.Struct({}), output: Schema.Struct({}) }),
+      flow: ({
+        capabilities: [],
+        effects: undefined,
+        name: "lookup",
+        input: Schema.Struct({}),
+        output: Schema.Struct({})
+      } as const),
       handler: () => Effect.fail(failure)
     })
 
@@ -422,7 +447,7 @@ describe("FlowBinding.make", () => {
     })
     let observed: unknown
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "mixed", input: Input, output: Schema.Struct({}) }),
+      flow: ({ capabilities: [], effects: undefined, name: "mixed", input: Input, output: Schema.Struct({}) } as const),
       handler: (input) =>
         Effect.sync(() => {
           observed = input
@@ -447,7 +472,7 @@ describe("FlowBinding.make", () => {
     })
     let observed: unknown
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "mixed", input: Input, output: Schema.Struct({}) }),
+      flow: ({ capabilities: [], effects: undefined, name: "mixed", input: Input, output: Schema.Struct({}) } as const),
       handler: (input) =>
         Effect.sync(() => {
           observed = input
@@ -470,7 +495,8 @@ describe("FlowBinding.make", () => {
     const Input = Schema.Record(Schema.String, Schema.Number)
     let ran = false
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "record", input: Input, output: Schema.Struct({}) }),
+      flow:
+        ({ capabilities: [], effects: undefined, name: "record", input: Input, output: Schema.Struct({}) } as const),
       handler: () =>
         Effect.sync(() => {
           ran = true
@@ -753,7 +779,13 @@ describe("FlowBinding.make", () => {
   it("refuses output that cannot cross the journal", async () => {
     const Unserializable = Schema.Struct({ when: Schema.Any })
     const binding = FlowBinding.make({
-      flow: Flow.make({ name: "clock", input: Schema.Struct({}), output: Unserializable }),
+      flow: ({
+        capabilities: [],
+        effects: undefined,
+        name: "clock",
+        input: Schema.Struct({}),
+        output: Unserializable
+      } as const),
       handler: () => Effect.succeed({ when: () => "now" })
     })
 
@@ -791,7 +823,8 @@ describe("FlowBinding.provide", () => {
 describe("FlowBinding.catalog", () => {
   const binding = (name: string) =>
     FlowBinding.make({
-      flow: Flow.make({ name, input: Schema.Struct({}), output: Schema.Struct({}) }),
+      flow:
+        ({ capabilities: [], effects: undefined, name, input: Schema.Struct({}), output: Schema.Struct({}) } as const),
       handler: () => Effect.succeed({})
     })
 
@@ -916,12 +949,25 @@ describe("FlowBinding.registry", () => {
     })
 
   const bound = FlowBinding.make({
-    flow: Flow.make({ name: "read", description: "Read a file.", input: Schema.Struct({}), output: Schema.Struct({}) }),
+    flow: ({
+      capabilities: [],
+      effects: undefined,
+      name: "read",
+      description: "Read a file.",
+      input: Schema.Struct({}),
+      output: Schema.Struct({})
+    } as const),
     handler: () => Effect.succeed({})
   })
 
   const hiddenBinding = FlowBinding.make({
-    flow: Flow.make({ name: "internal", input: Schema.Struct({}), output: Schema.Struct({}) }),
+    flow: ({
+      capabilities: [],
+      effects: undefined,
+      name: "internal",
+      input: Schema.Struct({}),
+      output: Schema.Struct({})
+    } as const),
     handler: () => Effect.succeed({}),
     modelInvocable: false
   })
@@ -941,12 +987,14 @@ describe("FlowBinding.registry", () => {
 
   it("keeps discovery precedence when a binding collides with a discovered flow", async () => {
     const shadowed = FlowBinding.make({
-      flow: Flow.make({
+      flow: ({
+        capabilities: [],
+        effects: undefined,
         name: "review",
         description: "A bound review.",
         input: Schema.Struct({}),
         output: Schema.Struct({})
-      }),
+      } as const),
       handler: () => Effect.succeed({})
     })
     const catalog = Result.getOrThrow(FlowBinding.catalogResult([shadowed]))
@@ -972,7 +1020,13 @@ describe("FlowBinding.registry", () => {
       modelInvocable: false
     })
     const shadowed = FlowBinding.make({
-      flow: Flow.make({ name: "audit", input: Schema.Struct({}), output: Schema.Struct({}) }),
+      flow: ({
+        capabilities: [],
+        effects: undefined,
+        name: "audit",
+        input: Schema.Struct({}),
+        output: Schema.Struct({})
+      } as const),
       handler: () => Effect.succeed({})
     })
     const catalog = Result.getOrThrow(FlowBinding.catalogResult([shadowed]))
@@ -1009,12 +1063,14 @@ describe("FlowBinding.registry", () => {
       warnings: () => Effect.succeed([])
     })
     const shadowed = FlowBinding.make({
-      flow: Flow.make({
+      flow: ({
+        capabilities: [],
+        effects: undefined,
         name: "review",
         description: "A bound review.",
         input: Schema.Struct({}),
         output: Schema.Struct({})
-      }),
+      } as const),
       handler: () => Effect.succeed({})
     })
     const registry = FlowBinding.registry(racing, Result.getOrThrow(FlowBinding.catalogResult([shadowed])))

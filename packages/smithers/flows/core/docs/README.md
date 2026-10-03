@@ -3,12 +3,6 @@ title: "@smthrs/core"
 description: "Metadata and compatibility adapters over canonical @smthrs/flow declarations."
 ---
 
-`@smthrs/core` provides metadata and compatibility adapters over
-[`@smthrs/flow`](/api/flow). New declarations use that package's tagged
-`Flow.make(tag, { payload, success, body })`; the Core options-object constructor
-is deprecated. A call constructs a node, and `Graph.build` describes its steps,
-dependencies, effect claims, and placement without executing those steps.
-
 JavaScript and TypeScript declarations and all planning callbacks must be
 trusted. `Graph.build` executes flow bodies, continuation builders, recovery
 callbacks, and an optional `resolveLayers` callback in the caller process with
@@ -90,13 +84,6 @@ runs them: the journal, the run store, the step cache, the plan store, and
 sandboxing. `@smthrs/plan` compiles a graph's key material into step keys,
 substituting each dependency's digest for the graph-local reference. That key is
 how a resumed run recognizes a step it already finished.
-
-The split is a dependency direction rather than a diagram. This package retains a deprecated options-object adapter, the metadata
-projections above, and Markdown lowering; it holds
-no second node model, no second graph builder, and no evaluator of its own.
-Unlike the engine packages, `@smthrs/core` is not re-exported by
-`@smthrs/flows`: install it directly, even when you already depend on the
-barrel.
 
 Both sit under the `smithers` command line tool, [`@smthrs/cli`](/api/cli),
 which runs, resumes, and inspects flows from a terminal. If you arrived at this

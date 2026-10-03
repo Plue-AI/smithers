@@ -1,9 +1,8 @@
-import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
 import * as CaseExecutor from "../src/CaseExecutor.ts"
 
-const target = Flow.make({ name: "case-executor-target" })
+const target = { name: "case-executor-target" } as const
 const execution = { output: 1, stepKey: "step", latencyMs: 0, target }
 const suiteCase = { name: "a", input: 1 }
 

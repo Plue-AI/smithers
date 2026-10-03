@@ -20,11 +20,11 @@
  * `FlowRuntime.FlowInstance.flow._tag`, because the bridge inlines its graph
  * into the execution it tags with the descriptor's registry name.
  */
-import { Flow } from "@smthrs/core"
+
 import { Schema } from "effect"
 import { Check, Implementation, Receipt } from "../../coding/schema.ts"
 
-export default Flow.make({
+export default ({
   name: "checks/wiki",
   description:
     "Review the configured public wiki against the implemented immutable JJ revision and return ordinary owning-Change findings.",
@@ -33,4 +33,4 @@ export default Flow.make({
   capabilities: ["*"],
   flows: ["coding/WikiCheck"],
   effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }
-})
+} as const)

@@ -6,7 +6,7 @@
   "smthrs": {
     "group": "agent"
   },
-  "description": "Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it",
+  "description": "Flow metadata and Markdown lowering over @smthrs/flow",
   "homepage": "https://github.com/smithersai/smithers",
   "repository": {
     "type": "git",

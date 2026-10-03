@@ -1,4 +1,3 @@
-import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { describe, expect, expectTypeOf, it } from "vitest"
@@ -41,7 +40,7 @@ const judgeScorer = () =>
 
 describe("Binding", () => {
   it("does not modify the target declaration", () => {
-    const target = Flow.make({ name: "target" })
+    const target = { name: "target" } as const
     const binding = Binding.make({
       scorer: scorer(),
       appliesTo: target,
@@ -57,7 +56,7 @@ describe("Binding", () => {
   it("keeps an explicit sampling policy", () => {
     const binding = Binding.make({
       scorer: scorer(),
-      appliesTo: Flow.make({ name: "target" }),
+      appliesTo: ({ name: "target" } as const),
       sampling: { ratio: 0.5, seed: "v1" }
     })
     expect(binding.sampling).toEqual({ ratio: 0.5, seed: "v1" })
@@ -71,7 +70,7 @@ describe("Binding", () => {
     const groundTruth = { answer: 1 }
     const binding = Binding.make({
       scorer: scorer(),
-      appliesTo: Flow.make({ name: "target" }),
+      appliesTo: ({ name: "target" } as const),
       context,
       groundTruth
     })
@@ -87,7 +86,10 @@ describe("Binding", () => {
     // field was `Scorer<never>`, which no custom failure could satisfy.
     expectTypeOf<Scorer.Scorer<RubricUnavailable>>().toExtend<Binding.Binding["scorer"]>()
     const declared = rubricScorer()
-    const binding: Binding.Binding = Binding.make({ scorer: declared, appliesTo: Flow.make({ name: "target" }) })
+    const binding: Binding.Binding = Binding.make({
+      scorer: declared,
+      appliesTo: ({ name: "target" } as const)
+    })
     expect(binding.scorer).toBe(declared)
     const failure = await Effect.runPromise(Effect.flip(binding.scorer.score({ input: "q", output: "a" })))
     expect(failure).toBeInstanceOf(RubricUnavailable)
@@ -96,7 +98,7 @@ describe("Binding", () => {
   it("collects bindings whose scorers fail in unrelated ways", () => {
     // Compile-time: one erased boundary is what lets a heterogeneous list of
     // bindings exist at all, which is how a suite holds them.
-    const target = Flow.make({ name: "target" })
+    const target = { name: "target" } as const
     const bindings: ReadonlyArray<Binding.Binding> = [
       Binding.make({ scorer: rubricScorer(), appliesTo: target }),
       Binding.make({ scorer: judgeScorer(), appliesTo: target })

@@ -19,11 +19,10 @@ returns a number in [0, 1]. Both come from packages the pipeline composes:
 [@smthrs/scorers](/api/scorers).
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Scorer } from "@smthrs/scorers"
 import { Effect } from "effect"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const polite = Scorer.make({
   id: "quickstart/polite",
@@ -158,13 +157,12 @@ Effect.gen(function*() {
 The complete script, `quickstart.ts`:
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Baseline, CaseExecutor, EvalError, Gate, Regression, Report, Runner, Suite } from "@smthrs/evals"
 import { Binding, Scorer } from "@smthrs/scorers"
 import { Effect, Layer } from "effect"
 import { readFile, writeFile } from "node:fs/promises"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const polite = Scorer.make({
   id: "quickstart/polite",

@@ -19,7 +19,6 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Control, ControlFacts, ControlLive, ControlRuntime, ControlSchema, SqlControlRuntime } from "@smthrs/control"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
@@ -182,13 +181,14 @@ const scripted = (host: string): Model.Model =>
 /** Every invocation of the `test/slow` flow's handler, by either composition. */
 const slowCalls: Array<string> = []
 
-const slowFlow = CoreFlow.make({
+const slowFlow = {
+  capabilities: [],
   name: "test/slow",
   description: "Takes two seconds the first time it is called, and no time after.",
   input: Schema.Struct({}),
   output: Schema.Struct({ n: Schema.Number }),
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 const slowSource = (host: string): FlowBinding.Source =>
   FlowBinding.source("test/slow", [

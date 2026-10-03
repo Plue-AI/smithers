@@ -1,4 +1,3 @@
-import * as Flow from "@smthrs/core/Flow"
 import * as Binding from "@smthrs/scorers/Binding"
 import * as ScorerRunner from "@smthrs/scorers/Runner"
 import type * as Sampling from "@smthrs/scorers/Sampling"
@@ -16,7 +15,7 @@ import * as Report from "../src/Report.ts"
 import * as Runner from "../src/Runner.ts"
 import * as Suite from "../src/Suite.ts"
 
-const target = Flow.make({ name: "target" })
+const target = { name: "target" } as const
 const scorerFlow = Scorer.make({
   id: "packages/smithers/agent/evals/test/Runner/exact",
   version: "1",
@@ -843,7 +842,7 @@ describe("Runner", () => {
   })
 
   it("applies bindings only to their target and forwards ground truth and context", async () => {
-    const other = Flow.make({ name: "other" })
+    const other = { name: "other" } as const
     let seen: Scorer.Input | undefined
     const inspecting = Scorer.make({
       id: "packages/smithers/agent/evals/test/Runner/inspect",

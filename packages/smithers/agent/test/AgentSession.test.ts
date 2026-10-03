@@ -17,7 +17,6 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlError, ControlExecutor, ControlLive, ControlRuntime, ControlSchema } from "@smthrs/control"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, Flow, HumanTask, Interpreter, Sleep } from "@smthrs/flow"
@@ -236,21 +235,23 @@ const memoryFlows: ReadonlyArray<ControlRuntime.MemoryFlow> = [
   }
 ]
 
-const noteFlow = CoreFlow.make({
+const noteFlow = {
+  capabilities: [],
   name: "note/save",
   description: "Save one line to the run's note log.",
   input: Schema.Struct({ text: Schema.String }),
   output: Schema.Struct({ saved: Schema.Number }),
   effects: { reads: [], writes: ["/notes/**"], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
-const checkFlow = CoreFlow.make({
+const checkFlow = {
+  capabilities: [],
   name: "project/check",
   description: "Run the project's own check and report its exit code.",
   input: Schema.Struct({ command: Schema.String }),
   output: Schema.Struct({ exitCode: Schema.Number }),
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 const frameZero = `await ctx.call("project/check", { command: "npm test" })
 const saved = await ctx.call("note/save", { text: "frame zero note" })
@@ -515,7 +516,7 @@ const moduleRun = (options: {
           placementOptions: null,
           capabilities: [],
           flows: ["test/Module"]
-        }),
+        } as const),
         flow: options.flow,
         layer: Interpreter.layer(options.flow)
       }],
@@ -800,7 +801,7 @@ const unansweredAsk = () => {
         placementOptions: null,
         capabilities: [],
         flows: ["test/Module"]
-      }),
+      } as const),
       flow,
       layer: Interpreter.layer(flow)
     }],
@@ -821,13 +822,22 @@ const unansweredAsk = () => {
 
 describe("AgentSession", () => {
   it("preserves refusal scope and leaves live seat selection out of durable ordinals", () => {
-    expect(AgentSession.trace({
-      _tag: "model-selected", eventType: "flows.harness.model-selected.v1", seat: "backup"
-    } as Parameters<typeof AgentSession.trace>[0])).toBeUndefined()
+    expect(AgentSession.trace(
+      {
+        _tag: "model-selected",
+        eventType: "flows.harness.model-selected.v1",
+        seat: "backup"
+      } as Parameters<typeof AgentSession.trace>[0]
+    )).toBeUndefined()
     const event = {
-      _tag: "seat-failed-over", eventType: "flows.harness.seat-failed-over.v1",
-      from: "primary", to: "backup", code: "quota_exceeded",
-      retryAfterMillis: 10, quotaScope: "model", httpStatus: 429
+      _tag: "seat-failed-over",
+      eventType: "flows.harness.seat-failed-over.v1",
+      from: "primary",
+      to: "backup",
+      code: "quota_exceeded",
+      retryAfterMillis: 10,
+      quotaScope: "model",
+      httpStatus: 429
     } as Parameters<typeof AgentSession.trace>[0]
     expect(AgentSession.trace(event)).toMatchObject({
       eventType: "control.agent.seat-failed-over",
@@ -1798,7 +1808,7 @@ describe("AgentSession", () => {
           placementOptions: null,
           capabilities: [],
           flows: ["test/Module"]
-        }),
+        } as const),
         flow,
         layer: Interpreter.layer(flow)
       }
@@ -1939,7 +1949,7 @@ describe("AgentSession", () => {
         placementOptions: null,
         capabilities: [],
         flows: ["test/Module"]
-      }),
+      } as const),
       flow,
       layer: Interpreter.layer(flow)
     }

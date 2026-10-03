@@ -5,7 +5,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/age
 ---
 
 A flow is one unit of Smithers work: an input schema, an output schema, and a
-body, declared with `Flow.make` from [@smthrs/core](https://core.smithers.sh/). `@smthrs/fs`
+body, declared with tagged `Flow.make` from [@smthrs/flow](https://flow.smithers.sh/). `@smthrs/fs`
 turns a directory of those flows into a set of named commands.
 
 It reads the tree without importing a single flow module, records what it finds
@@ -74,10 +74,9 @@ Start with one flow at `flows/review/flow.ts`, whose directory path gives the
 command its name:
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
-export default Flow.make({
+export default ({
   description: "Review a pull request.",
   input: Schema.Struct({ number: Schema.Number }),
   output: Schema.Struct({ accepted: Schema.Boolean, number: Schema.Number })

@@ -136,7 +136,7 @@ describe("one project, from init to gc", processBudget, () => {
         "import { Flow } from \"@smthrs/core\"",
         "import { Schema } from \"effect\"",
         "",
-        "export default Flow.make({",
+        "export default ({",
         // The registry name the path derives; `@smthrs/core` requires it.
         "  name: \"idle\",",
         "  description: \"A module flow this host accepts and drives nothing for.\",",

@@ -74,7 +74,7 @@ const scaffoldExample = (): string => {
 const declaration = (name: string, delegate: string, writes: ReadonlyArray<string>) =>
   `import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
-export default Flow.make({
+export default ({
   name: ${JSON.stringify(name)},
   description: "Written by a run of this host",
   input: Schema.Struct({}),

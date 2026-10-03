@@ -26,12 +26,6 @@ describe("Scorer", () => {
   it("keeps score as the only implementation", async () => {
     expectTypeOf<Extract<keyof Scorer.MakeOptions, "body" | "model" | "flows">>().toEqualTypeOf<never>()
     const scorer = quality()
-    // A declaration carrying no body of its own is exactly a declaration that
-    // has an action for a host to implement. `score` is what this module
-    // implements it with, so the action stays unregistered and a scorer can
-    // never hold two implementations that disagree.
-    expect(scorer.action).toBeDefined()
-    expect(scorer.action?.name).toBe("quality")
     await expect(Effect.runPromise(scorer.score({ input: "question", output: "answer" }))).resolves.toEqual({
       score: 1
     })

@@ -38,7 +38,7 @@ afterEach(() => {
 })
 
 const files = (id: string): Record<string, string> => ({
-  [`flows/${id}/flow.ts`]: `export default Flow.make({ name: "${id}" })`,
+  [`flows/${id}/flow.ts`]: `export default ({ name: "${id}" })`,
   [`flows/${id}/flow.e2e.ts`]: `it("runs ${id}", () => {})`,
   [`flows/${id}/fixtures/${id}.json`]: `{ "calls": [] }`
 })
@@ -76,7 +76,7 @@ describe("FlowStore.makeMemory", () => {
         "flows/weekly-digest/fixtures/weekly-digest.json"
       ]
     }))
-    expect(written.get("flows/weekly-digest/flow.ts")).toBe(`export default Flow.make({ name: "weekly-digest" })`)
+    expect(written.get("flows/weekly-digest/flow.ts")).toBe(`export default ({ name: "weekly-digest" })`)
   })
 
   it("lists one entry per saved flow, with the files it holds", async () => {
@@ -570,7 +570,7 @@ describe("FlowStore.layerFileSystem", () => {
       ]
     }))
     expect(readFileSync(join(directory, "flows/weekly-digest/flow.ts"), "utf8")).toBe(
-      `export default Flow.make({ name: "weekly-digest" })`
+      `export default ({ name: "weekly-digest" })`
     )
     expect(readFileSync(join(directory, "flows/weekly-digest/fixtures/weekly-digest.json"), "utf8")).toBe(
       `{ "calls": [] }`

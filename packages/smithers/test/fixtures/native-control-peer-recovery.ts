@@ -5,14 +5,14 @@ import * as Executable from "@smthrs/registry/Executable"
 import { Effect, Layer, Schema } from "effect"
 import { access, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import * as CoreFlow from "../../flows/core/src/Flow.ts"
+
 import * as NodeControl from "../../src/NodeControl.ts"
 
 export const source = `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({ name: "peer", description: "Peer recovery probe", input: Schema.Struct({}), output: Schema.String,
-capabilities: [], flows: ["peer/Delegate"], effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" } })
+export default ({  name: "peer", description: "Peer recovery probe", input: Schema.Struct({}), output: Schema.String,
+capabilities: [], flows: ["peer/Delegate"], effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }  })
 `
 
 /** A real native execution stays alive until the test releases its file gate. */
@@ -33,7 +33,7 @@ export const host = (root: string) => {
     delegates: [Delegate],
     load: () =>
       Effect.succeed({
-        default: CoreFlow.make({
+        default: ({
           name: "peer",
           description: "Peer recovery probe",
           input: Schema.Struct({}),

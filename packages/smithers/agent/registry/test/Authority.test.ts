@@ -105,7 +105,7 @@ describe("shared effects projection", () => {
 
   const moduleEffects = (members: ReadonlyArray<string>) =>
     ModuleMetadata.parse(
-      ["export default Flow.make({", "  description: \"Review\",", ...members, "})"].join("\n")
+      ["export default ({", "  description: \"Review\",", ...members, "})"].join("\n")
     ).effects
 
   it.each([

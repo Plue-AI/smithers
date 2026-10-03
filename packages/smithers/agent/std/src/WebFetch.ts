@@ -9,7 +9,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import type { GrantStore } from "@smthrs/kernel/GrantStore"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
 import * as Effect from "effect/Effect"
@@ -108,7 +107,7 @@ export const capabilities = [capability("net:get", "*")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 const error = (code: StdError.Code, message: string, path?: string): StdError.StdError =>
   new StdError.StdError({ code, message, ...(path === undefined ? {} : { path }) })

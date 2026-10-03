@@ -84,8 +84,10 @@ describe("FileRouter", () => {
     if (sep !== "/") return
     const temporary = await mkdtemp(`${tmpdir()}/smithers-fs-router-`)
     try {
-      const source =
-        `import { Flow } from "@smthrs/core"\nexport default Flow.make({ name: "fixture", description: "fixture" })\n`
+      const source = `import * as Schema from "effect/Schema"
+import { Flow } from "@smthrs/core"
+export default ({ capabilities: [], effects: undefined, input: Schema.Void, output: Schema.Unknown,  name: "fixture", description: "fixture"  })
+`
       await mkdir(`${temporary}/a\\b`, { recursive: true })
       await mkdir(`${temporary}/a/b`, { recursive: true })
       await writeFile(`${temporary}/a\\b/flow.ts`, source)
@@ -126,8 +128,10 @@ describe("FileRouter", () => {
   it("never routes a flow or UI companion whose real path leaves the root", async () => {
     const temporary = await mkdtemp(join(tmpdir(), "smithers-fs-escape-"))
     try {
-      const source =
-        `import { Flow } from "@smthrs/core"\nexport default Flow.make({ name: "fixture", description: "fixture" })\n`
+      const source = `import * as Schema from "effect/Schema"
+import { Flow } from "@smthrs/core"
+export default ({ capabilities: [], effects: undefined, input: Schema.Void, output: Schema.Unknown,  name: "fixture", description: "fixture"  })
+`
       const flows = join(temporary, "flows")
       const outside = join(temporary, "outside")
       await mkdir(join(flows, "inside"), { recursive: true })

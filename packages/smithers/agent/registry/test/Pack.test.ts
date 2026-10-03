@@ -529,7 +529,7 @@ describe("pack discovery confinement", () => {
           "import { writeFileSync } from \"node:fs\"",
           `writeFileSync(${JSON.stringify(marker)}, "imported")`,
           "const Flow = { make: (value) => value }",
-          "export default Flow.make({ description: \"Outside module\", capabilities: [] })"
+          "export default ({ description: \"Outside module\", capabilities: [] })"
         ].join("\n")
         : "---\ndescription: Outside prompt\n---\nOUTSIDE_PACK_BODY\n"
     )

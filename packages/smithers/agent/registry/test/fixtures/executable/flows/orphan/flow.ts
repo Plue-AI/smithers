@@ -1,9 +1,8 @@
 "use server"
 
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
-export default Flow.make({
+export default ({
   name: "orphan",
   description: "Delegates to a flow no host registers.",
   input: Schema.Struct({ name: Schema.String }),
@@ -16,4 +15,4 @@ export default Flow.make({
     onConflict: "serialize",
     tier: "sealed"
   }
-})
+} as const)

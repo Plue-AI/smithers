@@ -10,16 +10,6 @@ reviewer should see the whole plan and its objections at once.
 
 ## Failures that throw
 
-### Deprecated Core adapter requires a name
-
-```text
-TypeError: Flow.make requires a name
-```
-
-A signature needs a non-empty `name`, which becomes its native flow and action
-tag. A signature without a `body` remains callable: it plans the declared action
-whose implementation a host supplies through `signature.action.toLayer`.
-
 ### Node.all expected a Node at member "x"
 
 ```text

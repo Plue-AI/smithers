@@ -1,4 +1,3 @@
-import { Flow } from "@smthrs/core"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import { Cause, Effect, Layer, Logger, Option, References, Schema } from "effect"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -367,11 +366,13 @@ describe("Incur projection", () => {
   })
 
   it("carries an explicit null scalar input over a JSON body and MCP arguments", async () => {
-    const flow = Flow.make({
+    const flow = {
+      capabilities: [],
+      effects: undefined,
       name: "scalar",
       input: Schema.NullOr(Schema.String),
       output: Schema.NullOr(Schema.String)
-    })
+    } as const
     vi.spyOn(Route, "load").mockReturnValue(Effect.succeed(flow))
     try {
       const inputs: Array<unknown> = []

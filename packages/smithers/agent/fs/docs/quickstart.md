@@ -31,10 +31,9 @@ A route's name comes from its directory path, not from the flow's `name`
 field. Create `flows/review/flow.ts`:
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
-export default Flow.make({
+export default ({
   name: "review",
   description: "Review a pull request.",
   input: Schema.Struct({ number: Schema.Number }),

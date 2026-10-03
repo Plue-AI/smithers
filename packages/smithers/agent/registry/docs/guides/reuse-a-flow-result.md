@@ -21,11 +21,10 @@ derives.
 ```ts
 "use server"
 
-import { Flow } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 
-export default Flow.make({
+export default ({
   name: "cacheable",
   description: "Delegates to the agent and declares a reusable result.",
   input: Schema.Struct({ name: Schema.String }),

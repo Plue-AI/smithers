@@ -43,7 +43,6 @@
 
 import * as Capability from "@smthrs/capability/Capability"
 import * as Digest from "@smthrs/core/Digest"
-import * as Flow from "@smthrs/core/Flow"
 import * as Fault from "@smthrs/flow/Fault"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as Cell from "@smthrs/harness/Cell"
@@ -328,7 +327,7 @@ export const reads = Capability.make("fs:read", "/**")
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({
+export const flow = {
   name,
   description:
     "Context for a task in one call: wiki pages, skills, the code a README-guided walk finds, commits and their notes, and remembered facts, each chosen by Jev and packed into one block under maxBytes. Returns { context, kept, omitted, cost }; print context. paths are included without judging. Call it first on an unfamiliar task, and again with query when the task narrows.",
@@ -336,7 +335,7 @@ export const flow = Flow.make({
   output: Output,
   capabilities: [Capability.format(reads), `model:call:${Evaluator.defaultModel}`],
   effects: { reads: [reads.resource], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
 /**
  * What a host binds memory to.

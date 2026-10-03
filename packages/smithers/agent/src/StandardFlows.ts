@@ -36,7 +36,6 @@
 
 import * as Capability from "@smthrs/capability/Capability"
 import * as Digest from "@smthrs/core/Digest"
-import * as Flow from "@smthrs/core/Flow"
 import { DurableClock } from "@smthrs/flow"
 import type { FlowRuntime } from "@smthrs/flow"
 import * as Fault from "@smthrs/flow/Fault"
@@ -324,14 +323,15 @@ export const JudgedRecallOutput = Schema.Struct({
  * @category flows
  * @since 1.0.0-rc.0
  */
-export const recallFlow = Flow.make({
+export const recallFlow = {
+  capabilities: [],
   name: MemoryFlows.recallName,
   description:
     `${MemoryFlows.recallDescription} Rows Jev is at least 90% sure the query does not need are withheld and listed.`,
   input: MemoryFlows.RecallInput,
   output: JudgedRecallOutput,
   effects: MemoryFlows.recallEffects
-})
+} as const
 
 /**
  * The one memory namespace a run's model-facing `remember` and `recall` may
@@ -712,7 +712,7 @@ export const JevOutput = Schema.Struct({
  * @category flows
  * @since 1.0.0-rc.0
  */
-export const jevFlow = Flow.make({
+export const jevFlow = {
   name: "jev",
   description:
     "Ask Jev, a fast typed decision model, any number of boolean, choice or score questions about one JSON state, all answered in parallel in one request of about 300 ms, far cheaper than reading the items yourself. Answers are typed, never free text. Use it for every enumerable judgment over many items (classify, triage, rank, filter, yes/no, pick-one, score): put the items in state and write one question per item, keyed by your own ids; one call carries hundreds of questions. Calls from one cell settle one at a time and a cell's calls are capped, so pack the items into one call rather than firing a call per item. state is capped at 256 KiB of JSON. Not for generating text or code, and not for a question whose answer must be quoted. It never guesses: a judge that fails answers { ok: false } with the failure code first in error.message.",
@@ -720,7 +720,7 @@ export const jevFlow = Flow.make({
   output: JevOutput,
   capabilities: [`model:call:${Evaluator.defaultModel}`],
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
 /** A `jev` refusal the binding turns into a catchable call result. */
 class JevRefused extends Schema.TaggedError<JevRefused>()(
@@ -840,14 +840,15 @@ export const WaitOutput = Schema.Struct({ waitedSeconds: Schema.Number })
  * @category flows
  * @since 0.1.0
  */
-export const waitFlow = Flow.make({
+export const waitFlow = {
+  capabilities: [],
   name: "wait",
   description:
     "Wait for a finite number of seconds up to the host ceiling (one hour by default). The wait is durable: a replay does not re-wait.",
   input: WaitInput,
   output: WaitOutput,
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /** A wait refusal the binding turns into a catchable call result. */
 class WaitRefused extends Schema.TaggedError<WaitRefused>()(
@@ -961,13 +962,14 @@ export const AskOutput = Schema.Struct({
  * @category flows
  * @since 0.1.0
  */
-export const askFlow = Flow.make({
+export const askFlow = {
+  capabilities: [],
   name: "ask",
   description: "Ask whoever started this task, the agent above or the person, a question, and wait for the answer.",
   input: AskInput,
   output: AskOutput,
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /**
  * A host that has nobody to ask.

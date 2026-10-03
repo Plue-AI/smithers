@@ -9,7 +9,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Schema from "effect/Schema"
@@ -125,14 +124,14 @@ export const capabilities = [capability("fs:read", "/**")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({
+export const flow = {
   name,
   description,
   input: Input,
   output: Output,
   capabilities,
   effects
-})
+} as const
 const isAbsolutePath = (path: string): boolean => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)
 /**
  * Runs the `lsp` flow: queries the configured language server.

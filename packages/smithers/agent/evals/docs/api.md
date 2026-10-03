@@ -22,13 +22,12 @@ One direction, six modules:
 6. `Gate` turns the comparison into a verdict and a CI exit code.
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Baseline, CaseExecutor, Gate, Regression, Runner, Suite } from "@smthrs/evals"
 import { Binding, Scorer } from "@smthrs/scorers"
 import { Effect, Layer } from "effect"
 import { readFile } from "node:fs/promises"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const polite = Scorer.make({
   id: "example/polite",

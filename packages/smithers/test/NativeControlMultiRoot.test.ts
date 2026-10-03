@@ -17,7 +17,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import * as NodeControl from "../src/NodeControl.ts"
 
 const Probe = Action.make("test/Probe", {
@@ -46,7 +46,7 @@ const committedRoot = async (label: string) => {
     `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({
+export default ({
   name: "native",
   description: ${JSON.stringify(description)},
   input: Schema.Struct({ value: Schema.String }), output: Schema.Unknown,
@@ -80,7 +80,7 @@ export default Flow.make({
   })
   const modules = Executable.layer({
     delegates: [Planned],
-    load: () => Effect.succeed({ default: CoreFlow.make(definition) })
+    load: () => Effect.succeed({ default: definition })
   }).pipe(
     Layer.provideMerge(
       Layer.mergeAll(Interpreter.layer(Planned), Probe.toLayer(({ value }) => Effect.succeed(value)))

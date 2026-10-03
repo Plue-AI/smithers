@@ -1,9 +1,8 @@
 "use server"
 
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
-const helper = Flow.make({
+const helper = {
   name: "review/read-pr/helper",
   description: "Private helper metadata must not be discovered.",
   input: Schema.String,
@@ -16,9 +15,9 @@ const helper = Flow.make({
     onConflict: "serialize",
     tier: "irreversible"
   }
-})
+} as const
 
-export default Flow.make({
+export default ({
   name: "review/read-pr",
   description: "Reads a PR and summarizes it.",
   input: Schema.Struct({
@@ -35,6 +34,6 @@ export default Flow.make({
     onConflict: "serialize",
     tier: "irreversible"
   }
-})
+} as const)
 
 void helper

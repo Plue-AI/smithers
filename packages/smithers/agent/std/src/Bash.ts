@@ -17,7 +17,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import type * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as Path from "@smthrs/kernel/Path"
 import * as Effect from "effect/Effect"
@@ -261,7 +260,7 @@ export const capabilities = [capability("proc:spawn", "*")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 /*
  * `bash` declares no activity on purpose. What a shell call does is in the

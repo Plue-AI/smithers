@@ -11,7 +11,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
-import { Annotations, Flow as CoreFlow, Placement as CorePlacement } from "@smthrs/core"
+import { Annotations, Placement as CorePlacement } from "@smthrs/core"
 import * as Digest from "@smthrs/core/Digest"
 import { Action, Flow, FlowRuntime, Graph } from "@smthrs/flow"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
@@ -541,17 +541,17 @@ import { Annotations, Flow, Placement } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 import { identity } from "./helper.ts"
-export default Flow.make({
+export default ({
   name: "revision",
   description: "Priority ${priority}",
   input: Schema.Unknown,
   output: Schema.Unknown,
-  flows: ["test/echo"]
-}).pipe(
-  Flow.annotate(Annotations.Priority, identity(${priority})),
-  Flow.annotate(CacheEnvironment.CachePolicyAnnotation, { ttlMs: ${priority * 1000}, scope: "shared" }),
-  Flow.annotate(Annotations.Placement, Placement.${priority === 7 ? "local" : "sandbox"}())
-)
+  flows: ["test/echo"],
+  annotations: Annotations.add(Annotations.add(Annotations.add(Annotations.empty,
+    Annotations.Priority, identity(${priority})),
+    CacheEnvironment.CachePolicyAnnotation, { ttlMs: ${priority * 1000}, scope: "shared" }),
+    Annotations.Placement, Placement.${priority === 7 ? "local" : "sandbox"}())
+})
 `
 
   it.effect("adopts edited priority, cache, and placement after registry refresh in one process", () =>
@@ -1407,7 +1407,10 @@ describe("annotation lowering", () => {
   it.effect("prefers a placement the body annotates over the descriptor's directive", () =>
     Effect.gen(function*() {
       const descriptor = yield* descriptorNamed("greet")
-      const annotated = CoreFlow.within(greetModule, CorePlacement.remote({ profile: "builder" }))
+      const annotated = {
+        ...greetModule,
+        annotations: Context.make(Annotations.Placement, CorePlacement.remote({ profile: "builder" }))
+      }
       const executable = yield* Executable.fromDescriptor(
         descriptor,
         options({ load: () => Effect.succeed({ default: annotated }) })
@@ -1441,7 +1444,7 @@ describe("annotation lowering", () => {
       ]
 
       for (const [placement, kind, placementOptions] of variants) {
-        const annotated = CoreFlow.within(greetModule, placement)
+        const annotated = { ...greetModule, annotations: Context.make(Annotations.Placement, placement) }
         const executable = yield* Executable.fromDescriptor(
           descriptor,
           options({ load: () => Effect.succeed({ default: annotated }) })
@@ -1572,7 +1575,7 @@ describe("annotation lowering", () => {
               Effect.succeed({
                 default: policy === undefined
                   ? greetModule
-                  : CoreFlow.annotate(greetModule, CacheEnvironment.CachePolicyAnnotation, policy)
+                  : { ...greetModule, annotations: Context.make(CacheEnvironment.CachePolicyAnnotation, policy) }
               })
           })
         )

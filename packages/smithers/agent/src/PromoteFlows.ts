@@ -27,7 +27,6 @@
  * @since 0.1.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as CellHistory from "@smthrs/harness/CellHistory"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Registry from "@smthrs/registry/Registry"
@@ -136,14 +135,15 @@ export const WriteFlowOutput = Schema.Struct({
  * @category flows
  * @since 0.1.0
  */
-export const showScriptFlow = Flow.make({
+export const showScriptFlow = {
+  capabilities: [],
   name: "flows/show-script",
   description:
     "Return the source of every cell this turn has executed, plus the rules and the file skeleton a saved flow uses. Call it before flows/write-flow.",
   input: ShowScriptInput,
   output: ShowScriptOutput,
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /**
  * The authority `flows/write-flow` needs: writing files under `/flows/`.
@@ -159,7 +159,7 @@ export const writeFlowCapabilities = ["fs:write:/flows/**"]
  * @category flows
  * @since 0.1.0
  */
-export const writeFlowFlow = Flow.make({
+export const writeFlowFlow = {
   name: "flows/write-flow",
   description:
     "Save a flow: writes flow.ts, flow.e2e.ts, and its fixture under flows/<id>/. The id must be lowercase letters, digits, and hyphens.",
@@ -170,7 +170,7 @@ export const writeFlowFlow = Flow.make({
   // with no write authority could still create flow files.
   capabilities: writeFlowCapabilities,
   effects: { reads: [], writes: ["flows/**"], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /**
  * The host's own rules and skeleton, when they differ from this repository's.

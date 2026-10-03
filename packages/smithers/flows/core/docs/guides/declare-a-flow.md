@@ -96,11 +96,6 @@ const Placed = Review.annotate(Flow.Placement, Placement.sandbox({ image: "node:
 Placement metadata does not sandbox planning code. See
 [Plan time](../concepts/plan-time.md) for the trust boundary.
 
-The options-object constructor in `@smthrs/core/Flow` is deprecated. Existing
-callers retain their metadata, implicit action, and primitive input adapter;
-the returned signature's `flow` is the canonical executable declaration. The
-[Core API reference](../api.md#flow) records that compatibility contract.
-
 ## Where to go next
 
 - [Declare what a step reads and writes](./declare-reads-and-writes.md).

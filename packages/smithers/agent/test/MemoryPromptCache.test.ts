@@ -13,7 +13,6 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
-import * as CoreFlow from "@smthrs/core/Flow"
 import { FlowEngine } from "@smthrs/engine"
 import { Flow as EngineFlow, FlowRuntime } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
@@ -193,13 +192,14 @@ const jev = () => {
 
 /** A sealed no-op flow a cell calls to reach the permission gate. */
 const gate = FlowBinding.make({
-  flow: CoreFlow.make({
+  flow: ({
+    capabilities: [],
     name: "gate",
     description: "Passes once permission is granted.",
     input: Schema.Struct({}),
     output: Schema.String,
     effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-  }),
+  } as const),
   handler: () => Effect.succeed("open")
 })
 

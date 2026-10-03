@@ -1,9 +1,10 @@
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
-export default Flow.make({
+export default ({
+  capabilities: [],
+  effects: undefined,
   name: "special",
   description: "Special path fixture.",
   input: Schema.Struct({ value: Schema.String }),
   output: Schema.String
-})
+} as const)

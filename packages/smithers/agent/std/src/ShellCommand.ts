@@ -12,7 +12,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import type * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
@@ -154,7 +153,7 @@ export const capabilities = [capability("proc:spawn", "*")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 /**
  * Executes a shell command through the permission-aware kernel service and

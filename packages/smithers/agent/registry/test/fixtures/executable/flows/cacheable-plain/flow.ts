@@ -1,6 +1,5 @@
 "use server"
 
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
 /**
@@ -13,7 +12,7 @@ import { Schema } from "effect"
  * is the policy each of them declares. That is what makes those cases about
  * the policy and nothing else.
  */
-export default Flow.make({
+export default ({
   name: "cacheable-plain",
   description: "Delegates to the agent and declares no cache policy.",
   input: Schema.Struct({ name: Schema.String }),
@@ -27,4 +26,4 @@ export default Flow.make({
     onConflict: "serialize",
     tier: "sealed"
   }
-})
+} as const)

@@ -1,4 +1,3 @@
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
 // Importing this module is observable, so a test can prove which surface loaded
@@ -6,9 +5,11 @@ import { Schema } from "effect"
 const globals = globalThis as { fsRecordedImports?: number }
 globals.fsRecordedImports = (globals.fsRecordedImports ?? 0) + 1
 
-export default Flow.make({
+export default ({
+  capabilities: [],
+  effects: undefined,
   name: "recorded",
   description: "Import-recording command fixture.",
   input: Schema.Struct({ number: Schema.Number }),
   output: Schema.Struct({ accepted: Schema.Boolean, number: Schema.Number })
-})
+} as const)

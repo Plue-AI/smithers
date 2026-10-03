@@ -1,7 +1,7 @@
 import * as Effects from "@smthrs/core/Effects"
-import * as Flow from "@smthrs/core/Flow"
 import * as Graph from "@smthrs/core/Graph"
 import * as Node from "@smthrs/core/Node"
+import * as Flow from "@smthrs/flow/Flow"
 import { Effect, Schema } from "effect"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -18,8 +18,6 @@ describe("Flows", () => {
     expect(Flows.recall.name).toBe("recall")
     // A declaration with no body of its own carries the action a host
     // implements, which is what `handlersFor` supplies.
-    expect(Flows.remember.action).toBeDefined()
-    expect(Flows.recall.action).toBeDefined()
     expect(Flows.remember.effects?.tier).not.toBe("sealed")
     expect(Flows.recall.effects?.tier).toBe("sealed")
   })
@@ -33,31 +31,29 @@ describe("Flows", () => {
     })
     expect(Effects.narrow(envelope, Flows.recallEffects)).toEqual({ ok: true })
 
-    const boundRecall = Flow.make({
-      name: "bound-recall",
-      input: Flows.RecallInput,
-      output: Flows.RecallOutput,
+    const boundRecall = Flow.make("bound-recall", {
+      payload: Flows.RecallInput,
+      success: Flows.RecallOutput,
       effects: Flows.recallEffects,
       body: () => Node.succeed([])
     })
-    const sealed = Flow.make({
-      name: "sealed-caller",
-      input: Flows.RecallInput,
-      output: Flows.RecallOutput,
+    const sealed = Flow.make("sealed-caller", {
+      payload: Flows.RecallInput,
+      success: Flows.RecallOutput,
       effects: envelope,
       body: (input) => boundRecall.call(input)
     })
-    const diagnostics = Graph.diagnostics(Graph.build(sealed.flow))
+    const diagnostics = Graph.diagnostics(Graph.build(sealed))
     expect(diagnostics.filter((diagnostic) => diagnostic.code === "effect_tier_widening")).toEqual([])
   })
 
   it("exposes a bindable recall slot and concrete runtime handlers", () => {
-    const binding = Flow.make({
-      name: "recall-slot",
-      input: Flows.RecallInput,
-      output: Flows.RecallOutput
+    const binding = Flow.make("recall-slot", {
+      payload: Flows.RecallInput,
+      success: Flows.RecallOutput,
+      body: () => Node.succeed([])
     })
-    expect(Flows.bindRecall(binding)).toBe(binding.flow)
+    expect(Flows.bindRecall(binding)).toBe(binding)
     expect(Flows.handlersFor(Flows.recall)).toMatchObject({
       remember: expect.any(Function),
       recall: expect.any(Function)

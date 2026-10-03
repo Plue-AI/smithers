@@ -58,7 +58,7 @@ const skill = (description: string, name?: string): FileNode => ({
 
 const flowModule = (body: string): Node => ({
   kind: "file",
-  contents: `export default Flow.make({\n${body}\n})\n`
+  contents: `export default ({\n${body}\n})\n`
 })
 
 describe("Discovery host failures", () => {

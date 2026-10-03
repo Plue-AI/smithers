@@ -2,7 +2,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
-import * as CoreFlow from "@smthrs/core/Flow"
 import { Action, Flow, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Cause, Context, Deferred, Effect, Exit, Fiber, FileSystem, Layer, type Path, Schema, Scope } from "effect"
@@ -67,6 +66,31 @@ const recordingRuntime = (handlers: Map<string, (payload: unknown) => Effect.Eff
   } as never)
 
 describe("module layer exports", () => {
+  it("refuses a retained object-form Core module by name before evaluation", async () => {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const { root } = yield* fixture
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.writeFileString(
+          join(root, "flows", "fixture", "flow.ts"),
+          `
+import { Flow } from "@smthrs/core"
+import { Schema } from "effect"
+export default Flow.make({ name: "fixture", description: "Retained fixture", input: Schema.Struct({ value: Schema.String }), output: Schema.String })
+`
+        )
+        const discovery = yield* Discovery.Discovery
+        const discovered = yield* discovery.scan({ source: "project", root: join(root, "flows"), naming: "path" })
+        const result = yield* Effect.result(Executable.fromDescriptor(discovered.entries[0]!, { delegates: [] }))
+        expect(result._tag).toBe("Failure")
+        if (result._tag === "Failure") {
+          expect(result.failure).toMatchObject({ code: "invalid_module", flow: "fixture" })
+          expect(result.failure.message).toContain("Retained Core object-form module")
+        }
+      }).pipe(Effect.provide(Discovery.layer), Effect.provide(platform), Effect.scoped)
+    )
+  })
+
   it("registers the module action against existing host services", async () => {
     const runtimeLayer = await memoryRuntime()
     await Effect.runPromise(
@@ -296,12 +320,14 @@ describe("module layer exports", () => {
     await Effect.runPromise(
       Effect.gen(function*() {
         const { descriptor } = yield* fixture
-        const legacy = CoreFlow.make({
+        const legacy = {
+          capabilities: [],
+          effects: undefined,
           name: "fixture",
           description: "A legacy declaration.",
           input: Schema.Struct({ value: Schema.String }),
           output: Schema.String
-        })
+        } as const
         const result = yield* Effect.result(Executable.fromDescriptor(descriptor, {
           delegates: [],
           load: () => Effect.succeed({ default: legacy, layer: Layer.empty })

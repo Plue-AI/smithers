@@ -1,7 +1,8 @@
-import { Flow } from "@smthrs/core"
 import { Schema } from "effect"
 
-export default Flow.make({
+export default ({
+  capabilities: [],
+  effects: undefined,
   name: "visible",
   description: "Visible command fixture.",
   input: Schema.Struct({
@@ -13,4 +14,4 @@ export default Flow.make({
     accepted: Schema.Boolean,
     number: Schema.Number
   })
-})
+} as const)

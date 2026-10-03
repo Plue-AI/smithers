@@ -21,7 +21,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { expect, it } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import * as NodeControl from "../src/NodeControl.ts"
 
 const writeFlow = (root: string, prompt: string) => {
@@ -177,7 +177,7 @@ it("reads drift again once a flows directory missing on the first read returns",
 // its drift has two halves: the source moved, and the host's catalog did not.
 const moduleSource = `import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({name:"native",description:"Waits",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Wait"]})
+export default ({ effects: undefined, name:"native",description:"Waits",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Wait"] })
 `
 
 /**
@@ -203,7 +203,7 @@ const moduleHost = (root: string) => {
           return Effect.fail(new Error("the entry does not load"))
         }
         return Effect.succeed({
-          default: CoreFlow.make({
+          default: ({
             name: "native",
             description: "Waits",
             input: Schema.Unknown,

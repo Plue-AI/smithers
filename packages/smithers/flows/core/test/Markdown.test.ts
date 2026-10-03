@@ -1,11 +1,11 @@
 import { Graph } from "@smthrs/flow"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
+
 import { describe, expect, it } from "vitest"
 import * as Annotations from "../src/Annotations.ts"
 import * as Effects from "../src/Effects.ts"
-import * as Flow from "../src/Flow.ts"
+
 import * as Markdown from "../src/Markdown.ts"
 import * as Placement from "../src/Placement.ts"
 
@@ -70,39 +70,6 @@ describe("Markdown", () => {
     const flow = Markdown.lowerMarkdown({ name: `placed-${placement}`, placement }, "Prompt")
 
     expect(Option.getOrThrow(Annotations.getOption(flow.annotations, Annotations.Placement))).toEqual(expected)
-  })
-
-  it("has the same structure as an equivalent hand-written signature", () => {
-    const markdown = Markdown.lowerMarkdown({
-      name: "markdown-flow",
-      description: "A markdown flow",
-      model: "small",
-      flows: ["search"],
-      capabilities: ["network"],
-      effects: { reads: ["docs"] }
-    }, "Prompt")
-    const handwritten = Flow.make({
-      name: "markdown-flow",
-      description: "A markdown flow",
-      input: Schema.Struct({ args: Schema.String }),
-      output: Schema.String,
-      capabilities: ["network"],
-      effects: Effects.make({
-        reads: ["docs"],
-        writes: [],
-        mode: "hermetic",
-        onConflict: "serialize"
-      }),
-      model: "small",
-      flows: ["search"],
-      prompt: "Prompt"
-    })
-
-    expect(Graph.nodes(Graph.build(markdown.flow, { args: "" })).map((node) => node.kind)).toEqual(
-      Graph.nodes(Graph.build(handwritten.flow, { args: "" })).map((node) => node.kind)
-    )
-    expect(markdown.action?.tier).toBe(handwritten.action?.tier)
-    expect(markdown.capabilities).toEqual(handwritten.capabilities)
   })
 
   it("accepts exactly the Agent Skills name grammar", () => {

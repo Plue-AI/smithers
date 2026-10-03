@@ -15,7 +15,7 @@ durable flow plus the `Interpreter` layer that registers it.
 ## The bridge does not compile a graph
 
 A discovered flow declares **what** it delegates to: a markdown `flows:`
-frontmatter list, a module `Flow.make({ flows })`. The host declares **how**
+frontmatter list, a module binding record’s `flows`. The host declares **how**
 that work runs, by registering `@smthrs/flow` flows under those names. One
 delegating node is therefore the whole lowering. There is no compiler here, and
 a descriptor's body never becomes a plan of its own.

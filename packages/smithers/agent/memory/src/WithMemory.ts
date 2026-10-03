@@ -16,7 +16,7 @@
 
 import * as Annotations from "@smthrs/core/Annotations"
 import * as Flow from "@smthrs/core/Flow"
-import type * as DurableFlow from "@smthrs/flow/Flow"
+import * as DurableFlow from "@smthrs/flow/Flow"
 import * as Context from "effect/Context"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -91,7 +91,15 @@ export interface DurableDeclaration extends DurableFlow.Any {
  * @category models
  * @since 1.0.0
  */
-export type Declared = Flow.Any | DurableDeclaration
+export interface BindingRecord {
+  readonly name: string
+  readonly input: Schema.Top
+  readonly output: Schema.Top
+  readonly annotations?: Context.Context<never> | undefined
+  readonly flows?: ReadonlyArray<string | Declared> | undefined
+}
+
+export type Declared = Flow.Any | DurableDeclaration | BindingRecord
 
 /**
  * Lists the collaborators a flow declares, callable flows and unresolved
@@ -106,7 +114,7 @@ export type Declared = Flow.Any | DurableDeclaration
  * @category introspection
  * @since 0.1.0
  */
-export const references = (flow: Declared): ReadonlyArray<Flow.Reference> => Flow.isFlow(flow) ? flow.flows ?? [] : []
+export const references = (flow: Declared): ReadonlyArray<string | Declared> => "flows" in flow ? flow.flows ?? [] : []
 
 /**
  * Lists the callable flows a flow declares. A name a registry has not resolved
@@ -115,8 +123,8 @@ export const references = (flow: Declared): ReadonlyArray<Flow.Reference> => Flo
  * @category introspection
  * @since 0.1.0
  */
-export const children = (flow: Declared): ReadonlyArray<Flow.Any> =>
-  references(flow).filter((reference): reference is Flow.Any => Flow.isFlow(reference))
+export const children = (flow: Declared): ReadonlyArray<Declared> =>
+  references(flow).filter((reference): reference is Declared => typeof reference !== "string")
 
 /**
  * Reads the memory policy a flow carries, or `undefined` when it carries none.
@@ -125,11 +133,11 @@ export const children = (flow: Declared): ReadonlyArray<Flow.Any> =>
  * @since 0.1.0
  */
 export const policyOf = (flow: Declared): Policy | undefined =>
-  Option.getOrUndefined(Annotations.getOption(flow.annotations, MemoryPolicy))
+  Option.getOrUndefined(Annotations.getOption(flow.annotations ?? Context.empty(), MemoryPolicy))
 
 const rebuild = (flow: Flow.Any, policy: Policy): Declaration => {
   const self = declaration(flow)
-  const declared = references(flow)
+  const declared = flow.flows ?? []
   if (declared.length === 0) return self
   return Flow.withFlows(
     self,
@@ -218,7 +226,19 @@ export function withMemory<
   policy: Policy
 ): DurableFlow.Flow<Tag, Payload, Success, Err, Requires>
 
+export function withMemory<F extends Declared>(flow: F, policy: Policy): F
+
 export function withMemory(flow: Declared, policy: Policy): Declared {
   const attached = snapshot(policy)
-  return Flow.isFlow(flow) ? attach(flow, attached) : flow.annotate(MemoryPolicy, attached)
+  if (Flow.isFlow(flow)) return attach(flow, attached)
+  if (DurableFlow.isFlow(flow)) return (flow as DurableDeclaration).annotate(MemoryPolicy, attached)
+  return {
+    ...flow,
+    annotations: Context.add(flow.annotations ?? Context.empty(), MemoryPolicy, attached),
+    ...("flows" in flow
+      ? {
+        flows: flow.flows?.map((child) => typeof child === "string" ? child : withMemory(child, attached))
+      }
+      : {})
+  }
 }

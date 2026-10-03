@@ -4,7 +4,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -104,7 +103,7 @@ export const capabilities = [capability("net:get", "*")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 /**
  * Retrieves a URL through the permission-aware kernel HTTP client.

@@ -9,7 +9,6 @@
  * end to end through `CellCalls`, which is the resolver `@smthrs/agent`'s cell
  * loop dispatches every `ctx.call` through.
  */
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as Cell from "@smthrs/harness/Cell"
 import * as CellCalls from "@smthrs/harness/CellCalls"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -87,12 +86,14 @@ describe("a lowered std signature as a harness binding", () => {
     // is wrapped as one `input` field. The wrap belongs to the plan: a cell
     // passes the value the signature declared, and a binding decodes it with
     // that same schema. Two wraps would make the declared contract unreachable.
-    const scalar = CoreFlow.make({
+    const scalar = {
+      capabilities: [],
+      effects: undefined,
       name: "scalar",
       description: "Takes one string.",
       input: Schema.String,
       output: Schema.Number
-    })
+    } as const
     expect(scalar.input).toBe(Schema.String)
     expect(Object.keys(scalar.flow.payloadSchema.fields)).toEqual(["input"])
 

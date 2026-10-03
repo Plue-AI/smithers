@@ -12,10 +12,9 @@ about the target.
 ## Build the binding
 
 ```ts
-import * as Flow from "@smthrs/core/Flow"
 import { Binding } from "@smthrs/scorers"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const binding = Binding.make({
   scorer: contains,

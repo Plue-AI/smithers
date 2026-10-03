@@ -8,7 +8,6 @@ import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
-import * as CoreFlow from "@smthrs/core/Flow"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Model from "@smthrs/model/Model"
@@ -147,14 +146,14 @@ const fixture = async (t: TestContext, contributed = false) => {
     const sources = [StandardFlows.filesystem(services), StandardFlows.shell(services)]
     const bindings = (yield* Effect.forEach(sources, (source) => source.bindings())).flat()
     const probe = FlowBinding.make({
-      flow: CoreFlow.make({
+      flow: ({
         name: "plugin/probe",
         description: "Check actual kernel authority.",
         input: Schema.Struct({}),
         output: Schema.Array(Schema.Boolean),
         capabilities: [],
         effects: { reads: [], writes: [], tier: "irreversible", mode: "expected", onConflict: "serialize" }
-      }),
+      } as const),
       handler: () =>
         Effect.gen(function*() {
           nativeProbes++

@@ -22,7 +22,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { describe, expect, it, vi } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import { settledKind } from "../src/internal/EngineJournalSupervisor.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
@@ -39,7 +39,7 @@ const definition = {
 const source = `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({
+export default ({
   name: "native",
   description: ${JSON.stringify(definition.description)},
   input: Schema.Struct({ value: Schema.String }), output: Schema.Unknown,
@@ -138,7 +138,7 @@ const planAndRunOn = async (root: string, whileLoading?: () => Promise<void>) =>
   const registry = NodeControl.layerRegistry(root)
   const modules = Executable.layer({
     delegates: [Planned],
-    load: () => Effect.succeed({ default: CoreFlow.make(definition) })
+    load: () => Effect.succeed({ default: definition })
   }).pipe(
     Layer.provideMerge(
       Layer.mergeAll(Interpreter.layer(Planned), Probe.toLayer(({ value }) => Effect.succeed(value)))
@@ -211,7 +211,7 @@ const planOn = async (
   const registry = NodeControl.layerRegistry(root)
   const modules = Executable.layer({
     delegates: [delegate],
-    load: () => Effect.succeed({ default: CoreFlow.make(definition) })
+    load: () => Effect.succeed({ default: definition })
   }).pipe(
     Layer.provideMerge(
       Layer.mergeAll(Interpreter.layer(delegate), Probe.toLayer(({ value }) => Effect.succeed(value)))

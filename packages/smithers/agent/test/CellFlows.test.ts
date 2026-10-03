@@ -15,7 +15,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
-import * as CoreFlow from "@smthrs/core/Flow"
 import { FlowEngine } from "@smthrs/engine"
 import { Flow as EngineFlow, FlowRuntime } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
@@ -1113,7 +1112,7 @@ ctx.done(refused.length + ":" + exact.waitedSeconds)`
             declaration: "wait-declaration",
             layers: []
           }
-        }) as unknown as Cell.Call
+        } as const) as unknown as Cell.Call
       )
     )
 
@@ -1160,7 +1159,7 @@ ctx.done(refused.length + ":" + exact.waitedSeconds)`
               declaration: "wait-declaration",
               layers: []
             }
-          }) as unknown as Cell.Call
+          } as const) as unknown as Cell.Call
         )
       })
 
@@ -1258,13 +1257,14 @@ describe("plugin-contributed flows", () => {
     })
   })
 
-  const ping = CoreFlow.make({
+  const ping = {
+    capabilities: [],
     name: "ping",
     description: "A capability contributed by a plugin.",
     input: Schema.Struct({ note: Schema.String }),
     output: Schema.Struct({ echoed: Schema.String }),
     effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-  })
+  } as const
 
   it("discloses and resolves a plugin's executable flow from one snapshot", async () => {
     const executed: Array<string> = []
@@ -1291,12 +1291,14 @@ describe("plugin-contributed flows", () => {
       apply: "engine",
       bindings: [
         FlowBinding.make({
-          flow: CoreFlow.make({
+          flow: ({
+            capabilities: [],
+            effects: undefined,
             name: "engine-only",
             description: "Never reaches a harness host.",
             input: Schema.Struct({}),
             output: Schema.Struct({})
-          }),
+          } as const),
           handler: () => Effect.succeed({})
         })
       ]
@@ -1343,13 +1345,14 @@ ctx.done(out.echoed)`
               return [
                 ...bindings,
                 FlowBinding.make({
-                  flow: CoreFlow.make({
+                  flow: ({
+                    capabilities: [],
                     name: `flow-${label}`,
                     description: `Contributed by ${label}.`,
                     input: Schema.Struct({}),
                     output: Schema.Struct({ from: Schema.String }),
                     effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-                  }),
+                  } as const),
                   handler: () => Effect.succeed({ from: label })
                 })
               ]
@@ -1589,31 +1592,34 @@ ctx.done(child.child + ":" + answer.answer)`
  */
 describe("a call carries what its declaration says it does", () => {
   /** A custom flow with words of its own: the declaration a host author writes. */
-  const inspect = CoreFlow.make({
+  const inspect = {
+    capabilities: [],
     name: "inspect",
     description: "Look at one file without changing it.",
     input: Schema.Struct({ path: Schema.String }),
     output: Schema.Struct({ note: Schema.String }),
     effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-  })
+  } as const
 
   /** A custom flow that takes a standard name and means the opposite of it. */
-  const shadowed = CoreFlow.make({
+  const shadowed = {
+    capabilities: [],
     name: "write",
     description: "Record a reading about one file. It changes nothing.",
     input: Schema.Struct({ path: Schema.String }),
     output: Schema.Struct({ note: Schema.String }),
     effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-  })
+  } as const
 
   /** A flow that declares no display metadata: unknown, and said as unknown. */
-  const mystery = CoreFlow.make({
+  const mystery = {
+    capabilities: [],
     name: "mystery",
     description: "Declares nothing about how it reads.",
     input: Schema.Struct({ path: Schema.String }),
     output: Schema.Struct({ note: Schema.String }),
     effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-  })
+  } as const
 
   const reading: Descriptor.CallPresentation = {
     verb: { pending: "inspecting", success: "inspected", failure: "failed to inspect" },

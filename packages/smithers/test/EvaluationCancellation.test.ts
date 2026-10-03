@@ -34,7 +34,7 @@ const hold = (value) => Effect.callback((resume) => {
   release = () => resume(Effect.succeed(value))
   start()
 }).pipe(Effect.ensuring(Effect.sync(() => finish())))
-const target = Flow.make({ name: "cancellation-target" })
+const target = ({ name: "cancellation-target" })
 const scorer = Scorer.make({ id: "cancel", version: "1", name: "cancel",
   score: () => ${phase === "scorer" ? "hold({ score: 1 })" : "Effect.succeed({ score: 1 })"}
 })

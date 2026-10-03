@@ -13,7 +13,7 @@
  * default-exports a `@smthrs/flow` flow IS the work: its own body is the plan,
  * and {@link selfDelegate} makes it its own delegate so nothing has to be
  * registered under a name. Everything else — a markdown `flows:` frontmatter
- * list, a `@smthrs/core` `Flow.make({ flows })` — declares WHAT it delegates
+ * list, a schema/metadata record with `flows` — declares WHAT it delegates
  * to, and the host declares HOW that work runs by registering `@smthrs/flow`
  * flows under those names.
  *
@@ -78,6 +78,7 @@ import * as Semaphore from "effect/Semaphore"
 import * as Descriptor from "./Descriptor.ts"
 import type * as ExecutionSnapshot from "./ExecutionSnapshot.ts"
 import { readVerifiedBody } from "./internal/Body.ts"
+import { isLegacyObjectModule } from "./internal/LegacyModule.ts"
 import * as ModuleClosure from "./internal/ModuleClosure.ts"
 import * as MarkdownFlow from "./MarkdownFlow.ts"
 import * as Registry from "./Registry.ts"
@@ -86,7 +87,7 @@ import type { DiscoveryError, RegistryError } from "./RegistryError.ts"
 /**
  * The delegate a descriptor runs on when it names no single flow of its own.
  *
- * A markdown skill and a bodiless `Flow.make({ model })` both say "a model
+ * A markdown skill and a schema/metadata record with `model` both say "a model
  * does this"; neither names the code that drives one. `agent` is the name a
  * host registers that driver under, and {@link Options.agent} renames it for a
  * host that calls it something else.
@@ -1049,6 +1050,15 @@ const loadModule = (
     ))
     const { bytes, modules } = source
     const loadPath = "loadPath" in source ? source.loadPath : source.entry
+    if (isLegacyObjectModule(bytes)) {
+      return yield* Effect.fail(refuse({
+        code: "invalid_module",
+        flow: descriptor.name,
+        path,
+        message:
+          "Retained Core object-form module cannot execute: migrate to @smthrs/flow Flow.make(tag, options) or explicitly resume with a compatible runtime"
+      }))
+    }
     const loaded = yield* (options.load ?? importModule)(loadPath, {
       bytes,
       contentDigest: descriptor.body.contentDigest!,
@@ -1087,7 +1097,11 @@ const loadModule = (
         layer: implementation
       }
     }
-    if (!CoreFlow.isFlow(exported)) {
+    if (
+      !CoreFlow.isFlow(exported) && !(typeof exported === "object" && exported !== null &&
+        "input" in exported && Schema.isSchema(exported.input) &&
+        "output" in exported && Schema.isSchema(exported.output))
+    ) {
       return yield* Effect.fail(
         refuse({
           code: "invalid_module",
@@ -1109,7 +1123,7 @@ const loadModule = (
     return {
       source,
       prompt: "",
-      annotations: (exported as unknown as CoreFlow.Flow<never, never, never>).annotations,
+      annotations: (exported as { readonly annotations?: Context.Context<never> }).annotations ?? Context.empty(),
       flow: undefined
     }
   })

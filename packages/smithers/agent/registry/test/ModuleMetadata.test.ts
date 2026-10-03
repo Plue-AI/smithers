@@ -190,13 +190,18 @@ describe("ModuleMetadata", () => {
       `import { Schema } from "effect"; export default Flow.make("strings", { payload: Schema.Struct({ v: Schema.Literals(["${brackets}", "[x]"]) }) })`
     )
     expect(metadata.inputDocument).toEqual(
-      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({ v: Schema.Literals([brackets, "[x]"]) })))
+      Schema.decodeUnknownSync(Schema.Json)(
+        Schema.toJsonSchemaDocument(Schema.Struct({ v: Schema.Literals([brackets, "[x]"]) }))
+      )
     )
     expect(metadata.warnings).toEqual([])
   })
 
   it.each([
-    ["Array", (depth: number) => `Schema.Struct({ a: ${"Schema.Array(".repeat(depth)}Schema.String${")".repeat(depth)} })`],
+    [
+      "Array",
+      (depth: number) => `Schema.Struct({ a: ${"Schema.Array(".repeat(depth)}Schema.String${")".repeat(depth)} })`
+    ],
     ["Struct", (depth: number) => `${"Schema.Struct({ a: ".repeat(depth)}Schema.String${" })".repeat(depth)}`]
   ])("warns quickly on a hostile %s payload nested far past the bound", (_, payload) => {
     const started = performance.now()
@@ -368,7 +373,7 @@ describe("ModuleMetadata", () => {
   it("reads metadata from the default Flow.make value without named schema exports", () => {
     const metadata = ModuleMetadata.parse([
       "\"use sandbox\"",
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Reviews a pull request.\",",
       "  input: Schema.Struct({ number: Schema.Number }),",
       "  output: Schema.Struct({ summary: Schema.String }),",
@@ -407,7 +412,7 @@ describe("ModuleMetadata", () => {
     expect(discoveredFlow.effects?.tier).toBe("irreversible")
     expect(
       ModuleMetadata.parse([
-        "export default Flow.make({",
+        "export default ({",
         "  description: \"Posts a result.\",",
         "  effects: {",
         "    reads: [],",
@@ -422,15 +427,15 @@ describe("ModuleMetadata", () => {
   })
 
   it("stops once the complete declaration is present", () => {
-    expect(ModuleMetadata.isComplete("export default Flow.make({ description: \"Review\"")).toBe(false)
-    expect(ModuleMetadata.isComplete("export default Flow.make({ description: \"Review\" })")).toBe(true)
+    expect(ModuleMetadata.isComplete("export default ({ description: \"Review\"")).toBe(false)
+    expect(ModuleMetadata.isComplete("export default ({ description: \"Review\" })")).toBe(true)
   })
 
   it("ignores helper declarations and comments before the default export", () => {
     const source = [
-      "// export default Flow.make({ description: \"Comment\", capabilities: [] })",
-      "const helper = Flow.make({ description: \"Helper\", capabilities: [] })",
-      "export default Flow.make({",
+      "// export default ({ description: \"Comment\", capabilities: [] })",
+      "const helper = ({ description: \"Helper\", capabilities: [] })",
+      "export default ({",
       "  description: \"Default\",",
       "  capabilities: [\"net:get\"]",
       "})"
@@ -446,7 +451,7 @@ describe("ModuleMetadata", () => {
 
   it("does not treat braces in regular expressions as object syntax", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Validates a closing brace.\",",
       "  input: Schema.String.pipe(Schema.pattern(/}/)),",
       "  output: Schema.String,",
@@ -466,7 +471,7 @@ describe("ModuleMetadata", () => {
 
   it("projects a flow list of identifiers conservatively", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Reviews a change.\",",
       "  flows: [readFile, writeFile]",
       "})"
@@ -501,7 +506,7 @@ describe("ModuleMetadata", () => {
     ["a computed property", "[authorityKey]: [\"net:post\"]"]
   ])("projects %s as conservative authority", (_label, member) => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Posts a message\",",
       `  ${member}`,
       "})"
@@ -523,7 +528,7 @@ describe("ModuleMetadata", () => {
       "/* generated header */",
       "// placement follows",
       "\"use remote\"",
-      "export default Flow.make({ description: \"Runs remotely.\" })"
+      "export default ({ description: \"Runs remotely.\" })"
     ].join("\n"))
 
     expect(Option.getOrThrow(metadata.placement)).toBe("remote")
@@ -569,7 +574,7 @@ describe("ModuleMetadata", () => {
 
   it("returns conservative metadata when no default flow declaration is present", () => {
     const metadata = ModuleMetadata.parse(
-      "const helper = 1\nexport const named = Flow.make({ description: \"Named\" })"
+      "const helper = 1\nexport const named = ({ description: \"Named\" })"
     )
 
     expect(ModuleMetadata.isComplete("")).toBe(false)
@@ -598,7 +603,7 @@ describe("ModuleMetadata", () => {
   it.each([
     ["a line comment that never ends in a newline", "// unterminated"],
     ["a block comment that is never closed", "/* unterminated"],
-    ["a string literal that is never closed", "export default Flow.make({ description: \"unterminated"],
+    ["a string literal that is never closed", "export default ({ description: \"unterminated"],
     ["a regular expression that is never closed", "const pattern = /unterminated"]
   ])("reads no declaration from %s", (_label, source) => {
     expect(ModuleMetadata.isComplete(source)).toBe(false)
@@ -675,7 +680,7 @@ describe("ModuleMetadata", () => {
     ["\\x42", "B"]
   ])("decodes the %j escape inside a description literal", (escape, decoded) => {
     const metadata = ModuleMetadata.parse(
-      `export default Flow.make({ description: "before${escape}after", capabilities: [] })`
+      `export default ({ description: "before${escape}after", capabilities: [] })`
     )
 
     expect(metadata.description).toBe(`before${decoded}after`)
@@ -683,10 +688,10 @@ describe("ModuleMetadata", () => {
 
   it("reads a backticked description and rejects an interpolated one", () => {
     expect(
-      ModuleMetadata.parse("export default Flow.make({ description: `Reviews a change.` })").description
+      ModuleMetadata.parse("export default ({ description: `Reviews a change.` })").description
     ).toBe("Reviews a change.")
     expect(
-      ModuleMetadata.parse("export default Flow.make({ description: `Reviews ${subject}.` })").description
+      ModuleMetadata.parse("export default ({ description: `Reviews ${subject}.` })").description
     ).toBeUndefined()
   })
 
@@ -697,7 +702,7 @@ describe("ModuleMetadata", () => {
       "const flagged = typeof /trailing/gi",
       "const half = 1 / 2",
       "const ratio = width / height",
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Survives every lexical form.\",",
       "  retries: 30,",
       "  capabilities: []",
@@ -737,20 +742,20 @@ describe("ModuleMetadata", () => {
     ["use remote", "remote"]
   ])("reads the %s placement directive", (directive, placement) => {
     const metadata = ModuleMetadata.parse(
-      `"${directive}"\nexport default Flow.make({ description: "Placed." })`
+      `"${directive}"\nexport default ({ description: "Placed." })`
     )
 
     expect(Option.getOrThrow(metadata.placement)).toBe(placement)
   })
 
   it("reads no placement from an unrecognised leading directive or an empty module", () => {
-    expect(Option.isNone(ModuleMetadata.parse("\"use magic\"\nexport default Flow.make({})").placement)).toBe(true)
+    expect(Option.isNone(ModuleMetadata.parse("\"use magic\"\nexport default ({})").placement)).toBe(true)
     expect(Option.isNone(ModuleMetadata.parse("").placement)).toBe(true)
   })
 
   it("accepts a quoted property key and a trailing comma", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  \"description\": \"Quoted and trailing.\",",
       "  capabilities: [],",
       "})"
@@ -765,7 +770,7 @@ describe("ModuleMetadata", () => {
 
   it("projects a method member as conservative authority", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Declares a method.\",",
       "  capabilities: [],",
       "  run(count: number) { return count + 1 }",
@@ -787,7 +792,7 @@ describe("ModuleMetadata", () => {
     ["omitted entirely with no model seat", "", undefined]
   ])("keeps declared capabilities when the flow list is %s", (_label, members, model) => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Reads files.\",",
       members,
       "  capabilities: [\"fs:read:.\"]",
@@ -809,7 +814,7 @@ describe("ModuleMetadata", () => {
 
   it("narrows a non-empty literal flow list to the declared capabilities", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Calls another flow.\",",
       "  capabilities: [\"fs:read:**\"],",
       "  flows: [\"read-pr\"]",
@@ -830,7 +835,7 @@ describe("ModuleMetadata", () => {
 
   it("keeps the wildcard for a delegating module that declares no capabilities", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Calls another flow.\",",
       "  flows: [\"read-pr\"]",
       "})"
@@ -849,14 +854,14 @@ describe("ModuleMetadata", () => {
     ["a surrogate pair", "\\uD83D\\uDE00"]
   ])("decodes %s in a description", (_label, escape) => {
     const metadata = ModuleMetadata.parse(
-      `export default Flow.make({ description: "hi ${escape}", capabilities: [] })`
+      `export default ({ description: "hi ${escape}", capabilities: [] })`
     )
 
     expect(metadata.description).toBe("hi 😀")
   })
 
   it("preserves an out-of-range code-point escape without throwing", () => {
-    const source = "export default Flow.make({ description: \"hi \\u{FFFFFF}\", capabilities: [] })"
+    const source = "export default ({ description: \"hi \\u{FFFFFF}\", capabilities: [] })"
 
     expect(() => ModuleMetadata.parse(source)).not.toThrow()
     expect(ModuleMetadata.parse(source).description).toBe("hi \\u{FFFFFF}")
@@ -869,7 +874,7 @@ describe("ModuleMetadata", () => {
     ["disableModelInvocation: true", false]
   ])("reads %s as a literal visibility declaration", (member, modelInvocable) => {
     const metadata = ModuleMetadata.parse(
-      `export default Flow.make({ description: "Visible or not.", ${member} })`
+      `export default ({ description: "Visible or not.", ${member} })`
     )
 
     expect(metadata.modelInvocable).toBe(modelInvocable)
@@ -881,7 +886,7 @@ describe("ModuleMetadata", () => {
     ["disableModelInvocation", "disableModelInvocation: visibility"]
   ])("warns when %s is not a boolean literal", (_label, member) => {
     const metadata = ModuleMetadata.parse(
-      `export default Flow.make({ description: "Visible or not.", ${member} })`
+      `export default ({ description: "Visible or not.", ${member} })`
     )
 
     expect(metadata.modelInvocable).toBe(true)
@@ -892,7 +897,7 @@ describe("ModuleMetadata", () => {
 
   it("reads a fully declared effect envelope, including nested members", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Writes source files.\",",
       "  capabilities: [\"fs:write:src\"],",
       "  effects: {",
@@ -918,7 +923,7 @@ describe("ModuleMetadata", () => {
 
   it("raises an under-classifying declared tier to the inferred tier", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Writes anywhere.\",",
       "  capabilities: [\"fs:write\"],",
       "  effects: { reads: [], writes: [], tier: \"sealed\" }",
@@ -959,7 +964,7 @@ describe("ModuleMetadata", () => {
     ]
   ])("falls back to conservative effects when %s", (_label, member, message) => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Declares effects badly.\",",
       "  capabilities: [\"fs:read:.\"],",
       `  ${member}`,
@@ -978,7 +983,7 @@ describe("ModuleMetadata", () => {
 
   it("warns when authority metadata cannot be statically projected", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Review\",",
       "  capabilities,",
       "  effects: {",
@@ -1000,7 +1005,7 @@ describe("ModuleMetadata", () => {
   })
   it("projects declared wildcard capabilities as the conservative envelope", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Claims everything.\",",
       "  capabilities: [\"*\"],",
       "  effects: { reads: [], writes: [], mode: \"hermetic\", onConflict: \"serialize\", tier: \"sealed\" }",
@@ -1021,7 +1026,7 @@ describe("ModuleMetadata", () => {
 
   it("widens an unreadable reads member to the wildcard and names it", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Reads an imported list.\",",
       "  capabilities: [\"fs:read:.\"],",
       "  effects: { reads: sharedReads, writes: [] }",
@@ -1042,7 +1047,7 @@ describe("ModuleMetadata", () => {
 
   it("reads members an effects object leaves out as empty sets", () => {
     const metadata = ModuleMetadata.parse([
-      "export default Flow.make({",
+      "export default ({",
       "  description: \"Declares only a tier.\",",
       "  capabilities: [\"fs:read\"],",
       "  effects: { tier: \"sealed\" }",
@@ -1077,7 +1082,7 @@ describe("ModuleMetadata effect envelope parity", () => {
   // to be the same envelope either way, or a file flow's authority would depend
   // on which constructor its author reached for.
   const core = ModuleMetadata.parse([
-    "export default Flow.make({",
+    "export default ({",
     "  description: \"Builds the package.\",",
     "  input: Schema.Struct({ target: Schema.String }),",
     "  output: Schema.Struct({ built: Schema.Boolean }),",

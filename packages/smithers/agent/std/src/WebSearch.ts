@@ -9,7 +9,6 @@
  * @since 1.0.0
  */
 
-import * as Flow from "@smthrs/core/Flow"
 import { Context, Effect, Layer, Schema } from "effect"
 import { capability, envelope } from "./internal/Declaration.ts"
 import * as StdError from "./StdError.ts"
@@ -106,7 +105,7 @@ export const capabilities = [capability("net:post", "*")]
  * @category flows
  * @since 1.0.0
  */
-export const flow = Flow.make({ name, description, input: Input, output: Output, capabilities, effects })
+export const flow = { name, description, input: Input, output: Output, capabilities, effects } as const
 
 /**
  * The provider seam a web search is served through.

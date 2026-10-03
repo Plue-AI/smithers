@@ -1,6 +1,5 @@
 /** Bundled declarations are available before a repository has written any flows. */
 import * as Digest from "@smthrs/core/Digest"
-import * as CoreFlow from "@smthrs/core/Flow"
 import type * as RuntimeFlow from "@smthrs/flow/Flow"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
@@ -205,7 +204,7 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
       yield* fs.makeDirectory(directory, { recursive: true })
       const header = `// Bundled repository policy ${policy}.`
       const body = entry.flow === undefined
-        ? `import { Flow } from "@smthrs/core"\nimport { Schema } from "effect"\n${header}\nexport default Flow.make({ name: ${
+        ? `import { Schema } from "effect"\n${header}\nexport default ({ name: ${
           JSON.stringify(entry.name)
         }, description: ${JSON.stringify(entry.description)}, capabilities: ["*"], flows: [${
           JSON.stringify(entry.delegate)
@@ -228,14 +227,16 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
       // `Flow.make` has no `budget` option, so the value carries none either.
       modules.set(path.resolve(file), {
         body,
-        declaration: entry.flow ?? CoreFlow.make({
-          name: entry.name,
-          description: entry.description,
-          capabilities: ["*"],
-          flows: [entry.delegate],
-          input: Schema.Unknown,
-          output: Schema.Unknown
-        })
+        declaration: entry.flow ??
+          ({
+            effects: undefined,
+            name: entry.name,
+            description: entry.description,
+            capabilities: ["*"],
+            flows: [entry.delegate],
+            input: Schema.Unknown,
+            output: Schema.Unknown
+          } as const)
       })
     }
     /*

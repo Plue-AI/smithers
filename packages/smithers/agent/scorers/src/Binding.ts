@@ -35,7 +35,7 @@ import type { Scorer } from "./Scorer.ts"
  */
 export interface Binding {
   readonly scorer: Scorer<unknown>
-  readonly appliesTo: Flow.Any
+  readonly appliesTo: Pick<Flow.Any, "name">
   readonly groundTruth?: unknown
   readonly context?: unknown
   readonly sampling: Sampling

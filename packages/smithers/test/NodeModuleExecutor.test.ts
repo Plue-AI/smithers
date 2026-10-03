@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import * as CoreFlow from "../flows/core/src/Flow.ts"
+
 import { settledKind } from "../src/internal/EngineJournalSupervisor.ts"
 import { ModuleOwner } from "../src/internal/ModuleOwner.ts"
 import * as NodeControl from "../src/NodeControl.ts"
@@ -52,13 +52,13 @@ describe("NodeControl native modules", () => {
           `
 import * as Flow from "@smthrs/core/Flow"
 import { Schema } from "effect"
-export default Flow.make({
+export default ({
   name: "native",
   description: "A native module with durable children.",
   input: Schema.Struct({ value: Schema.String }), output: Schema.Unknown,
   capabilities: ["fs:read:**"], flows: ["test/Module"],
   effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }
-})
+ })
 `
         )
         const Probe = Action.make("test/Probe", {
@@ -130,7 +130,7 @@ export default Flow.make({
         )
         const modules = Executable.layer({
           delegates: [Module],
-          load: () => Effect.succeed({ default: CoreFlow.make(definition) })
+          load: () => Effect.succeed({ default: definition })
         }).pipe(Layer.provideMerge(native), Layer.orDie)
         const registry = NodeControl.layerRegistry(root)
         const descriptor = await Effect.runPromise(Registry.Registry.pipe(
