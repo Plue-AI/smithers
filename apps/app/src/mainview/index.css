@@ -9,6 +9,5 @@
 @import "./styles/chrome.css";
 @import "./styles/identity.css";
 @import "./styles/threads.css";
-@config "../../tailwind.config.js";
-
 @import "./styles/views.css";
+@config "../../tailwind.config.js";
