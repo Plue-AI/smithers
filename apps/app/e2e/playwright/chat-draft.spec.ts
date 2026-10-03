@@ -2,6 +2,7 @@ import {expect,test} from "./browserTest"
 import {signedOutVisitor} from "./identity"
 
 test("a delayed slash submission preserves the freshly retyped identical command", async ({page}) => {
+  await page.emulateMedia({colorScheme:'light'})
   await signedOutVisitor(page)
   await page.addInitScript(() => {
     const nativePost = Worker.prototype.postMessage
@@ -29,9 +30,9 @@ test("a delayed slash submission preserves the freshly retyped identical command
     await page.keyboard.press('Control+k')
     await input.fill(line)
     await expect(input).toHaveValue(line)
-    await expect(page.locator('html')).not.toHaveAttribute('data-palette','paper')
+    await expect(page.locator('html')).toHaveAttribute('data-theme','light')
     await page.evaluate(()=>(window as any).draftCommitProbe.release())
-    await expect(page.locator('html')).toHaveAttribute('data-palette','paper')
+    await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
     await expect(input).toHaveValue(line)
     await page.reload()
     await expect(page.getByRole('button',{name:'Chat',exact:true})).toBeVisible()
