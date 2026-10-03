@@ -21,7 +21,6 @@
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { Flow as CoreFlow } from "../../packages/smithers/flows/core/src/index.ts"
 import { CaseExecutor, EvalError, Suite, type Runner as EvalRunner } from "../../packages/smithers/agent/evals/src/index.ts"
 import { Binding, Runner as ScorerRunner, Scorer } from "../../packages/smithers/agent/scorers/src/index.ts"
 import * as Subject from "./subject.ts"
@@ -36,10 +35,11 @@ import * as Subject from "./subject.ts"
  * @category models
  * @since 0.1.0
  */
-export const target = CoreFlow.make({
+export const target = {
+  capabilities: [],
   name: "evals/agent/subject",
   description: "One run of the Smithers agent under a scripted provider."
-})
+}
 
 const canonical = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(canonical)

@@ -4,10 +4,9 @@ import { Effect } from "effect"
 import { readFileSync } from "node:fs"
 import * as Binding from "../../packages/smithers/agent/scorers/src/Binding.ts"
 import * as Scorer from "../../packages/smithers/agent/scorers/src/Scorer.ts"
-import * as Flow from "../../packages/smithers/flows/core/src/Flow.ts"
 import { parseLog, scoreLog } from "./score.ts"
 
-const target = Flow.make({ name: "evals/recommend/fixture" })
+const target = { name: "evals/recommend/fixture" }
 const scorer = Scorer.make({
   id: "evals/recommend/hit-rate",
   version: "1",

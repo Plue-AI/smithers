@@ -43,7 +43,6 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Digest from "@smthrs/core/Digest"
 import * as Effects from "@smthrs/core/Effects"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -122,7 +121,7 @@ export const Release = Flow.make("examples/Release", {
  * durable flow rather than a function, which is the point of the binding
  * contract.
  */
-export const CompileTool = CoreFlow.make({
+export const CompileTool = ({ capabilities: [],
   name: "compile",
   description: "Compile a target and answer with the bundle path.",
   input: Schema.Struct({ target: Schema.String }),

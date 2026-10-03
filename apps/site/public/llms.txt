@@ -88,7 +88,7 @@
 - [@smthrs/chain](https://smithers.sh/docs/reference/api/chain/): The Agent Chain spine: an append-only journal, keyed replayable calls, and the trampoline that runs model-authored flow scripts
 - [@smthrs/cli](https://smithers.sh/docs/reference/api/cli/): Node command-line interface for Smithers control
 - [@smthrs/control](https://smithers.sh/docs/reference/api/control/): Control services and RPC projections for flows
-- [@smthrs/core](https://smithers.sh/docs/reference/api/core/): Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it
+- [@smthrs/core](https://smithers.sh/docs/reference/api/core/): Flow metadata and Markdown lowering over @smthrs/flow
 - [@smthrs/crypto](https://smithers.sh/docs/reference/api/crypto/): Strict SHA-256 hashing with injected and synchronous Effect entry points
 - [@smthrs/database](https://smithers.sh/docs/reference/api/database/): A driver-neutral SQL contract with a bounded write-retry seam, plus the composed migration ladder
 - [@smthrs/engine-store](https://smithers.sh/docs/reference/api/engine-store/): Effect services for durable engine action persistence and replay boundaries

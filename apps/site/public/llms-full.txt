@@ -18374,67 +18374,7 @@ For the trust boundary and the model behind these signatures, see [Plan time](ht
 
 ## Flow
 
-Schema-described signatures, and the combinators that decorate one. `Flow.make`
-lowers what an author declares onto the values [`@smthrs/flow`](/docs/reference/api/flow/)
-executes: a declared action, which is what a host supplies an implementation
-for, and a flow whose body is one call to that action. A signature that
-declares its own `body` keeps the body and needs no action.
-
-### Flow.make (deprecated)
-
-```ts
-const make: <
-  I extends Schema.Top = typeof Schema.Void,
-  O extends Schema.Top = typeof Schema.Unknown,
-  Err extends Schema.Top = typeof Schema.Never,
-  Requires = Action.Requirement<string>
->(config: MakeOptions<I, O, Err, Requires>) => Flow<I, O, Err, Requires>
-```
-
-Deprecated compatibility adapter. Author new declarations with the tagged
-`Flow.make` from `@smthrs/flow`; the adapter's `flow` property is that same
-canonical model. Existing metadata and primitive input wrapping are retained.
-
-For existing callers, `name` is required and is the tag the flow, the action,
-and every plan that records a call carry; `Flow.make` throws `TypeError`
-without one rather than minting an empty tag. A declaration loaded from a file
-takes the name its loader derives from the path.
-
-```ts
-import { Action } from "@smthrs/flow"
-import { Effect, Schema } from "effect"
-
-const read = Action.make("std/read", {
-  payload: Schema.Struct({ path: Schema.String }),
-  success: Schema.String,
-  capabilities: ["fs"]
-})
-
-const layer = read.toLayer(({ path }) => Effect.succeed(path))
-```
-
-### Flow.MakeOptions
-
-```ts
-interface MakeOptions<I extends Schema.Top, O extends Schema.Top, Err extends Schema.Top, Requires> {
-  readonly name?: string | undefined
-  readonly description?: string | undefined
-  readonly input?: I | undefined
-  readonly output?: O | undefined
-  readonly error?: Err | undefined
-  readonly capabilities?: ReadonlyArray<string> | undefined
-  readonly effects?: Effects.Declaration | undefined
-  readonly model?: Seat | readonly [Seat, ...Seat[]] | undefined
-  readonly flows?: ReadonlyArray<Reference> | undefined
-  readonly prompt?: string | undefined
-  readonly body?: ((input: I["Type"]) => Node.Node<O["Type"], Err["Type"], Requires>) | undefined
-}
-```
-
-`input` defaults to `Schema.Void`, `output` to `Schema.Unknown`, and `error` to
-`Schema.Never`. `capabilities` is sorted and deduplicated. `model`, `flows`,
-and `prompt` are advisory metadata a catalog and a decorator read back; the
-collaborator array is copied.
+Metadata signatures retained for Markdown lowering. Author executable flows with `Flow.make(tag, options)` from `@smthrs/flow`.
 
 ### Flow.Flow
 
@@ -21661,13 +21601,12 @@ One direction, six modules:
 6. `Gate` turns the comparison into a verdict and a CI exit code.
 
 ```ts
-import { Flow } from "@smthrs/core"
 import { Baseline, CaseExecutor, Gate, Regression, Runner, Suite } from "@smthrs/evals"
 import { Binding, Scorer } from "@smthrs/scorers"
 import { Effect, Layer } from "effect"
 import { readFile } from "node:fs/promises"
 
-const greet = Flow.make({ name: "greet" })
+const greet = ({ name: "greet" })
 
 const polite = Scorer.make({
   id: "example/polite",
@@ -24102,7 +24041,7 @@ behavior and signatures.
 | Module                       | Public exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | What it is                                                                                               |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `HarnessError`               | `HarnessErrorCode`, `HarnessError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Stable failures reported at the harness translation boundary.                                            |
-| `AgentEvent`                 | `Observer`, `Journal`, `RelevanceKind`, `CompactionMark`, `CompactionPin`, `MonitorKind`, `Stance`, `Suppression`, `UnjudgedReason`, `DisciplineArmed`, `TurnOpened`, `ModelRequested`, `ModelDelta`, `ModelRetried`, `ModelSettled`, `CellProduced`, `CellRejectedInFrame`, `CellCallStarted`, `CellCallSettled`, `CellPrinted`, `CellSettled`, `TransitionApplied`, `ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `DecisionAnswer`, `decisionAnswers`, `DecisionSettled`, `SupervisorSettled`, `SupervisorUnjudged`, `DecisionUnjudged`, `RelevanceSettled`, `RelevanceRestored`, `SeatPanel`, `SeatRouted`, `SufficiencyObserved`, `VacuousVerificationObserved`, `MutationObserved`, `CheckpointMinted`, `Suspended`, `CompactionSettled`, `SteeringDrained`, `TurnClosed`, `PermissionRequired`, `Aborted`, `Resolved`, `AgentEvent`, `eventType` | Serializable events emitted by harness adapters.                                                         |
+| `AgentEvent`                 | `Observer`, `Journal`, `RelevanceKind`, `CompactionMark`, `CompactionPin`, `MonitorKind`, `Stance`, `Suppression`, `UnjudgedReason`, `DisciplineArmed`, `TurnOpened`, `ModelRequested`, `ModelSelected`, `SeatFailedOver`, `ModelParked`, `ModelUnparked`, `ModelDelta`, `ModelRetried`, `ModelSettled`, `CellProduced`, `CellRejectedInFrame`, `CellCallStarted`, `CellCallSettled`, `CellPrinted`, `CellSettled`, `TransitionApplied`, `ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `DecisionAnswer`, `decisionAnswers`, `DecisionSettled`, `SupervisorSettled`, `SupervisorUnjudged`, `DecisionUnjudged`, `RelevanceSettled`, `RelevanceRestored`, `SeatPanel`, `SeatRouted`, `SufficiencyObserved`, `VacuousVerificationObserved`, `MutationObserved`, `CheckpointMinted`, `Suspended`, `CompactionSettled`, `SteeringDrained`, `TurnClosed`, `PermissionRequired`, `Aborted`, `Resolved`, `AgentEvent`, `eventType` | Serializable events emitted by harness adapters.                                                         |
 | `Plan`                       | `Child`, `Batch`, `ChildResult`, `ChildProgress`, `ChildSettled`, `SpliceEvent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Local structural plan nodes used at the harness-to-engine boundary.                                      |
 | `EngineLike`                 | `SuspendReasonCode`, `SuspendReason`, `SealedModelStep`, `BoundaryIdentity`, `DurableSchema`, `RecordBoundary`, `Observation`, `Snapshot`, `Binding`, `Resolved`, `CaptureRequest`, `EngineLike`, `make`, `layer`, `resolve`, `makeNoop`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Narrow engine port consumed by the built-in harness.                                                     |
 | `Tokens`                     | `Count`, `Segment`, `Accounting`, `Estimator`, `estimate`, `count`, `combine`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Deterministic token accounting for context windows.                                                      |
@@ -38718,7 +38657,7 @@ const defaultAgent: string // "agent"
 ```
 
 The delegate a descriptor runs on when it names no single flow of its own. A
-markdown skill and a bodiless `Flow.make({ model })` both say a model does the
+markdown skill and a bodiless binding record with `model` both say a model does the
 work; neither names the code that drives one.
 
 ### Executable.fromDescriptor, Executable.fromRegistry
@@ -39262,6 +39201,10 @@ static import links. Both verify the manifest and project lockfile identity.
 executions. Lockfile drift does not remove these roots. Missing or corrupt
 snapshots remain typed failures. `ExecutionSnapshotError.code` is `missing`,
 `corrupt`, `lockfile_changed`, or `unavailable`.
+
+Lockfiles removed during a read are measured as absent. Index read failures other
+than absence report `unavailable` and retain the platform cause; malformed bytes
+and identity failures report `corrupt`. Diagnostic messages omit host error details.
 
 When the filesystem snapshot index is absent, `indexMissing` is `true`.
 Source loading retains its original typed refusal in this case. A missing blob
@@ -58299,7 +58242,6 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Digest from "@smthrs/core/Digest"
 import * as Effects from "@smthrs/core/Effects"
-import * as CoreFlow from "@smthrs/core/Flow"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -58378,7 +58320,7 @@ export const Release = Flow.make("examples/Release", {
  * durable flow rather than a function, which is the point of the binding
  * contract.
  */
-export const CompileTool = CoreFlow.make({
+export const CompileTool = ({ capabilities: [],
   name: "compile",
   description: "Compile a target and answer with the bundle path.",
   input: Schema.Struct({ target: Schema.String }),
@@ -60661,7 +60603,8 @@ Vitest reports the assertions that passed, failed, or were skipped. Examples tha
 ## Source
 
 ```ts title="examples/src/30-failure-control.ts"
-import { Flow, Node } from "@smthrs/core"
+import { Node } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
 import { Graph } from "@smthrs/flow"
 import { Bounded, Escalation, PatternError, Quarantine, Saga, TryCatchFinally } from "@smthrs/patterns"
 import * as Effect from "effect/Effect"
@@ -60674,10 +60617,9 @@ export class Rejected extends Schema.TaggedError<Rejected>()("examples/Rejected"
 
 /** A declared call that echoes its own name, so a built graph can name it. */
 const call = (name: string) =>
-  Flow.make({
-    name,
-    input: Schema.Unknown,
-    output: Schema.Unknown,
+  Flow.make(name, {
+    payload: { input: Schema.Unknown },
+    success: Schema.Unknown,
     body: Node.capture({ name }, () => Node.succeed({ from: name }))
   })
 
@@ -61065,13 +61007,14 @@ Vitest reports the assertions that passed, failed, or were skipped. Examples tha
 
 ## Related reference
 
-[`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/patterns`](/docs/reference/api/patterns/) · [`@smthrs/std`](/docs/reference/api/std/)
+[`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/patterns`](/docs/reference/api/patterns/) · [`@smthrs/std`](/docs/reference/api/std/)
 
 ## Source
 
 ```ts title="examples/src/32-intervene.ts"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import { Flow, Node } from "@smthrs/core"
+import { Node } from "@smthrs/core"
+import { Action, Flow } from "@smthrs/flow"
 import * as Intervene from "@smthrs/patterns/Intervene"
 import * as WithApproval from "@smthrs/patterns/WithApproval"
 import * as Edit from "@smthrs/std/Edit"
@@ -61119,38 +61062,36 @@ export const Report = Schema.Struct({
  * so it is a signature a host implements, and it declares the read flow's
  * capabilities and hermetic read-only envelope as its own.
  */
-export const ReadTarget = Flow.make({
-  name: "read-target",
-  input: ReadCall,
-  output: Read.Output,
+const ReadAction = Action.make("read-target", { payload: ReadCall, success: Read.Output, capabilities: Read.capabilities, effects: Read.effects })
+export const ReadTarget = Flow.make("read-target", {
+  payload: ReadCall,
+  success: Read.Output,
   capabilities: Read.capabilities,
   effects: Read.effects,
-  flows: [Read.flow]
+  body: (payload) => ReadAction.call(payload)
 })
 
 /** Turns the job into the edit the apply step performs. This step writes nothing. */
-export const ProposeEdit = Flow.make({
-  name: "propose-edit",
-  input: ProposeCall,
-  output: Edit.Input,
+export const ProposeEdit = Flow.make("propose-edit", {
+  payload: ProposeCall,
+  success: Edit.Input,
   body: ({ input }) => Node.succeed({ path: input.path, oldString: input.from, newString: input.to })
 })
 
 /** Writes the proposed edit, under the std edit flow's compensable envelope. */
-export const ApplyEdit = Flow.make({
-  name: "apply-edit",
-  input: ApplyCall,
-  output: Edit.Output,
+const EditAction = Action.make("apply-edit", { payload: ApplyCall, success: Edit.Output, capabilities: Edit.capabilities, effects: Edit.effects })
+export const ApplyEdit = Flow.make("apply-edit", {
+  payload: ApplyCall,
+  success: Edit.Output,
   capabilities: Edit.capabilities,
   effects: Edit.effects,
-  flows: [Edit.flow]
+  body: (payload) => EditAction.call(payload)
 })
 
 /** Summarizes the intervention. */
-export const ReportEdit = Flow.make({
-  name: "report-edit",
-  input: ReportCall,
-  output: Report,
+export const ReportEdit = Flow.make("report-edit", {
+  payload: ReportCall,
+  success: Report,
   body: ({ applied, dryRun, proposal }) =>
     Node.succeed({
       path: proposal.path,
@@ -61168,23 +61109,21 @@ export const ReportEdit = Flow.make({
  * decorator was given, and the scope the answer is remembered under, so that
  * struct is the input it declares.
  */
-export const ApproveEdit = Flow.make({
-  name: "approve-edit",
-  input: Schema.Struct({ input: Schema.Unknown, reason: Schema.String, scope: Schema.String }),
-  output: WithApproval.Approved
+const ApprovalPayload = Schema.Struct({ input: Schema.Unknown, reason: Schema.String, scope: Schema.String })
+const ApprovalAction = Action.make("approve-edit", { payload: ApprovalPayload, success: WithApproval.Approved })
+export const ApproveEdit = Flow.make("approve-edit", {
+  payload: Schema.Struct({ input: Schema.Unknown, reason: Schema.String, scope: Schema.String }),
+  success: WithApproval.Approved,
+  body: (payload) => ApprovalAction.call(payload)
 })
 
-// `apply` and `approval` are whole flows rather than any member, because the
-// approval decorates the apply step and a decorator re-declares what it wraps.
-// A `@smthrs/core` signature IS a `@smthrs/flow` flow plus its metadata, so
-// `.flow` is the value the decorator takes; the three plain stages are members
-// and the signature itself satisfies that.
+// Approval decorates the canonical apply flow.
 const declaration = {
   read: ReadTarget,
   propose: ProposeEdit,
-  apply: ApplyEdit.flow,
+  apply: ApplyEdit,
   report: ReportEdit,
-  approval: ApproveEdit.flow,
+  approval: ApproveEdit,
   reason: "rewrite the greeting"
 }
 

@@ -30,7 +30,6 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { FlowBinding } from "../../../packages/smithers/agent/harness/src/index.ts"
-import { Flow as CoreFlow } from "../../../packages/smithers/flows/core/src/index.ts"
 
 /** One recorded tool call. */
 export interface Action {
@@ -898,13 +897,14 @@ export const sources = (
   const granted = new Set(grantedTo(world, role))
   const state = initialState(world, idBase)
   const bindings = tools.filter((tool) => granted.has(tool.name)).map((tool) => {
-    const flow = CoreFlow.make({
+    const flow = {
+      capabilities: [],
       name: tool.name,
       description: tool.description,
       input: tool.input as Schema.Codec<Record<string, unknown>>,
       output: Schema.Unknown,
       effects: tool.writes ? acting : sealed
-    })
+    } as const
     const handle = tool.handler(world, role, state)
     return FlowBinding.make({
       flow,

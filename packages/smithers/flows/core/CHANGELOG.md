@@ -4,6 +4,13 @@
 
 ### Removed
 
+- Removed the object-form `Flow.make(options)` and `Flow.MakeOptions` under
+  [RELEASE_SUPPORT.md §21.1 item 8](../../../../RELEASE_SUPPORT.md#mvp-compatibility-changes).
+  Replace executable declarations with `Flow.make("tag", { payload, success, body })`
+  from `@smthrs/flow`. For host handlers, pass a plain `FlowBinding` record with
+  `name`, `input`, `output`, `capabilities` and `effects`. `Flow.isFlow` and
+  `Flow.TypeId` remain available for retained Markdown metadata signatures.
+
 - Removed `Flow.withCapabilities`, `Flow.sealed` and `Flow.annotateMerge` from
   core's deprecated object-form flow API. Nothing outside this package called
   them. Declare capabilities and effects on the flow itself, or use

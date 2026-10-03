@@ -48,7 +48,6 @@ import {
   Seat,
   SeatResolver
 } from "../../packages/smithers/agent/src/index.ts"
-import { Flow as CoreFlow } from "../../packages/smithers/flows/core/src/index.ts"
 import { FlowEngine } from "../../packages/smithers/flows/engine/src/index.ts"
 import { Action, Flow, FlowRuntime, Interpreter } from "../../packages/smithers/flows/flow/src/index.ts"
 import type { AgentEvent } from "../../packages/smithers/agent/harness/src/index.ts"
@@ -237,13 +236,14 @@ const emptyRegistry: Registry.Registry = Registry.makeNoop({
   getOption: () => Effect.succeed(Option.none())
 })
 
-const echo = CoreFlow.make({
+const echo = {
+  capabilities: [],
   name: "echo",
   description: "Echoes a note back to the cell that called it.",
   input: Schema.Struct({ note: Schema.String }),
   output: Schema.Struct({ echoed: Schema.String }),
   effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
 /**
  * One host-supplied executable flow, so a scenario can measure a real call
@@ -264,13 +264,14 @@ export const echoSource = (recorder: Recorder): FlowBinding.Source =>
     })
   ])
 
-const probe = CoreFlow.make({
+const probe = {
+  capabilities: [],
   name: "probe",
   description: "Read something and report that it was read.",
   input: Schema.Struct({ note: Schema.String }),
   output: Schema.Struct({ read: Schema.Boolean }),
   effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
 /**
  * A read that declares no writes, so a frame spent on it is a read-only frame.
@@ -290,21 +291,23 @@ export const probeSource = (recorder: Recorder): FlowBinding.Source =>
     })
   ])
 
-const check = CoreFlow.make({
+const check = {
+  capabilities: [],
   name: "check",
   description: "Run a check over a path and report its exit status.",
   input: Schema.Struct({ command: Schema.String, only: Schema.optional(Schema.String) }),
   output: Schema.Struct({ exitCode: Schema.Number }),
   effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
-})
+} as const
 
-const apply = CoreFlow.make({
+const apply = {
+  capabilities: [],
   name: "apply",
   description: "Write a change to a path.",
   input: Schema.Struct({ path: Schema.String }),
   output: Schema.Struct({ written: Schema.Boolean }),
   effects: { reads: [], writes: ["/**"], mode: "hermetic", onConflict: "serialize", tier: "irreversible" }
-})
+} as const
 
 /**
  * A check that reports an exit status, and a write that moves the workspace.

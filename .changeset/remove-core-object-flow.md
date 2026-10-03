@@ -18,3 +18,6 @@ refusal for retained modules that require the removed constructor.
 Bound declarations now expose schema/metadata records rather than implicit
 Core actions and executable wrappers. Filesystem invokers and evaluation
 targets consume those records; memory policy inheritance retains their schemas.
+
+This public removal follows RELEASE_SUPPORT.md (§21.1 item 8). The metadata
+`Flow.isFlow` and `Flow.TypeId` exports remain for Markdown lowering.

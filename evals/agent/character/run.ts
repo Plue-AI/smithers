@@ -53,7 +53,6 @@ import {
   Scorer
 } from "../../../packages/smithers/agent/scorers/src/index.ts"
 import type { Seat } from "../../../packages/smithers/agent/src/index.ts"
-import { Flow as CoreFlow } from "../../../packages/smithers/flows/core/src/index.ts"
 import * as Event from "./event.ts"
 import * as Profile from "./profile.ts"
 import * as CharacterRubric from "./rubric.ts"
@@ -268,10 +267,11 @@ const variantName = (variant: Variant): string =>
 // ---------------------------------------------------------------------------
 // Scoring through @smthrs/evals
 
-const target = CoreFlow.make({
+const target = {
+  capabilities: [],
   name: "evals/agent/character/turns",
   description: "One conversation of an agent profile."
-})
+}
 
 const byId = new Map(suite.cases.map((suiteCase) => [suiteCase.id, suiteCase]))
 

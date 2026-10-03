@@ -11,7 +11,7 @@ projection (D-020) and the duration predictor (D-030).
 
 ## Ground truth — the authoring side
 
-- `Flow.make({ description, input, output, capabilities, flows, effects })` is
+- `Flow.make(tag, { description, payload, success, capabilities, effects, body })` is
   already a declarative manifest — `flows/coding/flow.ts:5`.
 - `Action.make(name, { payload, success, error, nondeterministic })` and
   `AgentAction.make(...)` give every node a typed payload/success/error contract

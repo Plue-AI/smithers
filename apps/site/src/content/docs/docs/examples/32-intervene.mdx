@@ -28,13 +28,14 @@ Vitest reports the assertions that passed, failed, or were skipped. Examples tha
 
 ## Related reference
 
-[`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/patterns`](/docs/reference/api/patterns/) · [`@smthrs/std`](/docs/reference/api/std/)
+[`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/patterns`](/docs/reference/api/patterns/) · [`@smthrs/std`](/docs/reference/api/std/)
 
 ## Source
 
 ```ts title="examples/src/32-intervene.ts"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import { Flow, Node } from "@smthrs/core"
+import { Node } from "@smthrs/core"
+import { Action, Flow } from "@smthrs/flow"
 import * as Intervene from "@smthrs/patterns/Intervene"
 import * as WithApproval from "@smthrs/patterns/WithApproval"
 import * as Edit from "@smthrs/std/Edit"
@@ -82,38 +83,36 @@ export const Report = Schema.Struct({
  * so it is a signature a host implements, and it declares the read flow's
  * capabilities and hermetic read-only envelope as its own.
  */
-export const ReadTarget = Flow.make({
-  name: "read-target",
-  input: ReadCall,
-  output: Read.Output,
+const ReadAction = Action.make("read-target", { payload: ReadCall, success: Read.Output, capabilities: Read.capabilities, effects: Read.effects })
+export const ReadTarget = Flow.make("read-target", {
+  payload: ReadCall,
+  success: Read.Output,
   capabilities: Read.capabilities,
   effects: Read.effects,
-  flows: [Read.flow]
+  body: (payload) => ReadAction.call(payload)
 })
 
 /** Turns the job into the edit the apply step performs. This step writes nothing. */
-export const ProposeEdit = Flow.make({
-  name: "propose-edit",
-  input: ProposeCall,
-  output: Edit.Input,
+export const ProposeEdit = Flow.make("propose-edit", {
+  payload: ProposeCall,
+  success: Edit.Input,
   body: ({ input }) => Node.succeed({ path: input.path, oldString: input.from, newString: input.to })
 })
 
 /** Writes the proposed edit, under the std edit flow's compensable envelope. */
-export const ApplyEdit = Flow.make({
-  name: "apply-edit",
-  input: ApplyCall,
-  output: Edit.Output,
+const EditAction = Action.make("apply-edit", { payload: ApplyCall, success: Edit.Output, capabilities: Edit.capabilities, effects: Edit.effects })
+export const ApplyEdit = Flow.make("apply-edit", {
+  payload: ApplyCall,
+  success: Edit.Output,
   capabilities: Edit.capabilities,
   effects: Edit.effects,
-  flows: [Edit.flow]
+  body: (payload) => EditAction.call(payload)
 })
 
 /** Summarizes the intervention. */
-export const ReportEdit = Flow.make({
-  name: "report-edit",
-  input: ReportCall,
-  output: Report,
+export const ReportEdit = Flow.make("report-edit", {
+  payload: ReportCall,
+  success: Report,
   body: ({ applied, dryRun, proposal }) =>
     Node.succeed({
       path: proposal.path,
@@ -131,23 +130,21 @@ export const ReportEdit = Flow.make({
  * decorator was given, and the scope the answer is remembered under, so that
  * struct is the input it declares.
  */
-export const ApproveEdit = Flow.make({
-  name: "approve-edit",
-  input: Schema.Struct({ input: Schema.Unknown, reason: Schema.String, scope: Schema.String }),
-  output: WithApproval.Approved
+const ApprovalPayload = Schema.Struct({ input: Schema.Unknown, reason: Schema.String, scope: Schema.String })
+const ApprovalAction = Action.make("approve-edit", { payload: ApprovalPayload, success: WithApproval.Approved })
+export const ApproveEdit = Flow.make("approve-edit", {
+  payload: Schema.Struct({ input: Schema.Unknown, reason: Schema.String, scope: Schema.String }),
+  success: WithApproval.Approved,
+  body: (payload) => ApprovalAction.call(payload)
 })
 
-// `apply` and `approval` are whole flows rather than any member, because the
-// approval decorates the apply step and a decorator re-declares what it wraps.
-// A `@smthrs/core` signature IS a `@smthrs/flow` flow plus its metadata, so
-// `.flow` is the value the decorator takes; the three plain stages are members
-// and the signature itself satisfies that.
+// Approval decorates the canonical apply flow.
 const declaration = {
   read: ReadTarget,
   propose: ProposeEdit,
-  apply: ApplyEdit.flow,
+  apply: ApplyEdit,
   report: ReportEdit,
-  approval: ApproveEdit.flow,
+  approval: ApproveEdit,
   reason: "rewrite the greeting"
 }
 

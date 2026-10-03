@@ -4,14 +4,13 @@ import { Effect } from "effect"
 import { layerMemory } from "./host.ts"
 import * as Binding from "../../packages/smithers/agent/scorers/src/Binding.ts"
 import * as Scorer from "../../packages/smithers/agent/scorers/src/Scorer.ts"
-import * as Flow from "../../packages/smithers/flows/core/src/Flow.ts"
 import { answerReview } from "./deterministicReviewer.ts"
 import { loadCorpus } from "./labels.ts"
 import { runFixture } from "./run.ts"
 import { scoreCorpus, type ReviewFinding } from "./score.ts"
 import { scriptedSeats } from "./scriptedSeats.ts"
 
-const target = Flow.make({ name: "evals/review-seeded-bugs/fixture" })
+const target = { name: "evals/review-seeded-bugs/fixture" }
 const labels = loadCorpus()
 const scorer = Scorer.make({
   id: "evals/review-seeded-bugs/f1",
