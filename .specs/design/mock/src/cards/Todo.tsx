@@ -8,8 +8,9 @@ import { Button } from "@smthrs/ui"
 import { BookOpen, Check, ExternalLink, History, Loader, RotateCw, X } from "lucide-react"
 import { Avatar, AvatarStack, BranchChip, Card, Ref, StatePill, StepStrip, actorName } from "../parts"
 import { typedOr, useFrame } from "../frame"
-import { mergeReadiness, openItems, refOf, todo as todoOf, type Todo, type World } from "../world"
+import { canMerge, mergeReadiness, openItems, refOf, todo as todoOf, type Todo, type World } from "../world"
 import { RunFlags } from "./Run"
+import { NeedsPerson } from "./Home"
 
 const ordinal = (n: number): string => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`
 
@@ -62,7 +63,7 @@ const Question = ({ todo }: { readonly todo: Todo }) => {
         /* A person's commit is never overwritten: bring it in (the branch rebases onto it at a checkpoint) or discard it on purpose. */
         <div className="mvp-actions mvp-ask-elsewhere">
           <Button size="sm" variant="solid" data-mock={`bring-in-${todo.id}`}>Bring in {actorName(world, todo.pushedBy ?? "")}'s commit</Button>
-          <Button size="sm" variant="ghost" data-mock={`discard-push-${todo.id}`}>Discard</Button>
+          {canMerge(world, frame.me) ? <Button size="sm" variant="ghost" data-mock={`discard-push-${todo.id}`}>Discard</Button> : null}
         </div>
       ) : elsewhere !== undefined ? (
         <div className="mvp-actions mvp-ask-elsewhere">
@@ -102,7 +103,8 @@ const Evidence = ({ todo }: { readonly todo: Todo }) => {
   const evidence = todo.evidence
   if (evidence === undefined) return null
   const prior = openItems(world)[openItems(world).indexOf(todo) - 1]
-  const readiness = mergeReadiness(world, todo, me)
+  const readiness = mergeReadiness(world, todo)
+  const merger = canMerge(world, me)
   return (
     <div className="mvp-evidence" data-mock={`evidence-${todo.id}`}>
       <div className="mvp-evidence-row">
@@ -137,8 +139,9 @@ const Evidence = ({ todo }: { readonly todo: Todo }) => {
           {evidence.reviewing === true
             ? <span className="mvp-check" data-state="running"><Loader size={13} aria-hidden="true" />Running on {evidence.rev}</span>
             : <span data-copy="data">{evidence.review}</span>}
-          {evidence.reviewing === true && evidence.previous !== undefined
-            ? <span className="mvp-previous"><span className="mvp-mono">{evidence.previous.rev}</span> <span data-copy="data">{evidence.previous.review}</span></span> : null}
+          {/* After a clean rebase the earlier review stands: same change, so it names the revision it read (§10.4.3). */}
+          {evidence.reviewing !== true && evidence.previous !== undefined
+            ? <span className="mvp-previous" data-mock={`previous-${todo.id}`}>Reviewed <span className="mvp-mono">{evidence.previous.rev}</span> · same change</span> : null}
         </span>
       </div>
       {todo.approvalCleared ? <div className="mvp-evidence-row"><span className="mvp-evidence-key" /><span className="mvp-warn-text">Approval cleared by rebase · checks rerun</span></div> : null}
@@ -147,9 +150,10 @@ const Evidence = ({ todo }: { readonly todo: Todo }) => {
           <Button size="sm" variant="ghost" data-mock={`diff-${todo.id}`}>Diff</Button>
           <span className="mvp-actions-end">
             {/* One rule for every merge surface (world.ts mergeReadiness): the reason is text, never a disabled button. */}
-            {readiness.state === "ready" ? <Button variant="solid" data-mock={`merge-${todo.id}`}>Merge</Button>
+            {readiness.state === "ready" && merger ? <Button variant="solid" data-mock={`merge-${todo.id}`}>Merge</Button>
+              : readiness.state === "ready" ? <span className="mvp-merge-reason" data-state="ready" data-mock={`merge-reason-${todo.id}`}>Ready · a maintainer merges</span>
               : readiness.state === "done" ? null
-              : <span className="mvp-merge-reason" data-state={readiness.state} data-mock={`merge-reason-${todo.id}`}>{readiness.reason}
+              : <span className="mvp-merge-reason" data-state={readiness.state === "blocked" && readiness.failed === true ? "failed" : readiness.state} data-mock={`merge-reason-${todo.id}`}>{readiness.reason}
                   {readiness.github === true ? <a className="mvp-link" href="#">on GitHub<ExternalLink size={11} aria-hidden="true" /></a> : null}</span>}
           </span>
         </div>
@@ -185,6 +189,7 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
     <Card id={id} kind="todo" title={<><Ref world={world} todo={todo} /> {todo.title}</>} status={<StatePill todo={todo} flow={flow} />}
       end={<Avatar world={world} who={todo.owner} />}>
       <div className="mvp-meta">
+        <NeedsPerson world={world} todo={todo} />
         {branch === undefined || todo.state === "queued" || settled ? null : <span className="mvp-where"><BranchChip branch={branch} onOpen={() => {}} />
           <AvatarStack world={world} who={branch.presence.map(each => each.who)} /></span>}
         {branch?.machine === "waiting" && todo.state === "working" ? <span className="mvp-waiting">Waiting for a machine · #{branch.waitPosition ?? 1}</span> : null}
@@ -223,7 +228,9 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
           <Button size="sm" variant="ghost" data-mock={`branch-${todo.id}`}>Open branch</Button>
           <Button size="sm" variant="ghost" data-mock={`inspect-todo-${todo.id}`}>Inspect</Button>
           <span className="mvp-actions-end">
+            {/* Stop is refused while a question or approval waits (spec §10.7.1), so it isn't offered. */}
             {todo.state === "paused" ? <Button size="sm" variant="outline" data-mock={`resume-${todo.id}`}>Resume</Button>
+              : todo.state === "needs-you" && (todo.needs === undefined || todo.needs === "question" || todo.needs === "approval") ? null
               : <Button size="sm" variant="ghost">Stop</Button>}
             <Button size="sm" variant="ghost">Drop</Button>
           </span>

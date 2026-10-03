@@ -120,6 +120,10 @@ export const BranchCard = ({ id, target, view }: { readonly id: string; readonly
   /* A scratch branch adds after the item of the branch it forked from. */
   const origin = world.branches.find(each => each.id === branch.from)?.item
   const forkedFrom = origin === undefined ? undefined : world.todos.find(each => each.id === origin)
+  /* A question is settled once a person's answer follows it in the activity, or its item records one: it never stays gold. */
+  const lastAnswer = branch.activity.map(entry => entry.kind).lastIndexOf("answer")
+  const answered = (entry: Activity): boolean =>
+    entry.kind === "question" && (item?.question?.answer !== undefined || branch.activity.indexOf(entry) < lastAnswer)
   return (
     <Card id={id} kind="branch" title={branch.name} status={<MachineState branch={branch} />} dim={dim}>
       <div className="mvp-meta mvp-branch-item">
@@ -168,7 +172,7 @@ export const BranchCard = ({ id, target, view }: { readonly id: string; readonly
         <ol className="mvp-activity">
           {branch.activity.length > RECENT ? <li className="mvp-activity-more">{branch.activity.length - RECENT} earlier</li> : null}
           {branch.activity.slice(-RECENT).map(entry => <ActivityRow key={entry.id} world={world} item={entry} seq={seq}
-            answered={entry.kind === "question" && item?.question?.answer !== undefined} open={frame.state.viewers[frame.me]?.views[`context:${entry.id}`] === "open"} />)}
+            answered={answered(entry)} open={frame.state.viewers[frame.me]?.views[`context:${entry.id}`] === "open"} />)}
         </ol>
       ) : tab === "files" ? (
         <ul className="mvp-list">

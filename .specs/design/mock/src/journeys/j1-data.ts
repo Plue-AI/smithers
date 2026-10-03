@@ -140,7 +140,7 @@ export const BRANCH_NAME = "expire-reset-links"
 export const PR = 187
 
 export const evidence = (githubPassed: number): Evidence => ({
-  files: 2, added: 3, removed: 3,
+  rev: "e4b7a09", files: 2, added: 3, removed: 3,
   checks: [{ name: "typecheck", state: "passed", took: "12s" }, { name: "test", state: "passed", took: "41s" }, { name: "lint", state: "passed", took: "7s" }],
   github: { passed: githubPassed, total: 5 },
   review: "Links expire after 30 minutes instead of 24 hours, and the expiry test checks the new limit."

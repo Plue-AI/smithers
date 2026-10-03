@@ -7,9 +7,9 @@
  */
 import { Button } from "@smthrs/ui"
 import { ArrowDown, ArrowUp, BookOpen, Check, CircleDashed, GitBranch, Loader, MoreHorizontal, Plus, RotateCw, Trash2, X } from "lucide-react"
-import { Card, AvatarStack, BranchChip, StateGlyph, StatePill, Avatar, Ref } from "../parts"
+import { actorName, Avatar, AvatarStack, BranchChip, Card, Ref, StateGlyph, StatePill } from "../parts"
 import { useFrame } from "../frame"
-import { mergeReadiness, refOf, type BackgroundRun, type Todo, type TodoState, type World } from "../world"
+import { canMerge, mergeReadiness, refOf, STACK, waitingOn, type BackgroundRun, type Todo, type TodoState, type World } from "../world"
 
 const FILTERS: ReadonlyArray<{ state: TodoState; word: string }> = [
   { state: "needs-you", word: "Needs you" },
@@ -17,6 +17,12 @@ const FILTERS: ReadonlyArray<{ state: TodoState; word: string }> = [
   { state: "queued", word: "Queued" },
   { state: "in-review", word: "In review" }
 ]
+
+/** A private confirmation is the asker's, but the wait is everyone's to see: "Needs Ben", like GitHub's "review requested". */
+export const NeedsPerson = ({ world, todo }: { readonly world: World; readonly todo: Todo }) => {
+  const who = waitingOn(world, todo.id)
+  return who === undefined ? null : <span className="mvp-needs-person" data-mock={`needs-person-${todo.id}`}><Avatar world={world} who={who} size={16} />Needs {actorName(world, who)}</span>
+}
 
 /** A Needs you item's one action follows from why it needs a person. */
 export const needsAction = (todo: Todo): string =>
@@ -29,7 +35,7 @@ export const needsAction = (todo: Todo): string =>
 const rowAction = (world: World, todo: Todo, me: string): { label: string; solid?: boolean } | null => {
   switch (todo.state) {
     case "needs-you": return { label: needsAction(todo) }
-    case "in-review": return mergeReadiness(world, todo, me).state === "ready" ? { label: "Merge", solid: true } : { label: "Review" }
+    case "in-review": return mergeReadiness(world, todo).state === "ready" && canMerge(world, me) ? { label: "Merge", solid: true } : { label: "Review" }
     case "failed": return { label: "Retry" }
     case "paused": return { label: "Resume" }
     default: return null
@@ -77,6 +83,7 @@ const Row = ({ world, todo, next, prior, first, last, menu }: {
         </div>
         <div className="mvp-meta">
           <StatePill todo={todo} flow={todo.steps ?? world.flow} />
+          <NeedsPerson world={world} todo={todo} />
           {branch?.machine === "waiting" && todo.state === "working" ? <span className="mvp-waiting">Waiting for a machine · #{branch.waitPosition ?? 1}</span> : null}
           {branch === undefined || todo.state === "queued" || settled ? null
             : <span className="mvp-where"><BranchChip branch={branch} onOpen={() => {}} /><AvatarStack world={world} who={present} /></span>}
@@ -100,20 +107,28 @@ const Row = ({ world, todo, next, prior, first, last, menu }: {
   )
 }
 
-/** One slot per machine: who holds each, or empty. */
+/** One slot per machine: who holds each, or empty. A running background run (learning) holds one too (M-06). */
 const Machines = ({ world }: { readonly world: World }) => {
   const awake = world.branches.filter(each => each.machine === "awake" || each.machine === "waking")
-  const slots = Array.from({ length: world.capacity }, (_, index) => awake[index])
+  const runs = world.runs.filter(each => each.state === "running" && each.queue === undefined)
+  const used = awake.length + runs.length
+  const slots = Array.from({ length: world.capacity }, (_, index) => index)
   return (
-    <div className="mvp-machines" aria-label={`${awake.length} of ${world.capacity} machines in use`}>
-      {slots.map((branch, index) => (
-        <span key={branch?.id ?? `empty-${index}`} className="mvp-machine" data-used={branch !== undefined || undefined} title={branch?.name ?? "Free"}>
-          {branch === undefined ? null : branch.item === undefined
-            ? <Avatar world={world} who={branch.presence.find(each => !each.who.startsWith("agent"))?.who ?? "agent"} size={16} />
-            : <Avatar world={world} who={`agent:${branch.id}`} size={16} live={branch.machine === "awake"} />}
-        </span>
-      ))}
-      <span className="mvp-machines-label">{awake.length}/{world.capacity} machines</span>
+    <div className="mvp-machines" aria-label={`${used} of ${world.capacity} machines in use`}>
+      {slots.map(index => {
+        const branch = awake[index]
+        const run = branch === undefined ? runs[index - awake.length] : undefined
+        return (
+          <span key={branch?.id ?? run?.id ?? `empty-${index}`} className="mvp-machine" data-used={branch !== undefined || run !== undefined || undefined}
+            title={branch?.name ?? run?.title ?? "Free"}>
+            {run !== undefined ? <Avatar world={world} who={STACK} size={16} live />
+              : branch === undefined ? null : branch.item === undefined
+              ? <Avatar world={world} who={branch.presence.find(each => !each.who.startsWith("agent"))?.who ?? "agent"} size={16} />
+              : <Avatar world={world} who={`agent:${branch.id}`} size={16} live={branch.machine === "awake"} />}
+          </span>
+        )
+      })}
+      <span className="mvp-machines-label">{used}/{world.capacity} machines</span>
 
     </div>
   )

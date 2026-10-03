@@ -51,7 +51,7 @@
 }
 .mvp-avatar[data-agent] {
 	border-radius: calc(var(--size) * 0.3);
-	background: var(--brand);
+	background: var(--who, var(--brand));
 }
 .mvp-avatar[data-agent][data-live] {
 	animation: mvp-breathe 2.4s ease-in-out infinite;
@@ -1487,7 +1487,7 @@ body { overflow: hidden; }
 }
 .mock-outside .mvp-term-cursor { background: #e6e6e6; }
 
-/* PORT · an agent acting for a person: the person's avatar with an agent badge ("Ben via Smithers") */
+/* PORT · a person through another door: their own circle with a badge ("Maya via SSH") */
 .mvp-avatar[data-via] { position: relative; }
 .mvp-avatar-badge {
 	position: absolute;
@@ -1630,7 +1630,7 @@ body { overflow: hidden; }
 .mvp-commands section { break-inside: avoid; margin-bottom: var(--sp-4); }
 .mvp-commands h3 { margin: 0 0 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
 .mvp-commands dl { display: flex; flex-direction: column; gap: 3px; margin: 0; }
-.mvp-command { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 10px; font-size: var(--fs-small); }
+.mvp-command { display: grid; grid-template-columns: minmax(0, 13.5em) minmax(0, 1fr); gap: 10px; font-size: var(--fs-small); }
 .mvp-command dt code { color: var(--action-primary); font-family: var(--font-mono); font-size: 12.5px; }
 .mvp-command dd { margin: 0; color: var(--text-muted); }
 .mvp-commands-advanced { break-inside: avoid; color: var(--text-faint); font-size: var(--fs-small); }
@@ -1986,6 +1986,11 @@ body { overflow: hidden; }
 .mvp-avatar[data-outside] { border-radius: 6px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--text-muted); }
 /* A✓: the exact words the agent will send, quoted, then one primary that only the asker can press. */
 .mvp-act-text { margin: 0; padding: 6px 10px; border-left: 2px solid var(--border-strong); color: var(--text); font-size: var(--fs-small); line-height: 1.45; }
+.mvp-act-asker { display: flex; margin: 0; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-act-asker .mvp-avatar { box-shadow: none; }
+/* An imported external-agent entry (M-38): where it ran, after the author; read-only, so no controls. */
+.mvp-origin { color: var(--text-faint); font-weight: 400; }
+.mvp-origin::before { content: "· "; }
 .smithers-card[data-kind="act"] .mvp-kbd { margin-left: 6px; border-color: color-mix(in srgb, currentColor 35%, transparent); background: transparent; color: inherit; opacity: 0.8; }
 
 /* The branch tree (mvp.md B.1): one person's popover under the crumbs. Indent shows what forked from what. */
@@ -2026,10 +2031,12 @@ body { overflow: hidden; }
 /* One merge rule, one way to say why not: the reason as quiet text beside where Merge would be. */
 .mvp-merge-reason { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--fs-small); }
 .mvp-merge-reason[data-state="blocked"] { color: var(--attention-text); }
+.mvp-merge-reason[data-state="failed"] { color: var(--danger); }
 .mvp-review-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .mvp-previous { color: var(--text-faint); font-size: var(--fs-caption); }
 /* M-34: Smithers is a participant with its own mark; "for Ben" is the person's colour on its corner. */
-.mvp-avatar[data-smithers] { position: relative; border-radius: 6px; background: var(--text); color: var(--surface); font-size: calc(var(--size) * 0.5); font-weight: 700; }
+.mvp-avatar[data-smithers] { position: relative; border-radius: calc(var(--size) * 0.3); background: var(--text); color: var(--surface); font-size: calc(var(--size) * 0.5); font-weight: 700; }
+.mvp-avatar[data-smithers][data-for] { background: var(--who); color: var(--avatar-ink); }
 .mvp-avatar-for { position: absolute; right: -4px; bottom: -3px; display: inline-flex; width: calc(var(--size) * 0.5); height: calc(var(--size) * 0.5); min-width: 11px; min-height: 11px; align-items: center; justify-content: center; border-radius: 50%; background: var(--who); box-shadow: 0 0 0 1.5px var(--surface); color: var(--avatar-ink); font-size: max(7px, calc(var(--size) * 0.26)); font-weight: 700; }
 /* Docked in the rail (desktop): the notices are the timeline's own foot, sticky, opaque, never over a card. */
 .mvp-notify[data-docked] { position: sticky; bottom: 0; left: auto; z-index: 4; width: auto; padding: 6px 0 4px; background: var(--bg); }
@@ -2038,4 +2045,6 @@ body { overflow: hidden; }
 .mvp-author { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .mock-message:not([data-mine]) .mvp-author { margin-left: 2px; }
 /* M-34: an agent a person runs (Claude Code, Codex) has its own mark; "for Ben" rides on its corner. */
-.mvp-avatar[data-external] { position: relative; border-radius: 6px; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--text-muted); color: var(--text); font-size: calc(var(--size) * 0.5); font-weight: 700; }
+.mvp-avatar[data-external] { position: relative; border-radius: calc(var(--size) * 0.3); background: var(--who); color: var(--avatar-ink); font-size: calc(var(--size) * 0.5); font-weight: 700; }
+/* A TODO waiting on one person's private confirmation: gold, because a person is needed, and named. */
+.mvp-needs-person { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px 1px 3px; border-radius: var(--r-full); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-caption); font-weight: 600; }

@@ -11,8 +11,8 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react"
 import { Button, Spinner } from "@smthrs/ui"
 import { Bell, Check, CircleAlert, MessageSquare, X } from "lucide-react"
-import { StateGlyph, actorName } from "./parts"
-import { isAgent, refOf, type Activity, type Entry, type Event, type State } from "./world"
+import { Avatar, StateGlyph, actorName } from "./parts"
+import { isAgent, refOf, STACK, type Activity, type Entry, type Event, type State } from "./world"
 
 export type Tone = "live" | "attention" | "failed" | "done" | "quiet"
 
@@ -54,7 +54,11 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
     }
   }
   if (entry.kind === "user") return { id: entry.id, title: `“${entry.text}”`, summary: "", tone: "quiet", glyph: <MessageSquare size={12} aria-hidden="true" /> }
-  if (entry.kind === "agent") return undefined
+  if (entry.kind === "agent") {
+    /* Smithers' answer is an entry like any other: titled by its first line, marked by who answered (spec §14.5.1). */
+    const who = entry.by ?? (entry.for === undefined ? STACK : `${entry.for}~smithers`)
+    return { id: entry.id, title: entry.text.split("\n")[0] ?? "", summary: "", tone: "quiet", glyph: <Avatar world={world} who={who} size={14} /> }
+  }
   const { card } = entry
   switch (card.kind) {
     case "home": {
@@ -69,7 +73,7 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
       if (todo === undefined) return undefined
       const branch = world.branches.find(each => each.id === todo.branch)
       const last = branch?.activity.at(-1)
-      const summary = todo.state === "needs-you" ? `Asks: ${todo.question?.text ?? "a question"}`
+      const summary = todo.state === "needs-you" ? (todo.needs === undefined || todo.needs === "question" ? `Asks: ${todo.question?.text ?? "a question"}` : todo.question?.text ?? "Needs you")
         : todo.state === "in-review" ? `PR #${todo.pr} ready for review`
         : todo.state === "merged" ? `Merged${todo.lessons === undefined ? "" : ` · ${plural(todo.lessons, "lesson")}`}`
         : todo.state === "failed" ? `Failed: ${todo.failure ?? ""}`

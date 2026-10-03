@@ -54,6 +54,8 @@ export interface Journey {
   readonly title: string
   /** The caption before the first step plays. */
   readonly intro: string
+  /** What the opening frame brings into view, as a step's `show` does. */
+  readonly open?: ReadonlyArray<{ readonly viewer: ActorId; readonly target: string }>
   /** Where the spec defines it, e.g. "mvp.md J3". */
   readonly spec: string
   /** One frame per viewer; two viewers render side by side. "github" renders the GitHub side. */

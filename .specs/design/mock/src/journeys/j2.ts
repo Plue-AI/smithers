@@ -1,7 +1,8 @@
 /*
  * J2. Issue to merged PR, the core loop (mvp.md §5, P0). Maya's screen.
  * An issue becomes a TODO, placed first in the stack; the agent asks one
- * question; the PR opens with evidence; Maya merges; learning follows.
+ * question; the PR opens with evidence; Maya merges; learning follows,
+ * queued until a machine frees.
  * Meanwhile the second door (J2.2): Alice labels another issue `todo` on
  * GitHub, and it joins the end of the stack, Queued until a machine frees.
  */
@@ -24,7 +25,7 @@ const setup = (): State => {
   world.todos = world.todos.filter(each => each.id !== "t-stripe" && each.id !== "t-log")
   world.stack = ["t-retry", "t-checkout"]
   Object.assign(todo(world, "t-retry"), { state: "in-review", pr: 91, question: undefined, step: undefined, elapsed: undefined,
-    evidence: { files: 2, added: 24, removed: 9, checks: [{ name: "test", state: "passed", took: "48s" }], github: { passed: 5, total: 5 }, review: "No blocking issues." } })
+    evidence: { rev: "b81d4e0", files: 2, added: 24, removed: 9, checks: [{ name: "test", state: "passed", took: "48s" }], github: { passed: 5, total: 5 }, review: "No blocking issues." } })
   branch(world, "b-retry").machine = "asleep"
   branch(world, "b-retry").presence = []
   world.branches = world.branches.filter(each => each.id !== "b-stripe" && each.id !== "b-log")
@@ -170,7 +171,7 @@ export const j2: Journey = {
         setTodo(state, "t-reset", {
           state: "in-review", step: undefined, pr: 233, elapsed: undefined,
           evidence: {
-            files: 3, added: 31, removed: 58,
+            rev: "7c2e9b1", files: 3, added: 31, removed: 58,
             checks: [{ name: "typecheck", state: "passed", took: "12s" }, { name: "test", state: "passed", took: "1m 04s" }, { name: "lint", state: "passed", took: "8s" }],
             github: { passed: 5, total: 5 },
             review: "Removes the legacy handler; one request now sends one email. Two tests updated to the v2 email."
@@ -207,17 +208,16 @@ export const j2: Journey = {
         branch(state.world, "b-label").machine = "awake"
         present(state, "b-label", "agent:b-label", { kind: "step", step: "plan" })
         setTodo(state, "t-label", { state: "working", step: "plan" })
-        run(state, { id: "learn-233", title: "Learning from #233", state: "running" })
+        /* A learning run follows the merge, and runs on a machine like any other work (M-06). */
+        run(state, { id: "learn-233", title: "Learning from #233", state: "running", queue: 1, todo: "t-reset" })
         toast(state, MAYA, { tone: "ok", title: "Merged #233", ...(reported.open ? {} : { detail: "Closed #231" }) })
       }
     },
     {
-      caption: "Done. A learning run follows and leaves 2 lessons on the merged TODO: wiki pages the next TODO will read.",
-      spec: "J2.6", hold: 3400,
-      act: state => {
-        setTodo(state, "t-reset", { lessons: 2 })
-        run(state, { id: "learn-233", title: "Learning from #233", state: "done", detail: "2 lessons" })
-      }
+      caption: "Done. A learning run follows, but T10 and T13 hold both machines, so it waits its turn: Queued, #1.",
+      spec: "M-06", hold: 3400,
+      show: [{ viewer: MAYA, target: '[data-mock="card-home"]' }],
+      act: () => {}
     }
   ]
 }

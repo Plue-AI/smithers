@@ -42,7 +42,7 @@ export const agentAtWork: Journey = {
   intro: "Ben joins a branch and works with its coding agent. Everything the agent does looks the way a teammate's would.",
   viewers: [BEN],
   setup,
-  steps: cite(["B.1", "B.1", "B.2", "B.2", "B.3", "B.3", "B.3", "B.3", "B.3", "B.3", "B.3", "§4.1", "B.2", "B.2", "B.2"], [
+  steps: cite(["B.1", "B.1", "B.2", "B.2", "B.2", "B.3", "B.3", "B.3", "B.3", "B.3", "B.3", "B.3", "§4.1", "B.2", "B.2", "B.2"], [
     {
       caption: "Ben is in main, the team's conversation. The last crumb opens the branch tree.",
       target: '[data-mock="crumb-tree"]', hold: 2200,
@@ -57,17 +57,25 @@ export const agentAtWork: Journey = {
         present(state, "b-retry", BEN, { kind: "branch" })
       }
     },
-    request("review this branch", "He asks for a review in plain words. Running a flow needs no confirmation, so the review flow runs at once.", state => {
-      state.world.reviews.push({
-        id: "r-retry", branch: "b-retry", by: SMITHERS, verdict: "changes",
-        findings: [
-          { severity: "fix", path: RETRY_FILE, line: 14, text: "redeliver() still waits a fixed 30 s before the first retry." },
-          { severity: "note", path: "src/webhooks/retry.test.ts", line: 22, text: "No test covers giving up after the 5th attempt." }
-        ]
-      })
-      toast(state, BEN, { tone: "ok", title: "Reviewed retry-webhooks", detail: "2 findings" })
-      showCard(state, BEN, "review", "r-retry")
+    request("review this branch", "He asks for a review in plain words. /review needs his press, so the app agent asks first. Only Ben sees it.", state => {
+      ask(state, BEN, { id: "review-retry", verb: "Run review", target: "on retry-webhooks", text: "/review retry-webhooks", receipt: "Review ran on retry-webhooks" })
     }, { hold: 3000 }),
+    {
+      caption: "He presses Run review. The review flow reads the branch and posts two findings.",
+      target: '[data-mock="act-review-retry"]', hold: 3000,
+      act: state => {
+        pressed(state, "review-retry")
+        state.world.reviews.push({
+          id: "r-retry", branch: "b-retry", by: SMITHERS, verdict: "changes", rev: "2d4e6f8",
+          findings: [
+            { severity: "fix", path: RETRY_FILE, line: 14, text: "redeliver() still waits a fixed 30 s before the first retry." },
+            { severity: "note", path: "src/webhooks/retry.test.ts", line: 22, text: "No test covers giving up after the 5th attempt." }
+          ]
+        })
+        toast(state, BEN, { tone: "ok", title: "Reviewed retry-webhooks", detail: "2 findings" })
+        showCard(state, BEN, "review", "r-retry")
+      }
+    },
     {
       caption: "Ben presses Please fix on the first finding. It becomes his steer in the branch activity.",
       target: '[data-mock="finding-fix-r-retry-0"]', hold: 2600,
@@ -176,7 +184,7 @@ export const agentAtWork: Journey = {
       showCard(state, BEN, "todo", "t-checkout")
     }, { hold: 3000 }),
     request("drop T11", "Dropping a TODO asks first. The app agent posts exactly what it will do, and only Ben can press it.", state => {
-      ask(state, BEN, { id: "drop-t11", verb: "Drop", target: "T11 log-retries", receipt: "Dropped T11" })
+      ask(state, BEN, { id: "drop-t11", verb: "Drop", target: "T11 log-retries", receipt: "Dropped T11", todo: "t-log" })
     }, { hold: 3000 }),
     {
       caption: "Ben presses ⏎. T11 is Dropped, and its branch records that Smithers for Ben asked.",

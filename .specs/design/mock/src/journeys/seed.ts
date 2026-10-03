@@ -62,7 +62,7 @@ export const STRIPE: Todo = {
   id: "t-stripe", ref: "T8", title: "Upgrade the Stripe SDK to v17", owner: MAYA, branch: "b-stripe", state: "in-review", pr: 88,
   prompt: "Upgrade stripe to v17. Keep the webhook signature check working.",
   evidence: {
-    files: 4, added: 38, removed: 21,
+    rev: "3f9a2c1", files: 4, added: 38, removed: 21,
     checks: [{ name: "typecheck", state: "passed", took: "14s" }, { name: "test", state: "passed", took: "1m 12s" }, { name: "lint", state: "passed", took: "9s" }],
     github: { passed: 5, total: 5 },
     review: "No blocking issues. Webhook signatures verified against v17 fixtures."

@@ -187,7 +187,7 @@ export const j7: Journey = {
     },
     request("drop T9", "T9 is now redundant. Ben asks Smithers to drop it, and it asks him to confirm.", state => {
       showCard(state, BEN, "todo", "t-retry")
-      ask(state, BEN, { id: DROP, verb: "Drop", target: "T9 retry-webhooks", receipt: "Dropped T9 · #214 closed" })
+      ask(state, BEN, { id: DROP, verb: "Drop", target: "T9 retry-webhooks", receipt: "Dropped T9 · #214 closed", todo: "t-retry" })
     }, { hold: 2800 }),
     {
       caption: "⏎ drops T9 and closes #214. Nothing is lost: T13 already has T9's work.",

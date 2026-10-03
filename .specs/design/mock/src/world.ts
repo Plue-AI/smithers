@@ -115,9 +115,9 @@ export type Where =
   | { readonly kind: "branch" }
 
 /*
- * Everyone and everything in a workspace (mvp.md §6.8): people, the branch's
- * coding agent, and agents acting for a person ("Ben via Claude Code" in his
- * terminal, "Ben via Smithers" from his chat). Each shows where it is.
+ * Everyone and everything on a branch (mvp.md §6.8, M-34): people, the
+ * branch's coding agent, and agents acting for a person ("Claude Code for Ben"
+ * in his terminal, "Smithers for Ben" from his chat). Each shows where it is.
  */
 export interface Presence {
   readonly who: ActorId
@@ -263,6 +263,8 @@ export interface Draft {
   place: Place
   /** Set once committed; the card then shows the TODO it became. */
   committed?: string
+  /** Its author, the only person who sees it until Commit (spec §14.5.1). */
+  readonly by?: ActorId
 }
 
 /*
@@ -426,8 +428,9 @@ export type CardKind = "act" | "run" | "home" | "todo" | "branch" | "terminal" |
  * phases at deterministic boundaries, each titled from the step and what it
  * recorded ("Ran tests · 1 failed ×3"); the fast model writes a one-line
  * summary under the title and a plain explanation of every cell the agent
- * did. Indicators flag thrashing (the same failure repeated with no new idea),
- * waits and failures. Review's phase holds its reviewers, each reporting in one line.
+ * did. Indicators flag thrashing (the same check failed 3 times with no edit
+ * in between to a file the failure names, engineering spec §11.6.4), waits
+ * and failures. Review's phase holds its reviewers, each reporting in one line.
  */
 export interface Cell {
   readonly id: string
@@ -457,7 +460,7 @@ export interface Phase {
   readonly summary: string
   /** Seconds spent in the phase; a step's time is its phases' sum. */
   took?: number
-  /** thrash: the same failure repeated; wait: blocked on a person; fail: where the attempt stopped. */
+  /** thrash: the same check failed 3 times, nothing it names edited in between; wait: blocked on a person; fail: where the attempt stopped. */
   tone?: "thrash" | "wait" | "live" | "ok" | "fail"
   indicator?: string
   cells: Array<Cell>
@@ -523,6 +526,10 @@ export interface Act {
   readonly text?: string
   /** The receipt once pressed: "Steered T9". */
   readonly receipt: string
+  /** The TODO it would change: everyone sees that TODO read "Needs Ben" until he presses it (product, 2026-10-02). */
+  readonly todo?: string
+  /** The agent asking for him (ConfirmModel.asked_by): "Claude Code for Ben"; the app agent when unset. */
+  readonly asker?: ActorId
   state: "asked" | "done" | "cancelled"
   seq?: number
 }
@@ -534,6 +541,8 @@ export interface Review {
   readonly by: ActorId
   readonly verdict: "clean" | "changes"
   readonly findings: ReadonlyArray<{ readonly severity: "blocker" | "fix" | "note"; readonly path: string; readonly line: number; readonly text: string; acted?: "fix" | "not-useful" }>
+  /** The revision it read. */
+  readonly rev?: string
 }
 
 /* A learning run's suggested improvement, backed by the team's own runs. */
@@ -578,9 +587,11 @@ export interface Event {
 
 export type Entry =
   /** A prompt in a shared branch conversation carries its author (Astra r2 M1). */
-  | { readonly id: string; readonly kind: "user"; readonly text: string; readonly by?: ActorId }
+  | { readonly id: string; readonly kind: "user"; readonly text: string; readonly by?: ActorId; readonly origin?: string }
   /** Smithers' answer, and who asked (it reads "Smithers for Ben" to everyone else). */
-  | { readonly id: string; readonly kind: "agent"; readonly text: string; readonly context?: ReadonlyArray<string>; readonly for?: ActorId }
+  | { readonly id: string; readonly kind: "agent"; readonly text: string; readonly context?: ReadonlyArray<string>; readonly for?: ActorId
+      /** An external agent's turn (M-38): its author, and where it ran ("terminal 1"). */
+      readonly by?: ActorId; readonly origin?: string }
   | { readonly id: string; readonly kind: "card"; readonly card: CardRef }
   | Event
 
@@ -692,6 +703,19 @@ export const say = (state: State, who: ActorId, text: string): void => {
   view.composerOpen = false
 }
 
+/*
+ * An external agent's conversation in a branch terminal, imported read-only
+ * into the branch's shared conversation (M-38, spec §14.5.5): the prompt names
+ * the session owner, the turn names the agent participant, and neither has a
+ * control to answer, steer, retry or resend.
+ */
+export const imported = (state: State, branchId: string, by: ActorId, kind: "user" | "agent", text: string, origin: string): void => {
+  const conversation = state.world.conversations[branchId] ??= []
+  conversation.push(kind === "user"
+    ? { id: nextId("user"), kind: "user", text, by, origin }
+    : { id: nextId("agent"), kind: "agent", text, by, origin })
+}
+
 /** The app agent answers; `context` is what its preflight pulled in for this answer (files, wiki pages, TODOs, runs). */
 export const reply = (state: State, who: ActorId, text: string, context?: ReadonlyArray<string>): void => {
   viewer(state, who).transcript.push({ id: nextId("agent"), kind: "agent", text, for: who, ...(context === undefined ? {} : { context }) })
@@ -789,6 +813,9 @@ export const ask = (state: State, who: ActorId, act: Omit<Act, "by" | "state" | 
   showCard(state, who, "act", act.id)
 }
 
+/** Who a TODO waits on for a private confirmation, if anyone: the card is the asker's, the wait is everyone's to see. */
+export const waitingOn = (world: World, id: string): ActorId | undefined => world.acts.find(each => each.todo === id && each.state === "asked")?.by
+
 /** The asker pressed it: the card becomes its receipt. */
 export const pressed = (state: State, id: string): void => {
   const act = must(state.world.acts.find(each => each.id === id), `act ${id}`)
@@ -847,28 +874,33 @@ export const edit = (state: State, path: string, n: number, text: string, by: Ac
 export const revise = (state: State, id: string, rev: string, change: "code" | "clean-rebase" = "code"): void => {
   const item = todo(state.world, id)
   if (item.evidence === undefined) return
-  const old = item.evidence
-  /* A clean rebase changes no code: only the checks run again. New code (a commit, a resolved conflict) is reviewed again too. */
-  const review = change === "code"
+  const { previous, ...old } = item.evidence
+  /*
+   * A clean rebase changes no code: only the checks run again, and the earlier review stands, shown with the
+   * revision it read (same patch-id, §10.4.3). New code (a commit, a resolved conflict) is reviewed again, and
+   * the earlier review is not shown.
+   */
+  const clean = change === "clean-rebase"
   item.evidence = {
-    ...old, rev, reviewing: review || old.reviewing === true,
+    ...old, rev, reviewing: !clean || old.reviewing === true,
     checks: old.checks.map(check => ({ name: check.name, state: "running" as const })),
     github: { passed: 0, total: old.github.total },
-    ...(!review || old.rev === undefined || old.reviewing === true ? {} : { previous: { rev: old.rev, review: old.review } })
+    ...(!clean || old.reviewing === true || old.rev === undefined ? {} : { previous: { rev: previous?.rev ?? old.rev, review: old.review } })
   }
   if (item.approvedRev !== undefined) item.approvalCleared = true
   item.seq = state.seq
 }
 
-/** Every check passed on the current revision, and its review finished. */
+/** Every check passed on the current revision. A new review replaces the earlier one; without one, a clean rebase's earlier review stands. */
 export const checksPassed = (state: State, id: string, took: Record<string, string> = {}, review?: string): void => {
   const item = todo(state.world, id)
   if (item.evidence === undefined) return
-  const { previous: _previous, reviewing: _reviewing, ...rest } = item.evidence
+  const { previous, reviewing: _reviewing, ...rest } = item.evidence
   item.evidence = {
     ...rest, review: review ?? rest.review,
     checks: rest.checks.map(check => ({ ...check, state: "passed" as const, ...(took[check.name] === undefined ? {} : { took: took[check.name] }) })),
-    github: { passed: rest.github.total, total: rest.github.total }
+    github: { passed: rest.github.total, total: rest.github.total },
+    ...(review === undefined && previous !== undefined ? { previous } : {})
   }
   item.seq = state.seq
 }
@@ -876,33 +908,46 @@ export const checksPassed = (state: State, id: string, took: Record<string, stri
 /* ── Merge readiness: one rule for every card ───────────── */
 
 /*
- * Whether this person can merge this TODO now, and if not, the one reason
- * (mvp.md §4.2, §6.10, M-05). The Home row, the TODO card and Review & merge
- * all read it, so no card offers a merge another would refuse. The order of
- * the tests is the order a person fixes them: role, stack order, this
- * revision's evidence, then GitHub's own rule.
+ * Whether this TODO can merge now, and if not, the one reason: spec §10.6.2a's
+ * MergeReady, whose first failing row gives the reason. The Home row, the
+ * TODO card and Review & merge all read it, so no card offers a merge another
+ * would refuse. Role is not a row: the authorizer leaves Merge out for a
+ * member (canMerge), who sees the same reason. Rows the mock doesn't model
+ * (fence, pending work, stale head) are left out; only required GitHub
+ * checks block (row 9).
  */
 export type MergeReadiness =
   | { readonly state: "ready" }
   | { readonly state: "done" }
-  | { readonly state: "waiting" | "blocked"; readonly reason: string; readonly github?: boolean }
+  | { readonly state: "waiting" | "blocked"; readonly reason: string; readonly github?: boolean
+      /** A failed check: ember, not gold (engineering, G12). Gold is only for a person who must act. */
+      readonly failed?: boolean }
 
 export const openItems = (world: World): ReadonlyArray<Todo> =>
   world.stack.map(id => todo(world, id)).filter(each => each.state !== "merged" && each.state !== "dropped")
 
-export const mergeReadiness = (world: World, item: Todo, who: ActorId): MergeReadiness => {
+export const mergeReadiness = (world: World, item: Todo): MergeReadiness => {
   if (item.state === "merged") return { state: "done" }
-  if (!canMerge(world, who)) return { state: "blocked", reason: "A maintainer merges" }
+  const evidence = item.evidence
+  /* Row 1, state: in review, with no open wait. */
+  if (item.state !== "in-review" || evidence === undefined) {
+    return item.state === "needs-you" || item.state === "paused"
+      ? { state: "blocked", reason: item.state === "paused" ? "Paused" : "Needs you" }
+      : { state: "waiting", reason: "Not in review yet" }
+  }
+  /* Row 2, order: the first unmerged item. */
   const open = openItems(world)
   const prior = open[open.indexOf(item) - 1]
   if (prior !== undefined) return { state: "waiting", reason: `Merges after ${refOf(world, prior)}` }
-  const evidence = item.evidence
-  if (item.state !== "in-review" || evidence === undefined) return { state: "waiting", reason: "No PR yet" }
-  const failed = evidence.checks.find(check => check.state === "failed")?.name ?? evidence.github.failing
-  if (failed !== undefined) return { state: "blocked", reason: `${failed} failed`, github: evidence.github.failing !== undefined }
+  /* Rows 5–6, rechecking: this revision is not accepted until its checks and review finish on the machine. */
   const on = evidence.rev === undefined ? "" : ` on ${evidence.rev}`
-  if (evidence.checks.some(check => check.state === "running") || evidence.github.passed < evidence.github.total) return { state: "waiting", reason: `Checks running${on}` }
+  const failed = evidence.checks.find(check => check.state === "failed")?.name
+  if (failed !== undefined) return { state: "blocked", reason: `${failed} failed${on}`, failed: true }
+  if (evidence.checks.some(check => check.state === "running")) return { state: "waiting", reason: `Checks running${on}` }
   if (evidence.reviewing === true) return { state: "waiting", reason: `Review running${on}` }
+  /* Row 9: required GitHub checks, then GitHub's own answer. */
+  if (evidence.github.failing !== undefined) return { state: "blocked", reason: `${evidence.github.failing} failed`, github: true, failed: true }
+  if (evidence.github.passed < evidence.github.total) return { state: "waiting", reason: "GitHub checks running", github: true }
   if (item.mergeBlock !== undefined) return { state: "blocked", reason: item.mergeBlock, github: true }
   return { state: "ready" }
 }

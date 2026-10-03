@@ -24,6 +24,8 @@ export const DraftCard = ({ id, target, view }: ExtraCardProps) => {
   const { world } = frame.state
   const draft = world.drafts.find(each => each.id === target)
   if (draft === undefined) return null
+  /* Private to its author until Commit (spec §14.5.1): nobody else on the branch sees it. */
+  if (draft.by !== undefined && draft.by !== frame.me && draft.committed === undefined) return null
   const open = world.stack.map(each => world.todos.find(todo => todo.id === each)!).filter(todo => todo.state !== "merged" && todo.state !== "dropped")
   const committed = draft.committed === undefined ? undefined : world.todos.find(each => each.id === draft.committed)
   /* Amend folds into an existing item: no new TODO, so the card says which one it changed. */

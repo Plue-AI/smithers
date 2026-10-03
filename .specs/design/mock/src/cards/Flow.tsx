@@ -6,7 +6,13 @@
  * previous version stays Active. Runs keep the version they started with.
  * One click away (§6.14, J11): Source opens the flow's file in the File card,
  * Run runs it with typed input on a scratch branch, and the chip on a step
- * names the model its agent runs on and opens that agent's card.
+ * names the model its agent runs on and opens that agent's card. Change
+ * (/flow.edit) proposes a TODO, whatever other versions exist. A Proposed
+ * version with its TODO has Source, Plan and Run too: Source opens the file on
+ * that TODO's branch, and Run test-runs the edited revision on a scratch input
+ * branch (spec §11.5b, J11). A version that failed to load is fixed the same
+ * way (§11.5): Change proposes the fixing TODO, and Source opens the file on
+ * that TODO's branch.
  */
 import { Button } from "@smthrs/ui"
 import { Check, FileCode2, GitPullRequest, Hourglass, ListTree, Loader, Lock, Play, TriangleAlert } from "lucide-react"
@@ -98,12 +104,18 @@ export const FlowCard = ({ id, target, view }: ExtraCardProps) => {
         </li>
       </ol>
       {selected.state === "merged-failed" ? <p className="mvp-failure-line"><TriangleAlert size={14} aria-hidden="true" /><b>Load failed</b><span>{selected.error}</span></p> : null}
-      {selected.state === "active" ? (
+      {selected.state === "active" || (selected.state === "proposed" && selected.todo !== undefined) ? (
         <div className="mvp-actions">
           <Button size="sm" variant="ghost" data-mock="flow-source"><FileCode2 size={14} aria-hidden="true" />Source</Button>
           <Button size="sm" variant="ghost" data-mock="flow-plan"><ListTree size={14} aria-hidden="true" />Plan</Button>
           <Button size="sm" variant="ghost" data-mock="flow-run"><Play size={13} aria-hidden="true" />Run</Button>
-          {versions.length === 1 ? <span className="mvp-actions-end"><Button size="sm" variant="ghost" data-mock="flow-edit">Change</Button></span> : null}
+          {selected.state === "active" ? <span className="mvp-actions-end"><Button size="sm" variant="ghost" data-mock="flow-edit">Change</Button></span> : null}
+        </div>
+      ) : selected.state === "merged-failed" ? (
+        /* It can't load, so nothing to plan or run: only the corrective TODO's doors. */
+        <div className="mvp-actions">
+          <Button size="sm" variant="ghost" data-mock="flow-source"><FileCode2 size={14} aria-hidden="true" />Source</Button>
+          <span className="mvp-actions-end"><Button size="sm" variant="outline" data-mock="flow-edit">Change</Button></span>
         </div>
       ) : null}
     </Card>

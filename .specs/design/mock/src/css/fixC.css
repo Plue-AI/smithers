@@ -1,0 +1,28 @@
+/*
+ * MOCK · J10's PR body as Smithers writes it on GitHub (spec §12.5.1):
+ * GitHub's own neutral markdown, outside the product, like the rest of the
+ * GitHub frame. The evidence table is the TODO card's receipt for the same
+ * revision.
+ */
+.mock-gh-comment h3 { margin: 12px 12px 4px; font-size: 14px; font-weight: 600; }
+.mock-gh-comment ul { margin: 4px 12px 8px; padding-left: 20px; line-height: 1.5; }
+.mock-gh-comment a { color: #0969da; text-decoration: none; }
+.mock-gh-comment p code, .mock-gh-evidence code { padding: 1px 5px; border-radius: 6px; background: #eff1f3; font-size: 12px; }
+.mock-gh-evidence p b { margin-right: 4px; }
+.mock-gh-evidence table { margin: 4px 12px 8px; border-collapse: collapse; font-size: 13px; }
+.mock-gh-evidence th, .mock-gh-evidence td { padding: 4px 12px; border: 1px solid #d1d9e0; text-align: left; }
+.mock-gh-evidence th { background: #f6f8fa; font-weight: 600; }
+.mock-gh-evidence tr[data-state="passed"] td:last-child { color: #1a7f37; }
+.mock-gh-evidence tr[data-state="running"] td:last-child { color: #9a6700; }
+.mock-gh-evidence tr[data-state="failed"] td:last-child { color: #d1242f; }
+.mock-gh-muted { color: #59636e; }
+
+/* /help: Advanced keeps its Appendix A place, collapsed, between GitHub and Account and settings. */
+.mvp-commands-advanced { margin-bottom: var(--sp-4); }
+.mvp-commands-advanced summary { color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-commands-advanced summary:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.mvp-commands-advanced dl { margin-top: 6px; }
+
+/* Branch card: "Nobody here" spans the presence grid; the rows' display: contents would squeeze it into the avatar column. */
+.mvp-present > li.mvp-ws-empty { display: block; }
+.mock-gh-comment ul { list-style: disc; }

@@ -1,6 +1,6 @@
 /*
- * MOCK · review material, not product UI: what the MVP defers (mvp.md §16),
- * for ratification. A dashed outline and no card chrome, so nobody mistakes
+ * MOCK · review material, not product UI: what the MVP defers (mvp.md §15,
+ * §16), for ratification, each with the issue that tracks it. A dashed outline and no card chrome, so nobody mistakes
  * it for a card in the app. Numbers let a reviewer name an item.
  */
 .mock-later {
@@ -16,13 +16,16 @@
 .mock-later ol { counter-reset: later; margin: var(--sp-3) 0 0; padding: 0; list-style: none; }
 .mock-later li {
 	display: grid;
-	grid-template-columns: 22px minmax(0, 1fr) auto;
+	grid-template-columns: 22px minmax(0, 1fr) auto auto;
 	align-items: baseline;
 	gap: var(--sp-2);
-	padding: 7px 0;
+	padding: 4px 0;
 	border-top: 1px solid var(--border);
 	counter-increment: later;
 	font-size: var(--fs-small);
 }
 .mock-later li::before { color: var(--text-faint); content: counter(later); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; }
 .mock-later-area { padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
+.mock-later-issue { color: var(--text-muted); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; text-decoration: none; }
+.mock-later-issue:hover { color: var(--text); text-decoration: underline; }
+.mock-later-issue:focus-visible { border-radius: 3px; outline: 2px solid var(--ring-border); outline-offset: 2px; }

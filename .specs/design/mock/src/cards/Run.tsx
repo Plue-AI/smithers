@@ -270,6 +270,8 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
     const first = followed.current === undefined
     followed.current = cell.dataset.mock
     const follow = (behavior: ScrollBehavior) => {
+      /* On a narrow screen the timeline doesn't scroll itself (run.css), so the page brings the cell into view. */
+      if (list.scrollHeight <= list.clientHeight) { cell.scrollIntoView({ block: "nearest", behavior }); return }
       /* 32 px clears the sticky step header. */
       const top = cell.offsetTop - 32
       const bottom = cell.offsetTop + cell.offsetHeight + 8 - list.clientHeight

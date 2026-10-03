@@ -4,7 +4,7 @@
  * a maintainer; one card renders as Alice, a member, sees it.
  */
 import { cite, type Journey, type Step } from "../journey"
-import { changed, OUTSIDE, showCard, showCardAs, toast, type State, type Todo } from "../world"
+import { activity, changed, OUTSIDE, setTodo, showCard, showCardAs, stackOp, toast, type State, type Todo } from "../world"
 import { ALICE, BEN, MAYA, RETRY_FILE, seedState, TODO_FLOW } from "./seed"
 
 const EVIDENCE: NonNullable<Todo["evidence"]> = {
@@ -33,8 +33,8 @@ const todos: ReadonlyArray<Todo> = [
     question: { text: "Postgres or the read replica for the migration?", answer: { by: BEN, text: "Postgres. The replica is read-only." }, late: { by: ALICE, text: "The replica, it" } } },
   { id: "s-ask", title: "Paginate GET /invoices", owner: MAYA, branch: "s-b-ask", state: "needs-you", needs: "question", step: "verify", prompt: "",
     question: { text: "Keep the page size at 50, or let callers choose up to 200?" } },
-  { id: "s-push", title: "Cache exchange rates", owner: BEN, branch: "s-b-push", state: "needs-you", needs: "foreign_push", step: "review", prompt: "",
-    question: { text: "Alice pushed to smithers/cache-rates on GitHub. That commit isn't in the live working copy." } },
+  { id: "s-push", title: "Cache exchange rates", owner: BEN, branch: "s-b-push", state: "needs-you", needs: "foreign_push", pushedBy: ALICE, step: "review", pr: 228, prompt: "",
+    question: { text: "Alice pushed 4c1e2d9 to smithers/cache-rates on GitHub." } },
   { id: "s-working", title: "Fix the flaky checkout test", owner: ALICE, branch: "s-b-working", state: "working", step: "verify", prompt: "", elapsed: "9m" },
   { id: "s-paused", title: "Split the billing module", owner: MAYA, branch: "s-b-paused", state: "paused", step: "implement", prompt: "" },
   { id: "s-failed", title: "Upgrade Node to 24", owner: BEN, branch: "s-b-failed", state: "failed", step: "verify", prompt: "",
@@ -121,7 +121,7 @@ export const states: Journey = {
   intro: "Every state a card can be in, one per step. Step with → to study each.",
   viewers: [BEN],
   setup,
-  steps: cite(["§4.1", "§4.2", "§6.4", "§4.1", "§4.1", "§4.1", "§4.2", "J10.3", "§4.1", "B.4", "§4.2", "§6.3", "§4.2", "§6.10", "§6.10", "M-05", "§4.1", "§6.3", "§6.7", "M-06", "§6.7", "§6.7", "J7.3", "B.4", "B.4", "B.4", "§6.8", "B.4", "B.4", "M-18", "B.2", "§6.4", "§6.3", "§6.3", "§6.12", "M-30", "§6.7", "§6.15", "§6.15", "§6.1", "J1.2", "§6.1", "§6.4"], [
+  steps: cite(["§4.1", "§4.2", "§6.4", "§4.1", "§4.1", "§4.1", "§4.2", "J10.3", "J10.3", "§4.1", "B.4", "§4.2", "§6.3", "§4.2", "§6.10", "§6.10", "M-05", "§4.1", "§6.3", "§6.7", "M-06", "§6.7", "§6.7", "J7.3", "B.4", "B.4", "B.4", "§6.8", "B.4", "B.4", "M-18", "B.2", "§6.4", "§6.3", "§6.3", "§6.12", "M-30", "§6.7", "§6.15", "§6.15", "§6.1", "J1.2", "§6.1", "§6.4"], [
     view("The stack in every state: waiting for a machine, working, needs you, a conflict to resolve, paused, failed, in review, merged with lessons, dropped. Sync is stale, in gold, with Retry.", () => {}, 4200),
     view("Each row's ⋯ menu reorders: Move up, Move down, Drop. Alt+↑ and Alt+↓ do the same from the keyboard.", state => { showCard(state, BEN, "home", "acme/api", "menu:s-failed") }),
     view("Background runs sit under the stack. A failed run stays, with Retry and Dismiss, until someone acts.", state => { showCard(state, BEN, "home", "acme/api", "") }),
@@ -129,7 +129,15 @@ export const states: Journey = {
     view("Needs you, a question: Answer, right on the card.", state => { showCard(state, BEN, "todo", "s-ask") }),
     view("Answered while Alice was still typing: the first accepted answer settled it. She sees the receipt, and her draft stays behind Send as steer.", state => { showCardAs(state, BEN, "todo", "s-needs", ALICE) }),
     view("Needs you, a conflict the agent can't resolve safely: no answer field, just Resolve, which opens the branch.", state => { showCard(state, BEN, "todo", "s-conflict") }),
-    view("Needs you, a push from a laptop: it can't enter the live working copy, so Review shows it and it is redone on the machine.", state => { showCard(state, BEN, "todo", "s-push") }),
+    view("Needs you, a push from a laptop: Bring in Alice's commit, or Discard it. Anyone can bring it in; only a maintainer discards.", state => {
+      activity(state, "s-b-push", ALICE, "step", "Pushed 4c1e2d9 to smithers/cache-rates", undefined, true)
+      showCard(state, BEN, "todo", "s-push")
+    }),
+    view("Ben discards it. The agent's held push goes ahead, and Alice's commit is kept in the branch history, as its activity says.", state => {
+      setTodo(state, "s-push", { state: "in-review", needs: undefined, pushedBy: undefined, question: undefined, step: undefined })
+      stackOp(state, "s-b-push", "Discarded Alice's commit 4c1e2d9 · kept in history", BEN)
+      showCard(state, BEN, "branch", "s-b-push")
+    }),
     view("Paused: someone pressed Stop. Resume queues it again, and it continues from the last finished step.", state => { showCard(state, BEN, "todo", "s-paused") }),
     view("Failed: the step and its reason. Retry queues a new attempt on the flow it started with; the flow changed since, so Retry with the current flow appears.", state => { showCard(state, BEN, "todo", "s-failed") }),
     view("In review, not next: Merge waits for the item before it.", state => { showCard(state, BEN, "todo", "s-after") }),
@@ -167,7 +175,7 @@ export const states: Journey = {
     view("GitHub rate-limits the install: main says when it retries.", state => {
       state.world.mainHealth = { state: "limited", cause: "GitHub rate limit", retryAt: "10:42" }
     }),
-    view("Flow versions: merged and waiting for sync, and merged but failing to load. The previous version stays Active.", state => {
+    view("Flow versions: one waits for sync, one failed to load, and the previous stays Active. Change proposes a fixing TODO; Source opens its file on that TODO's branch.", state => {
       state.world.mainHealth = undefined
       showCard(state, BEN, "flow", "todo", "v-bad")
     }),

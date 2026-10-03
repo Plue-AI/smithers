@@ -73,6 +73,7 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 | A person over SSH | The person's circle with a terminal badge | Maya via SSH |
 | An unattributable outside write | A neutral square | Changed outside Smithers · 3 files |
 
+- **External agents' conversations** (M-38, S2): Claude Code or Codex in a branch terminal shows its conversation in the branch's chat, read-only. Prompts name the session owner and turns name the agent, with no answer, steer, retry or resend controls.
 - **Shape says what, color says for whom.** Agents are squares and people are circles. An agent or Smithers acting for a member takes that member's color (ui-components `Actor.color_index`). Status colors (teal live, gold needed, ember failed) are a separate channel.
 
 - **The coding agent renders like a teammate** (mvp.md B.3):

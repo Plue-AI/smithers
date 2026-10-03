@@ -19,8 +19,8 @@ export const ConfirmCard = ({ id, target }: ExtraCardProps) => {
   const evidence = todo.evidence
   const done = todo.state === "merged"
   const person = world.members.find(each => each.id === me)?.name.split(" ")[0]
-  /* The same rule as Home and the TODO card: a member never sees Merge here, and a later item waits its turn. */
-  const readiness = mergeReadiness(world, todo, me)
+  /* The same rule as Home and the TODO card (§10.6.2a); only an owner or maintainer gets this card. */
+  const readiness = mergeReadiness(world, todo)
   const stale = todo.approvedRev !== undefined && evidence?.rev !== undefined && todo.approvedRev !== evidence.rev
   return (
     <Card id={id} kind="confirm" title={done ? `Merged ${refOf(world, todo)}` : `Merge ${refOf(world, todo)} into main?`}>
@@ -38,6 +38,7 @@ export const ConfirmCard = ({ id, target }: ExtraCardProps) => {
             {evidence.github.passed === evidence.github.total ? <Check size={13} aria-hidden="true" /> : <Loader size={13} aria-hidden="true" />}GitHub {evidence.github.passed}/{evidence.github.total}
           </span>
           <span data-copy="data">{evidence.reviewing === true ? `Review running on ${evidence.rev}` : evidence.review}</span>
+          {evidence.reviewing !== true && evidence.previous !== undefined ? <span className="mvp-previous">Reviewed <span className="mvp-mono">{evidence.previous.rev}</span> · same change</span> : null}
         </div>
       )}
       {stale && readiness.state !== "blocked" ? <p className="mvp-warn-text mvp-stale">You approved {todo.approvedRev}. Review {evidence?.rev}.</p> : null}
@@ -50,7 +51,7 @@ export const ConfirmCard = ({ id, target }: ExtraCardProps) => {
             {readiness.state === "ready"
               ? <Button size="sm" variant="solid" data-mock={`confirm-merge-${todo.id}`}>{stale ? "Review & merge" : "Merge"}</Button>
               : readiness.state === "done" ? null
-              : <span className="mvp-merge-reason" data-state={readiness.state} data-mock={`confirm-reason-${todo.id}`}>{readiness.reason}</span>}
+              : <span className="mvp-merge-reason" data-state={readiness.state === "blocked" && readiness.failed === true ? "failed" : readiness.state} data-mock={`confirm-reason-${todo.id}`}>{readiness.reason}</span>}
           </span>
         </div>
       )}

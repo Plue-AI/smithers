@@ -3,22 +3,35 @@
  * the owner, and the lead. After T9 merges she inspects its run: the monitor
  * shows the flow's graph with each step's state, time and tokens, attempt 1
  * beside attempt 2, the wait for Ben's answer, and a step's input, output and
- * transcript. From the TODO flow's card, Source opens the flow on a scratch
- * branch, where she adds a Docs step, and Run tries it with a test prompt:
- * the monitor draws the new graph live. Last, from the Review step she opens
- * the review agent and switches its model to a cheaper one, an owner setting
- * that applies at once.
+ * transcript. Every flow edit is a TODO a person merges (§6.12), so Source on
+ * the TODO flow's card starts one: T12, which she commits herself. The flow
+ * file opens on T12's branch, where she adds a Docs step, and the Flow card
+ * shows T12's version as Proposed beside the Active one. Run tries that
+ * revision with a test prompt on a scratch input branch, and the monitor
+ * draws the new graph live (Appendix B.2 flow.source). Last, from the Review
+ * step she opens the review agent and switches its model to a cheaper one,
+ * an owner setting that applies at once.
  */
 import type { Journey } from "../journey"
-import { activity, branch, edit, openFile, present, say, setTodo, showCard, stackOp, type Cell, type FactoryAgent, type FlowStep, type State, type Trace } from "../world"
+import { activity, branch, edit, openFile, present, say, setTodo, showCard, stackOp, type Cell, type FactoryAgent, type FlowStep, type FlowVersion, type State, type Trace } from "../world"
 import { FLOW_FILE, flowSource, ORDER_LINE, stepsOf, V1_STEPS, version } from "./j5-data"
 import { FIRST, FOLLOW, PHASES, PROPOSE, RECHECK, REVIEW, settle, VERIFY } from "./run"
 import { MAYA, RETRY, seedState } from "./seed"
 
 const TODO = RETRY.id
 const RUN = "run-retry"
-const SCRATCH = "b-todo-flow"
-const CODING = `agent:${SCRATCH}`
+/* T12, the TODO that proposes her flow edit: its branch holds the flow file she edits. */
+const FLOW_TODO = "t-docs"
+const FLOW_BRANCH = "b-docs"
+const FLOW_AGENT = `agent:${FLOW_BRANCH}`
+const DRAFT = "d-docs"
+const TITLE = "Add a Docs step to the TODO flow"
+/* The test run's input: a scratch branch forked from main, where the edited flow does its work. */
+const INPUT = "b-try-docs"
+const INPUT_NAME = "maya/try-docs"
+const TESTER = `agent:${INPUT}`
+/* The exact flow revision the test run pins: T12's branch as she left it. */
+const REVISION = "T12 · 4d7c2e1"
 const TEST = "run-docs"
 const FORM = "f-run-docs"
 const PROMPT = "Cap the retry delay at 60 s."
@@ -63,9 +76,9 @@ const MERGED = (): Trace => {
   }
 }
 
-/* The test run of her edited flow on the scratch branch, as it starts: its first summary isn't written yet, so the phase shows its title alone. */
+/* The test run of T12's revision on the scratch input branch, as it starts: its first summary isn't written yet, so the phase shows its title alone. */
 const TEST_RUN = (seq: number): Trace => ({
-  id: TEST, title: "TODO flow", attempt: 1, branch: SCRATCH, state: "running", steps: EDITED,
+  id: TEST, title: `TODO flow · ${REVISION}`, attempt: 1, branch: INPUT, state: "running", steps: EDITED,
   phases: [{
     id: "d-plan", step: "plan", title: "Read 3 files", summary: "", tone: "live",
     cells: [cell("d-preflight", "context", "Preflight chose lib/backoff.ts, retry.ts and the Webhook retries page.", { took: "1 s", tokens: "2.9k", seq })]
@@ -74,12 +87,21 @@ const TEST_RUN = (seq: number): Trace => ({
 
 const testRun = (state: State): Trace => state.world.traces.find(each => each.id === TEST)!
 
+const setVersion = (state: State, id: string, patch: Partial<FlowVersion>): void => {
+  state.world.flowVersions = state.world.flowVersions.map(each => each.id === id ? { ...each, ...patch } : each)
+}
+
 const setup = (): State => {
   const state = seedState([MAYA])
   const { world } = state
-  /* T8 and T9 merged; T10 and T11 hold two of the three machines; the TODO flow is the built-in one, active on main. */
+  /*
+   * T8 and T9 merged; T10 waits in review, its machine asleep; T11 holds one of the three machines. The TODO
+   * flow is the built-in one, active on main.
+   */
   for (const id of ["b-stripe", "b-retry"]) Object.assign(branch(world, id), { machine: "closed", presence: [] })
   setTodo(state, "t-stripe", { state: "merged" })
+  setTodo(state, "t-checkout", { state: "in-review", step: undefined, elapsed: undefined, pr: 215 })
+  Object.assign(branch(world, "b-checkout"), { machine: "asleep", presence: [] })
   setTodo(state, TODO, {
     state: "merged", step: undefined, question: undefined, elapsed: undefined, pr: 214, attempts: 2, lessons: 2,
     evidence: {
@@ -91,7 +113,7 @@ const setup = (): State => {
   Object.assign(branch(world, "b-log"), { machine: "awake", waitPosition: undefined, presence: [{ who: "agent:b-log", where: { kind: "step", step: "plan" } }] })
   world.traces.push(FIRST(), MERGED())
   world.flow = stepsOf(V1_STEPS)
-  world.flowVersions = [version("v1", "flows/todo/flow.ts · main", "active", stepsOf(V1_STEPS))]
+  world.flowVersions = [version("v1", "v1 · flows/todo/flow.ts · main", "active", stepsOf(V1_STEPS))]
   world.agents = AGENTS()
   showCard(state, MAYA, "todo", TODO)
   return state
@@ -135,45 +157,80 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "Source forks a scratch branch for her and opens flows/todo/flow.ts on it, in the File card.", spec: "J11.2",
-      target: '[data-mock="flow-source"]', hold: 3000,
+      caption: "Every flow edit is a TODO a person merges, so Source starts one as a draft. She names it.", spec: "§6.12",
+      target: '[data-mock="flow-source"]', typing: { into: `draft-title:${DRAFT}`, text: TITLE }, hold: 3000,
+      pre: state => {
+        state.world.drafts.push({ id: DRAFT, title: "", prompt: `Edit ${FLOW_FILE}.`, fixes: false, place: { kind: "append" } })
+        showCard(state, MAYA, "draft", DRAFT)
+      },
+      act: state => { state.world.drafts.find(each => each.id === DRAFT)!.title = TITLE }
+    },
+    {
+      caption: "She commits it herself: T12, at the end of the stack. The flow file opens on T12's branch, in the File card.", spec: "B.2",
+      target: '[data-mock="draft-commit"]', hold: 3000,
       show: [{ viewer: MAYA, target: '[data-mock="card-file"]' }],
       act: state => {
-        state.world.branches.push({ id: SCRATCH, name: "maya/todo-flow", from: "main", machine: "awake", presence: [], activity: [], terminals: [] })
-        stackOp(state, SCRATCH, "Forked from main", MAYA)
-        state.world.files.push({ path: FLOW_FILE, branch: SCRATCH, lines: flowSource() })
+        const { world } = state
+        const draft = world.drafts.find(each => each.id === DRAFT)!
+        world.todos.push({ id: FLOW_TODO, ref: "T12", title: TITLE, prompt: draft.prompt, owner: MAYA, branch: FLOW_BRANCH, state: "starting", seq: state.seq })
+        world.stack.push(FLOW_TODO)
+        world.branches.push({ id: FLOW_BRANCH, name: "todo-flow-docs", item: FLOW_TODO, from: "main", machine: "waking", presence: [], activity: [], terminals: [] })
+        draft.committed = FLOW_TODO
+        stackOp(state, FLOW_BRANCH, "Placed T12 after T11", MAYA)
+        /* The version T12 proposes: v1's steps until her edit lands. */
+        world.flowVersions.push(version("v2", "v2 · flows/todo/flow.ts · T12", "proposed", stepsOf(V1_STEPS), FLOW_TODO, MAYA))
+        world.files.push({ path: FLOW_FILE, branch: FLOW_BRANCH, lines: flowSource() })
         openFile(state, FLOW_FILE, MAYA, ORDER_LINE)
-        present(state, SCRATCH, MAYA, { kind: "file", path: FLOW_FILE, line: ORDER_LINE })
+        present(state, FLOW_BRANCH, MAYA, { kind: "file", path: FLOW_FILE, line: ORDER_LINE })
+        showCard(state, MAYA, "flow", "todo", "v2")
         showCard(state, MAYA, "file", FLOW_FILE)
       }
     },
     {
-      caption: "She adds a Docs step after Review. The file saves to the machine as she types.", spec: "J11.2",
-      target: `[data-mock="card-file"] .mvp-editor-line:nth-child(${ORDER_LINE})`, hold: 2800,
+      caption: "She adds a Docs step after Review on T12's branch. The Flow card shows it in T12's version, Proposed beside Active.", spec: "J11.2",
+      target: `[data-mock="card-file"] .mvp-editor-line:nth-child(${ORDER_LINE})`, hold: 3400,
       typing: { into: `line:${FLOW_FILE}:${ORDER_LINE}`, after: ORDER, text: '"docs", "propose"],' },
+      show: [{ viewer: MAYA, target: '[data-mock="card-flow"]' }],
+      /* T12's machine is awake by now, so the file saves to it as she types. */
+      pre: state => {
+        branch(state.world, FLOW_BRANCH).machine = "awake"
+        setTodo(state, FLOW_TODO, { state: "working", step: "plan", elapsed: "0m" })
+        present(state, FLOW_BRANCH, FLOW_AGENT, { kind: "step", step: "plan" })
+      },
       act: state => {
         edit(state, FLOW_FILE, ORDER_LINE, `${ORDER}"docs", "propose"],`, MAYA)
-        activity(state, SCRATCH, MAYA, "edit", `Edited flow.ts line ${ORDER_LINE}`)
+        activity(state, FLOW_BRANCH, MAYA, "edit", `Edited flow.ts line ${ORDER_LINE}`)
+        setVersion(state, "v2", { steps: stepsOf(EDITED, ["docs"], state.seq) })
       }
     },
     {
-      caption: "Run asks for the flow's input in a form. It runs her edited flow on her scratch branch.", spec: "J11.3",
-      target: '[data-mock="flow-run"]', hold: 2600,
+      caption: "Run on T12's version asks for a test prompt. The form names the flow revision and the scratch input branch.", spec: "J11.3",
+      target: '[data-mock="flow-run"]', hold: 3000,
       show: [{ viewer: MAYA, target: `[data-mock="form-${FORM}-prompt"]` }],
       act: state => {
-        ;(state.world.forms ??= []).push({ id: FORM, title: "Run TODO flow on maya/todo-flow", fields: [{ id: "prompt", label: "Prompt", value: "", required: true }], submit: "Run" })
+        ;(state.world.forms ??= []).push({
+          id: FORM, title: "Run TODO flow", submit: "Run",
+          fields: [
+            { id: "flow", label: "Flow revision", value: REVISION },
+            { id: "branch", label: "Input branch", value: `${INPUT_NAME} · new from main` },
+            { id: "prompt", label: "Prompt", value: "", required: true }
+          ]
+        })
         state.viewers[MAYA]!.focus = showCard(state, MAYA, "form", FORM)
       }
     },
     {
-      caption: "She types a test prompt and presses Return. Her own Run starts at once, and the monitor draws the new graph live.", spec: "J11.3",
+      caption: "She types a test prompt and presses Return. The run starts at once on maya/try-docs, and the monitor draws the new graph live.", spec: "J11.3",
       target: `[data-mock="form-${FORM}-prompt"]`, typing: { into: `form:${FORM}:prompt`, text: PROMPT }, hold: 3400,
       act: state => {
-        const form = state.world.forms!.find(each => each.id === FORM)!
-        form.fields[0]!.value = PROMPT
-        Object.assign(form, { receipt: "Started on maya/todo-flow", seq: state.seq })
-        state.world.traces.push(TEST_RUN(state.seq))
-        present(state, SCRATCH, CODING, { kind: "step", step: "plan" })
+        const { world } = state
+        const form = world.forms!.find(each => each.id === FORM)!
+        form.fields.find(each => each.id === "prompt")!.value = PROMPT
+        Object.assign(form, { receipt: `Started ${REVISION} on ${INPUT_NAME}`, seq: state.seq })
+        world.branches.push({ id: INPUT, name: INPUT_NAME, from: "main", machine: "awake", presence: [], activity: [], terminals: [] })
+        stackOp(state, INPUT, "Forked from main", MAYA)
+        world.traces.push(TEST_RUN(state.seq))
+        present(state, INPUT, TESTER, { kind: "step", step: "plan" })
         showCard(state, MAYA, "run", TEST)
         Object.assign(state.viewers[MAYA]!, { focus: undefined, maximized: `run:${TEST}` })
       }
@@ -207,16 +264,16 @@ export const j11: Journey = {
             cells: [cell("d-read-docs", "read", "Read docs/webhooks.md: it still says each retry waits 30 s.", { took: "3 s", tokens: "1.4k", seq: state.seq })]
           }
         )
-        present(state, SCRATCH, CODING, { kind: "step", step: "docs" })
+        present(state, INPUT, TESTER, { kind: "step", step: "docs" })
       }
     },
     {
-      caption: "Restore. The run's card stays live in the conversation, on her scratch branch.", spec: "J11.3",
+      caption: "Restore. The test run's card stays live in the conversation, on maya/try-docs.", spec: "J11.3",
       target: '[data-mock="restore"]', hold: 2400,
       act: state => { state.viewers[MAYA]!.maximized = undefined }
     },
     {
-      caption: "The scratch branch sits under main in the branch tree, with Maya and the coding agent on it.", spec: "J11.3",
+      caption: "In the branch tree, T12's branch holds Maya and its coding agent. The test run's scratch branch sits beside it, under main.", spec: "J11.3",
       target: '[data-mock="crumb-tree"]', hold: 3000,
       act: state => { state.viewers[MAYA]!.tree = true }
     },

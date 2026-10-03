@@ -2,12 +2,15 @@
  * J6. Bring your own agent (mvp.md §5, P0, steps 1–3). Ben's screen on the
  * left, Alice's on the right, both on retry-webhooks. Ben runs Claude Code in
  * his own branch terminal: it comes signed in to Smithers as Ben and acts as
- * "Ben via Claude Code". Its file writes reach the shared working copy the way
- * any terminal's do, and its skill calls (wiki, answer, TODO) are Ben's acts,
- * named for the tool, in front of everyone on the branch.
+ * "Claude Code for Ben". Its file writes reach the shared working copy the way
+ * any terminal's do, and its skill calls (wiki, answer) are Ben's acts, named
+ * for the tool, in front of everyone on the branch. It keeps the app agent's
+ * rules (Appendix B, X): its follow-up TODO is only proposed, and it reaches
+ * the stack when Ben presses Commit on a confirmation nobody else sees. Its
+ * conversation shows in the branch's shared chat, read-only (M-38).
  */
 import { cite, type Journey } from "../journey"
-import { activity, branch, changed, edit, file, leave, navigate, openFile, present, print, read, setTodo, showCard, stackOp, terminal, todo, viewer, type ActorId, type CardKind, type State } from "../world"
+import { activity, ask, branch, changed, edit, file, imported, leave, navigate, openFile, present, pressed, print, read, setTodo, showCard, stackOp, terminal, todo, viewer, type ActorId, type CardKind, type State } from "../world"
 import { ALICE, BEN, RETRY_FILE, seedState } from "./seed"
 
 const CLAUDE = `${BEN}~claude`
@@ -17,11 +20,13 @@ const BEN_TERMINAL = `terminal:${T_BEN}`
 const ASK = "use backoff() for both retry waits, then answer T9's question"
 const ANSWER = "Exponential backoff. Both waits now use backoff()."
 const FOLLOW_UP = "add that as a follow-up TODO after T9"
+/** The follow-up Claude Code proposes. Committing a TODO is a confirmation only Ben can press (Appendix B, history.todo). */
+const T12 = { id: "t-giveup", title: "Test giving up after the fifth attempt", prompt: "Add a test that deliver() marks the event failed after the fifth attempt." }
+const COMMIT = "commit-t-giveup"
+const ORIGIN = "terminal 1"
+const REPLY = "Both retry waits now use backoff(), as the wiki says. Tests pass. Answered T9: exponential backoff."
 
-/*
- * While Claude Code runs it owns the session's input line, so its ">" replaces the shell prompt.
- * The Terminal card draws `prompt` once Terminal has the field (asked of the lead); until then the shell prompt shows.
- */
+/* While Claude Code runs it owns the session's input line, so its ">" replaces the shell prompt. */
 const foreground = (state: State, running: string | undefined, prompt: string | undefined): void => {
   Object.assign(terminal(state.world, T_BEN), { running, prompt })
 }
@@ -53,7 +58,7 @@ export const j6: Journey = {
   intro: "Ben and Alice are on retry-webhooks. T9's coding agent is waiting on a question, and Alice has retry.ts open.",
   viewers: [BEN, ALICE],
   setup,
-  steps: cite(["J6.1", "J6.1", "J6.3", "J6.2", "J6.2", "J6.3", "J6.2", "J6.3", "J6.3", "B.1"], [
+  steps: cite(["J6.1", "J6.1", "M-38", "J6.2", "J6.2", "J6.3", "J6.2", "§6.13", "B.2", "J6.3", "B.1"], [
     {
       caption: "Ben opens his own terminal on the branch. It runs as Ben, already signed in to Smithers as him.",
       viewer: BEN, target: '[data-mock="new-terminal-b-retry"]', hold: 1800,
@@ -66,7 +71,7 @@ export const j6: Journey = {
       }
     },
     {
-      caption: "He starts Claude Code on his own subscription. The Smithers skill is already installed, and Ben via Claude Code joins the branch.",
+      caption: "He starts Claude Code on his own subscription. The Smithers skill is already installed, and Claude Code for Ben joins the branch.",
       viewer: BEN, typing: { into: `terminal:${T_BEN}`, text: "claude" }, hold: 3000,
       act: state => {
         print(state, T_BEN, [["ben@retry-webhooks $ claude", "dim"], "Claude Code · Smithers skill · signed in as benortiz"])
@@ -76,15 +81,16 @@ export const j6: Journey = {
       }
     },
     {
-      caption: "Ben asks in plain words. Through the skill, Claude Code reads the team's wiki as Ben, and the read shows in the branch activity.",
-      viewer: BEN, typing: { into: `terminal:${T_BEN}`, text: ASK }, hold: 2800,
+      caption: "Ben asks in plain words. His prompt joins the branch's chat, read-only, and Claude Code's wiki read shows in the activity.",
+      viewer: BEN, typing: { into: `terminal:${T_BEN}`, text: ASK }, hold: 3000,
       act: state => {
         print(state, T_BEN, [`> ${ASK}`, '● smthrs wiki page "Webhook retries"', ["  ⎿  Retries use lib/backoff. Never a fixed sleep.", "dim"]])
         read(state, "b-retry", CLAUDE, ["wiki: Webhook retries"])
+        imported(state, "b-retry", BEN, "user", ASK, ORIGIN)
       }
     },
     {
-      caption: "Its edits land in the shared working copy. Alice's open file updates in place, in Ben's colour, flagged Ben · Claude Code.",
+      caption: "Its edits land in the shared working copy. Alice's open file updates in place, in Ben's colour, flagged Claude Code for Ben.",
       hold: 3200,
       reveal: [{ viewer: ALICE, target: '[data-mock="card-file"]' }],
       act: state => {
@@ -108,13 +114,14 @@ export const j6: Journey = {
       }
     },
     {
-      caption: "The tests pass in Ben's terminal. Through the skill, Claude Code answers T9's question, and T9 leaves Needs you.",
+      caption: "The tests pass. Claude Code answers T9's question for Ben, its reply lands in the shared chat, and T9 leaves Needs you.",
       hold: 3200,
       reveal: [{ viewer: ALICE, target: '[data-mock="card-todo"]' }],
+      show: [{ viewer: BEN, target: `[data-mock="imported-${CLAUDE}"]` }],
       act: state => {
         print(state, T_BEN, [
           ["● Bash(pnpm test webhooks) · 14 passed", "ok"],
-          "● smthrs todo answer T9 · answered as Ben via Claude Code",
+          "● smthrs todo answer T9 · answered as Claude Code for Ben",
           "● No test covers giving up after attempt 5."
         ])
         activity(state, "b-retry", CLAUDE, "answer", ANSWER)
@@ -124,6 +131,7 @@ export const j6: Journey = {
         const doc = file(state.world, RETRY_FILE)
         doc.editors = (doc.editors ?? []).filter(each => each.who !== CLAUDE)
         present(state, "b-retry", CLAUDE, { kind: "terminal", id: T_BEN })
+        imported(state, "b-retry", CLAUDE, "agent", REPLY, ORIGIN)
         look(state, ALICE, "todo", "t-retry")
       }
     },
@@ -139,25 +147,43 @@ export const j6: Journey = {
       }
     },
     {
-      caption: "Ben asks for a follow-up. Claude Code commits it as T12, right after T9, and the activity says who asked.",
-      viewer: BEN, typing: { into: `terminal:${T_BEN}`, text: FOLLOW_UP }, hold: 3000,
+      caption: "Ben asks for a follow-up TODO. An agent can't commit one, so a Commit confirmation appears on Ben's screen alone.",
+      viewer: BEN, typing: { into: `terminal:${T_BEN}`, text: FOLLOW_UP }, hold: 3400,
+      show: [{ viewer: BEN, target: `[data-mock="act-${COMMIT}"]` }],
       act: state => {
-        const { world } = state
-        world.todos.push({ id: "t-giveup", ref: "T12", title: "Test giving up after the fifth attempt", owner: BEN, branch: "b-giveup", state: "queued", queue: 2,
-          prompt: "Add a test that deliver() marks the event failed after the fifth attempt." })
-        world.stack.splice(world.stack.indexOf("t-retry") + 1, 0, "t-giveup")
-        world.branches.push({ id: "b-giveup", name: "test-retry-give-up", item: "t-giveup", from: "main", machine: "waiting", waitPosition: 2, presence: [], activity: [], terminals: [] })
-        setTodo(state, "t-giveup", {})
-        stackOp(state, "b-retry", "Placed T12 after T9", CLAUDE)
-        print(state, T_BEN, [`> ${FOLLOW_UP}`, "● smthrs todo new · T12, placed after T9"])
+        // The CLI's answer to a command that needs a person (engineering spec §5.2.1): nothing is committed yet.
+        print(state, T_BEN, [`> ${FOLLOW_UP}`, "● smthrs todo new · Waiting for Ben to confirm"])
+        ask(state, BEN, { id: COMMIT, verb: "Commit", target: T12.title, text: T12.prompt, receipt: "Committed T12 after T9", asker: CLAUDE })
+        // The confirmation takes Ben's eye off the session he was driving; Alice's screen and activity stay as they were.
+        state.viewers[BEN]!.focus = undefined
       }
     },
     {
-      caption: "Ben quits Claude Code, and it leaves the branch. What it did stays in the activity, as Ben via Claude Code.",
+      caption: "Ben presses ⏎. Only then is T12 placed after T9, and Alice sees it in the activity: Claude Code for Ben asked.",
+      viewer: BEN, target: `[data-mock="act-${COMMIT}"]`, hover: true, keys: "⏎", hold: 3400,
+      show: [{ viewer: ALICE, target: '[data-mock="card-branch"] .mvp-activity-row:last-child' }],
+      act: state => {
+        const { world } = state
+        pressed(state, COMMIT)
+        world.todos.push({ ...T12, ref: "T12", owner: BEN, branch: "b-giveup", state: "queued", queue: 1 })
+        world.stack.splice(world.stack.indexOf("t-retry") + 1, 0, T12.id)
+        world.branches.push({ id: "b-giveup", name: "test-retry-give-up", item: T12.id, from: "main", machine: "waiting", waitPosition: 1, presence: [], activity: [], terminals: [] })
+        // The machine queue follows the stack, so T11 is now second in line.
+        todo(world, "t-log").queue = 2
+        branch(world, "b-log").waitPosition = 2
+        setTodo(state, T12.id, {})
+        stackOp(state, "b-retry", "Placed T12 after T9", CLAUDE)
+      }
+    },
+    {
+      caption: "Ben quits Claude Code, and it leaves the branch. What it did stays in the activity, as Claude Code for Ben.",
       viewer: BEN, typing: { into: `terminal:${T_BEN}`, text: "/exit" }, hold: 2800,
+      reveal: [{ viewer: BEN, target: '[data-mock="card-terminal"]' }],
+      pre: state => { state.viewers[BEN]!.focus = BEN_TERMINAL },
       act: state => {
         foreground(state, undefined, undefined)
         leave(state, "b-retry", CLAUDE)
+        look(state, BEN, "terminal", T_BEN)
       }
     },
     {

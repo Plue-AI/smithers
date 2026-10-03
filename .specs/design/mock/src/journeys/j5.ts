@@ -1,8 +1,9 @@
 /*
  * J5. Teach the factory (mvp.md §5, P0, everything is a flow). Maya's screen.
- * She tells the app agent a rule. It commits nothing: it proposes the TODO
- * flow's next version and drafts a TODO, and her Commit is the confirmation
- * (A✓). The TODO's coding agent makes the edit on its branch; merged and
+ * She tells the app agent a rule. Proposing a flow edit is A✓, so it asks
+ * first on a Confirm card only she sees. Pressed, the next version shows as
+ * Proposed and its TODO waits as her draft; her own Commit makes it a TODO.
+ * The TODO's coding agent makes the edit on its branch; merged and
  * loaded, the version is Active. Every attempt keeps the flow version it
  * started on (todo.steps): T11 starts on v2 with Changelog, while Alice's T10
  * and its retry stay on v1. The merge queues a learning run, a background
@@ -11,7 +12,7 @@
  */
 import type { Journey } from "../journey"
 import {
-  activity, branch, context, dismissToasts, edit, file, leave, navigate, openFile, present, read, reply, run, say, setTodo, showCard,
+  activity, ask, branch, context, dismissToasts, edit, file, leave, navigate, openFile, present, pressed, read, reply, run, say, setTodo, showCard,
   stackOp, STACK, toast, todo, type FlowStep, type FlowVersion, type State
 } from "../world"
 import { MAYA, seedState } from "./seed"
@@ -26,6 +27,7 @@ const WHICH = "Which TODOs use the new flow?"
 const SMITHERS_FOR_MAYA = `${MAYA}~smithers`
 const CODING = "agent:b-flow"
 const DRAFT = "d-flow"
+const PROPOSE = "propose-v2"
 /* The learning run after #89. Its one suggestion shares its id, and its receipt card is the run's. */
 const LEARNING = "learn-89"
 const LEARNING_TITLE = "Learning from #89"
@@ -84,12 +86,21 @@ export const j5: Journey = {
   steps: [
     {
       spec: "J5.2",
-      caption: "She types the rule. The app agent commits nothing: it proposes v2 of the TODO flow and drafts a TODO, placed before T10.",
+      caption: "She types the rule. Proposing a flow edit needs her press, so the app agent asks first. Only she sees it.",
       keys: "⌘ K", typing: { into: "composer", text: RULE }, hold: 3800,
       pre: state => { state.viewers[MAYA]!.composerOpen = true },
       act: state => {
-        const { world } = state
         say(state, MAYA, RULE)
+        ask(state, MAYA, { id: PROPOSE, verb: "Propose", target: "TODO flow v2", text: `/flow.edit todo ${RULE}`, receipt: "Proposed TODO flow v2" })
+      }
+    },
+    {
+      spec: "J5.2",
+      caption: "She presses Propose. v2 shows as Proposed, and its TODO waits as her draft, before T10.",
+      target: `[data-mock="act-${PROPOSE}"]`, hold: 3400,
+      act: state => {
+        const { world } = state
+        pressed(state, PROPOSE)
         world.flowVersions.push(version("v2", "v2 · flows/todo/flow.ts · proposed", "proposed", stepsOf(V2_STEPS, ["verify", "changelog"], state.seq), undefined, SMITHERS_FOR_MAYA))
         world.drafts.push({ id: DRAFT, ...FLOW_DRAFT, fixes: false, place: { kind: "before", id: "t-checkout" } })
         /* The draft, then the version it proposes, labeled Proposed: a preview, not an edit. */
@@ -99,7 +110,7 @@ export const j5: Journey = {
     },
     {
       spec: "J5.3",
-      caption: "She presses Commit, the one-click confirmation. Only now is it a TODO: T12, first in the stack.",
+      caption: "She presses Commit on her draft. Only now is it a TODO: T12, first in the stack.",
       target: '[data-mock="draft-commit"]', hold: 2800,
       act: state => {
         const { world } = state
@@ -108,7 +119,7 @@ export const j5: Journey = {
         world.branches.push({ id: "b-flow", name: "todo-flow-changelog", item: FLOW_TODO.id, from: "main", machine: "waking", presence: [], activity: [], terminals: [] })
         world.drafts.find(each => each.id === DRAFT)!.committed = FLOW_TODO.id
         setVersion(state, "v2", { todo: FLOW_TODO.id, label: "v2 · flows/todo/flow.ts · T12" })
-        stackOp(state, "b-flow", "Placed T12 before T10", SMITHERS_FOR_MAYA)
+        stackOp(state, "b-flow", "Placed T12 before T10", MAYA)
         showCard(state, MAYA, "todo", FLOW_TODO.id)
       }
     },

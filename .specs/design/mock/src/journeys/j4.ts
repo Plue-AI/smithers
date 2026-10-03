@@ -58,7 +58,8 @@ export const j4: Journey = {
   id: "j4",
   title: "The team's work",
   spec: "J4",
-  intro: "Morning. Maya, the owner, opens Smithers. The home card is the team's stack, and all 3 machines are busy.",
+  intro: "Morning. Maya, the owner, opens Smithers. The home card is the team's stack, in merge order.",
+  open: [{ viewer: MAYA, target: '[data-mock^="filter-"]' }],
   viewers: [MAYA],
   setup,
   steps: cite(["J4.1", "J4.2", "§4.1", "§6.10", "§6.10", "§4.2", "§4.2", "M-06", "§4.1", "§4.1", "J4.3", "M-06", "§6.4", "J4.1"], [

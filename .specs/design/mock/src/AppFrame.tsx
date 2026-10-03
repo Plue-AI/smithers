@@ -157,13 +157,16 @@ export const AppFrame = ({ frame, pointer, keys }: {
                             ? <div key={entry.id} className="mock-entry" data-entry={entry.id}><CardView card={viewOf(entry.card)} /></div>
                             : <div key={entry.id} className="mock-entry mock-as" data-entry={entry.id} data-as={`as ${frame.state.world.members.find(each => each.id === entry.card.as)?.name.split(" ")[0]} sees it`}>
                                 <FrameContext.Provider value={{ ...frame, me: entry.card.as }}><CardView card={entry.card} /></FrameContext.Provider></div>)
-                          : <div key={entry.id} className="mock-message" data-entry={entry.id} data-mine={(entry.kind === "user" ? entry.by : entry.for) === frame.me || undefined}>
-                              {/* A shared conversation names who asked, and who Smithers answered (M-34; Astra r2 M1). Your own prompts need no name. */}
-                              {entry.kind === "user" && entry.by !== undefined && entry.by !== frame.me
-                                ? <span className="mvp-author"><Avatar world={frame.state.world} who={entry.by} size={16} />{actorName(frame.state.world, entry.by)}</span> : null}
+                          : <div key={entry.id} className="mock-message" data-entry={entry.id} data-mine={(entry.kind === "user" ? entry.by : entry.for) === frame.me || undefined}
+                              data-mock={entry.kind === "agent" && entry.by !== undefined ? `imported-${entry.by}` : undefined}>
+                              {/* A shared conversation names who asked, and who Smithers answered for, on every screen (M-34; Astra r2 M1). Your own prompts need no name. */}
+                              {entry.kind === "user" && entry.by !== undefined && (entry.by !== frame.me || entry.origin !== undefined)
+                                ? <span className="mvp-author"><Avatar world={frame.state.world} who={entry.by} size={16} />{actorName(frame.state.world, entry.by)}
+                                    {entry.origin === undefined ? null : <span className="mvp-origin">{entry.origin}</span>}</span> : null}
                               {entry.kind === "agent"
-                                ? <span className="mvp-author"><Avatar world={frame.state.world} who={entry.for === undefined || entry.for === frame.me ? STACK : `${entry.for}~smithers`} size={16} />
-                                    {actorName(frame.state.world, entry.for === undefined || entry.for === frame.me ? STACK : `${entry.for}~smithers`)}</span> : null}
+                                ? <span className="mvp-author"><Avatar world={frame.state.world} who={entry.by ?? (entry.for === undefined ? STACK : `${entry.for}~smithers`)} size={16} />
+                                    {actorName(frame.state.world, entry.by ?? (entry.for === undefined ? STACK : `${entry.for}~smithers`))}
+                                    {entry.origin === undefined ? null : <span className="mvp-origin">{entry.origin}</span>}</span> : null}
                               <ChatMessage role={entry.kind === "user" ? "user" : "assistant"} className="smithers-chat-message">{entry.text}</ChatMessage>
                               {entry.kind === "agent" && entry.context !== undefined ? (
                                 <ContextChip id={entry.id} items={entry.context} open={screen.views[`context:${entry.id}`] === "open"} />

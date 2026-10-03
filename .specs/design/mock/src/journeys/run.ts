@@ -55,14 +55,17 @@ export const PHASES = (): Array<Phase> => [
     cells: [cell("c-edit-deliver", "edit", "Replaced the fixed 30 s wait in deliver() with backoff(attempt).", { code: "-    await sleep(30_000)\n+    await sleep(backoff(attempt))", took: "9 s", tokens: "1.9k" })]
   },
   {
-    /* The agent's own test runs while it implements; Verify is the flow's checks after it. */
+    /*
+     * The agent's own test runs while it implements; Verify is the flow's checks after it. The flag is the
+     * deterministic rule (§6.14; engineering spec §11.6.4): the same check failed 3 times with no edit in
+     * between to a file the failure names. Its copy is the spec's: "Thrashing: <check> failed 3×".
+     */
     id: "p-tests", step: "implement", title: "Ran tests · 1 failed ×3", summary: "The retry test times out every time.", took: 240, tone: "thrash",
-    indicator: "Thrashing: the same test failed 3 times with the same timeout",
+    indicator: "Thrashing: pnpm test failed 3×",
     cells: [
       cell("c-run-1", "run", "Ran the webhook tests. The retry test timed out.", { tone: "fail", output: FAIL, took: "41 s" }),
-      cell("c-timeout", "edit", "Raised the timeout to 10 s without finding why it's slow.", { code: "-  }, 5_000)\n+  }, 10_000)", took: "6 s", tokens: "0.9k" }),
-      cell("c-run-2", "run", "Ran the tests again. Same timeout: a 30 s sleep remains.", { tone: "fail", output: FAIL, took: "44 s" }),
-      cell("c-run-3", "run", "Ran them a third time with no change. Same failure.", { tone: "fail", output: FAIL, took: "43 s" })
+      cell("c-run-2", "run", "Ran the same tests again with nothing changed. Same timeout.", { tone: "fail", output: FAIL, took: "44 s" }),
+      cell("c-run-3", "run", "Ran them a third time, still unchanged. Same failure.", { tone: "fail", output: FAIL, took: "43 s" })
     ]
   },
   {
@@ -86,7 +89,9 @@ export const FOLLOW = (seq?: number): Phase => ({
   id: "p-answer", step: "implement", title: "Edited 2 files", summary: "Following Ben's answer: the second wait was in redeliver().", took: 120, tone: "ok",
   cells: [
     cell("c-edit-redeliver", "edit", "Found the second fixed wait in redeliver(); switched it to backoff(1).", { code: "-  await sleep(30_000)\n+  await sleep(backoff(1))", took: "7 s", tokens: "1.1k", seq }),
-    cell("c-revert-timeout", "edit", "Restored the 5 s test timeout: the delay was the cause.", { code: "-  }, 10_000)\n+  }, 5_000)", took: "4 s", tokens: "0.4k", seq })
+    cell("c-test-redeliver", "edit", "Added a test that redeliver() backs off too.", {
+      code: '+  it("backs off before a redelivery", async () => {\n+    await redeliver(event)\n+    expect(sleep).toHaveBeenCalledWith(backoff(1))\n+  })', took: "5 s", tokens: "0.7k", seq
+    })
   ]
 })
 
@@ -115,7 +120,7 @@ export const PROPOSE = (seq?: number): Phase => ({
 export const RECHECK = (seq?: number): Array<Phase> => [
   {
     id: "p-rebase", step: "verify", title: "Rebased onto main", summary: "After T8 merged; now c41a9e0.", took: 2, tone: "ok",
-    cells: [cell("c-rebase", "rebase", "main moved when T8 merged. Rebased onto it as c41a9e0.", { took: "2 s", seq })]
+    cells: [cell("c-rebase", "rebase", "Rebased onto main as c41a9e0. Same change, so only checks rerun.", { took: "2 s", seq })]
   },
   {
     id: "p-recheck", step: "verify", title: "Ran checks · passed", summary: "All pass on c41a9e0.", took: 50, tone: "ok",
@@ -160,14 +165,14 @@ export const insideRun: Journey = {
       act: () => {}
     },
     {
-      caption: "Every cell explains what the agent did. This phase repeats one failure with no new idea: that is thrashing.", spec: "§6.14",
-      target: '[data-mock="cell-c-run-2"]', hold: 3400,
+      caption: "Every cell explains what the agent did. Here it ran the same tests again, with nothing changed.", spec: "§6.14",
+      target: '[data-mock="cell-c-run-2"]', hold: 3000,
       act: state => { state.viewers[BEN]!.selected = "c-run-2" }
     },
     {
-      caption: "Here it raised a timeout instead of finding the cause.", spec: "§6.14",
-      target: '[data-mock="cell-c-timeout"]', hold: 2800,
-      act: state => { state.viewers[BEN]!.selected = "c-timeout" }
+      caption: "The third identical failure, nothing changed in between: that is thrashing.", spec: "§6.14",
+      target: '[data-mock="cell-c-run-3"]', hold: 3200,
+      act: state => { state.viewers[BEN]!.selected = "c-run-3" }
     },
     {
       caption: "Then it stopped to ask. The run waits for a person, says since when, and takes the answer right here.", spec: "B.3",
@@ -215,7 +220,7 @@ export const insideRun: Journey = {
       }
     },
     {
-      caption: "T8 merges, so main moves. The rebase loops the run back to Verify, checks pass on the new revision, and it waits again.", spec: "§4.2",
+      caption: "T8 merges, so main moves. The rebase loops the run back to Verify: checks pass on c41a9e0, and the review stands, since the change is the same.", spec: "§4.2",
       hold: 3800,
       act: state => {
         setTodo(state, "t-stripe", { state: "merged" })
@@ -227,7 +232,7 @@ export const insideRun: Journey = {
       }
     },
     {
-      caption: "Restore returns to the conversation. The TODO card shows the PR, rebased and next to merge.", spec: "§6.14",
+      caption: "Restore returns to the conversation. The TODO card shows the PR next to merge, its review marked Reviewed 8b1e204 · same change.", spec: "§6.14",
       target: '[data-mock="restore"]', hold: 2600,
       act: state => { state.viewers[BEN]!.maximized = undefined }
     }

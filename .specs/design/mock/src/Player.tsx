@@ -155,12 +155,15 @@ export const Player = () => {
   }, [playing, journey, speed])
 
   useEffect(() => {
-    if (playing || index === 0) return
-    const step = journey.steps[index - 1]
-    if (step?.show === undefined) return
-    /* After the frame's own first-layout scroll settles (AppFrame), bring each listed subject into view. */
+    if (playing) return
+    /* A still frame frames its step: the opening frame's `open`, else the step's target and then its `show` subjects. */
+    const step = index === 0 ? undefined : journey.steps[index - 1]
+    const subjects = step === undefined ? journey.open ?? []
+      : [...(step.target === undefined ? [] : [{ viewer: step.viewer ?? journey.viewers[0]!, target: step.target }]), ...(step.show ?? [])]
+    if (subjects.length === 0) return
+    /* After the frame's own first-layout scroll settles (AppFrame), bring each subject into view. */
     const timer = setTimeout(() => {
-      for (const { viewer: on, target } of step.show ?? []) {
+      for (const { viewer: on, target } of subjects) {
         document.querySelector(`[data-frame="${on}"]`)?.querySelector(target)?.scrollIntoView({ block: "nearest", behavior: "auto" })
       }
     }, 480)

@@ -3,7 +3,8 @@
  * TODO's pull request as GitHub shows it on the right. GitHub keeps main,
  * issues, PRs, reviews and checks; Smithers keeps TODOs, stack order, live
  * branches, runs and the wiki. Every PR is based on main and lists the
- * earlier stack items it includes. Each new revision reruns the checks.
+ * earlier stack items it includes. Each new revision reruns the checks, and
+ * the PR body's evidence is rewritten for that revision (spec §12.5.1).
  */
 import { cite, type Journey } from "../journey"
 import { activity, branch, checksPassed, dismissToasts, edit, revise, run, setTodo, showCard, stackOp, toast, todo, type State } from "../world"
@@ -11,6 +12,8 @@ import { ALICE, BEN, MAYA, RETRY_FILE, seedState } from "./seed"
 
 const AGENT = "agent:b-retry"
 const PR = 214
+/* Ben's answer to T9's question, in his words from J3. */
+const ANSWER = "Use backoff() from lib/backoff everywhere we sleep before a retry."
 
 const pr = (state: State) => state.world.github.find(each => each.number === PR)!
 
@@ -29,16 +32,15 @@ const setup = (): State => {
     }
   })
   branch(world, "b-retry").presence = [{ who: ALICE, where: { kind: "file", path: RETRY_FILE, line: 10 } }]
+  /* The agent's earlier question was settled before the PR opened: Ben's answer follows it, so it no longer reads as waiting. */
+  activity(state, "b-retry", BEN, "answer", ANSWER)
   edit(state, RETRY_FILE, 8, "    await sleep(backoff(attempt))", AGENT)
   edit(state, RETRY_FILE, 14, "  await sleep(backoff(1))", AGENT)
+  /* The body's own text is the TODO's acceptance; Smithers writes the rest from the TODO (GitHubFrame): prompt, evidence, included items. */
   world.github.push({
     number: PR, todo: "t-retry", title: "Retry failed webhooks with backoff", base: "main", head: "smithers/retry-webhooks",
     state: "open", requestedBy: BEN,
-    body: [
-      "Failed webhook deliveries retry up to 5 times with backoff, then mark the event failed. Fixes #212.",
-      "Checks on the machine: typecheck ✓ · test ✓ · Review: no blocking issues.",
-      "Includes #88 (Upgrade the Stripe SDK to v17), which merges first."
-    ],
+    body: ["The retry test passes.", "After the fifth failed attempt, the event is marked failed."],
     commits: [{ by: "smithers-app", text: "fix(webhooks): retry failed deliveries with backoff", sha: "3f2a1c9" }],
     thread: [], approvals: [], required: 1, draftAfter: "T8"
   })
@@ -56,7 +58,7 @@ export const j10: Journey = {
   setup,
   steps: cite(["J10.1", "J10.2", "J10.2", "J10.2", "J10.3", "J10.3", "J10.4", "§4.2", "§4.2", "J10.5", "§6.3", "§6.3", "J10.5", "J10.6", "J10.6"], [
     {
-      caption: "The TODO's PR lives on GitHub: opened by the Smithers app for Ben, based on main. It's a draft until T8 (#88), which it includes, merges first.",
+      caption: "The TODO's PR on GitHub, based on main: its body is the prompt and 3f2a1c9's evidence. It's a draft until T8 (#88), which it includes, merges first.",
       viewer: MAYA, target: '[data-mock="open-t-retry"]', hold: 3400,
       act: state => { showCard(state, MAYA, "todo", "t-retry") }
     },
@@ -76,9 +78,9 @@ export const j10: Journey = {
       }
     },
     {
-      caption: "The agent answers the way an engineer would: with a commit. It lands on both sides, and the new revision's checks start over.",
+      caption: "The agent answers the way an engineer would: with a commit. Checks and review start over on 8b1e204, in Smithers and in the PR body.",
       hold: 3000,
-      show: [{ viewer: MAYA, target: '[data-mock="card-todo"]' }],
+      show: [{ viewer: MAYA, target: '[data-mock="card-todo"]' }, { viewer: "github", target: '[data-mock="gh-evidence"]' }],
       act: state => {
         edit(state, RETRY_FILE, 14, "  await sleep(backoff(1)); log.retry(event.id, 1)", AGENT)
         activity(state, "b-retry", AGENT, "edit", "Logged the attempt number in redeliver() · 8b1e204", "ok")
@@ -122,9 +124,9 @@ export const j10: Journey = {
       }
     },
     {
-      caption: "Maya presses Rebase now. Everyone on the branch sees it rebase. The revision changed, so every check reruns on it, and nothing stays green from before.",
+      caption: "Maya presses Rebase now, and everyone on the branch sees it. Every check reruns on 5e7d2b0, here and in the PR body; nothing stays green.",
       viewer: MAYA, target: '[data-mock="rebase-b-retry"]', hold: 2600,
-      show: [{ viewer: MAYA, target: '[data-mock="evidence-t-retry"]' }],
+      show: [{ viewer: MAYA, target: '[data-mock="evidence-t-retry"]' }, { viewer: "github", target: '[data-mock="gh-evidence"]' }],
       act: state => {
         branch(state.world, "b-retry").rebasePending = undefined
         stackOp(state, "b-retry", "Rebased onto T8 · checks rerun on 5e7d2b0", MAYA)
@@ -147,7 +149,6 @@ export const j10: Journey = {
       act: state => {
         setTodo(state, "t-stripe", { state: "merged" })
         branch(state.world, "b-stripe").machine = "closed"
-        pr(state).body.splice(2, 1)
         pr(state).draftAfter = undefined
         stackOp(state, "b-retry", "Rebased onto main · checks rerun on a1f9e33")
         revise(state, "t-retry", "a1f9e33", "clean-rebase")
