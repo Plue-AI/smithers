@@ -252,10 +252,28 @@ const factoryProjection = Smithers.FactoryProjection({
 // from the loaded declarations, so their content is key material and an edit
 // to any PACKAGE.ts re-keys the check. `target --write` writes the file and
 // `lint` fails on drift; `smithers-build index '//...'` prints the same rows.
+const declaredWorkflows = [
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yml",
+            ".github/workflows/release-auth.yml",
+            ".github/workflows/apps-deploy.yml",
+            ".github/workflows/distribution.yml",
+            ".github/workflows/canary.yml",
+            ".github/workflows/reliability.yml",
+            ".github/workflows/native-windows.yml",
+            ".github/workflows/mirror-sync.yml",
+            ".github/workflows/drift.yml"
+          ]
+
+// The declared workflow set is also key material for index validation.
+const workflowInputs = Smithers.Filegroup({
+  srcs: declaredWorkflows.map((path) => Smithers.file(`//${path}`))
+})
+
 const targetIndex = Smithers.TargetIndex({
   summary: "Regenerate and drift-check .smithers/target-index.json, the declaration-derived target index.",
   featured: true,
-  gates: [codingFlowsPackage.testCoverage]
+  gates: [codingFlowsPackage.testCoverage, workflowInputs]
 })
 // --- end target index ------------------------------------------------------
 
@@ -447,6 +465,7 @@ const driftCi = Smithers.GithubCiGen({
       { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
       { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
       { name: "Tracked file hygiene", verb: Smithers.Verb.Lint, pattern: "//scripts:trackedHygiene" },
+      { name: "Generated CI workflow", verb: Smithers.Verb.Lint, pattern: "//:ci" },
       { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" }
     ]
   }]
@@ -505,18 +524,7 @@ const ci = Smithers.GithubCiGen({
         docker: dockerImageStore,
         workflowLint: Smithers.CiToolchain.Actionlint({
           release: "1.7.11",
-          workflows: [
-            ".github/workflows/ci.yml",
-            ".github/workflows/release.yml",
-            ".github/workflows/release-auth.yml",
-            ".github/workflows/apps-deploy.yml",
-            ".github/workflows/distribution.yml",
-            ".github/workflows/canary.yml",
-            ".github/workflows/reliability.yml",
-            ".github/workflows/native-windows.yml",
-            ".github/workflows/mirror-sync.yml",
-            ".github/workflows/drift.yml"
-          ]
+          workflows: declaredWorkflows
         })
       }),
       steps: [
@@ -1066,7 +1074,6 @@ const securityReview = Smithers.SecurityReview({
     ".github/scripts/*.sh",
     ".smithers/*.ts",
     ".smithers/*.json",
-    ".smithers/workflows/*.tsx",
     "distribution/*",
     "crates/smithers-ffi/Cargo.toml",
     "crates/smithers-ffi/src/*.rs",
@@ -1253,6 +1260,7 @@ export const Package = Smithers.Package({
     projectCopy,
     repoAbout,
     targetIndex,
+    workflowInputs,
     tsconfig
   }
 })

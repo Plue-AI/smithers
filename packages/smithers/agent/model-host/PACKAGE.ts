@@ -120,7 +120,7 @@ export const Package = Smithers.Package({
   targets: {
     check: standard.check,
     docs: standard.docs,
-    docsFiles: standard.docsFiles,
+    docsFiles: Smithers.Filegroup({ cwd, srcs: [Smithers.file("README.md"), Smithers.file("package.json")] }),
     fmt: standard.fmt,
     lib: standard.lib,
     lint: standard.lint,

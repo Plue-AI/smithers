@@ -438,10 +438,9 @@ describe("FactoryProjection target", () => {
     })
     expect(metadata.cacheable).toBe(true)
     expect(metadata.outputs).toEqual({ cwd: ".", paths: [] })
+    // T-PRC-01 owner decision 4: the supported entry names share one brace glob.
     expect(metadata.inputs.map(describeInput)).toEqual([
-      "//flows/**/flow.ts",
-      "//flows/**/flow.mdx",
-      "//flows/**/SKILL.md",
+      "//flows/**/{flow.ts,flow.mdx,SKILL.md}",
       "//.smithers/FACTORY.ts",
       "//.smithers/factory.json",
       "//.smithers/home.json"
@@ -473,9 +472,7 @@ describe("FactoryProjection target", () => {
     expect(written.cacheable).toBe(false)
     expect(written.outputs).toEqual({ cwd: ".", paths: ["meta/factory.json", "meta/home.json"] })
     expect(written.inputs.map(describeInput)).toEqual([
-      "//recipes/**/flow.ts",
-      "//recipes/**/flow.mdx",
-      "//recipes/**/SKILL.md",
+      "//recipes/**/{flow.ts,flow.mdx,SKILL.md}",
       "//FACTORY.ts"
     ])
     expect(plannedCalls(writing)).toEqual([{

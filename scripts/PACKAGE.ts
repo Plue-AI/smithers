@@ -375,9 +375,11 @@ const conflictMarkers = Smithers.Shell.Diff({
   timeout: "2m"
 })
 
-/** Tracked files must resolve declared paths and exclude local build and agent state. */
+/** The inspected tree is dynamic: Shell.Diff is uncached; only checker/config are declared. */
 const trackedHygiene = Smithers.Shell.Diff({
   shell: "node scripts/check-tracked-hygiene.mjs --projected-tree",
+  sandbox: "none",
+  data: [Smithers.file("//scripts/check-tracked-hygiene.mjs"), Smithers.file("//.gitignore")],
   changes: [],
   timeout: "2m"
 })
@@ -868,7 +870,7 @@ const lint = Smithers.EsLint({
 })
 
 const commit = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/commit.test.mjs")]),
+  runner: Smithers.testRunner([Smithers.file("//scripts/commit.test.mjs"), Smithers.file("//scripts/check-process-gates.test.mjs")]),
   srcs: [Smithers.file("//scripts/commit.mjs")],
   deps: []
 })

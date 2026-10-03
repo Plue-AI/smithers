@@ -920,8 +920,9 @@ export const Attrs = Schema.Struct({
  */
 export type Attrs = typeof Attrs.Type
 
-const entryGlobs = (root: string): ReadonlyArray<Input.Declared> =>
-  ["flow.ts", "flow.mdx", "SKILL.md"].map((entry) => Input.glob(`//${resolveOutputPath(root)}/**/${entry}`))
+const entryGlobs = (
+  root: string
+): ReadonlyArray<Input.Declared> => [Input.glob(`//${resolveOutputPath(root)}/**/{flow.ts,flow.mdx,SKILL.md}`)]
 
 /**
  * The factory projection target.

@@ -2,7 +2,7 @@
 /** Commit the entire shared checkout to main, using jj when present. */
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -35,27 +35,54 @@ while (!existsSync(join(root, ".jj")) && !existsSync(join(root, ".git"))) {
   if (parent === root) throw new Error("Run commit inside a jj or Git checkout.")
   root = parent
 }
-const run = (command, argv, capture = false) => {
-  const result = spawnSync(command, argv, { cwd: root, encoding: "utf8", stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit" })
+const gateEnvironment = { ...process.env }
+for (const key of Object.keys(gateEnvironment)) {
+  if (/^npm_config_/i.test(key) || /(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|(?:^|_)KEY(?:_|$)|CERTIFICATE|AUTH)/i.test(key)) delete gateEnvironment[key]
+}
+const run = (command, argv, capture = false, environment = process.env) => {
+  const result = spawnSync(command, argv, { cwd: root, env: environment, encoding: "utf8", stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit" })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} ${argv[0]} failed (${result.status})${capture ? `: ${result.stderr}` : ""}`)
   return result.stdout?.trim() ?? ""
 }
 
 // Serializes users of this entry point without adding a file to the commit.
-// Editors can keep working; the VCS snapshots the edits present at commit time.
+// Publication must record the exact candidate whose gates ran.
 const lock = join(tmpdir(), `smithers-commit-${createHash("sha256").update(root).digest("hex")}.lock`)
 try { mkdirSync(lock) } catch (error) {
   if (error.code === "EEXIST") throw new Error(`Another commit is running. If it crashed, remove ${lock} after checking its process.`)
   throw error
 }
+const jjCheckout = existsSync(join(root, ".jj"))
+const candidateDirectory = mkdtempSync(join(tmpdir(), "smithers-candidate-"))
+const jjTree = (revision, operation) => createHash("sha256").update(run("jj", [...(operation ? ["--at-operation", operation] : []), "debug", "tree", "-r", revision], true)).digest("hex")
+const candidateTree = () => {
+  if (jjCheckout) return jjTree("@")
+  const environment = { ...process.env, GIT_INDEX_FILE: join(candidateDirectory, "index") }
+  rmSync(environment.GIT_INDEX_FILE, { force: true })
+  run("git", ["read-tree", "HEAD"], true, environment)
+  run("git", ["add", "--all"], true, environment)
+  return run("git", ["write-tree"], true, environment)
+}
 try {
+  const validatedTree = push ? candidateTree() : undefined
+  gateEnvironment.NPM_CONFIG_USERCONFIG = "/dev/null"
+  gateEnvironment.NPM_CONFIG_GLOBALCONFIG = "/dev/null"
+  if (push && existsSync(join(root, ".npmrc")) && /(?:_auth|password|token)\s*=/i.test(readFileSync(join(root, ".npmrc"), "utf8"))) {
+    throw new Error("Gate checkout contains install credentials in .npmrc.")
+  }
   for (const command of tests) {
-    const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, stdio: "inherit" })
+    const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, env: gateEnvironment, stdio: "inherit" })
     if (result.error || result.status !== 0) throw new Error(`Test command failed: ${command} (${result.error?.message ?? result.status})`)
   }
-  run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true)
-  if (existsSync(join(root, ".jj"))) {
+  run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true, gateEnvironment)
+  if (push) {
+    for (const label of ["//:driftCi", "//:targetIndex", "//:ci", "//scripts:trackedHygiene", "//scripts:conflictMarkers"]) {
+      run(process.execPath, ["packages/smithers/bin/smithers.mjs", "lint", label], false, gateEnvironment)
+    }
+  }
+  if (push && candidateTree() !== validatedTree) throw new Error("Checkout changed during validation; rerun gates.")
+  if (jjCheckout) {
     const eligible = run("jj", ["log", "-r", "main & (@ | @-)", "--no-graph", "-T", "commit_id"], true)
     if (!eligible) throw new Error("The shared checkout must be on main or its working-copy child.")
     if (run("jj", ["log", "-r", "@ & conflicts()", "--no-graph", "-T", "commit_id"], true)) throw new Error("Resolve conflicts before committing.")
@@ -64,8 +91,10 @@ try {
       run("jj", ["bookmark", "set", "main", "-r", "@-"])
     } else console.log("No uncommitted changes.")
     if (push) {
-      const sha = run("jj", ["log", "-r", "main", "--no-graph", "-T", "commit_id"], true)
-      run("jj", ["git", "push", "--remote", "origin", "-b", "main"])
+      const operation = run("jj", ["op", "log", "--limit", "1", "--no-graph", "-T", "id"], true)
+      const sha = run("jj", ["--at-operation", operation, "log", "-r", "main", "--no-graph", "-T", "commit_id"], true)
+      if (jjTree("main", operation) !== validatedTree) throw new Error("Committed tree differs from validated candidate; refusing push.")
+      run("jj", ["--at-operation", operation, "git", "push", "--remote", "origin", "-b", "main"])
       run("jj", ["git", "fetch", "--remote", "origin"])
       if (!run("jj", ["log", "-r", `${sha} & ::main@origin`, "--no-graph", "-T", "commit_id"], true)) throw new Error("remote main moved; pushed commit is absent")
       console.log(`LANDED ${sha}`)
@@ -80,7 +109,8 @@ try {
     } else console.log("No uncommitted changes.")
     if (push) {
       const sha = run("git", ["rev-parse", "main"], true)
-      run("git", ["push", "origin", "main"])
+      if (run("git", ["rev-parse", "main^{tree}"], true) !== validatedTree) throw new Error("Committed tree differs from validated candidate; refusing push.")
+      run("git", ["push", "origin", `${sha}:refs/heads/main`])
       run("git", ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"])
       try {
         run("git", ["merge-base", "--is-ancestor", sha, "refs/remotes/origin/main"], true)
@@ -94,4 +124,7 @@ try {
 } catch (error) {
   console.error(`${push ? "NOT LANDED: " : ""}${error.message}`)
   process.exitCode = 1
-} finally { rmSync(lock, { recursive: true, force: true }) }
+} finally {
+  rmSync(candidateDirectory, { recursive: true, force: true })
+  rmSync(lock, { recursive: true, force: true })
+}

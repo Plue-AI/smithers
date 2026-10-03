@@ -16,8 +16,38 @@ const ok = (cwd, bin, args) => {
   assert.equal(result.status, 0, result.stderr)
   return result.stdout.trim()
 }
+// These landing fixtures run the production CLI and real typed targets;
+// only their existing remote hooks alter publication behavior.
+const prepareDriftGates = (directory) => {
+  mkdirSync(join(directory, ".smithers"), { recursive: true })
+  mkdirSync(join(directory, "packages/smithers/bin"), { recursive: true })
+  const cli = resolve(import.meta.dirname, "../packages/smithers/bin/smithers.mjs")
+  writeFileSync(join(directory, "packages/smithers/bin/smithers.mjs"), `import ${JSON.stringify(cli)}\n`)
+  writeFileSync(join(directory, "package.json"), '{"name":"landing-fixture","private":true}\n')
+  writeFileSync(join(directory, "yarn.lock"), "")
+  writeFileSync(join(directory, ".gitignore"), ".flows/\n")
+  writeFileSync(join(directory, ".smithers/WORKSPACE.ts"), `import {Smithers as S} from "@smthrs/targets"
+const packageJson = S.file("//package.json")
+export const Workspace = S.Workspace("landing", {repository:"git+https://example.invalid/landing.git", cache:S.Cache({directory:".flows"}), runtime:S.Runtime.Node({version:"${process.versions.node}"}), packageManager:S.PackageManager.Yarn({manifest:packageJson,lockfile:S.file("//yarn.lock")}), nodeModules:S.Npm.NodeModules({packageJson})})`)
+  writeFileSync(join(directory, "PACKAGE.ts"), `import {Smithers as S} from "@smthrs/targets"
+const targetIndex=S.TargetIndex({})
+const driftCi=S.Generate({script:S.file("//scripts/drift.mjs"),changes:["drift.txt"]})
+const ci=S.Generate({script:S.file("//scripts/ci.mjs"),changes:["ci.txt"]})
+export const Package=S.Package({targets:{targetIndex,driftCi,ci}})`)
+  writeFileSync(join(directory, "scripts/PACKAGE.ts"), `import {Smithers as S} from "@smthrs/targets"
+const data=[S.file("//scripts/check-tracked-hygiene.mjs"),S.file("//scripts/check-conflict-markers.mjs"),S.file("//.gitignore")]
+const trackedHygiene=S.Shell.Diff({shell:"node scripts/check-tracked-hygiene.mjs --projected-tree",sandbox:"none",data,changes:[]})
+const conflictMarkers=S.Shell.Diff({shell:"node scripts/check-conflict-markers.mjs",sandbox:"none",data,changes:[]})
+export const Package=S.Package({targets:{trackedHygiene,conflictMarkers}})`)
+  copyFileSync(resolve(import.meta.dirname, "check-conflict-markers.mjs"), join(directory, "scripts/check-conflict-markers.mjs"))
+  for (const [script, output] of [["drift", "drift"], ["ci", "ci"]]) {
+    writeFileSync(join(directory, `scripts/${script}.mjs`), `import {writeFileSync} from "node:fs";writeFileSync("${output}.txt","generated\\n")\n`)
+    writeFileSync(join(directory, `${output}.txt`), "generated\n")
+  }
+  ok(directory, process.execPath, [cli, "target", "//:targetIndex", "--write"])
+}
 for (const vcs of ["git", "jj"]) {
-  test(`${vcs}: commits all contributors, preserves main, ignores secrets, pushes only on request`, () => {
+  test(`${vcs}: commits all contributors, preserves main, ignores secrets without publication`, () => {
     const directory = mkdtempSync(join(tmpdir(), "smithers-commit-test-"))
     const remote = mkdtempSync(join(tmpdir(), "smithers-commit-remote-"))
     try {
@@ -45,8 +75,8 @@ for (const vcs of ["git", "jj"]) {
       assert.equal(ok(directory, "git", ["ls-tree", "--name-only", "main", ".env"]), "")
       assert.equal(ok(remote, "git", ["for-each-ref", "refs/heads/main"]), "")
       const before = ok(directory, "git", ["rev-parse", "main"])
-      ok(directory, "node", [script, "--push", "--test", "true"])
-      assert.equal(ok(remote, "git", ["rev-parse", "main"]), before)
+      ok(directory, "node", [script])
+      assert.equal(ok(remote, "git", ["for-each-ref", "refs/heads/main"]), "")
       assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
       assert.equal(readFileSync(join(directory, ".env"), "utf8"), "ignored test data\n")
       if (vcs === "jj") {
@@ -124,7 +154,7 @@ for (const vcs of ["git", "jj"]) {
 }
 
 for (const vcs of ["git", "jj"]) {
-  for (const scenario of ["failure", "pipeline", "missing", "success", "waiver", "rejected", "moved", "repeat"]) {
+  for (const scenario of ["failure", "pipeline", "missing", "success", "waiver", "rejected", "moved", "repeat", "credential"]) {
     test(`${vcs}: landing gate ${scenario}`, () => {
       const directory = mkdtempSync(join(tmpdir(), "smithers-landgate-"))
       const remote = mkdtempSync(join(tmpdir(), "smithers-landgate-remote-"))
@@ -133,6 +163,7 @@ for (const vcs of ["git", "jj"]) {
         ok(directory, "git", ["init", "-b", "main"])
         ok(directory, "git", ["config", "user.name", "Commit test"])
         ok(directory, "git", ["config", "user.email", "test@example.com"])
+        if (["success", "waiver", "rejected", "moved"].includes(scenario)) prepareDriftGates(directory)
         ok(directory, "git", ["add", "."])
         ok(directory, "git", ["commit", "-m", "initial"])
         ok(remote, "git", ["init", "--bare", "-b", "main"])
@@ -146,6 +177,7 @@ for (const vcs of ["git", "jj"]) {
         }
         if (vcs === "jj") ok(directory, "jj", ["bookmark", "track", "main", "--remote", "origin"])
         writeFileSync(join(directory, "change.txt"), "candidate\n")
+        if (scenario === "credential") writeFileSync(join(directory, ".npmrc"), "_auth=fixture-install-credential\n")
         // Advance the actual remote from receive hooks, without a competing checkout.
         // pre-receive rejects the stale candidate; post-receive removes a pushed
         // candidate while returning success, exercising the fetched-main check.
@@ -185,6 +217,7 @@ ${scenario === "rejected" ? "exit 1" : ""}
             assert.match(result.stderr, scenario === "pipeline" ? /false \| cat/ : scenario === "repeat" ? /exit 8/ : /exit 7/)
           }
           if (scenario === "missing") assert.match(result.stderr, /--test/)
+          if (scenario === "credential") assert.match(result.stderr, /Gate checkout contains install credentials in .npmrc/)
           if (["rejected", "moved"].includes(scenario)) {
             assert.notEqual(ok(remote, "git", ["rev-parse", "main"]), before)
             if (scenario === "moved") assert.equal(ok(directory, "git", ["rev-parse", "refs/remotes/origin/main"]), ok(remote, "git", ["rev-parse", "main"]))

@@ -26,6 +26,7 @@ import * as Shell from "@smthrs/targets/Shell"
 import * as Target from "@smthrs/targets/Target"
 import * as WorkspaceDeclaration from "@smthrs/targets/WorkspaceDeclaration"
 import * as Cause from "effect/Cause"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
@@ -1345,7 +1346,9 @@ const visit = async (
       context.index.factory
     ),
     context.repoResolutions,
-    context.signal
+    context.signal,
+    plannedMode,
+    context.cacheDirectory
   )
 
   // Dependencies: always visited for key material; the execution edges are a
@@ -3203,11 +3206,30 @@ const withFactory = (rule: string, attrs: unknown, factory: PackageIndexModule.P
  * of them re-keys the check. Nothing here plans a target: the rows are
  * metadata and labeled edges, plus the child query a `Repo.Target` row needs.
  */
+class MissingDeclaredInputs extends Data.TaggedError("MissingDeclaredInputs")<{
+  readonly missing: ReadonlyArray<
+    { readonly path: string; readonly label: string; readonly sourceFile: string | undefined }
+  >
+  readonly message: string
+}> {}
+
+const targetIndexChecks = new WeakMap<object, () => Promise<void>>()
+
+/** Runs the check on its own row before cache lookup, preserving typed failures.
+ * @private
+ * @since 1.0.0
+ */
+export const checkTargetIndexInputs = async (attrs: unknown): Promise<void> => {
+  if (typeof attrs === "object" && attrs !== null) await targetIndexChecks.get(attrs)?.()
+}
+
 const withTargetIndex = async (
   rule: string,
   attrs: unknown,
   resolver: RepoResolution.Resolver,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  mode: Mode,
+  cacheDirectory: string
 ): Promise<unknown> => {
   if (rule !== "TargetIndex" || typeof attrs !== "object" || attrs === null) return attrs
   const pattern = (attrs as { readonly pattern?: unknown }).pattern
@@ -3217,7 +3239,102 @@ const withTargetIndex = async (
     resolver.environment,
     signal
   )
-  return { ...attrs, targets: listing.targets }
+  const filled = { ...attrs, targets: listing.targets }
+  if (mode === "check") {
+    targetIndexChecks.set(filled, async () => {
+      const missing: Array<{ path: string; label: string; sourceFile: string | undefined }> = []
+      const globOptions = {
+        signal,
+        cacheDirectory,
+        repositoryBoundaries: Object.values(resolver.index.workspace.repos ?? {}).map((repo) => repo.path)
+      }
+      for (const row of resolver.index.resolve(typeof pattern === "string" ? pattern : "//...")) {
+        const metadata = Target.metadata(row.target)
+        const packagePath = inputPackage(metadata, row.packagePath)
+        const paths: Array<Input.Declared> = [...metadata.inputs]
+        const anchors = new Map<Input.Declared, string>()
+        const attrs = metadata.attrs as {
+          readonly cwd?: string
+          readonly runner?: { readonly paths?: ReadonlyArray<string> }
+          readonly jobs?: ReadonlyArray<
+            { readonly toolchain?: { readonly workflowLint?: { readonly workflows?: ReadonlyArray<string> } } }
+          >
+          readonly checks?: ReadonlyArray<{ readonly paths?: ReadonlyArray<string> }>
+        }
+        // Each string field follows its owning rule's path contract. Never walk
+        // arbitrary `paths`: GitDiff narrows a diff and Clean names outputs.
+        if (metadata.target === "NodeTest" || metadata.target === "BunTest") {
+          for (const path of attrs.runner?.paths ?? []) {
+            const input = Input.glob(path)
+            paths.push(input)
+            anchors.set(input, Input.resolvePath("", attrs.cwd ?? "."))
+          }
+        }
+        if (metadata.target === "GithubCiGen") {
+          for (const job of attrs.jobs ?? []) {
+            for (const path of job.toolchain?.workflowLint?.workflows ?? []) paths.push(Input.file(`//${path}`))
+          }
+        }
+        if (metadata.target === "LlmLint") {
+          for (const check of attrs.checks ?? []) {
+            for (const path of check.paths ?? []) {
+              const input = Input.glob(path)
+              paths.push(input)
+              anchors.set(input, "")
+            }
+          }
+        }
+        for (const declaration of paths) {
+          if (declaration._tag !== "File" && declaration._tag !== "Glob") continue
+          const anchor = anchors.get(declaration) ?? packagePath
+          const path = Input.resolvePath(
+            anchor,
+            declaration._tag === "File" ? declaration.path : declaration.pattern
+          )
+          let expansion = declaration
+          if (declaration._tag === "Glob") {
+            const stat = await Fs.stat(NodePath.join(resolver.index.root, path)).catch(
+              (error: NodeJS.ErrnoException) => {
+                if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined
+                throw error
+              }
+            )
+            if (stat?.isDirectory()) expansion = Input.glob(`${declaration.pattern}/**/*`)
+          }
+          const files = declaration._tag === "File" ? [path] : await Input.expandGlob(
+            resolver.index.root,
+            anchor,
+            expansion as Input.Glob,
+            globOptions
+          )
+          // A declared exclusion may intentionally remove the entire match set.
+          // Keep the underlying glob oracle: only an actually absent set fails.
+          const excludedMatches = files.length === 0 && declaration._tag === "Glob" && declaration.exclude.length > 0
+            ? await Input.expandGlob(resolver.index.root, anchor, declaration.pattern, globOptions)
+            : []
+          let absent = files.length === 0 && excludedMatches.length === 0
+          for (const file of files) {
+            if (
+              await Input.digestFile(NodePath.join(resolver.index.root, file), {
+                signal,
+                workspaceRoot: resolver.index.root
+              }) === undefined
+            ) absent = true
+          }
+          if (absent) missing.push({ path, label: row.label, sourceFile: metadata.sourceFile })
+        }
+      }
+      if (missing.length > 0) {
+        throw new MissingDeclaredInputs({
+          missing,
+          message: missing.map(({ path, label, sourceFile }) =>
+            `Missing declared input ${path} for ${label} (${sourceFile ?? "unknown source"})`
+          ).join("\n")
+        })
+      }
+    })
+  }
+  return filled
 }
 
 /** The mode one root executes under, given the invocation. */

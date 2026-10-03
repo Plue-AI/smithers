@@ -63,6 +63,9 @@ jobs:
       - name: "Tracked file hygiene"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//scripts:trackedHygiene' --known-red '.github/ci-known-red.json' --verbose"
+      - name: "Generated CI workflow"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//:ci' --known-red '.github/ci-known-red.json' --verbose"
       - name: "Generated drift workflow"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose"

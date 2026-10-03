@@ -321,7 +321,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/coding-ui.md",
       "inputs": [
-        "apps/app/docs/workbench-lanes/coding-plans.md"
+        "apps/app/src/mainview/cards/CodingPlan.ts"
       ],
       "related": [
         "product-ui",
@@ -338,7 +338,6 @@
       "kind": "intent",
       "document": "factory/wiki/pages/coding-experience.md",
       "inputs": [
-        "apps/app/docs/workbench-lanes/runs.md",
         "factory/wiki/pages/coding-direction.md"
       ],
       "related": [
@@ -355,8 +354,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/product-ui.md",
       "inputs": [
-        "apps/app/README.md",
-        "apps/app/docs/workbench-lanes/runs.md"
+        "apps/app/README.md"
       ],
       "related": [
         "app",
@@ -416,7 +414,6 @@
       "kind": "current",
       "document": "factory/wiki/pages/native-engine-evidence.md",
       "inputs": [
-        "apps/app/docs/workbench-lanes/native-engine-evidence.md",
         "packages/smithers/ENGINE-JOURNAL-PROJECTION.md",
         "apps/app/src/mainview/cards/EngineTrace.ts"
       ],

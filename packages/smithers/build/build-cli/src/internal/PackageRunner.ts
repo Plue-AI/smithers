@@ -61,6 +61,7 @@ import type { StoredResolve } from "./PackagePlanner.ts"
 import {
   binaryIdentity,
   bundlerScratchDirectory,
+  checkTargetIndexInputs,
   collectTagged,
   decodeStoredResolve,
   keyMaterialWithGraph,
@@ -3190,6 +3191,13 @@ export const executeEffect = (
           if (blocked !== undefined) {
             return { status: "skipped", error: `dependency ${blocked} did not succeed`, blockedBy: blocked }
           }
+        }
+        if (node.rule === "TargetIndex" && node.mode === "check") {
+          const checked = yield* Effect.exit(Effect.tryPromise({
+            try: () => checkTargetIndexInputs(node.attrs),
+            catch: (cause) => cause
+          }))
+          if (Exit.isFailure(checked)) return outcomeOfTargetFailure(node.label, checked.cause)
         }
         if (node.refusal !== undefined) return fail(node.refusal)
         if (node.approval !== undefined) {

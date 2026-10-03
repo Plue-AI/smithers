@@ -4,10 +4,12 @@ import { Smithers } from "@smthrs/targets"
 
 const cwd = "packages/smithers/agent/harness-detect"
 
-const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
+const { check, circular, docs, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
   deps: [],
   cwd
 })
+
+const docsFiles = Smithers.Filegroup({ cwd, srcs: [Smithers.file("README.md"), Smithers.file("package.json")] })
 
 const securityReview = Smithers.SecurityReview({
   cwd,
