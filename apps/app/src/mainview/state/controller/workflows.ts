@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { prepareTriggerRegistration, readTriggerRegistrations } from "../seams/TriggersSeam"
 import type { TriggerRegistration } from "../WorkflowLaunch"
 import { cloudFailure } from "../seams/CloudClient"
@@ -330,7 +331,7 @@ export const createWorkflowController = (
     const binding = repositoryJobBinding(store, repo)
     if ("error" in binding) return binding.error
     const outcome = await requests.start({ repo, binding, workflow: "repository/trigger",
-      input: { ...(operation === "fire" ? { requestId: crypto.randomUUID() } : {}), operation, repo, slug, input: {} }, triggerDispatch: { slug }, actor: ctx.commandActor })
+      input: { ...(operation === "fire" ? { requestId: installRequestId() } : {}), operation, repo, slug, input: {} }, triggerDispatch: { slug }, actor: ctx.commandActor })
     return typeof outcome === "string" ? outcome : { value: `Requested ${slug} on ${repo}.` }
   }
 
@@ -1049,7 +1050,7 @@ export const createWorkflowController = (
       startPlan(existing)
       return { value: `plan-requested flow=${name} repo=${repo}` }
     }
-    const request = sameRequest && held?.planRequest?.owner === owner ? held.planRequest : { id: crypto.randomUUID(), owner }
+    const request = sameRequest && held?.planRequest?.owner === owner ? held.planRequest : { id: installRequestId(), owner }
     const card: Extract<Card, { kind: "flow-plan" }> = {
       id,
       kind: "flow-plan",
@@ -1200,7 +1201,7 @@ export const createWorkflowController = (
     const normalized = scope === undefined || typeof digest !== "string" ? undefined : store.collections.runtimeApprovals.get(runtimeApprovalKey(scope, row.requestId, digest))
     if (normalized !== undefined) {
       if (normalized.row.status !== "pending" || normalized.pending) return
-      const submissionId = crypto.randomUUID()
+      const submissionId = installRequestId()
       await store.dispatch({ type: "gateway.approval.submission.changed", actor: "user", submission: { id: normalized.id, submissionId, state: "pending" } }).isPersisted.promise
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
       const binding = recordedRunBinding(normalized.scope)

@@ -246,6 +246,21 @@ describe("T-APP-03 install seam", () => {
   })
   test("idempotency IDs work without randomUUID", () => {
     expect(installRequestId()).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
-    expect(installRequestId()).not.toBe(installRequestId())
+    // spec §16.3.2: RFC 4122 v4 and collision boundary, without the secure API.
+    const descriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID")
+    Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined })
+    try {
+      const ids = new Set<string>()
+      for (let i = 0; i < 100_000; i++) {
+        const id = installRequestId()
+        expect(id[14]).toBe("4")
+        expect("89ab").toContain(id[19]!)
+        ids.add(id)
+      }
+      expect(ids.size).toBe(100_000)
+    } finally {
+      if (descriptor) Object.defineProperty(crypto, "randomUUID", descriptor)
+      else Reflect.deleteProperty(crypto, "randomUUID")
+    }
   })
 })

@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import { signInByHandoff } from "../IdentityProvider"
 import { browserWriteRefusal, lostActRefusal } from "../BrowserWriteFailure"
@@ -98,7 +99,7 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
     if (existing !== undefined && (existing.status !== "settled" || existing.retryable !== true)) return { refusal: existing.status === "accepted"
       ? "This command was already accepted, but its outcome is unknown. Check the result before explicitly trying again."
       : "This command already has a saved outcome. It will not run again from the same execution call." }
-    const id = invocationKey === undefined ? `command-${crypto.randomUUID()}` : `command-call-${invocationKey}${attempts.length === 0 ? "" : `-${attempts.length + 1}`}`
+    const id = invocationKey === undefined ? `command-${installRequestId()}` : `command-call-${invocationKey}${attempts.length === 0 ? "" : `-${attempts.length + 1}`}`
     /*
      * Deciding and staging the human's pending edit happens BEFORE any write
      * and cannot fail the way a browser fails: the recovery record is written

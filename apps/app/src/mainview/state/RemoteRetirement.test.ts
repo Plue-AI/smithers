@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import { afterEach, describe, expect, test } from "bun:test"
 import { digest } from "@smthrs/core/Digest"
 import { agentTurnJournalDigestInput, type AgentTurnErasure } from "@smthrs/rpc/AgentTurnJournal"
@@ -19,7 +20,7 @@ const memory = () => {
   return { storage, bytes }
 }
 const retire = (storage: PrivacyStorage, entries = [entry()]) => {
-  const intent = beginPrivacyRetirement(storage, { id: crypto.randomUUID(), mode: "account", backend: "localStorage", targetStreamId: crypto.randomUUID() }, entries)
+  const intent = beginPrivacyRetirement(storage, { id: installRequestId(), mode: "account", backend: "localStorage", targetStreamId: installRequestId() }, entries)
   completePrivacyRetirement(storage, intent)
   return intent
 }

@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import { expect, test, spyOn } from "bun:test"
 import { Database } from "bun:sqlite"
@@ -14,7 +15,7 @@ const until = async (check: () => boolean) => { for (let i = 0; i < 150 && !chec
 const setup = async (storage = memoryStorage(), fetchImpl: FetchLike = async () => json(404, {}), backend?: PersistenceBackend) => {
   const store = await createAppStore(backend ?? { kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
-  await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: crypto.randomUUID(), repo, phase: "pending" } }).isPersisted.promise
+  await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: installRequestId(), repo, phase: "pending" } }).isPersisted.promise
   const controller = createAppController(store, silentAgent, { fetchImpl: (input, init) => String(input).includes("/contents/.smithers/factory.json") || /\/api\/repos\/[^/]+\/[^/]+\/home$/.test(String(input)) ? Promise.resolve(json(404, {})) : fetchImpl(input, init), toastDebounceMs: 10 })
   const ready = async () => {
     await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: repo, org: "alpha", name: "one", ownerKind: "user", head: null, catalog: true } }).isPersisted.promise

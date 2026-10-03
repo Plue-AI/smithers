@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { canonical, digest } from "@smthrs/core/Digest"
 import { FLOW_AUTHORING_ENTRY, flowAuthoringUnavailable } from "@smthrs/rpc/FlowAuthoring"
 import type { Card } from "../AppState"
@@ -194,7 +195,7 @@ export const createFlowAuthoringController = (
       saved = store.dispatch({ type: "card.upsert", actor, card: {
         id, kind: "run-trace", title: "Creating a flow", status: "active", ordinal, createdAt: Date.now(),
         payload: { repo, ...binding, gatewayBindingVersion: 1, runId: "", workflow: FLOW_AUTHORING_ENTRY, phase: "launching", steps: [], result: null, lastSeq: 0,
-          input: { args: description }, authoring: { requestId: crypto.randomUUID(), owner } }
+          input: { args: description }, authoring: { requestId: installRequestId(), owner } }
       } }).isPersisted.promise
       persisting.set(id, saved)
     }

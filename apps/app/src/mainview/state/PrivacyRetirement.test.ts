@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { z } from "zod"
@@ -210,7 +211,7 @@ describe("durable privacy retirement", () => {
       await fill(store)
       storage.setItem("smithers-mvp-quarantine.store.corrupt", secret)
       if (phase === "before-checkpoint") {
-        beginPrivacyRetirement(storage, { id: crypto.randomUUID(), mode: "account", backend: "localStorage", targetStreamId: crypto.randomUUID() })
+        beginPrivacyRetirement(storage, { id: installRequestId(), mode: "account", backend: "localStorage", targetStreamId: installRequestId() })
       } else {
         failCompletion = phase === "completion-write"
         await expect(store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise).rejects.toThrow()

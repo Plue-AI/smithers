@@ -160,6 +160,16 @@ describe("the wiki spaces transport (#1922)", () => {
 })
 
 describe("wikiAttachmentSlug", () => {
+  test("plain HTTP attachment hashing does not require subtle", async () => {
+    // spec §16.3.2: SHA-256 golden for empty bytes.
+    const descriptor = Object.getOwnPropertyDescriptor(crypto, "subtle")
+    Object.defineProperty(crypto, "subtle", { configurable: true, value: undefined })
+    try { expect(await wikiAttachmentSlug("empty.txt", new Uint8Array())).toBe("empty-txt-e3b0c44298fc") }
+    finally {
+      if (descriptor) Object.defineProperty(crypto, "subtle", descriptor)
+      else Reflect.deleteProperty(crypto, "subtle")
+    }
+  })
   const hello = new TextEncoder().encode("hello") // SHA-256 2cf24dba5fb0a30e...
 
   test("is the path's slug and the first 12 hex digits of the bytes' SHA-256, as the server requires", async () => {

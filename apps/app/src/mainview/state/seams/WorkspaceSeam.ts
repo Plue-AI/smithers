@@ -1,3 +1,4 @@
+import { installRequestId } from "./InstallRequestId"
 import { captureCloudOwner } from "./SeamContext"
 import { renderPlanLimit } from "./HostedBilling"
 import { Effect, Exit, Fiber, FiberMap, Layer, ManagedRuntime, Schedule, Scope } from "effect"
@@ -822,7 +823,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
   ): Effect.Effect<ReadonlyArray<CloudWorkspaceInput> | string> => Effect.gen(function*() {
     if (!current()) return SIGN_OUT_REFUSAL
     const scope = repo === undefined ? {} : { repoId: repo }
-    const requestId = crypto.randomUUID()
+    const requestId = installRequestId()
     ctx.dispatch({ type: "workspaces.list.started", actor: "system", requestId, ...scope })
     const latest = (): boolean => {
       const observations = ctx.store.collections.cloudSessions.get("cloud")?.workspaceLists ?? []
@@ -1180,7 +1181,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       reconnectRecovery()
       return { value: "Creation requested." }
     }
-    const id = crypto.randomUUID()
+    const id = installRequestId()
     const request: NonNullable<WorkspaceRecovery["request"]> = { id, name: `recovery-${id}`, actor: ctx.actor(),
       bookmark: old.targetBookmark ?? ctx.store.collections.repositories.get(old.repoId)?.head?.bookmark ?? null,
       ...(kind === undefined ? {} : { kind }), state: "requested", ...(snapshot === undefined ? {} : { snapshotId: snapshot }) }

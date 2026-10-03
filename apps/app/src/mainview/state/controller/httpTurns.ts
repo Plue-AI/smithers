@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import type { AgentTurnCursor, AgentTurnJournalDelivery, AgentTurnJournalRequest, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentChatMessage, StartAgentTurnRequest, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
 import type { ActiveTurn, ControllerContext } from "./context"
@@ -24,7 +25,7 @@ interface Dependencies {
 
 const capability = (): AgentTurnJournalRequest => {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
-  return { version: 1, legId: crypto.randomUUID(), token: [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("") }
+  return { version: 1, legId: installRequestId(), token: [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("") }
 }
 const sameCursor = (left: AgentTurnCursor | undefined | null, right: AgentTurnCursor | undefined | null): boolean => left === right ||
   (!!left && !!right && left.version === right.version && left.runId === right.runId && left.legId === right.legId &&
@@ -267,7 +268,7 @@ export const createHttpTurnDriver = (ctx: ControllerContext, dependencies: Depen
   }
   const start = (turnId: string, text: string, retry: boolean, actor: "user" | "smithers", preserveDraft = false): Promise<boolean> => {
     if (!journal || ctx.disposed || store.session().phase !== "idle") return Promise.resolve(false)
-    const attemptId = crypto.randomUUID(), access = capability()
+    const attemptId = installRequestId(), access = capability()
     const receipt = store.dispatch({ type: "http.turn.started", actor, turnId, attemptId, text, retry, journal: access, preserveDraft })
     const turn = store.collections.httpTurns.get(attemptId)
     if (turn === undefined) return Promise.resolve(false)

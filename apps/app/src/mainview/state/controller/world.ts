@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { projectWikiCardRows } from "../WikiProjection"
 import { accountOwnerOf } from "../AccountOwner"
 import { parseWikilinks, restoreWikilinks } from "@smthrs/ui/vault"
@@ -105,7 +106,7 @@ export const createWorldController = (
       type: "world.document.upserted",
       actor: ctx.commandActor,
       document: {
-        id: crypto.randomUUID(),
+        id: installRequestId(),
         path,
         title,
         body: `# ${title}\n\n`,

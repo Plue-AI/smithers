@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import type { AppStore } from "./AppStore"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, rootFrameId } from "./AppState"
 /** Old journals may restore branches even though the client no longer creates them. */
@@ -6,7 +7,7 @@ export const restoreRecordedBranch = async (store: AppStore): Promise<void> => {
   const parentBranchId = session.activeBranchId ?? DEFAULT_BRANCH_ID
   const workspaceId = session.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID
   const createdAt = Date.now()
-  const id = `recorded-${crypto.randomUUID()}`
+  const id = `recorded-${installRequestId()}`
   const snapshot = { revision: session.revision,
     messages: [...store.collections.messages.values()], cards: [...store.collections.cards.values()],
     worldDocuments: [...store.collections.worldDocuments.values()], draft: session.draft,

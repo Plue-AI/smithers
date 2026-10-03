@@ -1,3 +1,4 @@
+import { installRequestId } from "./state/seams/InstallRequestId"
 import { AUTH_SIGNED_IN_PARAM } from "@smthrs/rpc/AgentApiRoutes"
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import type { AppController } from "./state/AppController"
@@ -144,7 +145,7 @@ const defaultBookmarkOf = async (http: FetchLike, repo: string): Promise<string 
 
 /** Record the URL before the controller starts any background inventory work. */
 export const beginRepositoryEntry = (store: AppStore, requested: string | null): string | undefined => {
-  const requestId = requested === null ? undefined : crypto.randomUUID()
+  const requestId = requested === null ? undefined : installRequestId()
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: requested === null ? null : {
     requestId: requestId!, repo: requested, phase: "pending"
   } })

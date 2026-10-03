@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 /*
  * The account card's controller half (factory mock 21, design session §6c):
  * `account.show` renders who is signed in as one read-only card of seam
@@ -151,7 +152,7 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
       resumeAccount()
       return REQUESTED
     }
-    const flight: Flight = { id: crypto.randomUUID(), epoch: ctx.accountEpoch, owner: identity.login, admission: Promise.resolve(REQUESTED) }
+    const flight: Flight = { id: installRequestId(), epoch: ctx.accountEpoch, owner: identity.login, admission: Promise.resolve(REQUESTED) }
     // The shared flight owns admission too: neither another actor nor an identity
     // re-probe may start the remote read before this card has actually been saved.
     reads.flight = flight

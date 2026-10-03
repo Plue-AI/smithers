@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 /*
  * The workspace gateway, as this app calls it.
  *
@@ -485,7 +486,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
      * Lane runs — the run lifecycle beyond launch and cancel.
      *
      * Every mutation mints one idempotency key per invocation from a fresh
-     * `crypto.randomUUID()`, never the clock: the relay may replay a lost
+     * `installRequestId()`, never the clock: the relay may replay a lost
      * answer with the same frame, and the engine deduplicates on the key, so a
      * repeat lands one effect and two deliberate clicks land two even inside
      * one millisecond (a second resume of a live run is the gateway's own
@@ -496,7 +497,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
     resume: (repo: string, runId: string, reason?: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<unknown>> =>
       call(repo, "Resume", {
         runId,
-        idempotencyKey: `resume:${runId}:${crypto.randomUUID()}`,
+        idempotencyKey: `resume:${runId}:${installRequestId()}`,
         ...(reason === undefined ? {} : { reason })
       }, binding),
 
@@ -540,7 +541,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
       call(repo, "Signal", {
         runId,
         signal: { name, payload: payload ?? {} },
-        idempotencyKey: `signal:${runId}:${name}:${crypto.randomUUID()}`
+        idempotencyKey: `signal:${runId}:${name}:${installRequestId()}`
       }, binding),
 
     /**
@@ -560,7 +561,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
       binding?: GatewayWorkspaceBinding
     ): Promise<GatewayResult<unknown>> => {
       const now = Date.now()
-      const nonce = crypto.randomUUID()
+      const nonce = installRequestId()
       const envelope = {
         messageId: `steer-${runId}-${nonce}`,
         runId,

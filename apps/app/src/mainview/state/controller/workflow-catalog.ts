@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import type { Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import type { ControllerContext } from "./context"
@@ -95,7 +96,7 @@ export function createWorkflowCatalogController(ctx: ControllerContext, options:
     const card: Catalog = { id, kind: "workflow-list", title: `Flows: ${scope.repo}`, status: "active", loading: true,
       createdAt: previous?.createdAt ?? Date.now(), ordinal: store.nextOrdinal(), tabId: previous?.tabId,
       payload: { repo: scope.repo, ...scope.binding, gatewayBindingVersion: 1, workflows: retained?.payload.workflows ?? [],
-        catalogRequest: { id: crypto.randomUUID(), owner: login, state: "pending" } } }
+        catalogRequest: { id: installRequestId(), owner: login, state: "pending" } } }
     const saved = store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
     shared.saving.set(id, saved)
     try { await saved } catch { return "The catalog request could not be saved. Try again." }

@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import type { StorageApi } from "@tanstack/db"
 import { afterEach, expect, test } from "bun:test"
 import { digest } from "@smthrs/core/Digest"
@@ -170,7 +171,7 @@ for (const version of [APP_PROJECTOR_VERSION, APP_PROJECTOR_VERSION - 1]) {
 
 test("a pending old cleanup targeting the contaminated stream rotates again before clearing it", async () => {
   const { storage, oldStream } = await signedOutFixture()
-  beginPrivacyRetirement(storage, { id: crypto.randomUUID(), mode: "account", backend: "localStorage", targetStreamId: oldStream })
+  beginPrivacyRetirement(storage, { id: installRequestId(), mode: "account", backend: "localStorage", targetStreamId: oldStream })
   const store = await open(storage)
   await expectClean(store, storage, oldStream)
   expect(readPrivacyRetirement(storage)).toMatchObject({ phase: "complete", targetStreamId: (await store.eventHistory()).head.streamId })

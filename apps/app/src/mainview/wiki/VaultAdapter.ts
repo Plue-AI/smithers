@@ -1,3 +1,4 @@
+import { installRequestId } from "../state/seams/InstallRequestId"
 /*
  * The vault kit's contract (packages/smithers/ui/src/vault/types.ts) served
  * from the Wiki pane's documents (the `worldDocuments` collection). The
@@ -168,7 +169,7 @@ export const createVaultAdapter = (store: AppStore): VaultAdapter => {
       const links = [...new Set(parseWikilinks(body).map((link) => link.target).filter(Boolean))]
       const document = existing === undefined
         ? {
-          id: crypto.randomUUID(),
+          id: installRequestId(),
           path: missingPath(path),
           title: noteLabel(path),
           body,

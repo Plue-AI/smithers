@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { z } from "zod"
 import { ToastSchema } from "../AppState"
@@ -17,7 +18,7 @@ const id = "toast-privacy-write"
  */
 export const createPrivacyActions = (ctx: ControllerContext) => actorSharedState(ctx, "privacy.actions", () => {
   const notices = createCollection(localOnlyCollectionOptions({
-    id: `privacy-actions-${crypto.randomUUID()}`,
+    id: `privacy-actions-${installRequestId()}`,
     schema: ToastSchema.extend({ actor: z.enum(["user", "smithers", "system"]), revision: z.number() }),
     getKey: row => row.id,
   }))

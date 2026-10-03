@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { cardAvailable } from "../CardAvailability"
 import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
 import { releaseInterruptedApproval } from "../ApprovalRecovery"
@@ -974,7 +975,7 @@ export const createTurnController = (
     if (chatNeedsSignIn()) {
       return offerChatSignIn(text).then(() => false)
     }
-    const turnId = admission?.turnId ?? crypto.randomUUID()
+    const turnId = admission?.turnId ?? installRequestId()
     if (agent.journal !== undefined) {
       return httpTurns.start(turnId, prompt, false, ctx.commandActor, !draftCurrent())
     }

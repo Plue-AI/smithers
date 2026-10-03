@@ -1,3 +1,4 @@
+import { digestSync } from "@smthrs/crypto"
 import { Context, Data, Effect, Stream } from "effect"
 import { Sse } from "effect/unstable/encoding"
 import * as Y from "yjs"
@@ -124,8 +125,7 @@ export const wikiContentPath = (repo: string, space: WikiSpace, pageId: number, 
  * `assets-logo-v2-png-3f2a9c1b0d4e`). An existing attachment keeps its slug.
  */
 export const wikiAttachmentSlug = async (path: string, bytes: Uint8Array<ArrayBuffer>): Promise<string> => {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
-  const hex = Array.from(digest.subarray(0, 6), (byte) => byte.toString(16).padStart(2, "0")).join("")
+  const hex = digestSync(bytes).slice(0, 12)
   return `${path.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "attachment"}-${hex}`
 }
 

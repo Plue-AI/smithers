@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import { Data } from "effect"
 import { releaseInterruptedApproval } from "./ApprovalRecovery"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -1268,7 +1269,7 @@ const initializeAppStore = async (
     const currentSeed = previous.sessions.length === 0
       ? { ...seeded, sessions: seeded.sessions.map(session => ({ ...session, palette: DEFAULT_PALETTE })) }
       : seeded
-    const baseline = initializeAppStream(currentSeed, crypto.randomUUID(),
+    const baseline = initializeAppStream(currentSeed, installRequestId(),
       previous.sessions.length === 0 ? "created" : "legacy-baseline")
     initial = { state: baseline, checkpoint: baseline.checkpoint }
   } else {
@@ -1279,7 +1280,7 @@ const initializeAppStore = async (
     const upgradeSource = upgrading ? readProjection(collections) : undefined
     retireLegacySignup = upgradeSource !== undefined && savedHead.projectorVersion < 26
     const upgraded = upgradeSource !== undefined
-      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext, retireLegacySignup), crypto.randomUUID(), "projector-upgrade")
+      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext, retireLegacySignup), installRequestId(), "projector-upgrade")
       : undefined
     const verified = upgraded ?? replayAppEvents(savedCheckpoint, [...collections.appEvents.values()].map(storedRow), savedHead)
     // Seeding a missing legacy identity does not prove that its owner signed out.
@@ -1309,7 +1310,7 @@ const initializeAppStore = async (
       (savedCheckpoint.reason === "projector-upgrade" && collections.appEventRetirements.has(retiredAppStreamKey(bootRetirement.targetStreamId))))
     if (bootRetirement !== undefined && bootRetirement.phase !== "pending" && !retirementApplied) throw new PrivacyAuthorityMissing()
     const boot = appendAppEvent(verified, { kind: "boot", seed: seedContext }, {
-      eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
+      eventId: installRequestId(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
     })
     initial = upgraded !== undefined
       ? { state: upgraded, checkpoint: upgraded.checkpoint, clearEvents: true, retire: savedHead.streamId }
@@ -1321,7 +1322,7 @@ const initializeAppStore = async (
     if (scrubbing && bootRetirement?.phase !== "pending" && resolved.privacy !== undefined) {
       if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()
       bootRetirement = beginPrivacyRetirement(privacyStorage(privacyRecord), {
-        id: crypto.randomUUID(), mode: foreignScrub ? "scrub" : "account", backend: resolved.mode, targetStreamId: crypto.randomUUID()
+        id: installRequestId(), mode: foreignScrub ? "scrub" : "account", backend: resolved.mode, targetStreamId: installRequestId()
       }, deriveTurnErasures(verified.snapshot.httpTurnLegs))
       retirementApplied = false
     }
@@ -1332,7 +1333,7 @@ const initializeAppStore = async (
         // stream. Its replacement needs a new identity before retiring it.
         if (scrubbing && retirementApplied) {
           foreignScrub = foreignProviderRequests
-          const targetStreamId = crypto.randomUUID()
+          const targetStreamId = installRequestId()
           retargetPrivacyRetirement(privacyRecord!, bootRetirement, targetStreamId)
           bootRetirement = { ...bootRetirement, targetStreamId }
           retirementApplied = false
@@ -1340,17 +1341,17 @@ const initializeAppStore = async (
       }
       if (!retirementApplied && (foreignScrub || bootRetirement?.mode === "scrub")) {
         const rotated = initializeAppStream(scrubForeignProviderRequests(initial.state.snapshot),
-          bootRetirement?.targetStreamId ?? crypto.randomUUID(), "privacy-reset")
+          bootRetirement?.targetStreamId ?? installRequestId(), "privacy-reset")
         initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
       } else if (!retirementApplied) {
         const transition: AppTransition = bootRetirement?.mode === "reset"
           ? { type: "app.reset", actor: "system" }
           : { type: "identity.session.cleared", actor: "user" }
         const cleaned = appendAppEvent(initial.state, { kind: "transition", transition }, {
-          eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
+          eventId: installRequestId(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
         })
         if (cleaned === undefined) throw new PrivacyAuthorityMissing()
-        const rotated = initializeAppStream(cleaned.snapshot, bootRetirement?.targetStreamId ?? crypto.randomUUID(), "privacy-reset")
+        const rotated = initializeAppStream(cleaned.snapshot, bootRetirement?.targetStreamId ?? installRequestId(), "privacy-reset")
         initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
       }
     }
@@ -1718,7 +1719,7 @@ const initializeAppStore = async (
     commitDraft()
     const previous = optimistic
     const createdAt = Date.now()
-    const eventId = crypto.randomUUID()
+    const eventId = installRequestId()
     const next = appendAppEvent(previous, { kind: "transition", transition }, { eventId, createdAt, persistenceMode: resolved.mode })
     if (next === undefined) {
       const refused = createTransaction({ mutationFn: async () => {} })
@@ -1730,14 +1731,14 @@ const initializeAppStore = async (
       const recovery = readDraftRecovery(draftRecoveryStorage)
       if (recovery !== undefined) clearDraftRecovery(draftRecoveryStorage, recovery.raw)
       for (const key of [WIKI_RECOVERY_STORAGE_KEY, ENTITY_RECOVERY_STORAGE_KEY]) draftRecoveryStorage?.removeItem(key)
-      const rotated = initializeAppStream(next.snapshot, crypto.randomUUID(), "privacy-reset")
+      const rotated = initializeAppStream(next.snapshot, installRequestId(), "privacy-reset")
       write = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: previous.head.streamId }
       if (resolved.privacy !== undefined) {
         try {
           const record = privacyStorage(privacyRecord)
           const backend = resolved.mode === "memory" ? readRecordedBackend(record) : resolved.mode
           if (backend === null) throw new PrivacyStorageUnavailable()
-          const retirement = beginPrivacyRetirement(record, { id: crypto.randomUUID(),
+          const retirement = beginPrivacyRetirement(record, { id: installRequestId(),
             mode: transition.type === "app.reset" ? "reset" : "account", backend, targetStreamId: rotated.head.streamId },
             deriveTurnErasures(previous.snapshot.httpTurnLegs))
           if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()

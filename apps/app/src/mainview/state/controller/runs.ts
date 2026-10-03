@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 /*
  * Lane runs — the run lifecycle beyond launch and cancel.
  *
@@ -324,7 +325,7 @@ export const createRunsController = (
       void readRunList(cardId, previous)
       return acknowledgment
     }
-    const request: ListRequest = { id: crypto.randomUUID(), owner, ...filters, state: "pending" }
+    const request: ListRequest = { id: installRequestId(), owner, ...filters, state: "pending" }
     const saving = store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
       id: cardId, kind: "run-list", title: `${args.status === "attention" ? "Needs attention" : "Runs"} — ${repo}`, status: "active",
       createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? nextTranscriptOrdinal(),
@@ -475,7 +476,7 @@ export const createRunsController = (
       void readRunOpen(recorded)
       return acknowledgment
     }
-    const request = { id: crypto.randomUUID(), owner, ...target, cardId, ...(requireExisting ? { requireExisting: true } : {}) }
+    const request = { id: installRequestId(), owner, ...target, cardId, ...(requireExisting ? { requireExisting: true } : {}) }
     const saving = store.dispatch({ type: "runs.open.requested", actor: ctx.commandActor, request }).isPersisted.promise
     openReads.persisting.set(key, saving)
     try { await saving } finally { if (openReads.persisting.get(key) === saving) openReads.persisting.delete(key) }
@@ -746,7 +747,7 @@ export const createRunsController = (
       void readRunFacet(card.id, recorded)
       return acknowledgment
     }
-    const request: FacetRequest = { id: crypto.randomUUID(), owner, ...target, facet, state: "pending",
+    const request: FacetRequest = { id: installRequestId(), owner, ...target, facet, state: "pending",
       ...(facet === "transcript" ? { toggleFollow, follow: toggleFollow ? card.payload.follow !== true : false } : {}) }
     const saving = store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: card.id,
       patch: { payload: { ...card.payload, facet, facetRequest: request } }
@@ -1172,7 +1173,7 @@ export const createRunsController = (
     if (recorded !== undefined && recorded.error === undefined && recorded.owner === owner && running?.id === recorded.id && running.owner === owner && running.epoch === epoch) {
       return acknowledgment
     }
-    const request = { id: crypto.randomUUID(), repo, workspaceId: binding.workspaceId, owner }
+    const request = { id: installRequestId(), repo, workspaceId: binding.workspaceId, owner }
     const saving = store.dispatch({ type: "approvals.inbox.requested", actor: ctx.commandActor, request }).isPersisted.promise
     approvalReads.persisting.set(key, saving)
     try {

@@ -1,3 +1,4 @@
+import { installRequestId } from "./InstallRequestId"
 /*
  * The repo-import seam: POST /api/github/import {owner, repo} starts the job;
  * GET /api/github/import/{jobId} polls it; POST /api/github/import/{jobId}/retry
@@ -494,7 +495,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
 
   const reconnect = (card: Extract<Card, { kind: "repo-import" }>): Flight => {
     const repo = card.payload.repo
-    const requestId = crypto.randomUUID()
+    const requestId = installRequestId()
     const jobId = card.payload.jobId as string
     const persisted = upsert(repo, card.ordinal, card.createdAt, {
       phase: "running", detail: null, error: null, retryMode: "reconnect",
@@ -512,7 +513,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
   ): Flight => {
     const ordinal = prior?.ordinal ?? ctx.nextOrdinal()
     const createdAt = prior?.createdAt ?? Date.now()
-    const requestId = recover && prior?.payload.requestId ? prior.payload.requestId : crypto.randomUUID()
+    const requestId = recover && prior?.payload.requestId ? prior.payload.requestId : installRequestId()
     const jobId = prior?.payload.jobId ?? null
     const persisted = ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: {
       id: "repo-import-" + repo, kind: "repo-import", title: "Import · " + repo,

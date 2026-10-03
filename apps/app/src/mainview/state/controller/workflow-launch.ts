@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import { Data } from "effect"
 import type { Actor, Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
@@ -318,7 +319,7 @@ export const createWorkflowLaunchController = (
       else send(prior.id, held)
       return { value: `run-requested workflow=${args.workflow} request=${held.id} repo=${args.repo}` }
     }
-    const request: BoxLaunch = { version: 1, id: crypto.randomUUID(), owner: login, repo: args.repo, workspaceId: args.binding.workspaceId, workflow: args.workflow,
+    const request: BoxLaunch = { version: 1, id: installRequestId(), owner: login, repo: args.repo, workspaceId: args.binding.workspaceId, workflow: args.workflow,
       input, preparationStartedAt: Date.now(), ...(args.triggerRegistration === undefined ? {} : { triggerRegistration: args.triggerRegistration }), ...(args.triggerDispatch === undefined ? {} : { triggerDispatch: args.triggerDispatch }), ...(args.then === undefined ? {} : { then: args.then }), ...(args.source === undefined ? {} : { source: args.source }), ...(args.rerunOf === undefined ? {} : { rerunOf: args.rerunOf }) }
     const id = `flow-request-${request.id}`
     const saving = store.dispatch({ type: "card.upsert", actor: args.actor, card: requestCard(id, request) }).isPersisted.promise

@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import * as Queue from "@smthrs/rpc/PromptQueue"
 import { parseSubmit } from "../../flows/registry"
 import { promptQueueScope } from "../PromptQueue"
@@ -46,7 +47,7 @@ export const createPromptQueueController = (ctx: ControllerContext, send: TurnCo
     const parsed = parseSubmit(text, ctx.commands.all())
     // Commands keep their normal immediate door, as in the terminal composer.
     if (parsed.kind !== "prompt") { void send(text, undefined, draftCurrent); return }
-    const prompt = { id: crypto.randomUUID(), text: parsed.text, scope: promptQueueScope(store.session()) }
+    const prompt = { id: installRequestId(), text: parsed.text, scope: promptQueueScope(store.session()) }
     void store.dispatch({ type: "prompt.queued", actor: "user", prompt, preserveDraft: !draftCurrent() }).isPersisted.promise.then(schedule)
       .catch(error => ctx.failures.report("prompt.queue", error))
   }

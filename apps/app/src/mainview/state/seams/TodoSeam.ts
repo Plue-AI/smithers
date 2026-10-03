@@ -1,3 +1,4 @@
+import { installRequestId } from "./InstallRequestId"
 import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
@@ -181,7 +182,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     const row = entry(n) ?? blank(n)
     const existing = row.payload.requests.find(old => old.owner === owner() && old.operation === operation && JSON.stringify(old.body) === JSON.stringify(body))
-    const pending = existing ?? { key: key ?? crypto.randomUUID(), owner: owner()!, operation, n, body, state: "requested" as const }
+    const pending = existing ?? { key: key ?? installRequestId(), owner: owner()!, operation, n, body, state: "requested" as const }
     await updateOrCreate(row, pending)
     watch(n)
     if (pending.state !== "accepted" || !shared.sending.has(pending.key)) send(row.id, pending)
@@ -222,14 +223,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const newTodo = async (input: Schema.Schema.Type<typeof TodoNewInput>) => {
     const refusal = signedIn(); if (refusal) return refusal
     if (!input.cardId) {
-      const id = `draft:${crypto.randomUUID()}`
+      const id = `draft:${installRequestId()}`
       await write({ id, kind: "draft", audience_member_id: owner()!, title: input.title ?? input.text.split("\n")[0]!,
         status: "active", createdAt: Date.now(), ordinal: ctx.nextOrdinal(), payload: {
           title: input.title ?? input.text.split("\n")[0]!, prompt: input.text, acceptance: [...input.acceptance ?? []],
           place: { ...(input.before ? { mode: "before" as const, n: input.before } : { mode: "append" as const }), options: [...ctx.store.collections.cards.values()]
             .flatMap(row => row.kind === "todo" && row.payload.model && row.payload.model.state !== "merged" && row.payload.model.state !== "dropped"
               ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : []) },
-          private: true, idempotencyKey: crypto.randomUUID()
+          private: true, idempotencyKey: installRequestId()
         } })
       loadDraftPlaces(id)
       return { value: "Drafted" }

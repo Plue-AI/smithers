@@ -1,3 +1,4 @@
+import { installRequestId } from "../seams/InstallRequestId"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
 import { parseWikilinks, restoreWikilinks } from "@smthrs/ui/vault"
 import { Effect, Fiber, Stream } from "effect"
@@ -665,7 +666,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         shared.clients.set(id, clientId)
       }
       const edit = editWikiState(document.cloud.state, body, clientId)
-      updateId = crypto.randomUUID()
+      updateId = installRequestId()
       if (needsAdmission) shared.preparations.add(updateId)
       saved = shared.run(shared.persist({
         ...document,

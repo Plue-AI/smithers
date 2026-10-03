@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { z } from "zod"
 import { encodeStorageRecovery, StorageRecoveryError } from "../chain/StorageRecovery"
@@ -45,7 +46,7 @@ export interface StorageRecoveryHost {
  */
 export const createStorageRecoveryAction = (host: StorageRecoveryHost, actor: "user" | "smithers") => {
   const state = createCollection(localOnlyCollectionOptions({
-    id: `storage-recovery-${crypto.randomUUID()}`,
+    id: `storage-recovery-${installRequestId()}`,
     schema: RecoveryStateSchema,
     getKey: (row) => row.id,
     initialData: [

@@ -1,3 +1,4 @@
+import { installRequestId } from "./InstallRequestId"
 /*
  * The triggers seam: the dispatchers waiting on one repository, from two
  * sources that are never mixed (Factory design session 2026-09-07, mock 2).
@@ -966,7 +967,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       return ack
     }
     const entry: Preparation = existing ? { ...existing, ...approve, phase: existing.receipt ? "ready" : "requested", error: undefined }
-      : { id: crypto.randomUUID(), owner: login, workspaceId, draft, phase: "requested", ...approve }
+      : { id: installRequestId(), owner: login, workspaceId, draft, phase: "requested", ...approve }
     const current = capturePauseOwner()
     try { await savePreparation(repo, entry, ctx.actor()) } catch { return "Could not save the preparation. Retry." }
     if (current()) pumpPreparation(repo, entry)
@@ -1042,7 +1043,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       catch { return refusePause("Could not save Pause. Retry.") }
       return { value: `Pause requested for ${slug} on ${repo}.` }
     }
-    const entry: Pause = { id: crypto.randomUUID(), slug, owner: login, phase: "requested" }
+    const entry: Pause = { id: installRequestId(), slug, owner: login, phase: "requested" }
     const current = capturePauseOwner()
     try { await savePause(repo, entry, ctx.actor()) }
     catch { return refusePause("Could not save Pause. Retry.") }
