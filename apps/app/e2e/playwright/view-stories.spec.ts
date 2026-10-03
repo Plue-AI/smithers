@@ -658,3 +658,32 @@ test("T-UI-11 pointer hover dispatches once per position and shows one tooltip",
   await expect.poll(() => page.evaluate(() => (window as unknown as { pointerCalls: unknown[] }).pointerCalls.length)).toBe(2)
   await page.keyboard.up("Control")
 })
+// T-UI-03 named Draft cases share the same fixture harness and Chromium runner.
+import { fixtures as draftFixtures } from "@smthrs/rpc/fixtures/Draft"
+for (const [name, fixture] of Object.entries(draftFixtures)) test(`Draft ${name}: supplied actions and keyboard`, async ({ page }) => {
+  await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}`)
+  await expect(page.getByRole("region", { name: "Draft", exact: true })).toBeVisible()
+  await page.evaluate(() => {
+    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+    window.addEventListener("story-callback", event => {
+      const detail = (event as CustomEvent).detail
+      ;(window as unknown as { draftCalls: unknown[] }).draftCalls.push(detail)
+    })
+  })
+  if (fixture.model.committed) {
+    await expect(page.locator(".draft-actions button")).toHaveCount(0)
+    await expect(page.locator(".draft-private")).toHaveCount(0)
+  } else {
+    await expect(page.locator(".draft-private")).toHaveText("Only you")
+    for (const action of fixture.actions) {
+      const control = page.locator(`button[data-flow="${action.tag}"]`)
+      if (action.disabled) await expect(control).toBeDisabled()
+      else { await control.focus(); await page.keyboard.press("Enter") }
+    }
+    expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual(
+      fixture.actions.filter(action => !action.disabled).map(action => ({ kind: "action", value: { tag: action.tag, args: action.args ?? {} } })))
+    await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&removeFirst`)
+    await expect(page.locator(`button[data-flow="${fixture.actions[0]!.tag}"]`)).toHaveCount(0)
+    await expect(page.locator('button[data-flow="draft.discard"]')).toHaveCount(1)
+  }
+})

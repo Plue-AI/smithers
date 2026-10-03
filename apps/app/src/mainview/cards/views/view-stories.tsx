@@ -14,6 +14,6 @@ const selected = stories.find(story => story.name === params.get("story"))
 const record = (kind: string, value: unknown) => { window.dispatchEvent(new CustomEvent("story-callback", { detail: { kind, value } })) }
 performance.mark("view-story-mount")
 createRoot(document.getElementById("root")!).render(<main>
-  {selected ? <article className="view-story" data-story={selected.name}>{selected.render({ onAction: (tag, args) => record("action", { tag, args }), onView: patch => record("view", patch) })}</article>
+  {selected ? <article className="view-story" data-story={selected.name}>{selected.render({ onAction: (tag, args) => record("action", { tag, args }), onView: patch => record("view", patch) }, params.has("removeFirst") ? selected.actions?.slice(1) : selected.actions)}</article>
     : <nav aria-label="View stories">{stories.map(story => <p key={story.name}><a href={`?story=${encodeURIComponent(story.name)}`}>{story.name}</a></p>)}</nav>}
 </main>)

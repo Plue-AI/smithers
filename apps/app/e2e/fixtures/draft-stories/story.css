@@ -1,4 +1,0 @@
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); }
-main { max-width: 760px; margin: 40px auto; padding: 0 16px; }
-@media (max-width: 500px) { main { margin-top: 20px; } }

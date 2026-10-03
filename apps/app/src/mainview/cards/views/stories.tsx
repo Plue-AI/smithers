@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 export type StoryAction = { tag: string; label: string; args?: Record<string, string>; disabled?: { reason: string } }
 export type StoryCallbacks = { onAction: (tag: string, args?: Record<string, string>) => void; onView: (patch: Record<string, unknown>) => void }
 export type StoryInteraction = {
-  selector: string; gesture?: string; event?: "click" | "input" | "change" | "keydown"; value?: string; key?: string;
+  selector: string; gesture?: string; event?: "focusout" | "click" | "input" | "change" | "keydown"; value?: string; key?: string;
   action?: { tag: string; args: Record<string, string> } | null; patch?: Record<string, unknown>
 }
 export type ViewStory = {
