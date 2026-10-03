@@ -5,8 +5,8 @@
  */
 
 import { z } from "zod"
-import { TodoCardSchema } from "./TodoCard.ts"
-import { DraftCardSchema } from "./DraftCard.ts"
+import { TodoCardSchema, type TodoCard } from "./TodoCard.ts"
+import { DraftCardSchema, type DraftCard } from "./DraftCard.ts"
 import { AGENT_ROLES, AgentRoleIdSchema, AgentRoleModelSchema } from "./AgentRoles.ts"
 import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import {
@@ -723,14 +723,20 @@ const TodoRequestSchema = z.object({
   body: z.record(z.string(), z.unknown()), n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]), error: z.string().optional()
 })
+type TodoRequest = z.infer<typeof TodoRequestSchema>
+// Named types keep declaration emit from inlining the whole TODO and Draft
+// models into every union that carries a card (TS7056 in AgentTurnFrame).
+const TodoModelSchema: z.ZodType<TodoCard> = TodoCardSchema
+const DraftPayloadSchema: z.ZodType<DraftCard & { idempotencyKey: string; request?: TodoRequest | undefined; optionsFailure?: string | undefined }> =
+  DraftCardSchema.extend({ idempotencyKey: z.string(), request: TodoRequestSchema.optional(), optionsFailure: z.string().optional() })
 
 const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({ ...cardBaseShape, kind: z.literal("todo"), payload: z.object({
-    n: z.number().int().positive(), model: TodoCardSchema.optional(), requests: z.array(TodoRequestSchema),
+    n: z.number().int().positive(), model: TodoModelSchema.optional(), requests: z.array(TodoRequestSchema),
     answerDraft: z.string().optional(), answeredBy: z.string().optional()
   }) }),
   z.object({ ...cardBaseShape, kind: z.literal("draft"), audience_member_id: z.string().nullable(),
-    payload: DraftCardSchema.extend({ idempotencyKey: z.string(), request: TodoRequestSchema.optional(), optionsFailure: z.string().optional() }) }),
+    payload: DraftPayloadSchema }),
   z.object({
     ...cardBaseShape,
     kind: z.literal("factory.home"),
