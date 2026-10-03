@@ -323,6 +323,14 @@ test("a flow's last run sits at the row's right end; a flow added after launch s
   expect(shown.slice(2).every((row) => row.aside === undefined)).toBe(true)
 })
 
+test("the chat's own view leaves only Cells unmarked", () => {
+  expect(
+    rows({ kind: "filter", query: "", selected: 0 }, Timeline.initial).flatMap((row) =>
+      "current" in row && row.current === false ? [row.label] : []
+    )
+  ).toEqual(["Cells"])
+})
+
 test("kind filter preserves Show all first and marks visible categories, independently of selection", () => {
   const filter: Timeline.Filter = { kinds: ["cell", "error"], query: "unchanged text" }
   const before = structuredClone(filter)

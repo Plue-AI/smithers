@@ -309,3 +309,59 @@ describe("cards", () => {
     expect(transcript.items.map((item) => item.kind)).toEqual(["user", "card", "note"])
   })
 })
+
+describe("an answer's program", () => {
+  const cellAt = (id: string, startedAt: number, endedAt?: number): Transcript.Item => ({
+    kind: "cell",
+    id,
+    index: 1,
+    prose: "",
+    source: "x",
+    status: endedAt === undefined ? "running" : "done",
+    calls: [],
+    printed: "",
+    startedAt,
+    ...(endedAt === undefined ? {} : { endedAt })
+  })
+  const of = (items: ReadonlyArray<Transcript.Item>) => [...Transcript.programs({ ...Transcript.empty, items })]
+
+  it("spans the recorded run's cells, from the first cell's start to the last one's end", () => {
+    const transcript: Transcript.Transcript = replay()
+    const all = cells(transcript)
+    const answer = transcript.items.filter((item) => item.kind === "answer").at(-1)!
+    expect([...Transcript.programs(transcript)]).toEqual([[answer.id, {
+      startedAt: all[0]!.startedAt,
+      endedAt: Math.max(...all.map((cell) => cell.endedAt!))
+    }]])
+  })
+
+  it("belongs to the answer of its own turn: a new prompt starts over, steering does not", () => {
+    expect(of([
+      { kind: "user", id: "u1", text: "one" },
+      cellAt("c1", 10, 20),
+      { kind: "user", id: "u2", text: "two" },
+      cellAt("c2", 100, 130),
+      { kind: "user", id: "s", text: "also this", queued: false },
+      cellAt("c3", 140, 150),
+      { kind: "answer", id: "a2", text: "Done." }
+    ])).toEqual([["a2", { startedAt: 100, endedAt: 150 }]])
+  })
+
+  it("leaves out answers with no cell, and keeps a cell that never ended at its start", () => {
+    expect(of([
+      { kind: "user", id: "u1", text: "hi" },
+      { kind: "answer", id: "a1", text: "Hello." },
+      cellAt("c1", 5, 30),
+      cellAt("c2", 40),
+      { kind: "answer", id: "a2", text: "Stopped early." },
+      { kind: "answer", id: "a3", text: "Again." }
+    ])).toEqual([["a2", { startedAt: 5, endedAt: 40 }]])
+  })
+
+  it("keeps the latest end when cells settle out of order", () => {
+    expect(of([cellAt("c1", 0, 900), cellAt("c2", 10, 50), { kind: "answer", id: "a", text: "ok" }])).toEqual([[
+      "a",
+      { startedAt: 0, endedAt: 900 }
+    ]])
+  })
+})

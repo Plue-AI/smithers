@@ -44,3 +44,42 @@ test("reuses rows across clock renders and invalidates a changed transcript", ()
   expect(rows(changed, Timeline.all).at(-1)?.item).toMatchObject({ text: "new" })
   expect(rows(changed, { ...Timeline.all, query: "new" })).toHaveLength(1)
 })
+
+describe("the chat's own view", () => {
+  const ran: Transcript.Item = {
+    kind: "cell",
+    id: "c",
+    index: 1,
+    prose: "",
+    source: "await ctx.call(\"read\", { path: \"math.js\" })",
+    status: "done",
+    calls: [{ flow: "read", subject: "math.js", status: "ok", startedAt: 1, endedAt: 2 }],
+    printed: "",
+    startedAt: 1,
+    endedAt: 2
+  }
+  const turn = { ...chat, items: [...chat.items, ran] }
+
+  test("hides each cell's program by default, not the cell's rows, and is not a filter", () => {
+    expect(Timeline.program(Timeline.initial)).toBe(false)
+    expect(Timeline.active(Timeline.initial)).toBe(false)
+    expect(Timeline.rows(turn, Timeline.initial).map((row) => row.item.kind)).toEqual(["user", "note", "note", "cell"])
+  })
+
+  test("Cells shows the program; Show all shows it too", () => {
+    const shown = Timeline.toggleKind(Timeline.initial, "cell")
+    expect(Timeline.program(shown)).toBe(true)
+    expect(Timeline.active(shown)).toBe(false)
+    expect(Timeline.program(Timeline.all)).toBe(true)
+    expect(Timeline.program(Timeline.toggleKind(shown, "cell"))).toBe(false)
+  })
+
+  test("hiding another kind or searching text is a filter, and still keeps cells by kind", () => {
+    const quiet = Timeline.toggleKind(Timeline.initial, "note")
+    expect(Timeline.active(quiet)).toBe(true)
+    expect(Timeline.rows(turn, quiet).map((row) => row.item.kind)).toEqual(["user", "cell"])
+    const searched = { ...Timeline.initial, query: "math.js" }
+    expect(Timeline.active(searched)).toBe(true)
+    expect(Timeline.rows(turn, searched).map((row) => row.key)).toEqual(["chat:c"])
+  })
+})

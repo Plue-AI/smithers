@@ -6,10 +6,10 @@ A minimal terminal coding agent over the Smithers cell harness.
 
 The agent has no tools. Each model turn writes a JavaScript cell that calls
 flows through `ctx.call`. The TUI shows what each cell did, one row per flow
-call, then the result; Ctrl+O reveals the program: its code, arguments,
-printed output and timing. Keys and commands follow
-[pi](https://github.com/badlogic/pi-mono) where the cell harness has the same
-idea.
+call, then the result, ending `ctrl+o program · 11s`; Ctrl+O reveals the
+program in place: its code, arguments, printed output and timing. Keys and
+commands follow [pi](https://github.com/badlogic/pi-mono) where the cell
+harness has the same idea.
 
 ```sh
 bun run tui [directory]          # from the repository root
@@ -208,8 +208,9 @@ brand bar on a filled panel. A cell shows one row per flow call (`→ read`,
 `✗ node check.mjs  exit 1`, `✓ node check.mjs  exit 0`, `✓ edited math.js +1 −1`), and an edit draws its diff; a
 cell with no such row, only `agent.delegate`, `ui.publish`, `tab.read`,
 `tab.list`, `smithers.run` or `monitor.*` calls, or a rejected cell shows
-nothing. Ctrl+O, or selecting a step, draws the whole cell as a left bar
-colored by status: code, printed output and each call's duration.
+nothing. Ctrl+O, the Cells filter, or selecting a step, draws the whole cell as
+a left bar colored by status: code and each call's duration, with what it
+printed under Ctrl+O. A request's cell then sits above its run card.
 A turn ends `✗ failed: <cause>` or `■ stopped`.
 The Summary view keeps cell code behind expandable rows. Panels, dialogs, and the
 completion menu follow opencode's shapes; fuzzy matching is pi's.
@@ -384,7 +385,8 @@ the run's actual receipts; Undo appears only while changes can be reversed.
 Workers and file flows use the same card. A scalar flow result fits on one
 line: `✓ wordcount · 40ms → 5`. There is no extra acknowledgement or finished
 row. A worker's children show the same cards; older batches fold into `… +N earlier`.
-`/filter` shows or hides each kind of row;
+`/filter` shows or hides each kind of row. Cells starts off: a cell keeps its
+rows and hides its program;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
 while workers run. Chat cards carry live progress; Ctrl+S shows every worker's tree.

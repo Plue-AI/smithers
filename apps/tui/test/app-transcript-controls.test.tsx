@@ -220,6 +220,40 @@ test("grep matches source code independently of message and answer fields", asyn
   ])
 })
 
+test("Chat hides program source by default; Ctrl+O and the Cells filter each show it in place", async () => {
+  seed("Code question", "Code answer", "const sourceOnlyNeedle = 7")
+  await mount(48)
+  const original = records()
+  const program = /Code answer\s*\n\s+ctrl\+o program · \d+m?s\s*\n/
+  await visibleRow("Code answer")
+  expect(frame()).toMatch(program)
+  expect(frame()).not.toContain("sourceOnlyNeedle")
+  expect(frame()).not.toMatch(/printed \d+ lines?/)
+  expect(frame()).not.toContain("filtered")
+  // Only answers backed by a program name it.
+  expect(frame().match(/ctrl\+o program/g)).toHaveLength(1)
+  await key("o", { ctrl: true })
+  await visibleRow("sourceOnlyNeedle")
+  await key("o", { ctrl: true })
+  expect(frame()).not.toContain("sourceOnlyNeedle")
+  await command("/filter")
+  await type("Cells")
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  await closePicker()
+  await visibleRow("sourceOnlyNeedle")
+  expect(frame()).not.toContain("filtered")
+  expect(frame()).toMatch(program)
+  await command("/filter")
+  await type("Cells")
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  await closePicker()
+  expect(frame()).not.toContain("sourceOnlyNeedle")
+  expect(records()).toEqual(original)
+  expect(turns).toEqual([])
+})
+
 test.each([
   { kind: "Messages", hidden: "Alpha question", kept: "Alpha answer" },
   { kind: "Answers", hidden: "Alpha answer", kept: "Alpha question" }

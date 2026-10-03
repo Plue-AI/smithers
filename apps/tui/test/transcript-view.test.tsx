@@ -53,7 +53,8 @@ const mount = async (options: Partial<Input> = {}) => {
         transcript: Transcript.empty,
         tabs: [],
         worker: () => Transcript.empty,
-        filter: Timeline.all,
+        filter: Timeline.initial,
+        expanded: false,
         surface: "chat",
         panel: undefined,
         panelFocus: false,
@@ -251,6 +252,35 @@ test("successful request-only Chat activity gives way to the host card", async (
     expect(current().showActivity).toBe(true)
     expect(current().monitored?.id).toBe("chat")
   }
+})
+
+test("Ctrl+O or the Cells filter shows a request's program in place above its card", async () => {
+  const requested: Transcript.Transcript = {
+    ...Transcript.user(Transcript.empty, "Fix it", false, 100),
+    items: [...Transcript.user(Transcript.empty, "Fix it", false, 100).items, {
+      kind: "cell",
+      id: "request",
+      index: 1,
+      prose: "",
+      source: "await ctx.call(\"agent.delegate\", { title: \"w1\" })",
+      printed: "",
+      status: "done",
+      startedAt: 101,
+      calls: [{ flow: "agent.delegate", subject: "w1", status: "ok", startedAt: 101 }]
+    }]
+  }
+  const shown = () => current().rows.map((row) => row.key)
+  await mount({ transcript: requested, tabs: [{ ...tabs[0]!, startedAt: 102 }] })
+  expect(shown()).toEqual(["chat:0"])
+  await change({ expanded: true })
+  expect(shown()).toEqual(["chat:0", "chat:request"])
+  expect(current().lines.map((line) => line.key)).toEqual(["chat:0", "chat:request", "batch:w1"])
+  await change({ expanded: false })
+  expect(shown()).toEqual(["chat:0"])
+  await change({ filter: Timeline.toggleKind(Timeline.initial, "cell") })
+  expect(shown()).toEqual(["chat:0", "chat:request"])
+  await change({ filter: Timeline.all })
+  expect(shown()).toEqual(["chat:0", "chat:request"])
 })
 
 test("worker inspection retains its current tab and exposes only that worker's jump target", async () => {

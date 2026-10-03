@@ -57,6 +57,7 @@ import { PanelView } from "./panel-view.tsx"
 import * as Panels from "./panels.ts"
 import * as Pickers from "./picker.ts"
 import { ReviewView } from "./review-view.tsx"
+import * as RunCard from "./run-card.ts"
 import * as Scrubber from "./scrubber.ts"
 import * as Session from "./session.ts"
 import * as Shell from "./shell.ts"
@@ -321,7 +322,7 @@ export function App(props: AppProps) {
     whichKeyRef.current = open
     setWhichKey(open)
   }, [])
-  const [filter, setFilter] = useState(Timeline.all)
+  const [filter, setFilter] = useState(Timeline.initial)
   /** The worker whose run's diff shows full height, over the surface it was opened on. */
   const [review, setReview] = useState<{ readonly tab: string; readonly surface: string } | undefined>()
   const reviewScroll = useRef<((by: number, page: boolean) => void) | undefined>(undefined)
@@ -846,12 +847,23 @@ export function App(props: AppProps) {
     runs: flowRuns,
     worker: workspace.transcript,
     filter,
+    expanded,
     surface,
     panel,
     setPanelFocus,
     panelFocus,
     width
   })
+  /** How long each answer's program ran: `ctrl+o program · 11s` beneath it. */
+  const programTimes = useMemo(
+    () =>
+      new Map(
+        [...Transcript.programs(transcript)].map((
+          [id, span]
+        ) => [id, RunCard.duration(span.startedAt, span.endedAt, 0)])
+      ),
+    [transcript]
+  )
   const settlements = useMemo(() => new Toasts.Settlements(workspace.snapshot().tabs, runs.snapshot()), [
     workspace,
     runs
@@ -1416,7 +1428,7 @@ export function App(props: AppProps) {
     formOpened.current = new Set()
     setQueue(state.queued)
     setFlowCommands(state.flowCommands)
-    setFilter(Timeline.all)
+    setFilter(Timeline.initial)
     setOverview({ pane: "tree" })
     clearInspection()
     setNavigation(Panels.initial())
@@ -3039,7 +3051,9 @@ export function App(props: AppProps) {
                                 tick={View.ticking(row.item) ? tick : ""}
                                 expanded={expanded}
                                 selected={row.key === jumpTarget}
+                                program={Timeline.program(filter)}
                                 {...(step === undefined ? {} : { step })}
+                                {...(programTimes.has(row.item.id) ? { ran: programTimes.get(row.item.id)! } : {})}
                               />
                             )}
                         </box>

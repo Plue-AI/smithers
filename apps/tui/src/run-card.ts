@@ -154,8 +154,12 @@ export const flow = (run: Run, now: number, steps: ReadonlyArray<string> = []): 
   }
 }
 
-/** Successful requests replace their coordinator cell and acknowledgement in Chat. */
-export const chat = (transcript: Transcript.Transcript): Transcript.Transcript => {
+/**
+ * Successful requests replace their coordinator cell and acknowledgement in
+ * Chat. While the `program` shows (Ctrl+O or the Cells filter), the cell stays
+ * above its card.
+ */
+export const chat = (transcript: Transcript.Transcript, program = false): Transcript.Transcript => {
   let delegated = false
   const items = transcript.items.map((item) =>
     item.kind === "run" && item.request !== undefined
@@ -167,7 +171,7 @@ export const chat = (transcript: Transcript.Transcript): Transcript.Transcript =
     if (item.kind === "cell") {
       delegated = item.calls.length > 0 &&
         item.calls.every((call) => ["agent.delegate", "smithers.run"].includes(call.flow) && call.status === "ok")
-      if (delegated) return false
+      if (delegated) return program
     }
     if (delegated && item.kind === "answer") return false
     return true

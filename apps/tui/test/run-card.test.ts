@@ -253,6 +253,9 @@ test("only successful request-only coordinator output gives way to host cards", 
   const request: Transcript.Call = { flow: "agent.delegate", subject: "Fix addition", status: "ok", startedAt: 1_000 }
   const raw = coordinator([request])
   expect(RunCard.chat(raw).items.map((item) => item.id)).toEqual(["prompt"])
+  // Ctrl+O or the Cells filter shows the request's program above its card; the acknowledgement stays gone.
+  expect(RunCard.chat(raw, true).items.map((item) => item.id)).toEqual(["prompt", "cell"])
+  expect(RunCard.chat(raw, true).activity).toBeUndefined()
   expect(raw.items.map((item) => item.id)).toEqual(["prompt", "cell", "ack"])
   expect(RunCard.chat(coordinator([{ ...request, status: "failed" }])).items.map((item) => item.id))
     .toEqual(["prompt", "cell", "ack"])

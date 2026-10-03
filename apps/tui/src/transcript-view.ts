@@ -39,6 +39,8 @@ export const useTranscriptView = (options: {
   /** A worker's transcript. */
   readonly worker: (id: string) => Transcript.Transcript
   readonly filter: Timeline.Filter
+  /** Ctrl+O: every cell draws its program. */
+  readonly expanded: boolean
   readonly surface: string
   /** The shown surface's panel; the chat shows none. */
   readonly panel: Panels.Panel | undefined
@@ -136,7 +138,7 @@ export const useTranscriptView = (options: {
   /** A worker's lane color: its card rail, its crumb and its steering accent. */
   const lane = (id: string): string => laneColor(Math.max(0, tabs.findIndex((tab) => tab.id === id)))
   const chatRows = useMemo(() => Timeline.cached(), [])
-  const projectedChat = RunCard.chat(transcript)
+  const projectedChat = RunCard.chat(transcript, options.expanded || Timeline.program(filter))
   const rows = chatRows(projectedChat, filter)
   const lines = Subagents.lines(rows, Subagents.batches(transcript, tabs, undefined, options.runs), earlierOpen())
   const workerTab = surface.startsWith("tab:") ? tabs.find((tab) => `tab:${tab.id}` === surface) : undefined

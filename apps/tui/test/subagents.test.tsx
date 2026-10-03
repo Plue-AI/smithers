@@ -242,8 +242,9 @@ describe("batches", () => {
     ])
   })
 
-  it("keeps cards whose request anchor is filtered out at their request time", () => {
-    const rows = Timeline.rows(later, Timeline.toggleKind(Timeline.all, "cell"))
+  it("keeps cards whose delegating cell Chat leaves out at their request time", () => {
+    const rows = Timeline.rows(RunCard.chat(later))
+    expect(rows.some((row) => row.item.kind === "cell")).toBe(false)
     const lines = Subagents.lines(rows, Subagents.batches(later, tabs))
     expect(lines.map((line) => line.key)).toEqual(["chat:0", "batch:a", "chat:2", "batch:c"])
     const early = [tab("q", "done", { startedAt: 11, endedAt: 12 })]

@@ -1,6 +1,8 @@
 /**
  * The chat's rows, filtered the way a log view is: by kind of row and by
  * text. Workers show as subagent cards (`subagents.ts`), never as rows here.
+ * Cells are the exception: hiding them hides the program, not what it did,
+ * so a hidden cell still draws its `→ read`, `$ ran` and `← edited` rows.
  */
 import type * as Transcript from "./transcript.ts"
 
@@ -32,7 +34,14 @@ export interface Filter {
 
 export const all: Filter = { kinds: [], query: "" }
 
-export const active = (filter: Filter): boolean => filter.kinds.length > 0 || filter.query !== ""
+/** The chat's own view: each cell's program hidden, the rest shown. */
+export const initial: Filter = { kinds: ["cell"], query: "" }
+
+/** Whether the filter hides more than the chat's own view does. */
+export const active = (filter: Filter): boolean => filter.kinds.some((kind) => kind !== "cell") || filter.query !== ""
+
+/** Whether cells draw their program: code, every call with its timing, and printed output. */
+export const program = (filter: Filter): boolean => !filter.kinds.includes("cell")
 
 const flip = <A>(values: ReadonlyArray<A>, value: A): ReadonlyArray<A> =>
   values.includes(value) ? values.filter((each) => each !== value) : [...values, value]
@@ -75,7 +84,7 @@ export const rows = (transcript: Transcript.Transcript, filter: Filter = all): R
       at = Math.max(at, item.at ?? at)
       return { key: key(item.id), item, at }
     })
-    .filter((row) => !filter.kinds.includes(row.item.kind))
+    .filter((row) => row.item.kind === "cell" || !filter.kinds.includes(row.item.kind))
     .filter((row) => query === "" || text(row.item).toLowerCase().includes(query))
 }
 

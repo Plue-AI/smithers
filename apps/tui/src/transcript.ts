@@ -613,6 +613,35 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
   }
 }
 
+/** When a turn's program ran: its first cell's start to its last cell's end. */
+export interface Span {
+  readonly startedAt: number
+  readonly endedAt: number
+}
+
+/**
+ * The program behind each answer, by answer id: the cells since the person's
+ * message (a steering message stays inside the turn). An answer whose turn
+ * wrote no cell has none.
+ */
+export const programs = (transcript: Transcript): ReadonlyMap<string, Span> => {
+  const spans = new Map<string, Span>()
+  let span: Span | undefined
+  for (const item of transcript.items) {
+    if (item.kind === "user" && item.queued === undefined) span = undefined
+    else if (item.kind === "cell") {
+      const endedAt = item.endedAt ?? item.startedAt
+      span = span === undefined
+        ? { startedAt: item.startedAt, endedAt }
+        : { startedAt: span.startedAt, endedAt: Math.max(span.endedAt, endedAt) }
+    } else if (item.kind === "answer") {
+      if (span !== undefined) spans.set(item.id, span)
+      span = undefined
+    }
+  }
+  return spans
+}
+
 /** Milliseconds as `820ms`, `1.2s` or `1m05s`. */
 export const duration = (ms: number): string => {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`

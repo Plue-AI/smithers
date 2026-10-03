@@ -123,10 +123,10 @@ describe("the default cell", () => {
     turn: 0,
     frame: 2
   }
-  const draw = async (item: typeof cell, expanded: boolean) => {
+  const draw = async (item: typeof cell, expanded: boolean, program = false) => {
     setup = await testRender(
       <box style={{ width: 90 }}>
-        <View.Entry item={item} now={0} tick="" expanded={expanded} step={{ notes: [] }} />
+        <View.Entry item={item} now={0} tick="" expanded={expanded} program={program} step={{ notes: [] }} />
       </box>,
       { width: 90, height: 24 }
     )
@@ -145,6 +145,27 @@ describe("the default cell", () => {
     for (const program of ["ctx.call", "agent.delegate", "ui.publish", "one", "0ms"]) {
       expect(expanded).toContain(program)
     }
+  })
+
+  test("the Cells filter shows the program and each call's timing, and only Ctrl+O what it printed", async () => {
+    const shown = await draw(cell, false, true)
+    for (const program of ["ctx.call", "agent.delegate", "ui.publish", "monitor.watch", "0ms", "38.0s"]) {
+      expect(shown).toContain(program)
+    }
+    expect(shown).not.toMatch(/┃\s+one\s/)
+    expect(shown).not.toContain("printed")
+    setup!.renderer.destroy()
+    const expanded = await draw(cell, true, true)
+    expect(expanded).toMatch(/┃\s+one\s+\n┃\s+two\s/)
+    expect(expanded).not.toContain("printed")
+  })
+
+  test("never counts printed lines, folded or not", async () => {
+    for (const [expanded, program] of [[false, false], [false, true], [true, false]] as const) {
+      expect(await draw(cell, expanded, program)).not.toMatch(/printed \d+ lines?/)
+      setup!.renderer.destroy()
+    }
+    setup = undefined
   })
 
   test("draws nothing for a rejected cell or one that only ran plumbing", async () => {
@@ -353,4 +374,45 @@ test("an edit approval shows its changed lines, bounded, and offers the change's
     "…",
     "y Allow once  n Deny change  a Allow edits this run"
   ])
+})
+
+describe("an answer's program", () => {
+  const answer = { kind: "answer" as const, id: "9", text: "Fixed add: it returned a - b; it now returns a + b." }
+  const draw = async (width: number, ran?: string) => {
+    setup = await testRender(
+      <box style={{ width }}>
+        <View.Entry item={answer} now={0} tick="" expanded={false} {...(ran === undefined ? {} : { ran })} />
+      </box>,
+      { width, height: 6 }
+    )
+    // Markdown lays out after its first frame.
+    for (let frame = 0; frame < 20 && !setup.captureCharFrame().includes("Fixed add"); frame++) {
+      await Bun.sleep(5)
+      await setup.renderOnce()
+    }
+    return setup.captureCharFrame().split("\n")
+  }
+
+  test.each([110, 80])("names Ctrl+O and the program's time, right-aligned beneath the answer at %s columns", async (
+    width
+  ) => {
+    const rows = await draw(width, "11s")
+    expect(rows[0]).toContain("Fixed add")
+    expect(rows[1]!.trim()).toBe("ctrl+o program · 11s")
+    expect(rows[1]!.trimEnd().length).toBe(width - 2)
+  })
+
+  test("an answer with no program behind it draws only the answer", async () => {
+    const rows = await draw(80)
+    expect(rows.join("\n")).not.toContain("ctrl+o")
+    expect(rows[1]!.trim()).toBe("")
+  })
+
+  test("redraws when the program's time changes", () => {
+    const base = { item: answer, now: 0, tick: "", expanded: false }
+    expect(View.sameEntry({ ...base, ran: "11s" }, { ...base, ran: "11s" })).toBe(true)
+    expect(View.sameEntry({ ...base, ran: "11s" }, { ...base, ran: "12s" })).toBe(false)
+    expect(View.sameEntry(base, { ...base, ran: "1s" })).toBe(false)
+    expect(View.sameEntry({ ...base, program: false }, { ...base, program: true })).toBe(false)
+  })
 })

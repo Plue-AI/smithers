@@ -911,7 +911,7 @@ describe("turns", () => {
     180_000
   )
 
-  it("folds a finished cell's code and what it printed until ctrl+o", async () => {
+  it("hides a finished cell's code and what it printed until ctrl+o", async () => {
     const replay = replayCells([
       `const lines = [\n${
         Array.from({ length: 40 }, (_, index) => JSON.stringify(`line ${index}`)).join(",\n")
@@ -924,8 +924,9 @@ describe("turns", () => {
     await tui.press(key.enter)
     await successfulAnswer(started, "Printed")
     const folded = tui.screen()
-    expect(folded).toMatch(/… \d+ more lines/)
-    expect(folded).toMatch(/printed \d+ lines · ctrl\+o/)
+    expect(folded).toMatch(/Printed the requested lines\.\s*\n\s+ctrl\+o program · \d+m?s/)
+    expect(folded).not.toContain("const lines")
+    expect(folded).not.toMatch(/printed \d+ lines?/)
     expect(folded).not.toContain("output to a specific file")
     await tui.press(key.ctrlO)
     await tui.until((screen) => screen.includes("output to a specific file"), 5_000, "expanded output")

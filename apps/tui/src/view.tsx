@@ -202,6 +202,10 @@ export interface EntryProps {
   readonly selected?: boolean
   /** What the shared fold says about a cell's frame. */
   readonly step?: Scrubber.Step
+  /** `/filter` shows Cells: a cell draws its program, not only what it did. */
+  readonly program?: boolean
+  /** How long the program behind an answer ran, `11s`; it reads `ctrl+o program · 11s` beneath the answer. */
+  readonly ran?: string
 }
 
 /** Whether a row draws the clock: an unfinished cell or call, or a shell command still running. */
@@ -223,6 +227,7 @@ const sameStep = (a: Scrubber.Step | undefined, b: Scrubber.Step | undefined): b
  */
 export const sameEntry = (a: EntryProps, b: EntryProps): boolean =>
   a.item === b.item && a.expanded === b.expanded && a.selected === b.selected && a.tone === b.tone &&
+  a.program === b.program && a.ran === b.ran &&
   sameStep(a.step, b.step) && (!ticking(b.item) || (a.now === b.now && a.tick === b.tick))
 
 export const Entry = memo(EntryView, sameEntry)
@@ -242,6 +247,7 @@ function EntryView(props: EntryProps) {
           tick={props.tick}
           expanded={props.expanded}
           selected={props.selected === true}
+          program={props.program === true}
           step={props.step ?? { notes: [] }}
         />
       )
@@ -251,6 +257,11 @@ function EntryView(props: EntryProps) {
       return (
         <box style={{ marginBottom: 1, paddingLeft: 2, paddingRight: 2 }}>
           <markdown content={item.text} syntaxStyle={syntax} />
+          {props.ran === undefined ? null : (
+            <text fg={color.faint} wrapMode="none" style={{ alignSelf: "flex-end" }}>
+              ctrl+o program · {props.ran}
+            </text>
+          )}
         </box>
       )
     case "error":
@@ -462,6 +473,7 @@ function CellView(props: {
   readonly tick: string
   readonly expanded: boolean
   readonly selected: boolean
+  readonly program: boolean
   readonly step: Scrubber.Step
 }) {
   const { cell, step } = props
@@ -474,15 +486,14 @@ function CellView(props: {
   const hiddenCode = live || props.expanded || lines.length <= codeLines + 1 ? 0 : lines.length - codeLines
   const code = hiddenCode === 0 ? cell.source : lines.slice(0, codeLines).join("\n")
   const printed = cell.printed.trimEnd()
-  const printedRows = printed === "" ? 0 : printed.split("\n").length
   const tone = props.selected ? color.brand : statusColor(cell.status)
   const line = step.line
   const open = live || !folded
   const mark = live ? props.tick : open ? "▾" : "▸"
   const result = line === undefined ? "" : Scrubber.outcome(line)
   const notes = step.notes.filter((note) => props.expanded || (note.tone !== "good" && note.title !== "unmoved"))
-  // By default a cell is what it did: its agent rows. Ctrl+O, or selecting it, shows the program.
-  if (!props.expanded && !props.selected) {
+  // By default a cell is what it did: its agent rows. Ctrl+O, the Cells filter, or selecting it, shows the program.
+  if (!props.expanded && !props.selected && !props.program) {
     const rows = cell.calls.filter((call) => !plumbing(call.flow))
     if (cell.status === "rejected" || (rows.length === 0 && cell.error === undefined && notes.length === 0 && !live)) {
       return null
@@ -571,13 +582,13 @@ function CellView(props: {
           ))}
         </box>
       )}
-      {!open || printed === "" ? null : props.expanded
-        ? (
+      {!open || printed === "" || !props.expanded ?
+        null :
+        (
           <box style={{ marginTop: 1, paddingLeft: 1, paddingRight: 1 }} backgroundColor={color.surface}>
             <text fg={color.muted}>{printed}</text>
           </box>
-        )
-        : <text fg={color.faint}>printed {printedRows} {printedRows === 1 ? "line" : "lines"} · ctrl+o</text>}
+        )}
       {cell.error === undefined
         ? null
         : (
