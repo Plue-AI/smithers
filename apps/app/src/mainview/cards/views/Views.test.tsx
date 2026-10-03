@@ -1267,6 +1267,7 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
   const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
   try {
     await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
+    expect(host.textContent!.match(/Changed outside Smithers/g)).toHaveLength(1)
     expect([...host.querySelectorAll(".branch-actions button[data-flow], .branch-activity button[data-flow]")].map(button => button.textContent)).toEqual(["Diff", "Diff", "Fork", "New terminal", "Steer"])
     await act(async () => host.querySelectorAll<HTMLButtonElement>('button[data-flow="diff"]')[1]!.click())
     expect(onAction.mock.calls).toEqual([["diff", { branch: "todo/12", burst: "burst-6" }]])
