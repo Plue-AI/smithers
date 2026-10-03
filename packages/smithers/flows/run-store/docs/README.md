@@ -42,7 +42,7 @@ test.
 
 ## Install
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Node.js 26.4.0 or later. [Installation](./installation.md) covers the import
 forms and the two services a composition has to supply.

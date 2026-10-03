@@ -9,7 +9,7 @@ Undo work a run already did when the run later fails: inside one execution with 
 
 ## Before you start
 
-- `@smthrs/flow`; rewind-time handlers come from `@smthrs/time-travel` ([Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx)).
+- `@smthrs/flow`; rewind-time handlers come from `@smthrs/time-travel` ([Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries)).
 - A `Jj` implementation in the composition for compensable actions. The engine calls `snapshot` before each attempt and `restore` before a retry; if neither does anything, nothing is compensated.
 - The tier vocabulary in one clause: reads are `sealed`, undoable writes are `compensable`, and the rest are `irreversible`. [Time travel](/docs/concepts/time-travel/) defines compensation as a protocol over the journal a run wrote.
 

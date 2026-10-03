@@ -8,7 +8,7 @@ describe("Installation dependency contract", () => {
   it("installs and identifies the exact Effect peer from the manifest", () => {
     const effect = `effect@${manifest.peerDependencies.effect}`
 
-    expect(guide).toContain("/docs/installation/#use-the-libraries")
+    expect(guide).toContain("https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries")
     expect(guide).not.toContain("@smthrs/core@next")
     expect(guide).toContain(`\`${effect}\` as an exact peer dependency`)
     expect(guide).not.toContain("it is a dependency, not a peer")

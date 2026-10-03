@@ -7,7 +7,7 @@ sidebar:
 
 ## Install the package
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+link the source packages using [Use the libraries](#use-the-libraries).
 
 `effect` is a runtime dependency of this package and installs with it. Add it to
 your own dependencies at the same version anyway: your declarations import
@@ -20,6 +20,20 @@ CommonJS with TypeScript declarations, and it pulls in
 [`@smthrs/keys`](/api/keys), and [`@smthrs/canonical`](/api/canonical), which
 supply the node vocabulary a body is written in, the digests identity is built
 from, and the canonical JSON checks applied to values.
+
+## Use the libraries
+
+First [install the source checkout](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli). The checkout's `examples` workspace carries the packages used by the flow tutorials and their pinned `effect@4.0.0-rc.115`.
+
+Create a project beside the checkout:
+
+```bash
+mkdir my-flows && cd my-flows
+echo '{ "type": "module" }' > package.json
+ln -s /path/to/smithers/examples/node_modules node_modules
+```
+
+Replace `/path/to/smithers` with the absolute path to your installed checkout. Run programs with `node <file>.ts`. Packages absent from the examples workspace, such as `@smthrs/artifacts`, resolve only inside the checkout; use the owning package's workspace for those examples. This linking recipe uses source exports and requires no package build.
 
 ## Import forms
 

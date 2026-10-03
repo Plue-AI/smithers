@@ -7,7 +7,7 @@ sidebar:
 
 ## Install the package
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 [`effect`](https://effect.website) is a peer dependency, declared at exactly
 `4.0.0-rc.115`. Install it yourself at that version: it supplies the `Schema`

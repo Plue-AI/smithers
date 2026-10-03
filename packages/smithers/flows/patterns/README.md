@@ -15,7 +15,7 @@ reviewer, or a scheduler can read the worst case in advance. It composes
 `@smthrs/flow` and the one effect model in `@smthrs/plan/Effects`, and imports
 no Node built-ins.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The package
 needs Node.js 26.4.0 or later and shares its `effect` peer with the host.

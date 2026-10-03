@@ -13,7 +13,7 @@ transport-independent Control service, its runtime and execution ports, local
 and RPC implementations, verified ingress channels, credentials, and the shared
 wire schemas both halves decode.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The package
 requires Node.js 26.4.0 or later and ships as both ESM and CommonJS with

@@ -18,7 +18,7 @@ Send an Effect program's logs, metrics, and traces to an OpenTelemetry collector
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Node.js 26.4.0 or later. Effect services are identified by module identity, so install the same `effect` release this package is built against.
 

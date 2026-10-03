@@ -76,7 +76,7 @@ There is one platform package per runtime:
   for authoring and inspection.
 
 For `@smthrs/flows/NodeRuntime`, select `@smthrs/platform-node`, `@effect/platform-node`,
-`@effect/platform-node-shared`, and `@effect/sql-sqlite-node`. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+`@effect/platform-node-shared`, and `@effect/sql-sqlite-node`. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Compose a host yourself and you declare the platform package you compose
 against, the same way you declared the barrel:

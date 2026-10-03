@@ -219,8 +219,9 @@ Repository operations are fenced as a unit, including `status`, which can
 snapshot. Each holds workspace and shared-store permits, with exclusive
 `.jj/smithers.lock` and store `smithers.lock` owner directories across
 processes. `root(from)` fences its actual directory, preserving its exemption
-from the layer's bound root. The default 120-second deadline includes permit
-waits and execution; cancellation releases both permits. A caller
+from the layer's bound root. The default 120-second deadline bounds acquisition of both fences only.
+Once acquired, execution can outlast the deadline; caller cancellation and
+operation failure release both permits. A caller
 records lock owners as `hostname-pid-random` and reclaims only an owner on the
 same host whose process is dead. Permission-denied probes count as alive;
 foreign-host and legacy owner markers require operator cleanup.
@@ -236,15 +237,18 @@ or completes before the add runs.
 
 `withRepositoryMutation(method, from, effect)` exposes this coordination to
 host adoption. `RepositoryMutationTimeoutMs` is a Context reference with a
-default of `120000`. The protected effect must not call another fenced
+default of `120000`, bounding acquisition only. The protected effect must not call another fenced
 operation on the same store; internal compound operations use their raw
 command runner while holding the outer permits.
 
-`retryGitIndexLock(effect)` retries only confirmed shared Git `index.lock`
-acquisition failures: at most 1,200 retries with 100 ms waits, independently
-for each execution. It preserves permanent errors, private-index errors and
-the final exhausted error, and never removes an active Git lock. Use it inside
-`withRepositoryMutation` to bound acquisition, execution and retry waits.
+`retryGitIndexLock(effect)` retries confirmed shared Git `index.lock`
+acquisition failures and ref-lock contention: at most 1,200 retries with 100 ms
+waits, independently for each execution. It preserves permanent errors, private-index errors and
+the final exhausted error, and never removes an active Git lock. Its retry
+waits are independent of the repository fence acquisition deadline. A stuck
+`index.lock` holds both acquired fences for the full bounded retry (about two
+minutes), because the deadline bounds acquisition only. Ref-lock retries let
+unfenced fetches recover from concurrent fetch or fenced export contention.
 
 Snapshot messages are opaque strings on both browser and CLI layers, including
 empty strings, leading `-`, quotes, and newlines. Node and Bun never pass them

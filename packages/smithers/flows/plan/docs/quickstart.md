@@ -17,7 +17,7 @@ Nothing here executes a node or writes a row. A plan is inert: persisting one is
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+- A package with the dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `@effect/platform-node` supplies Effect's `Crypto` service, which is the only
 thing compiling a plan asks for.

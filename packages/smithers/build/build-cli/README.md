@@ -29,7 +29,7 @@ runtimes, package managers, toolchains, sandbox mechanisms, and caching. Each
 package exports exactly one `S.Package({ targets })`, selected through
 Bazel-style labels.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 Agent edit application and write-set rollback require trusted, coordinated
 workspace writers throughout capture, apply, commit, and rollback. Filesystem checks

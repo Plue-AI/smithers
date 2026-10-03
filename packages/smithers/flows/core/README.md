@@ -14,7 +14,7 @@ JavaScript and TypeScript declarations and all planning callbacks must be truste
 
 For agent-generated declarations, use a constrained data-only ingestion boundary that trusted code validates and translates into nodes, or load and plan untrusted code in an externally isolated environment with restricted permissions and resources. See [Plan time](https://core.smithers.sh/concepts/plan-time/#planning-requires-trusted-declarations).
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 The full API reference lives at [core.smithers.sh/reference/api](https://core.smithers.sh/reference/api/).
 

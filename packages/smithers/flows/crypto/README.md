@@ -14,7 +14,7 @@ branded wire form: 64 lowercase hexadecimal characters.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `effect` is the only runtime dependency.
 `digest` additionally needs an Effect `Crypto` service, which

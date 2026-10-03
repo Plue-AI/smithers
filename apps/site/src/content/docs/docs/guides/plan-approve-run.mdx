@@ -11,7 +11,7 @@ Review a flow's plan before launching it. If you already trust the plan and want
 
 ## Before you start
 
-- Install the [CLI](/docs/installation/) and work from your project's root.
+- Install the [CLI](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli) and work from your project's root.
 - Run `smthrs flow list` to find a flow ID. The examples below use `deploy/status`; replace it with your flow's ID.
 - Configure any [model seat](/docs/guides/model-seats/) the flow needs.
 - Install `jq` if you want to save the approval payload with the shell command below.
@@ -107,4 +107,4 @@ A detached launch returns the durable run ID and log path after the child acknow
 
 Use `smthrs runs show <run-id>` to read the run's `status` and diagnosis. A local attached launch exits `0` for completion, `1` for failure, `3` for waiting on approval, or `130` for cancellation.
 
-Continue with [Inspect runs](/docs/guides/inspecting-runs/) to read events and outputs, or [Run flows in CI](/docs/installation/) to choose how a pipeline handles a parked run.
+Continue with [Inspect runs](/docs/guides/inspecting-runs/) to read events and outputs.

@@ -5,9 +5,46 @@ sidebar:
   order: 1
 ---
 
+## Install the CLI
+
+The 1.0 release candidate is not published to npm. Use Node.js 26.4.0 or later, pnpm 11.25.0, Git, and the Rust toolchain pinned in `rust-toolchain.toml`.
+
+```bash
+git clone https://github.com/smithersai/smithers.git
+cd smithers
+pnpm install
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
+export PATH="$PWD/node_modules/.bin:$PATH"
+smthrs --version
+```
+
+The Rust command builds the filesystem helper that confined flow commands require. The PATH line selects this checkout's `smthrs` and `smithers` executables for the current shell. `smthrs --version` prints `1.0.0-rc.1`. Change to your project directory before running `smthrs init`.
+
+Target declarations and the CLI must resolve the same physical Effect and Smithers packages. A separately installed CLI can fail with `declaration_dependency_mismatch` even when its versions match. Use the checkout's CLI and workspace dependency graph.
+
+## Verify the install
+
+```bash
+smthrs doctor
+```
+
+`doctor` checks flow discovery, local state and database compatibility, the Node.js version, Jujutsu availability, and provider configuration without running a flow. It exits 1 when a check fails.
+
+## Stay current
+
+From the source checkout:
+
+```bash
+git pull
+pnpm install
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
+```
+
+`smthrs update` reads npm's dist-tags for `@smthrs/cli` and never installs anything.
+
 ## Install the executable
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+install from the source checkout using [Install the CLI](#install-the-cli).
 
 `smthrs` is the package to install. Its `smthrs` executable runs this package,
 `@smthrs/cli`, which it installs as a dependency. Inside a workspace,
@@ -68,9 +105,17 @@ runs on Node 26.4 or later or on Bun. Under Node, the CLI starts the TUI with
 `--experimental-ffi`, which OpenTUI needs to load its renderer. Set
 `SMITHERS_BUN` to a Bun executable to run the TUI on Bun instead. The launcher
 tries `SMITHERS_TUI_BIN`, an installed compiled binary, Bun, then Node.
-Compiled interactive builds need a writable, executable `TMPDIR`; Alpine
-also needs `libstdc++`. See the [TUI installation guide](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx) for
-source-checkout prerequisites and the full reference.
+Interactive startup in compiled builds loads the OpenTUI shared library from a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, loading it can fail with `Operation not permitted`. Alpine also needs `libstdc++`.
+
+If your home filesystem allows execution:
+
+```bash
+mkdir -p "$HOME/.cache/smithers/tmp"
+export TMPDIR="$HOME/.cache/smithers/tmp"
+smthrs tui /path/to/project
+```
+
+`--help` and `--print` do not load OpenTUI, so their success does not verify interactive startup. Launch without either flag in a terminal to check it.
 
 The CLI package ships its native editor; keep the package intact when moving
 a Node installation. Compiled binaries embed the editor. Installation does not
@@ -88,7 +133,7 @@ smthrs tui --approve ask        # ask before consequential calls
 
 Global and one-off installations can initialize a project and operate its flows.
 To load `WORKSPACE.ts` and `PACKAGE.ts`, install the CLI and declaration packages
-in that workspace ([Install the CLI](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx)), then
+in that workspace ([Install the CLI](./installation.md#install-the-cli)), then
 select its local binary:
 
 ```bash

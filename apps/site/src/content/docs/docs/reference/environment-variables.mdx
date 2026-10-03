@@ -28,7 +28,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_MEMORY_DB` | operator | Moves the memory store to its own SQLite file, shared by runs of one repository in separate workspaces. | none |
 | `SMITHERS_MODEL_PROXY_URL` | operator | Base URL of a model proxy that fronts the provider routes. | none |
 | `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool of connected ChatGPT sign-ins and Anthropic API keys that signs `openai:` and `anthropic:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
-| `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. See [TUI configuration](/docs/installation/) for chat, worker, approval, budget, and conversation settings. | none |
+| `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. See [TUI reference](https://github.com/smithersai/smithers/blob/main/apps/tui/README.md) for chat, worker, approval, budget, and conversation settings. | none |
 | `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | operator | How long a detached flow launch waits for the detached run's admission line. A value that is not a positive integer is ignored. | none |
 | `SMITHERS_TEST_COMMAND` | operator | The command the `test` flow runs. | none |
 | `SMITHERS_TEST_CONTAINER` | operator | The container the `test` flow runs in. | none |

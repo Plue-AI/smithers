@@ -27,7 +27,7 @@ compatibility shim.
 ## Upgrading a 0.x project
 
 Read the [migration guide](https://smithers.sh/migration/1.0), install the 1.0
-command line, and plan the migration from the project directory. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+command line, and plan the migration from the project directory. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ```sh
 smthrs migrate
@@ -56,7 +56,7 @@ Depend on the `@smthrs/*` packages directly:
 npm remove smthrs
 ```
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 `@smthrs/flows` is the curated aggregate: the authoring primitives, the durable
 engine, and the stores behind one dependency. `@smthrs/cli` owns the `smthrs`

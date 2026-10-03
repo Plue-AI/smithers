@@ -21,7 +21,7 @@ constructor identity, tags, fields, and existing test imports are preserved.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `effect` is a required peer at exactly `4.0.0-rc.115`. `vitest` and
 `@effect/vitest` are optional peers, needed only by the `Vitest` adapter.

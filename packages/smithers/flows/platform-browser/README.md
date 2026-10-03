@@ -23,7 +23,7 @@ no vendor code this package picked for you.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `effect` is a peer dependency pinned at exactly `4.0.0-rc.115`. The services
 these adapters implement live in Effect 4, so Effect 3 does not satisfy it, and

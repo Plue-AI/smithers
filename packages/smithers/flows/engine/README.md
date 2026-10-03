@@ -14,7 +14,7 @@ projections that expose them. It implements `FlowRuntime`, the port
 volatile in-memory implementation of it; `@smthrs/engine-store` supplies
 durable persistence over the same seam.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Built on [Effect](https://effect.website): flows, actions, and the engine are
 Effect values you compose as layers. `effect` is a peer dependency pinned to

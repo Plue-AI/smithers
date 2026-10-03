@@ -108,7 +108,7 @@ See [Accepted agent edits](./concepts/agent-edits.md) for publication and hard-l
 
 ## How to get it
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ```json
 {

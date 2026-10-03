@@ -12,7 +12,7 @@ configured.
 
 ## Before you start
 
-Install the packages and a crypto service. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Install the packages and a crypto service. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `@effect/platform-node` supplies the runtime `Crypto` service used by every
 action dispatch, so install it in your application's `dependencies`.

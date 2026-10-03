@@ -133,7 +133,7 @@ and `storage` hand progressively more of it back to the caller.
 The driver-neutral root installs no platform adapter. Select these optional
 prerequisites before importing `NodeRuntime`: `@smthrs/platform-node`, `@effect/platform-node`,
 `@effect/platform-node-shared`, and `@effect/sql-sqlite-node`. Not on npm yet; see
-[Installation](https://smithers.sh/docs/installation/).
+[Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ```ts
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -192,6 +192,6 @@ vice versa. A browser-safe import alone does not prove durable browser execution
 
 For a Bun executable, install `@smthrs/platform-bun`, `@effect/platform-bun`,
 `@effect/platform-node-shared`, and `@effect/sql-sqlite-bun`. Not on npm yet; see
-[Installation](https://smithers.sh/docs/installation/).
+[Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Then use `BunRuntime.layerHost` with the same options and registered flows.

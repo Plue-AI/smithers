@@ -23,7 +23,7 @@ import; and [`@smthrs/build-cli`](https://github.com/smithersai/smithers/tree/ma
 ## Add the dependencies
 
 Declare the CLI and the authoring package as devDependencies of your workspace
-root. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+root. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ```json
 {

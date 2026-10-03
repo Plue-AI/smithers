@@ -41,7 +41,7 @@ Host completion and release finalizers can extend cancellation latency.
 
 ## Install
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `@effect/platform-node` supplies the Node.js implementations of the services
 the store asks for. A browser or a test host provides different ones.

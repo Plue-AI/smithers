@@ -14649,6 +14649,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/site/public/_redirects"
+      },
+      {
+        "kind": "file",
         "path": "apps/site/scripts/catalog-publication.mjs"
       },
       {
@@ -15154,6 +15158,18 @@
       },
       {
         "kind": "file",
+        "path": "apps/site/src/content/docs/docs/guides/control-plane.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/reference/cli/serve.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/reference/http-api.mdx"
+      },
+      {
+        "kind": "file",
         "path": "apps/site/src/content/docs/docs/guides/sync-followers.mdx"
       },
       {
@@ -15162,7 +15178,59 @@
       },
       {
         "kind": "file",
+        "path": "apps/site/src/content/docs/docs/concepts/kernel.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/guides/flow-discovery.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/guides/markdown-flows.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/reference/cli/migrate.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/migration/1.0.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/guides/durable-waits.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/gateway/docs/guides/serve-beyond-loopback.md"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/sync/src/SyncProtocol.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/kernel/src/HostServices.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/registry/src/Discovery.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smthrs-deprecation/docs/notice.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/migrate/src/flow/MigrateFlow.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/migrate/src/Scan.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/src/DurableClock.ts"
       },
       {
         "kind": "file",
@@ -15171,6 +15239,26 @@
       {
         "kind": "file",
         "path": "apps/site/scripts/built-site.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/content/docs/docs/pricing.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/public/robots.txt"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/gen-cli-data.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/gen-cli-data.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/Cli.ts"
       }
     ],
     "outputs": [],
@@ -15202,6 +15290,56 @@
     ],
     "dependencies": [
       "//examples:docs"
+    ],
+    "source": {
+      "file": "apps/site/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/site:installPageTest",
+    "package": "apps/site",
+    "name": "installPageTest",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/install-page.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/docs/installation.mdx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/astro.config.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/data/project.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/site/src/content/docs/docs/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/src/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/src/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/smithers:docsSources"
     ],
     "source": {
       "file": "apps/site/PACKAGE.ts"
@@ -15280,11 +15418,7 @@
       },
       {
         "kind": "file",
-        "path": "apps/site/src/content/docs/docs/developers.mdx"
-      },
-      {
-        "kind": "file",
-        "path": "apps/site/src/content/docs/docs/index.mdx"
+        "path": "apps/site/docs/installation.mdx"
       },
       {
         "kind": "file",
@@ -15791,10 +15925,6 @@
       {
         "kind": "file",
         "path": "apps/site/src/content/docs/changelogs/1.0.0-rc.0.mdx"
-      },
-      {
-        "kind": "file",
-        "path": "apps/site/astro.config.mjs"
       },
       {
         "kind": "file",

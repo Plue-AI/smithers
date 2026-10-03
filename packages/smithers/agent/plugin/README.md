@@ -12,7 +12,7 @@ A typed, bounded plugin kernel for Effect programs: Vite's plugin model, with
 hooks that are ordinary Effects, ordering that follows Vite's rules exactly, and
 a resolution boundary that copies every value a caller hands it.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ```ts
 import { type FlowsPlugin, Kernel } from "@smthrs/plugin"

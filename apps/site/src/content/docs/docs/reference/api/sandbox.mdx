@@ -277,15 +277,20 @@ const outcome = yield* SandboxMerge.apply(work, {
 `apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
 
 Host import and rebase share the Node/Bun jj workspace and store fences. Their
-default 120-second deadline includes permit waits, commands and retries of
-confirmed shared Git `index.lock` acquisition failures. Cancellation and
-timeout preserve captured work and any pending imported change for the next
-call. An active Git lock is never removed; permanent VCS failures, private
+default 120-second deadline bounds acquisition of both fences only. Commands
+and confirmed shared Git `index.lock` retries run beyond that deadline once
+the fences are acquired. Missing-base fetches run before acquisition, with base
+presence checked again inside the fences. Cancellation and acquisition timeout
+preserve captured work and any pending imported change for the next call. An active Git lock is never removed; permanent VCS failures, private
 index errors and source conflicts retain their existing behavior.
 
 Conflict strategies run after the import/rebase fence is released, so a
 resolver can use ordinary fenced jj operations without nested acquisition.
-The core mutation deadline does not bound a custom resolver's effects.
+The acquisition deadline does not bound a custom resolver's effects.
+
+`MergeError.cause` optionally retains the original failure. Fence errors keep
+the full `JjError`, including its code and nested `lock_timeout` cause. Host
+adapter loading is lazy and shared through one memoized, typed loader.
 
 | `MergeError.reason`   | Cause                                                                     |
 | --------------------- | ------------------------------------------------------------------------- |
@@ -294,7 +299,7 @@ The core mutation deadline does not bound a custom resolver's effects.
 | `patch_rejected`      | the patch does not apply to its own base                                  |
 | `conflict`            | `failOnConflict` met a conflict; `paths` names it                         |
 | `resolution_rejected` | a resolver's answer still has conflicts or does not descend from `onto`   |
-| `vcs_failed`          | `jj` or `git` failed on the host                                          |
+| `vcs_failed`          | `jj`, `git`, fence acquisition or host adapter loading failed             |
 
 A `Strategy<E, R>` has one method, `onConflict(conflicted, repository)`, answering `Merged`, `Conflicted`, or a failure. `apply` lands the change before calling it.
 
@@ -309,6 +314,9 @@ A `Strategy<E, R>` has one method, `onConflict(conflicted, repository)`, answeri
 See [Return work from a sandbox](https://sandbox.smithers.sh/guides/return-work-from-a-sandbox/) for the two steps as flow actions.
 
 ## SandboxConformance
+
+Conformance fixture scripts that exit unsuccessfully report a typed
+`ProviderError` with code `unknown` and the exit status and stderr in its message.
 
 ```ts
 import { SandboxConformance } from "@smthrs/sandbox"

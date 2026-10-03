@@ -81,7 +81,7 @@ final. Release candidates publish under `next`.
 **Fix.** This is working as intended, and it is why an unattended
 `npm install smthrs` cannot break a 0.x project. To reach 1.0, depend on the
 packages by name: `@smthrs/flows` for the engine and `@smthrs/cli` for the
-command. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+command. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ## `smthrs: command not found` after installing this package
 
@@ -92,7 +92,7 @@ executables in `node_modules/.bin`, not on `PATH`. An install that resolved the
 `latest` dist-tag got `smthrs@0.35.0` instead of this package.
 
 **Fix.** Run `npx smthrs@next <verb>`, or install the command line, which owns
-both spellings of the executable. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+both spellings of the executable. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ## The build succeeded and the notice never printed
 

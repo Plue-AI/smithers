@@ -23,7 +23,7 @@ package is that object for a process running on Bun.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `@smthrs/platform-node`, `@effect/platform-node`,
 `@effect/platform-node-shared`, `@effect/platform-bun`, and `effect` are

@@ -26,9 +26,8 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { sites } from "../../docs/shared/manifest.mjs"
-import { outputRelFor, routeFor } from "../../docs/shared/sync-content.mjs"
 
-/** Source package directory to docs-site slug, for cross-site link rewrites. */
+/** Package roots whose relative documentation links can be resolved. */
 const slugByPackageDir = new Map(sites.map((site) => [site.dir, site.slug]))
 
 const check = process.argv.includes("--check")
@@ -155,18 +154,15 @@ const rewriteCrossPackageLinks = (body, sourcePath) =>
       (_m, slug, frag) => `](/docs/reference/api/${slug.toLowerCase()}/${frag ?? ""})`
     )
     .replace(/\]\((?:https:\/\/smithers\.sh)?\/api\/?\)/gi, "](/docs/reference/api/)")
-    // A relative .md link names a sibling page of the package's own docs tree
-    // (`../api.md`, `./concepts/x.md`). That page exists, but on the package's
-    // site rather than here, and check-docs.mjs rejects a relative link
-    // outright. Resolve it against the package's docs root and send it to that
-    // site, using the same mapping sync-content.mjs applies when it builds it.
+    // Resolve package-relative Markdown links to the canonical source on main.
+    // The projected site page does not share the package source's directory.
     .replace(/\]\((\.{1,2}\/[^)\s#]+\.md)(#[^)]+)?\)/g, (whole, rel, frag) => {
       const packageRoot = sourcePath.split("/docs/reference/")[0]
       const slug = slugByPackageDir.get(packageRoot)
       if (slug === undefined) return whole
       const fromDocs = posix.normalize(posix.join("reference", rel))
       if (fromDocs.startsWith("..")) return whole
-      return `](https://${slug}.smithers.sh${routeFor(outputRelFor(fromDocs))}${frag ?? ""})`
+      return `](https://github.com/smithersai/smithers/blob/main/${packageRoot}/docs/${fromDocs}${frag ?? ""})`
     })
 
 const renderPage = (page) => {

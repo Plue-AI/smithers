@@ -25,7 +25,7 @@ auditable history as values you can hold, hash, and store.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Compiling asks Effect for its `Crypto` service, which a platform package
 supplies:

@@ -20,7 +20,7 @@ It implements no isolation of its own. What a sandbox does and does not prevent
 differs per provider and is documented at
 https://sandbox.smithers.sh/concepts/isolation/.
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Public API
 

@@ -51,7 +51,7 @@ class, no registration call, and no inheritance.
 
 ## Install
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 Node.js 26.4.0 or later is required. For the runtime requirements, the import
 forms, and the subpaths the export map blocks, see

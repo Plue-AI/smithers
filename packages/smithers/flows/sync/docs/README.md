@@ -15,7 +15,7 @@ writes to a journal, so a follower cannot corrupt what it reads.
 commands to a branch's journal run after verifying a write-scoped
 `BranchShare` capability.
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## What it solves
 

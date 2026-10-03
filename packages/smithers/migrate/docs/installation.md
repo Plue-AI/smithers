@@ -26,7 +26,7 @@ the report.
 ## Install it as a project dependency
 
 Install the package when you want the scanner API in your own script, or when
-you want the tool pinned in the project you are migrating. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+you want the tool pinned in the project you are migrating. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 The package requires Node.js 26.4.0 or later, and ships as both ESM and
 CommonJS with TypeScript declarations.
@@ -45,7 +45,7 @@ is a development dependency, not part of the published runtime.
 ## Run it as a CLI verb
 
 Once the project is on 1.0, the same entry point is reachable as a verb of the
-Smithers CLI. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Smithers CLI. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/installation.md#install-the-cli).
 
 ```bash
 smthrs migrate --scan

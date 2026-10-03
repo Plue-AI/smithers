@@ -13,7 +13,7 @@ volume.
 ## Prerequisites
 
 - A bundler that can serve a page, and a browser that supports IndexedDB.
-- The package and the two backends. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+- The package and the two backends. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Mount one volume and wire the interpreter
 

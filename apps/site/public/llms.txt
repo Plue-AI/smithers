@@ -224,7 +224,7 @@
 - [@smthrs/artifacts](https://artifacts.smithers.sh/llms.txt): Effect service for the Smithers content-addressed artifact store, local and remote
 - [@smthrs/canonical](https://canonical.smithers.sh/llms.txt): RFC 8785 canonical JSON as an Effect Schema
 - [@smthrs/capability](https://capability.smithers.sh/llms.txt): Capability values and permission failures: the leaf vocabulary of the Smithers permission kernel
-- [@smthrs/core](https://core.smithers.sh/llms.txt): Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it
+- [@smthrs/core](https://core.smithers.sh/llms.txt): Flow metadata and Markdown lowering over @smthrs/flow
 - [@smthrs/crypto](https://crypto.smithers.sh/llms.txt): Strict SHA-256 hashing with injected and synchronous Effect entry points
 - [@smthrs/database](https://database.smithers.sh/llms.txt): A driver-neutral SQL contract with a bounded write-retry seam, plus the composed migration ladder
 - [@smthrs/flows](https://flows.smithers.sh/llms.txt): Barrel package re-exporting the whole @smthrs durable flow engine

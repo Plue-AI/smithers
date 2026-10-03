@@ -21,7 +21,7 @@ appear in, and disappear from, the process ledger.
   before the program body runs when it is missing. See
   [Installation](./installation.md) for `SMITHERS_JJ_PATH` and for composing
   service layers without jj.
-- A package with the dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+- A package with the dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Run a file operation and a command
 

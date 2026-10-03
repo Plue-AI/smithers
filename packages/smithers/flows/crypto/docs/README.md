@@ -52,7 +52,7 @@ choosing.
 
 ## Install
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 `effect` is the only runtime dependency. `digest` also needs a `Crypto`
 service, which `@effect/platform-node`, `@effect/platform-bun`, and

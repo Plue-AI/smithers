@@ -15,11 +15,11 @@ sidebar:
 
 The package implements `FlowRuntime`, the port `@smthrs/flow` declares, over a low-level `Encoded` seam, and derives RPC and HTTP transports from flow declarations.
 
-This page is the long form: one entry per export, with the full type and every field. [API reference](https://engine.smithers.sh/reference/api/) is the short tour of the same surface, grouped by what each export is for.
+This page is the long form: one entry per export, with the full type and every field. [API reference](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine/docs/api.md) is the short tour of the same surface, grouped by what each export is for.
 
 ## Install
 
-Install the engine beside the flow package it runs. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Install the engine beside the flow package it runs. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ## Entry points
 
@@ -425,7 +425,7 @@ const program: Effect.Effect<string> = Build.execute(
 
 ## See also
 
-- [API reference](https://engine.smithers.sh/reference/api/) covers the same exports grouped by purpose, with the design notes each group needs.
+- [API reference](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine/docs/api.md) covers the same exports grouped by purpose, with the design notes each group needs.
 - [`@smthrs/flow`](/docs/reference/api/flow/) declares `Flow`, `Action`, `RetryPolicy`, and the `FlowRuntime` port this package implements.
 - [`@smthrs/engine-store`](/docs/reference/api/engine-store/) supplies the durable implementation of the `Encoded` seam.
 - [Durable execution](/docs/concepts/durable-execution/) and [Retries](/docs/concepts/retries/) on smithers.sh own the cross-package journal, replay, and attempt-numbering model.

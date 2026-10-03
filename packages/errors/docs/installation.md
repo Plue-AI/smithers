@@ -7,7 +7,7 @@ description: "Install @smthrs/errors and import it from the root entry point or 
 
 ## Add the dependency
 
-Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/installation.md#use-the-libraries).
 
 ```json
 {
