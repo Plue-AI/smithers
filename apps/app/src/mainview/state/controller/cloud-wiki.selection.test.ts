@@ -15,11 +15,11 @@ const homeId = wikiDocumentId(repo, 1), startId = wikiDocumentId(repo, 2), priva
 
 const document = (id: number, slug: string, space: WikiSpace) => {
   const doc = new Y.Doc()
-  const title = slug === "home" ? "Home" : "Start"
+  const title = slug === "home" ? "Home" : slug === "start" ? "Start" : slug.charAt(0).toUpperCase() + slug.slice(1)
   doc.getText("markdown").insert(0, `# ${title}\n\n${space} page`)
   try {
     return {
-      page: { id, slug, title, path: slug === "home" ? "Home.md" : "Guides/Start.md", body: doc.getText("markdown").toString(),
+      page: { id, slug, title, path: slug === "home" ? "Home.md" : slug === "start" ? "Guides/Start.md" : `${title}.md`, body: doc.getText("markdown").toString(),
         revision: 1, author: { id: 1, login: "alice" }, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", visibility: space },
       state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc))
     }
@@ -28,7 +28,8 @@ const document = (id: number, slug: string, space: WikiSpace) => {
 
 const harness = async () => {
   const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
-  let holdHome = false
+  const createdEntered = Promise.withResolvers<void>(), createdRelease = Promise.withResolvers<void>()
+  let holdHome = false, holdCreated = false, denyCreated = false, creates = 0
   const requests: string[] = []
   const pages = { public: [document(1, "home", "public"), document(2, "start", "public")], private: [document(9, "home", "private")] }
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -36,6 +37,12 @@ const harness = async () => {
     requests.push(url.pathname + url.search)
     const space = url.searchParams.get("visibility")
     if (space !== "public" && space !== "private") return Response.json({ message: "Missing space" }, { status: 400 })
+    if (request.method === "POST" && !url.pathname.endsWith("/document")) {
+      creates += 1
+      const created = document(5, "notes", space)
+      pages[space].push(created)
+      return Response.json(created.page)
+    }
     if (url.pathname.endsWith("/navigation/index")) return Response.json({
       pages: pages[space].map(({ page }) => ({ ...page, metadata: { tags: [], aliases: [], headings: [], links: [] }, backlinks: [] })),
       folders: space === "public" ? ["Guides"] : [], tags: []
@@ -46,6 +53,10 @@ const harness = async () => {
     const page = pages[space].find(row => url.pathname.endsWith(`/wiki/${row.page.slug}/document`))
     if (page === undefined) return Response.json({ message: "No page" }, { status: 404 })
     if (holdHome && space === "public" && page.page.slug === "home") { entered.resolve(); await release.promise }
+    if (page.page.slug === "notes") {
+      if (denyCreated) return Response.json({ message: "No access" }, { status: 403 })
+      if (holdCreated) { createdEntered.resolve(); await createdRelease.promise }
+    }
     return Response.json(page)
   } })
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -62,10 +73,13 @@ const harness = async () => {
   const world = createWorldController(ctx, { nextOrdinal: store.nextOrdinal, cloudWiki: wiki })
   await wiki.openCloudWiki(repo, "home", 1)
   await wiki.openCloudWiki(repo, "start", 2)
-  return { store, ctx, wiki, world, entered, release, requests,
+  return { store, ctx, wiki, world, entered, release, requests, createdEntered, createdRelease,
     begin() { holdHome = true; return wiki.readWikiForPane() },
     beginExplicit() { holdHome = true; return wiki.openCloudWiki(repo, "home", 1) },
-    async close() { release.resolve(); await ctx.dispose(); await server.stop(true) }
+    beginCreate(title: string) { holdCreated = true; return wiki.createCloudWikiPage(title, repo) },
+    denyCreated() { denyCreated = true },
+    creates: () => creates,
+    async close() { release.resolve(); createdRelease.resolve(); await ctx.dispose(); await server.stop(true) }
   }
 }
 
@@ -419,4 +433,51 @@ test("a held public index read stays current across a newer private read and an 
     expect(t.controller.wikiIndexes.get(repo, "private")?.tags).toEqual(["private"])
     expect(other.publicIndex()?.tags).toEqual(["stale"])
   } finally { try { await other?.close() } finally { await t.close() } }
+})
+
+const notesId = wikiDocumentId(repo, 5)
+
+test("a newer selection during an explicit real HTTP Home read states the selection change", async () => {
+  const t = await harness(), pending = t.beginExplicit()
+  try {
+    await t.entered.promise
+    expect(t.world.selectWorldDocument(startId)).toBeUndefined()
+    t.release.resolve()
+    expect(await pending).toBe("The Wiki selection changed while the page was loading.")
+    expect(t.store.session().selectedWorldDocumentId).toBe(startId)
+  } finally { t.release.resolve(); await pending; await t.close() }
+})
+
+test("a confirmed creation stays created when a newer selection supersedes its opening read", async () => {
+  const t = await harness(), pending = t.beginCreate("Notes")
+  try {
+    await t.createdEntered.promise
+    expect(t.world.selectWorldDocument(startId)).toBeUndefined()
+    t.createdRelease.resolve()
+    expect(await pending).toEqual({ value: `Created Notes.md in the public Wiki of ${repo}.` })
+    expect(t.creates()).toBe(1)
+    expect(t.store.session().selectedWorldDocumentId).toBe(startId)
+    expect(t.store.collections.toasts.get(`toast-wiki.new.${repo}.public`)?.status).not.toBe("failed")
+    expect(t.store.collections.cards.get(`wiki-open-${notesId}`)).toBeUndefined()
+  } finally { t.createdRelease.resolve(); await pending; await t.close() }
+})
+
+test("an ordinary creation opens the new page in the pane", async () => {
+  const t = await harness()
+  try {
+    expect(await t.wiki.createCloudWikiPage("Notes", repo)).toEqual({ value: `Created Notes.md in the public Wiki of ${repo}.` })
+    expect(t.store.session().selectedWorldDocumentId).toBe(notesId)
+    expect(t.creates()).toBe(1)
+  } finally { await t.close() }
+})
+
+test("a refused opening read after a creation is still stated as the refusal", async () => {
+  const t = await harness()
+  try {
+    t.denyCreated()
+    const outcome = await t.wiki.createCloudWikiPage("Notes", repo)
+    expect(typeof outcome).toBe("string")
+    expect(outcome).not.toContain("Created")
+    expect(t.creates()).toBe(1)
+  } finally { await t.close() }
 })

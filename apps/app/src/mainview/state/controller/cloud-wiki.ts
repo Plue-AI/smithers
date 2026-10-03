@@ -556,20 +556,23 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     )
   }
 
-  const openCloudWiki = async (
+  /** A superseded open is neither a refusal nor a publication: a newer selection owns the pane. */
+  type OpenOutcome = { readonly value: string } | { readonly superseded: string } | { readonly refusal: string }
+  const superseded = (): OpenOutcome => ({ superseded: "The Wiki selection changed while the page was loading." })
+  const openOutcome = async (
     repo: string,
     slug: string,
     expectedPageId?: number,
     spaceArg?: WikiSpace,
     isCurrent?: () => boolean
-  ): Promise<string | { value: string }> => {
+  ): Promise<OpenOutcome> => {
     const space = spaceArg ?? shared.space()
     const owner = shared.login()
-    if (owner === null) return "Sign in to read and edit the repository Wiki."
+    if (owner === null) return { refusal: "Sign in to read and edit the repository Wiki." }
     try {
       wikiPagePath(repo, slug)
     } catch (error) {
-      return error instanceof CloudWikiError ? error.sentence : "Invalid Wiki page."
+      return { refusal: error instanceof CloudWikiError ? error.sentence : "Invalid Wiki page." }
     }
     const selection = isCurrent === undefined && ctx.commandActor === "user" ? ++shared.paneRead : undefined
     const current = isCurrent ?? (() => selection === undefined || selection === shared.paneRead)
@@ -580,8 +583,9 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         const api = yield* CloudWikiTransport
         const incoming = yield* api.read(repo, slug, space)
         if (
-          shared.disposed() || shared.login() !== owner || shared.branch() !== originBranch || !current()
-        ) return "The account or conversation changed while the Wiki was loading."
+          shared.disposed() || shared.login() !== owner || shared.branch() !== originBranch
+        ) return { refusal: "The account or conversation changed while the Wiki was loading." } as OpenOutcome
+        if (!current()) return superseded()
         if (expectedPageId !== undefined && incoming.page.id !== expectedPageId) {
           const oldId = wikiDocumentId(repo, expectedPageId)
           shared.watches.get(oldId)?.stop()
@@ -590,15 +594,15 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           if (previous !== undefined) {
             yield* shared.persist({ ...previous, cloud: { ...previous.cloud, phase: "deleted", error: message } })
           }
-          return message
+          return { refusal: message }
         }
         const id = wikiDocumentId(repo, incoming.page.id)
         yield* shared.accept(repo, { ...incoming, page: { ...incoming.page, visibility: incoming.page.visibility ?? space } }, owner, originBranch, actor)
-        if (!current()) return "The Wiki selection changed while the page was loading."
+        if (!current()) return superseded()
         shared.watch(id)
         const document = shared.read(id)!
         yield* shared.persist({ ...document, cloud: { ...document.cloud, phase: "live" } }, actor)
-        if (!current()) return "The Wiki selection changed while the page was loading."
+        if (!current()) return superseded()
         // Automatic reads populate the active pane; explicit agent opens remain embedded in chat.
         if (ctx.store.session().surface === "world" && (actor === "user" || isCurrent !== undefined)) {
           ctx.store.dispatch({ type: "world.document.selected", actor, id })
@@ -627,8 +631,20 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         // Only this explicit open resumes pending writes, and only in their original account/branch.
         void shared.flush(id)
         return { value: `Embedded ${document.path} at page revision ${incoming.page.revision}.\n\n${document.body}` }
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed<OpenOutcome>({ refusal: error.sentence })))
     )
+  }
+
+  /** `wiki.cloud.open <slug> [owner/repo]`: the page in the pane (user) or embedded in chat (agent); a superseded open states the selection change. */
+  const openCloudWiki = async (
+    repo: string,
+    slug: string,
+    expectedPageId?: number,
+    spaceArg?: WikiSpace,
+    isCurrent?: () => boolean
+  ): Promise<string | { value: string }> => {
+    const outcome = await openOutcome(repo, slug, expectedPageId, spaceArg, isCurrent)
+    return "value" in outcome ? outcome : "superseded" in outcome ? outcome.superseded : outcome.refusal
   }
 
   const stageEdit = (id: string, body: string, needsAdmission: boolean): PreparedWikiEdit | string => {
@@ -805,8 +821,8 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the page was being created."
       void loadWikiIndex(repo, space)
-      const opened = await openCloudWiki(repo, answer.slug, answer.id, space)
-      return typeof opened === "string" ? opened : answer
+      const opened = await openOutcome(repo, answer.slug, answer.id, space)
+      return "refusal" in opened ? opened.refusal : answer
     })
     if (typeof outcome === "string") return outcome
     return { value: `Created ${outcome.path ?? `${outcome.slug}.md`} in the ${space} ${WIKI_DISPLAY_NAME} of ${repo}.` }
