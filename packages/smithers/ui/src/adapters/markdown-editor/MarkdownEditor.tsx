@@ -89,7 +89,7 @@ export type MarkdownEditorError = {
  * the default dynamic imports.
  */
 export type MarkdownEditorModule = {
-  readonly Crepe: new(options: { root: HTMLElement; defaultValue: string }) => CrepeInstance;
+  readonly Crepe: new(options: { root: HTMLElement; defaultValue: string; readOnly?: boolean }) => CrepeInstance;
   readonly replaceAll: (markdown: string) => unknown;
   /** Register the synchronous document listener before creation; no debounced snapshots. */
   readonly listenImmediately: (editor: CrepeInstance, handler: (markdown: string) => void) => void;
@@ -102,6 +102,8 @@ export type MarkdownEditorProps = {
    * every `value` change — that would yank the caret mid-typing.
    */
   value: string;
+  /** Source line revealed once after each document reset. */
+  initialLine?: number;
   /** Fires with the serialized markdown on every local edit. */
   onChange?: (markdown: string) => void;
   /** When true the document is not editable. */
@@ -306,15 +308,28 @@ const renderedHeadingFor = (host: HTMLElement, markdown: string, line: number): 
 
 /** Load the rich editor and its transaction adapter only when needed. */
 const loadMilkdown = async (): Promise<MarkdownEditorModule> => {
-  const [{ Crepe }, { $prose }, { serializerCtx }, { Plugin }, { replaceMarkdown }] = await Promise.all([
+  const [{ Crepe }, { $prose }, { serializerCtx }, { Plugin }, { replaceMarkdown }, { htmlSchema }] = await Promise.all([
     import("@milkdown/crepe"),
     import("@milkdown/kit/utils"),
     import("@milkdown/kit/core"),
     import("@milkdown/kit/prose/state"),
     import("./replaceMarkdown"),
+    import("@milkdown/kit/preset/commonmark"),
   ]);
   return {
-    Crepe: Crepe as unknown as MarkdownEditorModule["Crepe"],
+    Crepe: class extends Crepe {
+      constructor({ readOnly, ...options }: { root: HTMLElement; defaultValue: string; readOnly?: boolean }) {
+        // Read-only code is ordinary text, without an editable CodeMirror node view.
+        super({ ...options, features: readOnly ? { [Crepe.Feature.CodeMirror]: false } : undefined });
+        if (readOnly) this.editor.config(ctx => {
+          ctx.update(htmlSchema.key, previous => context => {
+            const schema = previous(context);
+            return { ...schema, parseMarkdown: { ...schema.parseMarkdown,
+              runner: (state, node) => { state.addText(String(node.value ?? "")); } } };
+          });
+        });
+      }
+    } as unknown as MarkdownEditorModule["Crepe"],
     replaceAll: replaceMarkdown,
     listenImmediately: (editor, handler) => {
       editor.editor.use?.($prose((ctx) => new Plugin({
@@ -331,6 +346,7 @@ const loadMilkdown = async (): Promise<MarkdownEditorModule> => {
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
   {
     value,
+    initialLine,
     onChange,
     readOnly = false,
     resetKey,
@@ -511,7 +527,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       try {
         const { Crepe, replaceAll, listenImmediately } = modules;
         replaceAllRef.current = replaceAll;
-        const editor = new Crepe({ root: host, defaultValue: seed });
+        const editor = new Crepe({ root: host, defaultValue: seed, readOnly });
         crepe = editor;
         crepeRef.current = editor;
         // Milkdown's debounced listener can retain a pre-peer transaction:
@@ -535,6 +551,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           }
         }
         readyRef.current = true;
+        const content = host.querySelector<HTMLElement>(".ProseMirror");
+        if (ariaLabel) content?.setAttribute("aria-label", ariaLabel);
+        content?.setAttribute("aria-readonly", String(readOnly));
+        if (initialLine !== undefined) {
+          const heading = renderedHeadingFor(host, lastMarkdownRef.current, initialLine);
+          heading?.scrollIntoView?.({ block: "start" });
+        }
         setAttempt((previous) =>
           Object.is(previous.key, resetKey) && previous.readOnly === readOnly && previous.state === "loading"
             ? { ...previous, state: "ready" }

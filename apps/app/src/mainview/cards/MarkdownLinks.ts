@@ -60,7 +60,7 @@ export const resolveMarkdownLink = (documentPath: string, href: string): Markdow
 }
 
 /** GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens. */
-export const headingAnchor = (heading: string): string =>
+const headingAnchor = (heading: string): string =>
   heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-")
 
 /**

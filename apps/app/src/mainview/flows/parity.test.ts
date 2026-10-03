@@ -455,6 +455,16 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
       }
       return calledTag(expression.body, seen)
     }
+    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) &&
+      expression.expression.text !== "onAction") {
+      let extraEffect = false
+      const inspectArgument = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) || ts.isNewExpression(node) || mutates(node)) extraEffect = true
+        ts.forEachChild(node, inspectArgument)
+      }
+      for (const argument of expression.arguments) inspectArgument(argument)
+      return extraEffect ? undefined : calledTag(expression.expression, seen)
+    }
     if (
       !ts.isCallExpression(expression) || !ts.isIdentifier(expression.expression) ||
       expression.expression.text !== "onAction"
@@ -573,9 +583,21 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
     }
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const attributes = node.attributes.properties
-      const binding = attributes.find((attribute) =>
+      let binding = attributes.find((attribute) =>
         ts.isJsxAttribute(attribute) && attribute.name.getText(tree) === "data-flow"
       )
+      // Adapters can forward events while their host wrapper carries data-flow.
+      if (!binding && node.tagName.getText(tree) === "MarkdownEditor") {
+        let parent: ts.Node | undefined = node.parent
+        while (parent && (ts.isJsxElement(parent) || ts.isJsxExpression(parent))) {
+          if (ts.isJsxElement(parent) && parent.openingElement !== node) {
+            binding = parent.openingElement.attributes.properties.find(attribute =>
+              ts.isJsxAttribute(attribute) && attribute.name.getText(tree) === "data-flow")
+            if (binding) break
+          }
+          parent = parent.parent
+        }
+      }
       const dataFlow =
         binding && ts.isJsxAttribute(binding) && binding.initializer && ts.isJsxExpression(binding.initializer)
           ? binding.initializer.expression :
@@ -863,6 +885,16 @@ describe("View and Container catalog seam (C-UI-08)", () => {
   })
 
   test("guarded link callbacks retain exactly one catalog effect", () => {
+    const helper = 'const go = page => { if (open && !open.disabled) onAction(open.tag, { ...open.args, page }) }; const follow = href => { if (links[href]) go(links[href]); return true }; '
+    expect(viewSeamViolations(helper + 'const view = <div data-flow={open?.tag}><MarkdownEditor onLinkClick={follow} /></div>')).toEqual([])
+    for (const source of [
+      helper + 'const view = <div data-flow={other?.tag}><MarkdownEditor onLinkClick={follow} /></div>',
+      helper + 'const view = <MarkdownEditor onLinkClick={follow} />',
+      helper.replace('go(links[href])', 'go(fetch(href))') + 'const view = <div data-flow={open?.tag}><MarkdownEditor onLinkClick={follow} /></div>',
+      helper.replace('go(links[href])', 'go(links[href]); localStorage.clear()') + 'const view = <div data-flow={open?.tag}><MarkdownEditor onLinkClick={follow} /></div>',
+      'const go = page => go(page); const view = <a data-flow={open?.tag} onClick={go} />'
+    ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+
     expect(viewSeamViolations('const follow = href => { const page = links[href]; if (page && open && !open.disabled) onAction(open.tag, { ...open.args, page }); return true }; const view = <MarkdownEditor data-flow={open?.tag} onLinkClick={follow} />')).toEqual([])
     for (const effect of ['fetch(page)', 'localStorage.clear()', 'onRetry()', 'new Worker(page)', 'model.page = page', 'onAction(other.tag)']) {
       expect(viewSeamViolations(`const follow = href => { if (open) onAction(open.tag, { page: href }); ${effect}; return true }; const view = <MarkdownEditor data-flow={open?.tag} onLinkClick={follow} />`).length).toBeGreaterThan(0)

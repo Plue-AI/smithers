@@ -32,8 +32,8 @@ export const fixtures = {
   disabled: story<DocsCard, {}, "open">("Navigation unavailable", { toc, page: quickstart }, {
     gestures: { open: { ...open("quickstart"), disabled: { reason: "Unavailable" } } }, expect: ["Quickstart"]
   }),
-  hostile: story<DocsCard, {}, "open">("Inert HTML", { toc, page: { ...quickstart, markdown: "# Quickstart\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[Blocked](javascript:alert)\n\n[Heading](#put-https-in-front)\n\n## Put HTTPS in front\n" } }, {
-    gestures: { open: { ...open("quickstart"), args: { source: "docs-card" } } }, expect: ["Quickstart"]
+  hostile: story<DocsCard, {}, "open">("Inert HTML", { toc, page: { ...quickstart, markdown: "# Quickstart\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[Blocked](javascript:alert)\n\n    <div>\n\n[Reference][r]\n\n[r]: javascript:x\n\n[Titled](todos.md \"t\")\n\n[Heading](#put-https-in-front)\n\n## Put HTTPS in front\n" } }, {
+    gestures: { open: { ...open("quickstart"), args: { source: "docs-card" } } }, expect: ["Quickstart", "<div>", "Reference", "Titled"]
   }),
   not_found: story<DocsCard, {}, "open">(
     "A missing page shows the first page",

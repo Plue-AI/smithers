@@ -298,6 +298,7 @@ describe("MarkdownEditor scrollToLine (WYSIWYG path)", () => {
       Crepe: class extends Base {
         override async create() {
           const editor = document.createElement("div");
+          editor.className = "ProseMirror";
           editor.setAttribute("contenteditable", "true");
           editor.tabIndex = 0;
           this.options.root.append(editor);
@@ -313,6 +314,29 @@ describe("MarkdownEditor scrollToLine (WYSIWYG path)", () => {
     };
     return { ...stub, load: async () => stub.module };
   };
+
+  test("initialLine waits for ready and runs once per reset with accessible content", async () => {
+    const stub = headingStub();
+    let resolveLoad!: (module: MarkdownEditorModule) => void;
+    const pending = new Promise<MarkdownEditorModule>(resolve => { resolveLoad = resolve });
+    const seen: string[] = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () { seen.push(this.textContent ?? "") };
+    const view = (key: string) => <MarkdownEditor value={"# Page\n\n## Target"} resetKey={key} initialLine={3} readOnly aria-label="Page" fallback={false} loadEditor={() => pending} />;
+    try {
+      await render(view("a"));
+      expect(seen).toEqual([]);
+      await act(async () => { resolveLoad(stub.module); await pending });
+      expect(seen).toEqual(["Target"]);
+      expect(host().querySelector(".ProseMirror")?.getAttribute("aria-label")).toBe("Page");
+      expect(host().querySelector(".ProseMirror")?.getAttribute("aria-readonly")).toBe("true");
+      await rerender(view("a"));
+      host().append(document.createElement("p"));
+      expect(seen).toEqual(["Target"]);
+      await rerender(view("b"));
+      expect(seen).toEqual(["Target", "Target"]);
+    } finally { HTMLElement.prototype.scrollIntoView = original }
+  });
 
   test("brings the nearest heading at or above the line into view, the nth among equal texts", async () => {
     const stub = headingStub();

@@ -580,11 +580,18 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
   await page.goto("/view-stories.html?story=DocsView/Inert%20HTML")
   await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
   await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe,.mvp-docs a[href^=\"javascript:\"]")).toHaveCount(0)
+  await expect(page.locator(".mvp-docs .ProseMirror")).toContainText("<script>alert(1)</script>")
+  await expect(page.locator(".mvp-docs pre")).toContainText("<div>")
   await page.evaluate(() => {
     const receipts: unknown[] = []
     Object.assign(window, { docsReceipts: receipts })
     window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
   })
+  await page.getByRole("link", { name: "Titled", exact: true }).click()
+  expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
+    { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "todos" } } }
+  ])
+  await page.evaluate(() => { (window as unknown as { docsReceipts: unknown[] }).docsReceipts = [] })
   await page.getByRole("link", { name: "Heading", exact: true }).click()
   expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
     { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "quickstart#put-https-in-front" } } }
@@ -600,5 +607,12 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
     { kind: "action", value: { tag: "docs", args: { page: "todos" } } }
   ])
   await page.goto("/view-stories.html?story=DocsView/Scrolled%20to%20a%20heading")
-  await expect(page.locator('[id="quickstart#put-https-in-front"]')).toBeVisible()
+  await expect(page.locator('.mvp-docs .ProseMirror h2')).toHaveText("Put HTTPS in front")
+  await expect(page.getByRole("heading", { name: "Quickstart", exact: true })).toHaveCount(1)
+  const scroll = page.locator('.mvp-docs .sui-markdown-editor')
+  await scroll.evaluate(node => { node.style.height = "40px"; node.scrollTop = 20 })
+  const position = await scroll.evaluate(node => node.scrollTop)
+  expect(position).toBeGreaterThan(0)
+  await page.waitForTimeout(500)
+  expect(await scroll.evaluate(node => node.scrollTop)).toBe(position)
 })

@@ -640,8 +640,8 @@ Rows show names and scope, without a Hosts count or Bind control.
 `DocsViewProps = CardProps<DocsCard, {}, "open">` from `@smthrs/rpc/DocsCard`.
 `DocsCard` is a TypeScript projection: `toc[] {slug, title}`, `page {slug, title,
 summary, markdown}`, `anchor?`, `not_found?`. The missing slug appears above the
-supplied fallback page. The read-only wiki Markdown adapter renders entity-escaped
+supplied fallback page. The read-only wiki Markdown adapter renders inert
 HTML. TOC and document links dispatch the supplied `open` gesture with
 `{...args, page: "<slug>#<anchor>"}`; absent or disabled gestures are inert.
-The adapter's heading scroll handle follows `anchor`. At 390px the rail wraps
+The adapter reveals `anchor` once per page/anchor reset. At 390px the rail wraps
 above the page. No router, loader or authorization belongs to this View.
