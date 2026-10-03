@@ -5,7 +5,8 @@ import { toneTokens } from "./Tone"
 import type { ViewStory } from "./stories"
 import type { TodoState } from "@smthrs/rpc/CardPrimitives"
 
-const ben = { login: "ben", name: "Ben Park", avatar_url: "", color_index: 1 }
+const person = actorFixtures.person.model.actor as Extract<Actor, { kind: "person" }>
+const ben = { login: person.login, name: person.name, avatar_url: person.avatar_url, color_index: 1 }
 const actors: [string, Actor][] = [
   ["person", { kind: "person", ...ben }],
   ...(["ssh", "terminal", "cli"] as const).map(via => [`person-${via}`, { kind: "person", ...ben, name: "Maya Chen", via }] as [string, Actor]),
@@ -16,12 +17,11 @@ const actors: [string, Actor][] = [
 for (const agent of ["smithers", "coding", "reviewer", "claude-code", "codex", "external"] as const) {
   for (const delegated of [false, true]) actors.push([
     `${agent}${delegated ? "-for-ben" : ""}`,
-    { kind: "agent", id: agent, agent, avatar_url: "", color_index: delegated ? 1 : 6, ...(delegated ? { for_member: ben } : {}) }
+    { kind: "agent", id: agent, agent, avatar_url: ben.avatar_url, color_index: delegated ? 1 : 6, ...(delegated ? { for_member: ben } : {}) }
   ])
 }
 for (let color_index = 0; color_index < 6; color_index++) actors.push([`member-color-${color_index}`, { kind: "person", ...ben, color_index }])
-// Self-contained avatar, so screenshots never depend on external image servers.
-actors.push(["person-avatar", { kind: "person", ...ben, avatar_url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%23376f91'/%3E%3Ctext x='24' y='32' text-anchor='middle' fill='white' font-size='24'%3EB%3C/text%3E%3C/svg%3E" }])
+actors.push(["person-avatar", { kind: "person", ...ben }])
 const actorLabels: Record<string, string> = {
   person: "Ben", "person-ssh": "Maya via SSH", "person-terminal": "Maya's terminal", "person-cli": "Maya via CLI",
   system: "Smithers", github: "@octocat", outside: "Changed outside Smithers", smithers: "Smithers", "smithers-for-ben": "Smithers for Ben",
