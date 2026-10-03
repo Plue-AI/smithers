@@ -15,14 +15,14 @@ function SetupAction({ action, onAction }: { action: Action; onAction: CardProps
   const values = Object.fromEntries((action.input ?? []).map(field => [field.name, input[field.name] ?? field.value ?? field.choices?.[0] ?? ""]))
   const stepper = ["capacity", "parallel", "todo_daily_admissions"].includes(action.args?.field ?? "")
   return <form className="setup-action" onSubmit={event => { event.preventDefault(); if (!action.disabled) onAction(action.tag, { ...action.args, ...values }) }} data-flow={action.tag}>
-    {action.input?.map(field => <label key={field.name} htmlFor={`${id}-${field.name}`}>{field.label}
+    {action.input?.map(field => <div className="setup-field" key={field.name}>{stepper ? <span>{field.label}</span> : <label htmlFor={`${id}-${field.name}`}>{field.label}</label>}
       {stepper ? <span className="setup-stepper">
-        <button type="button" data-flow={action.tag} disabled={!!action.disabled} aria-label={`Fewer ${field.label}`} onClick={() => onAction(action.tag, { ...action.args, value: String(Math.max(0, Number(values[field.name]) - 1)) })}>−</button>
+        <button type="button" data-flow={action.tag} disabled={!!action.disabled} aria-label={`Fewer ${field.label}`} onClick={event => { event.preventDefault(); onAction(action.tag, { ...action.args, value: String(Math.max(0, Number(values[field.name]) - 1)) }) }}>−</button>
         <output>{values[field.name]}</output>
-        <button type="button" data-flow={action.tag} disabled={!!action.disabled} aria-label={`More ${field.label}`} onClick={() => onAction(action.tag, { ...action.args, value: String(Number(values[field.name]) + 1) })}>+</button>
+        <button type="button" data-flow={action.tag} disabled={!!action.disabled} aria-label={`More ${field.label}`} onClick={event => { event.preventDefault(); onAction(action.tag, { ...action.args, value: String(Number(values[field.name]) + 1) }) }}>+</button>
       </span> : field.kind === "choice" ? <select id={`${id}-${field.name}`} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })}>{field.choices?.map(choice => <option key={choice}>{choice}</option>)}</select>
         : <input id={`${id}-${field.name}`} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })} />}
-    </label>)}
+    </div>)}
     {stepper ? null : <button type="submit" data-flow={action.tag} data-primary={action.primary || undefined} disabled={!!action.disabled}>{action.label}</button>}
     {action.disabled && <span className="setup-reason">{action.disabled.reason}</span>}
   </form>
@@ -54,8 +54,9 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
         {(step.id === "source" || step.id === "machine") && <><span className="setup-muted">{step.state === "done" ? `${titles[step.id]} ready` : step.state === "pending" ? "Waiting" : step.state === "running" ? `${step.pct ?? 0}%` : null}</span>{step.pct !== undefined && <progress max={100} value={step.pct} aria-label={titles[step.id]} />}</>}
         {step.blocked && <a className="setup-blocked" href={step.blocked.fix_url} target="_blank" rel="noreferrer">{step.blocked.line}</a>}
         {step.error && <span className="setup-error" role="alert">{step.error.message}</span>}
+        <SetupActions actions={actions.filter(action => action.args?.step === step.id)} onAction={onAction} />
       </div>
     </li>)}</ol>
-    <SetupActions actions={actions} onAction={onAction} />
+    <SetupActions actions={actions.filter(action => !model.steps.some(step => step.id === action.args?.step))} onAction={onAction} />
   </section>
 }
