@@ -1,26 +1,25 @@
 # Cards persistence contract
 
-`CardSchema` decodes persisted rows and embedded card snapshots. A preprocessor
-retires rows the product no longer serves before the kind union sees them, so a
-frame stored by an older build still parses. A retired row keeps its `id`,
-`ordinal` and `createdAt`, and becomes `kind: "retired"` with an empty title, an
-empty payload and `status: "acted"`. These rows are retired:
+`CardSchema` is the single persisted-card decoder. `LEGACY_CARD_KINDS` is the
+shared removed-kind set used by the decoder and renderer registration coverage.
+It excludes `retired`, the current tombstone schema. Unknown kinds outside the
+set fail decoding; malformed live rows fail their current schema.
+`CardSchemaOptions` names the current union options for embedding schemas.
 
-- the kinds `factory`, `repo-onboarding`, `repo-home`, `agent-models` and
-  `agent-form`
-- a `connector-setup` row for Linear and a `sync-ops` row whose source is Linear
-- a `flow-form` row whose flow starts with `linear.` or is one of the retired
-  flows: `repo.welcome`, `repo.explore`, `repo.contribute`, `repo.maintain`,
-  `repo.home`, `factory.show`, `workspace.fork`, `workspace.snapshot`,
-  `workspace.snapshot.delete`, `workspace.snapshot.fork`, `workspace.template`,
-  `change.open-computer`, `agent.create`, `agent.edit`, `agent.models`,
-  `agent.new`, `agent.remove`, `issues.link-linear`, `issues.unlink-linear`,
-  `sync.retry` and `sync.ops.load-older`
+A legacy row keeps its stored title, identity, ordering and timestamp. Decoding
+removes its body and payload, sets `payload: { was: <original kind> }`, stops
+loading and sets status to `acted`. Existing tombstones preserve their title and
+optional `payload.was`; decoding twice is stable. Old tombstones without `was`
+remain readable. Titles are inert text, never saved actions.
 
-A stored `connect` card keeps its kind and drops any Linear row from
-`integrations.rows`; the first-party Linear integration is retired (D-11).
+Retired flow forms, Linear issue rows and cloud `agents` inventories use the same
+retirement path. Non-cloud `agents` stays live (L4). A kind joins the legacy set
+only when its last producer is removed (L3). `grant-confirm` is legacy;
+`stack` and `factory.home` retain live schemas under #3447. They are deferred
+and hidden by the app-local `DEFERRED_CARD_KINDS` list. `branches`, `file`,
+`diff`, `secrets`, `run-trace`, `balance` and `billing-plans` remain current.
+`cardAvailable` excludes decoded tombstones and the two deferred app kinds.
 
-Malformed rows of a current kind still fail validation.
 
 `CardPatchSchema` requires `kind`, including for metadata-only updates. Its payload
 is a shallow partial of that kind's payload schema: every top-level field is

@@ -87,7 +87,7 @@ const CUT_NAMES = [
   "system.recommend",
   "issue-sweep"
 ] as const
-const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent"] as const
+const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm"] as const
 const base = { id: "old-card", title: "Saved surface", status: "active", createdAt: 1, ordinal: 1 }
 
 describe("Cut app surfaces", () => {
@@ -153,20 +153,33 @@ describe("Cut app surfaces", () => {
 
   test.each([...CUT_KINDS])("old %s cards decode as inert history", kind => {
     const decoded = CardSchema.parse({ ...base, kind, body: "old markup", payload: { secret: "old feature data" } })
-    expect(decoded).toEqual({ ...base, title: "", kind: "retired", status: "acted", loading: false, payload: {} })
+    expect(decoded).toEqual({ ...base, kind: "retired", status: "acted", loading: false, payload: { was: kind } })
     expect(cardAvailable(decoded.kind)).toBe(false)
     expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)
-    // T-CUT-01 Scope Matching rows: schema options remain until T-APP-22.
-    expect(CardSchema.options.map(option => option.shape.kind.value)).toContain(kind)
-    expect(cardAvailable(kind)).toBe(false)
+    // Removed kinds have no current schema; availability reads the decoded tombstone.
+    expect(CardSchema.options.map(option => option.shape.kind.value)).not.toContain(kind)
+    expect(cardAvailable(kind)).toBe(true)
+  })
+
+  test("deferred stack and factory home cards decode live but stay unavailable", () => {
+    const rows = [
+      { kind: "stack" as const, payload: { repo: "smithersai/smithers", failure: null } },
+      { kind: "factory.home" as const, payload: { repo: "smithersai/smithers", home: { kind: "error" as const, message: "Unavailable" }, flows: [] } }
+    ]
+    for (const row of rows) {
+      const decoded = CardSchema.parse({ ...base, ...row })
+      expect(decoded.kind).toBe(row.kind)
+      expect(decoded.payload).toEqual(row.payload)
+      expect(cardAvailable(decoded.kind)).toBe(false)
+    }
   })
 
   test.each([...CUT_NAMES])("saved /%s forms decode as inert history", flow => {
     const decoded = CardSchema.parse({ ...base, kind: "flow-form",
       payload: { flow, via: "user", fields: [], draft: {}, given: {} } })
     expect(decoded.kind).toBe("retired")
-    expect(decoded.payload).toEqual({})
-    expect(decoded.title).toBe("")
+    expect(decoded.payload).toEqual({ was: "flow-form" })
+    expect(decoded.title).toBe(base.title)
     expect(cardAvailable(decoded.kind)).toBe(false)
   })
 
@@ -179,8 +192,8 @@ describe("Cut app surfaces", () => {
       "environment-images", "trigger-list", "world"]) expect(Object.keys(CARD_RENDERERS)).toContain(kind)
     for (const kind of ["grant-confirm", "balance", "billing-plans"] as const) {
       expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)
-      expect(cardAvailable(kind)).toBe(kind !== "grant-confirm")
-      expect(CardSchema.options.map(option => option.shape.kind.value)).toContain(kind)
+      expect(cardAvailable(kind)).toBe(true)
+      expect(CardSchema.options.some(option => option.shape.kind.value === kind)).toBe(kind !== "grant-confirm")
     }
   })
 })

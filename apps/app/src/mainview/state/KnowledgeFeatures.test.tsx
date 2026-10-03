@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -102,11 +103,13 @@ describe("a repository that declares a knowledge flow", () => {
 })
 
 describe("the retired Plugin Library", () => {
-  const libraryCard = { id: "old-library", kind: "plugin-library" as const, title: "Library", status: "active" as const,
-    createdAt: 1, ordinal: 1, payload: { tutorial: false } }
+  const libraryCard = CardSchema.parse({ id: "old-library", kind: "plugin-library" as const, title: "Library", status: "active" as const,
+    createdAt: 1, ordinal: 1, payload: { tutorial: false } })
 
   test("a restored Library card is reset, refused and dropped from the agent's context like a Wiki card", async () => {
-    expect(cardAvailable("plugin-library")).toBe(false)
+    expect(libraryCard.kind).toBe("retired")
+    expect(libraryCard.payload).toEqual({ was: "plugin-library" })
+    expect(cardAvailable(libraryCard.kind)).toBe(false)
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await store.dispatch({ type: "card.upsert", actor: "system", card: libraryCard }).isPersisted.promise
     await store.dispatch({ type: "card.maximized", actor: "user", id: libraryCard.id }).isPersisted.promise
@@ -115,7 +118,7 @@ describe("the retired Plugin Library", () => {
     expect(store.collections.cards.has(libraryCard.id)).toBe(true)
     expect((await controller.commands.run("card.maximize", libraryCard.id)).status).toBe("failed")
     expect(controller.commands.find("tab.card")).toBeUndefined()
-    expect(renderToStaticMarkup(createElement(CardView, { card: libraryCard, maximized: false, worldDocuments: [], ...cardActions(controller) }))).toBe("")
+    expect(renderToStaticMarkup(createElement(CardView, { card: libraryCard, maximized: false, worldDocuments: [], ...cardActions(controller) }))).toContain("Library")
   })
 
 

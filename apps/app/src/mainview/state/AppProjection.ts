@@ -3,7 +3,7 @@ import { historyHasNewerUserIntent, verifyConversationHistory } from "./Conversa
 import type { HistoricalHttpLeg, HttpTurn } from "./HttpTurn"
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
-import type { ConfiguredModel, ModelBinding } from "@smthrs/rpc/ConfiguredModel"
+import type { ConfiguredModel } from "@smthrs/rpc/ConfiguredModel"
 import { bindingOf,seatAccepts } from "@smthrs/rpc/ConfiguredModel"
 import { z } from "zod"
 import { approvalQuestionKey } from "../cards/ApprovalQuestion"
@@ -676,72 +676,9 @@ const writeModel = (draft: StoredModel, model: ConfiguredModel): void => {
   if (rerouted) draft.lastTest = undefined
 }
 
-/*
- * A composer kept off the live cards, in an archived conversation, a frame's
- * snapshot, a card history or a recovery, is read against the record as it is
- * now: an answer its binding did not give leaves, its fixture with it, and so
- * does an answer written before answers kept their binding. With `returning`
- * the card is coming back from a conversation that left, and an ask it held
- * as out is over too: its answer had no card to land on.
- */
-const currentModelCallCard = (collections: ProjectionCollections, card: Card, returning: boolean): Card => {
-  if (card.kind !== "model-call") return card
-  const record = collections.models.get(card.payload.model)
-  const binding = record === undefined ? undefined : canonicalEventValue(bindingOf(record))
-  const current = (evidence: { readonly binding?: ModelBinding | undefined } | undefined): boolean =>
-    evidence?.binding !== undefined && canonicalEventValue(evidence.binding) === binding
-  const { response, pending, asking: _asking, fixture, ...draft } = card.payload
-  return { ...card, payload: {
-    ...draft,
-    ...(current(response) ? { response, ...(fixture === undefined ? {} : { fixture }) } : {}),
-    ...(!returning && current(pending) ? { pending } : {})
-  } }
-}
-
-/*
- * A composer's answer, its fixture and its ask that is still out are evidence
- * about one binding too. A model rebound or removed takes them off its
- * composer in the same commit, so a late answer finds no ask to settle and a
- * record recreated under the name inherits nothing. The draft is the
- * person's, and stays.
- */
-const forgetModelCallEvidence = (collections: ProjectionCollections, id: string): void => {
-  const forgotten = (card: Card): Card => {
-    if (card.kind !== "model-call" || card.payload.model !== id) return card
-    const { response: _response, pending: _pending, asking: _asking, fixture: _fixture, ...draft } = card.payload
-    return { ...card, payload: draft }
-  }
-  const holds = (cards: ReadonlyArray<Card>): boolean => cards.some((card) => card.kind === "model-call" && card.payload.model === id)
-  for (const card of [...collections.cards.values()]) {
-    if (card.kind !== "model-call" || card.payload.model !== id) continue
-    collections.cards.update(card.id, (draft) => {
-      if (draft.kind !== "model-call") return
-      delete draft.payload.response
-      delete draft.payload.pending
-      delete draft.payload.asking
-      delete draft.payload.fixture
-    })
-  }
-  // The same composer wherever else it is kept: a record recreated under the name inherits nothing from there either.
-  for (const branch of [...collections.branches.values()]) {
-    if (branch.snapshot === undefined || !holds(branch.snapshot.cards)) continue
-    collections.branches.update(branch.id, (draft) => { draft.snapshot = { ...draft.snapshot!, cards: draft.snapshot!.cards.map(forgotten) } })
-  }
-  for (const frame of [...collections.frames.values()]) {
-    if (frame.snapshot === undefined || !holds(frame.snapshot.cards)) continue
-    collections.frames.update(frame.id, (draft) => { draft.snapshot = { ...draft.snapshot!, cards: draft.snapshot!.cards.map(forgotten) } })
-  }
-  for (const history of [...collections.cardHistories.values()]) {
-    if (!holds(history.entries)) continue
-    collections.cardHistories.update(history.id, (draft) => { draft.entries = draft.entries.map(forgotten) })
-  }
-}
-
 /** A stored record rewritten as `model`, its composer's evidence leaving with its route. */
-const rewriteModel = (collections: ProjectionCollections, existing: StoredModel, model: ConfiguredModel): void => {
-  const rerouted = canonicalEventValue(bindingOf(existing)) !== canonicalEventValue(bindingOf(model))
+const rewriteModel = (collections: ProjectionCollections, model: ConfiguredModel): void => {
   collections.models.update(model.id, (draft) => { writeModel(draft, model) })
-  if (rerouted) forgetModelCallEvidence(collections, model.id)
 }
 
 /*
@@ -1202,7 +1139,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           else collections.messages.update(row.id, (draft) => replace(draft, row))
         }
         for (const savedCard of saved.cards) {
-          const row = currentModelCallCard(collections, snapshotRuntimeCard(snapshotCard(savedCard), [], [], saved.revision), true)
+          const row = snapshotRuntimeCard(snapshotCard(savedCard), [], [], saved.revision)
           if (collections.cards.get(row.id) === undefined) collections.cards.insert(row)
           else collections.cards.update(row.id, (draft) => replace(draft, row))
         }
@@ -2431,7 +2368,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const entries = [...history.entries]
           entries[history.index] = { ...capturedCard(card), navigation: undefined }
           collections.cardHistories.update(transition.id, draft => { draft.index = index; draft.entries = entries })
-          collections.cards.update(transition.id, draft => { Object.assign(draft, { loading: undefined, viewKey: undefined, viewRepo: undefined }, currentModelCallCard(collections, entries[index]!, true), { navigation: { index, length: entries.length } }) })
+          collections.cards.update(transition.id, draft => { Object.assign(draft, { loading: undefined, viewKey: undefined, viewRepo: undefined }, entries[index]!, { navigation: { index, length: entries.length } }) })
           for (const frame of collections.frames.values()) {
             if (frame.cardId !== transition.id || frame.snapshot !== undefined || frame.branchId !== activeBranchId) continue
             collections.frames.update(frame.id, draft => { draft.stateRevision = revision; draft.updatedAt = createdAt; draft.revision = revision })
@@ -2440,7 +2377,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "card.recovered": {
           // A recovered composer's ask resumes with the session (`resumeModelCalls`); an entry of its history holds none.
-          const card = transition.card === null ? null : currentModelCallCard(collections, transition.card, false)
+          const card = transition.card === null ? null : transition.card
           const protectedCard = (row: Card): boolean => row.kind === "env" || row.kind === "approval" || row.kind === "approvals-inbox" ||
             (row.kind === "flow-form" && row.payload.flow === "env.set")
           if ((card !== null && (card.id !== transition.id || protectedCard(card))) || approvalRequest(transition.id)) return
@@ -2466,7 +2403,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           if (existing) collections.cards.update(card.id, draft => { Object.assign(draft, { loading: undefined, viewKey: undefined, viewRepo: undefined }, card) })
           else collections.cards.insert(card)
           if (history) {
-            const restored = { ...history, entries: history.entries.map((entry, index) => index === history.index ? currentModelCallCard(collections, entry, false) : capturedCard(currentModelCallCard(collections, entry, true))) }
+            const restored = { ...history, entries: history.entries.map((entry, index) => index === history.index ? entry : capturedCard(entry)) }
             if (collections.cardHistories.has(history.id)) collections.cardHistories.update(history.id, draft => { Object.assign(draft, restored) })
             else collections.cardHistories.insert(restored)
           }
@@ -3066,11 +3003,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const next = new Set<string>(transition.models.map((model) => model.id))
           const stale = [...collections.models.values()].filter((row) => row.builtin === true && !next.has(row.id)).map((row) => row.id)
           if (stale.length > 0) collections.models.delete(stale)
-          for (const id of stale) forgetModelCallEvidence(collections, id)
           for (const model of transition.models) {
             const existing = collections.models.get(model.id)
             if (existing === undefined) collections.models.insert({ ...model, builtin: true })
-            else if (existing.builtin === true) rewriteModel(collections, existing, { ...model, builtin: true })
+            else if (existing.builtin === true) rewriteModel(collections, { ...model, builtin: true })
           }
           break
         }
@@ -3080,7 +3016,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const { builtin: _builtin, ...model } = transition.model
           const existing = collections.models.get(model.id)
           if (existing === undefined) collections.models.insert(model)
-          else if (existing.builtin !== true) rewriteModel(collections, existing, model)
+          else if (existing.builtin !== true) rewriteModel(collections, model)
           break
         }
 
@@ -3088,7 +3024,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const existing = collections.models.get(transition.id)
           if (existing === undefined || existing.builtin === true) break
           collections.models.delete(transition.id)
-          forgetModelCallEvidence(collections, transition.id)
           const freed = [...collections.seats.values()].filter((seat) => seat.recordId === transition.id).map((seat) => seat.id)
           if (freed.length > 0) collections.seats.delete(freed)
           break
@@ -3528,15 +3463,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "target.starred":
         case "target.unstarred": {
           // Personal stars are normalized rows; card bodies join them at read time.
-          const repoKey = transition.type === "target.starred" ? transition.star.repoKey :
-            transition.id.slice(0, transition.id.lastIndexOf("::"))
-          // Bind legacy cards once to the same stable repository as this act.
-          for (const card of collections.cards.values()) {
-            if (card.kind !== "targets" || card.payload.repoId !== transition.repoId || card.payload.repoKey !== undefined) continue
-            collections.cards.update(card.id, draft => {
-              if (draft.kind === "targets") draft.payload.repoKey = repoKey
-            })
-          }
           if (transition.type === "target.starred") {
             if (collections.starredTargets.get(transition.star.id) === undefined) {
               collections.starredTargets.insert({ ...transition.star })

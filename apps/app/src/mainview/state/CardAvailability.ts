@@ -1,5 +1,5 @@
-export const RETIRED_CARD_KINDS = ["explain", "repository-setup", "agent", "admin-health", "notifications", "registration", "connect", "plugin-library", "theme-picker", "models", "model-call", "retired", "service-log", "repo", "targets", "target-run", "graph", "run-timeline", "run-history", "affected", "ci-matrix", "grant-confirm", "stack", "factory.home"] as const
-
-/** Retired surfaces stay decodable, but cannot be reopened or sent to a model. */
+/** Deferred app cards stay hidden under #3447. @since 1.0.0 */
+export const DEFERRED_CARD_KINDS = ["stack", "factory.home"] as const
+/** Tombstones and deferred cards cannot be reopened or sent to a model. */
 export const cardAvailable = (kind: string): boolean =>
-  !(RETIRED_CARD_KINDS as readonly string[]).includes(kind)
+  kind !== "retired" && !(DEFERRED_CARD_KINDS as readonly string[]).includes(kind)

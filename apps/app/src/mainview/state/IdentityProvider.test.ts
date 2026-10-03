@@ -104,9 +104,9 @@ test("a legacy connector retires on read and never supplies an identity claim", 
   try {
     expect((await reopened.verifyState()).valid).toBe(true)
     expect((await reopened.verifyState()).actualHash).toBe(hash)
-    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ kind: "retired", title: "", status: "acted", payload: {} })
+    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ kind: "retired", title: "Connect", status: "acted", payload: { was: "connect" } })
     await reopened.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn, scopesPlain: null, provider: "local" }).isPersisted.promise
-    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ kind: "retired", payload: {} })
+    expect(reopened.collections.cards.get("legacy-connect")).toMatchObject({ kind: "retired", payload: { was: "connect" } })
     expect((await reopened.verifyState()).valid).toBe(true)
   } finally { await reopened.dispose?.() }
 })

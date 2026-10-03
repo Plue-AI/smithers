@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import type { StorageApi } from "@tanstack/db"
 import { afterEach, expect, test } from "bun:test"
 import { digest } from "@smthrs/core/Digest"
@@ -37,9 +38,9 @@ const rows = (entries: Record<string, string>, id: string): Record<string, { ver
 test("a store saved with terminal and harness tabs retires all saved tabs, active tab main, no menu or close question", async () => {
   const storage = memoryStorage()
   const store = await open(storage)
-  await store.dispatch({ type: "card.upsert", actor: "user", card: {
+  await store.dispatch({ type: "card.upsert", actor: "user", card: CardSchema.parse({
     id: "balance", kind: "theme-picker", title: "Balance", status: "active", createdAt: 1, ordinal: 1, payload: { selected: "night-owl" }
-  } }).isPersisted.promise
+  }) }).isPersisted.promise
   await store.dispatch({ type: "tab.opened", actor: "user", tab: { id: "card-balance", kind: "card", title: "Balance", cardId: "balance" } }).isPersisted.promise
   await store.compactEvents()
   const old = await store.eventHistory()
@@ -70,7 +71,7 @@ test("a store saved with terminal and harness tabs retires all saved tabs, activ
 
   const upgraded = await open(storage)
   expect([...upgraded.collections.tabs.values()].sort((left, right) => left.ordinal - right.ordinal).map(tab => tab.id)).toEqual(["main"])
-  expect(upgraded.collections.cards.get("balance")).toMatchObject({ kind: "theme-picker", payload: { selected: "night-owl" } })
+  expect(upgraded.collections.cards.get("balance")).toMatchObject({ kind: "retired", title: "Balance", payload: { was: "theme-picker" } })
   expect(upgraded.session().activeTabId).toBe("main")
   expect(upgraded.session()).not.toHaveProperty("tabMenuOpen")
   expect(upgraded.session()).not.toHaveProperty("pendingTabCloseId")

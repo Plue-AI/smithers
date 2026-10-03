@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
@@ -53,7 +54,7 @@ const seedAccountState = (store: AppStore): void => {
   store.dispatch({
     type: "card.upsert",
     actor: "user",
-    card: {
+    card: CardSchema.parse({
       id: "balance",
       kind: "balance",
       title: "Balance",
@@ -68,7 +69,7 @@ const seedAccountState = (store: AppStore): void => {
         chargeCount: 0,
         introUsd: null
       }
-    }
+    })
   })
   store.dispatch({ type: "toast.shown", actor: "system", key: "alice-private", title: "Alice private work" })
   store.dispatch({

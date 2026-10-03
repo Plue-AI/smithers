@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { afterEach, expect, test } from "bun:test"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import type { AgentPort } from "../../runtime/AgentPort"
@@ -88,8 +89,8 @@ test("title line breaks are flattened in runtime context while maximization belo
 
 test("restored storefront cards never enter runtime context, while their saved facts survive", async () => {
   const f = await fixture()
-  await f.upsert({ id: "library", kind: "plugin-library", title: "Library", status: "active", ordinal: 1,
-    createdAt: 1, payload: { tutorial: false } })
+  await f.upsert(CardSchema.parse({ id: "library", kind: "plugin-library", title: "Library", status: "active", ordinal: 1,
+    createdAt: 1, payload: { tutorial: false } }))
   await f.upsert(file("visible", 2))
   const request = await f.send()
   expect(request.context?.recentCards?.map(card => card.id)).toEqual(["visible"])

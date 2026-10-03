@@ -5,7 +5,7 @@
  * a human, the signed-out scope hides and defers, and a mode with no index
  * refuses with its reason.
  */
-import type { Card } from "@smthrs/rpc/Cards"
+import { CardSchema } from "@smthrs/rpc/Cards"
 import type { MythicalStack } from "@smthrs/rpc/Mythical"
 import type { StorageApi } from "@tanstack/db"
 import { describe,expect,test } from "bun:test"
@@ -82,9 +82,9 @@ const ready = async (services: AppServices = backend({}), state: "signed-in" | "
 }
 
 let ordinal = 100
-const card = (store: AppStore, value: Omit<Card, "createdAt" | "ordinal" | "status">): void => {
+const card = (store: AppStore, value: { readonly id: string; readonly kind: string; readonly title: string; readonly payload: unknown }): void => {
   ordinal += 1
-  store.dispatch({ type: "card.upsert", actor: "system", card: { ...value, status: "active", createdAt: ordinal, ordinal } as Card })
+  store.dispatch({ type: "card.upsert", actor: "system", card: CardSchema.parse({ ...value, status: "active", createdAt: ordinal, ordinal }) })
 }
 
 /** The fixture seams: what each seam had already written to the store. */

@@ -13,7 +13,7 @@ import { Button, StatusPill } from "@smthrs/ui"
 import { ArrowLeft, ArrowRight, Maximize2, Minimize2 } from "lucide-react"
 import { memo, useCallback, useRef } from "react"
 import type { CardActions } from "./cards/CardFamily"
-import { isRetiredCard, pillStatus, renderCardBody } from "./cards/CardRenderers"
+import { pillStatus, renderCardBody } from "./cards/CardRenderers"
 import { Component, type ErrorInfo, type ReactNode } from "react"
 import { Data } from "effect"
 import { failureDetail, presentUserFailure, type UserFailure, type UserFailureCopy, type UserFailureRegistry } from "@smthrs/rpc/UserFailure"
@@ -154,12 +154,11 @@ export const CardView = memo(function CardView({
   if (card.kind === "retired") return card.title === "" ? null :
     <EntryRow kind="card" author={{ kind: "system", color_index: 7 }} tone="quiet"
       title={card.title} tombstone onAction={() => {}} />
-  if (["balance", "billing-plans"].includes(card.kind)) return (
+  if (card.kind === "balance" || card.kind === "billing-plans") return (
     <section className="smithers-card" data-kind={card.kind} data-testid={`card-${card.id}`} aria-label={card.title}>
       <header className="smithers-card-header"><span className="smithers-card-title">{card.title}</span></header>
     </section>
   )
-  if (isRetiredCard(card)) return null
   return (
     <>
       {maximized ?

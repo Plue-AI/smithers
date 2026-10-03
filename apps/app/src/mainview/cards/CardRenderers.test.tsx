@@ -3,12 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { CardSchema } from "@smthrs/rpc/Cards"
+import { CardSchema, LEGACY_CARD_KINDS } from "@smthrs/rpc/Cards"
 import type { Card } from "@smthrs/rpc/Cards"
 import { CardView } from "../ChatCards"
 import { FlowGraphSurface } from "../ViewModules"
 import { defaultPill, type CardOf } from "./CardFamily"
-import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, RETIRED_CARD_KINDS, cardRenderer, pillStatus } from "./CardRenderers"
+import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, cardRenderer, pillStatus } from "./CardRenderers"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createDesignWorld } from "../state/seams/DesignWorld"
@@ -23,7 +23,7 @@ import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(RETIRED_CARD_KINDS as readonly string[]).includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", "stack", "factory.home"].includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 
@@ -57,21 +57,23 @@ describe("CardRenderers", () => {
 
   test("retired kinds have no renderer or family registration", () => {
     const registered = CARD_FAMILIES.flatMap(family => Object.keys(family))
-    for (const kind of RETIRED_CARD_KINDS) {
+    for (const kind of [...LEGACY_CARD_KINDS, "retired"]) {
       expect(CARD_RENDERERS).not.toHaveProperty(kind)
       expect(registered).not.toContain(kind)
     }
   })
 
   test.each(["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"])(
-    "%s stays unavailable before the archive shell is wired", kind => {
+    "%s restores as a titled tombstone without its saved body or controls", kind => {
       expect(CARD_RENDERERS).not.toHaveProperty(kind)
       expect(CARD_FAMILIES.flatMap(family => Object.keys(family))).not.toContain(kind)
       const stored = { ...base, kind, status: "active", title: "Old action", body: "Private old markup",
         payload: { secret: "Private old payload", action: { flow: "signup.finish" } } }
-      // Raw rows and restored rows both refuse the old body and its controls.
-      expect(renderToStaticMarkup(<CardView card={stored as unknown as Card} {...handlers} />)).toBe("")
-      expect(renderToStaticMarkup(<CardView card={CardSchema.parse(stored)} {...handlers} />)).toBe("")
+      const html = renderToStaticMarkup(<CardView card={CardSchema.parse(stored)} {...handlers} />)
+      expect(html).toContain("Old action")
+      expect(html).not.toContain("Private old markup")
+      expect(html).not.toContain("Private old payload")
+      expect(html).not.toContain("button")
     }
   )
 
@@ -173,14 +175,14 @@ describe("CardRenderers", () => {
     expect(markup).toContain('Building change')
 
     /* A kind the chat has never drawn renders the shell and an empty body, as the switch did. */
-    const serviceLog: Card = {
+    const serviceLog = CardSchema.parse({
       ...base,
       kind: "service-log",
       status: "active",
       payload: { workspaceId: "ws-1", repo: "o/r", service: "web", lines: ["ready"], follow: false }
-    }
+    })
     const shell = renderToStaticMarkup(<CardView card={serviceLog} {...handlers} />)
-    expect(shell).toBe("")
+    expect(shell).toContain("Card")
   })
 
   /*

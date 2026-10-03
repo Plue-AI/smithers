@@ -238,15 +238,6 @@ library implementation.
 
 ## Read-time decorations
 
-Target stars have one current projection, `starredTargets`. New target cards
-retain a stable `repoKey`, then `projectTargetStars` joins the matching labels
-when the body renders. Real card bindings supply the store in the transcript,
-tabs and tutorial. A star event does not copy labels into cards or historical
-snapshots; a reopened repository's new host ID still resolves by path identity.
-An older card without a recoverable repository identity retains its legacy
-snapshot until an act binds the key. The isolated static renderer can display
-that snapshot without claiming a live store connection.
-
 Notification reads have one receipt collection, `notificationReceipts`, keyed
 by the JSON pair `[notificationId, version]`. A `notifications.read` event
 records only a currently observed matching version; a stale detail request

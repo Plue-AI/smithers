@@ -1,6 +1,4 @@
 import { describe, expect, test } from "vitest"
-import { fixtures as todoFixtures } from "./fixtures/Todo.ts"
-import { fixtures as draftFixtures } from "./fixtures/Draft.ts"
 import { z } from "zod"
 import { AGENT_ROLES } from "../src/AgentRoles.ts"
 import type { Card } from "../src/Cards.ts"
@@ -9,12 +7,16 @@ import {
   CardSchema,
   FORM_OPTION_PROVIDERS,
   GitHubRateLimitSchema,
+  LEGACY_CARD_KINDS,
   TargetDetailSchema,
   TargetsViewSchema
 } from "../src/Cards.ts"
 import { LSP_DIAGNOSTICS_CAP } from "../src/LocalLsp.ts"
 import { AgentTurnFrameSchema } from "../src/NativeAgent.ts"
 import { RepositoryHomeSchema } from "../src/RepositoryHome.ts"
+import { fixtures as draftFixtures } from "./fixtures/Draft.ts"
+import { legacyCards } from "./fixtures/LegacyCards.ts"
+import { fixtures as todoFixtures } from "./fixtures/Todo.ts"
 
 const builtIn = AGENT_ROLES[0]!
 const builtInCardRow = {
@@ -33,13 +35,34 @@ const builtInCardRow = {
 const base = { id: "card-r1", title: "Aomi", status: "active", createdAt: 0, ordinal: 0 }
 
 describe("Browser typed refusal persistence", () => {
-  const browser = { ...base, kind: "browser", status: "error", payload: {
-    url: "https://example.com/", finalUrl: null, status: null, frameable: false, blockReason: null, error: "read refused"
-  } }
+  const browser = {
+    ...base,
+    kind: "browser",
+    status: "error",
+    payload: {
+      url: "https://example.com/",
+      finalUrl: null,
+      status: null,
+      frameable: false,
+      blockReason: null,
+      error: "read refused"
+    }
+  }
   test("retains trusted refusal metadata through repeated JSON round trips", () => {
-    const original = { ...browser, payload: { ...browser.payload, refusal: {
-      status: 400, code: "request_invalid", fault: "user", origin: "local", message: "Invalid address", retryAfterSeconds: null
-    } } }
+    const original = {
+      ...browser,
+      payload: {
+        ...browser.payload,
+        refusal: {
+          status: 400,
+          code: "request_invalid",
+          fault: "user",
+          origin: "local",
+          message: "Invalid address",
+          retryAfterSeconds: null
+        }
+      }
+    }
     const decoded = CardSchema.parse(JSON.parse(JSON.stringify(original)))
     expect(decoded).toEqual(original)
     expect(CardSchema.parse(JSON.parse(JSON.stringify(decoded)))).toEqual(original)
@@ -48,10 +71,14 @@ describe("Browser typed refusal persistence", () => {
     expect(CardSchema.parse(JSON.parse(JSON.stringify(browser)))).toEqual(browser)
   })
   test("rejects malformed persisted typed refusal fields", () => {
-    for (const refusal of [
-      { status: "400", message: "invalid" }, { status: 400, message: 12 },
-      { status: 400, message: "invalid", fault: "invented" }, { status: 400, message: "invalid", origin: "invented" }
-    ]) expect(CardSchema.safeParse({ ...browser, payload: { ...browser.payload, refusal } }).success).toBe(false)
+    for (
+      const refusal of [
+        { status: "400", message: "invalid" },
+        { status: 400, message: 12 },
+        { status: 400, message: "invalid", fault: "invented" },
+        { status: 400, message: "invalid", origin: "invented" }
+      ]
+    ) expect(CardSchema.safeParse({ ...browser, payload: { ...browser.payload, refusal } }).success).toBe(false)
   })
 })
 
@@ -293,9 +320,7 @@ describe("the service-log card", () => {
       kind: "service-log",
       payload: { workspaceId: "ws-1", repo: "will/smithers", service: "web", lines: ["listening"], follow: true }
     })
-    if (card.kind !== "service-log") return
-    expect(card.payload.follow).toBe(true)
-    expect(card.payload.lines).toEqual(["listening"])
+    expect(card).toEqual({ ...base, kind: "retired", status: "acted", loading: false, payload: { was: "service-log" } })
   })
 })
 
@@ -473,144 +498,19 @@ describe("the agent cards", () => {
       false
     )
   })
-
-
 })
 
 describe("the models card", () => {
-  const payload = { models: [], seats: [], credentials: [], tests: [], testing: [], host: "observed" }
-  const model = {
-    id: "ollama",
-    protocol: "openai-chat",
-    baseUrl: "http://127.0.0.1:11434",
-    modelId: "llama3",
-    credential: "OLLAMA"
-  }
-
-  test("carries models, seats, credential names, what is running and the last result per model", () => {
-    const card = CardSchema.parse({
+  test.each(["models", "model-call", "agent-models"])("saved %s drops credentials and executable requests", (kind) => {
+    const decoded = CardSchema.parse({
       ...base,
-      kind: "models",
-      payload: {
-        ...payload,
-        models: [model],
-        seats: [{ id: "explainer", recordId: "ollama", resolvable: false }],
-        credentials: [{ name: "OLLAMA", present: false, origins: ["http://127.0.0.1:11434"] }],
-        tests: [{
-          id: "ollama",
-          testedAt: 5,
-          result: {
-            ok: false,
-            latencyMs: 15_000,
-            failure: { code: "timeout", deadlineMs: 15_000 },
-            fault: "dependency"
-          }
-        }],
-        testing: ["ollama"],
-        selected: "ollama",
-        attention: { kind: "seat-unresolved", seat: "explainer" }
-      }
+      kind,
+      body: "Private",
+      payload: { apiKey: "sk-live", request: { prompt: "Private" } }
     })
-    if (card.kind !== "models") throw new Error("the models card decoded as another kind")
-    expect(card.payload.models).toEqual([model])
-    expect(card.payload.tests[0]?.result).toEqual({
-      ok: false,
-      latencyMs: 15_000,
-      failure: { code: "timeout", deadlineMs: 15_000 },
-      fault: "dependency"
-    })
-    expect(card.payload.attention).toEqual({ kind: "seat-unresolved", seat: "explainer" })
-  })
-
-  test("refuses a key anywhere a value could ride: on a model, on a credential, on a result", () => {
-    const refused = (patch: Record<string, unknown>): boolean =>
-      !CardSchema.safeParse({ ...base, kind: "models", payload: { ...payload, ...patch } }).success
-    expect(refused({ models: [{ ...model, apiKey: "sk-live" }] })).toBe(true)
-    expect(refused({ credentials: [{ name: "OLLAMA", present: true, origins: [], value: "sk-live" }] })).toBe(true)
-    expect(refused({
-      tests: [{ id: "ollama", testedAt: 1, result: { ok: true, latencyMs: 1, sample: "ok", message: "sk-live" } }]
-    })).toBe(true)
-  })
-
-  test("refuses a seat nothing reads, a failure code off the union, and attention of an unknown kind", () => {
-    const refused = (patch: Record<string, unknown>): boolean =>
-      !CardSchema.safeParse({ ...base, kind: "models", payload: { ...payload, ...patch } }).success
-    expect(refused({ seats: [{ id: "role:ui", recordId: null, resolvable: true }] })).toBe(true)
-    expect(refused({
-      tests: [{
-        id: "ollama",
-        testedAt: 1,
-        result: { ok: false, latencyMs: 1, failure: { code: "authentication" }, fault: "user" }
-      }]
-    })).toBe(true)
-    expect(refused({ attention: { kind: "celebrate" } })).toBe(true)
-  })
-
-  test("the model-call card holds the composed request, the answer it got and what is out, and no value", () => {
-    const request = {
-      kind: "decision",
-      state: [{ key: "text", kind: "text", value: "The sky is blue." }],
-      questions: { ok: { type: "boolean", instructions: "Does it mention a color?" } }
-    }
-    const card = CardSchema.parse({
-      ...base,
-      kind: "model-call",
-      payload: {
-        model: "ollama",
-        request,
-        response: {
-          askedAt: 5,
-          request,
-          result: {
-            ok: true,
-            latencyMs: 12,
-            sample: "true 0.97",
-            output: { kind: "decision", answers: { ok: { type: "boolean", value: true, probability: 0.97 } } }
-          }
-        },
-        pending: {
-          requestId: "6f0a2c1e-ask-0001",
-          request,
-          binding: { protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY" },
-          owner: "will"
-        },
-        fixture: "Evaluator.layerScripted(() => ({ [\"ok\"]: { probability: 0.97 } }))"
-      }
-    })
-    if (card.kind !== "model-call") throw new Error("the model-call card decoded as another kind")
-    expect(card.payload.request).toEqual(request)
-    expect(card.payload.response?.result.ok).toBe(true)
-    expect(card.payload.pending?.request).toEqual(request)
-    // A draft that is not yet askable is still a card: the composer says what is wrong.
-    expect(
-      CardSchema.safeParse({
-        ...base,
-        kind: "model-call",
-        payload: { model: "ollama", request: { ...request, questions: {} } }
-      }).success
-    ).toBe(true)
-    const refused = (patch: Record<string, unknown>): boolean =>
-      !CardSchema.safeParse({ ...base, kind: "model-call", payload: { model: "ollama", request, ...patch } }).success
-    expect(refused({ apiKey: "sk-live" })).toBe(true)
-    expect(refused({ request: { kind: "generation", system: "", prompt: "hi", maxTokens: 8, apiKey: "sk-live" } }))
-      .toBe(true)
-    expect(
-      refused({ response: { askedAt: 1, request, result: { ok: true, latencyMs: 1, sample: "", message: "sk-live" } } })
-    ).toBe(true)
-    // An ask that is out names its binding by credential NAME, like a record: no field a value could ride in.
-    const binding = { protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY" }
-    expect(refused({ pending: { requestId: "6f0a2c1e-ask-0001", request, binding, owner: null } })).toBe(false)
-    expect(
-      refused({
-        pending: { requestId: "6f0a2c1e-ask-0001", request, binding: { ...binding, apiKey: "sk-live" }, owner: null }
-      })
-    ).toBe(true)
-  })
-
-  test("a retired agent-models card still decodes as retired beside it", () => {
-    const retired = CardSchema.parse({ ...base, kind: "agent-models", payload: { models: [model] } })
-    expect(retired).toEqual({ ...base, kind: "retired", title: "", status: "acted", payload: {}, loading: false })
-    expect(CardSchema.parse({ ...base, kind: "models", payload }).kind).toBe("models")
+    expect(decoded).toEqual({ ...base, kind: "retired", status: "acted", loading: false, payload: { was: kind } })
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
+    expect(CardPatchSchema.safeParse({ kind, payload: { apiKey: "sk-live" } }).success).toBe(false)
   })
 
   test("a model form draws its selects from models, credentials and seats, and model.save is not a retired flow", () => {
@@ -686,7 +586,9 @@ describe("card patch validation", () => {
 
 describe("card patches never invent defaults", () => {
   test("an empty payload patch stays empty for every card kind with an object payload", () => {
-    const objectPayloads = CardSchema.options.filter((option) => !(CUT_KINDS as readonly string[]).includes(option.shape.kind.value) && option.shape.payload instanceof z.ZodObject)
+    const objectPayloads = CardSchema.options.filter((option) =>
+      !(CUT_KINDS as readonly string[]).includes(option.shape.kind.value) && option.shape.payload instanceof z.ZodObject
+    )
     expect(objectPayloads.length).toBeGreaterThan(CardSchema.options.length / 2)
     for (const option of objectPayloads) {
       const kind = option.shape.kind.value
@@ -879,8 +781,36 @@ type KindFixtures = {
   readonly decodedFull?: Record<string, unknown>
 }
 
-const FIXTURES: Record<Card["kind"], KindFixtures> = {
-  todo: { minimal: { n: 12, requests: [] }, full: { n: 12, model: todoFixtures.failed.model, requests: [], answerDraft: "A late answer", answeredBy: "maya" } },
+const CUT_KINDS = [
+  "repository-setup",
+  "admin-health",
+  "registration",
+  "notifications",
+  "connect",
+  "agent",
+  "explain",
+  "grant-confirm"
+] as const
+
+const FIXTURES: Record<
+  | Card["kind"]
+  | Exclude<
+    typeof LEGACY_CARD_KINDS[number],
+    | "factory"
+    | "repo-onboarding"
+    | "repo-home"
+    | "agent-models"
+    | "agent-form"
+    | "history"
+    | "experimental"
+    | "request-queue"
+  >,
+  KindFixtures
+> = {
+  todo: {
+    minimal: { n: 12, requests: [] },
+    full: { n: 12, model: todoFixtures.failed.model, requests: [], answerDraft: "A late answer", answeredBy: "maya" }
+  },
   /* Confirm (T-APP-04): the card names its subject; the card file reads the confirmation. */
   confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },
   branch: { minimal: { id: "b-retry" }, full: { id: "b-retry" } },
@@ -890,10 +820,18 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
   settings: { minimal: {}, full: {} },
   members: { minimal: {}, full: {} },
   commands: { minimal: {}, full: {} },
-  draft: { minimal: { ...draftFixtures.append.model, idempotencyKey: "commit-1" }, full: {
-    ...draftFixtures.append.model, issue: draftFixtures.issue_fixes.model.issue, seed: draftFixtures.seed.model.seed, committed: { n: 12, rev: 1 },
-    optionsFailure: "Could not load placement", idempotencyKey: "commit-1", request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
-  } },
+  draft: {
+    minimal: { ...draftFixtures.append.model, idempotencyKey: "commit-1" },
+    full: {
+      ...draftFixtures.append.model,
+      issue: draftFixtures.issue_fixes.model.issue,
+      seed: draftFixtures.seed.model.seed,
+      committed: { n: 12, rev: 1 },
+      optionsFailure: "Could not load placement",
+      idempotencyKey: "commit-1",
+      request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
+    }
+  },
   "factory.home": {
     minimal: { repo: "org/repo", home: { kind: "none" }, flows: [] },
     full: {
@@ -1048,7 +986,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: {
       provider: "github",
       github: { connected: true, login: "will" },
-      nativeAvailable: true,
+      nativeAvailable: true
     }
   },
   world: {
@@ -1075,7 +1013,13 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       frameable: false,
       blockReason: "x-frame-options: deny",
       error: "the fetch failed (503)",
-      refusal: { status: 503, message: "read unavailable", code: "upstream_unavailable", fault: "infra", origin: "local" }
+      refusal: {
+        status: 503,
+        message: "read unavailable",
+        code: "upstream_unavailable",
+        fault: "infra",
+        origin: "local"
+      }
     }
   },
   "run-trace": {
@@ -2036,7 +1980,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       },
       walkthrough: {
         seq: 5,
-        sections: [{ title: "The route", markdown: "one bounded read", diagram: null }],
+        sections: [{ title: "The route", markdown: "one bounded read", diagram: null }]
       },
       changeset: {
         id: 7,
@@ -2825,7 +2769,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       }
     }
   },
-  retired: { minimal: {}, full: {} },
+  retired: { minimal: {}, full: { was: "explain" } },
   "plugin-library": {
     minimal: { tutorial: false },
     full: { tutorial: true }
@@ -2849,9 +2793,16 @@ test("repository home schema decodes every resolution and refuses unsafe paths",
 })
 
 /* mvp.md §8: old Cut cards decode inertly; retained kinds keep their schema audits. */
-const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm"] satisfies readonly (keyof typeof FIXTURES)[]
-const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(CUT_KINDS as readonly string[]).includes(kind))
-const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" || kind === "confirm" ? { audience_member_id: "ben" } : {}) })
+
+const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter((kind) =>
+  !(LEGACY_CARD_KINDS as readonly string[]).includes(kind)
+)
+const card = (kind: string, payload: unknown): unknown => ({
+  ...base,
+  kind,
+  payload,
+  ...((kind === "draft" || kind === "confirm") ? { audience_member_id: "ben" } : {})
+})
 
 /** The fields a kind's payload declares, or null when the payload is a union of stages rather than one object. */
 const payloadFields = (kind: string): Record<string, z.ZodType> | null => {
@@ -2876,7 +2827,10 @@ const objectKinds = kinds.filter((kind) => payloadFields(kind) !== null)
 
 describe("every persisted card kind", () => {
   test("has fixtures: a kind added to the union without them is the gap this table closes", () => {
-    expect(Object.keys(FIXTURES).filter(kind => !(CUT_KINDS as readonly string[]).includes(kind)).sort()).toEqual([...kinds].sort())
+    expect(Object.keys(FIXTURES).filter((kind) => !(LEGACY_CARD_KINDS as readonly string[]).includes(kind)).sort())
+      .toEqual(
+        [...kinds].sort()
+      )
   })
 
   test("every union payload has an explicit branch audit below", () => {
@@ -2921,19 +2875,88 @@ describe("every persisted card kind", () => {
 
   test("a whole frame snapshot of one card per kind parses (apps/app FrameSnapshotSchema)", () => {
     const snapshot = z.object({ cards: z.array(CardSchema) })
-    const cards = kinds.map((kind, ordinal) => ({ ...(card(kind, FIXTURES[kind].full) as Record<string, unknown>), ordinal }))
+    const cards = kinds.map((kind, ordinal) => ({
+      ...(card(kind, FIXTURES[kind].full) as Record<string, unknown>),
+      ordinal
+    }))
     expect(snapshot.parse({ cards }).cards).toHaveLength(kinds.length)
   })
 
-  test("an unknown kind is refused, so a card from a newer build is quarantined rather than half-read", () => {
+  test("an unknown kind fails decoding", () => {
     expect(CardSchema.safeParse({ ...base, kind: "moons", payload: {} }).success).toBe(false)
+  })
+
+  test("unknown cards remain readable inside agent frames", () => {
+    const frame = AgentTurnFrameSchema.parse({
+      runId: "old-run",
+      type: "card",
+      card: {
+        ...base,
+        kind: "explain",
+        payload: FIXTURES.explain.full
+      }
+    })
+    expect(frame).toEqual({
+      runId: "old-run",
+      type: "card",
+      card: {
+        ...base,
+        kind: "retired",
+        loading: false,
+        status: "acted",
+        payload: { was: "explain" }
+      }
+    })
+  })
+
+  test.each([null, undefined, 1, "card", []])("a non-card value %j fails", (value) => {
+    expect(CardSchema.safeParse(value).success).toBe(false)
+  })
+
+  test.each([undefined, null, 3, {}, []])("a non-string kind %j fails", (kind) => {
+    expect(CardSchema.safeParse({ ...base, kind, payload: {} }).success).toBe(false)
+  })
+
+  test.each(kinds.filter((kind) => kind !== "retired"))("malformed current %s is never a tombstone", (kind) => {
+    expect(CardSchema.safeParse({ ...base, kind, payload: null }).success).toBe(false)
+  })
+
+  test("a missing kind and a malformed existing tombstone fail", () => {
+    expect(CardSchema.safeParse({ ...base, payload: {} }).success).toBe(false)
+    expect(CardSchema.safeParse({ ...base, kind: "retired", payload: { was: 42 } }).success).toBe(false)
+    expect(CardSchema.safeParse({ ...base, kind: "retired", payload: null }).success).toBe(false)
+  })
+
+  test.each([{}, { was: "explain" }])("existing tombstones preserve optional was: %j", (payload) => {
+    const row = { ...base, kind: "retired", payload }
+    const decoded = CardSchema.parse(row)
+    expect(decoded).toEqual(row)
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
+  })
+
+  test.each(["", "Saved title"])("legacy kinds keep the stored title: %j", (title) => {
+    const decoded = CardSchema.parse({
+      ...base,
+      kind: "explain",
+      title,
+      body: "Private",
+      payload: { secret: "Private" }
+    })
+    expect(decoded).toEqual({
+      ...base,
+      title,
+      kind: "retired",
+      status: "acted",
+      loading: false,
+      payload: { was: "explain" }
+    })
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
   })
 
   test("deadline and cached report fields retain their declared types when present", () => {
     for (const deadlineAt of ["1790000900000", null]) {
       expect(CardSchema.safeParse(card("run-trace", { ...FIXTURES["run-trace"].full, deadlineAt })).success).toBe(false)
     }
-
   })
 
   test("PR read failures and repository import launch identity refuse invalid persisted values", () => {
@@ -3038,12 +3061,20 @@ const cloudAgentFixtures: KindFixtures = {
 }
 
 describe("removed presentation compatibility", () => {
-  const saved = (kind: string, payload: unknown) => ({ ...base, kind, payload, body: "Old content", loading: true })
+  const saved = (kind: string, payload: unknown) => ({
+    ...base,
+    title: `Saved ${kind}`,
+    kind,
+    payload,
+    body: "Old content",
+    loading: true
+  })
   const retired = [
-    ...CUT_KINDS.flatMap(kind => [saved(kind, FIXTURES[kind].minimal), saved(kind, FIXTURES[kind].full)]),
+    ...LEGACY_CARD_KINDS.filter((kind): kind is keyof typeof FIXTURES & typeof LEGACY_CARD_KINDS[number] =>
+      kind in FIXTURES
+    ).flatMap((kind) => [saved(kind, FIXTURES[kind].minimal), saved(kind, FIXTURES[kind].full)]),
     saved("agent", cloudAgentFixtures.full),
-    saved("agents", { cloud: true, repo: "org/repo", sessions: [] }),
-    ...["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form"].map((kind) =>
+    ...["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form", "experimental"].map((kind) =>
       saved(kind, { draft: "old data" })
     ),
     saved("history", {
@@ -3052,77 +3083,25 @@ describe("removed presentation compatibility", () => {
       mainCommits: null,
       mythical: { state: "absent" }
     }),
-    saved("connector-setup", { connector: "linear" }),
-    saved("sync-ops", { source: "linear" }),
     saved("request-queue", {
       requests: [{ login: "ada", note: null, createdAt: "2026-09-05T09:00:00Z" }],
       approving: null
-    }),
-    ...[
-      "repo.welcome",
-      "repo.explore",
-      "repo.contribute",
-      "repo.maintain",
-      "repo.home",
-      "factory.show",
-      /* The 19 workspace.* commands renamed to box.* (#2147). */
-      "workspace.delete",
-      "workspace.desktop",
-      "workspace.desktop.open",
-      "workspace.desktop.rotate",
-      "workspace.desktop.stop",
-      "workspace.egress",
-      "workspace.facet",
-      "workspace.file",
-      "workspace.files",
-      "workspace.images",
-      "workspace.list",
-      "workspace.open",
-      "workspace.resume",
-      "workspace.services",
-      "workspace.session.destroy",
-      "workspace.sessions",
-      "workspace.suspend",
-      "workspace.terminal",
-      "workspace.view",
-      "workspace.fork",
-      "workspace.snapshot",
-      "workspace.snapshot.delete",
-      "workspace.snapshot.fork",
-      "workspace.template",
-      "change.open-computer",
-      "agent.create",
-      "agent.edit",
-      "agent.models",
-      "agent.new",
-      "agent.remove",
-      "issues.link-linear",
-      "issues.unlink-linear",
-      "sync.retry",
-      "sync.ops.load-older",
-      "linear.setup",
-      "stack.show",
-      "stack.backfill",
-      "stack.parallel",
-      "stack.retry",
-      "history.amend",
-      "history.fold",
-      "auth.request-access",
-      "admin.allowlist.add",
-      "admin.allowlist.remove",
-      "admin.requests",
-      "admin.queue.approve"
-    ].map((flow) => saved("flow-form", { flow, via: "user", submitting: true, draft: { secret: "obsolete" } }))
+    })
   ]
   test.each(retired)("retires $kind without losing the card identity", (row) => {
     const result = CardSchema.parse(JSON.parse(JSON.stringify(row)))
-    expect(result).toEqual({ ...base, kind: "retired", title: "", status: "acted", payload: {}, loading: false })
+    expect(result).toEqual({
+      ...base,
+      title: row.title,
+      kind: "retired",
+      status: "acted",
+      payload: { was: row.kind },
+      loading: false
+    })
+    expect(result).not.toHaveProperty("body")
     expect(CardSchema.parse(result)).toEqual(result)
     expect(z.object({ cards: z.array(CardSchema) }).parse({ cards: [row] }).cards).toEqual([result])
-    // T-CUT-01 Matching rows: legacy schema/patch options stay until T-APP-22.
-    if (row.kind !== "flow-form" && !(CUT_KINDS as readonly string[]).includes(row.kind) && row.kind !== "agents") {
-      expect(CardPatchSchema.safeParse({ kind: row.kind, payload: row.payload }).success).toBe(false)
-    }
+    expect(CardPatchSchema.safeParse({ kind: row.kind, payload: row.payload }).success).toBe(false)
   })
   test("the old snapshot facet becomes a terminal while internal snapshot provenance survives", () => {
     const old = saved("workspace", {
@@ -3181,18 +3160,93 @@ test("a saved local repository receipt drops its retired path", () => {
   expect(parsed.payload.created).toEqual({ fullName: "smithers-playground" })
 })
 
-
 test("saved provider sync settings disappear while native conversation history and sends remain", () => {
- const old = { ...base, kind:"issue", payload: { ...FIXTURES.issue.minimal,
-  kind:"chat", comments:[{ author:"U001",commentBody:"historical",createdAt:null,origin:"slack" }],
-  pendingComments:[{ id:"native-send",text:"reply",actor:"user",status:"requested" }],
-  sync:{ provider:"telegram",connectionId:"bot",scopeId:"123",conversationId:"-100",state:"outcome_unknown" }
- } }
- const migrated = CardSchema.parse(old)
- expect(migrated.kind).toBe("issue")
- expect(migrated.payload).not.toHaveProperty("sync")
- expect(migrated.payload).toMatchObject({ comments:[{ origin:"slack",commentBody:"historical" }],pendingComments:[{ id:"native-send",status:"requested" }] })
- expect(CardSchema.parse(migrated)).toEqual(migrated)
+  const old = {
+    ...base,
+    kind: "issue",
+    payload: {
+      ...FIXTURES.issue.minimal,
+      kind: "chat",
+      comments: [{ author: "U001", commentBody: "historical", createdAt: null, origin: "slack" }],
+      pendingComments: [{ id: "native-send", text: "reply", actor: "user", status: "requested" }],
+      sync: {
+        provider: "telegram",
+        connectionId: "bot",
+        scopeId: "123",
+        conversationId: "-100",
+        state: "outcome_unknown"
+      }
+    }
+  }
+  const migrated = CardSchema.parse(old)
+  expect(migrated.kind).toBe("issue")
+  expect(migrated.payload).not.toHaveProperty("sync")
+  expect(migrated.payload).toMatchObject({
+    comments: [{ origin: "slack", commentBody: "historical" }],
+    pendingComments: [{ id: "native-send", status: "requested" }]
+  })
+  expect(CardSchema.parse(migrated)).toEqual(migrated)
+})
+
+describe("pinned historical storage", () => {
+  test("covers the current union and every explicitly legacy name without overlap", () => {
+    const current = CardSchema.options.map((option) => option.shape.kind.value)
+    expect(current).toContain("retired")
+    expect(current.filter((kind) => (LEGACY_CARD_KINDS as readonly string[]).includes(kind))).toEqual([])
+    const pinned = legacyCards.map((fixture) => fixture.row.kind)
+    for (const kind of [...current, ...LEGACY_CARD_KINDS]) expect(pinned).toContain(kind)
+  })
+
+  test.each(legacyCards)("stored $row.kind preserves its literal title and decode outcome", (fixture) => {
+    const decoded = CardSchema.parse(fixture.row)
+    expect(decoded.kind).toBe(fixture.expectedKind)
+    expect(decoded.title).toBe(fixture.expectedTitle)
+    if (fixture.expectedKind === "retired") {
+      expect(decoded).not.toHaveProperty("body")
+      expect(decoded).not.toHaveProperty("retiredKind")
+      expect(decoded.payload).toEqual(fixture.expectedWas === null ? {} : { was: fixture.expectedWas })
+    }
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
+  })
+
+  test.each([
+    { kind: "flow-form", payload: { flow: "wiki.ask", private: "PRIVATE" } },
+    { kind: "issue", payload: { source: "linear", private: "PRIVATE" } },
+    { kind: "issue-list", payload: { source: "linear", private: "PRIVATE" } },
+    { kind: "issue-list", payload: { issues: [{ source: "linear", private: "PRIVATE" }] } },
+    { kind: "agents", payload: { cloud: true, private: "PRIVATE" } }
+  ])("payload-specific $kind retirement uses the same tombstone", ({ kind, payload }) => {
+    const decoded = CardSchema.parse({ ...base, kind, title: "<img src=x onerror=alert(1)>", body: "PRIVATE", payload })
+    expect(decoded).toEqual({
+      ...base,
+      kind: "retired",
+      title: "<img src=x onerror=alert(1)>",
+      status: "acted",
+      loading: false,
+      payload: { was: kind }
+    })
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
+  })
+
+  test("existing tombstones drop body and extra payload fields", () => {
+    const decoded = CardSchema.parse({
+      ...base,
+      kind: "retired",
+      body: "PRIVATE",
+      payload: { was: "explain", secret: "PRIVATE" }
+    })
+    expect(decoded).toEqual({ ...base, kind: "retired", payload: { was: "explain" } })
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
+  })
+
+  test("non-cloud agents and unretired forms retain validation", () => {
+    expect(CardSchema.parse({ ...base, kind: "agents", payload: { native: true, agents: [] } }).kind).toBe("agents")
+    expect(CardSchema.safeParse({ ...base, kind: "agents", payload: { native: true, agents: null } }).success).toBe(
+      false
+    )
+    expect(CardSchema.safeParse({ ...base, kind: "flow-form", payload: { flow: "unknown.flow" } }).success).toBe(false)
+    expect(CardSchema.safeParse({ ...base, kind: "issue", payload: { source: "github" } }).success).toBe(false)
+  })
 })
 
 test("deferred billing, repository and trigger cards retain live decoding", () => {

@@ -182,10 +182,13 @@ test("restored titled tombstones render literal text only through the transcript
 for (const [kind, payload] of [
   ["balance", { totalUsd: "25", state: "ok", allowedToStartWork: true, lifetimeChargedUsd: "0", chargeCount: 0, introUsd: null }],
   ["billing-plans", { planKey: "pro", sandbox: null, plans: [], checkout: true }]
-] as const) test(`saved ${kind} is a titled read-only legacy card`, () => {
+] as const) test(`saved ${kind} retains live decoding and title-only presentation`, () => {
   const card = CardSchema.parse({ id: kind, kind, title: "Saved billing", status: "active", createdAt: 1, ordinal: 1, payload })
   const { host, render } = mount({ card })
-  expect(host.querySelector('[data-kind]')?.getAttribute('data-kind')).toBe(kind)
+  expect(card.kind).toBe(kind)
+  expect<unknown>(card.payload).toEqual(payload)
+  expect(host.querySelector(".mvp-tombstone")).toBeNull()
+  expect(host.querySelector("[data-kind]")?.getAttribute("data-kind")).toBe(kind)
   expect(host.textContent).toBe("Saved billing")
   expect(host.querySelector('button, a, input, [data-flow]')).toBeNull()
   render({ maximized: true })
@@ -194,11 +197,13 @@ for (const [kind, payload] of [
 })
 
 // Grant confirmation is Cut, unlike the retained deferred billing rows above.
-test("saved grant confirmation remains unavailable before title-preserving decoding lands", () => {
+test("saved grant confirmation renders its title without actions", () => {
   const card = CardSchema.parse({ id: "grant", kind: "grant-confirm", title: "Saved grant", status: "active",
     createdAt: 1, ordinal: 1, payload: { login: "alice", amountUsd: 25, phase: "confirm" } })
   const { host, render } = mount({ card })
-  expect(host.firstElementChild!.children).toHaveLength(0)
+  expect(host.textContent).toBe("Saved grant")
+  expect(host.querySelector("button, [data-flow]")).toBeNull()
   render({ maximized: true })
-  expect(host.firstElementChild!.children).toHaveLength(0)
+  expect(host.textContent).toBe("Saved grant")
+  expect(host.querySelector("button, [data-flow]")).toBeNull()
 })

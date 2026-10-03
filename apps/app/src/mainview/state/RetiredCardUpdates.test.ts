@@ -25,8 +25,9 @@ const legacyCard = (kind: string, updated = false) => ({ id: "saved-cut-card", k
   status: "active", createdAt: 1, ordinal: 1, payload: kind === "flow-form"
     ? { flow: "wiki.ask", via: "user", fields: [], draft: { question: "Private old question" }, given: {} }
     : { secret: updated ? "Private updated payload" : "Private old payload", action: { flow: "signup.finish" } } })
-const inert = (card: Card | undefined) => {
-  expect(card).toMatchObject({ id: "saved-cut-card", kind: "retired", title: "", status: "acted", loading: false, payload: {} })
+const inert = (card: Card | undefined, was: string) => {
+  expect(card).toMatchObject({ id: "saved-cut-card", kind: "retired", title: "Old action", status: "acted", loading: false })
+  expect(card?.payload).toEqual({ was })
   expect(card).not.toHaveProperty("body")
   expect(cardAvailable(card!.kind)).toBe(false)
 }
@@ -69,7 +70,7 @@ for (const kind of kinds) test(`a version 32 ${kind} checkpoint and original upd
   expect(JSON.parse(envelope.entries["smithers-mvp.app-events"]!)[`s:${event.id}`].data.hash).toBe(event.hash)
   expect(checkpoint.snapshot.cards.find(card => card.id === "saved-cut-card")?.kind as string).toBe(kind)
   const restored = await open(storage)
-  inert(restored.collections.cards.get("saved-cut-card"))
+  inert(restored.collections.cards.get("saved-cut-card"), kind)
   expect(restored.session().draft).toBe("Keep my conversation")
   const rotated = await restored.eventHistory()
   expect(rotated.checkpoint.reason).toBe("projector-upgrade")
@@ -79,7 +80,7 @@ for (const kind of kinds) test(`a version 32 ${kind} checkpoint and original upd
   expect((await restored.verifyState()).valid).toBe(true)
   await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
   const reopened = await open(storage)
-  inert(reopened.collections.cards.get("saved-cut-card"))
+  inert(reopened.collections.cards.get("saved-cut-card"), kind)
   expect((await reopened.eventHistory()).head.streamId).toBe(rotated.head.streamId)
   expect((await reopened.verifyState()).valid).toBe(true)
   const requests: StartAgentTurnRequest[] = []
@@ -113,7 +114,7 @@ test("a Cut flow-form update stays inert after its upsert already decoded as ret
   const decoded = validateAppTransition(snapshot, original)
   expect(decoded).toEqual(original as AppTransition)
   expect(projectAppEvent(snapshot, { transition: decoded, revision: history.head.revision + 1, createdAt: 2, persistenceMode: "localStorage" })).toBe(snapshot)
-  inert(store.collections.cards.get("saved-cut-card"))
+  inert(store.collections.cards.get("saved-cut-card"), "flow-form")
 })
 
 test("unknown kinds and invalid live card patches remain rejected while valid live updates work", async () => {
@@ -171,7 +172,7 @@ test("an uncompacted version 32 journal preserves its original legacy upsert and
   expect(JSON.parse(savedBytes)[`s:${events.find(event => event.type === "card.upsert")!.id}`].data.input.value.card.kind).toBe("admin-health")
   expect(JSON.parse(savedBytes)[`s:${events.find(event => event.type === "card.updated")!.id}`].data.input.value.patch.kind).toBe("admin-health")
   const restored = await open(storage)
-  inert(restored.collections.cards.get("saved-cut-card"))
+  inert(restored.collections.cards.get("saved-cut-card"), "admin-health")
   expect(restored.session().draft).toBe("Keep the uncompacted conversation")
   expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
   expect((await restored.verifyState()).valid).toBe(true)

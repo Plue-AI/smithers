@@ -226,10 +226,10 @@ describe("the live store's authoritative event path", () => {
     })
     expect(JSON.stringify(envelopeRows(storage))).toContain("lifetimeChargedUsd")
     const upgraded = await open(storage)
-    expect(upgraded.collections.cards.get("admin-health")).toMatchObject({ kind: "retired", title: "", status: "acted", payload: {} })
+    expect(upgraded.collections.cards.get("admin-health")).toMatchObject({ kind: "retired", title: "Health", status: "acted", payload: { was: "admin-health" } })
     expect(upgraded.session().draft).toBe("Preserved chat")
     expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
-    expect((await upgraded.eventHistory()).checkpoint.snapshot.cards).toContainEqual(expect.objectContaining({ id: "admin-health", kind: "retired", payload: {} }))
+    expect((await upgraded.eventHistory()).checkpoint.snapshot.cards).toContainEqual(expect.objectContaining({ id: "admin-health", kind: "retired", payload: { was: "admin-health" } }))
     expect((await upgraded.verifyState()).valid).toBe(true)
     await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
     const reopened = await open(storage)
@@ -437,7 +437,7 @@ describe("the live store's authoritative event path", () => {
       }
     })
     const restored = await open(storage)
-    expect(restored.collections.cards.get("old-setup")).toMatchObject({ kind: "retired", payload: {}, title: "", status: "acted" })
+    expect(restored.collections.cards.get("old-setup")).toMatchObject({ kind: "retired", payload: { was: "repository-setup" }, title: "Old setup", status: "acted" })
     expect(restored.collections.frames.get(cardFrameId(restored.session().activeBranchId!, "old-setup"))?.snapshot?.cards.find(card => card.id === "old-setup"))
       .toMatchObject({ kind: "retired", payload: {} })
     expect(restored.session().draft).toBe("Keep the conversation")
@@ -890,7 +890,7 @@ describe("the live store's authoritative event path", () => {
     expect(history.checkpoint.reason).toBe("projector-upgrade")
     expect(history.head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect(history.head.streamId).not.toBe(old.head.streamId)
-    expect(restored.collections.cards.get("kept")).toMatchObject({ id: "kept", kind: "retired", payload: {}, title: "" })
+    expect(restored.collections.cards.get("kept")).toMatchObject({ id: "kept", kind: "retired", payload: { was: "repo-home" }, title: "kept.ts" })
     const branch = restored.session().activeBranchId!
     const frame = restored.collections.frames.get(cardFrameId(branch, "kept"))!
     expect(frame.id).toBe(cardFrameId(branch, "kept"))

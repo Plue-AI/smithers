@@ -6,23 +6,14 @@ import type { AgentTurnFrame } from "../src/NativeAgent.ts"
 
 const parses = (value: unknown): boolean => AgentTurnFrameSchema.safeParse(value).success
 
-/*
- * A card whose nested run omits `labels` — `RunRecordSchema` defaults it. The
- * frame type declares the field required, so only the decoded frame carries
- * what a subscriber reads.
- */
 const runHistoryCard = {
   id: "history",
-  kind: "run-history",
-  title: "Runs",
+  kind: "file",
+  title: "Saved file",
   status: "active",
   createdAt: 0,
   ordinal: 0,
-  payload: {
-    repoId: "repo",
-    status: "done",
-    runs: [{ runId: "run-1", repoId: "repo", label: "//:test", status: "done", startedAt: 0 }]
-  }
+  payload: { repo: "org/repo", path: "a.ts", content: "Saved", truncated: false }
 }
 
 describe("AgentTurnFrame — proxy family", () => {
@@ -48,7 +39,7 @@ describe("AgentTurnFrame — proxy family", () => {
       runId: "r1",
       type: "card.update",
       id: "history",
-      patch: { kind: "run-history", title: "Runs (3)" }
+      patch: { kind: "file", title: "Runs (3)" }
     }],
     ["tool_call", {
       runId: "r1",
@@ -70,14 +61,14 @@ describe("AgentTurnFrame — proxy family", () => {
     ["a card whose payload misses a required field", {
       runId: "r1",
       type: "card",
-      card: { ...runHistoryCard, payload: { repoId: "repo", status: "done" } }
+      card: { ...runHistoryCard, payload: { repo: "org/repo" } }
     }],
     ["card.update without a kind", { runId: "r1", type: "card.update", id: "history", patch: { title: "Runs (3)" } }],
     ["card.update whose payload contradicts its kind", {
       runId: "r1",
       type: "card.update",
       id: "history",
-      patch: { kind: "run-history", payload: { repoId: 5 } }
+      patch: { kind: "file", payload: { repo: 5 } }
     }],
     ["tool_call without arguments", { runId: "r1", type: "tool_call", call_id: "c1", name: "files.read" }],
     ["tool_call whose arguments are not a string", {
@@ -113,14 +104,19 @@ describe("AgentTurnFrame — proxy family", () => {
       .toEqual(rejected.map(([name]) => [name, null]))
   })
 
-  test("the decoder applies nested card defaults the input omitted", () => {
-    // The wire value never carried the field the frame type declares required.
-    expect(Object.hasOwn(runHistoryCard.payload.runs[0]!, "labels")).toBe(false)
-    const frame = decodeAgentTurnFrame({ runId: "r1", type: "card", card: runHistoryCard })
-    if (frame === null || frame.type !== "card" || frame.card.kind !== "run-history") {
-      throw new Error("expected a decoded run-history card frame")
-    }
-    expect(frame.card.payload.runs[0]!.labels).toEqual([])
+  test("the decoder keeps a legacy card frame readable without its private payload", () => {
+    const frame = decodeAgentTurnFrame({ runId: "r1", type: "card", card: { ...runHistoryCard, kind: "run-history" } })
+    expect(frame).toEqual({
+      runId: "r1",
+      type: "card",
+      card: {
+        ...runHistoryCard,
+        kind: "retired",
+        status: "acted",
+        loading: false,
+        payload: { was: "run-history" }
+      }
+    })
   })
 
   test("the decoder answers null for a value that is not an object", () => {
