@@ -1075,6 +1075,26 @@ test("HomeView sync age handles minute boundaries and future timestamps", async 
   } finally { await view.close(); time.mockRestore() }
 })
 
+for (const theme of ["light", "dark"]) test(`HomeView Paper status colors ${theme}`, async () => {
+  const { HomeView } = await import("./HomeView")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Home")
+  document.documentElement.dataset.theme = theme
+  const css = document.createElement("style")
+  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
+  document.head.append(css)
+  const view = await mounted({ name: "home-tones", expect: [], render: callbacks => <HomeView {...fixtures.active} {...callbacks} model={{ ...fixtures.active.model, main: { ...fixtures.active.model.main, health: "stale" } }} /> })
+  try {
+    // C-UI-12 / spec §14.5.2: literal Paper tokens, independent of rendering helpers.
+    for (const [selector, token] of [[".mvp-sync", "--attention-text"], ['.mvp-run-row[data-state="failed"]', "--danger"], ['.mvp-run-row[data-state="running"]', "--action-primary"]]) {
+      const expected = document.createElement("span")
+      expected.style.color = `var(${token})`
+      document.body.append(expected)
+      expect(getComputedStyle(view.host.querySelector(selector!)!).color).toBe(getComputedStyle(expected).color)
+      expected.remove()
+    }
+  } finally { await view.close(); css.remove() }
+})
+
 // Home mock FILTERS/shows: Starting shares Working, zero counts are inactive.
 test("HomeView Working includes Starting and zero counts do not dispatch", async () => {
   const { HomeView } = await import("./HomeView")
