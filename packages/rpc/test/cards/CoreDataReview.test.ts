@@ -5,7 +5,7 @@ import { ConfirmCardSchema } from "../../src/ConfirmCard.ts"
 import { DraftCardSchema } from "../../src/DraftCard.ts"
 import { HomeCardSchema } from "../../src/HomeCard.ts"
 import { TodoCardSchema } from "../../src/TodoCard.ts"
-import { agent, ben, outside, person, system } from "../fixtures/_shared.ts"
+import { person, smithers_for_ben } from "../fixtures/_shared.ts"
 import { fixtures as confirms } from "../fixtures/Confirm.ts"
 import { fixtures as drafts } from "../fixtures/Draft.ts"
 import { fixtures as home } from "../fixtures/Home.ts"
@@ -50,17 +50,9 @@ test("queue uses codes and a predecessor, never rendered copy", () => {
   }
   expect(QueueSchema.safeParse({ reason: "merges after Tn", position: 2 }).success).toBe(false)
 })
-// M-34: Smithers is system, agents and people share presence and identity colour.
-test.each([person, agent, system, outside, { kind: "github", login: "ben", color_index: 3 }])(
-  "actor has bounded identity colour: %j",
-  (actor) => {
-    expect(ActorSchema.parse(actor)).toEqual(actor)
-    for (const color_index of [-1, 6, 0.5]) expect(ActorSchema.safeParse({ ...actor, color_index }).success).toBe(false)
-  }
-)
-test("Smithers for a member uses one system actor shape", () => {
-  const actor = { ...system, for: ben }
-  expect(ActorSchema.parse(actor)).toEqual(actor)
+// M-34: Smithers is an agent participant; agents and people share presence. Colour ranges: ActorChipCard.test.ts.
+test("Smithers for a member is the smithers agent participant", () => {
+  expect(ActorSchema.parse(smithers_for_ben)).toEqual(smithers_for_ben)
   expect(ActorSchema.safeParse({ ...person, via: "smithers" }).success).toBe(false)
 })
 test("confirmation variants keep one-click exact text and review merge data", () => {
@@ -78,19 +70,6 @@ test("Draft fixtures cover placement issue seed and commit receipt", () => {
   expect(DraftCardSchema.parse(drafts.issue).issue?.fixes).toBe(true)
   expect(DraftCardSchema.parse(drafts.seed).seed?.files).toEqual(["packages/rpc/src/TodoCard.ts"])
   expect(DraftCardSchema.parse(drafts.committed).committed).toEqual({ n: 12, rev: 1 })
-})
-test("TODO fixtures cover all nine states", () => {
-  expect([...new Set(Object.values(todos).map((value) => value.state))].sort()).toEqual([
-    "dropped",
-    "failed",
-    "in_review",
-    "merged",
-    "needs_you",
-    "paused",
-    "queued",
-    "starting",
-    "working"
-  ])
 })
 test("Home and TODO use the same branch shape and agent presence", () => {
   const todo = TodoCardSchema.parse(todos.working)

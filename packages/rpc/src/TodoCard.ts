@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod"
+import { ActionSchema } from "./CardAction.ts"
 import type { CardCallbacks } from "./CardAction.ts"
 import {
   ActorSchema,
@@ -13,9 +14,34 @@ import {
   NeedsYouKindSchema,
   PersonRefSchema,
   QueueSchema,
+  RebasePendingSchema,
   TodoStateSchema
 } from "./CardPrimitives.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
+
+/**
+ * One open wait for a person (spec §10.8.0). Waits are independent: settling one never settles another, and each
+ * carries its own action (§4.1.0a).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const TodoWaitSchema = z.object({
+  id: z.string(),
+  kind: NeedsYouKindSchema,
+  prompt: z.string(),
+  since: z.string(),
+  paths: z.array(z.string()).optional(),
+  by: ActorSchema.optional(),
+  sha: z.string().optional(),
+  actions: z.array(ActionSchema)
+})
+
+/**
+ * The value decoded by {@link TodoWaitSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type TodoWait = z.infer<typeof TodoWaitSchema>
 
 /**
  * Todo projection fields from spec §14.3 and ui-components.md.
@@ -29,6 +55,7 @@ export const TodoCardSchema = z.object({
   owner: PersonRefSchema,
   place: z.number().int().positive().optional(),
   queue: QueueSchema.optional(),
+  rebase_pending: RebasePendingSchema.optional(),
   step: z.string().optional(),
   prompt_revisions: z.array(z.object({ text: z.string(), by: ActorSchema, at: z.string() })),
   issue: z.object({ number: z.number().int().positive(), url: HttpUrlSchema, fixes: z.boolean() }).optional(),
@@ -53,15 +80,9 @@ export const TodoCardSchema = z.object({
     attempt: z.number().int().positive(),
     indicators: z.array(z.object({ tone: z.enum(["wait", "thrash"]), text: z.string() }))
   }).optional(),
-  needs_you: z.object({
-    kind: NeedsYouKindSchema,
-    prompt: z.string(),
-    since: z.string(),
-    paths: z.array(z.string()).optional(),
-    by: ActorSchema.optional(),
-    sha: z.string().optional()
-  }).optional(),
+  waits: z.array(TodoWaitSchema),
   first_answer: z.object({ by: ActorSchema, text: z.string(), at: z.string() }).optional(),
+  steers: z.array(z.object({ text: z.string(), by: ActorSchema, at: z.string() })),
   failure: z.object({ step: z.string(), class: z.string(), message: z.string(), retryable: z.boolean() })
     .optional(),
   evidence: EvidenceSchema,

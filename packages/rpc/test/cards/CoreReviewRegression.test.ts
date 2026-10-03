@@ -19,7 +19,18 @@ test("queue carries machine-readable order and predecessor", () => {
 })
 test("Smithers has exactly one actor encoding", () => {
   // M-34 rejects the old Smithers encoding itself, with all other fields valid.
-  expect(ActorSchema.safeParse({ kind: "agent", role: "fast", name: "Smithers", color_index: 2 }).success).toBe(false)
+  for (const agent of ["app", "fast"]) {
+    expect(
+      ActorSchema.safeParse({
+        kind: "agent",
+        id: "smithers",
+        agent,
+        avatar_url: "https://example.com/avatar.png",
+        name: "Smithers",
+        color_index: 6
+      }).success
+    ).toBe(false)
+  }
   expect(
     ActorSchema.safeParse({
       kind: "person",

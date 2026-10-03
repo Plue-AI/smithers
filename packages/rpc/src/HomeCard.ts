@@ -13,6 +13,7 @@ import {
   NeedsYouKindSchema,
   PersonRefSchema,
   QueueSchema,
+  RebasePendingSchema,
   TodoStateSchema
 } from "./CardPrimitives.ts"
 
@@ -47,7 +48,7 @@ export const HomeCardSchema = z.object({
     step: z.string().optional(),
     needs_you: z.object({ kind: NeedsYouKindSchema }).optional(),
     merge: MergeSchema,
-    rebase_pending: z.boolean().optional(),
+    rebase_pending: RebasePendingSchema.optional(),
     pr: z.object({ number: z.number().int().positive(), draft: z.boolean() }).optional(),
     approval_cleared: z.boolean().optional(),
     amendments: z.number().int().nonnegative(),

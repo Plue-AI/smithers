@@ -30,13 +30,15 @@ export const FormFieldSchema = z.object({
 export type FormField = z.infer<typeof FormFieldSchema>
 
 /**
- * An action already filtered for the viewer by its Container.
+ * An action already filtered for the viewer by its Container. `args` are bound by the Container, such as
+ * `{ n: "12", wait: "w-3" }`; the View passes them back unchanged with its form input.
  * @since 1.0.0
  * @category schemas
  */
 export const ActionSchema = z.object({
   tag: CatalogTagSchema,
   label: z.string(),
+  args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()

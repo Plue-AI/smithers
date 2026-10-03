@@ -21,18 +21,44 @@ export const PlaceholderAvatarUrl =
  */
 export const AvatarUrlSchema = z.union([HttpUrlSchema, z.literal(PlaceholderAvatarUrl)])
 
-const ColorIndexSchema = z.number().int().min(0).max(5)
+/**
+ * An identity colour from M-34: 0–5 a member's colour, which an agent or Smithers acting for that member also
+ * takes; 6 an agent or Smithers acting for nobody; 7 neutral (GitHub users, outside writes and install events).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ColorIndexSchema = z.number().int().min(0).max(7)
 
 /**
- * A person as a card references them.
+ * A member's own colour, 0–5.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MemberColorIndexSchema = ColorIndexSchema.max(5)
+
+/**
+ * A participant's colour: its member's 0–5 when it acts for one, otherwise 6.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ParticipantColorIndexSchema = ColorIndexSchema.max(6)
+
+/**
+ * The neutral colour of GitHub users and outside writes.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const NeutralColorIndexSchema = z.literal(7)
+
+/**
+ * A member as a card references them.
  * @since 1.0.0
  * @category schemas
  */
 export const PersonRefSchema = z.object({
   login: z.string(),
   name: z.string(),
-  avatar_url: AvatarUrlSchema,
-  color_index: ColorIndexSchema
+  avatar_url: AvatarUrlSchema
 })
 
 /**
@@ -43,11 +69,12 @@ export const PersonRefSchema = z.object({
 export type PersonRef = z.infer<typeof PersonRefSchema>
 
 /**
- * The delegated actor source.
+ * How a person reached the branch when it is not the app: "Ben via SSH", "Ben's terminal", "Ben via CLI".
+ * Claude Code and Codex are agent actors acting for the person, never a person's `via` (M-34).
  * @since 1.0.0
  * @category schemas
  */
-export const ViaSchema = z.enum(["claude-code", "codex", "ssh", "terminal", "cli"])
+export const ViaSchema = z.enum(["ssh", "terminal", "cli"])
 
 /**
  * The value decoded by {@link ViaSchema}.
@@ -57,22 +84,49 @@ export const ViaSchema = z.enum(["claude-code", "codex", "ssh", "terminal", "cli
 export type Via = z.infer<typeof ViaSchema>
 
 /**
- * The actor rendering contract from spec §14.6a.
+ * Which agent a participant is: Smithers, ours (coding, reviewer) or one a person runs (Claude Code, Codex,
+ * another).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const AgentKindSchema = z.enum(["smithers", "coding", "reviewer", "claude-code", "codex", "external"])
+
+/**
+ * The value decoded by {@link AgentKindSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type AgentKind = z.infer<typeof AgentKindSchema>
+
+/**
+ * The actor rendering contract from spec §14.6a.1 and M-34. Every agent doing work, Smithers included, is a
+ * participant with a stable `id` and its own avatar; `for_member` names the person it acts for, is absent when
+ * nobody delegated the work, and confers no authorization. The system actor is an install event.
  * @since 1.0.0
  * @category schemas
  */
 export const ActorSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("person"), ...PersonRefSchema.shape, via: ViaSchema.optional() }),
+  z.object({
+    kind: z.literal("person"),
+    ...PersonRefSchema.shape,
+    via: ViaSchema.optional(),
+    color_index: MemberColorIndexSchema
+  }),
   z.object({
     kind: z.literal("agent"),
-    color_index: ColorIndexSchema,
-    name: z.string(),
-    role: z.literal("coding"),
-    todo: z.number().int().positive().optional()
+    id: z.string(),
+    agent: AgentKindSchema,
+    avatar_url: AvatarUrlSchema,
+    session_id: z.string().optional(),
+    run_id: z.string().optional(),
+    for_member: PersonRefSchema.optional(),
+    name: z.string().optional(),
+    todo: z.number().int().positive().optional(),
+    color_index: ParticipantColorIndexSchema
   }),
-  z.object({ kind: z.literal("system"), color_index: ColorIndexSchema, for: PersonRefSchema.optional() }),
-  z.object({ kind: z.literal("github"), color_index: ColorIndexSchema, login: z.string() }),
-  z.object({ kind: z.literal("outside"), color_index: ColorIndexSchema })
+  z.object({ kind: z.literal("system"), color_index: NeutralColorIndexSchema }),
+  z.object({ kind: z.literal("github"), login: z.string(), color_index: NeutralColorIndexSchema }),
+  z.object({ kind: z.literal("outside"), color_index: NeutralColorIndexSchema })
 ])
 
 /**
@@ -121,11 +175,12 @@ export const ToneSchema = z.enum(["live", "attention", "failed", "done", "quiet"
 export type Tone = z.infer<typeof ToneSchema>
 
 /**
- * An item-level wait for a person.
+ * The kind of a TODO's open wait for a person (spec §10.8.0). Stack attention (`order`, `force_push`) is not a
+ * wait (§4.1.2a).
  * @since 1.0.0
  * @category schemas
  */
-export const NeedsYouKindSchema = z.enum(["question", "approval", "conflict", "moved_off", "foreign_push", "order"])
+export const NeedsYouKindSchema = z.enum(["question", "approval", "conflict", "moved_off", "foreign_push"])
 
 /**
  * The value decoded by {@link NeedsYouKindSchema}.
@@ -179,6 +234,13 @@ export const QueueSchema = z.object({
  * @category models
  */
 export type Queue = z.infer<typeof QueueSchema>
+
+/**
+ * A rebase that waits to run: "Rebase pending onto T2" (spec §4.2).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const RebasePendingSchema = z.object({ onto: z.string() })
 
 /**
  * A Context line item from ui-components.md.

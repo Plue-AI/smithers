@@ -1,11 +1,11 @@
 import type { ConfirmCard } from "../../src/ConfirmCard.ts"
-import { at, ben, person } from "./_shared.ts"
+import { at, ben, claude_code } from "./_shared.ts"
 
 const base: ConfirmCard = {
   kind: "one_click",
   action: { tag: "todo.drop", verb: "Drop" },
   subject: { kind: "todo", ref: "T12", label: "Drop T12", revision: "r3" },
-  asked_by: { ...person, via: "claude-code" }
+  asked_by: claude_code
 }
 export const fixtures = {
   one_click: base,

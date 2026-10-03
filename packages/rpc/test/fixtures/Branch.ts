@@ -1,5 +1,5 @@
 import type { BranchCard } from "../../src/BranchCard.ts"
-import { agent, at, outside, person, system } from "./_shared.ts"
+import { agent, at, github_user, outside, person, system } from "./_shared.ts"
 
 const base: BranchCard = {
   id: "todo-12",
@@ -57,7 +57,7 @@ export const fixtures = {
       { id: "a6", actor: outside, kind: "change", text: "Changed outside Smithers", files: 1, at },
       {
         id: "a7",
-        actor: { kind: "github", login: "ben", color_index: 3 },
+        actor: github_user,
         kind: "change",
         text: "Pushed a commit",
         files: 2,

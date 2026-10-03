@@ -1,5 +1,5 @@
 import type { TerminalCard } from "../../src/TerminalCard.ts"
-import { ben, person, will } from "./_shared.ts"
+import { ben, person, ssh_person, will } from "./_shared.ts"
 
 const base: TerminalCard = {
   id: "terminal-1",
@@ -13,6 +13,6 @@ export const fixtures = {
   idle: base,
   running: { ...base, command: "pnpm check", watchers: [will] },
   watching: { ...base, command: "go test ./...", watchers: [ben, will], viewer_is_owner: false },
-  ssh: { ...base, owner: { kind: "person", ...ben, via: "ssh" }, command: "jj status" },
+  ssh: { ...base, owner: ssh_person, command: "jj status" },
   offer: { ...base, offer: "Add ripgrep to machine image" }
 } satisfies Record<string, TerminalCard>

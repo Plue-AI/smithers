@@ -68,6 +68,7 @@ export const fixtures = {
         place: 2,
         step: "implement",
         needs_you: { kind: "question" },
+        rebase_pending: { onto: "T8" },
         merge: { state: "waiting", reason: "order", detail: "T8", on_github: false },
         amendments: 0,
         branch: { id: "todo-12", name: "todo/12", machine: "ready" },

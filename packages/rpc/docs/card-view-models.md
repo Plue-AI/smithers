@@ -17,7 +17,7 @@ recorded cards; view models do not replace that history decoder.
 | Module             | Schema and inferred type                     | Data                                                                         |
 | ------------------ | -------------------------------------------- | ---------------------------------------------------------------------------- |
 | ConfirmCard        | ConfirmCardSchema, ConfirmCard               | Confirmation kind, action, revision, waiting person and receipt              |
-| TodoCard           | TodoCardSchema, TodoCard                     | Nine TODO states, steps, merge wait, questions, evidence and PR              |
+| TodoCard           | TodoCardSchema, TodoCard                     | Nine TODO states, steps, open waits, steers, rebase, evidence and PR         |
 | DraftCard          | DraftCardSchema, DraftCard                   | Title, prompt, issue, placement, seed and commit receipt                     |
 | HomeCard           | HomeCardSchema, HomeCard                     | Main sync, stack items, counts, machines and background runs                 |
 | SetupCard          | SetupCardSchema, SetupCard                   | Address, install steps, this Mac, repository and model access                |
@@ -39,7 +39,15 @@ recorded cards; view models do not replace that history decoder.
 | TimelineEntryCard  | TimelineEntryCardSchema, TimelineEntryCard   | Author, title, summary, tone, nullable TODO state and action                 |
 | ToastCard          | ToastCardSchema, ToastCard                   | Event kind, tone, conversation entry and action                              |
 
-Shared actor, person, state and tone schemas live in `CardPrimitives`. Links use
+Shared actor, person, state and tone schemas live in `CardPrimitives`. Every
+agent doing work, Smithers included (`agent: "smithers"`), is a participant
+with a stable `id`, its own `avatar_url`, an optional session or run id and an
+optional `for_member`, which confers no authorization (M-34). Claude Code and
+Codex are agents, never a person's `via`. The system actor is a bare install
+event. `color_index` 0–5 is a member's colour, also taken by work done for that
+member; 6 is work for nobody; 7 is neutral for GitHub users, outside writes and
+install events.
+A TODO lists each open wait with its own id and actions, plus its steers. Links use
 the existing HTTP URL validator; fixture avatars use a bundled placeholder. Counts and durations are nonnegative; install
 progress is between zero and 100. Evidence names its revision and may retain
 the previous revision while a review runs. TODO, Home and Confirm share one
