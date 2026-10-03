@@ -3212,3 +3212,4 @@ from main down to the last item. */
 .branch-view .branch-link { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .branch-view .branch-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .branch-view[data-machine="asleep"] .branch-item, .branch-view[data-machine="closed"] .branch-item { color: var(--text-muted); }
+.branch-view[data-machine="asleep"], .branch-view[data-machine="closed"] { background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
