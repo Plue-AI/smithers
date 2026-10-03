@@ -326,6 +326,41 @@ const journeys = Smithers.NodeTest({
 })
 
 /**
+ * Immutable check evidence, explicit command bindings and the finite G-THIN gate.
+ *
+ * @since 1.0.0
+ * @category test
+ */
+const checkRunner = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/checks/run-check.test.mjs")]),
+  srcs: [
+    Smithers.glob("//scripts/checks/*.mjs"),
+    Smithers.file("//.specs/qa/validation-plan.md"),
+    Smithers.file("//.specs/engineering/spec.md"),
+    Smithers.file("//.specs/product/mvp.md"),
+    Smithers.glob("//.specs/engineering/checks/*.md"),
+    Smithers.glob("//.specs/engineering/tickets/*.md")
+  ],
+  deps: []
+})
+
+/** Live, candidate-pinned qualification is opt-in and never cacheable. */
+const thinQualification = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/checks/qualify.mjs"), ["--gate", "G-THIN"]),
+  srcs: [
+    Smithers.glob("//scripts/checks/*.mjs"),
+    Smithers.file("//.specs/qa/validation-plan.md"),
+    Smithers.file("//.specs/engineering/spec.md"),
+    Smithers.file("//.specs/product/mvp.md"),
+    Smithers.glob("//.specs/engineering/checks/*.md"),
+    Smithers.glob("//.specs/engineering/tickets/*.md")
+  ],
+  exclusive: true,
+  cache: false,
+  deps: []
+})
+
+/**
  * Fails on a git or jj conflict marker committed into a tracked text file
  * (#3151). A per-commit drift gate: `git grep` over the tree takes a second.
  * Check mode runs it in a scratch copy with no `.git`, where it searches every
@@ -1021,6 +1056,8 @@ export const Package = Smithers.Package({
     githubTriage,
     issueClaim,
     journeys,
+    checkRunner,
+    thinQualification,
     lint,
     localSmithers,
     localSmithersUnit,
