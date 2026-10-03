@@ -28,7 +28,7 @@ const draft = (name: string, model: DraftCard, expect: string[], actions = [comm
   story(name, model, { actions: [...actions, discard], gestures: { set }, expect })
 
 export const fixtures = {
-  append: draft("Append to the end of the stack", base, ["Card models", "Fixtures parse", "Commit"]),
+  append: draft("Append to the end of the stack", base, ["Card models", "Fixtures parse"]),
   before: draft(
     "Place before T8",
     { ...base, place: { mode: "before", n: 8, options } },
@@ -44,7 +44,7 @@ export const fixtures = {
   issue_fixes: draft(
     "From an issue it closes",
     { ...base, issue: { ...issue, fixes: true } },
-    ["Card model contracts", "Commit"]
+    ["Card model contracts"]
   ),
   issue_without_fixes: draft(
     "From an issue it does not close",
@@ -67,7 +67,7 @@ export const fixtures = {
   empty_stack: draft(
     "Append to an empty stack",
     { ...base, title: "", prompt: "", acceptance: [], place: { mode: "append", options: [] } },
-    ["Commit"],
+    [],
     [{ ...commit(), disabled: { reason: "Add a title" } }]
   )
 } satisfies Record<string, DraftStory>

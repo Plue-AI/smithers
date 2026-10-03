@@ -1352,19 +1352,21 @@ test("reference paint fixture is exactly one MiB of UTF-8", () => {
   expect(new TextEncoder().encode(fileStories.one_mib.model.content.text).byteLength).toBe(1_048_576)
 })
 
-import { fixtures } from "@smthrs/rpc/fixtures/Draft"
+import { fixtures as draftFixtures } from "@smthrs/rpc/fixtures/Draft"
 import type { DraftViewProps } from "@smthrs/rpc/DraftCard"
 import { DraftView } from "./DraftView"
-let draftReturnType<typeof createRoot>: ReturnType<typeof createRoot>
+describe("Draft", () => {
+const fixtures = draftFixtures
+let draftRoot: ReturnType<typeof createRoot>
 const calls: unknown[] = []
 function renderDraft(props: Partial<DraftViewProps> = {}) {
   const host = document.createElement("div")
   document.body.append(host)
-  draftReturnType<typeof createRoot> = createReturnType<typeof createRoot>(host)
-  act(() => draftReturnType<typeof createRoot>.render(<DraftView {...fixtures.append} onAction={(...args) => calls.push(args)} onView={() => { throw new Error("Unexpected view patch") }} {...props} />))
+  draftRoot = createRoot(host)
+  act(() => draftRoot.render(<DraftView {...fixtures.append} onAction={(...args) => calls.push(args)} onView={() => { throw new Error("Unexpected view patch") }} {...props} />))
   return host
 }
-afterEach(() => { act(() => draftReturnType<typeof createRoot>?.unmount()); document.body.innerHTML = ""; calls.length = 0 })
+afterEach(() => { act(() => draftRoot?.unmount()); document.body.innerHTML = ""; calls.length = 0 })
 const blur = (element: HTMLElement) => act(() => element.dispatchEvent(new FocusEvent("focusout", { bubbles: true })))
 const change = (element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) => act(() => {
   const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype
@@ -1444,7 +1446,7 @@ test("committed amendment has +1 and seed remains data only", () => {
   expect(host.textContent).toContain("Committed as T9")
   expect(host.textContent).toContain("+1")
   expect(host.querySelector("input")).toBeNull()
-  act(() => draftReturnType<typeof createRoot>.render(<DraftView {...fixtures.seed} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  act(() => draftRoot.render(<DraftView {...fixtures.seed} onAction={(...args) => calls.push(args)} onView={() => {}} />))
   expect(host.querySelector(".draft-seed")!.textContent).toContain("Read-only")
   expect(host.querySelectorAll(".draft-seed button").length).toBe(0)
   expect(calls).toEqual([])
@@ -1474,7 +1476,7 @@ test("unavailable placement stays selected and focus/blur never appends", () => 
     expect(select.value).toBe(JSON.stringify({ mode, n: 99 }))
     act(() => select.focus()); blur(select)
     expect(calls).toEqual([])
-    act(() => draftReturnType<typeof createRoot>.unmount()); host.remove(); draftReturnType<typeof createRoot> = undefined!
+    act(() => draftRoot.unmount()); host.remove(); draftRoot = undefined!
   }
 })
 test("checkbox and select dispatch once on change without focus or blur", () => {
@@ -1540,4 +1542,6 @@ test("unchanged acceptance is silent for empty entries and embedded newlines", (
     expect(field.value).toBe(acceptance.join("\n")); blur(field)
     expect(calls).toEqual([])
   }
+})
+
 })
