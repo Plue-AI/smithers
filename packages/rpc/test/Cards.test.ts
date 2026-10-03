@@ -686,7 +686,7 @@ describe("card patch validation", () => {
 
 describe("card patches never invent defaults", () => {
   test("an empty payload patch stays empty for every card kind with an object payload", () => {
-    const objectPayloads = CardSchema.options.filter((option) => !CUT_KINDS.includes(option.shape.kind.value) && option.shape.payload instanceof z.ZodObject)
+    const objectPayloads = CardSchema.options.filter((option) => !(CUT_KINDS as readonly string[]).includes(option.shape.kind.value) && option.shape.payload instanceof z.ZodObject)
     expect(objectPayloads.length).toBeGreaterThan(CardSchema.options.length / 2)
     for (const option of objectPayloads) {
       const kind = option.shape.kind.value
@@ -2840,8 +2840,8 @@ test("repository home schema decodes every resolution and refuses unsafe paths",
 })
 
 /* mvp.md §8: old Cut cards decode inertly; retained kinds keep their schema audits. */
-const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent"]
-const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !CUT_KINDS.includes(kind))
+const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent"] satisfies readonly (keyof typeof FIXTURES)[]
+const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(CUT_KINDS as readonly string[]).includes(kind))
 const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" ? { audience_member_id: "ben" } : {}) })
 
 /** The fields a kind's payload declares, or null when the payload is a union of stages rather than one object. */
@@ -2867,7 +2867,7 @@ const objectKinds = kinds.filter((kind) => payloadFields(kind) !== null)
 
 describe("every persisted card kind", () => {
   test("has fixtures: a kind added to the union without them is the gap this table closes", () => {
-    expect(Object.keys(FIXTURES).filter(kind => !CUT_KINDS.includes(kind)).sort()).toEqual([...kinds].sort())
+    expect(Object.keys(FIXTURES).filter(kind => !(CUT_KINDS as readonly string[]).includes(kind)).sort()).toEqual([...kinds].sort())
   })
 
   test("every union payload has an explicit branch audit below", () => {
@@ -3111,7 +3111,7 @@ describe("removed presentation compatibility", () => {
     expect(CardSchema.parse(result)).toEqual(result)
     expect(z.object({ cards: z.array(CardSchema) }).parse({ cards: [row] }).cards).toEqual([result])
     // T-CUT-01 Matching rows: legacy schema/patch options stay until T-APP-22.
-    if (row.kind !== "flow-form" && !CUT_KINDS.includes(row.kind) && row.kind !== "agents") {
+    if (row.kind !== "flow-form" && !(CUT_KINDS as readonly string[]).includes(row.kind) && row.kind !== "agents") {
       expect(CardPatchSchema.safeParse({ kind: row.kind, payload: row.payload }).success).toBe(false)
     }
   })

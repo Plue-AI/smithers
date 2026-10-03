@@ -3,7 +3,7 @@ import type { Action, BaseView } from "../../src/CardAction.ts"
 /**
  * One fixture story (C-UI-12): a model with the actions, gestures and view state its View receives, and `expect`,
  * the strings its View must show. Each `expect` string is carried by the model or the passed actions (a string,
- * case-sensitive, or a number), so no story invents copy the View does not own.
+ * case-insensitive, or a number), so no story invents copy the View does not own.
  */
 export interface Story<Model, View extends object = {}, Gesture extends string = never> {
   readonly name: string

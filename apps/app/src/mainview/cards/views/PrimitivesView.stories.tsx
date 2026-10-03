@@ -23,13 +23,24 @@ for (let color_index = 0; color_index < 6; color_index++) actors.push([`member-c
 actors.push(["person-avatar", { kind: "person", ...ben }])
 const actorLabels: Record<string, string> = {
   person: "Ben", "person-ssh": "Maya via SSH", "person-terminal": "Maya's terminal", "person-cli": "Maya via CLI",
-  system: "Smithers", github: "@octocat", outside: "Changed outside Smithers", smithers: "Smithers", "smithers-for-ben": "Smithers for Ben",
+  system: "Install event", github: "@octocat", outside: "Changed outside Smithers", smithers: "Smithers", "smithers-for-ben": "Smithers for Ben",
   coding: "Coding agent", "coding-for-ben": "Coding agent for Ben", reviewer: "Reviewer", "reviewer-for-ben": "Reviewer for Ben",
   "claude-code": "Claude Code", "claude-code-for-ben": "Claude Code for Ben", codex: "Codex", "codex-for-ben": "Codex for Ben",
   external: "External agent", "external-for-ben": "External agent for Ben", "person-avatar": "Ben",
   "member-color-0": "Ben", "member-color-1": "Ben", "member-color-2": "Ben", "member-color-3": "Ben", "member-color-4": "Ben", "member-color-5": "Ben",
 }
-const states: TodoState[] = ["queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"]
+const stateLabels: Record<TodoState, readonly [string, string]> = {
+  queued: ["Queued", "Queued · Implement"],
+  starting: ["Starting", "Starting · Implement"],
+  working: ["Working", "Working · Implement"],
+  needs_you: ["Needs you", "Needs you · Implement"],
+  paused: ["Paused", "Paused · Implement"],
+  failed: ["Failed", "Failed · Implement"],
+  in_review: ["In review", "In review · Implement"],
+  merged: ["Merged", "Merged · Implement"],
+  dropped: ["Dropped", "Dropped · Implement"],
+}
+const states = Object.keys(stateLabels) as TodoState[]
 export const stories: ViewStory[] = [
   ...Object.entries(actorFixtures).map(([key, fixture]) => ({
     name: `actor-fixture-${key}`, expect: fixture.expect,
@@ -41,7 +52,7 @@ export const stories: ViewStory[] = [
   })),
   ...states.flatMap(state => [false, true].map(withStep => ({
     name: `state-${state}${withStep ? "-step" : ""}`,
-    expect: [state === "queued" && withStep ? "Waiting for a machine" : ({ queued: "Queued", starting: "Starting", working: "Working", needs_you: "Needs you", paused: "Paused", failed: "Failed", in_review: "In review", merged: "Merged", dropped: "Dropped" })[state]],
+    expect: [stateLabels[state][withStep ? 1 : 0]],
     render: () => <StateWord state={state} step={withStep ? "Implement" : undefined} />,
   }))),
   ...["live", "attention", "failed", "done", "quiet"].map(tone => ({ name: `tone-${tone}`, expect: [tone], render: () => <span data-tone={tone} style={{ color: "var(--tone)" }}>{tone}</span> })),

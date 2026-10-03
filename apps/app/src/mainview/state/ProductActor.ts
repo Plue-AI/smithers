@@ -1,4 +1,4 @@
-import { ActorSchema, MemberColorIndexSchema, PlaceholderAvatarUrl, ViaSchema, type Actor, type AgentKind, type PersonRef } from "@smthrs/rpc/CardPrimitives"
+import { ActorSchema, AgentKindSchema, MemberColorIndexSchema, PlaceholderAvatarUrl, ViaSchema, type Actor, type AgentKind, type PersonRef } from "@smthrs/rpc/CardPrimitives"
 
 /** Historical stored notation (§2); RPC decoding remains owned by T-APP-19b. */
 export type ProductActor =
@@ -15,9 +15,6 @@ export interface ActorContext {
   runs?: readonly ActorRun[]
   sessions?: readonly ActorSession[]
 }
-const names: Record<AgentKind, string> = {
-  smithers: "Smithers", coding: "Coding agent", reviewer: "Reviewer", "claude-code": "Claude Code", codex: "Codex", external: "Agent"
-}
 export { actorName } from "../cards/views/actorName"
 /** Recorded attribution only; request headers and credential authority never enter this adapter. */
 export const toActor = (wire: ProductActor | Actor, roster: readonly ActorMember[] = [], runs: readonly ActorRun[] = [], sessions: readonly ActorSession[] = []): Actor => {
@@ -33,7 +30,7 @@ export const toActor = (wire: ProductActor | Actor, roster: readonly ActorMember
     const channel = ViaSchema.safeParse(wire.via)
     if (!wire.via || channel.success) return ActorSchema.parse({ kind: "person", ...personRef(person), color_index: person.color_index, via: channel.success ? channel.data : undefined })
     const session = sessions.find(row => row.id === wire.session)
-    const agent: AgentKind = session?.agent ?? (Object.hasOwn(names, wire.via) ? wire.via as AgentKind : "external")
+    const agent: AgentKind = session?.agent ?? (AgentKindSchema.options.includes(wire.via as AgentKind) ? wire.via as AgentKind : "external")
     return ActorSchema.parse({ kind: "agent", id: wire.session ? `agent-session-${wire.session}` : `agent-${wire.via}-${wire.person}`,
       agent, session_id: wire.session, name: session?.name ?? (agent === "external" ? wire.via : undefined),
       avatar_url: session?.avatar_url ?? PlaceholderAvatarUrl, for_member: personRef(person), color_index: person.color_index })
@@ -41,7 +38,7 @@ export const toActor = (wire: ProductActor | Actor, roster: readonly ActorMember
   if ("agent" in wire) {
     const run = runs.find(row => row.id === wire.run)
     const owner = run?.owner ? member(run.owner) : undefined
-    const agent: AgentKind = run?.agent ?? (Object.hasOwn(names, wire.agent) ? wire.agent as AgentKind : "external")
+    const agent: AgentKind = run?.agent ?? (AgentKindSchema.options.includes(wire.agent as AgentKind) ? wire.agent as AgentKind : "external")
     return ActorSchema.parse({ kind: "agent", id: `agent-run-${wire.run}`, agent, run_id: wire.run, todo: wire.todo,
       name: agent === "external" ? wire.agent : undefined, avatar_url: run?.avatar_url ?? PlaceholderAvatarUrl,
       for_member: owner && personRef(owner), color_index: owner?.color_index ?? 6 })

@@ -239,7 +239,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
   const declarations = new Map<string, ts.Expression | ts.FunctionDeclaration>()
   // `copyText` from @smthrs/ui is the one clipboard effect a View handler may call (ui-components.md Rules 3).
   const clipboard = new Set<string>()
-  const viewChildren = new Set<string>()
+  const viewChildren = new Set<ts.Identifier>()
   const collect = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       declarations.set(node.name.text, node.initializer)
@@ -262,13 +262,13 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
       node.moduleSpecifier.text.startsWith(".") && !node.importClause?.isTypeOnly) {
       const childUrl = new URL(node.moduleSpecifier.text, sourceUrl)
       const viewsUrl = new URL("../cards/views/", import.meta.url)
-      if (childUrl.href.startsWith(viewsUrl.href) && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
+      if (new URL(".", childUrl).href === viewsUrl.href && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
         ["", ".tsx", ".ts"].some(ext => /\.tsx?$/.test(childUrl.pathname + ext) && existsSync(fileURLToPath(new URL(childUrl.href + ext))))) {
         const bindings = node.importClause?.namedBindings
         if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
-          if (!element.isTypeOnly) viewChildren.add(element.name.text)
+          if (!element.isTypeOnly) viewChildren.add(element.name)
         }
-        if (node.importClause?.name) viewChildren.add(node.importClause.name.text)
+        if (node.importClause?.name) viewChildren.add(node.importClause.name)
       }
     }
     ts.forEachChild(node, collect)
@@ -555,7 +555,16 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           ? attribute.initializer.expression
           : undefined
         if (["onAction", "onView", "gestures"].includes(name) && expression && ts.isIdentifier(expression) &&
-          expression.text === name && ts.isIdentifier(node.tagName) && viewChildren.has(node.tagName.text)) continue
+          expression.text === name && ts.isIdentifier(node.tagName)) {
+          const callback = resolveName(expression, name)?.parent
+          const child = resolveName(node.tagName, node.tagName.text)
+          let owner: ts.Node | undefined = node.parent
+          while (owner && !ts.isFunctionLike(owner)) owner = owner.parent
+          if (callback && ts.isBindingElement(callback) && ts.isObjectBindingPattern(callback.parent) &&
+            ts.isParameter(callback.parent.parent) && callback.parent.parent.parent === owner &&
+            (callback.propertyName?.getText(tree) ?? callback.name.getText(tree)) === name &&
+            child && viewChildren.has(child)) continue
+        }
         if (name === "gestures") continue
         const tag = calledTag(expression)
         if (!tag && !presentationHandler(expression)) {
@@ -759,13 +768,20 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     for (const call of ["onAction(action.tag)", "onView({ open: true })", "setOpen(true)", "copyText(model.text)"]) {
       expect(viewSeamViolations(`import { copyText } from "@smthrs/ui/copy"; const [open, setOpen] = useState(false); const view = <button data-flow={action.tag} onClick={event => { event.preventDefault(); event.stopPropagation(); ${call} }} />`)).toEqual([])
     }
-    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; const view = <ActorChip onAction={onAction} onView={onView} gestures={gestures} />')).toEqual([])
+    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction, onView, gestures }) { return <ActorChip onAction={onAction} onView={onView} gestures={gestures} /> }')).toEqual([])
     for (const source of [
       '<button onClick={event => { event.preventDefault(); runCommand("run") }} />',
       'import { ActorChip } from "./ActorChip"; const view = <ActorChip onAction={() => run()} />',
       'import { Child } from "../Child"; const view = <Child onAction={onAction} />',
       '<button onClick={event => { event.preventDefault(); onAction(action.tag); onAction(action.tag) }} />',
     ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  for (const [name, source] of [
+    ["local callback", 'import { ActorChip } from "./ActorChip"; function View() { const onAction = () => localStorage.setItem("x", "y"); return <ActorChip onAction={onAction} /> }'],
+    ["shadowed child", 'import { ActorChip } from "./ActorChip"; function View({ onAction }) { const ActorChip = () => <button />; return <ActorChip onAction={onAction} /> }'],
+  ]) test(`View forwarding rejects ${name}`, () => {
+    expect(viewSeamViolations(source!).length).toBeGreaterThan(0)
   })
 
   test("onAction forwards the action's opaque tag and optional form input", () => {

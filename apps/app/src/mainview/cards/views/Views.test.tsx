@@ -37,11 +37,11 @@ for (const path of paths) {
       const mountedStory = await mounted(story)
       const { host, onAction, onView } = mountedStory
       try {
-        if (story.name === "state-queued-step") expect(host.textContent).toBe("Waiting for a machine")
+        if (story.name.startsWith("state-")) expect(host.textContent).toBe(story.expect[0])
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
             const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
-            for (const chip of chips) expect(chip.getAttribute("aria-label")).toContain(text)
+            for (const chip of chips) expect(story.name === "actor-fixture-system" ? chip.getAttribute("data-kind") : chip.getAttribute("aria-label")).toContain(text)
           } else expect(host.textContent).toContain(text)
         }
         const interactions = story.interactions ?? []
@@ -119,4 +119,23 @@ for (const theme of ["light", "dark"]) test(`Paper tone mappings ${theme}`, () =
       node.remove()
     }
   } finally { css.remove() }
+})
+
+for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`primitive style ${styleCase}`, () => {
+  const css = document.createElement("style")
+  css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/views/primitives.css", import.meta.url), "utf8")
+  document.head.append(css)
+  const state = document.createElement("span")
+  state.className = "mvp-state"
+  state.dataset.state = styleCase
+  const node = document.createElement("span")
+  state.append(node)
+  document.body.append(state)
+  try {
+    node.className = styleCase === "starting" ? "mvp-dot" : styleCase === "harness" ? "view-story" : "mvp-glyph"
+    node.dataset.state = styleCase
+    if (styleCase === "starting") expect(getComputedStyle(node).animation).toContain("mvp-blink")
+    else if (styleCase === "harness") expect(getComputedStyle(node).maxWidth).not.toBe("900px")
+    else expect(getComputedStyle(node).color).toBe(getComputedStyle(document.documentElement).getPropertyValue(styleCase === "merged" ? "--text-faint" : "--text-muted").trim())
+  } finally { state.remove(); css.remove() }
 })

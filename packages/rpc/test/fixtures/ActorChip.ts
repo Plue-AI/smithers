@@ -62,7 +62,7 @@ export const fixtures = {
     "wiki refresh"
   ]),
   undelegated_smithers: chip("Smithers acting for nobody", { actor: smithers, size: "s", live: false }, ["Smithers"]),
-  system: chip("An install event", { actor: system, size: "s", live: false }, ["Smithers"]),
+  system: chip("An install event", { actor: system, size: "s", live: false }, ["system"]),
   github_user: chip("A GitHub user", { actor: github_user, size: "m", live: false }, ["octocat"]),
   outside: chip("Changed outside Smithers", { actor: outside, size: "s", live: false }, ["outside"])
 } satisfies Record<string, Story<ActorChipCard>>

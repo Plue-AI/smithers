@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import type { StoryModule, ViewStory } from "./stories"
 import "../../styles/tokens.css"
 import "../../styles/views.css"
+import "./view-stories.css"
 
 const modules = import.meta.glob<StoryModule>("./*View.stories.tsx", { eager: true })
 const stories: ViewStory[] = Object.entries(modules).flatMap(([path, module]) => module.stories.map(story => ({ ...story, name: `${path.split("/").pop()!.replace(".stories.tsx", "")}/${story.name}` })))

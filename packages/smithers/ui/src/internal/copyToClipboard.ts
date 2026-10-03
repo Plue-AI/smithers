@@ -22,7 +22,8 @@ export async function copyToClipboard(
   } catch (cause) {
     if (!onCopy) {
       const fallback = legacyCopy(text);
-      if (fallback.ok || fallback.code !== "clipboard-unavailable") return fallback;
+      if (fallback.ok) return fallback;
+      if (fallback.cause !== undefined) return fallback;
     }
     return { ok: false, code: "clipboard-write-failed", cause };
   }

@@ -83,3 +83,10 @@ test("host override is awaited", async () => {
   expect(await result).toEqual({ ok: true })
   expect(host).toHaveBeenCalledWith("host")
 })
+
+test("native rejection survives an unsuccessful fallback", async () => {
+  const cause = new Error("permission denied")
+  clipboard({ writeText: async () => { throw cause } })
+  legacy(() => false)
+  expect(await copyText("text")).toEqual({ ok: false, code: "clipboard-write-failed", cause })
+})

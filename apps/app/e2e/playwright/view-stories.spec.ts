@@ -39,3 +39,29 @@ test("live agents respect reduced motion", async ({ page }) => {
   await page.goto("/view-stories.html?story=PrimitivesView/actor-coding")
   await expect(page.locator("[data-live]")).toHaveCSS("animation-name", "none")
 })
+
+test("primitive labels, starting animation and neutral glyph colors", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  for (const theme of ["light", "dark"]) {
+    await page.goto(`/view-stories.html?story=PrimitivesView/state-starting-step&theme=${theme}`)
+    await expect(page.locator(".mvp-state")).toHaveText("Starting · Implement")
+    await expect(page.locator(".mvp-dot")).toHaveCSS("animation-name", "mvp-blink")
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await expect(page.locator(".mvp-dot")).toHaveCSS("animation-name", "none")
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    for (const [state, token] of [["in_review", "--text-muted"], ["merged", "--text-faint"]]) {
+      await page.goto(`/view-stories.html?story=PrimitivesView/state-${state}&theme=${theme}`)
+      const colors = await page.locator(".mvp-glyph").evaluate((glyph, token) => {
+        const probe = document.createElement("span")
+        probe.style.color = `var(${token})`
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return { actual: getComputedStyle(glyph).color, expected }
+      }, token!)
+      expect(colors.actual).toBe(colors.expected)
+    }
+    await page.goto(`/view-stories.html?story=PrimitivesView/actor-fixture-system&theme=${theme}`)
+    await expect(page.locator(".mvp-avatar")).toHaveAttribute("aria-label", "Install event")
+  }
+})
