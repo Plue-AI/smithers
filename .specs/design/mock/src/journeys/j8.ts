@@ -229,9 +229,12 @@ export const j8: Journey = {
       }
     },
     {
-      caption: "On Maya's screen, the page records that T12's plan cited r2.",
+      caption: "On Maya's screen, the page records that T12's plan cited r2. The learning run finishes and frees its machine.",
       viewer: MAYA, target: '[data-mock="wiki-cited-t-slack"]', hover: true, hold: 3000,
-      act: () => {}
+      act: state => {
+        run(state, { id: LEARN, title: LEARNING, state: "done", detail: "1 lesson" })
+        toast(state, MAYA, { tone: "ok", title: LEARNING, detail: "1 lesson" })
+      }
     }
   ])
 }

@@ -54,7 +54,7 @@ const setup = (): State => {
   world.stack = todos.map(each => each.id)
   world.mergedSinceLook = 3
   world.syncedAgo = 360
-  world.capacity = 3
+  world.capacity = 4  // three awake or waking branches, and the running wiki refresh holds the fourth (M-06)
   const place = (id: string, name: string, machine: "awake" | "asleep" | "waking" | "waiting" | "closed", item?: string) =>
     world.branches.push({ id, name, from: item ?? "main", machine, presence: [], activity: [], terminals: [], ...(item === undefined ? {} : { item }) })
   place("s-b-merged", "send-one-reset-email", "closed", "s-merged")

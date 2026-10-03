@@ -2039,7 +2039,7 @@ body { overflow: hidden; }
 .mvp-avatar[data-smithers][data-for] { background: var(--who); color: var(--avatar-ink); }
 .mvp-avatar-for { position: absolute; right: -4px; bottom: -3px; display: inline-flex; width: calc(var(--size) * 0.5); height: calc(var(--size) * 0.5); min-width: 11px; min-height: 11px; align-items: center; justify-content: center; border-radius: 50%; background: var(--who); box-shadow: 0 0 0 1.5px var(--surface); color: var(--avatar-ink); font-size: max(7px, calc(var(--size) * 0.26)); font-weight: 700; }
 /* Docked in the rail (desktop): the notices are the timeline's own foot, sticky, opaque, never over a card. */
-.mvp-notify[data-docked] { position: sticky; bottom: 0; left: auto; z-index: 4; width: auto; padding: 6px 0 4px; background: var(--bg); }
+.mvp-notify[data-docked] { position: static; flex: none; left: auto; z-index: 4; width: auto; padding: 0; background: none; }
 .mvp-notify[data-docked] .mvp-notice { box-shadow: var(--shadow-1); backdrop-filter: none; background: var(--surface); }
 /* Who said it, in a shared conversation: a small name over others' prompts and over Smithers' answers. */
 .mvp-author { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }

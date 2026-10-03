@@ -418,7 +418,8 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
         <form className="mvp-inline-input mvp-steer" onSubmit={event => event.preventDefault()}>
           <input aria-label="Steer the coding agent" placeholder="Steer the coding agent" readOnly value={typedOr(frame, `steer:${trace.branch}`, "")} data-mock={`run-steer-${trace.id}`} />
           <Button size="sm" variant="outline" data-mock={`run-steer-send-${trace.id}`}>Steer</Button>
-          {trace.state === "held" ? null : <Button size="sm" variant="ghost">Stop</Button>}
+          {/* No Stop while a question or approval waits (spec §10.7.1), nor in the wait for merge. */}
+          {trace.state === "held" || trace.state === "waiting" ? null : <Button size="sm" variant="ghost">Stop</Button>}
         </form>
       )}
     </Card>

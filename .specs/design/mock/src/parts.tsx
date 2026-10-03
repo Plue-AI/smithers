@@ -36,12 +36,11 @@ export const actorName = (world: World, who: ActorId): string => {
   return isAgent(who) ? `Coding agent${suffix}` : member(world, who)?.name.split(" ")[0] ?? who
 }
 
-/** A line or margin flag's name: "Alice", "Smithers for Ben", "Claude Code for Ben", "Agent for Ben", "Maya · SSH". */
+/** A line or margin flag's name: "Alice", "Smithers for Ben", "Claude Code for Ben", "Coding agent for Ben", "Maya · SSH". */
 export const flagName = (world: World, who: ActorId): string => {
   const acting = via(who)
   if (acting !== undefined && who.endsWith("~ssh")) return `${first(world, acting.person)} · SSH`
-  if (isAgent(who) && !isSmithers(who) && acting === undefined) return actorName(world, who).replace("Coding agent", "Agent")
-  return isSmithers(who) || acting !== undefined ? actorName(world, who) : first(world, who)
+  return isAgent(who) || acting !== undefined ? actorName(world, who) : first(world, who)
 }
 
 /**

@@ -133,7 +133,7 @@ export const j11: Journey = {
       act: state => { state.viewers[MAYA]!.maximized = `run:${RUN}` }
     },
     {
-      caption: "Attempt 1 sits beside attempt 2: its machine restarted, and Retry started a new run. Here the run waited 3 minutes for Ben's answer.", spec: "J11.1",
+      caption: "Attempt 1 sits beside attempt 2: a machine restart interrupted it, and Retry started a new run. Here the run waited 3 minutes for Ben's answer.", spec: "J11.1",
       target: '[data-mock="phase-p-ask"]', hold: 3600,
       act: state => { state.viewers[MAYA]!.selected = "c-answer" }
     },

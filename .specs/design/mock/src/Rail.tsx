@@ -292,7 +292,9 @@ export const Rail = ({ marks, inView, desktop, onJump, noticed = new Set<string>
       </ol>
     )
   }
+  /* Docked notices sit below the timeline, never over it, so the band and the newest rows stay readable (Fable r3 B1). */
   return (
+    <>
     <nav className="mvp-timeline" aria-label="Timeline" ref={rail}>
       {edge(above, "top")}
       <ol>
@@ -316,7 +318,8 @@ export const Rail = ({ marks, inView, desktop, onJump, noticed = new Set<string>
         })}
       </ol>
       {edge(below, "bottom")}
-      {children}
     </nav>
+    {children}
+    </>
   )
 }

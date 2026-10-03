@@ -21,7 +21,7 @@ const PASS = ["$ pnpm test webhooks", " PASS  src/webhooks/retry.test.ts", " Tes
 
 const cell = (id: string, kind: Cell["kind"], explain: string, extra: Partial<Cell> = {}): Cell => ({ id, kind, explain, ...extra })
 
-/* Attempt 1 stopped in Implement when its machine restarted; Retry started attempt 2 as a new run beside it. J11 inspects the same history after T9 merges. */
+/* Attempt 1 was interrupted in Implement when its machine restarted and could not resume (§19.1); Retry started attempt 2 as a new run beside it. J11 inspects the same history after T9 merges. */
 export const FIRST = (): Trace => ({
   id: "run-retry-1", title: RETRY.title, todo: TODO, attempt: 1, branch: "b-retry", state: "failed",
   phases: [
@@ -33,7 +33,7 @@ export const FIRST = (): Trace => ({
       ]
     },
     {
-      id: "p1-backoff", step: "implement", title: "Edited 1 file", summary: "Stopped when the machine restarted.", took: 20, tone: "fail", indicator: "Machine restarted",
+      id: "p1-backoff", step: "implement", title: "Edited 1 file", summary: "Interrupted: the machine restarted mid-edit.", took: 20, tone: "fail", indicator: "Interrupted",
       cells: [cell("c1-edit", "edit", "Began switching deliver() to backoff(attempt); the machine restarted mid-edit.", { tone: "fail", took: "6 s", tokens: "1.2k" })]
     }
   ]
@@ -160,7 +160,7 @@ export const insideRun: Journey = {
       act: state => { state.viewers[BEN]!.maximized = RUN_CARD }
     },
     {
-      caption: "Attempt 1 stopped when its machine restarted. A retry is a new attempt beside the old one.", spec: "§4.1",
+      caption: "Attempt 1 was interrupted when its machine restarted. A retry is a new attempt beside the old one.", spec: "§4.1",
       target: '[data-mock="node-1-implement"]', hover: true, hold: 3200,
       act: () => {}
     },
