@@ -9,7 +9,6 @@ import type { StoryModule, ViewStory } from "./stories"
 GlobalRegistrator.register()
 const { createRoot } = await import("react-dom/client")
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-const { createRoot } = await import("react-dom/client")
 afterAll(() => GlobalRegistrator.unregister())
 let consoleError: ReturnType<typeof spyOn>
 beforeEach(() => { consoleError = spyOn(console, "error").mockImplementation(() => {}) })
