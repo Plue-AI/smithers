@@ -8,9 +8,11 @@
  * different databases and disagree about what exists.
  */
 import { Effect } from "effect"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Project from "../src/Project.ts"
 
@@ -159,6 +161,44 @@ describe("the project root", () => {
   it("supplies ambient defaults when no project layer is installed", () => {
     expect(Effect.runSync(Project.ProjectRoot)).toBe(process.cwd())
     expect(Effect.runSync(Project.MigrationRoot)).toBe(Project.legacyRoot(undefined, process.cwd()))
+  })
+})
+
+/** The repository root, two levels above this package's `test/` directory. */
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
+
+/**
+ * Every path the checkout tracks under `.smithers/`. A jj checkout is read from
+ * its last snapshot without snapshotting edits; a plain Git checkout (CI) from
+ * its index.
+ */
+const trackedUnderDotSmithers = (): ReadonlyArray<string> => {
+  const jj = existsSync(join(repositoryRoot, ".jj"))
+  const result = spawnSync(
+    jj ? "jj" : "git",
+    jj ? ["file", "list", "--ignore-working-copy", ".smithers"] : ["ls-files", "--", ".smithers"],
+    { cwd: repositoryRoot, encoding: "utf8", timeout: 30_000 }
+  )
+  expect(result.status, `inventory failed: ${result.error?.message ?? result.stderr}`).toBe(0)
+  return result.stdout.split("\n").filter((path) => path.startsWith(".smithers/"))
+}
+
+describe("a fresh clone of this repository", () => {
+  it("has tracked source under .smithers/, so the check below has files to cover", () => {
+    expect(trackedUnderDotSmithers()).toContain(".smithers/WORKSPACE.ts")
+  })
+
+  it("prints no Smithers 0.x notice for the .smithers/ files it tracks", () => {
+    // The clone holds exactly the tracked entries. Directories inside them
+    // (a workflows/ tree) are created too, because a subdirectory reads as 0.x.
+    const clone = project()
+    for (const tracked of trackedUnderDotSmithers()) {
+      const target = join(clone, tracked)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, "")
+    }
+
+    expect(Project.legacyState(clone)).toEqual([])
   })
 })
 

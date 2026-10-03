@@ -191,7 +191,17 @@ export const legacyDatabases = (
   }
 }
 
-const buildDefinitionFiles = new Set(["WORKSPACE.ts", "FACTORY.ts", "factory.json", "home.json", "target-index.json"])
+const buildDefinitionFiles = new Set([
+  "WORKSPACE.ts",
+  "FACTORY.ts",
+  "factory.json",
+  "home.json",
+  "target-index.json",
+  "environment.nix",
+  "coding-project.json",
+  "memory-thresholds.json",
+  "memory-thresholds.receipt.json"
+])
 
 /**
  * What a directory-serving host keeps under `.smithers`: its database, the
