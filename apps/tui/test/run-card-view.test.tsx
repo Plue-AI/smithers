@@ -195,7 +195,7 @@ test.each([
   }, 90_000)
   await mount(card, 78, 24, { onOpen: () => {} })
   const rows = setup!.captureCharFrame().split("\n").filter((row) => row.trim() !== "")
-  expect(rows[0]).toContain(status === "done" ? "→ 5" : "Check exited 7.")
+  expect(rows[0]).toContain(status === "done" ? "→ 5" : "failed: Check exited 7.")
   expect(rows[0]).toContain("report-")
   expect(stringWidth(rows[0]!)).toBeLessThanOrEqual(78)
   if (status === "done") expect(rows).toHaveLength(1)

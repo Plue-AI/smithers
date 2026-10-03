@@ -1018,7 +1018,7 @@ export function ToastStack(
           customBorderChars={bar}
         >
           <box style={{ flexDirection: "row", paddingLeft: 1, paddingRight: 2 }} backgroundColor={color.element}>
-            <text fg={color.text} wrapMode="none">{row.text}</text>
+            <text fg={color.text}>{row.text}</text>
             {row.surface === undefined ?
               null :
               (

@@ -265,7 +265,7 @@ test("/flow <agent> before discovery persists and shows its request, then dispat
   expect(frame()).toMatch(/review.*requested/)
   await key("TAB")
   await key("RETURN")
-  expect(frame()).toContain("Requested.")
+  expect(frame()).toMatch(/◌ review\s*\n\s*requested/)
   await act(async () => {
     gate.resolve(listed)
     await setImmediate()
@@ -599,16 +599,16 @@ test("an unresolved discovery run opens from Chat, restores, stops, and never di
   expect(requested).toMatchObject({ status: "requested", pendingCommand: true })
   await key("TAB")
   await key("RETURN")
-  expect(frame()).toContain("Requested.")
+  expect(frame()).toMatch(/◌ module\s*\n\s*requested/)
   expect(frame()).not.toContain("Unknown run")
   expect(frame()).toMatch(/x.*Stop/)
 
   const current = await remountUndiscovered(file)
   await key("TAB")
   await key("RETURN")
-  expect(frame()).toContain("Requested.")
+  expect(frame()).toMatch(/◌ module\s*\n\s*requested/)
   await key("x")
-  expect(frame()).toContain("Stopped.")
+  expect(frame()).toContain("stopped")
   expect(frame()).not.toMatch(/r.*Retry/)
   expect(Session.restore(Session.load(file)).flows[0]).toMatchObject({ status: "cancelled", pendingCommand: true })
   await act(async () => {

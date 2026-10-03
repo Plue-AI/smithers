@@ -1326,7 +1326,7 @@ describe("discovery command lifecycle", () => {
     const next = new FlowRuns({ port: fixture.port, persist: () => {}, restored: restored.flows })
     expect(next.snapshot().map((run) => run.status)).toEqual(["cancelled", "failed"])
     expect(next.busy).toBe(false)
-    expect(next.panel("bad").summary).toBe("Invalid JSON")
+    expect(next.panel("bad").summary).toBe("failed: Invalid JSON")
     expect(fixture.calls).toEqual([])
     await runs.dispose()
     await next.dispose()

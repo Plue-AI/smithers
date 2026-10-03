@@ -52,6 +52,8 @@
   "src/registration-report.ts",
   "src/replay.ts",
   "src/review-view.tsx",
+  "src/run-card-view.tsx",
+  "src/run-card.ts",
   "src/run-history.ts",
   "src/run.tsx",
   "src/runtime-version.ts",

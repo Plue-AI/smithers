@@ -25,7 +25,7 @@ export function RunCardView(props: {
     : `${card.outcome} · ${card.duration}`
   const metadata = ` · ${aside}${card.undone ? " · undone" : ""}`
   const outcome = card.failure !== undefined ?
-    ` · ${card.failure}` :
+    ` · failed: ${card.failure}` :
     card.result !== undefined
     ? ` → ${card.result}`
     : ""

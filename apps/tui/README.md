@@ -482,7 +482,7 @@ prevents dispatch. Invalid arguments and admission refusals stay on the saved
 failed card. Reissue an unadmitted command to try again. A person’s run shows in Chat as the line they
 typed and a host-owned card that updates in place: `◌ sum` until it launches,
 then its clock, then
-`✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · <why>` or
+`✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · failed: <why>` or
 `■ sum · 2s`. Every flow, including an extension key or `smithers.run` call, gets the same card. While
 that card is on screen the run shows no toast. Click it, or `tab` then `enter`
 from an empty composer, to open its tab. It runs through the same native
