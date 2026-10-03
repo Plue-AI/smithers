@@ -2017,7 +2017,11 @@ export function App(props: AppProps) {
             if (focusedWorker !== undefined) toggleFiles(focusedWorker.id)
           },
           diff: canDiff(focusedWorker) ? () => openReview(focusedWorker) : undefined,
-          undo: canUndo(focusedWorker) ? () => undoWorker(focusedWorker) : undefined
+          undo: canUndo(focusedWorker) ? () => undoWorker(focusedWorker) : undefined,
+          // The card shows `a Answer` for the one ask waiting.
+          answer: focusedWorker !== undefined && soleAsk?.from === focusedWorker.id
+            ? () => flushSync(() => openAsk(focusedWorker.id))
+            : undefined
         })
       ) return
     } else if (

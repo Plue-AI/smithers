@@ -600,6 +600,25 @@ test.each([["cancelled", ["retry"]], ["failed", ["retry"]], ["running", []], ["d
   }
 )
 
+test.each([["with its ask's a Answer", true, ["leave", "answer"]], ["without one", false, []]] as const)(
+  "a on a focused waiting card %s",
+  (_name, answers, expected) => {
+    const calls: unknown[] = []
+    const event = key("a")
+    expect(Dispatch.cardKey(event, {
+      worker: worker("waiting"),
+      move: (step) => calls.push(step),
+      leave: () => calls.push("leave"),
+      open: () => calls.push("open"),
+      files: () => calls.push("files"),
+      workerAction: (_tab, action) => calls.push(action),
+      ...(answers ? { answer: () => calls.push("answer") } : {})
+    })).toBe(true)
+    expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+    expect(event.defaultPrevented).toBe(true)
+  }
+)
+
 const panel: Panel = {
   id: "checks",
   title: "Checks",

@@ -481,3 +481,18 @@ test.each([
   expect(settled).toBe(false)
   expect(frame()).toContain("Summary ◆1")
 })
+
+test("a on a focused ask card opens its answer form", async () => {
+  await delegate("add")
+  const answered = await ask(1, "New name for add()?", ["sum", "plus"])
+  await waitFor(() => frame().includes("Summary ◆1"))
+  await settle()
+  await key("TAB")
+  expect(frame()).toContain("a Answer")
+  await type("a")
+  expect(frame()).toContain("> sum")
+  expect(frame()).toContain("enter Answer  esc Back")
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  expect(await answered()).toMatchObject({ answer: "plus" })
+})

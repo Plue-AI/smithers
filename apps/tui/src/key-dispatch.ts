@@ -173,9 +173,10 @@ const workerBinding = (key: KeyEvent): string | undefined => {
 
 /**
  * A focused chat card: enter opens it, esc leaves it, arrows and tab move
- * between cards. On a subagent card, `f` opens its files, `d` its run's diff,
- * `u` undoes the run, and the worker keys act on its worker. Anything else
- * unfocuses it and goes on to the composer; false then.
+ * between cards. On a subagent card, `a` answers the ask it shows `a Answer`
+ * for, `f` opens its files, `d` its run's diff, `u` undoes the run, and the
+ * worker keys act on its worker. Anything else unfocuses it and goes on to
+ * the composer; false then.
  */
 export const cardKey = (key: KeyEvent, act: {
   readonly move: (direction: Subagents.Direction) => void
@@ -189,6 +190,8 @@ export const cardKey = (key: KeyEvent, act: {
   readonly diff?: (() => void) | undefined
   /** Present only when those changes can be undone now. */
   readonly undo?: (() => void) | undefined
+  /** Present only when the card shows `a Answer`: opens its ask's answer form. */
+  readonly answer?: (() => void) | undefined
 }): boolean => {
   if (key.name === "return" || key.name === "kpenter") {
     key.preventDefault()
@@ -218,7 +221,7 @@ export const cardKey = (key: KeyEvent, act: {
     act.files()
     return true
   }
-  const run = key.name === "d" ? act.diff : key.name === "u" ? act.undo : undefined
+  const run = key.name === "d" ? act.diff : key.name === "u" ? act.undo : key.name === "a" ? act.answer : undefined
   if (run !== undefined) {
     key.preventDefault()
     act.leave()
