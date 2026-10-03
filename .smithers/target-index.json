@@ -17113,7 +17113,15 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/ActorChipCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/AgentApiRoutes.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/AgentCard.ts"
       },
       {
         "kind": "file",
@@ -17145,7 +17153,23 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/BranchCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/BranchTreeNodeCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/BrowserFetch.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/CardAction.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/CardPrimitives.ts"
       },
       {
         "kind": "file",
@@ -17161,7 +17185,27 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/CommandsCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/ConfiguredModel.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/ConfirmCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/ContextLineCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/DiffCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/DraftCard.ts"
       },
       {
         "kind": "file",
@@ -17169,7 +17213,15 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/FileCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/FlowAuthoring.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/FlowCard.ts"
       },
       {
         "kind": "file",
@@ -17178,6 +17230,10 @@
       {
         "kind": "file",
         "path": "packages/rpc/src/Health.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/HomeCard.ts"
       },
       {
         "kind": "file",
@@ -17198,6 +17254,14 @@
       {
         "kind": "file",
         "path": "packages/rpc/src/LspWire.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/MembersCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/MonitorCard.ts"
       },
       {
         "kind": "file",
@@ -17225,6 +17289,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/ProposalCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/Refusal.ts"
       },
       {
@@ -17238,6 +17306,18 @@
       {
         "kind": "file",
         "path": "packages/rpc/src/RepositorySetup.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/SecretsCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/SettingsCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/SetupCard.ts"
       },
       {
         "kind": "file",
@@ -17265,7 +17345,23 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/TerminalCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/Threads.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/TimelineEntryCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/ToastCard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/TodoCard.ts"
       },
       {
         "kind": "file",
@@ -17286,6 +17382,10 @@
       {
         "kind": "file",
         "path": "packages/rpc/src/WorkerFailureCodes.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/catalog/index.ts"
       },
       {
         "kind": "file",
@@ -31983,6 +32083,49 @@
     }
   },
   {
+    "label": "//packages/rpc:docs",
+    "package": "packages/rpc",
+    "name": "docs",
+    "rule": "DocsParity",
+    "kinds": [
+      "docs"
+    ],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "packages/rpc/README.md"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/rpc:docsFiles"
+    ],
+    "source": {
+      "file": "packages/rpc/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/rpc:docsFiles",
+    "package": "packages/rpc",
+    "name": "docsFiles",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/rpc/docs/**/*.md",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/rpc/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/rpc:fmt",
     "package": "packages/rpc",
     "name": "fmt",
@@ -32130,6 +32273,11 @@
       {
         "kind": "glob",
         "pattern": "packages/rpc/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/rpc/test/**/*.{ts,json,snap}",
         "exclude": []
       },
       {

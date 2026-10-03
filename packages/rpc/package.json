@@ -12,6 +12,10 @@
     "./*": {
       "types": "./src/*.ts",
       "default": "./src/*.ts"
+    },
+    "./fixtures/*": {
+      "types": "./test/fixtures/*.ts",
+      "default": "./test/fixtures/*.ts"
     }
   },
   "scripts": {

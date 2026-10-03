@@ -1,5 +1,5 @@
-import { describe,expect,test } from "bun:test"
-import { readdirSync,readFileSync } from "node:fs"
+import { describe, expect, test } from "bun:test"
+import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 
@@ -30,7 +30,11 @@ const read = (relative: string): string => {
       if (callee === "flowAction" || callee === "dynamicFlowAction") {
         const [run, name, args] = node.expression.arguments
         if (!run || !name) throw new Error("A flow binding needs its dispatcher and command")
-        written(`${attribute("data-flow", name)} onClick={() => ${run.getText(tree)}(${name.getText(tree)}${args ? `, ${args.getText(tree)}` : ""})}`)
+        written(
+          `${attribute("data-flow", name)} onClick={() => ${run.getText(tree)}(${name.getText(tree)}${
+            args ? `, ${args.getText(tree)}` : ""
+          })}`
+        )
       } else if (callee === "flowProps" || callee === "dynamicFlowProps") {
         const [name] = node.expression.arguments
         if (!name) throw new Error("A flow binding needs its command")
@@ -72,6 +76,8 @@ const surfaceFiles = (): Array<string> => {
   const root = fileURLToPath(new URL("..", import.meta.url))
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
+    // Design-owned Views have their own AST seam rule below, not legacy pins.
+    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/"))
     .map((entry) => `../${entry.split("\\").join("/")}`)
     .sort()
 }
@@ -124,7 +130,8 @@ const literalBindings = (source: string): Array<{ readonly prop: string; readonl
       const prop = node.name.getText(tree)
       if (prop === "data-flow" || prop === "closeCommand") {
         const value = node.initializer && ts.isJsxExpression(node.initializer)
-          ? node.initializer.expression : node.initializer
+          ? node.initializer.expression :
+          node.initializer
         if (value && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) {
           found.push({ prop, name: value.text })
         }
@@ -181,7 +188,7 @@ const PRESENTATION_ONLY = [
   "onChooseWorkflowRepo(", // delegated: App.tsx binds it to runCommand("flow.repo.choose", ...)
   "onConfirm}", // SurfaceChrome delegates to its binding site
   "onCancel}", // dismissing a dialog changes no application state
-  "onClose}", // SurfaceChrome delegates to its binding site
+  "onClose}" // SurfaceChrome delegates to its binding site
 ] as const
 
 // Indirections added with the run cards. Scope each literal
@@ -191,13 +198,20 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   // Choosing this document's writer is a human tab gesture, not an app command.
   // The human credential continuation opened by auth.sign-in. Passwords stay
   // in the form and its auth controller, outside the command journal.
-  "../LocalAuthPanel.tsx": ["onSubmit={submit}", "close(event.currentTarget.ownerDocument)", "onClick: () => auth.open()"],
+  "../LocalAuthPanel.tsx": [
+    "onSubmit={submit}",
+    "close(event.currentTarget.ownerDocument)",
+    "onClick: () => auth.open()"
+  ],
   // Bootstrap recovery runs before a controller exists. Backend selection
   // stays in the boot adapter; its credential must never enter a command journal.
   "../AppRoot.tsx": ["onClick={() => window.location.reload()}"], // saved-store failure blocks the command journal; Reload reopens storage
   "../StartupError.tsx": [
-    "onClick={useSmithersHere}", "onClick={() => window.location.reload()}", "onClick: () => window.location.reload()",
-    "onClick={() => setChoosing(true)}", "await switchBackend(origin, token)"
+    "onClick={useSmithersHere}",
+    "onClick={() => window.location.reload()}",
+    "onClick: () => window.location.reload()",
+    "onClick={() => setChoosing(true)}",
+    "await switchBackend(origin, token)"
   ],
   "../ToastAction.tsx": ["onAction(action)"], // ToastStack/App bind the typed action to runCommand(action.flow, action.args)
   "../HelpBubble.tsx": ["onClick={dismiss}"], // restores focus, then onDismiss() dismisses transient help
@@ -206,11 +220,497 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
   "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
   "../SubagentGrid.tsx": ["setFilesOpen(", "onClick={onOpen}"], // files and earlier-batch rows are local disclosures
-  "../ToastStack.tsx": ["setExpanded("], // the "+N more" row is a local disclosure of the capped stack
+  "../ToastStack.tsx": ["setExpanded("] // the "+N more" row is a local disclosure of the capped stack
 }
 
 const routesThroughRegistry = (context: string): boolean =>
   context.includes("runCommand") || context.includes("onRunCommand") || context.includes("runSlashCommand")
+
+const unwrap = (expression: ts.Expression): ts.Expression => {
+  while (
+    ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression) || ts.isNonNullExpression(expression)
+  ) expression = expression.expression
+  return expression
+}
+
+/** Compare the tag expression itself: a neighbouring action's tag is not parity. */
+const viewSeamViolations = (source: string): string[] => {
+  const tree = ts.createSourceFile("CardView.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const violations: string[] = []
+  const declarations = new Map<string, ts.Expression | ts.FunctionDeclaration>()
+  const localSetters = new Set<string>()
+  const reducers = new Map<string, ts.Expression>()
+  const localRefs = new Set<string>()
+  const collect = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) && ts.isArrayBindingPattern(node.name) && node.initializer &&
+      ts.isCallExpression(node.initializer)
+    ) {
+      const callee = node.initializer.expression.getText(tree)
+      if (/^(?:React\.)?use(?:State|Reducer)$/.test(callee)) {
+        const setter = node.name.elements[1]
+        if (setter && ts.isBindingElement(setter) && ts.isIdentifier(setter.name)) {
+          localSetters.add(setter.name.text)
+          if (/useReducer$/.test(callee) && node.initializer.arguments[0]) {
+            reducers.set(setter.name.text, node.initializer.arguments[0])
+          }
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      declarations.set(node.name.text, node.initializer)
+      if (
+        ts.isCallExpression(node.initializer) && /^(?:React\.)?useRef$/.test(node.initializer.expression.getText(tree))
+      ) {
+        const initial = node.initializer.arguments[0]
+        if (
+          !initial || unwrap(initial).kind === ts.SyntaxKind.NullKeyword ||
+          (ts.isIdentifier(unwrap(initial)) && unwrap(initial).getText(tree) === "undefined")
+        ) localRefs.add(node.name.text)
+      }
+    }
+    if (ts.isFunctionDeclaration(node) && node.name) declarations.set(node.name.text, node)
+    ts.forEachChild(node, collect)
+  }
+  collect(tree)
+  const mutates = (node: ts.Node): boolean =>
+    (ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+    ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)) ||
+    ts.isDeleteExpression(node)
+  const calledTag = (
+    expression: ts.Expression | ts.FunctionDeclaration | undefined,
+    seen = new Set<string>()
+  ): ts.Expression | undefined => {
+    if (!expression) return undefined
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return undefined
+      seen.add(expression.text)
+      return calledTag(declarations.get(expression.text), seen)
+    }
+    if (!ts.isFunctionDeclaration(expression)) expression = unwrap(expression)
+    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) || ts.isFunctionDeclaration(expression)) {
+      if (!expression.body) return undefined
+      if (ts.isBlock(expression.body)) {
+        if (expression.body.statements.length !== 1) return undefined
+        const statement = expression.body.statements[0]!
+        if (ts.isExpressionStatement(statement) || ts.isReturnStatement(statement)) {
+          return calledTag(statement.expression, seen)
+        }
+        return undefined
+      }
+      return calledTag(expression.body, seen)
+    }
+    if (
+      !ts.isCallExpression(expression) || !ts.isIdentifier(expression.expression) ||
+      expression.expression.text !== "onAction"
+    ) return undefined
+    const tag = expression.arguments[0]
+    if (!tag || expression.arguments.length > 2) return undefined
+    let extraCall = false
+    const inspectInput = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) || ts.isNewExpression(node) || mutates(node)) extraCall = true
+      ts.forEachChild(node, inspectInput)
+    }
+    for (const argument of expression.arguments) inspectInput(argument)
+    if (extraCall) return undefined
+    const value = unwrap(tag)
+    return ts.isPropertyAccessExpression(value) && value.name.text === "tag" ? value : undefined
+  }
+  const functionValue = (
+    expression: ts.Expression | ts.FunctionDeclaration | undefined,
+    seen = new Set<string>()
+  ): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined => {
+    if (!expression) return undefined
+    if (!ts.isFunctionDeclaration(expression)) expression = unwrap(expression)
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return undefined
+      seen.add(expression.text)
+      return functionValue(declarations.get(expression.text), seen)
+    }
+    return ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) || ts.isFunctionDeclaration(expression)
+      ? expression
+      : undefined
+  }
+  const pureCallback = (
+    expression: ts.Expression | ts.FunctionDeclaration | undefined,
+    seen = new Set<ts.Node>()
+  ): boolean => {
+    const callback = functionValue(expression)
+    if (!callback?.body || seen.has(callback)) return false
+    const next = new Set([...seen, callback])
+    let valid = true
+    const inspect = (node: ts.Node): void => {
+      if (mutates(node) || ts.isNewExpression(node)) valid = false
+      if (ts.isCallExpression(node) && !pureCallback(node.expression, next)) valid = false
+      ts.forEachChild(node, inspect)
+    }
+    inspect(callback.body)
+    return valid
+  }
+  const presentationHandler = (
+    expression: ts.Expression | ts.FunctionDeclaration | undefined,
+    seen = new Set<string>()
+  ): boolean => {
+    if (!expression) return false
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return false
+      seen.add(expression.text)
+      return presentationHandler(declarations.get(expression.text), seen)
+    }
+    if (!ts.isFunctionDeclaration(expression)) expression = unwrap(expression)
+    if (
+      !(ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) ||
+        ts.isFunctionDeclaration(expression)) || !expression.body
+    ) return false
+    let valid = true
+    let effects = 0
+    const inspect = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        effects++
+        const callee = node.expression
+        if (ts.isIdentifier(callee) && (callee.text === "onView" || localSetters.has(callee.text))) {
+          if (callee.text === "onView" && node.arguments.length !== 1) valid = false
+          if (localSetters.has(callee.text)) {
+            const reducer = reducers.get(callee.text)
+            if (reducer && !pureCallback(reducer)) valid = false
+            for (const argument of node.arguments) if (functionValue(argument) && !pureCallback(argument)) valid = false
+          }
+        } else if (ts.isIdentifier(callee) && presentationHandler(callee, new Set(seen))) {
+          // A local helper must itself contain only presentation effects.
+        } else if (
+          ts.isPropertyAccessExpression(callee) && /^(?:focus|preventDefault|stopPropagation)$/.test(callee.name.text)
+        ) {
+          const receiver = callee.expression.getText(tree)
+          const ref = ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === "current" &&
+              ts.isIdentifier(callee.expression.expression)
+            ? callee.expression.expression.text
+            : undefined
+          const domRef = ref !== undefined && localRefs.has(ref)
+          if (!/^(?:event|e)(?:\.currentTarget|\.target)?$/.test(receiver) && !domRef) valid = false
+        } else valid = false
+      }
+      if (ts.isNewExpression(node)) valid = false
+      if (mutates(node)) {
+        if (
+          ts.isBinaryExpression(node) &&
+          /^(?:event|e)\.(?:currentTarget|target)\.tabIndex$/.test(node.left.getText(tree))
+        ) effects++
+        else valid = false
+      }
+      ts.forEachChild(node, inspect)
+    }
+    inspect(expression.body)
+    return valid && effects > 0
+  }
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "addEventListener"
+    ) {
+      if (!presentationHandler(node.arguments[1])) violations.push("native listeners must change presentation only")
+    }
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const attributes = node.attributes.properties
+      const binding = attributes.find((attribute) =>
+        ts.isJsxAttribute(attribute) && attribute.name.getText(tree) === "data-flow"
+      )
+      const dataFlow =
+        binding && ts.isJsxAttribute(binding) && binding.initializer && ts.isJsxExpression(binding.initializer)
+          ? binding.initializer.expression :
+          undefined
+      for (const attribute of attributes) {
+        if (ts.isJsxSpreadAttribute(attribute)) {
+          violations.push("spread attributes can hide a View handler")
+          continue
+        }
+        const name = attribute.name.getText(tree)
+        if (!/^on[A-Z]/.test(name)) continue
+        const expression = attribute.initializer && ts.isJsxExpression(attribute.initializer)
+          ? attribute.initializer.expression
+          : undefined
+        const tag = calledTag(expression)
+        if (!tag && !presentationHandler(expression)) {
+          violations.push(`${name} must call onAction(action.tag) or change presentation`)
+        } else if (
+          tag &&
+          (!dataFlow || unwrap(dataFlow).getText(tree).replace(/\s/g, "") !== tag.getText(tree).replace(/\s/g, ""))
+        ) {
+          violations.push(`${name} must carry the same action.tag in data-flow`)
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return violations
+}
+
+const containerSeamViolations = (source: string): string[] => {
+  const tree = ts.createSourceFile("CardContainer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const helpers = new Set<string>()
+  const declarations = new Map<string, ts.Expression>()
+  const actionValues: ts.Expression[] = []
+  const handlers: ts.Expression[] = []
+  let mutations = 0
+  let helperCalls = 0
+  const collect = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+      /(?:^|\/)flows\/cardActions(?:\.ts)?$/.test(node.moduleSpecifier.text)
+    ) {
+      const bindings = node.importClause?.namedBindings
+      if (!node.importClause?.isTypeOnly && bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === "cardActions") {
+            helpers.add(element.name.text)
+          }
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      if (ts.isIdentifier(node.name)) {
+        declarations.set(node.name.text, node.initializer)
+        if (node.name.text === "actions") actionValues.push(node.initializer)
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        for (const element of node.name.elements) {
+          const prop = element.propertyName?.getText(tree) ?? element.name.getText(tree)
+          if (ts.isIdentifier(element.name) && (prop === "actions" || prop === "onAction")) {
+            declarations.set(element.name.text, ts.factory.createPropertyAccessExpression(node.initializer, prop))
+            if (prop === "actions") actionValues.push(node.initializer)
+          }
+        }
+      }
+    }
+    if (ts.isPropertyAssignment(node) && node.name.getText(tree).replace(/["']/g, "") === "actions") {
+      actionValues.push(node.initializer)
+    }
+    if (ts.isShorthandPropertyAssignment(node) && node.name.text === "actions") actionValues.push(node.name)
+    if (
+      ts.isJsxAttribute(node) && node.name.getText(tree) === "actions" && node.initializer &&
+      ts.isJsxExpression(node.initializer) && node.initializer.expression
+    ) actionValues.push(node.initializer.expression)
+    if (
+      ts.isJsxAttribute(node) && node.name.getText(tree) === "onAction" && node.initializer &&
+      ts.isJsxExpression(node.initializer) && node.initializer.expression
+    ) handlers.push(node.initializer.expression)
+    if (ts.isJsxSpreadAttribute(node)) {
+      actionValues.push(node.expression)
+      handlers.push(node.expression)
+    }
+    if (
+      ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ((ts.isIdentifier(node.left) && node.left.text === "actions") ||
+        (ts.isPropertyAccessExpression(node.left) && node.left.name.text === "actions"))
+    ) actionValues.push(node.right)
+    ts.forEachChild(node, collect)
+  }
+  collect(tree)
+  const count = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && helpers.has(node.expression.text)) {
+      helperCalls++
+    }
+    if (
+      ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
+      /^(?:push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin)$/.test(node.expression.name.text)
+    ) {
+      const receiver = node.expression.expression
+      if (
+        (ts.isIdentifier(receiver) && receiver.text === "actions") ||
+        (ts.isPropertyAccessExpression(receiver) && receiver.name.text === "actions")
+      ) mutations++
+    }
+    ts.forEachChild(node, count)
+  }
+  count(tree)
+  const fromHelper = (expression: ts.Expression, seen = new Set<string>()): boolean => {
+    expression = unwrap(expression)
+    if (
+      ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) &&
+      helpers.has(expression.expression.text)
+    ) return true
+    if (
+      ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) &&
+      expression.expression.name.text === "forScope"
+    ) {
+      return fromHelper(expression.expression.expression, seen)
+    }
+    if (
+      ts.isPropertyAccessExpression(expression) &&
+      (expression.name.text === "actions" || expression.name.text === "onAction")
+    ) return fromHelper(expression.expression, seen)
+    if (ts.isIdentifier(expression) && !seen.has(expression.text)) {
+      seen.add(expression.text)
+      const value = declarations.get(expression.text)
+      return value !== undefined && fromHelper(value, seen)
+    }
+    return false
+  }
+  return [
+    ...(helperCalls === 0 ? ["Container must build actions through flows/cardActions"] : []),
+    ...(actionValues.length === 0 ? ["Container must expose actions from cardActions"] : []),
+    ...actionValues.filter((value) => !fromHelper(value)).map(() => "actions must come from cardActions"),
+    ...handlers.filter((value) => !fromHelper(value)).map(() => "onAction must come from cardActions"),
+    ...(mutations > 0 ? ["Container must not mutate cardActions output"] : [])
+  ]
+}
+
+describe("View and Container catalog seam (C-UI-08)", () => {
+  test("every design-owned View handler uses the action or presentation seam", () => {
+    const root = fileURLToPath(new URL("../cards/", import.meta.url))
+    const files = readdirSync(root, { recursive: true, encoding: "utf8" })
+      .filter((entry) => entry.split("\\").join("/").startsWith("views/") && entry.endsWith("View.tsx"))
+    expect(
+      files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`)).map((violation) => `${file}: ${violation}`))
+    ).toEqual([])
+  })
+
+  test("onAction forwards the action's opaque tag and optional form input", () => {
+    for (
+      const handler of [
+        "() => onAction(action.tag)",
+        "() => onAction(action.tag, { answer })",
+        "() => { onAction(action.tag) }",
+        "() => { return onAction(action.tag) }"
+      ]
+    ) {
+      expect(viewSeamViolations(`<button data-flow={action.tag} onClick={${handler}} />`)).toEqual([])
+    }
+    expect(
+      viewSeamViolations(
+        "const send = () => onAction(row.action.tag); const view = <button data-flow={row.action.tag} onClick={send} />"
+      )
+    ).toEqual([])
+    expect(viewSeamViolations("// <button onClick={() => bad()} />\nconst view = <p>onClick is text</p>")).toEqual([])
+  })
+
+  test("view patches and transient React or DOM handlers preserve the seam", () => {
+    for (
+      const source of [
+        "<button onClick={() => onView({ maximized: true })} />",
+        "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(!open)} />",
+        "const reducer = (state, action) => state + 1; const [highlight, dispatch] = React.useReducer(reducer, 0); const view = <button onKeyDown={() => dispatch({ type: \"next\" })} />",
+        "const [value, setValue] = useState(\"\"); const view = <><input value={value} onChange={e => setValue(e.target.value)} /><button data-flow={action.tag} onClick={() => onAction(action.tag, { value })} /></>",
+        "<button onKeyDown={event => { if (event.key === \"Escape\") event.currentTarget.focus() }} />",
+        "const [open, setOpen] = useState(false); const view = <button onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)} />",
+        "<button onKeyDown={e => { e.currentTarget.tabIndex = 0; e.currentTarget.focus() }} />",
+        "<button onKeyDown={e => { e.currentTarget.tabIndex = -1 }} />",
+        "const [open, setOpen] = useState(false); const close = () => setOpen(false); const view = <button onKeyDown={e => { if (e.key === \"Escape\") close() }} />",
+        "const inputRef = useRef(null); const focus = () => inputRef.current?.focus(); const view = <button onClick={focus} />",
+        "const [open, setOpen] = useState(false); const close = () => setOpen(false); ref.current.addEventListener(\"keydown\", close)",
+        "ref.current.addEventListener(\"focus\", event => event.currentTarget.focus())"
+      ]
+    ) expect(viewSeamViolations(source)).toEqual([])
+    for (
+      const source of [
+        "const view = <button onClick={() => dispatch({ type: \"save\" })} />",
+        "const [open, setOpen] = useState(false); const view = <button onClick={() => { setOpen(true); onRetry() }} />",
+        "<button onClick={() => { model.value = \"changed\"; onView({ tab: \"files\" }) }} />",
+        "ref.current.addEventListener(\"click\", () => onRetry())",
+        "const retry = () => onRetry(); ref.current.addEventListener(\"click\", retry)",
+        "const retry = () => onRetry(); const indirect = retry; ref.current.addEventListener(\"click\", indirect)",
+        "const retry = () => onAction(action.tag); ref.current.addEventListener(\"click\", retry)",
+        "ref.current.addEventListener(\"click\", unknownCallback)",
+        "ref.current.addEventListener(\"click\", { handleEvent: () => onRetry() })",
+        "const close = () => model.open = false; const view = <button onClick={close} />",
+        "const dispatch = input => onRetry(input); const view = <button onClick={() => dispatch({ type: \"next\" })} />",
+        "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(onRetry())} />",
+        "<button onClick={() => onView({ maximized: onRetry() })} />",
+        "<button onClick={() => onView()} />",
+        "<button onClick={() => onView({ maximized: true }, extra)} />",
+        "<button onKeyDown={e => { model.tabIndex = 0; e.currentTarget.focus() }} />",
+        "<button onKeyDown={e => { delete model.title; e.currentTarget.focus() }} />",
+        "<button onClick={() => unrelated.focus()} />",
+        "<button onClick={() => controller.current.focus()} />",
+        "<button onClick={() => authority.current.focus()} />",
+        "const authority = useRef({ focus: onRetry }); const view = <button onClick={() => authority.current.focus()} />",
+        "const close = () => close(); const view = <button onClick={() => close()} />",
+        "const close = () => again(); const again = () => close(); ref.current.addEventListener(\"click\", close)"
+      ]
+    ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("reducers and state updater callbacks cannot hide commands", () => {
+    for (
+      const source of [
+        "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(previous => !previous)} />",
+        "const toggle = previous => !previous; const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(toggle)} />",
+        "const [index, dispatch] = useReducer((state, action) => action.type === \"next\" ? state + 1 : state - 1, 0); const view = <button onClick={() => dispatch({ type: \"next\" })} />"
+      ]
+    ) expect(viewSeamViolations(source)).toEqual([])
+    for (
+      const source of [
+        "const reducer = (state, action) => { onRetry(); return state }; const [index, dispatch] = useReducer(reducer, 0); const view = <button onClick={() => dispatch({ type: \"next\" })} />",
+        "const [index, dispatch] = useReducer((state, action) => { onAction(action.tag); return state }, 0); const view = <button onClick={() => dispatch({ type: \"next\" })} />",
+        "const reducer = (state, action) => { model.index = state + 1; return state }; const [index, dispatch] = useReducer(reducer, 0); const view = <button onClick={() => dispatch({ type: \"next\" })} />",
+        "const update = previous => { onRetry(); return previous }; const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(update)} />",
+        "const update = previous => { onView({ tab: \"files\" }); return previous }; const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(update)} />",
+        "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(previous => { onRetry(); return previous })} />"
+      ]
+    ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("unbound, mismatched, direct command, hidden and alternate handlers are rejected", () => {
+    for (
+      const source of [
+        "<button onClick={() => onAction(action.tag)} />",
+        "<button data-flow={other.tag} onClick={() => onAction(action.tag)} />",
+        "<button data-flow=\"todo.retry\" onClick={() => onAction(action.tag)} />",
+        "<button data-flow={action.tag} onClick={() => controller.runCommand(action.tag)} />",
+        "<button data-flow={action.tag} onClick={() => onAction(\"todo.retry\")} />",
+        "<button data-flow={action.tag} onClick={() => { mutate(); onAction(action.tag) }} />",
+        "<button data-flow={action.tag} onClick={() => onAction(action.tag, mutate())} />",
+        "<button data-flow={action.tag} onClick={() => onAction(action.tag, { value: (model.value = \"changed\") })} />",
+        "<button data-flow={action.tag} onClick={() => onAction(action.tag, { value: model.value++ })} />",
+        "<input data-flow={action.tag} onChange={() => mutate()} />",
+        "<button {...hiddenHandlers} data-flow={action.tag} />",
+        "const send = () => mutate(); const view = <button data-flow={action.tag} onClick={send} />",
+        "const send = again; const again = send; const view = <button data-flow={action.tag} onClick={send} />"
+      ]
+    ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("every Container constructs actions through the typed catalog helper", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url))
+    const files = readdirSync(root, { recursive: true, encoding: "utf8" }).filter((entry) =>
+      entry.endsWith("Container.tsx")
+    )
+    expect(
+      files.flatMap((file) => containerSeamViolations(read(`../${file}`)).map((violation) => `${file}: ${violation}`))
+    ).toEqual([])
+  })
+
+  test("Container helper provenance survives imports, aliases and destructuring", () => {
+    for (
+      const source of [
+        "import { cardActions } from \"../flows/cardActions\"; const { actions, onAction } = cardActions(run, definitions); const view = <View actions={actions} onAction={onAction} />",
+        "import { cardActions as bind } from \"../flows/cardActions\"; const bindings = bind(run, definitions); const view = <View actions={bindings.actions} onAction={bindings.onAction} />",
+        "import { cardActions } from \"../flows/cardActions\"; const actions = cardActions(run, definitions).actions; const props = { actions: actions };",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const view = <View model={model} {...bindings} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const row = bindings.forScope(\"T12\"); const view = <View actions={row.actions} onAction={row.onAction} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const { actions, onAction } = bindings.forScope(\"T13\"); const view = <View actions={actions} onAction={onAction} />"
+      ]
+    ) expect(containerSeamViolations(source)).toEqual([])
+  })
+
+  test("inline action arrays and lookalike helpers cannot satisfy the Container rule", () => {
+    for (
+      const source of [
+        "const actions = [{ tag: \"todo.retry\" }]; const view = <View actions={actions} />",
+        "import { cardActions } from \"../cards/CardActions\"; const actions = cardActions(controller);",
+        "import { cardActions } from \"../flows/cardActions\"; cardActions(run, definitions); const view = <View actions={[{ tag: \"todo.retry\" }]} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); bindings.actions = [];",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); bindings.actions.push({ tag: \"todo.retry\" });",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const view = <View actions={bindings.actions} onAction={() => directCommand()} />",
+        "import { cardActions } from \"../flows/cardActions\"; const actions = []; const props = { actions }; cardActions(run, definitions);",
+        "import type { cardActions } from \"../flows/cardActions\"; const actions = cardActions(run, definitions);",
+        "import { cardActions } from \"../flows/cardActions\"; cardActions(run, definitions); const view = <View />"
+      ]
+    ) expect(containerSeamViolations(source).length).toBeGreaterThan(0)
+  })
+})
 
 describe("launch-law parity: every affordance is a command", () => {
   const files = Object.fromEntries(surfaceFiles().map((file) => [file, read(file)]))
@@ -257,18 +757,20 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(files["../LocalAuthPanel.tsx"]).toContain("void auth.submit({")
     expect(files["../LocalAuthPanel.tsx"]).toContain("auth.close()")
     expect(files["../HelpBubble.tsx"]).toContain("onDismiss()")
-    expect(files["../InputModeMenu.tsx"]).toContain('data-flow="input.mode"')
+    expect(files["../InputModeMenu.tsx"]).toContain("data-flow=\"input.mode\"")
     for (const file of ["../App.tsx"]) {
-      expect(files[file]).toContain('onChange={mode => controller.runCommand("input.mode", mode)}')
+      expect(files[file]).toContain("onChange={mode => controller.runCommand(\"input.mode\", mode)}")
     }
     expect(files["../cards/WorkflowCards.tsx"]).toContain("onRunCommand: sendRunCommand")
     const form = files["../cards/FlowFormCards.tsx"]!
-    expect(form).toContain('onRunCommand("form.submit", card.id)')
-    expect(form).toContain('const cancel = flowAction(onRunCommand, "card.dismiss", card.id)')
+    expect(form).toContain("onRunCommand(\"form.submit\", card.id)")
+    expect(form).toContain("const cancel = flowAction(onRunCommand, \"card.dismiss\", card.id)")
     const setup = files["../cards/RepositorySetupCard.tsx"]!
-    expect(setup).toContain('=> onRunCommand("setup.configure", flowArgs("setup.configure", { cardId: card.id, field, value }))')
-    expect(setup).toContain('data-flow="setup.run"')
-    expect(setup).toContain('=> onRunCommand("setup.view", flowArgs("setup.view", { cardId: card.id, view: next,')
+    expect(setup).toContain(
+      "=> onRunCommand(\"setup.configure\", flowArgs(\"setup.configure\", { cardId: card.id, field, value }))"
+    )
+    expect(setup).toContain("data-flow=\"setup.run\"")
+    expect(setup).toContain("=> onRunCommand(\"setup.view\", flowArgs(\"setup.view\", { cardId: card.id, view: next,")
     // Visibility is a host lifecycle observation, not a button or a command.
   })
 
@@ -304,10 +806,10 @@ describe("launch-law parity: every affordance is a command", () => {
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 3,
       "../LocalAuthPanel.tsx": 4, // Includes the failed read's Retry, a FailureNotice action.
-    "../RegistrationStatus.tsx": 1,
+      "../RegistrationStatus.tsx": 1,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
       "../StorageRecoveryButton.tsx": 1,
-    "../SubagentGrid.tsx": 7, // + the ctrl+s overview (#2190), plus earlier-batch disclosure
+      "../SubagentGrid.tsx": 7, // + the ctrl+s overview (#2190), plus earlier-batch disclosure
       "../FlowsSurface.tsx": 2,
       "../WorldSurface.tsx": 15, // The wiki spaces (#1922): the switch, New page, Graph, Edit (wiki.view), History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
@@ -368,7 +870,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../ToastAction.tsx": 1,
       "../ToastStack.tsx": 2, // + the capped stack's "+N more" row (#3420)
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
-      
+
       "../cards/IssueCards.tsx": 11, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips and the saved view toggles
       "../cards/IssueThread.tsx": 5, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
@@ -376,7 +878,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
       "../cards/NotificationsCard.tsx": 1,
-    "../cards/RegistrationCard.tsx": 3, // Failure Retry, completed Open, and cached Analyze again; each uses the canonical flow binding.
+      "../cards/RegistrationCard.tsx": 3, // Failure Retry, completed Open, and cached Analyze again; each uses the canonical flow binding.
       "../cards/EnvCard.tsx": 3,
       /* The account card's Sign out door (auth.sign-out through onRunCommand). */
       "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
@@ -386,7 +888,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/RepositoryChoiceCard.tsx": 2,
       "../cards/RepositoryHomeCard.tsx": 3,
       "../cards/RepositorySetupCard.tsx": 19,
-      
+
       "../cards/SyncCards.tsx": 5,
       /* The /theme picker: nine swatches, one shared handler through onRunCommand. */
       /*
@@ -497,7 +999,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* Librarian L5: the rail card's Open and note rows (wiki.open) and the graph card's Refresh (wiki.graph). */
       "../cards/WikiCards.tsx": 5, // + the history card's Previous/Next page (wiki.history).
       /* The wiki navigation (#1922): the space switch (wiki.space), the tree rows (wiki.select / wiki.cloud.open), the tag filter. */
-      "../wiki/WikiNavigation.tsx": 4,
+      "../wiki/WikiNavigation.tsx": 4
     })
   })
 
@@ -511,7 +1013,6 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(message).not.toContain("agent.explain")
     expect(app).toContain("runCommand(\"toast.dismiss\"")
   })
-
 
   /*
    * A card's acts are bound in ONE place (cards/CardActions.ts) that the
@@ -636,12 +1137,12 @@ describe("launch-law parity: every affordance is a command", () => {
 
   test("binding discovery reads JSX declarations, never focus-return selectors or comments", () => {
     const source = [
-      '// <button data-flow="comment.only" />',
-      'const selector = `[data-flow="${flow}"]`',
-      'const description = \'closeCommand="text.only"\'',
-      'const view = <><button data-flow="app.first-run.dismiss" /><button data-flow={"missing.command"} />',
-      '<button data-flow={`missing.template`} /><SurfaceHeader closeCommand="missing.close" />',
-      '<button data-flow={action.flow} />{/* <button data-flow="comment.only" /> */}</>'
+      "// <button data-flow=\"comment.only\" />",
+      "const selector = `[data-flow=\"${flow}\"]`",
+      "const description = 'closeCommand=\"text.only\"'",
+      "const view = <><button data-flow=\"app.first-run.dismiss\" /><button data-flow={\"missing.command\"} />",
+      "<button data-flow={`missing.template`} /><SurfaceHeader closeCommand=\"missing.close\" />",
+      "<button data-flow={action.flow} />{/* <button data-flow=\"comment.only\" /> */}</>"
     ].join("\n")
     const bindings = literalBindings(source)
     expect(bindings).toEqual([
@@ -652,7 +1153,9 @@ describe("launch-law parity: every affordance is a command", () => {
     ])
     const declared = new Set(["app.first-run.dismiss"])
     expect(bindings.filter(({ name }) => !declared.has(name)).map(({ name }) => name)).toEqual([
-      "missing.command", "missing.template", "missing.close"
+      "missing.command",
+      "missing.template",
+      "missing.close"
     ])
   })
 
@@ -664,7 +1167,7 @@ describe("launch-law parity: every affordance is a command", () => {
     // gates can catch here.
     const app = files["../App.tsx"]
     expect(app).toContain("const flows = controller.commands.all()")
-    expect(app).toContain('data-flows={flows.map((command) => command.name).join(" ")}')
+    expect(app).toContain("data-flows={flows.map((command) => command.name).join(\" \")}")
     // Registry names from the registry source itself — the same file the
     // runtime registers — so a renamed command fails this gate.
     const registrySource = registrySources()
@@ -710,8 +1213,8 @@ describe("launch-law parity: every affordance is a command", () => {
 
   test("light/dark remains callable while decorative themes are absent", () => {
     const source = registrySources()
-    expect(source).toContain('name: "appearance.dark-mode"')
-    expect(source).not.toContain('name: "appearance.theme"')
+    expect(source).toContain("name: \"appearance.dark-mode\"")
+    expect(source).not.toContain("name: \"appearance.theme\"")
     expect(files["../cards/ThemePickerCard.tsx"]).toBeUndefined()
   })
 

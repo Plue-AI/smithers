@@ -1,0 +1,5046 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins ChangeFindingSchema 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "analyzer": {
+      "type": "string",
+    },
+    "commitId": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "feedback": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "id": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "line": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "path": {
+      "type": "string",
+    },
+    "raisedAtSeq": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "severity": {
+      "type": "string",
+    },
+    "source": {
+      "type": "string",
+    },
+    "state": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "suggestion": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "summary": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "analyzer",
+    "severity",
+    "path",
+    "line",
+    "summary",
+    "raisedAtSeq",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins ChangeReviewSchema (existing ChangeVerdictSchema) 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "commitId": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "confidence": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "lastReviewedSeq": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "reviewer": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "reviewerKind": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "reviewerLogin": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "seq": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "summary": {
+      "type": "string",
+    },
+    "type": {
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "verdict": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "reviewer",
+    "reviewerKind",
+    "verdict",
+    "confidence",
+    "summary",
+    "commitId",
+    "seq",
+    "lastReviewedSeq",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the approval card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "approval",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "answerDraft": {
+          "additionalProperties": false,
+          "properties": {
+            "question": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string",
+            },
+            "text": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "question",
+            "text",
+          ],
+          "type": "object",
+        },
+        "approval": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "background": {
+          "type": "boolean",
+        },
+        "capability": {
+          "type": "string",
+        },
+        "chain": {
+          "type": "boolean",
+        },
+        "decidedAt": {
+          "type": "number",
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "denied",
+          ],
+          "type": "string",
+        },
+        "detail": {
+          "type": "string",
+        },
+        "error": {
+          "type": "string",
+        },
+        "flow": {
+          "type": "string",
+        },
+        "gatewayBindingVersion": {
+          "const": 1,
+          "type": "number",
+        },
+        "pending": {
+          "type": "boolean",
+        },
+        "question": {
+          "additionalProperties": false,
+          "properties": {
+            "attempt": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            "kind": {
+              "enum": [
+                "ask",
+                "confirm",
+                "select",
+                "json",
+              ],
+              "type": "string",
+            },
+            "maxAttempts": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            "name": {
+              "type": "string",
+            },
+            "options": {
+              "items": {
+                "type": "string",
+              },
+              "type": "array",
+            },
+            "prompt": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "kind",
+            "prompt",
+          ],
+          "type": "object",
+        },
+        "repo": {
+          "type": "string",
+        },
+        "requestId": {
+          "type": "string",
+        },
+        "runId": {
+          "type": "string",
+        },
+        "workspaceId": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "capability",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the browser card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "browser",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "blockReason": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "error": {
+          "type": "string",
+        },
+        "finalUrl": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "frameable": {
+          "type": "boolean",
+        },
+        "refusal": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": [
+                "string",
+                "null",
+              ],
+            },
+            "fault": {
+              "enum": [
+                "user",
+                "wait",
+                "infra",
+                "dependency",
+                "bug",
+                "factory",
+                "policy",
+              ],
+              "type": "string",
+            },
+            "limit_kind": {
+              "type": [
+                "string",
+                "null",
+              ],
+            },
+            "message": {
+              "type": "string",
+            },
+            "origin": {
+              "enum": [
+                "plue",
+                "worker",
+                "local",
+                "client",
+              ],
+              "type": "string",
+            },
+            "plan_key": {
+              "type": [
+                "string",
+                "null",
+              ],
+            },
+            "retryAfterSeconds": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+            },
+            "status": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            "upgrade_plan_key": {
+              "type": [
+                "string",
+                "null",
+              ],
+            },
+          },
+          "required": [
+            "status",
+            "message",
+          ],
+          "type": "object",
+        },
+        "status": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "url": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "url",
+        "finalUrl",
+        "status",
+        "frameable",
+        "blockReason",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the change card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "change",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "analyzers": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "failureReason": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "finishedAt": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "name": {
+                    "type": "string",
+                  },
+                  "pausedBy": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "pausedReason": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "seq": {
+                    "anyOf": [
+                      {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "startedAt": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "state": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "name",
+                  "state",
+                  "seq",
+                  "startedAt",
+                  "finishedAt",
+                  "pausedBy",
+                  "pausedReason",
+                  "failureReason",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "authorName": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "changeId": {
+          "type": "string",
+        },
+        "changeset": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "changeId": {
+                  "type": "string",
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "id": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer",
+                },
+                "members": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changeId": {
+                        "type": "string",
+                      },
+                      "commitId": {
+                        "type": "string",
+                      },
+                      "landedCommitId": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "path": {
+                        "type": "string",
+                      },
+                      "previousCommitId": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "repository": {
+                        "type": "string",
+                      },
+                      "targetBookmark": {
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "repository",
+                      "path",
+                      "changeId",
+                      "commitId",
+                      "targetBookmark",
+                      "previousCommitId",
+                      "landedCommitId",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "organization": {
+                  "type": "string",
+                },
+                "state": {
+                  "enum": [
+                    "pending",
+                    "landing",
+                    "landed",
+                    "failed",
+                  ],
+                  "type": "string",
+                },
+                "superproject": {
+                  "type": "string",
+                },
+                "targetBookmark": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "organization",
+                "superproject",
+                "changeId",
+                "state",
+                "failureReason",
+                "targetBookmark",
+                "members",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "checks": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "context": {
+                    "type": "string",
+                  },
+                  "durationMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer",
+                  },
+                  "state": {
+                    "type": "string",
+                  },
+                  "targetsAffected": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer",
+                  },
+                  "targetsCached": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer",
+                  },
+                  "targetsRan": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer",
+                  },
+                  "workspaceId": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                },
+                "required": [
+                  "context",
+                  "state",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "checksAt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "commitId": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "conflicts": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                  },
+                  "state": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "path",
+                  "state",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "currentSeq": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "description": {
+          "type": "string",
+        },
+        "diff": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "files": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "additions": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "changeType": {
+                        "type": "string",
+                      },
+                      "conflicted": {
+                        "type": "boolean",
+                      },
+                      "deletions": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "isBinary": {
+                        "type": "boolean",
+                      },
+                      "oldPath": {
+                        "type": "string",
+                      },
+                      "patch": {
+                        "type": "string",
+                      },
+                      "patchLines": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "path": {
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "path",
+                      "changeType",
+                      "isBinary",
+                      "additions",
+                      "deletions",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "from": {
+                  "type": "string",
+                },
+                "sinceReview": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "reviewer": {
+                          "type": "string",
+                        },
+                        "seq": {
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "type": "integer",
+                        },
+                      },
+                      "required": [
+                        "reviewer",
+                        "seq",
+                      ],
+                      "type": "object",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+                "to": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "from",
+                "to",
+                "files",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "error": {
+          "type": "string",
+        },
+        "facet": {
+          "enum": [
+            "walkthrough",
+            "diff",
+            "findings",
+            "checks",
+            "review",
+            "history",
+            "owners",
+          ],
+          "type": "string",
+        },
+        "findings": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "analyzer": {
+                    "type": "string",
+                  },
+                  "commitId": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "feedback": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "id": {
+                    "anyOf": [
+                      {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "line": {
+                    "anyOf": [
+                      {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "path": {
+                    "type": "string",
+                  },
+                  "raisedAtSeq": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "severity": {
+                    "type": "string",
+                  },
+                  "source": {
+                    "type": "string",
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "suggestion": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "summary": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "analyzer",
+                  "severity",
+                  "path",
+                  "line",
+                  "summary",
+                  "raisedAtSeq",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "landed": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "approvedBy": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "login": {
+                        "type": "string",
+                      },
+                      "seq": {
+                        "anyOf": [
+                          {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "type": "integer",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                    },
+                    "required": [
+                      "login",
+                      "seq",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "at": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "by": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "landingRequestNumber": {
+                  "anyOf": [
+                    {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+              },
+              "required": [
+                "at",
+                "by",
+                "approvedBy",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "owners": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "missingApprovals": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "candidates": {
+                        "items": {
+                          "type": "string",
+                        },
+                        "type": "array",
+                      },
+                      "path": {
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "path",
+                      "candidates",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "requiredApprovers": {
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
+                },
+                "suggestedReviewers": {
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
+                },
+                "touchedPaths": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agentPolicy": {
+                        "type": "string",
+                      },
+                      "owners": {
+                        "items": {
+                          "type": "string",
+                        },
+                        "type": "array",
+                      },
+                      "path": {
+                        "type": "string",
+                      },
+                      "satisfiedBy": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "login": {
+                                "type": "string",
+                              },
+                              "seq": {
+                                "anyOf": [
+                                  {
+                                    "maximum": 9007199254740991,
+                                    "minimum": -9007199254740991,
+                                    "type": "integer",
+                                  },
+                                  {
+                                    "type": "null",
+                                  },
+                                ],
+                              },
+                            },
+                            "required": [
+                              "login",
+                              "seq",
+                            ],
+                            "type": "object",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                    },
+                    "required": [
+                      "path",
+                      "owners",
+                      "agentPolicy",
+                      "satisfiedBy",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+              },
+              "required": [
+                "touchedPaths",
+                "requiredApprovers",
+                "suggestedReviewers",
+                "missingApprovals",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "repo": {
+          "type": "string",
+        },
+        "repos": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "additions": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+              "deletions": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+              "repo": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "repo",
+              "additions",
+              "deletions",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "reviewRequests": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "agent": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "createdAt": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "id": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer",
+                  },
+                  "requestedBy": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "reviewer": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "state": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                  "reviewer",
+                  "agent",
+                  "requestedBy",
+                  "state",
+                  "createdAt",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "reviews": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "commitId": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "confidence": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "lastReviewedSeq": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "reviewer": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "reviewerKind": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "reviewerLogin": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "seq": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "summary": {
+                    "type": "string",
+                  },
+                  "type": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "verdict": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "reviewer",
+                  "reviewerKind",
+                  "verdict",
+                  "confidence",
+                  "summary",
+                  "commitId",
+                  "seq",
+                  "lastReviewedSeq",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "revisionCount": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "revisions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agentSessionId": {
+                "type": "string",
+              },
+              "commitId": {
+                "type": "string",
+              },
+              "createdAt": {
+                "type": "string",
+              },
+              "operationIds": {
+                "items": {
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "parentCommitId": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "seq": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "source": {
+                "type": "string",
+              },
+              "workspaceSnapshotId": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "seq",
+              "commitId",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "stack": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "blockedBy": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "candidates": {
+                        "items": {
+                          "type": "string",
+                        },
+                        "type": "array",
+                      },
+                      "count": {
+                        "anyOf": [
+                          {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "type": "integer",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
+                      "kind": {
+                        "type": "string",
+                      },
+                      "missing": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "path": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "repo": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                    },
+                    "required": [
+                      "kind",
+                      "name",
+                      "repo",
+                      "missing",
+                      "count",
+                      "path",
+                      "candidates",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "changeIds": {
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
+                },
+                "conflictStatus": {
+                  "type": "string",
+                },
+                "landablePrefix": {
+                  "anyOf": [
+                    {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+                "landingNumber": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer",
+                },
+                "position": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer",
+                },
+                "positionFrom": {
+                  "enum": [
+                    "server",
+                    "request-order",
+                  ],
+                  "type": "string",
+                },
+                "rows": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "additions": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "changeId": {
+                        "type": "string",
+                      },
+                      "commitId": {
+                        "type": "string",
+                      },
+                      "deletions": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "message": {
+                        "type": "string",
+                      },
+                      "rebased": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "from": {
+                            "type": "string",
+                          },
+                          "to": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "from",
+                          "to",
+                        ],
+                        "type": "object",
+                      },
+                    },
+                    "required": [
+                      "changeId",
+                      "commitId",
+                      "message",
+                      "additions",
+                      "deletions",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "size": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer",
+                },
+                "state": {
+                  "type": "string",
+                },
+                "targetBookmark": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "landingNumber",
+                "state",
+                "position",
+                "size",
+                "changeIds",
+                "targetBookmark",
+                "conflictStatus",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "threads": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "anchor": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "current",
+                          "stale",
+                          "moved",
+                        ],
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "author": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "body": {
+                    "type": "string",
+                  },
+                  "commitId": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "createdAt": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "currentLine": {
+                    "anyOf": [
+                      {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "id": {
+                    "anyOf": [
+                      {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "line": {
+                    "anyOf": [
+                      {
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "path": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "resolvedInRevision": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "commitId": {
+                            "type": [
+                              "string",
+                              "null",
+                            ],
+                          },
+                          "seq": {
+                            "anyOf": [
+                              {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "type": "integer",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                        },
+                        "required": [
+                          "commitId",
+                          "seq",
+                        ],
+                        "type": "object",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "state": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "open",
+                          "done",
+                          "resolved",
+                        ],
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                },
+                "required": [
+                  "path",
+                  "line",
+                  "body",
+                  "author",
+                  "createdAt",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "turn": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "actorId": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "actorLogin": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "party": {
+                  "type": "string",
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "since": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+              },
+              "required": [
+                "party",
+                "actorId",
+                "since",
+                "reason",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "unread": {
+          "additionalProperties": false,
+          "properties": {
+            "changeset": {
+              "type": "string",
+            },
+            "checks": {
+              "type": "string",
+            },
+            "conflicts": {
+              "type": "string",
+            },
+            "diff": {
+              "type": "string",
+            },
+            "findings": {
+              "type": "string",
+            },
+            "reviewRequests": {
+              "type": "string",
+            },
+            "reviews": {
+              "type": "string",
+            },
+            "stack": {
+              "type": "string",
+            },
+            "threads": {
+              "type": "string",
+            },
+            "walkthrough": {
+              "type": "string",
+            },
+          },
+          "type": "object",
+        },
+        "walkthrough": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "sections": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "diagram": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "markdown": {
+                        "type": "string",
+                      },
+                      "title": {
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "title",
+                      "markdown",
+                      "diagram",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "seq": {
+                  "anyOf": [
+                    {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+              },
+              "required": [
+                "seq",
+                "sections",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "repo",
+        "changeId",
+        "description",
+        "commitId",
+        "currentSeq",
+        "revisionCount",
+        "revisions",
+        "authorName",
+        "timestamp",
+        "repos",
+        "diff",
+        "checks",
+        "findings",
+        "reviews",
+        "threads",
+        "conflicts",
+        "stack",
+        "changeset",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the flow-form card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "flow-form",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "afterBox": {
+          "additionalProperties": false,
+          "properties": {
+            "consumed": {
+              "type": "boolean",
+            },
+            "kind": {
+              "const": "prs.triage",
+              "type": "string",
+            },
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            "owner": {
+              "type": "string",
+            },
+            "repo": {
+              "type": "string",
+            },
+            "workspaceId": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "kind",
+            "repo",
+            "number",
+            "owner",
+          ],
+          "type": "object",
+        },
+        "draft": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+            ],
+          },
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "error": {
+          "type": "string",
+        },
+        "errorKind": {
+          "enum": [
+            "read",
+            "run",
+          ],
+          "type": "string",
+        },
+        "fields": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "disabledReason": {
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "text",
+                  "textarea",
+                  "number",
+                  "boolean",
+                  "select",
+                  "write-only",
+                ],
+                "type": "string",
+              },
+              "label": {
+                "type": "string",
+              },
+              "name": {
+                "type": "string",
+              },
+              "options": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "disabled": {
+                      "type": "boolean",
+                    },
+                    "flow": {
+                      "const": "model.credential.new",
+                      "type": "string",
+                    },
+                    "label": {
+                      "type": "string",
+                    },
+                    "reason": {
+                      "type": "string",
+                    },
+                    "value": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "value",
+                    "label",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "optionsFrom": {
+                "enum": [
+                  "cloud-repos",
+                  "bookmarks",
+                  "workspaces",
+                  "plugins",
+                  "files",
+                  "models",
+                  "credentials",
+                  "seats",
+                  "issues",
+                  "pull-requests",
+                  "repository-flows",
+                ],
+                "type": "string",
+              },
+              "placeholder": {
+                "type": "string",
+              },
+              "required": {
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "name",
+              "label",
+              "kind",
+              "required",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "flow": {
+          "type": "string",
+        },
+        "given": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "inputSchema": {},
+        "payloadField": {
+          "type": "string",
+        },
+        "submitLabel": {
+          "type": "string",
+        },
+        "submitting": {
+          "type": "boolean",
+        },
+        "via": {
+          "enum": [
+            "user",
+            "agent",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "flow",
+        "via",
+        "fields",
+        "draft",
+        "given",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the flow-plan card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "flow-plan",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "against": {
+          "type": "string",
+        },
+        "digest": {
+          "type": "string",
+        },
+        "error": {
+          "type": "string",
+        },
+        "flowId": {
+          "type": "string",
+        },
+        "graph": {
+          "additionalProperties": false,
+          "properties": {
+            "edges": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "type": "string",
+                  },
+                  "reason": {
+                    "enum": [
+                      "value",
+                      "continuation",
+                      "failure",
+                      "conflict",
+                      "lane-merge",
+                    ],
+                    "type": "string",
+                  },
+                  "to": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "reason",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            "nodes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "declaredAt": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "line": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "path": {
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "path",
+                      "line",
+                    ],
+                    "type": "object",
+                  },
+                  "id": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            "sourceRevision": {
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          "required": [
+            "edges",
+          ],
+          "type": "object",
+        },
+        "input": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "inputSchema": {},
+        "nodes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string",
+              },
+              "dependsOn": {
+                "items": {
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "id": {
+                "type": "string",
+              },
+              "key": {
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "step",
+                  "agent",
+                  "merge",
+                ],
+                "type": "string",
+              },
+              "status": {
+                "enum": [
+                  "cached",
+                  "run",
+                ],
+                "type": "string",
+              },
+              "tier": {
+                "enum": [
+                  "sealed",
+                  "compensable",
+                  "irreversible",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "kind",
+              "key",
+              "dependsOn",
+              "tier",
+              "status",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "planId": {
+          "type": "string",
+        },
+        "planRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+            },
+            "owner": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "id",
+            "owner",
+          ],
+          "type": "object",
+        },
+        "previousPlan": {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "type": "string",
+            },
+            "nodes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string",
+                  },
+                  "dependsOn": {
+                    "items": {
+                      "type": "string",
+                    },
+                    "type": "array",
+                  },
+                  "id": {
+                    "type": "string",
+                  },
+                  "key": {
+                    "type": "string",
+                  },
+                  "kind": {
+                    "enum": [
+                      "step",
+                      "agent",
+                      "merge",
+                    ],
+                    "type": "string",
+                  },
+                  "status": {
+                    "enum": [
+                      "cached",
+                      "run",
+                    ],
+                    "type": "string",
+                  },
+                  "tier": {
+                    "enum": [
+                      "sealed",
+                      "compensable",
+                      "irreversible",
+                    ],
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "key",
+                  "dependsOn",
+                  "tier",
+                  "status",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            "planId": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "planId",
+            "digest",
+            "nodes",
+          ],
+          "type": "object",
+        },
+        "rekey": {
+          "additionalProperties": false,
+          "properties": {
+            "cleanSettlements": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            "etaMs": {
+              "minimum": 0,
+              "type": "number",
+            },
+            "rerun": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer",
+            },
+            "total": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer",
+            },
+            "wasMs": {
+              "minimum": 0,
+              "type": "number",
+            },
+          },
+          "required": [
+            "rerun",
+            "total",
+          ],
+          "type": "object",
+        },
+        "repo": {
+          "type": "string",
+        },
+        "sourceReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "type": "string",
+            },
+            "runCardId": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "runCardId",
+            "receipt",
+          ],
+          "type": "object",
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "done",
+            "failed",
+          ],
+          "type": "string",
+        },
+        "view": {
+          "additionalProperties": false,
+          "properties": {
+            "codeError": {
+              "additionalProperties": false,
+              "properties": {
+                "message": {
+                  "type": "string",
+                },
+                "path": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "path",
+                "message",
+              ],
+              "type": "object",
+            },
+            "node": {
+              "type": "string",
+            },
+            "tab": {
+              "enum": [
+                "in",
+                "declaration",
+                "code",
+                "output",
+                "events",
+                "attempts",
+              ],
+              "type": "string",
+            },
+          },
+          "type": "object",
+        },
+        "workspaceId": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "repo",
+        "flowId",
+        "status",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the issue card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "issue",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "assignees": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "avatar": {
+                "type": "string",
+              },
+              "login": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "login",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "author": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "authorAvatar": {
+          "type": "string",
+        },
+        "commentDraft": {
+          "type": "string",
+        },
+        "comments": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "authorAvatar": {
+                "type": "string",
+              },
+              "commentBody": {
+                "type": "string",
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "id": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer",
+              },
+              "idempotencyKey": {
+                "type": "string",
+              },
+              "origin": {
+                "enum": [
+                  "app",
+                  "slack",
+                  "telegram",
+                ],
+                "type": "string",
+              },
+              "persona": {
+                "additionalProperties": false,
+                "properties": {
+                  "iconEmoji": {
+                    "type": "string",
+                  },
+                  "iconUrl": {
+                    "format": "uri",
+                    "type": "string",
+                  },
+                  "username": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "username",
+                ],
+                "type": "object",
+              },
+              "reactions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "active": {
+                      "type": "boolean",
+                    },
+                    "actor": {
+                      "type": "string",
+                    },
+                    "name": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "name",
+                    "actor",
+                    "active",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+            },
+            "required": [
+              "author",
+              "commentBody",
+              "createdAt",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "conversation": {
+          "additionalProperties": false,
+          "properties": {
+            "branchId": {
+              "type": "string",
+            },
+            "creationKey": {
+              "type": "string",
+            },
+            "owner": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "branchId",
+            "owner",
+            "creationKey",
+          ],
+          "type": "object",
+        },
+        "createdAt": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "htmlUrl": {
+          "format": "uri",
+          "type": "string",
+        },
+        "issueBody": {
+          "type": "string",
+        },
+        "kind": {
+          "enum": [
+            "issue",
+            "chat",
+          ],
+          "type": "string",
+        },
+        "labelColors": {
+          "additionalProperties": {
+            "type": "string",
+          },
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "lastComment": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "commenter": {
+                  "type": "string",
+                },
+                "createdAt": {
+                  "type": "string",
+                },
+                "excerpt": {
+                  "type": "string",
+                },
+                "origin": {
+                  "enum": [
+                    "app",
+                    "slack",
+                    "telegram",
+                  ],
+                  "type": "string",
+                },
+                "persona": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "commenter",
+                "excerpt",
+                "origin",
+                "createdAt",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "number": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        "pendingComments": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "enum": [
+                  "user",
+                  "smithers",
+                ],
+                "type": "string",
+              },
+              "error": {
+                "type": "string",
+              },
+              "id": {
+                "type": "string",
+              },
+              "owner": {
+                "type": "string",
+              },
+              "persona": {
+                "additionalProperties": false,
+                "properties": {
+                  "iconEmoji": {
+                    "type": "string",
+                  },
+                  "iconUrl": {
+                    "format": "uri",
+                    "type": "string",
+                  },
+                  "username": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "username",
+                ],
+                "type": "object",
+              },
+              "status": {
+                "enum": [
+                  "requested",
+                  "failed",
+                  "unknown",
+                ],
+                "type": "string",
+              },
+              "text": {
+                "type": "string",
+              },
+              "turnId": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "text",
+              "actor",
+              "status",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "repo": {
+          "type": "string",
+        },
+        "source": {
+          "enum": [
+            "smithers-cloud",
+            "github",
+          ],
+          "type": "string",
+        },
+        "state": {
+          "enum": [
+            "open",
+            "fixed",
+            "verified",
+            "closed",
+          ],
+          "type": "string",
+        },
+        "task": {
+          "additionalProperties": false,
+          "properties": {
+            "due": {
+              "type": "string",
+            },
+            "fixedBy": {
+              "additionalProperties": false,
+              "properties": {
+                "agentId": {
+                  "type": "string",
+                },
+                "iconUrl": {
+                  "type": "string",
+                },
+                "id": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "name": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "name",
+              ],
+              "type": "object",
+            },
+            "owner": {
+              "additionalProperties": false,
+              "properties": {
+                "agentId": {
+                  "type": "string",
+                },
+                "iconUrl": {
+                  "type": "string",
+                },
+                "id": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "name": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "name",
+              ],
+              "type": "object",
+            },
+            "parent": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer",
+                },
+                "title": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "number",
+              ],
+              "type": "object",
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "const": 0,
+                  "type": "number",
+                },
+                {
+                  "const": 1,
+                  "type": "number",
+                },
+                {
+                  "const": 2,
+                  "type": "number",
+                },
+                {
+                  "const": 3,
+                  "type": "number",
+                },
+              ],
+            },
+            "verifiedBy": {
+              "additionalProperties": false,
+              "properties": {
+                "agentId": {
+                  "type": "string",
+                },
+                "iconUrl": {
+                  "type": "string",
+                },
+                "id": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "name": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "name",
+              ],
+              "type": "object",
+            },
+          },
+          "type": "object",
+        },
+        "title": {
+          "type": "string",
+        },
+        "visibility": {
+          "enum": [
+            "public",
+            "private",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "repo",
+        "number",
+        "title",
+        "state",
+        "author",
+        "issueBody",
+        "labels",
+        "comments",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the pr card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "pr",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "authorAvatar": {
+          "type": "string",
+        },
+        "baseBranch": {
+          "type": "string",
+        },
+        "branch": {
+          "type": "string",
+        },
+        "checks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "type": "string",
+              },
+              "state": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "context",
+              "state",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "commits": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "changeId": {
+                "type": "string",
+              },
+              "commitId": {
+                "type": "string",
+              },
+              "message": {
+                "type": "string",
+              },
+              "timestamp": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+            },
+            "required": [
+              "message",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "createdAt": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "draft": {
+          "type": "boolean",
+        },
+        "files": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "additions": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+              "deletions": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+              "oldPath": {
+                "type": "string",
+              },
+              "patch": {
+                "type": "string",
+              },
+              "path": {
+                "type": "string",
+              },
+              "status": {
+                "enum": [
+                  "added",
+                  "modified",
+                  "removed",
+                  "renamed",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "path",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "labelColors": {
+          "additionalProperties": {
+            "type": "string",
+          },
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "number": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        "prBody": {
+          "type": "string",
+        },
+        "readErrors": {
+          "additionalProperties": false,
+          "properties": {
+            "commits": {
+              "type": "string",
+            },
+            "files": {
+              "type": "string",
+            },
+          },
+          "type": "object",
+        },
+        "repo": {
+          "type": "string",
+        },
+        "reviews": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "reviewBody": {
+                "type": "string",
+              },
+              "type": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "author",
+              "type",
+              "reviewBody",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "state": {
+          "type": "string",
+        },
+        "tab": {
+          "enum": [
+            "conversation",
+            "commits",
+            "checks",
+            "files",
+          ],
+          "type": "string",
+        },
+        "title": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "repo",
+        "number",
+        "title",
+        "state",
+        "author",
+        "prBody",
+        "reviews",
+        "checks",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the run-list card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "run-list",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "approvals": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "requestId": {
+                "type": "string",
+              },
+              "runId": {
+                "type": "string",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "runId",
+              "requestId",
+              "title",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "flow": {
+          "type": "string",
+        },
+        "gatewayBindingVersion": {
+          "const": 1,
+          "type": "number",
+        },
+        "lineage": {
+          "type": "string",
+        },
+        "listRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "flow": {
+              "type": "string",
+            },
+            "id": {
+              "type": "string",
+            },
+            "lineage": {
+              "type": "string",
+            },
+            "owner": {
+              "type": "string",
+            },
+            "repo": {
+              "type": "string",
+            },
+            "state": {
+              "enum": [
+                "pending",
+                "complete",
+                "failed",
+              ],
+              "type": "string",
+            },
+            "status": {
+              "type": "string",
+            },
+            "workspaceId": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "id",
+            "owner",
+            "repo",
+            "state",
+          ],
+          "type": "object",
+        },
+        "observationError": {
+          "type": "string",
+        },
+        "observedAt": {
+          "type": "number",
+        },
+        "repo": {
+          "type": "string",
+        },
+        "runs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "calls": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+              "createdAt": {
+                "type": "number",
+              },
+              "flowId": {
+                "type": "string",
+              },
+              "runId": {
+                "type": "string",
+              },
+              "status": {
+                "type": "string",
+              },
+              "statusRollup": {
+                "additionalProperties": false,
+                "properties": {
+                  "activity": {
+                    "enum": [
+                      "working",
+                      "idle",
+                      "needs-input",
+                      "unknown",
+                    ],
+                    "type": "string",
+                  },
+                  "attention": {
+                    "enum": [
+                      "none",
+                      "awaiting-approval",
+                      "needs-input",
+                      "needs-resume",
+                      "unhealthy",
+                    ],
+                    "type": "string",
+                  },
+                  "freshness": {
+                    "enum": [
+                      "fresh",
+                      "stale",
+                      "unobserved",
+                    ],
+                    "type": "string",
+                  },
+                  "health": {
+                    "enum": [
+                      "healthy",
+                      "stalled",
+                      "wedged-node",
+                      "runaway-loop",
+                      "awaiting-human",
+                      "failing",
+                      "unknown",
+                    ],
+                    "type": "string",
+                  },
+                  "provenance": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "checkerId": {
+                        "type": "string",
+                      },
+                      "evidenceSeq": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "expiresAt": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "incarnation": {
+                        "type": "string",
+                      },
+                      "monitorId": {
+                        "type": "string",
+                      },
+                      "observedAt": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "version": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                    },
+                    "required": [
+                      "checkerId",
+                      "monitorId",
+                      "observedAt",
+                      "expiresAt",
+                      "evidenceSeq",
+                      "incarnation",
+                      "version",
+                    ],
+                    "type": "object",
+                  },
+                  "reason": {
+                    "enum": [
+                      "ok",
+                      "no-progress",
+                      "awaiting-reply",
+                      "prompt-detected",
+                      "quota-wait",
+                      "timer-wait",
+                      "event-wait",
+                      "released",
+                      "unreachable",
+                      "probe-timeout",
+                      "probe-error",
+                      "owner-changed",
+                    ],
+                    "type": "string",
+                  },
+                  "state": {
+                    "enum": [
+                      "accepted",
+                      "running",
+                      "parked",
+                      "waiting-approval",
+                      "completed",
+                      "failed",
+                      "cancelled",
+                      "spawning",
+                      "exited",
+                    ],
+                    "type": "string",
+                  },
+                  "subjectId": {
+                    "type": "string",
+                  },
+                  "updatedAt": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer",
+                  },
+                },
+                "required": [
+                  "subjectId",
+                  "state",
+                  "activity",
+                  "health",
+                  "attention",
+                  "freshness",
+                  "updatedAt",
+                ],
+                "type": "object",
+              },
+              "turns": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+              "waiting": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "runId",
+              "flowId",
+              "status",
+              "createdAt",
+              "turns",
+              "calls",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "status": {
+          "type": "string",
+        },
+        "statuses": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "workspaceId": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "repo",
+        "runs",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the search-results card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "search-results",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "type": "string",
+        },
+        "flow": {
+          "type": "string",
+        },
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "actions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "args": {
+                      "type": "string",
+                    },
+                    "flow": {
+                      "type": "string",
+                    },
+                    "label": {
+                      "type": "string",
+                    },
+                    "role": {
+                      "enum": [
+                        "open",
+                        "primary",
+                        "other",
+                      ],
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "flow",
+                    "label",
+                    "role",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "kind": {
+                "enum": [
+                  "wiki",
+                  "note",
+                  "history",
+                  "target",
+                  "file",
+                  "run",
+                  "change",
+                  "issue",
+                  "box",
+                  "secret-name",
+                  "person",
+                  "flow",
+                ],
+                "type": "string",
+              },
+              "ref": {
+                "type": "string",
+              },
+              "subtitle": {
+                "type": "string",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "kind",
+              "ref",
+              "title",
+              "actions",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "query": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "query",
+        "flow",
+        "items",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the wiki-graph card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "wiki-graph",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "links": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+              },
+              "target": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "source",
+              "target",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "notes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "backlinks": {
+                "items": {
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "linksOut": {
+                "items": {
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "missing": {
+                "type": "boolean",
+              },
+              "path": {
+                "type": "string",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "path",
+              "title",
+              "linksOut",
+              "backlinks",
+              "missing",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "path": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+      },
+      "required": [
+        "path",
+        "notes",
+        "links",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the wiki-history card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "wiki-history",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "hasNext": {
+          "type": "boolean",
+        },
+        "page": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "path": {
+          "type": "string",
+        },
+        "repo": {
+          "type": "string",
+        },
+        "revisions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "type": "string",
+              },
+              "attachment": {
+                "additionalProperties": false,
+                "properties": {
+                  "digest": {
+                    "type": "string",
+                  },
+                  "mediaType": {
+                    "type": "string",
+                  },
+                  "size": {
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "digest",
+                  "mediaType",
+                  "size",
+                ],
+                "type": "object",
+              },
+              "author": {
+                "type": "string",
+              },
+              "deleted": {
+                "type": "boolean",
+              },
+              "digest": {
+                "type": "string",
+              },
+              "path": {
+                "type": "string",
+              },
+              "revision": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "revision",
+              "title",
+              "path",
+              "author",
+              "at",
+              "deleted",
+              "digest",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "slug": {
+          "type": "string",
+        },
+        "space": {
+          "enum": [
+            "public",
+            "private",
+          ],
+          "type": "string",
+        },
+        "title": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "repo",
+        "space",
+        "pageId",
+        "slug",
+        "title",
+        "path",
+        "revisions",
+        "page",
+        "hasNext",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the wiki-links card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "wiki-links",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "backlinks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "path",
+              "title",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "linksOut": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "path",
+              "title",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "path": {
+          "type": "string",
+        },
+        "title": {
+          "type": "string",
+        },
+        "unresolved": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+      },
+      "required": [
+        "path",
+        "title",
+        "backlinks",
+        "linksOut",
+        "unresolved",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`retained card JSON Schema contracts (§14.3.0) > pins the world card 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": "string",
+    },
+    "createdAt": {
+      "type": "number",
+    },
+    "id": {
+      "type": "string",
+    },
+    "kind": {
+      "const": "world",
+      "type": "string",
+    },
+    "loading": {
+      "type": "boolean",
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "index",
+        "length",
+      ],
+      "type": "object",
+    },
+    "ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "documents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cloud": {
+                "additionalProperties": false,
+                "properties": {
+                  "accountLogin": {
+                    "type": "string",
+                  },
+                  "repo": {
+                    "type": "string",
+                  },
+                  "revision": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "type": "integer",
+                  },
+                  "slug": {
+                    "type": "string",
+                  },
+                  "visibility": {
+                    "enum": [
+                      "public",
+                      "private",
+                    ],
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "repo",
+                  "slug",
+                  "revision",
+                ],
+                "type": "object",
+              },
+              "confidence": {
+                "type": "number",
+              },
+              "id": {
+                "type": "string",
+              },
+              "path": {
+                "type": "string",
+              },
+              "title": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "path",
+              "title",
+              "confidence",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "index": {
+          "additionalProperties": false,
+          "properties": {
+            "hasNext": {
+              "type": "boolean",
+            },
+            "page": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            "repo": {
+              "type": "string",
+            },
+            "space": {
+              "enum": [
+                "public",
+                "private",
+              ],
+              "type": "string",
+            },
+          },
+          "required": [
+            "repo",
+            "page",
+            "hasNext",
+          ],
+          "type": "object",
+        },
+        "selectedDocumentId": {
+          "type": "string",
+        },
+        "view": {
+          "enum": [
+            "outline",
+            "read",
+            "document",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "documents",
+      ],
+      "type": "object",
+    },
+    "runtimeView": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "version": {
+          "const": 1,
+          "type": "number",
+        },
+      },
+      "required": [
+        "version",
+      ],
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "active",
+        "acted",
+        "error",
+      ],
+      "type": "string",
+    },
+    "tabId": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+    "viewKey": {
+      "type": "string",
+    },
+    "viewRepo": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "id",
+    "title",
+    "status",
+    "createdAt",
+    "ordinal",
+    "kind",
+    "payload",
+  ],
+  "type": "object",
+}
+`;

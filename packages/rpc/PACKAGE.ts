@@ -43,20 +43,32 @@ const check = Smithers.Typecheck({
 })
 
 /**
- * The unit suite: everything under `test/`.
+ * The unit suite and projection schema tests.
  *
  * @since 0.1.0
  * @category test
  */
 const unitTests = Smithers.Vitest({
   tests: [Smithers.glob("test/**/*.test.ts")],
-  sources: [sources, ...failureCodes, releasedContracts],
+  sources: [
+    sources,
+    Smithers.glob("test/**/*.{ts,json,snap}"),
+    ...failureCodes,
+    releasedContracts
+  ],
   deps: [],
   config: Smithers.file("vitest.config.ts"),
   environment: "node",
   passWithNoTests: false,
   cwd
 })
+
+/** The colocated documentation checked under the docs verb.
+ * @since 1.0.0
+ * @category documentation
+ */
+const docsFiles = Smithers.Filegroup({ srcs: [Smithers.glob("docs/**/*.md")] })
+const docs = Smithers.DocsParity({ readme: Smithers.file("README.md"), deps: [docsFiles], cwd })
 
 const lint = Smithers.EsLint({
   sources: [sources],
@@ -232,5 +244,5 @@ const securityReview = Smithers.SecurityReview({
  * @category packages
  */
 export const Package = Smithers.Package({
-  targets: { check, unitTests, lint, fmt, ...securityReview }
+  targets: { check, unitTests, lint, fmt, docs, docsFiles, ...securityReview }
 })
