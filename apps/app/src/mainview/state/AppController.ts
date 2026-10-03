@@ -138,6 +138,7 @@ import type { SecretsSeam } from "./seams/SecretsSeam"
 import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
+import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
 import { createTriggersSeam } from "./seams/TriggersSeam"
@@ -527,6 +528,13 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly landStackItem: StackSeam["landStackItem"]
+  readonly newTodo: TodoSeam["newTodo"]
+  readonly showTodo: TodoSeam["showTodo"]
+  readonly dismissTodoDraft: TodoSeam["dismissTodoDraft"]
+  readonly answerTodo: TodoSeam["answerTodo"]
+  readonly steerTodo: TodoSeam["steerTodo"]
+  readonly amendTodo: TodoSeam["amendTodo"]
+  readonly controlTodo: TodoSeam["controlTodo"]
   readonly fileTodo: StackSeam["fileTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
@@ -651,6 +659,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
 export interface AppServices {
   readonly installTopic?: InstallTopic
   readonly presentInstallCard?: (kind: "setup" | "settings") => void
+  readonly todoTopics?: TodoTopics
   readonly clientErrors?: ClientErrorReporter
   /**
    * The decision model's command selection (state/CommandSelection.ts). The
@@ -851,6 +860,7 @@ export const createAppController = (
   }
   const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: services.presentInstallCard }))
   ctx.onDispose(installSeam.dispose)
+  const todoSeam = actors.pair(seamCtx, context => createTodoSeam(context, { topics: services.todoTopics, debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }))
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1036,6 +1046,10 @@ export const createAppController = (
     installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
   const { renderFlowForm, setFormField, submitForm, dismissCard, focusHandoff: formFocus } = actors.pair(ctx, (context) => createFormsController(context, { nextOrdinal: store.nextOrdinal }))
+  const todoForms = actors.pair(ctx, (context, select) => ({
+    setFormField: (cardId: string, field: string, value: string) => context.store.collections.cards.get(cardId)?.kind === "draft"
+      ? select(todoSeam).setTodoFormField(cardId, field, value) : select(setFormField)(cardId, field, value)
+  }))
   const {
     listAgents,
   } = actors.pair(ctx, (context) => createAgentsController(context, { nextOrdinal: store.nextOrdinal }))
@@ -1692,7 +1706,7 @@ export const createAppController = (
     toggleWorkspaceRename,
     listAgents,
     renderFlowForm,
-    setFormField,
+    setFormField: todoForms.setFormField,
     submitForm,
     dismissCard,
     cloudTerminal,
@@ -1795,6 +1809,13 @@ export const createAppController = (
     setStackParallel: stackSeam.setStackParallel,
     retryStackItem: stackSeam.retryStackItem,
     landStackItem: stackSeam.landStackItem,
+    newTodo: todoSeam.newTodo,
+    showTodo: todoSeam.showTodo,
+    dismissTodoDraft: todoSeam.dismissTodoDraft,
+    answerTodo: todoSeam.answerTodo,
+    steerTodo: todoSeam.steerTodo,
+    amendTodo: todoSeam.amendTodo,
+    controlTodo: todoSeam.controlTodo,
     fileTodo: stackSeam.fileTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
@@ -1981,6 +2002,7 @@ export const createAppController = (
   secretsSeam.resumeCodingProviders()
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
+  todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
   repositorySetup.resumeRepositorySetups()

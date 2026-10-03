@@ -5,6 +5,8 @@
  */
 
 import { z } from "zod"
+import { TodoCardSchema } from "./TodoCard.ts"
+import { DraftCardSchema } from "./DraftCard.ts"
 import { AGENT_ROLES, AgentRoleIdSchema, AgentRoleModelSchema } from "./AgentRoles.ts"
 import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import {
@@ -715,7 +717,20 @@ const IssueLastCommentSchema = z.object({
   createdAt: z.string()
 }).nullable()
 
+/** Durable browser requests remain until their projection receipt arrives. */
+const TodoRequestSchema = z.object({
+  key: z.string(), owner: z.string(), operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "drop"]),
+  body: z.record(z.string(), z.unknown()), n: z.number().int().positive().optional(),
+  state: z.enum(["requested", "accepted", "failed"]), error: z.string().optional()
+})
+
 const CurrentCardSchema = z.discriminatedUnion("kind", [
+  z.object({ ...cardBaseShape, kind: z.literal("todo"), payload: z.object({
+    n: z.number().int().positive(), model: TodoCardSchema.optional(), requests: z.array(TodoRequestSchema),
+    answerDraft: z.string().optional(), answeredBy: z.string().optional()
+  }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("draft"), audience_member_id: z.string().nullable(),
+    payload: DraftCardSchema.extend({ idempotencyKey: z.string(), request: TodoRequestSchema.optional(), optionsFailure: z.string().optional() }) }),
   z.object({
     ...cardBaseShape,
     kind: z.literal("factory.home"),

@@ -91,6 +91,8 @@ export interface CardCommandInput {
   readonly "settings.model-key": { readonly role: "fast" | "coding" | "jev"; readonly provider: string }
   readonly "settings.setup": { readonly step: "address" | "app" | "sign_in" | "repository" | "models" | "source" | "machine"; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
 
+  readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
+  readonly "card.dismiss": { readonly cardId: string }
   readonly "chat.send": { readonly text: string }
   readonly "help": undefined
   readonly "stop": undefined
@@ -99,7 +101,7 @@ export interface CardCommandInput {
   readonly "todo.new": { readonly text: string; readonly after?: number; readonly before?: number }
   readonly "todo.from-issue": { readonly number: number }
   readonly "todo": { readonly n: number }
-  readonly "todo.answer": { readonly n: number; readonly answer: string }
+  readonly "todo.answer": { readonly n: number; readonly answer: string; readonly wait?: string }
   readonly "todo.steer": { readonly n: number; readonly text: string }
   readonly "todo.amend": { readonly n: number; readonly text: string }
   readonly "todo.stop": { readonly n: number }
@@ -179,10 +181,6 @@ export interface CardCommandInput {
   }
   readonly "secrets.delete": { readonly name: string }
   readonly "secrets.scope": { readonly name: string; readonly scope: "all_branches" | "main_only" }
-  readonly "form.set": {
-    readonly field: "title" | "prompt" | "acceptance" | "place" | "fixes"
-    readonly value: string
-  }
   readonly "code.hover": { readonly path: string; readonly line: number; readonly col: number }
   readonly "code.definition": { readonly path: string; readonly line: number; readonly col: number }
   readonly "draft.discard": z.infer<typeof DraftDiscardInputSchema>

@@ -86,6 +86,8 @@ export const IN_CARD_TAGS = [
   "settings.parallel",
   "settings.model-key",
   "settings.setup",
+  "form.set",
+  "card.dismiss",
   "todo.return-to-item",
   "todo.keep-moved",
   "branch.bring-in",

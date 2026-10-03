@@ -9,7 +9,7 @@ import type { RepositoryHome } from "@smthrs/rpc/RepositoryHome"
 import { CardView } from "../ChatCards"
 import { FlowGraphSurface } from "../ViewModules"
 import { defaultPill } from "./CardFamily"
-import { CARD_FAMILIES, CARD_RENDERERS, RETIRED_CARD_KINDS, pillStatus } from "./CardRenderers"
+import { CARD_FAMILIES, CARD_RENDERERS, PENDING_CARD_KINDS, RETIRED_CARD_KINDS, pillStatus } from "./CardRenderers"
 import { lastRunOf, RepositoryHomeCard, stripHomeHtml } from "./RepositoryHomeCard"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
@@ -25,7 +25,7 @@ import { memoryStorage } from "../state/TestFixtures"
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(RETIRED_CARD_KINDS as readonly string[]).includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !([...RETIRED_CARD_KINDS, ...PENDING_CARD_KINDS] as readonly string[]).includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 

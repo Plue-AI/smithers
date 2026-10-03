@@ -6,7 +6,8 @@
  * registers the old names as hidden aliases over the same controller calls.
  */
 import { WIKI_DISPLAY_NAME, wikiOperations, wikiSurfaceOperations } from "@smthrs/ui/app-operations/wiki"
-import { bind, type CommandActions } from "./Declare"
+import { Schema } from "effect"
+import { bind, flow, type CommandActions } from "./Declare"
 import type { FlowEntry, Namespace, Recommendation } from "../registry"
 
 /** The `wiki` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
@@ -23,7 +24,7 @@ export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
 
 /** The `wiki.*` flows: the shared wiki operations bound to the controller. */
 export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
-  bind(wikiOperations, {
+  [...bind(wikiOperations, {
     /* The answer is the conversation's next turn, the same turn the composer sends. */
     "wiki.ask": ({ question }) => { actions.send(question) },
     /* StackSeam.refreshWiki refreshes on stack changes; this is the manual door and the Retry. */
@@ -54,4 +55,19 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     "wiki.history": ({ slug, repo, page, space }) => actions.showWikiHistory(slug, repo, page, space),
     "wiki.attach": ({ path, repo }, _signal, _call, gesture) => actions.attachCloudWiki(path ?? "", repo, gesture),
     "wiki.pane": () => actions.showWikiPane()
-  })
+  }), flow({
+    name: "wiki.save", summary: "Save this answer as a page", args: "<name>",
+    input: Schema.Struct({ name: Schema.NonEmptyString, text: Schema.optional(Schema.String) }),
+    grammar: args => {
+      if (!args?.trim().startsWith("{")) return { payload: args?.trim() ? { name: args.trim() } : {} }
+      try {
+        const payload: unknown = JSON.parse(args)
+        return payload && typeof payload === "object" && !Array.isArray(payload)
+          ? { payload: payload as Record<string, unknown> } : { error: "Invalid page input" }
+      } catch { return { error: "Invalid page input" } }
+    },
+    form: { submitLabel: "Save", fields: { text: { hidden: true } }, args: payload => JSON.stringify(payload) },
+    // Keep the existing shared operation as the authority. Its current contract is a refresh;
+    // T-APP-02 cannot manufacture a page write when wiki.create accepts only a repository.
+    handler: () => "Saving answers is unavailable."
+  })]

@@ -393,6 +393,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       fields = fields.filter(field => field.name === "choice").map(field => ({ ...field, kind: "select" as const,
         label: "Answer", options: question.choices.map(choice => ({ value: choice.id, label: choice.label })) }))
     }
+    // T-APP-02: TODO doors ask only for missing required input; the bound Tn stays in given.
+    if (request.name === "todo" || request.name.startsWith("todo.")) {
+      const missing = missingFields(fields, draftFrom(fields, given))
+      fields = fields.filter(field => missing.includes(field.name))
+    }
     const nested = request.payloadField === undefined ? undefined : given[request.payloadField]
     const draft = draftFrom(fields, request.payloadField === undefined
       ? given

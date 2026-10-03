@@ -37,7 +37,7 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     grammar: key, args: "<role> <provider>",
     input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, value: Schema.optional(Schema.String) }),
     form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider }), fields: {
-      role: { label: "Role", kind: "text" }, provider: { label: "Provider", kind: "text" },
+      role: { label: "Role", kind: "select" }, provider: { label: "Provider", kind: "text" },
       value: { label: "Key", kind: "write-only", required: true }
     } },
     handler: ({ role, provider }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider }, gesture) }),

@@ -58,7 +58,11 @@ const repositoryChoiceCardFamily: CardFamily<"repository-choice"> = {
 export { RETIRED_CARD_KINDS } from "../state/CardAvailability"
 import { RETIRED_CARD_KINDS } from "../state/CardAvailability"
 type RetiredCardKind = (typeof RETIRED_CARD_KINDS)[number]
-type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind>
+/** T-APP-02 supplies Containers; design supplies these Views before registration. */
+export const PENDING_CARD_KINDS = ["todo", "draft"] as const
+const isPendingCard = (card: Card): card is Extract<Card, { kind: typeof PENDING_CARD_KINDS[number] }> =>
+  (PENDING_CARD_KINDS as readonly string[]).includes(card.kind)
+type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind | typeof PENDING_CARD_KINDS[number]>
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: RetiredCardKind }> =>
   (RETIRED_CARD_KINDS as readonly string[]).includes(card.kind)
 
@@ -144,7 +148,7 @@ export const cardRenderer = <K extends RenderedCardKind>(kind: K): CardFamilyEnt
  * otherwise the family that owns the kind answers.
  */
 export const pillStatus = (card: Card): string => {
-  if (isRetiredCard(card)) return ""
+  if (isRetiredCard(card) || isPendingCard(card)) return ""
   if (card.status === "error" && card.kind !== "flow-form") return "failed"
   return cardRenderer(card.kind).pill(card)
 }
@@ -157,7 +161,7 @@ const signedInFor = (actions: CardActions): boolean => {
 
 /** The card's body, from the family that owns its kind. */
 export const renderCardBody = (card: Card, actions: CardActions) =>
-  isRetiredCard(card) ? null : card.kind === "repo-update" && actions.projectionStore !== undefined
+  isRetiredCard(card) || isPendingCard(card) ? null : card.kind === "repo-update" && actions.projectionStore !== undefined
     ? <ProjectedRepositoryUpdateBody card={card} actions={actions} store={actions.projectionStore} />
     : cardRenderer(card.kind).render(card, actions)
 

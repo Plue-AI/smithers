@@ -49,6 +49,7 @@ import * as flow from "./entries/flow"
 import * as frame from "./entries/frame"
 import * as github from "./entries/github"
 import * as history from "./entries/history"
+import * as todo from "./entries/todo"
 import * as issue from "./entries/issue"
 import * as issues from "./entries/issues"
 import * as notifications from "./entries/notifications"
@@ -359,6 +360,7 @@ export interface Namespace {
 
 /** The namespaces in display order; one the table lacks lists last, by id. */
 export const NAMESPACES: ReadonlyArray<Namespace> = [
+  todo.namespace,
   setup.namespace,
   setup.ciNamespace,
   setup.choresNamespace,

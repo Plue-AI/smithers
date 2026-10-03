@@ -128,3 +128,18 @@ test("a continuation uses current card state without mutating the previous reque
   expect(request.context?.recentCards).toEqual(original)
   expect(original).toEqual([{ id: "first", kind: "file", title: "Before", status: "active", maximized: false }])
 })
+
+test("a private Draft stays out of the app-agent context, including its title", async () => {
+  const f = await fixture()
+  const draft: Card = { id: "draft:private", kind: "draft", title: "Private draft title", status: "active", createdAt: 1, ordinal: 1,
+    audience_member_id: "member-ben", payload: { title: "Private draft title", prompt: "Private prompt", acceptance: [],
+      place: { mode: "append", options: [] }, private: true, idempotencyKey: "private-commit" } }
+  await f.upsert(draft)
+  await f.upsert({ ...draft, id: "draft:shared", title: "Committed TODO", ordinal: 2, audience_member_id: null,
+    payload: { ...draft.payload, private: false, committed: { n: 12, rev: 1 } } })
+  const request = await f.send()
+  expect(request.context?.recentCards?.map(card => card.id)).toEqual(["draft:shared"])
+  expect(JSON.stringify(request)).not.toContain("Private draft title")
+  expect(JSON.stringify(request)).not.toContain("Private prompt")
+  expect(f.store.collections.cards.get("draft:private")?.title).toBe("Private draft title")
+})

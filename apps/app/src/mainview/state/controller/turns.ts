@@ -240,7 +240,8 @@ export const createTurnController = (
       ? undefined
       : store.collections.worldDocuments.get(current.selectedWorldDocumentId)
     const recent = [...store.collections.cards.values()]
-      .filter(card => inConversation(card, conversationTabIdOf(current)) && cardAvailable(card.kind))
+      .filter(card => inConversation(card, conversationTabIdOf(current)) && cardAvailable(card.kind)
+        && (card.kind !== "draft" || card.audience_member_id === null))
       .sort((a, b) => a.ordinal - b.ordinal).slice(-RECENT_CARD_WINDOW)
     return {
       repositoryUpdate: currentRepositoryUpdate(store),

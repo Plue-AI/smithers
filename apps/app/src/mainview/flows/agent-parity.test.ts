@@ -93,6 +93,15 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
 
 /** The policy table's agent rows (.specs/engineering/spec.md §6.1): the args exercised and whether the act confirms. */
 const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean }> = [
+  { name: "todo", args: "T12", confirm: false },
+  { name: "todo.new", args: "A TODO", confirm: false },
+  { name: "todo.answer", args: "T12 Yes", confirm: false },
+  { name: "todo.steer", args: "T12 Keep the tests", confirm: false },
+  { name: "todo.amend", args: "T12 Amend the prompt", confirm: true },
+  { name: "todo.stop", args: "T12", confirm: false },
+  { name: "todo.resume", args: "T12", confirm: false },
+  { name: "todo.retry", args: "T12", confirm: false },
+  { name: "todo.drop", args: "T12", confirm: true },
   { name: "runs.trace.filter", args: "run-1 failed", confirm: false },
   { name: "runs.trace.select", args: "run-1 frame-1", confirm: false },
   { name: "runs.trace.view", args: "run-1 turns", confirm: false },

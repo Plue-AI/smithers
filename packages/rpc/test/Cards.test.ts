@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest"
+import { fixtures as todoFixtures } from "./fixtures/Todo.ts"
+import { fixtures as draftFixtures } from "./fixtures/Draft.ts"
 import { z } from "zod"
 import { AGENT_ROLES } from "../src/AgentRoles.ts"
 import type { Card } from "../src/Cards.ts"
@@ -912,6 +914,11 @@ type KindFixtures = {
 }
 
 const FIXTURES: Record<Card["kind"], KindFixtures> = {
+  todo: { minimal: { n: 12, requests: [] }, full: { n: 12, model: todoFixtures.failed.model, requests: [], answerDraft: "A late answer", answeredBy: "maya" } },
+  draft: { minimal: { ...draftFixtures.append.model, idempotencyKey: "commit-1" }, full: {
+    ...draftFixtures.append.model, issue: draftFixtures.issue_fixes.model.issue, seed: draftFixtures.seed.model.seed, committed: { n: 12, rev: 1 },
+    optionsFailure: "Could not load placement", idempotencyKey: "commit-1", request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
+  } },
   "factory.home": {
     minimal: { repo: "org/repo", home: { kind: "none" }, flows: [] },
     full: {
@@ -2867,7 +2874,7 @@ test("repository home schema decodes every resolution and refuses unsafe paths",
 })
 
 const kinds = CardSchema.options.map((option) => option.shape.kind.value)
-const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload })
+const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" ? { audience_member_id: "ben" } : {}) })
 
 /** The fields a kind's payload declares, or null when the payload is a union of stages rather than one object. */
 const payloadFields = (kind: string): Record<string, z.ZodType> | null => {
@@ -2957,7 +2964,7 @@ describe("every persisted card kind", () => {
 
   test("a whole frame snapshot of one card per kind parses (apps/app FrameSnapshotSchema)", () => {
     const snapshot = z.object({ cards: z.array(CardSchema) })
-    const cards = kinds.map((kind, ordinal) => ({ ...base, kind, ordinal, payload: FIXTURES[kind].full }))
+    const cards = kinds.map((kind, ordinal) => ({ ...(card(kind, FIXTURES[kind].full) as Record<string, unknown>), ordinal }))
     expect(snapshot.parse({ cards }).cards).toHaveLength(kinds.length)
   })
 
