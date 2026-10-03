@@ -108,6 +108,9 @@ func walkServedRoutes(t *testing.T, router chi.Routes, into map[string]servedRou
 // openAPIConformanceRouter composes every optional product handler so each
 // route family a deployment can enable is mounted.
 func openAPIConformanceRouter(cfg *config.Config) chi.Router {
+	cfgCopy := *cfg
+	cfgCopy.Install.QuiesceEnabled = true
+	cfg = &cfgCopy
 	return hostStatusProductionRouter(cfg, db.New(nil), &routes.HostStatusHandler{})
 }
 

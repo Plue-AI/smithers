@@ -3320,6 +3320,50 @@ paths:
           description: This install already has a GitHub App
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/install/quiesce:
+    post:
+      summary: Freeze or renew install admissions
+      operationId: post_api_install_quiesce
+      tags:
+        - Install
+      description: Owner browser session only. Enabled only by install.quiesce_enabled. Renew the same operation every 10 seconds; the lease lasts 30 seconds.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [op]
+              properties:
+                op:
+                  type: string
+                  minLength: 1
+      responses:
+        '200':
+          description: Freeze lease, including whether execution has stopped
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: Quiesced or required execution dependency unavailable
+    delete:
+      summary: Reopen install admissions
+      operationId: delete_api_install_quiesce
+      tags:
+        - Install
+      description: Owner browser session only. Refuses while .upgrade-incomplete exists. Enabled only by install.quiesce_enabled.
+      security:
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Admissions reopened
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: Upgrade incomplete or freeze authority unavailable
   /api/integrations/mcp:
     get:
       summary: GET /api/integrations/mcp

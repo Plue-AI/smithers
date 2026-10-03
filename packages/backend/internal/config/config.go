@@ -15,6 +15,7 @@ import (
 
 // Config holds all configuration for the API server.
 type Config struct {
+	Install  InstallConfig  `mapstructure:"install"`
 	Agents   AgentsConfig   `mapstructure:"agents"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
@@ -35,6 +36,12 @@ type Config struct {
 	RateLimit           RateLimitConfig           `mapstructure:"rate_limit"`
 	Chat                ChatConfig                `mapstructure:"chat"`
 	WikiSync            WikiSyncConfig            `mapstructure:"wiki_sync"`
+}
+
+// InstallConfig keeps quiesce dark until its execution contracts land.
+type InstallConfig struct {
+	QuiesceEnabled bool   `mapstructure:"quiesce_enabled"`
+	StateDir       string `mapstructure:"state_dir"`
 }
 
 // ChatConfig sizes the chat turn dispatcher. Zero keeps the default for the
@@ -464,6 +471,8 @@ func Load(configFile string) (*Config, error) {
 	v := viper.New()
 
 	// Defaults
+	v.SetDefault("install.quiesce_enabled", false)
+	v.SetDefault("install.state_dir", "")
 	v.SetDefault("server.addr", ":4000")
 	v.SetDefault("server.public_url", "http://localhost:4000")
 	v.SetDefault("server.read_timeout_secs", 30)
@@ -641,6 +650,8 @@ func Load(configFile string) (*Config, error) {
 
 	// Bind specific env vars (BindEnv never returns an error for static bindings)
 	for _, b := range [][2]string{
+		{"install.quiesce_enabled", "SMITHERS_INSTALL_QUIESCE_ENABLED"},
+		{"install.state_dir", "SMITHERS_INSTALL_STATE_DIR"},
 		{"server.addr", "SMITHERS_SERVER_ADDR"},
 		{"server.public_url", "SMITHERS_PUBLIC_URL"},
 		{"server.read_timeout_secs", "SMITHERS_SERVER_READ_TIMEOUT_SECS"},

@@ -249,6 +249,8 @@ func buildRouter(
 
 	// Middleware stack prefix (spec order)
 	r.Use(chiMiddleware.RequestID)
+	quiesce := &services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir}
+	routes.MountInstallQuiesce(r, cfg.Install.QuiesceEnabled, quiesce, nil)
 	// Derive the client IP from X-Forwarded-For using a trusted-hop count
 	// (SMITHERS_SERVER_TRUSTED_PROXY_HOPS: 1 behind GCLB in prod, 0 = keep
 	// the socket address elsewhere). Replaces chi's RealIP, which trusted
@@ -877,6 +879,11 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		mountHostStatus(r, extras.HostStatus)
+		if cfg.Install.QuiesceEnabled {
+			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}
+			r.Post("/install/quiesce", h.Handle)
+			r.Delete("/install/quiesce", h.Handle)
+		}
 		if extras.GitHubAppSetup != nil {
 			r.Get("/install", extras.GitHubAppSetup.Status)
 			r.Post("/install/setup/app", extras.GitHubAppSetup.Begin)

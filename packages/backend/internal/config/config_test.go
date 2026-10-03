@@ -18,6 +18,8 @@ import (
 // allEnvKeys is the complete list of environment variables that config.Load() binds.
 // Used by clearConfigEnv to ensure test isolation.
 var allEnvKeys = []string{
+	"SMITHERS_INSTALL_QUIESCE_ENABLED",
+	"SMITHERS_INSTALL_STATE_DIR",
 	"SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS",
 	"SMITHERS_BLOB_BUILD_CACHE_REPO_QUOTA_BYTES",
 	"SMITHERS_AGENT_NEVER_STARTED_TIMEOUT",
@@ -1675,6 +1677,7 @@ func TestLoad_AllFieldsHaveMapstructureTags(t *testing.T) {
 func TestLoad_MapstructureTagsMatchViperKeys(t *testing.T) {
 	// Expected: top-level Config tags → Viper section prefixes
 	topLevelTags := map[string]string{
+		"Install":             "install",
 		"Agents":              "agents",
 		"Server":              "server",
 		"Database":            "database",

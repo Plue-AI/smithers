@@ -1403,6 +1403,22 @@ export interface PostApiInstallSetupAppInput {
 export const postApiInstallSetupApp = (transport: Transport, input: PostApiInstallSetupAppInput): Promise<PostApiInstallSetupAppResponse> =>
   transport.request("POST", `/api/install/setup/app`, input.body) as Promise<PostApiInstallSetupAppResponse>
 
+export type PostApiInstallQuiesceBody = {
+  op: string
+}
+
+export interface PostApiInstallQuiesceInput {
+  readonly body: PostApiInstallQuiesceBody
+}
+
+/** POST /api/install/quiesce: Freeze or renew install admissions */
+export const postApiInstallQuiesce = (transport: Transport, input: PostApiInstallQuiesceInput): Promise<void> =>
+  transport.request("POST", `/api/install/quiesce`, input.body).then(() => undefined)
+
+/** DELETE /api/install/quiesce: Reopen install admissions */
+export const deleteApiInstallQuiesce = (transport: Transport): Promise<void> =>
+  transport.request("DELETE", `/api/install/quiesce`).then(() => undefined)
+
 export type GetApiIntegrationsMcpResponse = AnyJSON
 
 /** GET /api/integrations/mcp */

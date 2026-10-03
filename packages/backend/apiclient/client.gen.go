@@ -1200,6 +1200,11 @@ type GetAPIStatusResponseComponentsCanary struct {
 	Detail string `json:"detail"`
 }
 
+// PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.
+type PostAPIInstallQuiesceBody struct {
+	Op string `json:"op"`
+}
+
 // GetAPIReposOwnerRepoIssueViewsResponseItem is generated from docs/api/openapi.yaml.
 type GetAPIReposOwnerRepoIssueViewsResponseItem struct {
 	ID     string   `json:"id"`
@@ -2161,6 +2166,16 @@ func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetup
 	var out GitHubAppManifestStart
 	err := c.do(ctx, "POST", "/api/install/setup/app", nil, body, &out)
 	return out, err
+}
+
+// PostAPIInstallQuiesce calls POST /api/install/quiesce.
+func (c *Client) PostAPIInstallQuiesce(ctx context.Context, body PostAPIInstallQuiesceBody) error {
+	return c.do(ctx, "POST", "/api/install/quiesce", nil, body, nil)
+}
+
+// DeleteAPIInstallQuiesce calls DELETE /api/install/quiesce.
+func (c *Client) DeleteAPIInstallQuiesce(ctx context.Context) error {
+	return c.do(ctx, "DELETE", "/api/install/quiesce", nil, nil, nil)
 }
 
 // GetAPIIntegrationsMcp calls GET /api/integrations/mcp.
