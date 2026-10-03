@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Snapshot lockfile reads measure concurrent removal as absence (#3602). Index
+  read failures retain their platform cause as `unavailable` (#3603).
+
 - A flow's module closure no longer misses a load hidden behind a misread `/`
   ([#3106](https://github.com/smithersai/smithers/issues/3106)). The scan reads
   a regular expression after `break`, `continue`, `debugger`, a label and an

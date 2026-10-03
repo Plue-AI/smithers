@@ -1635,6 +1635,10 @@ executions. Lockfile drift does not remove these roots. Missing or corrupt
 snapshots remain typed failures. `ExecutionSnapshotError.code` is `missing`,
 `corrupt`, `lockfile_changed`, or `unavailable`.
 
+Lockfiles removed during a read are measured as absent. Index read failures other
+than absence report `unavailable` and retain the platform cause; malformed bytes
+and identity failures report `corrupt`. Diagnostic messages omit host error details.
+
 When the filesystem snapshot index is absent, `indexMissing` is `true`.
 Source loading retains its original typed refusal in this case. A missing blob
 behind an existing index retains the snapshot recovery diagnostic.

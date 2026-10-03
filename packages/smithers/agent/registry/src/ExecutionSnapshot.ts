@@ -11,6 +11,7 @@ import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Descriptor from "./Descriptor.ts"
@@ -117,7 +118,11 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
       const measured: Array<readonly [string, string]> = []
       for (const name of lockfiles) {
         const filename = path.join(root, name)
-        if (yield* fs.exists(filename)) measured.push([name, Digest.digest(yield* fs.readFile(filename))])
+        const bytes = yield* fs.readFile(filename).pipe(
+          Effect.map(Option.some),
+          Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(Option.none()))
+        )
+        if (Option.isSome(bytes)) measured.push([name, Digest.digest(bytes.value)])
       }
       return Digest.digest(new TextEncoder().encode(JSON.stringify(measured)))
     })
@@ -130,6 +135,11 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
             "PlatformError",
             "NotFound",
             (_, cause) => Effect.fail(fail("missing", "Execution snapshot is unavailable", cause, true))
+          ),
+          Effect.mapError((cause) =>
+            cause instanceof ExecutionSnapshotError
+              ? cause
+              : fail("unavailable", "Cannot read execution snapshot index", cause)
           )
         )
         const blob = yield* Effect.try(() => JSON.parse(new TextDecoder().decode(indexBytes)) as unknown)
@@ -306,7 +316,7 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
         const digest = Descriptor.executionDigest(executable.descriptor)
         if (digest === undefined) return yield* Effect.fail(fail("unavailable", "Executable source is unmeasured"))
         yield* fs.makeDirectory(directory, { recursive: true, mode: 0o700 })
-        return yield* FileLease.withLease(
+        yield* FileLease.withLease(
           fs,
           path.join(directory, `${digest}.lock`),
           pinUnlocked(executable),

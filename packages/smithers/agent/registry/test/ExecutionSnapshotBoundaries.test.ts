@@ -6,7 +6,18 @@ import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import * as Digest from "@smthrs/core/Digest"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Crypto, Deferred, Effect, Fiber, FileSystem, Layer, Logger, Path, PlatformError, Schema } from "effect"
+import {
+  Crypto,
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Logger,
+  Path,
+  PlatformError,
+  Schema
+} from "effect"
 import { pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
 import * as Descriptor from "../src/Descriptor.ts"
@@ -88,6 +99,87 @@ const denied = (method: string, path: string) =>
   })
 
 describe("execution snapshot admission boundaries", () => {
+  it("preserves the legacy digest for a nonempty lockfile set", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root, executable, index, digest } = yield* fixture
+      // Legacy algorithm: ordered [filename, SHA-256(bytes)] pairs, JSON encoded and SHA-256 hashed.
+      yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: 9.0\n")
+      yield* fs.writeFileString(`${root}/package-lock.json`, '{"lockfileVersion":3}\n')
+      yield* fs.writeFileString(`${root}/yarn.lock`, "# yarn lockfile v1\n")
+      yield* fs.writeFileString(`${root}/bun.lock`, '{"lockfileVersion":1}\n')
+      yield* fs.writeFile(`${root}/bun.lockb`, new Uint8Array([0, 255, 1, 128]))
+      yield* fs.remove(index)
+      const snapshots = yield* Snapshot.makeFileSystem({ root })
+      yield* snapshots.pin(executable)
+      const blob: string = JSON.parse(yield* fs.readFileString(index))
+      const path = yield* Path.Path
+      const store = ArtifactStore.makeFileSystem(fs, path, { directory: `${root}/.flows/objects` })
+      const manifest: Manifest = JSON.parse(new TextDecoder().decode(yield* store.get(blob)))
+      expect(manifest.lockfileDigest).toBe("3e2ce739b4feaa56f03786b32ef108cc14f4751b492d0a572ef5783e9020e6a9")
+      expect((yield* snapshots.restore(digest)).descriptor).toEqual(executable.descriptor)
+    }))
+  })
+
+  it("measures a lockfile retired during read as absent", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root, executable, index, blob, manifest, digest } = yield* fixture
+      const lockfile = `${root}/pnpm-lock.yaml`
+      yield* fs.writeFileString(lockfile, "retiring lockfile")
+      yield* fs.remove(index)
+      // Retire at the real read boundary; all other filesystem operations remain real.
+      const retiring = FileSystem.FileSystem.of({
+        ...fs,
+        readFile: (filename) =>
+          filename === lockfile
+            ? fs.remove(lockfile, { force: true }).pipe(Effect.andThen(fs.readFile(filename)))
+            : fs.readFile(filename)
+      })
+      const snapshots = yield* Snapshot.makeFileSystem({ root }).pipe(
+        Effect.provideService(FileSystem.FileSystem, retiring)
+      )
+      yield* snapshots.pin(executable)
+      expect(JSON.parse(yield* fs.readFileString(index))).toBe(blob)
+      expect(manifest.lockfileDigest).toBe(Digest.digest(new TextEncoder().encode("[]")))
+      expect((yield* snapshots.restore(digest)).descriptor).toEqual(executable.descriptor)
+    }))
+  })
+
+  it.each(["PermissionDenied", "Unknown", "Busy"] as const)("reports an index %s read as unavailable", async (tag) => {
+    await run(Effect.gen(function*() {
+      const { fs, root, index, digest } = yield* fixture
+      const cause = PlatformError.systemError({
+        _tag: tag,
+        module: "FileSystem",
+        method: "readFile",
+        pathOrDescriptor: index,
+        syscall: "read",
+        cause: { code: tag === "PermissionDenied" ? "EACCES" : tag === "Busy" ? "EBUSY" : "EIO" },
+        description: "SECRET_HOST_DETAIL"
+      })
+      // Inject normalized EACCES/EIO/EBUSY at the index read; CAS and source reads remain real.
+      const failing = FileSystem.FileSystem.of({
+        ...fs,
+        readFile: (filename) => filename === index ? Effect.fail(cause) : fs.readFile(filename)
+      })
+      const snapshots = yield* Snapshot.makeFileSystem({ root }).pipe(
+        Effect.provideService(FileSystem.FileSystem, failing)
+      )
+      const reads: ReadonlyArray<Effect.Effect<unknown, Snapshot.ExecutionSnapshotError>> = [
+        snapshots.restore(digest),
+        snapshots.descriptor(digest),
+        snapshots.roots([digest])
+      ]
+      for (const read of reads) {
+        const failure = yield* read.pipe(Effect.flip)
+        expect(failure.code).toBe("unavailable")
+        expect(failure.cause).toBe(cause)
+        expect(failure.indexMissing).toBeUndefined()
+        expect(failure.message).toBe("Cannot read execution snapshot index")
+        expect(failure.message).not.toContain("SECRET_HOST_DETAIL")
+      }
+    }))
+  })
+
   it("exposes the exact approved descriptor and deduplicated CAS roots despite later lockfile changes", async () => {
     await run(Effect.gen(function*() {
       const { fs, root, digest, executable, blob, manifest } = yield* fixture
