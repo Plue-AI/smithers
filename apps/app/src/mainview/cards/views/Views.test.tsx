@@ -32,7 +32,9 @@ for (const path of paths) {
       const { host, onAction, onView } = mountedStory
       try {
         for (const text of story.expect) expect(host.textContent).toContain(text)
-        const controls = [...host.querySelectorAll<HTMLButtonElement>("[data-flow]")]
+        const interactions = story.interactions ?? []
+        const gestureControls = new Set(interactions.filter(item => item.gesture).map(item => host.querySelector(item.selector)))
+        const controls = [...host.querySelectorAll<HTMLButtonElement>("[data-flow]")].filter(control => !gestureControls.has(control))
         const actions = story.actions ?? []
         expect(controls.map(control => control.dataset.flow)).toEqual(actions.map(action => action.tag))
         for (let index = 0; index < actions.length; index++) {
@@ -51,23 +53,30 @@ for (const path of paths) {
             expect(onAction.mock.calls[0]).toEqual([action.tag, action.args ?? {}])
           }
         }
-        const interactions = story.interactions ?? []
         const covered = new Set(controls)
         for (const interaction of interactions) {
           const control = host.querySelector<HTMLElement>(interaction.selector)
           expect(control).not.toBeNull()
           covered.add(control as HTMLButtonElement)
           onAction.mockClear(); onView.mockClear()
+          const gesture = interaction.gesture ? story.gestures?.[interaction.gesture] : undefined
+          const expectedAction = interaction.action ?? (gesture ? { tag: gesture.tag, args: gesture.args ?? {} } : undefined)
           await act(async () => {
-            if (interaction.value !== undefined) (control as HTMLInputElement).value = interaction.value
+            if (interaction.value !== undefined) {
+              const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype
+              Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(control, interaction.value)
+            }
             control!.dispatchEvent(interaction.event === "keydown"
               ? new KeyboardEvent("keydown", { key: interaction.key, bubbles: true })
               : new Event(interaction.event ?? "click", { bubbles: true }))
           })
-          expect(onAction).toHaveBeenCalledTimes(interaction.action ? 1 : 0)
+          expect(onAction).toHaveBeenCalledTimes(expectedAction ? 1 : 0)
           expect(onView).toHaveBeenCalledTimes(interaction.patch ? 1 : 0)
-          if (interaction.action) expect(onAction.mock.calls[0]).toEqual([interaction.action.tag, interaction.action.args])
+          if (expectedAction) expect(onAction.mock.calls[0]).toEqual([expectedAction.tag, expectedAction.args])
           if (interaction.patch) expect(onView.mock.calls[0]).toEqual([interaction.patch])
+        }
+        for (const gesture of Object.keys(story.gestures ?? {})) {
+          expect(interactions.filter(interaction => interaction.gesture === gesture)).toHaveLength(1)
         }
         // Every local/view control needs a declared interaction and callback expectation.
         for (const control of host.querySelectorAll("button, input, select, textarea, [role=button]")) {
@@ -76,7 +85,7 @@ for (const path of paths) {
       } finally { await mountedStory.close() }
       if (story.actions?.length) {
         const removed = await mounted(story, true)
-        try { expect([...removed.host.querySelectorAll<HTMLElement>("[data-flow]")].map(control => control.dataset.flow)).toEqual(story.actions.slice(1).map(action => action.tag)) }
+        try { expect([...removed.host.querySelectorAll<HTMLElement>("[data-flow]")].filter(control => !(story.interactions ?? []).some(item => item.gesture && control.matches(item.selector))).map(control => control.dataset.flow)).toEqual(story.actions.slice(1).map(action => action.tag)) }
         finally { await removed.close() }
       }
     })
