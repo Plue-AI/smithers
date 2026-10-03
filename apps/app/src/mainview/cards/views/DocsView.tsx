@@ -6,7 +6,9 @@ import { DiffAction } from "./DiffAction"
 export function DocsView({ model, actions, gestures, onAction }: DocsViewProps) {
   const open = gestures.open
   const markdown = model.page.markdown.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g)
-    .map((part, index) => index % 2 ? part : part.replace(/</g, "&lt;")).join("")
+    .map((part, index) => index % 2 ? part : part.replace(/</g, "&lt;")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (written, label: string, href: string) =>
+        resolveMarkdownLink(`${model.page.slug}.md`, href).kind === "blocked" ? label : written)).join("")
   const links: Record<string, string> = {}
   for (const match of model.page.markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
     const href = match[1]!

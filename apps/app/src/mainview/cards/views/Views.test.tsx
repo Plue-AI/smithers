@@ -1615,6 +1615,7 @@ describe("DocsView", () => {
       expect(rendered.host.querySelector("script,img,iframe")).toBeNull()
       const source = rendered.host.querySelector<HTMLTextAreaElement>("textarea")!
       expect(source.readOnly).toBe(true)
+      expect(source.value).not.toContain("javascript:")
       expect(source.value).toContain("&lt;script>alert(1)&lt;/script>")
       expect(source.value).toContain("&lt;img src=x onerror=alert(1)>")
       expect(source.value).toContain("`a < b`")

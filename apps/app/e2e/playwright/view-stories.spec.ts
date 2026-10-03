@@ -579,7 +579,7 @@ test("File Copy failure remains visible and retains recovered text", async ({ pa
 test("Docs document links are gestures and HTML remains inert", async ({ page }) => {
   await page.goto("/view-stories.html?story=DocsView/Inert%20HTML")
   await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
-  await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe")).toHaveCount(0)
+  await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe,.mvp-docs a[href^=\"javascript:\"]")).toHaveCount(0)
   await page.evaluate(() => {
     const receipts: unknown[] = []
     Object.assign(window, { docsReceipts: receipts })
@@ -595,7 +595,7 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
     Object.assign(window, { docsReceipts: [] })
     window.addEventListener("story-callback", event => (window as unknown as { docsReceipts: unknown[] }).docsReceipts.push((event as CustomEvent).detail))
   })
-  await page.getByRole("link", { name: "TODOs", exact: true }).click()
+  await page.locator(".mvp-docs-markdown").getByRole("link", { name: "TODOs", exact: true }).click()
   expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
     { kind: "action", value: { tag: "docs", args: { page: "todos" } } }
   ])
