@@ -9,7 +9,6 @@ const PENDING_WIRING: Record<string, string> = {
   "HomeActionView.tsx": "T-APP-01",
   "HomeRowView.tsx": "T-APP-01",
   "TodoView.tsx": "T-APP-02",
-  "TodoActionView.tsx": "T-APP-02",
   "DraftView.tsx": "T-APP-02",
   "SetupView.tsx": "T-APP-03",
   "SettingsView.tsx": "T-APP-03",
@@ -17,15 +16,12 @@ const PENDING_WIRING: Record<string, string> = {
   "FlowView.tsx": "T-APP-05",
   "FlowActionView.tsx": "T-APP-05",
   "MembersView.tsx": "T-APP-06",
-  "MembersActionView.tsx": "T-APP-06",
   "EdgeRowView.tsx": "T-APP-07",
   "EdgeGroupView.tsx": "T-APP-07",
   "ToastNoticeView.tsx": "T-APP-07",
   "TimelineLineView.tsx": "T-APP-07",
   "CodeEditorView.tsx": "T-UI-11",
-  "DiffView.tsx": "T-UI-11",
   "CommandsView.tsx": "T-UI-14",
-  "CommandActionView.tsx": "T-UI-14",
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")

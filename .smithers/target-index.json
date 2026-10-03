@@ -45668,32 +45668,6 @@
     }
   },
   {
-    "label": "//scripts/repo-contract:specTranscriptions",
-    "package": "scripts/repo-contract",
-    "name": "specTranscriptions",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "scripts/repo-contract/spec-transcriptions.test.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "scripts/repo-contract/**/*.mjs",
-        "exclude": []
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "scripts/repo-contract/PACKAGE.ts"
-    }
-  },
-  {
     "label": "//scripts/repo-contract:testScriptWiring",
     "package": "scripts/repo-contract",
     "name": "testScriptWiring",
