@@ -24,7 +24,8 @@ type APIError struct {
 	// Fault says whose problem this is, so an interface can choose its words
 	// without a table of every code. It is derived from Code, never chosen at
 	// the call site.
-	Fault Fault `json:"fault"`
+	Fault Fault  `json:"fault"`
+	Class string `json:"class,omitempty"`
 	// RetryAfter, when > 0, is the number of seconds the client should wait
 	// before retrying. It is written both as the Retry-After header and as a
 	// body field, because the Worker in front of plue does not forward

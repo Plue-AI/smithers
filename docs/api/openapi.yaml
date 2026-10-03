@@ -3266,7 +3266,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/install:
     get:
-      summary: Read GitHub App setup status
+      summary: Read install address and GitHub App setup status
       operationId: get_api_install
       tags:
         - Install
@@ -3287,6 +3287,43 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
+    put:
+      summary: Change the install address
+      operationId: put_api_install
+      tags:
+        - Install
+      description: Owner browser session only. Origin must equal the effective origin and X-CSRF-Token must equal the CSRF cookie. Unavailable launcher, listener or transactional publication providers refuse before effects.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address]
+              properties:
+                address:
+                  $ref: '#/components/schemas/InstallAddress'
+      responses:
+        '200':
+          description: Committed address; no backend restart
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [address]
+                properties:
+                  address:
+                    $ref: '#/components/schemas/InstallAddress'
+        '422':
+          description: Invalid bind or origins; class user with the field named
+        '403':
+          description: Owner required, or class permission with code origin or csrf; no mutation
+        '421':
+          description: Host matches no known origin; class user, code unknown_origin
+        '503':
+          description: Required serving provider unavailable; no settings or listener change
   /api/install/setup/app_manifest:
     post:
       summary: Begin or resume GitHub App setup
@@ -23220,6 +23257,21 @@ components:
             - limit
             - corrupt
             - storage_failed
+    InstallAddress:
+      type: object
+      required: [listen, bind, origins]
+      properties:
+        listen:
+          type: string
+          enum: [mac, network]
+        bind:
+          type: string
+          description: Empty for loopback only; otherwise an IP bind address
+        origins:
+          type: array
+          items:
+            type: string
+          description: HTTP or HTTPS origins with distinct browser Host values; scheme comes from these strings
     GitHubAppSetupRequest:
       type: object
       required:
@@ -23246,6 +23298,10 @@ components:
       required:
         - github_app
       properties:
+        address:
+          $ref: "#/components/schemas/InstallAddress"
+        ssh_line:
+          type: string
         github_app:
           type: object
           required:

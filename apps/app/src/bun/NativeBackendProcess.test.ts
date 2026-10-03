@@ -66,12 +66,14 @@ const packagedRuntime = (): { backend: string; postgresBin: string; root: string
 /** Launches owned mode from `launcher` and returns the environment the backend child received. */
 const ownedEnvironment = async (
   runtime: ReturnType<typeof packagedRuntime>,
-  launcher: Readonly<Record<string, string>>
+  launcher: Readonly<Record<string, string>>,
+  address?: { readonly bind: string; readonly origins: ReadonlyArray<string> }
 ): Promise<Record<string, string>> => {
   let env: Record<string, string> = {}
   let resolveExit!: (code: number) => void
   const exited = new Promise<number>((resolve) => { resolveExit = resolve })
   const instance = await startNativeBackend({
+    ...(address ? { address } : {}),
     stateDir: runtime.state,
     webRoot,
     env: {
@@ -91,6 +93,20 @@ const ownedEnvironment = async (
 }
 
 describe("native backend ownership", () => {
+  test("configured public origins preserve the loopback control address", async () => {
+    // T-INS-04 / §1.4 and §16.3.3: literal startup settings, no global cookie switch.
+    const runtime = packagedRuntime()
+    const env = await ownedEnvironment(runtime, {}, { bind: "0.0.0.0", origins: ["http://lan-a:4000", "https://box.example"] })
+    expect(env.SMITHERS_SERVER_ADDR).toBe("127.0.0.1:4000")
+    expect(env.SMITHERS_INSTALL_BIND).toBe("0.0.0.0")
+    expect(env.SMITHERS_INSTALL_ORIGINS).toBe("http://lan-a:4000,https://box.example")
+    expect(env.SMITHERS_SERVER_ALLOWED_ORIGINS).toBe("http://lan-a:4000,https://box.example")
+    expect(env.SMITHERS_PUBLIC_URL).toBe("http://lan-a:4000")
+    expect(env.SMITHERS_AUTH_COOKIE_SECURE).toBeUndefined()
+    await expect(ownedEnvironment(packagedRuntime(), {}, { bind: "", origins: ["http://box", "https://box"] })).rejects.toThrow("distinct hosts")
+    await expect(ownedEnvironment(packagedRuntime(), {}, { bind: "", origins: ["http://box/path"] })).rejects.toThrow("Invalid install origins")
+  })
+
   test("owned refuses a modified Linux arm64 jj-export helper", async () => {
     const runtime = packagedRuntime()
     writeFileSync(join(runtime.root, "linux-arm64", "smithers-jj-export"), "tampered", { mode: 0o755 })

@@ -18,6 +18,8 @@ import (
 // allEnvKeys is the complete list of environment variables that config.Load() binds.
 // Used by clearConfigEnv to ensure test isolation.
 var allEnvKeys = []string{
+	"SMITHERS_INSTALL_BIND",
+	"SMITHERS_INSTALL_ORIGINS",
 	"SMITHERS_INSTALL_QUIESCE_ENABLED",
 	"SMITHERS_INSTALL_STATE_DIR",
 	"SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS",

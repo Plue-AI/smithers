@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:3f3599bfe182d7e7525b764f3e91d2acd1414e0c69822023adbb349597e86eef",
+  "digest": "sha256:61946ad57100fce1fe2791b02326192aad0b87a489b1c4556400bf8ae4ca0b36",
   "faults": [
     "user",
     "wait",
@@ -206,6 +206,13 @@
       "status": 409,
       "retry_after": 0,
       "doc": "The resource is in a state that refuses this operation right now."
+    },
+    {
+      "code": "csrf",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "The cookie mutation has no matching CSRF token."
     },
     {
       "code": "egress_proxy_unavailable",
@@ -500,6 +507,13 @@
       "status": 403,
       "retry_after": 0,
       "doc": "The requested owner is an organization on this deployment and the caller does not belong to it. Join the organization, or fork the repository into your own namespace."
+    },
+    {
+      "code": "origin",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "The request Origin differs from the effective install origin."
     },
     {
       "code": "out_of_credit",

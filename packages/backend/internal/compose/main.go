@@ -38,6 +38,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -204,6 +205,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// slog not yet initialized; use a minimal stderr logger for bootstrap failures.
 		slog.New(middleware.NewGCPJSONHandler(stderr, slog.LevelError)).Error("failed to load config", "error", err)
 		return err
+	}
+	// Network startup remains dark until the registered launcher and atomic
+	// publication providers are composed. Refuse before any database/listener effect.
+	if cfg.Install.Bind != "" || len(cfg.Install.Origins) > 0 {
+		if _, err := services.NewInstallAddress(cfg.Install.Bind, cfg.Install.Origins); err != nil {
+			return err
+		}
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install serving providers unavailable (T-INS-08/T-STK-01)")
 	}
 	if err := validateProductionConfig(os.Getenv("SMITHERS_ENV"), strings.EqualFold(os.Getenv("SMITHERS_ENABLE_E2E_TEST_ROUTES"), "true")); err != nil {
 		slog.New(middleware.NewGCPJSONHandler(stderr, slog.LevelError)).Error("invalid production config", "error", err)
@@ -1393,6 +1402,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AllowedOrigins: apiAllowedOrigins(cfg),
 			Sessions:       &services.InstallSetupSessions{Pool: pool, TokenDigest: sha256.Sum256([]byte(cfg.Auth.BootstrapToken))},
 		}
+	}
+	if gitHubAppSetup != nil && cfg.Install.StateDir != "" {
+		gitHubAppSetup.Serving = &services.InstallServing{Pool: pool}
 	}
 	router := buildRouter(
 		cfg,

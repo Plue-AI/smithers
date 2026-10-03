@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -106,4 +107,50 @@ func TestGitHubClient_LegacyOAuthEnvironmentCannotConfigureSource(t *testing.T) 
 	client := NewGitHubClient(nil, "", "", "")
 	_, err := client.AuthorizationURL(context.Background(), "state")
 	require.ErrorIs(t, err, services.ErrGitHubAppNotConfigured)
+}
+
+// §16.3.3: configured origin scheme wins over forwarding/TLS hints. This
+// unit fixture isolates URL construction; sealed credentials have real DB tests.
+func TestGitHubClientEffectiveOriginRedirectURI(t *testing.T) {
+	for _, tc := range []struct{ origin, host, want string }{
+		{"http://lan-a:4000", "lan-a:4000", "http://lan-a:4000/api/auth/github/callback"},
+		{"https://box.example", "box.example", "https://box.example/api/auth/github/callback"},
+		{"http://localhost:4000", "localhost:4000", "http://localhost:4000/api/auth/github/callback"},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			client := NewGitHubClient(&testInstallOAuthCredentials{testOAuthCredentials: testOAuthCredentials{id: "client", secret: "secret"}}, "http://stale.example/api/auth/github/callback", "http://github.example", "")
+			r := httptest.NewRequest("GET", "http://"+tc.host+"/authorization", nil)
+			r.RemoteAddr = "127.0.0.1:9"
+			r.Header.Set("X-Forwarded-Proto", "http")
+			middleware.InstallEffectiveOrigin(func(context.Context) ([]string, error) { return []string{tc.origin}, nil })(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				target, err := client.AuthorizationURL(r.Context(), "state")
+				require.NoError(t, err)
+				u, err := url.Parse(target)
+				require.NoError(t, err)
+				require.Equal(t, tc.want, u.Query().Get("redirect_uri"))
+			})).ServeHTTP(httptest.NewRecorder(), r)
+		})
+	}
+}
+
+// Unit credential fixture for the recorded callback-URL provider contract.
+type testInstallOAuthCredentials struct {
+	testOAuthCredentials
+	fixes []services.GitHubAppCallbackFix
+}
+
+func (s *testInstallOAuthCredentials) CallbackFixes(context.Context, []string) ([]services.GitHubAppCallbackFix, error) {
+	return s.fixes, nil
+}
+
+func TestGitHubClientMissingCallbackReturnsExactFix(t *testing.T) {
+	source := &testInstallOAuthCredentials{testOAuthCredentials: testOAuthCredentials{id: "client", secret: "secret"}, fixes: []services.GitHubAppCallbackFix{{SettingsURL: "https://github.com/settings/apps/team", AddURL: "https://box.example/api/auth/github/callback"}}}
+	client := NewGitHubClient(source, "", "", "")
+	r := httptest.NewRequest("GET", "http://box.example/authorization", nil)
+	r.RemoteAddr = "127.0.0.1:9"
+	middleware.InstallEffectiveOrigin(func(context.Context) ([]string, error) { return []string{"https://box.example"}, nil })(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target, err := client.AuthorizationURL(r.Context(), "state")
+		require.Empty(t, target)
+		require.ErrorContains(t, err, "https://github.com/settings/apps/team — add https://box.example/api/auth/github/callback")
+	})).ServeHTTP(httptest.NewRecorder(), r)
 }

@@ -102,6 +102,12 @@ type WorkspaceTerminalHandler struct {
 // checkOrigin validates the Origin header against the handler's allowed origins list.
 // Returns true if the origin is allowed, false otherwise.
 func (h *WorkspaceTerminalHandler) checkOrigin(origin string, r *http.Request) bool {
+	if effective := middleware.EffectiveOrigin(r.Context()); effective != "" {
+		if info := middleware.AuthInfoFromContext(r.Context()); info != nil && info.IsTokenAuth {
+			return true
+		}
+		return origin == effective
+	}
 	if origin == "" || origin == "null" {
 		return false
 	}

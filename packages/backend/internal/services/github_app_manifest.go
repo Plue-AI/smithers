@@ -44,11 +44,12 @@ type GitHubAppHookAttributes struct {
 	Active bool   `json:"active"`
 }
 type GitHubAppManifestRequest struct {
-	OwnerLogin string `json:"owner_login"`
-	OwnerKind  string `json:"owner_kind"`
-	Repository string `json:"repository"`
-	Resume     bool   `json:"resume,omitempty"`
-	Origin     string `json:"origin,omitempty"`
+	OwnerLogin string   `json:"owner_login"`
+	OwnerKind  string   `json:"owner_kind"`
+	Repository string   `json:"repository"`
+	Resume     bool     `json:"resume,omitempty"`
+	Origin     string   `json:"origin,omitempty"`
+	Origins    []string `json:"-"`
 }
 type GitHubAppManifestStart struct {
 	InstallURL string            `json:"install_url,omitempty"`
@@ -163,7 +164,11 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	if origin == "" {
 		origin = gitHubAppLocalOrigin
 	}
-	origins, err := normalizedGitHubAppOrigins(s.origins)
+	requestedOrigins := s.origins
+	if req.Origins != nil {
+		requestedOrigins = req.Origins
+	}
+	origins, err := normalizedGitHubAppOrigins(requestedOrigins)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
@@ -179,7 +184,7 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	random := make([]byte, 32)
 	rand.Read(random)
 	state := hex.EncodeToString(random)
-	manifest, action, err := BuildGitHubAppManifest(req.OwnerLogin, req.OwnerKind, s.origins, state)
+	manifest, action, err := BuildGitHubAppManifest(req.OwnerLogin, req.OwnerKind, requestedOrigins, state)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}

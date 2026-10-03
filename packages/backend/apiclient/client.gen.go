@@ -1046,6 +1046,13 @@ type SavedConversationProblem struct {
 	Code   string `json:"code"`
 }
 
+// InstallAddress is generated from docs/api/openapi.yaml.
+type InstallAddress struct {
+	Listen  string   `json:"listen"`
+	Bind    string   `json:"bind"`
+	Origins []string `json:"origins"`
+}
+
 // GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
 type GitHubAppSetupRequest struct {
 	Resume     *bool  `json:"resume,omitempty"`
@@ -1056,6 +1063,8 @@ type GitHubAppSetupRequest struct {
 
 // GitHubAppSetupStatus is generated from docs/api/openapi.yaml.
 type GitHubAppSetupStatus struct {
+	Address   *InstallAddress               `json:"address,omitempty"`
+	SSHLine   *string                       `json:"ssh_line,omitempty"`
 	GithubApp GitHubAppSetupStatusGithubApp `json:"github_app"`
 }
 
@@ -1198,6 +1207,16 @@ type GetAPIStatusResponseComponents struct {
 type GetAPIStatusResponseComponentsCanary struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+}
+
+// PutAPIInstallBody is generated from docs/api/openapi.yaml.
+type PutAPIInstallBody struct {
+	Address InstallAddress `json:"address"`
+}
+
+// PutAPIInstallResponse is generated from docs/api/openapi.yaml.
+type PutAPIInstallResponse struct {
+	Address InstallAddress `json:"address"`
 }
 
 // PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.
@@ -2158,6 +2177,13 @@ func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 func (c *Client) GetAPIInstall(ctx context.Context) (GitHubAppSetupStatus, error) {
 	var out GitHubAppSetupStatus
 	err := c.do(ctx, "GET", "/api/install", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIInstall calls PUT /api/install.
+func (c *Client) PutAPIInstall(ctx context.Context, body PutAPIInstallBody) (PutAPIInstallResponse, error) {
+	var out PutAPIInstallResponse
+	err := c.do(ctx, "PUT", "/api/install", nil, body, &out)
 	return out, err
 }
 

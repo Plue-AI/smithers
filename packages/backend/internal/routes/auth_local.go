@@ -146,8 +146,8 @@ func (h *AuthHandler) completeLocalBrowserLogin(w http.ResponseWriter, r *http.R
 		writeRouteError(w, r, pkgerrors.Internal("failed to generate csrf token").WithCause(err))
 		return
 	}
-	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, h.AuthConfig.CookieSecure)
-	middleware.SetCSRFCookie(w, csrfToken, h.AuthConfig.CookieSecure, result.ExpiresAt)
+	setSessionCookie(w, h.AuthConfig.SessionCookieName, result.SessionKey, result.ExpiresAt, middleware.CookieSecure(r, h.AuthConfig.CookieSecure))
+	middleware.SetCSRFCookie(w, csrfToken, middleware.CookieSecure(r, h.AuthConfig.CookieSecure), result.ExpiresAt, r)
 	h.auditLocalLogin(r, result.User, method)
 	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{"id": result.User.ID, "username": result.User.Username},
@@ -166,6 +166,13 @@ func (h *AuthHandler) auditLocalLogin(r *http.Request, user db.User, method stri
 }
 
 func (h *AuthHandler) requireTrustedOrigin(w http.ResponseWriter, r *http.Request) bool {
+	if effective := middleware.EffectiveOrigin(r.Context()); effective != "" {
+		if origin := r.Header.Get("Origin"); origin != "" && origin != effective {
+			pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeOrigin, "request origin differs from install origin"))
+			return false
+		}
+		return true
+	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
 		// Native backend bridges and CLI clients do not send Origin. A browser

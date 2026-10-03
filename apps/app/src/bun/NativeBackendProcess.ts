@@ -22,6 +22,8 @@ export interface NativeBackendOptions {
   readonly stateDir: string
   /** The built SPA the owned backend serves at its public origin. */
   readonly webRoot: string
+  /** Owner address passed to the install contracts; readiness stays loopback. */
+  readonly address?: { readonly bind: string; readonly origins: ReadonlyArray<string> }
   readonly env?: Readonly<Record<string, string | undefined>>
   /** Replaces the persisted or generated first-owner token; tests only. */
   readonly bootstrapToken?: string
@@ -372,8 +374,21 @@ export const startNativeBackend = async (
   environment.SMITHERS_NATIVE_POSTGRES_MAJOR = "18"
   environment.SMITHERS_NATIVE_STATE_DIR = options.stateDir
   environment.SMITHERS_DATA_ROOT = options.stateDir
+  if (options.address) {
+    const origins = options.address.origins.map(value => {
+      const parsed = new URL(value)
+      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("Invalid install origins.")
+      return parsed.origin
+    })
+    if (new Set(origins.map(value => new URL(value).host)).size !== origins.length) throw new Error("Install origins must have distinct hosts.")
+    environment.SMITHERS_INSTALL_STATE_DIR = options.stateDir
+    environment.SMITHERS_INSTALL_BIND = options.address.bind
+    environment.SMITHERS_INSTALL_ORIGINS = origins.join(",")
+    environment.SMITHERS_SERVER_ALLOWED_ORIGINS = origins.join(",")
+    environment.SMITHERS_PUBLIC_URL = origins[0] ?? origin
+  }
   environment.SMITHERS_SERVER_ADDR = new URL(origin).host
-  environment.SMITHERS_PUBLIC_URL = origin
+  environment.SMITHERS_PUBLIC_URL ??= origin
   environment.SMITHERS_FLOW_HOST_MANIFEST = hosts.manifest
   environment.SMITHERS_WORKSPACE_CODING_HOST_BINARY = hosts.coding.path
   environment.SMITHERS_WORKSPACE_CODING_HOST_SHA256 = hosts.coding.sha256

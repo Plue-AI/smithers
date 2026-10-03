@@ -3,6 +3,7 @@ package routes
 import (
 	"crypto/subtle"
 	"encoding/base64"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,4 +80,11 @@ func consumeBrowserReturnCookie(w http.ResponseWriter, r *http.Request, secure b
 		return ""
 	}
 	return string(decoded)
+}
+
+func (h *AuthHandler) requestBrowserOrigin(r *http.Request) string {
+	if origin := middleware.EffectiveOrigin(r.Context()); origin != "" {
+		return origin
+	}
+	return h.githubBrowserOrigin()
 }

@@ -5,6 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -2655,3 +2659,38 @@ func (m mockAuth0Client) AuthorizationURL(state string) string {
 	return value
 }
 func auth0Fixture(client mockGitHubClient) mockAuth0Client { return mockAuth0Client{client} }
+
+func TestOAuthStateBoundToEffectiveOrigin(t *testing.T) {
+	// §16.3.3: copied cookies cannot finish a callback on another origin.
+	// Unit exception: the state-store CAS is injected; all service entry points
+	// and origin middleware are production, no provider exchange is permitted.
+	stored := ""
+	queries := &mockAuthQuerier{
+		createOAuthStateFn: func(ctx context.Context, arg db.CreateOAuthStateParams) (db.OauthState, error) {
+			stored = arg.ContextHash
+			return db.OauthState{}, nil
+		},
+		consumeOAuthStateWithScopesFn: func(ctx context.Context, arg db.ConsumeOAuthStateWithScopesParams) ([]string, error) {
+			if arg.ContextHash != stored {
+				return nil, pgx.ErrNoRows
+			}
+			return nil, nil
+		},
+	}
+	svc := NewAuthService(queries, defaultAuthConfig(), mockKeyAuthVerifier{}, mockGitHubClient{})
+	onOrigin := func(origin string, call func(context.Context)) {
+		u, err := url.Parse(origin)
+		require.NoError(t, err)
+		request := httptest.NewRequest("GET", origin+"/api/auth/github/callback", nil)
+		request.RemoteAddr = "127.0.0.1:9"
+		middleware.InstallEffectiveOrigin(func(context.Context) ([]string, error) {
+			return []string{"http://lan-a:4000", "https://box.example"}, nil
+		})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { require.Equal(t, u.Host, r.Host); call(r.Context()) })).ServeHTTP(httptest.NewRecorder(), request)
+	}
+	onOrigin("http://lan-a:4000", func(ctx context.Context) { _, err := svc.StartGitHubOAuth(ctx, "verifier"); require.NoError(t, err) })
+	require.NotEmpty(t, stored)
+	onOrigin("https://box.example", func(ctx context.Context) {
+		_, err := svc.CompleteGitHubOAuth(ctx, "code", "state", "verifier")
+		require.ErrorContains(t, err, "invalid oauth state")
+	})
+}

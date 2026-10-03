@@ -44,6 +44,7 @@ type GitHubAppSetupHandler struct {
 	Store          GitHubAppSetupCredentials
 	Owners         GitHubAppSetupOwners
 	AllowedOrigins []string
+	Serving        *services.InstallServing
 }
 
 // authorize requires the live durable setup session before claim and the
@@ -93,7 +94,11 @@ func (h *GitHubAppSetupHandler) authorize(w http.ResponseWriter, r *http.Request
 	return true
 }
 func (h *GitHubAppSetupHandler) requestOrigin(r *http.Request) (string, bool) {
-	origin, ok := middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+	origin := middleware.EffectiveOrigin(r.Context())
+	ok := origin != ""
+	if !ok {
+		origin, ok = middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+	}
 	if ok && r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
 		return origin, false
 	}
@@ -146,13 +151,18 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r) {
 		return
 	}
+	address, err := h.address(r)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
 	if h.Store == nil {
 		pkgerrors.WriteError(w, pkgerrors.Internal("GitHub App credential store is unavailable"))
 		return
 	}
 	credentials, err := h.Store.Load(r.Context())
 	if errors.Is(err, services.ErrGitHubAppNotConfigured) {
-		pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"github_app": map[string]any{"configured": false, "installed": false}})
+		pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"address": address, "ssh_line": address.SSHLine("<branch>"), "github_app": map[string]any{"configured": false, "installed": false}})
 		return
 	}
 	if err != nil {
@@ -169,12 +179,12 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
-	callbackFixes, err := h.Store.CallbackFixes(r.Context(), h.AllowedOrigins)
+	callbackFixes, err := h.Store.CallbackFixes(r.Context(), address.Origins)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
 	}
-	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"github_app": map[string]any{"configured": true, "installed": credentials.InstallationID > 0, "slug": credentials.Slug, "installation_id": credentials.InstallationID, "install_url": installURL, "callback_urls": callbackURLs, "callback_fixes": callbackFixes}})
+	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"address": address, "ssh_line": address.SSHLine("<branch>"), "github_app": map[string]any{"configured": true, "installed": credentials.InstallationID > 0, "slug": credentials.Slug, "installation_id": credentials.InstallationID, "install_url": installURL, "callback_urls": callbackURLs, "callback_fixes": callbackFixes}})
 }
 func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 	origin, ok := h.requestOrigin(r)
@@ -195,6 +205,12 @@ func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Origin = origin
+	address, err := h.address(r)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	req.Origins = address.Origins
 	if h.Service == nil {
 		pkgerrors.WriteError(w, pkgerrors.Internal("GitHub App setup is unavailable"))
 		return
@@ -281,4 +297,67 @@ func (h *GitHubAppSetupHandler) Installed(w http.ResponseWriter, r *http.Request
 	origin, _ := h.requestOrigin(r)
 	http.SetCookie(w, &http.Cookie{Name: GitHubAppStateCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(origin, "https://")})
 	pkgerrors.WriteJSON(w, http.StatusOK, map[string]bool{"installed": true})
+}
+
+func (h *GitHubAppSetupHandler) address(r *http.Request) (services.InstallAddress, error) {
+	if h.Serving != nil {
+		return h.Serving.Read(r.Context())
+	}
+	// The existing loopback path stays available before providers land.
+	public := []string{}
+	for _, origin := range h.AllowedOrigins {
+		if origin != "http://localhost:4000" && origin != "http://127.0.0.1:4000" && origin != "http://[::1]:4000" {
+			public = append(public, origin)
+		}
+	}
+	return services.NewInstallAddress("", public)
+}
+
+// PutSettings permits only the live owner browser session, never setup or
+// delegated credentials. Missing parallel providers refuse before effects.
+func (h *GitHubAppSetupHandler) PutSettings(w http.ResponseWriter, r *http.Request) {
+	if h.Owners == nil {
+		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "owner authority unavailable"))
+		return
+	}
+	owner, err := h.Owners.GetSelfHostOwner(r.Context())
+	info := middleware.AuthInfoFromContext(r.Context())
+	if err != nil || info == nil || info.User == nil || info.User.ID != owner.ID || info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+		pkgerrors.WriteError(w, pkgerrors.Forbidden("install owner session required"))
+		return
+	}
+	origin, ok := h.requestOrigin(r)
+	if !ok {
+		writeGitHubAppOriginError(w, origin)
+		return
+	}
+	if r.Header.Get("Origin") != origin {
+		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeOrigin, "request origin required"))
+		return
+	}
+	csrf, err := r.Cookie(middleware.CSRFCookieName)
+	if err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
+		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeCSRF, "CSRF token required"))
+		return
+	}
+	var req struct {
+		Address services.InstallAddress `json:"address"`
+	}
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	address, err := services.NewInstallAddress(req.Address.Bind, req.Address.Origins)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	if h.Serving == nil {
+		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install serving providers unavailable"))
+		return
+	}
+	if err = h.Serving.Set(r.Context(), address); err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"address": address})
 }

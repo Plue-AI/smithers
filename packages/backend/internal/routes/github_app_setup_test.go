@@ -516,7 +516,7 @@ func TestGitHubAppSetupStatusMetadataAndFailures(t *testing.T) {
 		h.Status(w, r)
 		require.Equal(t, test.want, w.Code)
 		if test.want == http.StatusOK {
-			require.JSONEq(t, `{"github_app":{"configured":false,"installed":false}}`, w.Body.String())
+			require.JSONEq(t, `{"address":{"listen":"mac","bind":"","origins":["https://factory.example"]},"ssh_line":"ssh -p 2222 <branch>@factory.example","github_app":{"configured":false,"installed":false}}`, w.Body.String())
 		}
 	}
 }
@@ -631,7 +631,7 @@ func TestGitHubAppSetupStatusShowsExactCallbackRegistrationFix(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), `"callback_urls":["http://localhost:4000/api/auth/github/callback"]`)
 	require.Contains(t, w.Body.String(), `"callback_fixes":[{"settings_url":"https://github.com/organizations/smithersai/settings/apps/smithers-test","add_url":"https://factory.example/api/auth/github/callback"}]`)
-	require.Equal(t, h.AllowedOrigins, reader.fixOrigins, "all configured origins need reconciliation, not just the current listener")
+	require.Equal(t, []string{"https://factory.example"}, reader.fixOrigins, "all configured origins need reconciliation, not just the current listener")
 	for _, fixFailure := range []bool{false, true} {
 		if fixFailure {
 			reader.callbackError = nil

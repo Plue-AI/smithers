@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"context"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -162,4 +164,54 @@ func TestWriteRouteError_Matrix(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "health probe is not configured on this deployment")
 		assert.Contains(t, rec.Body.String(), string(pkgerrors.CodeCodingGatewayNotConfigured))
 	})
+}
+
+// §16.3.3 literal cookie attributes through production start/callback/logout.
+// Unit exception: OAuth exchange is injected to isolate cookie writers; the
+// composed real-provider journeys remain C-INS-03's activation gate.
+func TestAuthCookiesFollowEffectiveOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		origin, host string
+		secure       bool
+	}{
+		{"http://localhost:4000", "localhost:4000", false},
+		{"http://lan-a:4000", "lan-a:4000", false},
+		{"https://box.example", "box.example", true},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			h := &AuthHandler{AuthConfig: defaultRouteAuthConfig(), Service: mockAuthService{
+				startGitHubOAuthFn: func(context.Context, string) (string, error) { return "https://github.example/authorize", nil },
+				completeGitHubFn: func(context.Context, string, string, string) (services.OAuthCallbackResult, error) {
+					return services.OAuthCallbackResult{SessionKey: "session", ExpiresAt: time.Now().Add(time.Hour)}, nil
+				},
+				logoutFn: func(context.Context, string) error { return nil },
+			}}
+			h.AuthConfig.CookieSecure = !tc.secure
+			guard := middleware.InstallEffectiveOrigin(func(context.Context) ([]string, error) { return []string{tc.origin}, nil })
+			for _, operation := range []struct {
+				path    string
+				handler http.HandlerFunc
+			}{
+				{"/api/auth/github", h.GetGitHubOAuthStart},
+				{"/api/auth/github/callback?code=code&state=state", h.GetGitHubOAuthCallback},
+				{"/api/auth/logout", h.PostLogout},
+			} {
+				r := httptest.NewRequest("GET", "http://"+tc.host+operation.path, nil)
+				r.RemoteAddr = "127.0.0.1:9"
+				r.Header.Set("X-Forwarded-Proto", "https")
+				r.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "state"})
+				r.AddCookie(&http.Cookie{Name: "smithers_session", Value: "session"})
+				w := httptest.NewRecorder()
+				guard(operation.handler).ServeHTTP(w, r)
+				require.Less(t, w.Code, 400)
+				require.NotEmpty(t, w.Result().Cookies())
+				for _, cookie := range w.Result().Cookies() {
+					require.Empty(t, cookie.Domain)
+					require.Equal(t, "/", cookie.Path)
+					require.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+					require.Equal(t, tc.secure, cookie.Secure, operation.path+" "+cookie.Name)
+				}
+			}
+		})
+	}
 }

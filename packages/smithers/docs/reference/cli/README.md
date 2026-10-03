@@ -379,3 +379,7 @@ are removed.
 requests 4 vCPUs, 8192 MiB memory and 40 GiB writable disk. The server persists
 this size for recovery and fork and returns `workspace_resources_exceeded`
 when a requested resource exceeds its configured cap.
+
+## Install serving
+
+`smthrs host start --bundle <dir> --bind <IP> --origin <http-or-https-origin>` declares the install's address. Repeat `--origin` for each public address. The registered command refuses with `host_launcher_unavailable` until the launchd provider is available. The flags do not open listeners or write settings on their own. Loopback remains the readiness and control address.

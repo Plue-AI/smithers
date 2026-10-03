@@ -1,3 +1,4 @@
+import { installRequestId } from "./seams/InstallRequestId"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
@@ -1160,7 +1161,7 @@ export const createAppController = (
       action: {
         flow: name,
         ...(args === null ? {} : { args }),
-        revision: crypto.randomUUID(),
+        revision: installRequestId(),
         label: `Confirm: ${label}`
       }
     })

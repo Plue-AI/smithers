@@ -29,14 +29,19 @@ func NewCSRFToken() (string, error) {
 // same time as the auth session cookie it accompanies. HttpOnly is
 // deliberately false so client-side JS can read the value and echo it back
 // in the X-CSRF-Token header.
-func SetCSRFCookie(w http.ResponseWriter, token string, secure bool, expiresAt time.Time) {
+func SetCSRFCookie(w http.ResponseWriter, token string, secure bool, expiresAt time.Time, requests ...*http.Request) {
+	sameSite := http.SameSiteStrictMode
+	if len(requests) > 0 && EffectiveOrigin(requests[0].Context()) != "" {
+		sameSite = http.SameSiteLaxMode
+		secure = CookieSecure(requests[0], secure)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     CSRFCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: false,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sameSite,
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	})
@@ -81,21 +86,25 @@ func enforceCSRF(w http.ResponseWriter, r *http.Request, next http.Handler) {
 		return
 	}
 
+	if !CheckInstallCookieOrigin(w, r) {
+		return
+	}
+
 	// Session-authenticated state-changing request - validate CSRF token
 	csrfToken := r.Header.Get("X-CSRF-Token")
 	if csrfToken == "" {
-		errors.WriteError(w, errors.Forbidden("csrf token missing"))
+		errors.WriteError(w, csrfError(r, "csrf token missing"))
 		return
 	}
 
 	csrfCookie, err := r.Cookie(CSRFCookieName)
 	if err != nil || csrfCookie.Value == "" {
-		errors.WriteError(w, errors.Forbidden("csrf token mismatch"))
+		errors.WriteError(w, csrfError(r, "csrf token mismatch"))
 		return
 	}
 
 	if subtle.ConstantTimeCompare([]byte(csrfCookie.Value), []byte(csrfToken)) != 1 {
-		errors.WriteError(w, errors.Forbidden("csrf token mismatch"))
+		errors.WriteError(w, csrfError(r, "csrf token mismatch"))
 		return
 	}
 
@@ -111,4 +120,11 @@ func isSafeMethod(method string) bool {
 	default:
 		return false
 	}
+}
+
+func csrfError(r *http.Request, message string) *errors.APIError {
+	if EffectiveOrigin(r.Context()) != "" {
+		return errors.New(errors.CodeCSRF, message)
+	}
+	return errors.Forbidden(message)
 }

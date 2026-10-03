@@ -80,6 +80,8 @@ const (
 	CodeUnauthorized          Code = "unauthorized"
 	CodeSetupClosed           Code = "setup_closed"
 	CodeUnknownOrigin         Code = "unknown_origin"
+	CodeOrigin                Code = "origin"
+	CodeCSRF                  Code = "csrf"
 	CodeUnauthenticated       Code = "unauthenticated"
 	CodeInvalidToken          Code = "invalid_token"
 	CodeForbidden             Code = "forbidden"
@@ -305,6 +307,8 @@ var registry = map[Code]Entry{
 	// accept.
 	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},
 	// The request carried no credential, or one the server could not verify.
+	CodeOrigin:          {Status: http.StatusForbidden, Fault: FaultUser, Doc: "The request Origin differs from the effective install origin."},
+	CodeCSRF:            {Status: http.StatusForbidden, Fault: FaultUser, Doc: "The cookie mutation has no matching CSRF token."},
 	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Doc: "The request host matches no configured install origin."},
 	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The owner claim invalidated the setup credential."},
 	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The setup credential is missing, expired or invalid."},
@@ -691,7 +695,15 @@ func New(code Code, msg string) *APIError {
 	if !ok {
 		entry = Entry{Status: http.StatusInternalServerError, Fault: FaultBug}
 	}
+	class := ""
+	switch code {
+	case CodeOrigin, CodeCSRF:
+		class = "permission"
+	case CodeUnknownOrigin:
+		class = "user"
+	}
 	return &APIError{
+		Class:      class,
 		Status:     entry.Status,
 		Code:       code,
 		Fault:      entry.Fault,

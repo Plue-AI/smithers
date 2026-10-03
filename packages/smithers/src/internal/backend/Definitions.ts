@@ -7,6 +7,15 @@ import { z } from "incur"
  * @since 0.1.0
  */
 export const definitions = {
+  "host start": {
+    description: "Start the install from a bundle",
+    args: z.object({}),
+    options: z.object({
+      bundle: z.string().optional().describe("Built install bundle"),
+      bind: z.string().optional().describe("Additional HTTP and SSH bind address"),
+      origin: z.array(z.string()).default([]).describe("Public HTTP or HTTPS origin; repeat for each address")
+    })
+  },
   "host status": {
     description: "Show host profile and machine limits",
     args: z.object({}),

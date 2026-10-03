@@ -568,6 +568,12 @@ export type SavedConversationProblem = {
   code: "request_invalid" | "forbidden" | "not-found" | "retired" | "cursor" | "conflict" | "terminal" | "limit" | "corrupt" | "storage_failed"
 }
 
+export type InstallAddress = {
+  listen: "mac" | "network"
+  bind: string
+  origins: Array<string>
+}
+
 export type GitHubAppSetupRequest = {
   resume?: boolean
   owner_login: string
@@ -576,6 +582,8 @@ export type GitHubAppSetupRequest = {
 }
 
 export type GitHubAppSetupStatus = {
+  address?: InstallAddress
+  ssh_line?: string
   github_app: {
     configured: boolean
     installed: boolean
@@ -1387,9 +1395,25 @@ export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGi
 
 export type GetApiInstallResponse = GitHubAppSetupStatus
 
-/** GET /api/install: Read GitHub App setup status */
+/** GET /api/install: Read install address and GitHub App setup status */
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
+
+export type PutApiInstallBody = {
+  address: InstallAddress
+}
+
+export type PutApiInstallResponse = {
+  address: InstallAddress
+}
+
+export interface PutApiInstallInput {
+  readonly body: PutApiInstallBody
+}
+
+/** PUT /api/install: Change the install address */
+export const putApiInstall = (transport: Transport, input: PutApiInstallInput): Promise<PutApiInstallResponse> =>
+  transport.request("PUT", `/api/install`, input.body) as Promise<PutApiInstallResponse>
 
 export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
 

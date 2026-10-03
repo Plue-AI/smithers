@@ -439,11 +439,15 @@ func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier 
 	state := s.generateState()
 	authURL, err := githubAuthClient.AuthorizationURL(ctx, state)
 	if err != nil {
+		var api *pkgerrors.APIError
+		if stdErrors.As(err, &api) {
+			return "", api
+		}
 		return "", pkgerrors.Internal("github oauth credentials are unavailable").WithCause(err)
 	}
 	_, err = s.queries.CreateOAuthState(ctx, db.CreateOAuthStateParams{
 		State:           state,
-		ContextHash:     hashOAuthStateVerifier(stateVerifier),
+		ContextHash:     hashOAuthStateContext(ctx, stateVerifier),
 		RequestedScopes: requestedScopes,
 		ExpiresAt:       s.now().Add(10 * time.Minute),
 	})
@@ -467,7 +471,7 @@ func (s *AuthService) StartAuth0OAuth(ctx context.Context, stateVerifier string)
 	state := s.generateState()
 	_, err := s.queries.CreateOAuthState(ctx, db.CreateOAuthStateParams{
 		State:       state,
-		ContextHash: hashOAuthStateVerifier(stateVerifier),
+		ContextHash: hashOAuthStateContext(ctx, stateVerifier),
 		ExpiresAt:   s.now().Add(10 * time.Minute),
 	})
 	if err != nil {
@@ -520,7 +524,7 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 
 	requestedScopes, err := s.queries.ConsumeOAuthStateWithScopes(ctx, db.ConsumeOAuthStateWithScopesParams{
 		State:       state,
-		ContextHash: hashOAuthStateVerifier(stateVerifier),
+		ContextHash: hashOAuthStateContext(ctx, stateVerifier),
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -1719,4 +1723,13 @@ func randomUUID() string {
 		hex.EncodeToString(buf[6:8]) + "-" +
 		hex.EncodeToString(buf[8:10]) + "-" +
 		hex.EncodeToString(buf[10:16])
+}
+
+// Bind the verifier to the origin that started OAuth, even if a client copies
+// a state cookie across hosts. Non-install persisted states retain their hash.
+func hashOAuthStateContext(ctx context.Context, verifier string) string {
+	if origin := middleware.EffectiveOrigin(ctx); origin != "" {
+		verifier += "\x00" + origin
+	}
+	return hashOAuthStateVerifier(verifier)
 }

@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -78,7 +80,24 @@ func (c *GitHubClient) AuthorizationURL(ctx context.Context, state string) (stri
 	}
 	values := url.Values{}
 	values.Set("client_id", clientID)
-	values.Set("redirect_uri", c.redirectURL)
+	redirectURL := c.redirectURL
+	if origin := middleware.EffectiveOrigin(ctx); origin != "" {
+		redirectURL = origin + "/api/auth/github/callback"
+		fixer, ok := c.credentials.(interface {
+			CallbackFixes(context.Context, []string) ([]services.GitHubAppCallbackFix, error)
+		})
+		if !ok {
+			return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "GitHub callback configuration unavailable")
+		}
+		fixes, err := fixer.CallbackFixes(ctx, []string{origin})
+		if err != nil {
+			return "", err
+		}
+		if len(fixes) > 0 {
+			return "", pkgerrors.BadRequest(fixes[0].SettingsURL + " — add " + fixes[0].AddURL)
+		}
+	}
+	values.Set("redirect_uri", redirectURL)
 	values.Set("scope", githubOAuthScope)
 	values.Set("state", strings.TrimSpace(state))
 	return strings.TrimRight(c.oauthBaseURL, "/") + "/login/oauth/authorize?" + values.Encode(), nil

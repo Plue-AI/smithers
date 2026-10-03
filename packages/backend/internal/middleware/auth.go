@@ -123,7 +123,6 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 		sessionRefreshWindow = 168 * time.Hour
 	}
 
-	cookieSecure := cfg.CookieSecure
 	var ownerBoundary identity.OwnerAuthorizer
 	if config.IsSingleOwner(cfg) {
 		if len(boundaries) > 0 {
@@ -205,7 +204,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 							Value:    cookie.Value,
 							Path:     "/",
 							HttpOnly: true,
-							Secure:   cookieSecure,
+							Secure:   CookieSecure(r, cfg.CookieSecure),
 							SameSite: http.SameSiteLaxMode,
 							Expires:  refreshedSession.ExpiresAt,
 							MaxAge:   int(time.Until(refreshedSession.ExpiresAt).Seconds()),
@@ -214,7 +213,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 						// cookie's lifetime, otherwise it silently expires first and
 						// blocks every mutation for a still-logged-in user (#207).
 						if token, err := NewCSRFToken(); err == nil {
-							SetCSRFCookie(w, token, cookieSecure, refreshedSession.ExpiresAt)
+							SetCSRFCookie(w, token, CookieSecure(r, cfg.CookieSecure), refreshedSession.ExpiresAt, r)
 						} else {
 							slog.Error("failed to mint refreshed csrf token", "error", err)
 						}
@@ -224,7 +223,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 						// session-scoped CSRF cookie set before this fix — mints one
 						// so the client can resume making mutating requests.
 						if token, err := NewCSRFToken(); err == nil {
-							SetCSRFCookie(w, token, cookieSecure, sessionExpiresAt)
+							SetCSRFCookie(w, token, CookieSecure(r, cfg.CookieSecure), sessionExpiresAt, r)
 						} else {
 							slog.Error("failed to mint csrf token", "error", err)
 						}

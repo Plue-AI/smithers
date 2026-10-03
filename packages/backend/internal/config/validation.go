@@ -105,6 +105,9 @@ func validateBilling(cfg *Config, dependencies StartupDependencies, errs *[]stri
 }
 
 func validateOptionalProviders(cfg *Config, errs *[]string) {
+	if cfg.Install.StateDir != "" {
+		return
+	}
 	// GitHub OAuth becomes available when the install creates its App. Validate
 	// the callback at startup without consulting provider secrets or App state.
 	callback, err := url.Parse(strings.TrimSpace(cfg.Auth.GitHubRedirectURL))

@@ -40,8 +40,10 @@ type Config struct {
 
 // InstallConfig keeps quiesce dark until its execution contracts land.
 type InstallConfig struct {
-	QuiesceEnabled bool   `mapstructure:"quiesce_enabled"`
-	StateDir       string `mapstructure:"state_dir"`
+	Bind           string   `mapstructure:"bind"`
+	Origins        []string `mapstructure:"origins"`
+	QuiesceEnabled bool     `mapstructure:"quiesce_enabled"`
+	StateDir       string   `mapstructure:"state_dir"`
 }
 
 // ChatConfig sizes the chat turn dispatcher. Zero keeps the default for the
@@ -473,6 +475,8 @@ func Load(configFile string) (*Config, error) {
 	// Defaults
 	v.SetDefault("install.quiesce_enabled", false)
 	v.SetDefault("install.state_dir", "")
+	v.SetDefault("install.bind", "")
+	v.SetDefault("install.origins", []string(nil))
 	v.SetDefault("server.addr", ":4000")
 	v.SetDefault("server.public_url", "http://localhost:4000")
 	v.SetDefault("server.read_timeout_secs", 30)
@@ -652,6 +656,8 @@ func Load(configFile string) (*Config, error) {
 	for _, b := range [][2]string{
 		{"install.quiesce_enabled", "SMITHERS_INSTALL_QUIESCE_ENABLED"},
 		{"install.state_dir", "SMITHERS_INSTALL_STATE_DIR"},
+		{"install.bind", "SMITHERS_INSTALL_BIND"},
+		{"install.origins", "SMITHERS_INSTALL_ORIGINS"},
 		{"server.addr", "SMITHERS_SERVER_ADDR"},
 		{"server.public_url", "SMITHERS_PUBLIC_URL"},
 		{"server.read_timeout_secs", "SMITHERS_SERVER_READ_TIMEOUT_SECS"},

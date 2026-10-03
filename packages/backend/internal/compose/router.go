@@ -255,6 +255,9 @@ func buildRouter(
 	// (SMITHERS_SERVER_TRUSTED_PROXY_HOPS: 1 behind GCLB in prod, 0 = keep
 	// the socket address elsewhere). Replaces chi's RealIP, which trusted
 	// the spoofable first XFF entry (rate-limit bypass, audit-log forgery).
+	if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Serving != nil {
+		r.Use(middleware.InstallEffectiveOrigin(extras.GitHubAppSetup.Serving.PublicOrigins))
+	}
 	r.Use(middleware.RealIP(cfg.Server.TrustedProxyHops))
 	r.Use(middleware.RequestIDEcho) // echo X-Request-Id in response for trace correlation
 	// OpenTelemetry HTTP middleware - instruments all incoming requests with trace context
@@ -273,7 +276,7 @@ func buildRouter(
 	// Recovery must complete inside the metrics recorder so a panic's 500 is
 	// counted alongside ordinary responses.
 	r.Use(middleware.JSONRecoverer)
-	if authHandler != nil && authHandler.Service != nil {
+	if authHandler != nil && authHandler.Service != nil && (extras.GitHubAppSetup == nil || extras.GitHubAppSetup.Serving == nil) {
 		r.Use(middleware.CanonicalBrowserAuthOrigin(cfg.Auth.GitHubRedirectURL))
 	}
 
@@ -384,6 +387,10 @@ func buildRouter(
 	}
 
 	apiCORS := apiCORSOptions(cfg)
+	apiCORSMiddleware := cors.Handler(apiCORS)
+	if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Serving != nil {
+		apiCORSMiddleware = func(next http.Handler) http.Handler { return next }
+	}
 
 	// Canonical LFS protocol endpoints intentionally resolve authorization in
 	// LFSService rather than LoadRepoContext: a git-lfs-authenticate credential
@@ -393,7 +400,7 @@ func buildRouter(
 	// service-level repository permission checks.
 	if lfsHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(middleware.JSONAllowContentType("application/json", routes.LFSJSONMediaType))
 			r.Use(middleware.MaxBodySize(middleware.MaxRequestBodySize))
 			r.Use(lfsauth.HTTPMiddleware(lfsAuthManager))
@@ -422,7 +429,7 @@ func buildRouter(
 		}
 		wrrHandler := &routes.WorkflowRunHandler{Service: workflowHandler.Service, Broker: wrrBroker, Metrics: smithersMetrics}
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -457,7 +464,7 @@ func buildRouter(
 		}
 		handler := &routes.WikiCollaborationHandler{Service: collaborative, Broker: broker}
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -475,7 +482,7 @@ func buildRouter(
 	// middleware group) so the connection is not subject to the 30s request timeout.
 	if agentSessionStreamHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -500,7 +507,7 @@ func buildRouter(
 	// client times out first so the handler can record failed provisioning state.
 	if workspaceHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(middleware.JSONTimeout(10 * time.Minute))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
@@ -572,7 +579,7 @@ func buildRouter(
 		// binding ID (SMITHERS_GATEWAY_ID) and control credential. Keep these
 		// outside repository auth: the binding ID and credential are the auth.
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}", repositoryJobHandler.PutRepositoryJob)
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", repositoryJobHandler.PutRepositoryJobTrial)
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}", repositoryJobHandler.PutRepositoryJobComment)
@@ -600,7 +607,7 @@ func buildRouter(
 	if billingHandler != nil && extras.BillingCapabilities.Webhook {
 		r.With(
 			middleware.JSONTimeout(30*time.Second),
-			cors.Handler(apiCORS),
+			apiCORSMiddleware,
 			middleware.JSONAllowContentType("application/json"),
 			middleware.MaxBodySize(middleware.MaxRequestBodySize),
 		).Post("/api/billing/webhook", billingHandler.PostStripeWebhook)
@@ -646,7 +653,7 @@ func buildRouter(
 	// bounded JSON request.
 	if gitHubImportHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(middleware.GlobalAPIRateLimit(queries))
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).
@@ -660,7 +667,7 @@ func buildRouter(
 	// Ticket 12: gated by feature_flags.notifications.
 	if notificationHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser), gateNotifications).Get("/api/notifications", notificationHandler.NotificationStream)
@@ -671,7 +678,7 @@ func buildRouter(
 	// Issue accepted-state replay uses the shared durable broker outside JSONTimeout.
 	if issueEventHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateIssues).
@@ -692,7 +699,7 @@ func buildRouter(
 		appTimelineHandler := routes.NewAppTimelineHandler(appTimelineService)
 		appTimelineHandler.WriteRateLimit = middleware.AppTimelineWriteRateLimit(queries, cfg.RateLimit.AppTimelineWritePerMin)
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
 			r.Group(func(r chi.Router) {
@@ -708,7 +715,7 @@ func buildRouter(
 	// smithers review walkthrough.
 	if jjVCSHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -737,12 +744,12 @@ func buildRouter(
 	// refuses PUT and DELETE on a read credential with the protocol's 403.
 	if buildCacheHandler != nil && queries != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Get("/api/build-cache/healthz", buildCacheHandler.Health)
 			r.Head("/api/build-cache/healthz", buildCacheHandler.Health)
 		})
 		r.Route("/api/repos/{owner}/{repo}/build-cache", func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
 			r.Group(func(r chi.Router) {
@@ -776,7 +783,7 @@ func buildRouter(
 	// so long-lived connections are not cut at 30 s.
 	if workspaceHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			if queries != nil {
@@ -799,7 +806,7 @@ func buildRouter(
 	// upgrade and subsequent bidirectional stream are not killed after 30 s.
 	if workspaceTerminalHandler != nil {
 		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
 			r.Use(routes.WorkspaceSocketRevocations)
@@ -843,7 +850,7 @@ func buildRouter(
 		handler := &routes.WikiContentHandler{Service: content}
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JSONTimeout(apiJSONTimeout))
-			r.Use(cors.Handler(apiCORS))
+			r.Use(apiCORSMiddleware)
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(apiCSRFMiddleware)
 			r.Use(middleware.GlobalAPIRateLimit(queries))
@@ -860,7 +867,7 @@ func buildRouter(
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.JSONTimeout(apiJSONTimeout))
-		r.Use(cors.Handler(apiCORS))
+		r.Use(apiCORSMiddleware)
 		r.Use(middleware.JSONAllowContentType("application/json", routes.LFSJSONMediaType))
 		r.Use(middleware.MaxBodySizeForRequest(apiBodyLimit))
 		// Global API rate limit: 5000/hr auth, 600/hr anon. AuthLoader runs first
@@ -886,6 +893,7 @@ func buildRouter(
 		}
 		if extras.GitHubAppSetup != nil {
 			r.Get("/install", extras.GitHubAppSetup.Status)
+			r.Put("/install", extras.GitHubAppSetup.PutSettings)
 			r.Post("/install/setup/app_manifest", extras.GitHubAppSetup.Begin)
 		}
 		if extras.Recommender != nil {

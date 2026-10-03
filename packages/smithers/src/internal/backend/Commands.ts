@@ -29,6 +29,12 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
+  // T-INS-08 owns the launchd provider. Register INS-04's flags without
+  // inventing a second supervisor or enabling network listeners early.
+  "host start": async (_client, _args, options) => {
+    const hint = options.bind && (!Array.isArray(options.origin) || options.origin.length === 0) ? "; LAN browsers need --origin" : ""
+    throw new Refused({ fault: "dependency", code: "host_launcher_unavailable", message: `Host launcher unavailable (T-INS-08)${hint}` })
+  },
   "host status": (c) => c.request("GET", "/api/host"),
   ...resources,
   ...admin,
