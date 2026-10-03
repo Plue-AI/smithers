@@ -35,6 +35,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/registration-calibration.test.ts"),
     Smithers.file("//flows/test/host-jev-routing.test.ts"),
+    Smithers.file("//flows/test/system-flow-catalog.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
     Smithers.file("//flows/test/worker-rollout.test.ts"),
@@ -46,6 +47,8 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/register-repository/calibration/fit.json"),
     scripts,
     Smithers.file("//flows/review/flow.ts"),
+    Smithers.file("//packages/backend/internal/services/flow_catalog.go"),
+    Smithers.file("//packages/backend/flowdispatch/real_host_test.go"),
     Smithers.file("//pnpm-workspace.yaml"),
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
     Smithers.file("//apps/bug-worker/package.json")
