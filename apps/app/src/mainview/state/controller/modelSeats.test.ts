@@ -30,29 +30,29 @@ test("an unassigned seat carries nothing", async () => {
 })
 
 test("an assigned seat carries the record without its name, and nothing a key could ride in", async () => {
-  const { store, ctx } = await fixture("cloud")
-  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "mine" }).isPersisted.promise
+  const { store, ctx } = await fixture()
+  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "chat", recordId: "mine" }).isPersisted.promise
   await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "jev" }).isPersisted.promise
-  expect(assignedModel(ctx, "explainer")).toEqual(MINE)
-  expect(assignedBinding(ctx, "explainer")).toEqual({ protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" })
+  expect(assignedModel(ctx, "chat")).toEqual(MINE)
+  expect(assignedBinding(ctx, "chat")).toEqual({ protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" })
   expect(assignedBinding(ctx, "recommend")).toEqual({ protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY" })
 })
 
 test("a removed record and a reassignment to the default both leave the seat carrying nothing", async () => {
-  const { store, ctx } = await fixture("cloud")
-  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "mine" }).isPersisted.promise
+  const { store, ctx } = await fixture()
+  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "chat", recordId: "mine" }).isPersisted.promise
   await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "jev" }).isPersisted.promise
   await store.dispatch({ type: "model.removed", actor: "user", id: "mine" }).isPersisted.promise
   await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: null }).isPersisted.promise
-  expect(assignedBinding(ctx, "explainer")).toBeUndefined()
+  expect(assignedBinding(ctx, "chat")).toBeUndefined()
   expect(assignedBinding(ctx, "recommend")).toBeUndefined()
 })
 
 test("a record of the wrong kind never rides a seat", async () => {
-  const { store, ctx } = await fixture("cloud")
-  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "jev" }).isPersisted.promise
+  const { store, ctx } = await fixture()
+  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "chat", recordId: "jev" }).isPersisted.promise
   await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "mine" }).isPersisted.promise
-  expect(assignedBinding(ctx, "explainer")).toBeUndefined()
+  expect(assignedBinding(ctx, "chat")).toBeUndefined()
   expect(assignedBinding(ctx, "recommend")).toBeUndefined()
 })
 
@@ -60,9 +60,9 @@ test("a seat this host does not serve carries nothing there; a host that has not
   for (const [host, served] of [["local", false], ["cloud", true], [undefined, true]] as const) {
     const { store, ctx } = await fixture(host)
     await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "jev" }).isPersisted.promise
-    await store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "mine" }).isPersisted.promise
+    await store.dispatch({ type: "seat.assigned", actor: "user", seat: "chat", recordId: "mine" }).isPersisted.promise
     expect(assignedBinding(ctx, "recommend") !== undefined).toBe(served)
-    // The explainer is served by both hosts.
-    expect(assignedBinding(ctx, "explainer")).toBeDefined()
+    // Chat is served locally; recommendations are served by the Cloud host.
+    expect(assignedBinding(ctx, "chat") !== undefined).toBe(host !== "cloud")
   }
 })
