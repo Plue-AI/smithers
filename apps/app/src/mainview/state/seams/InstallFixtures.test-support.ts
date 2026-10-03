@@ -10,6 +10,6 @@ export const installFixture = (): InstallModel => ({
   github: { owner: "smithersai", signed_in: true, app_installed: true, squash_allowed: true },
   repository: { owner: "smithersai", name: "smithers" }, repositories: ["smithersai/smithers"],
   models: [{ role: "fast", provider: "Cerebras", key: "saved" }, { role: "coding", provider: "OpenAI", key: "saved" }, { role: "jev", provider: "AI Gateway", key: "saved" }],
-  chatgpt: false, source: { state: "ready", pct: 100 }, machine: { state: "ready", pct: 100 }, capacity: 2, parallel: 2,
+  chatgpt: false, capacity: 2, parallel: 2,
   health: { process: "ok", postgres_bytes: 1024, disk_free_gb: 100, github: { health: "fresh", rate_remaining: 4999, rate_limit: 5000 } }
 })

@@ -1,11 +1,12 @@
+import { renderSetupCard } from "./CardRenderers"
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { CardProps } from "@smthrs/rpc/CardAction"
-import type { SetupCard } from "@smthrs/rpc/SetupCard"
+import type { SetupCard as SetupModel } from "@smthrs/rpc/SetupCard"
 import type { SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { SetupCardSchema } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema } from "@smthrs/rpc/SettingsCard"
-import { SetupContainer } from "./SetupContainer"
+import { SetupCard } from "./SetupCard"
 import { SettingsContainer } from "./SettingsContainer"
 import { installFixture } from "../state/seams/InstallFixtures.test-support"
 import type { InstallSnapshot, InstallSnapshots } from "../state/seams/InstallSeam"
@@ -24,14 +25,24 @@ const harness = (snapshot: InstallSnapshot = { model: installFixture() }) => {
   }
   const view = { maximized: false, tab: "setup" }
   const onView = (patch: Partial<typeof view>) => { patches.push(patch) }
-  let setup: CardProps<SetupCard> | undefined, settings: CardProps<SettingsCard> | undefined
-  const SetupView = (props: CardProps<SetupCard>) => { setup = props; return null }
+  let setup: CardProps<SetupModel> | undefined, settings: CardProps<SettingsCard> | undefined
+  const SetupView = (props: CardProps<SetupModel>) => { setup = props; return null }
   const SettingsView = (props: CardProps<SettingsCard>) => { settings = props; return null }
   return { commands, keys, patches, view, onView, install, dispatch, SetupView, SettingsView, setup: () => setup, settings: () => settings,
-    renderSetup: (allowed = true) => renderToStaticMarkup(<SetupContainer View={SetupView} install={install} dispatch={dispatch} allowed={allowed} view={view} onView={onView} />),
+    renderSetup: (allowed = true) => renderToStaticMarkup(<SetupCard View={SetupView} install={install} dispatch={dispatch} allowed={allowed} view={view} onView={onView} />),
     renderSettings: (owner = true) => renderToStaticMarkup(<SettingsContainer View={SettingsView} install={install} dispatch={dispatch} owner={owner} origin="http://mini.local:4000" view={view} onView={onView} />) }
 }
 describe("T-APP-03 Containers with recording Views", () => {
+  test("CardRenderers mounts the real Setup View with independent progress and fix", () => {
+    const model = installFixture()
+    model.steps[5] = { id: "source", state: "done", pct: 100 }
+    model.steps[6] = { id: "machine", state: "blocked", pct: 25, blocked: { line: "Free disk space", fix_url: "https://example.test/disk" } }
+    const h = harness({ model })
+    const html = renderToStaticMarkup(renderSetupCard({ install: h.install, dispatch: h.dispatch, allowed: true, view: h.view, onView: h.onView }))
+    expect(html).toContain('data-kind="setup"')
+    expect(html).toContain("Source ready"); expect(html).not.toContain("Machine ready")
+    expect(html).toContain("Free disk space"); expect(html).toContain("Retry")
+  })
   test("Settings passes a schema-valid model, member view state and cardActions dispatch", () => {
     const h = harness(); h.renderSettings(); const props = h.settings()!
     expect(SettingsCardSchema.safeParse(props.model).success).toBe(true)
@@ -54,7 +65,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     const h = harness({ model }); h.renderSettings()
     expect(h.settings()!.model.capacity).toBe(capacity)
     expect(h.settings()!.model.this_mac.capacity).toBe(3)
-    expect(h.settings()!.model.parallel).toBeLessThanOrEqual(h.settings()!.model.capacity)
+    expect(h.settings()!.model.parallel!).toBeLessThanOrEqual(h.settings()!.model.capacity)
   })
   test("a non-owner and an unloaded projection never mount either View", () => {
     const h = harness(); expect(h.renderSettings(false)).toBe(""); expect(h.renderSetup(false)).toBe("")
@@ -66,23 +77,24 @@ describe("T-APP-03 Containers with recording Views", () => {
     const model = installFixture(); model.steps[0]!.state = state; model.steps[1]!.state = "pending"
     const h = harness({ model }); h.renderSetup(); const props = h.setup()!
     expect(SetupCardSchema.safeParse(props.model).success).toBe(true)
+    expect(props.actions[0]!.args).toEqual({ step: "address" })
+    expect(props.actions[0]!.input?.map(field => field.name)).toEqual(["bind", "origins"])
     expect(props.actions).toHaveLength(1); expect(props.actions[0]!.disabled !== undefined).toBe(state === "running")
     props.onAction("settings.setup", { step: "app_manifest", bind: "127.0.0.1:4000" })
     expect(h.commands).toEqual(state === "running" ? [] : [{ tag: "settings.setup", input: { step: "address", bind: "127.0.0.1:4000" } }])
     if (state === "failed" || state === "blocked") expect(props.actions[0]!.label).toBe("Retry")
   })
-  test.each(["pending", "running", "failed", "ready"] as const)("Source %s never announces ready before its receipt", state => {
-    const model = installFixture(); model.source = { state, pct: state === "ready" ? 100 : 40 }
-    model.machine = { state: "running", pct: 5 }
+  test.each(["pending", "running", "failed", "done"] as const)("Source %s never announces ready before its receipt", state => {
+    const model = installFixture(); model.steps[5] = { id: "source", state, pct: state === "done" ? 100 : 40 }
+    model.steps[6] = { id: "machine", state: "running", pct: 5 }
     const h = harness({ model }); h.renderSetup()
-    expect(h.setup()!.model.steps.find(step => step.id === "source")!.pct).toBe(model.source.pct)
-    expect(h.setup()!.model.steps.find(step => step.id === "source")!.state === "done").toBe(state === "ready")
+    expect(h.setup()!.model.steps.find(step => step.id === "source")!.pct).toBe(model.steps[5]!.pct)
+    expect(h.setup()!.model.steps.find(step => step.id === "source")!.state === "done").toBe(state === "done")
     expect(h.setup()!.model.steps.find(step => step.id === "machine")).toMatchObject({ state: "running", pct: 5 })
   })
   test("Source and machine launch controls do not claim readiness", () => {
     for (const id of ["source", "machine"] as const) {
       const model = installFixture(); model.steps.find(step => step.id === id)!.state = "pending"
-      model[id] = { state: "pending", pct: 0 }
       const h = harness({ model }); h.renderSetup()
       expect(h.setup()!.actions[0]!.label).toBe(id === "source" ? "Mirror" : "Build image")
       expect(h.setup()!.actions[0]!.label).not.toContain("ready")

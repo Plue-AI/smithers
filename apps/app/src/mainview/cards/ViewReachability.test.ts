@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url"
 const PENDING_WIRING: Record<string, string> = {
   "TodoView.tsx": "T-APP-02",
   "DraftView.tsx": "T-APP-02",
-  "SetupView.tsx": "T-APP-03",
   "SettingsView.tsx": "T-APP-03",
   "MembersView.tsx": "T-APP-06",
   "CommandsView.tsx": "T-UI-14",

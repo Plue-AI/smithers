@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { SetupCardSchema, type SetupCard } from "@smthrs/rpc/SetupCard"
+import { SetupCardSchema, SetupStepIdSchema, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
 import { ActionSchema } from "@smthrs/rpc/CardAction"
@@ -10,16 +10,14 @@ export const InstallErrorSchema = z.object({
   message: z.string(), retry_at: z.string().optional(), fix: z.string().optional()
 })
 export type InstallError = z.infer<typeof InstallErrorSchema>
-export const InstallStepIdSchema = z.enum(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
-export type InstallStepId = z.infer<typeof InstallStepIdSchema>
+export type InstallStepId = SetupStepId
 const state = z.enum(["pending", "running", "done", "blocked", "failed"])
-const progress = z.object({ state: z.enum(["pending", "running", "ready", "failed"]), pct: z.number().min(0).max(100) })
 const role = z.object({ role: z.enum(["fast", "coding", "jev"]), provider: z.string(),
   key: z.enum(["none", "validating", "saved", "failed"]), error: z.string().optional() })
 export const InstallModelSchema = z.object({
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema),
     change_failed: z.object({ from: z.string(), to: z.string(), reason: z.string() }).optional() }),
-  steps: z.array(z.object({ id: InstallStepIdSchema, state, pct: z.number().min(0).max(100).optional(),
+  steps: z.array(z.object({ id: SetupStepIdSchema, state, pct: z.number().min(0).max(100).optional(),
     blocked: z.object({ line: z.string(), fix_url: z.string().url() }).optional(),
     error: InstallErrorSchema.omit({ code: true }).extend({ code: z.string().optional() }).optional() })),
   this_mac: z.object({ memory_gb: z.number().nonnegative(), disk_free_gb: z.number().nonnegative(),
@@ -28,8 +26,7 @@ export const InstallModelSchema = z.object({
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),
   repositories: z.array(z.string()).optional(), models: z.array(role), chatgpt: z.boolean(),
-  source: progress, machine: progress,
-  capacity: z.number().int().nonnegative(), parallel: z.number().int().nonnegative(),
+  capacity: z.number().int().nonnegative(), parallel: z.number().int().nonnegative().optional(),
   health: z.object({ process: z.enum(["ok", "degraded"]), postgres_bytes: z.number().nonnegative(),
     disk_free_gb: z.number().nonnegative(), github: z.object({ health: z.enum(["fresh", "stale", "limited", "refused"]),
       cause: z.string().optional(), retry_at: z.string().optional(), rate_remaining: z.number().nonnegative(),
@@ -39,19 +36,12 @@ export const InstallModelSchema = z.object({
     ctx.addIssue({ code: "custom", message: "Duplicate setup step" })
   if (model.models.length !== 3 || new Set(model.models.map(model => model.role)).size !== 3)
     ctx.addIssue({ code: "custom", message: "Three model roles required" })
-  if (model.capacity > model.this_mac.capacity || model.parallel > model.capacity)
+  if (model.capacity > model.this_mac.capacity || (model.parallel !== undefined && model.parallel > model.capacity))
     ctx.addIssue({ code: "custom", message: "Install limits exceeded" })
 })
 export type InstallModel = z.infer<typeof InstallModelSchema>
-// Readiness receipts override a completed launch step; progress remains on that step.
 export const setupCardModel = (model: InstallModel): SetupCard => SetupCardSchema.parse({
   ...model,
-  steps: model.steps.map(step => {
-    const progress = step.id === "source" || step.id === "machine" ? model[step.id] : undefined
-    return { ...step,
-      state: step.state === "done" && progress ? progress.state === "ready" ? "done" : progress.state : step.state,
-      pct: progress?.pct ?? step.pct }
-  }),
   models: ["fast", "coding", "jev"].map(role => model.models.find(model => model.role === role)!)
 })
 export const settingsCardModel = (model: InstallModel, origin: string): SettingsCard => {

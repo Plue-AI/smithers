@@ -1,3 +1,5 @@
+import { SetupCard, type SetupCardProps } from "./SetupCard"
+import { SetupView } from "./views/SetupView"
 import { runTraceCardFamily } from "./RunTraceCard"
 import type { ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
 import { ConfirmView } from "./views/ConfirmView"
@@ -173,3 +175,6 @@ const ProjectedRepositoryUpdateBody = ({ card, actions, store }: {
 
 /** T-APP-09 private actor projection enables this mount; legacy approval rows remain dark. */
 export const renderConfirmCard = (props: ConfirmViewProps) => <ConfirmView {...props} />
+
+/** Browser-private setup projection; shared persistence activates in the later phase. */
+export const renderSetupCard = (props: Omit<SetupCardProps, "View">) => <SetupCard {...props} View={SetupView} />

@@ -1,3 +1,4 @@
+import { renderSetupCard } from "./cards/CardRenderers"
 import { shownInTranscript } from "./state/ApprovalDeciders"
 import {
 Button,
@@ -14,7 +15,7 @@ SuggestionGroup
 import { useLiveQuery } from "@tanstack/react-db"
 import { Sparkles } from "lucide-react"
 import type { PointerEvent as ReactPointerEvent } from "react"
-import { useMemo,useRef } from "react"
+import { useMemo,useRef,useSyncExternalStore } from "react"
 import { controllerCardActions as cardActions } from "./cards/controllerCardActions"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
 import { CardView } from "./ChatCards"
@@ -56,6 +57,7 @@ const entryCreatedAt = (entry: TranscriptEntry): number =>
 
 function AppContent() {
   const controller = useController()
+  const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
   const { collections } = controller.store
   /*
    * The transcript's order is the QUERY's order (§hot path): sorting a copy of
@@ -518,6 +520,10 @@ function AppContent() {
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
             <MessageScrollerViewport fade>
             <MessageScrollerContent className="sui-chat-messages">
+            {install.model && install.model.steps.some(step => step.state !== "done") && renderSetupCard({
+              install: controller.installSnapshots, allowed: true, view: { maximized: false }, onView: () => {},
+              dispatch: (name, payload, gesture) => controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
+            })}
             {!repositoryNotice && homeCard && <MessageScrollerItem messageId={homeCard.id}>
               <RepositoryHomeCard card={homeCard} onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}

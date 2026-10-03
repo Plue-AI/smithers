@@ -25,8 +25,8 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
         origins: input.origins === undefined ? model.address.origins : input.origins.split("\n").filter(Boolean) }) },
     { tag: "settings.capacity", label: "Machines", command_input: { capacity: model.capacity },
       resolve_input: input => ({ capacity: Number(input.capacity) }) },
-    { tag: "settings.parallel", label: "At once", command_input: { parallel: model.parallel },
-      resolve_input: input => ({ parallel: Number(input.parallel) }) },
+    ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", command_input: { parallel: model.parallel },
+      resolve_input: (input: Record<string, string>) => ({ parallel: Number(input.parallel) }) }]),
     key!.definition
   ] : []
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)

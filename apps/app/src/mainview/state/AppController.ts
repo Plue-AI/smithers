@@ -781,6 +781,7 @@ export const createAppController = (
   }
   const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: services.presentInstallCard }))
   ctx.onDispose(installSeam.dispose)
+  if (services.bootstrap?.host === "local") void installSeam.showSetup()
   const todoSeam = actors.pair(seamCtx, context => createTodoSeam(context, { topics: services.todoTopics, debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }))
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,

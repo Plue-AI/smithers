@@ -80,9 +80,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       return parsed.success ? parsed.data : error("invalid_install", "Install response unavailable")
     } catch { return error("unreachable", "Could not reach this install") }
   }
-  const readInstall = async (setupToken?: string): Promise<InstallError | undefined> => {
+  const readInstall = async (): Promise<InstallError | undefined> => {
     const generation = shared.generation
-    const result = await request("/install", setupToken ? { headers: { Authorization: `Bearer ${setupToken}` } } : undefined)
+    const result = await request("/install")
     if (!current() || generation !== shared.generation) return
     if ("class" in result) {
       if (result.class === "permission") revoke(result)
@@ -102,8 +102,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     }
     return { value: "Requested" }
   }
-  const open = (kind: "setup" | "settings", token?: string) => background(`open:${kind}`, kind === "setup" ? "Setup" : "Settings", async () => {
-    const failure = await readInstall(token)
+  const open = (kind: "setup" | "settings") => background(`open:${kind}`, kind === "setup" ? "Setup" : "Settings", async () => {
+    const failure = await readInstall()
     if (failure) return failure.message
     if (!current() || !shared.snapshot.model) return false
     if (kind === "settings" && !shared.snapshot.model.github.signed_in) {
@@ -134,7 +134,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
             const model = shared.snapshot.model
             const address = path === "/install" && typeof body === "object" && body !== null && "address" in body
               ? body.address as InstallAddress : undefined
-            const failedStep = setup ? path.split("/").at(-1) as InstallStepId : undefined
+            const failedStep = setup ? (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId : undefined
             publish({ ...shared.snapshot, error: result, model: model && address ? { ...model, address: { ...model.address,
               change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: result.message } } }
               : model && failedStep ? { ...model, steps: model.steps.map(step => step.id === failedStep
@@ -144,7 +144,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         }
         if (generation === shared.generation) receive(result)
         release()
-        if (setup) return await waitStep(path.split("/").at(-1) as InstallStepId)
+        if (setup) return await waitStep((path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId)
         return true
       } finally { release() }
     }, setup ? path.endsWith("/source") ? "Source ready" : path.endsWith("/machine") ? "Machine ready" : "Setup" : "Saved")
@@ -167,7 +167,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       if (!current()) return cancel()
       if (shared.snapshot.error || step?.state === "failed" || step?.state === "blocked") {
         cleanup(); resolve(shared.snapshot.error?.message ?? step?.error?.message ?? step?.blocked?.line ?? "Setup failed")
-      } else if (step?.state === "done" && ((id !== "source" && id !== "machine") || shared.snapshot.model?.[id].state === "ready")) {
+      } else if (step?.state === "done") {
         cleanup(); resolve(true)
       }
     }
@@ -180,8 +180,14 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const step = model?.steps[index]
     if (!step || model?.steps.slice(0, index).some(step => step.state !== "done")) return "Complete the earlier step"
     if (step.state === "running" || step.state === "done") return { value: "Requested" }
-    const { step: id, ...body } = input
-    return write(`setup:${id}`, `/install/setup/${id}`, body, true)
+    const id = input.step
+    const body = id === "address" ? { bind: input.bind, origins: input.origins }
+      : id === "app_manifest" ? { owner: input.owner }
+      : id === "repository" ? { repository: input.repository } : {}
+    if (id === "address" && (!input.bind || !input.origins?.length)) return "Enter bind and origins"
+    if (id === "app_manifest" && !input.owner) return "Enter owner"
+    if (id === "repository" && !input.repository) return "Choose repository"
+    return write(`setup:${id}`, `/install/setup/${id === "app_manifest" ? "app" : id}`, body, true)
   }
   const setInstallCapacity = (capacity: number) => {
     const model = shared.snapshot.model
@@ -240,7 +246,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     })
   }
   return {
-    snapshots, readInstall, showSetup: (token?: string) => open("setup", token), showSettings: () => open("settings"),
+    snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
     setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { address: input }),
     setInstallCapacity, setInstallParallel, saveInstallModelKey,
     dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined;

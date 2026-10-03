@@ -38,15 +38,39 @@ const harness = async (answer: (path: string, init?: RequestInit) => Promise<Res
 }
 
 describe("T-APP-03 install seam", () => {
-  test("setup token stays in the header; subscription begins after the claim", async () => {
+  test("setup cookie authenticates reads; subscription begins after the claim", async () => {
     const model = installFixture(); model.github.signed_in = false
     const h = await harness(() => Response.json(model))
-    expect(await h.seam.readInstall("one-time-token")).toBeUndefined()
-    expect(new Headers(h.requests[0]?.init?.headers).get("Authorization")).toBe("Bearer one-time-token")
+    expect(await h.seam.readInstall()).toBeUndefined()
+    expect(new Headers(h.requests[0]?.init?.headers).get("Authorization")).toBeNull()
     expect(JSON.stringify(h.seam.snapshots.get())).not.toContain("one-time-token")
     expect(h.subscribed()).toBe(0)
     model.github.signed_in = true; await h.seam.readInstall(); await h.seam.readInstall()
     expect(h.subscribed()).toBe(1)
+  })
+  test("setup input bodies match the four input-bearing contracts and use cookies", async () => {
+    for (const [step, input, path, body] of [
+      ["address", { bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] }, "address", { bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] }],
+      ["app_manifest", { owner: "smithersai" }, "app", { owner: "smithersai" }],
+      ["repository", { repository: "smithersai/smithers" }, "repository", { repository: "smithersai/smithers" }],
+      ["models", {}, "models", {}]
+    ] as const) {
+      const model = installFixture(); model.steps.find(row => row.id === step)!.state = "pending"
+      const h = await harness((_path, init) => Response.json(init?.method === "POST" ? installFixture() : model))
+      await h.seam.readInstall(); h.seam.setupStep({ step, ...input }); await h.idle()
+      const request = h.requests[1]!
+      expect(request.path).toBe(`/api/install/setup/${path}`)
+      expect(JSON.parse(String(request.init!.body))).toEqual(body)
+      expect(request.init!.credentials).toBe("same-origin")
+      expect(new Headers(request.init!.headers).has("Authorization")).toBe(false)
+      h.seam.dispose()
+    }
+  })
+  test("S1 install projection requires no separate progress or parallel", () => {
+    const fixture = installFixture(); delete fixture.parallel
+    const model = InstallModelSchema.parse(fixture)
+    expect(setupCardModel(model).steps).toEqual(fixture.steps)
+    expect(model).not.toHaveProperty("source"); expect(model).not.toHaveProperty("machine")
   })
   test("permission envelopes present no settings card", async () => {
     const h = await harness(() => Response.json(failure("permission"), { status: 403 }))
@@ -72,7 +96,7 @@ describe("T-APP-03 install seam", () => {
   })
   test("source and machine progress are independent; malformed topic data retains the projection", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
-    const live = installFixture(); live.machine = { state: "running", pct: 20 }; h.receive(live)
+    const live = installFixture(); live.steps[6] = { id: "machine", state: "running", pct: 20 }; h.receive(live)
     expect(setupCardModel(h.seam.snapshots.get().model!).steps.find(step => step.id === "source")!.state).toBe("done")
     expect(setupCardModel(h.seam.snapshots.get().model!).steps.find(step => step.id === "machine")).toMatchObject({ state: "running", pct: 20 })
     h.receive({ bad: true }); expect(h.seam.snapshots.get().model).toEqual(live)
@@ -82,9 +106,9 @@ describe("T-APP-03 install seam", () => {
     const gate = deferred<Response>(); let calls = 0
     const h = await harness(() => ++calls === 1 ? Response.json(installFixture()) : gate.promise)
     await h.seam.readInstall(); const read = h.seam.readInstall()
-    const live = installFixture(); live.machine = { state: "running", pct: 75 }; h.receive(live)
+    const live = installFixture(); live.steps[6] = { id: "machine", state: "running", pct: 75 }; h.receive(live)
     gate.resolve(Response.json(installFixture())); await read
-    expect(h.seam.snapshots.get().model?.machine).toEqual(live.machine)
+    expect(h.seam.snapshots.get().model?.steps[6]).toEqual(live.steps[6])
   })
   test("permission loss clears privileged data; disposal fences late responses", async () => {
     const gate = deferred<Response>(); let calls = 0
@@ -100,14 +124,14 @@ describe("T-APP-03 install seam", () => {
     expect(h.seam.setupStep({ step: "app_manifest" })).toBe("Complete the earlier step"); expect(h.requests).toHaveLength(1)
   })
   test("Retry launches once; the toast waits for the terminal machine event", async () => {
-    const model = installFixture(); model.steps[6]!.state = "failed"; model.machine = { state: "failed", pct: 60 }
-    const started = structuredClone(model); started.steps[6]!.state = "done"; started.machine = { state: "running", pct: 61 }
+    const model = installFixture(); model.steps[6]!.state = "failed"; model.steps[6] = { id: "machine", state: "failed", pct: 60 }
+    const started = structuredClone(model); started.steps[6]!.state = "done"; started.steps[6] = { id: "machine", state: "running", pct: 61 }
     const h = await harness((_path, init) => Response.json(init?.method === "POST" ? started : model))
     await h.seam.readInstall()
     h.seam.setupStep({ step: "machine" }); h.seam.setupStep({ step: "machine" }); await tick()
     expect(h.requests.filter(request => request.init?.method === "POST")).toHaveLength(1)
     expect(h.requests[1]?.path).toBe("/api/install/setup/machine")
-    expect(h.seam.snapshots.get().model?.machine.state).toBe("running"); expect(h.toasts[0]?.outcome).toBeUndefined()
+    expect(h.seam.snapshots.get().model?.steps[6]?.state).toBe("running"); expect(h.toasts[0]?.outcome).toBeUndefined()
     h.receive(installFixture()); await h.idle(); expect(h.toasts[0]?.outcome).toBe(true)
   })
   test("limits reject invalid values before transport and allow both boundaries", async () => {
@@ -162,7 +186,7 @@ describe("T-APP-03 install seam", () => {
     expect(h.seam.snapshots.get().model?.models[1]?.key).toBe("failed")
   })
   test("reload during a machine build follows its durable step without relaunching", async () => {
-    const model = installFixture(); model.steps[6]!.state = "running"; model.machine = { state: "running", pct: 50 }
+    const model = installFixture(); model.steps[6]!.state = "running"; model.steps[6] = { id: "machine", state: "running", pct: 50 }
     const h = await harness(() => Response.json(model))
     h.seam.showSetup(); await tick()
     expect(h.presentations).toEqual(["setup"]); expect(h.toasts[0]?.outcome).toBeUndefined()

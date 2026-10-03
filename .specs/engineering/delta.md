@@ -226,3 +226,13 @@ Each row is a step in its owning ticket. Line counts are from the reviews in `~/
 | `MV/cards/CardRenderers.test.tsx` | Existing registration coverage omits an explicit assertion that every unavailable kind has no renderer; add that assertion. |
 
 The rpc decoder, shared `LEGACY_CARD_KINDS` export and immutable historical fixtures remain a request to 38L under the lane's library ownership rule. App availability retains its existing fail-closed set until that migration lands.
+
+### T-APP-03 first-merge wiring delta (#3497)
+
+| Existing path | First-merge change / reason for added lines |
+| --- | --- |
+| `cards/SetupContainer.tsx` | Rename to `cards/SetupCard.tsx`; reuse its mapper and catalog bindings. Supply missing row scope and input fields to the existing SetupView; no duplicate renderer. |
+| `cards/CardRenderers.tsx`, `App.tsx`, `state/AppController.ts` | Add the absent browser-private Setup mount and local-host launch using the existing InstallSeam; no setup wire card or shared persistence is available in this phase. Keep question/File paths. |
+| `state/seams/InstallModel.ts`, `InstallSeam.ts` | Delete duplicate step enum, top-level progress overrides and Bearer token path; use RPC IDs, step receipts, setup cookie and four Ready-ticket POST bodies. |
+| `InstallContainers.test.tsx`, `InstallSeam.test.ts` | Replace obsolete progress/Bearer fixtures; add real View mount and literal request-body regression assertions where existing tests had no coverage. |
+| `cards/SettingsContainer.tsx` | Omit the S2 parallel action when the S1 response omits parallel; Settings remains unmounted. |
