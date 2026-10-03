@@ -51,7 +51,6 @@ another product composition root.
 - `packages/backend/runtimebridge`
 - `packages/backend/runtimeports`
 - `packages/backend/sandbox`
-- `packages/backend/sandbox/guest`
 - `packages/backend/security`
 - `packages/backend/ssh`
 - `packages/backend/telemetry`

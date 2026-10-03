@@ -33,7 +33,6 @@ Out:
 - `packages/backend/microsandbox/layers.go`: the base layer has no `openssh-server`, removes `sudo` and `login`'s `su`, strips setuid and setgid bits with `find / -xdev -perm /6000 -type f -exec chmod ug-s {} +`, and strips file capabilities with `setcap -r` on every file `getcap -r /` lists. The guest user and uid go into the layer key so layers rebuild once.
 - Homes: the guest helper's `setup` (below) creates `/home/<login>` at first session; `runtime.go` `machineFlags` (`:544`) adds no home mount. The machine record keeps no boot set of members.
 - `packages/backend/internal/services/workspace_ssh.go:24-38` `workspaceRootSSHUser` and `resolveWorkspaceSSHUser`: delete the `root` option. Members resolve to their own login only.
-- `packages/backend/sandbox/guest/handler.go:390` `handleEnsureUser`: unused by the microVM path. Delete it if no hosted caller remains.
 - Uid and login allocation: the `members.unix_uid` sequence starting at 20000, and the sanitized login with its collision suffix, both written once in T-ACC-02's table.
 
 ## Tests
