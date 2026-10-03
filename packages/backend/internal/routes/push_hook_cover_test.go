@@ -268,8 +268,11 @@ func TestPushHook_Cov_WorkflowAndPermissionHelpers(t *testing.T) {
 		assert.True(t, configSync.called)
 		require.NotNil(t, configSync.input.ActorID)
 		assert.Equal(t, int64(7), *configSync.input.ActorID)
-		assert.True(t, runner.input.UseLoadedDefinitions)
-		assert.Len(t, runner.input.LoadedDefinitions, 1)
+		// Dispatch loads push definitions from the trigger commit itself
+		// (83e105a60): the hook never hands it a loaded snapshot.
+		assert.False(t, runner.input.UseLoadedDefinitions)
+		assert.Empty(t, runner.input.LoadedDefinitions)
+		assert.Equal(t, "abc123", runner.input.Event.CommitSHA)
 	})
 
 	t.Run("fails closed when pusher cannot admin", func(t *testing.T) {
