@@ -27,54 +27,90 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 for (const kind of ["module", "markdown"] as const) {
   describe(`${kind} source inspection with approved snapshot recovery`, () => {
-    const fixture = Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-snapshot-diagnostic-" })
-      const directory = `${root}/flows/repair`
-      const entry = `${directory}/${kind === "module" ? "flow.ts" : "flow.mdx"}`
-      yield* fs.makeDirectory(directory, { recursive: true })
-      yield* fs.writeFileString(entry, kind === "module" ? source : markdown)
-      const discovery = yield* Discovery.Discovery
-      const scanned = yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" })
-      expect(scanned.entries).toHaveLength(1)
-      let loads = 0
-      let executions = 0
-      const flow = Flow.make("agent", {
-        payload: Executable.Invocation,
-        success: Schema.String,
-        body: () => {
-          executions++
-          return Node.succeed("approved")
+    const fixture = (pin = true) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-snapshot-diagnostic-" })
+        const directory = `${root}/flows/repair`
+        const entry = `${directory}/${kind === "module" ? "flow.ts" : "flow.mdx"}`
+        yield* fs.makeDirectory(directory, { recursive: true })
+        yield* fs.writeFileString(entry, kind === "module" ? source : markdown)
+        const discovery = yield* Discovery.Discovery
+        const scanned = yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" })
+        expect(scanned.entries).toHaveLength(1)
+        let loads = 0
+        let executions = 0
+        const flow = Flow.make("agent", {
+          payload: Executable.Invocation,
+          success: Schema.String,
+          body: () => {
+            executions++
+            return Node.succeed("approved")
+          }
+        })
+        const options: Executable.Options = {
+          delegates: [flow],
+          load: (_path, verified) => {
+            loads++
+            expect(new TextDecoder().decode(verified!.bytes)).toBe(source)
+            return Effect.succeed({ default: flow })
+          }
         }
+        const executable = yield* Executable.fromDescriptor(scanned.entries[0]!, options)
+        const snapshots = yield* Snapshot.makeFileSystem({ root })
+        if (pin) yield* snapshots.pin(executable)
+        const inspection = PlatformError.systemError({
+          _tag: "NotFound",
+          module: "FileSystem",
+          method: "readFile",
+          pathOrDescriptor: entry,
+          description: "smithers-jj-export is unusable; set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to a usable helper"
+        })
+        const unavailable = FileSystem.FileSystem.of({
+          ...fs,
+          readFile: (path) => path === entry ? Effect.fail(inspection) : fs.readFile(path)
+        })
+        const load = (recovery?: Snapshot.Service, filesystem = unavailable) =>
+          Executable.fromDescriptor(executable.descriptor, {
+            ...options,
+            ...(recovery === undefined ? {} : { snapshots: recovery })
+          }).pipe(Effect.provideService(FileSystem.FileSystem, filesystem))
+        return { fs, root, entry, executable, snapshots, inspection, load, counts: () => ({ loads, executions }) }
       })
-      const options: Executable.Options = {
-        delegates: [flow],
-        load: (_path, verified) => {
-          loads++
-          expect(new TextDecoder().decode(verified!.bytes)).toBe(source)
-          return Effect.succeed({ default: flow })
-        }
-      }
-      const executable = yield* Executable.fromDescriptor(scanned.entries[0]!, options)
-      const snapshots = yield* Snapshot.makeFileSystem({ root })
-      yield* snapshots.pin(executable)
-      const inspection = PlatformError.systemError({
-        _tag: "NotFound",
-        module: "FileSystem",
-        method: "readFile",
-        pathOrDescriptor: entry,
-        description: "smithers-jj-export is unusable; set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to a usable helper"
-      })
-      const unavailable = FileSystem.FileSystem.of({
-        ...fs,
-        readFile: (path) => path === entry ? Effect.fail(inspection) : fs.readFile(path)
-      })
-      const load = (recovery?: Snapshot.Service, filesystem = unavailable) =>
-        Executable.fromDescriptor(executable.descriptor, {
-          ...options,
-          ...(recovery === undefined ? {} : { snapshots: recovery })
-        }).pipe(Effect.provideService(FileSystem.FileSystem, filesystem))
-      return { fs, root, entry, executable, snapshots, inspection, load, counts: () => ({ loads, executions }) }
+
+    it("preserves the exact inspection refusal before snapshot admission", async () => {
+      await run(Effect.gen(function*() {
+        const f = yield* fixture(false)
+        const primary = yield* f.load().pipe(Effect.flip)
+        const before = f.counts()
+        const refused = yield* f.load(f.snapshots).pipe(Effect.flip)
+        expect(refused.code).toBe(primary.code)
+        expect(refused.message).toBe(primary.message)
+        expect(refused.cause).toBe(f.inspection)
+        expect(refused.message).not.toContain("approved source snapshot")
+        expect(f.counts()).toEqual(before)
+        expect(f.counts().executions).toBe(0)
+        expect(yield* f.fs.exists(`${f.root}/.flows/control.db`)).toBe(false)
+        expect(yield* f.fs.exists(`${f.root}/.flows/engine.db`)).toBe(false)
+      }))
+    })
+
+    it("retains the damaged admitted blob refusal and never evaluates live source", async () => {
+      await run(Effect.gen(function*() {
+        const f = yield* fixture()
+        const digest = Descriptor.executionDigest(f.executable.descriptor)!
+        const blob = JSON.parse(yield* f.fs.readFileString(`${f.root}/.flows/executions/${digest}.json`)) as string
+        yield* f.fs.remove(`${f.root}/.flows/objects/${blob.slice(0, 2)}/${blob}`)
+        const secondary = yield* f.snapshots.restore(digest).pipe(Effect.flip)
+        expect(secondary.code).toBe("missing")
+        expect(secondary).not.toMatchObject({ indexMissing: true })
+        const before = f.counts()
+        const refused = yield* f.load(f.snapshots).pipe(Effect.flip)
+        expect(refused.message).toContain("approved source snapshot missing: Cannot read execution snapshot")
+        expect(refused.cause).toBe(f.inspection)
+        expect(f.counts()).toEqual(before)
+        expect(f.counts().executions).toBe(0)
+      }))
     })
 
     // The host-owned service seam injects each failure category; real corrupt CAS recovery is tested below.
@@ -82,7 +118,7 @@ for (const kind of ["module", "markdown"] as const) {
       "retains the original PlatformError and refuses admission when restoration is %s",
       async (code) => {
         await run(Effect.gen(function*() {
-          const f = yield* fixture
+          const f = yield* fixture()
           const primary = yield* f.load().pipe(Effect.flip)
           let restores = 0
           const secondary = new Snapshot.ExecutionSnapshotError({ code, message: "SECONDARY_SNAPSHOT_FAILURE" })
@@ -113,7 +149,7 @@ for (const kind of ["module", "markdown"] as const) {
     )
     it("retains the helper diagnostic when the real persisted snapshot index is corrupt", async () => {
       await run(Effect.gen(function*() {
-        const f = yield* fixture
+        const f = yield* fixture()
         const digest = Descriptor.executionDigest(f.executable.descriptor)!
         yield* f.fs.writeFileString(`${f.root}/.flows/executions/${digest}.json`, "{}")
         const before = f.counts()
@@ -126,7 +162,7 @@ for (const kind of ["module", "markdown"] as const) {
 
     it("recovers the approved source without evaluating a flow body", async () => {
       await run(Effect.gen(function*() {
-        const f = yield* fixture
+        const f = yield* fixture()
         let restores = 0
         const snapshots: Snapshot.Service = {
           ...f.snapshots,
@@ -144,7 +180,7 @@ for (const kind of ["module", "markdown"] as const) {
     })
     it("does not attempt recovery when source inspection is interrupted", async () => {
       await run(Effect.gen(function*() {
-        const f = yield* fixture
+        const f = yield* fixture()
         const fs = yield* FileSystem.FileSystem
         const entered = yield* Deferred.make<void>()
         let restores = 0
@@ -171,7 +207,7 @@ for (const kind of ["module", "markdown"] as const) {
 
     it("preserves interruption during snapshot recovery without loading or executing", async () => {
       await run(Effect.gen(function*() {
-        const f = yield* fixture
+        const f = yield* fixture()
         const entered = yield* Deferred.make<void>()
         const snapshots: Snapshot.Service = {
           ...f.snapshots,

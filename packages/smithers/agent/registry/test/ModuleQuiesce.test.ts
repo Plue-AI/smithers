@@ -4,7 +4,7 @@ import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { Action, Flow, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Schema } from "effect"
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Schema, Scope } from "effect"
 import { createRequire } from "node:module"
 import { describe, expect, it, vi } from "vitest"
 import * as Discovery from "../src/Discovery.ts"
@@ -19,7 +19,10 @@ describe("module callback quiescence", () => {
       const require = createRequire(import.meta.url)
       const enginePath = require.resolve("@smthrs/engine", { paths: [require.resolve("@smthrs/engine-store")] })
       const { FlowEngine } = await vi.importActual<{
-        readonly FlowEngine: { readonly layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> }
+        readonly FlowEngine: {
+          readonly layerMemory: Layer.Layer<FlowRuntime.FlowRuntime>
+          readonly makeInstance: (flow: Flow.Any, executionId: string) => FlowRuntime.FlowInstance["Service"]
+        }
       }>(enginePath)
       const callbacks = new Map<string, (payload: unknown, executionId: string) => Effect.Effect<unknown, unknown>>()
       const observedRuntime = Layer.effect(
@@ -35,7 +38,13 @@ describe("module callback quiescence", () => {
       ).pipe(Layer.provideMerge(FlowEngine.layerMemory))
       const calls: Array<string> = []
       const finalized: Array<string> = []
-      const Probe = Action.make("quiesce/Probe", { payload: { label: Schema.String }, success: Schema.String })
+      const Probe = Action.make("quiesce/Probe", {
+        payload: { label: Schema.String },
+        success: Schema.String,
+        tier: "sealed",
+        idempotencyKey: ({ label }) => label,
+        implementationVersion: "quiesce/probe/v1"
+      })
       const flow = Flow.make("fixture", {
         description: "Callback quiescence",
         payload: { label: Schema.String },
@@ -63,6 +72,9 @@ body: Node.capture({}, ({ label }) => Node.succeed(label)) })`
           const selected = yield* Deferred.make<void>()
           const unrelated = yield* Deferred.make<void>()
           const releaseUnrelated = yield* Deferred.make<void>()
+          const sharedFirst = yield* Deferred.make<void>()
+          const sharedSecond = yield* Deferred.make<void>()
+          const releaseSharedFirst = yield* Deferred.make<void>()
           const implementation = Probe.toLayer(({ label }) =>
             Effect.gen(function*() {
               calls.push(label)
@@ -74,11 +86,18 @@ body: Node.capture({}, ({ label }) => Node.succeed(label)) })`
                 yield* Deferred.succeed(unrelated, undefined)
                 yield* Deferred.await(releaseUnrelated)
               }
+              if (label === "shared-first") {
+                yield* Deferred.succeed(sharedFirst, undefined)
+                yield* Deferred.await(releaseSharedFirst)
+              }
+              if (label === "shared-second") {
+                yield* Deferred.succeed(sharedSecond, undefined)
+                yield* Effect.never
+              }
               return label
             }).pipe(Effect.ensuring(Effect.sync(() => {
               finalized.push(label)
-            })))
-          )
+            }))), { implementationVersion: "quiesce/probe/v1" })
           if (!exported) yield* Layer.build(implementation)
           const executable = yield* Executable.fromDescriptor(scanned.entries[0]!, {
             delegates: [],
@@ -108,12 +127,53 @@ body: Node.capture({}, ({ label }) => Node.succeed(label)) })`
             .pipe(Effect.exit)
           expect(Exit.isFailure(retired)).toBe(true)
           expect(calls).not.toContain("retired")
-          const newImplementation = Probe.toLayer(({ label }) => Effect.succeed(`new:${label}`))
-          const refreshedFlow = exported ? flow : Flow.make("fixture", {
+          // The module's declared interpreter is registered beside its admission
+          // adapter. Invoke that real callback: adapter engine deduplication would
+          // otherwise hide simultaneous callbacks sharing one ownership identity.
+          const callback = callbacks.get(flow._tag)!
+          const instance = FlowEngine.makeInstance(flow, "shared-id")
+          yield* Effect.addFinalizer((exit) => Scope.close(instance.scope, exit))
+          const sharedA = yield* callback({ label: "shared-first" }, "shared-id").pipe(
+            Effect.provideService(FlowRuntime.FlowInstance, instance),
+            Effect.forkChild
+          )
+          const sharedB = yield* callback({ label: "shared-second" }, "shared-id").pipe(
+            Effect.provideService(FlowRuntime.FlowInstance, instance),
+            Effect.forkChild
+          )
+          yield* Deferred.await(sharedFirst).pipe(Effect.raceFirst(
+            Fiber.join(sharedA).pipe(Effect.andThen(Effect.die(new Error("First callback ended before entry"))))
+          ))
+          yield* Deferred.await(sharedSecond).pipe(Effect.raceFirst(
+            Fiber.join(sharedB).pipe(Effect.andThen(Effect.die(new Error("Second callback ended before entry"))))
+          ))
+          yield* Deferred.succeed(releaseSharedFirst, undefined)
+          expect(yield* Fiber.join(sharedA)).toBe("shared-first")
+          expect(finalized).toContain("shared-first")
+          expect(finalized).not.toContain("shared-second")
+          yield* executable.quiesce!(["shared-id", "not-active-id"])
+          expect(Exit.isFailure(yield* Fiber.await(sharedB))).toBe(true)
+          expect(finalized).toContain("shared-second")
+          const notActive = yield* callback({ label: "not-active" }, "not-active-id").pipe(Effect.exit)
+          expect(Exit.isFailure(notActive)).toBe(true)
+          expect(calls).not.toContain("not-active")
+          const refreshedProbe = Action.make("quiesce/Probe", {
+            payload: { label: Schema.String },
+            success: Schema.String,
+            tier: "sealed",
+            idempotencyKey: ({ label }) => label,
+            implementationVersion: "quiesce/probe/v2"
+          })
+          const newImplementation = refreshedProbe.toLayer(({ label }) => Effect.succeed(`new:${label}`), {
+            implementationVersion: "quiesce/probe/v2"
+          })
+          const refreshedFlow = Flow.make("fixture", {
             description: "Callback quiescence",
             payload: { label: Schema.String },
             success: Schema.String,
-            body: Node.capture({}, ({ label }) => Probe.call({ label: `new:${label}` }))
+            body: exported
+              ? Node.capture({}, refreshedProbe.call)
+              : Node.capture({}, ({ label }) => Probe.call({ label: `new:${label}` }))
           })
           const refreshed = yield* Executable.fromDescriptor(scanned.entries[0]!, {
             delegates: [],

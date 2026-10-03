@@ -1290,6 +1290,7 @@ none, with nothing in the failure to say why.
 class ExecutableError {
   readonly _tag: "flows/registry/ExecutableError"
   readonly code:
+    | "reserved_name"
     | "missing_delegate"
     | "ambiguous_delegate"
     | "load_timeout"
@@ -1308,7 +1309,9 @@ class ExecutableError {
 }
 ```
 
-A descriptor the bridge will not turn into a runnable flow. `delegate` is
+A descriptor the bridge will not turn into a runnable flow. Hosts may also
+report `reserved_name` for a repository entry that collides with a packaged
+system name, before importing its module. `delegate` is
 present whenever the refusal is about one named flow, and `available` lists the
 delegates the host registered. That is the whole point of the type: the
 engine's own unresolved-call defect names nothing, so an operator reading it
@@ -1638,6 +1641,10 @@ static import links. Both verify the manifest and project lockfile identity.
 executions. Lockfile drift does not remove these roots. Missing or corrupt
 snapshots remain typed failures. `ExecutionSnapshotError.code` is `missing`,
 `corrupt`, `lockfile_changed`, or `unavailable`.
+
+When the filesystem snapshot index is absent, `indexMissing` is `true`.
+Source loading retains its original typed refusal in this case. A missing blob
+behind an existing index retains the snapshot recovery diagnostic.
 
 The manifest pins project source, while installed workspace packages remain
 host code. Run the host from a pinned checkout.

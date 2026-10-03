@@ -5,13 +5,13 @@ import * as NodePath from "@effect/platform-node/NodePath"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import * as Descriptor from "../src/Descriptor.ts"
 import * as Discovery from "../src/Discovery.ts"
 import * as Executable from "../src/Executable.ts"
-import { fileURLToPath } from "node:url"
-import * as Registry from "../src/Registry.ts"
 import * as Snapshot from "../src/ExecutionSnapshot.ts"
+import * as Registry from "../src/Registry.ts"
 
 const platform = Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.layer)
 const source = `import { Flow } from "@smthrs/flow"
@@ -73,7 +73,9 @@ describe("durable execution snapshots", () => {
         delegates: [],
         load: (_specifier, closure) => {
           loads++
-          expect(closure!.modules.size).toBe((descriptor.body._tag === "Module" ? descriptor.body.imports!.length : 0) + 1)
+          expect(closure!.modules.size).toBe(
+            (descriptor.body._tag === "Module" ? descriptor.body.imports!.length : 0) + 1
+          )
           return Effect.fail(verified)
         }
       }).pipe(Effect.flip)
@@ -89,14 +91,21 @@ describe("durable execution snapshots", () => {
         const { fs, root, entry, digest, executable } = yield* fixture
         const index = `${root}/.flows/executions/${digest}.json`
         yield* fs.writeFileString(entry, "throw 'UNAPPROVED_SOURCE_MUST_NOT_RUN'")
-        if (mode === "missing") yield* fs.remove(index)
-        if (mode === "corrupt") yield* fs.writeFileString(index, '{"token":"SECRET_SNAPSHOT_CONTENT"}')
+        if (mode === "missing") {
+          const blob = JSON.parse(yield* fs.readFileString(index)) as string
+          yield* fs.remove(`${root}/.flows/objects/${blob.slice(0, 2)}/${blob}`)
+        }
+        if (mode === "corrupt") yield* fs.writeFileString(index, "{\"token\":\"SECRET_SNAPSHOT_CONTENT\"}")
         if (mode === "lockfile_changed") yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: '9.0'")
         const snapshots = yield* Snapshot.makeFileSystem({ root })
         let loads = 0
         const failure = yield* Executable.fromDescriptor(executable.descriptor, {
-          delegates: [], snapshots,
-          load: () => { loads++; return Effect.succeed({ default: flow }) }
+          delegates: [],
+          snapshots,
+          load: () => {
+            loads++
+            return Effect.succeed({ default: flow })
+          }
         }).pipe(Effect.flip)
         expect(loads).toBe(0)
         expect(failure.message).toContain("changed")
@@ -119,7 +128,7 @@ describe("durable execution snapshots", () => {
     }
   )
 
-  it("retains markdown verification diagnostics when its approved snapshot is missing", async () => {
+  it("retains markdown verification diagnostics before snapshot admission", async () => {
     await run(Effect.gen(function*() {
       const { fs, root } = yield* fixture
       const entry = `${root}/flows/prompt/flow.mdx`
@@ -133,9 +142,9 @@ describe("durable execution snapshots", () => {
       const failure = yield* Executable.fromDescriptor(descriptor, { delegates: [flow], snapshots }).pipe(Effect.flip)
       expect(failure.code).toBe("body_unavailable")
       expect(failure.message).toContain("changed")
-      expect(failure.message).toContain("snapshot missing: Execution snapshot is unavailable")
+      expect(failure.message).not.toContain("approved source snapshot")
       expect(failure.message).not.toContain("UNAPPROVED_PROMPT_MUST_NOT_LOAD")
-      expect(failure.cause).toMatchObject({ code: "missing" })
+      expect(failure.cause).toBeUndefined()
     }))
   })
 
@@ -144,23 +153,35 @@ describe("durable execution snapshots", () => {
       const { fs, root, entry } = yield* fixture
       yield* fs.writeFileString(entry, `${source}\nexport type Options = Pick<import("./helper.ts").Options, "name">`)
       const discovery = yield* Discovery.Discovery
-      const descriptor = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" })).entries[0]!
+      const descriptor = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" }))
+        .entries[0]!
       const snapshots = yield* Snapshot.makeFileSystem({ root })
       let loads = 0
       const failure = yield* Executable.fromDescriptor(descriptor, {
-        delegates: [], snapshots,
-        load: () => { loads++; return Effect.succeed({ default: flow }) }
+        delegates: [],
+        snapshots,
+        load: () => {
+          loads++
+          return Effect.succeed({ default: flow })
+        }
       }).pipe(Effect.flip)
       expect(loads).toBe(0)
       expect(failure.message).toContain("runtime module cache")
       expect(failure.message).toContain("import() or require()")
-      expect(failure.message).toContain("snapshot missing: Execution snapshot is unavailable")
-      expect(failure.cause).toMatchObject({ code: "missing" })
-      yield* fs.writeFileString(entry, `${source}\nimport type { Options } from "./helper.ts"\nexport type Selected = Pick<Options, "name">`)
+      expect(failure.message).not.toContain("approved source snapshot")
+      expect(failure.cause).toBeUndefined()
+      yield* fs.writeFileString(
+        entry,
+        `${source}\nimport type { Options } from "./helper.ts"\nexport type Selected = Pick<Options, "name">`
+      )
       const fresh = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" })).entries[0]!
       yield* Executable.fromDescriptor(fresh, {
-        delegates: [], snapshots,
-        load: () => { loads++; return Effect.succeed({ default: flow }) }
+        delegates: [],
+        snapshots,
+        load: () => {
+          loads++
+          return Effect.succeed({ default: flow })
+        }
       })
       expect(loads).toBe(1)
     }))
@@ -287,7 +308,7 @@ describe("durable execution snapshots", () => {
     }
   )
 
-  it.each(["missing-index", "corrupt-index", "missing-blob", "corrupt-blob", "lockfile"] as const)(
+  it.each(["missing-index", "retired-index", "corrupt-index", "missing-blob", "corrupt-blob", "lockfile"] as const)(
     "fails closed for %s",
     async (mode) => {
       await run(Effect.gen(function*() {
@@ -300,19 +321,32 @@ describe("durable execution snapshots", () => {
         if (mode === "missing-blob") yield* fs.remove(object)
         if (mode === "corrupt-blob") yield* fs.writeFileString(object, "tampered")
         if (mode === "lockfile") yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: '9.0'\n")
-        const fresh = yield* Snapshot.makeFileSystem({ root })
+        // A concurrent pin retires the index just before the index read; the read then
+        // returns the operating system's real NotFound. Every other syscall stays real.
+        const retiring = FileSystem.FileSystem.of({
+          ...fs,
+          readFile: (path) =>
+            path === index ? fs.remove(index).pipe(Effect.andThen(fs.readFile(path))) : fs.readFile(path)
+        })
+        const fresh = yield* Snapshot.makeFileSystem({ root }).pipe(
+          Effect.provideService(FileSystem.FileSystem, mode === "retired-index" ? retiring : fs)
+        )
         if (mode === "lockfile") {
           const refused = yield* fresh.pin(executable).pipe(Effect.flip)
           expect(refused.code).toBe("lockfile_changed")
         }
         const failure = yield* fresh.restore(digest).pipe(Effect.flip)
+        const indexMissing = mode === "missing-index" || mode === "retired-index"
+        expect(failure.indexMissing).toBe(indexMissing ? true : undefined)
+        expect(Object.hasOwn(failure, "indexMissing")).toBe(indexMissing)
         expect(failure.code).toBe(
           mode === "lockfile"
             ? "lockfile_changed"
-            : mode === "missing-index" || mode === "missing-blob"
+            : indexMissing || mode === "missing-blob"
             ? "missing"
             : "corrupt"
         )
+        if (indexMissing) expect(failure.message).toBe("Execution snapshot is unavailable")
       }))
     }
   )

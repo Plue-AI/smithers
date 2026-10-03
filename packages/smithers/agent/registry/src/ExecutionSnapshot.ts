@@ -26,6 +26,8 @@ export class ExecutionSnapshotError extends Schema.TaggedError<ExecutionSnapshot
   {
     code: Schema.Literals(["missing", "corrupt", "lockfile_changed", "unavailable"]),
     message: Schema.String,
+    /** No admission index exists; a missing blob behind an index is damaged stored state. */
+    indexMissing: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Unknown)
   }
 ) {}
@@ -64,8 +66,8 @@ const Manifest = Schema.Struct({
   lockfileDigest: Schema.String,
   compiled: Schema.Record(Schema.String, Schema.Struct({ source: Schema.String, links: Schema.Array(Link) }))
 })
-const fail = (code: ExecutionSnapshotError["code"], message: string, cause?: unknown) =>
-  new ExecutionSnapshotError({ code, message, cause })
+const fail = (code: ExecutionSnapshotError["code"], message: string, cause?: unknown, indexMissing?: true) =>
+  new ExecutionSnapshotError({ code, message, cause, ...(indexMissing ? { indexMissing } : {}) })
 const address = (value: string) => /^[a-f0-9]{64}$/.test(value)
 const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb"]
 const verifiedCompilation = (filename: string, module: ClosureModule, descriptor: Descriptor.FlowDescriptor) =>
@@ -122,11 +124,14 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
     const readManifest = (digest: string, checkLockfiles = true) =>
       Effect.gen(function*() {
         if (!address(digest)) return yield* Effect.fail(fail("corrupt", "Invalid execution digest"))
-        const filename = path.join(directory, `${digest}.json`)
-        if (!(yield* fs.exists(filename))) {
-          return yield* Effect.fail(fail("missing", "Execution snapshot is unavailable"))
-        }
-        const indexBytes = yield* fs.readFile(filename)
+        // Read without a prior existence check: a concurrent pin may retire the index at any moment.
+        const indexBytes = yield* fs.readFile(path.join(directory, `${digest}.json`)).pipe(
+          Effect.catchReason(
+            "PlatformError",
+            "NotFound",
+            (_, cause) => Effect.fail(fail("missing", "Execution snapshot is unavailable", cause, true))
+          )
+        )
         const blob = yield* Effect.try(() => JSON.parse(new TextDecoder().decode(indexBytes)) as unknown)
         if (typeof blob !== "string" || !address(blob)) {
           return yield* Effect.fail(fail("corrupt", "Invalid execution snapshot index"))
@@ -263,8 +268,23 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
         const bytes = new TextEncoder().encode(yield* Effect.try(() => JSON.stringify(encoded)))
         const blob = yield* put(bytes)
         yield* fs.makeDirectory(directory, { recursive: true })
-        const temporary = yield* fs.makeTempFile({ directory, prefix: ".snapshot-" })
-        yield* Effect.gen(function*() {
+        yield* Effect.scoped(Effect.gen(function*() {
+          // The index is published once linked; failing to reclaim the temporary must not undo that.
+          const temporary = yield* Effect.acquireRelease(
+            fs.makeTempFile({ directory, prefix: ".snapshot-" }),
+            (file) => {
+              const parent = path.dirname(file)
+              // Delete recursively only a private `.snapshot-*` directory directly inside the store.
+              const reclaim = path.dirname(parent) === directory && path.basename(parent).startsWith(".snapshot-")
+                ? fs.remove(parent, { recursive: true })
+                : Effect.logWarning("Snapshot temporary is not in a private directory", file).pipe(
+                  Effect.andThen(fs.remove(file))
+                )
+              return reclaim.pipe(
+                Effect.catch((cause) => Effect.logWarning("Cannot reclaim snapshot temporary", cause))
+              )
+            }
+          )
           yield* fs.writeFileString(temporary, JSON.stringify(blob))
           yield* Effect.scoped(Effect.flatMap(fs.open(temporary, { flag: "r+" }), (file) => file.sync))
           yield* fs.link(temporary, indexPath).pipe(Effect.catch((cause) =>
@@ -275,7 +295,7 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
             ))
           ))
           yield* syncDirectories
-        }).pipe(Effect.ensuring(Effect.ignore(fs.remove(temporary))))
+        }))
       }).pipe(
         Effect.mapError((cause) =>
           cause instanceof ExecutionSnapshotError ? cause : fail("unavailable", "Cannot pin execution closure", cause)

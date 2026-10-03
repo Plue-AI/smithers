@@ -901,7 +901,7 @@ const snapshotFailure = (
   error: ExecutableError,
   cause: ExecutionSnapshot.ExecutionSnapshotError
 ): ExecutableError =>
-  refuse({
+  cause.code === "missing" && cause.indexMissing === true ? error : refuse({
     code: error.code,
     flow: error.flow,
     path: error.path,
