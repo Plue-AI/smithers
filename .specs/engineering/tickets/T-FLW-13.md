@@ -1,6 +1,6 @@
 # T-FLW-13 Review a member's PR in a background machine
 
-Stage S1 · Size M · Depends on T-FLW-01, T-FLW-03, T-FLW-04, T-ACC-02, T-ACC-05, T-APP-23, T-APP-04, T-CAT-02 · Unblocks T-REL-02 · Issue: [#3612](https://github.com/smithersai/smithers/issues/3612)
+Stage S1 · Size M · Depends on T-FLW-01, T-FLW-03, T-FLW-04, T-ACC-02, T-APP-04 (confirmations), T-APP-16, T-CAT-01 · Unblocks T-REL-02 · Issue: [#3612](https://github.com/smithersai/smithers/issues/3612)
 Spec: spec.md §11.1, §12.3, §15.1.5, §17.5 · Delta: delta.md §8 (row 1) · Product: mvp.md §6.3 "A teammate pushes their own branch or opens their own PR", §8, Appendix A `/review`
 
 ## Goal
@@ -22,7 +22,7 @@ Out:
 ## Changes
 
 - The review command dispatcher checks that the PR author is a member and refuses a non-member's PR with class `permission` before requesting a machine. Check: C-J10-09 step 5.
-- `apps/app/src/mainview/flows/entries/prs.ts:98-107` (`prs.triage`, `/review`) and `state/controller/issueFlows.ts:105-124` are the existing door, which launches `pr-triage` today. Wire the door to the host's authorized review dispatcher, not the browser's old working-copy launch. Pin the Active `review` digest and selected GitHub PR head on admission; fetch and restore its closure through T-FLW-03/T-FLW-04 in a fresh ephemeral machine through `packages/backend/flowhost/workspace_launcher.go:24-35`. Deliver findings using the retained `change` card schema (`packages/rpc/src/Changes.ts`) and shared conversation projection (T-APP-23). Check: C-J10-09 steps 1–3.
+- `apps/app/src/mainview/flows/entries/prs.ts:98-107` (`prs.triage`, `/review`) and `state/controller/issueFlows.ts:105-124` are the existing door, which launches `pr-triage` today. Wire the door to the host's authorized review dispatcher, not the browser's old working-copy launch. Pin the Active `review` digest and selected GitHub PR head on admission; fetch and restore its closure through T-FLW-03/T-FLW-04 in a fresh ephemeral machine through `packages/backend/flowhost/workspace_launcher.go:24-35`. Deliver findings using the retained `change` card schema (`packages/rpc/src/Changes.ts`) and shared conversation projection (T-APP-16). Check: C-J10-09 steps 1–3.
 - Route an app-agent review request through the person's Confirm card before starting the run (§15.1.5). Check: C-J10-09 step 4.
 - Move C-J10-09's S1 ownership from T-FLW-01 to this ticket in both indexes and the check header. T-MCH-06 retains S2 capacity ownership.
 
@@ -49,7 +49,7 @@ Out:
 - This follow-up's issue is linked in the header; T-FLW-01's frozen issue remains unchanged.
 
 ## Ready checklist
-1. Dependencies: T-FLW-03 supplies Active review versions; T-FLW-04 supplies verified closure restoration; T-ACC-02 supplies membership; T-ACC-05/T-APP-04 supply person confirmation and its card; T-APP-23 supplies host agent dispatch and findings delivery; T-CAT-02 supplies the external CLI door and transitively T-CAT-01; T-FLW-01 supplies machine-only dispatch. T-INS-02's launcher is inherited through T-FLW-03/T-FLW-11.
+1. Dependencies: T-FLW-03 supplies Active review versions; T-FLW-04 supplies verified closure restoration; T-ACC-02 supplies membership; T-ACC-05/T-APP-04 supply person confirmation and its card; T-APP-16 supplies host agent dispatch and findings delivery; T-CAT-02 supplies the external CLI door and transitively T-CAT-01; T-FLW-01 supplies machine-only dispatch. T-INS-02's launcher is inherited through T-FLW-03/T-FLW-11.
 2. Exclusions: Out explicitly excludes outsiders, automatic event-triggered review, GitHub writes, TODO/persistent branch creation, TODO-machine reuse, new findings visuals, baseline isolation implementation and S2 scheduling.
 3. Boundary tests: production prs.triage/review catalog/API dispatcher → confirmation → real microVM launcher → retained findings card/conversation, with literal PR/head/author oracles and zero-write evidence (C-J10-09/C-ACC-02).
 4. Decisions: smithers-3f accepts membership/head/digest admission, credential scope and ephemeral cleanup; smithers-38 accepts review payload and closure restoration; smithers-b8 signs off the review command/API and retained findings handoff. smithers-8a accepts the S1/S2 qualification split; Will decides any expansion to outsider or automatic review.

@@ -1,7 +1,8 @@
 # T-TRM-07 Session supervisor: broker sessions, the §9.6 protocol, lingering processes, kill and restart rules
 
-Stage S2 · Size M · Depends on T-COL-03, T-TRM-06, T-MCH-11 · Unblocks T-AGT-02, T-COL-04, T-COL-07, T-REL-02, T-TRM-01, T-TRM-03, T-TRM-05 · Issue: [#3578](https://github.com/smithersai/smithers/issues/3578)
+Stage S2 · Size M · Depends on T-COL-03, T-TRM-06, T-MCH-11 · Unblocks T-AGT-02, T-COL-04, T-REL-02, T-TRM-01, T-TRM-03, T-TRM-05 · Issue: [#3578](https://github.com/smithersai/smithers/issues/3578)
 Spec: spec.md §5.6, §8.4.1, §8.10.3, §8.11, §9.1.2 (`open_session`, `tcp_connect`, `close_session`, `kill_sessions`, `register_run`), §9.4.2, §9.5.1, §9.5.3, §9.6 · Delta: delta.md §5 (session supervisor row) · Product: mvp.md §6.8 Terminals, §6.15 SSH into a branch, J3.2, J3.3, M-18, M-24, M-29
+Edited by the minimal-code synthesis, 2026-10-03: three terminal brokers become this one guest session broker.
 
 ## Goal
 
@@ -27,6 +28,7 @@ Out:
 - `crates/smithers-machined/src/broker/sessions.rs` (new): spawn as user, cgroup placement, pty allocation, signals, kill and confirm. Port `cgroup_kill` (`packages/backend/microsandbox/guest/smithers-guest.py:56-85`) and `drop_to` (`:93`), with supplementary groups `[team]` instead of `[]`.
 - `crates/smithers-machined/src/stream.rs` (new): the §9.6.2 frames and credit accounting on the host connection.
 - `packages/backend/internal/machined/sessions.go` (new): the Go client for open, stream, close and kill, used by T-TRM-01's terminal manager and T-TRM-03's gateway bridge, and by revocation (§5.6).
+- One guest session broker (minimal-code synthesis, 2026-10-03, v2 "layers with one user"): the terminal card (T-TRM-01), the SSH gateway (T-TRM-03) and the agent's `bash` (T-TRM-05) each planned their own process broker; all three open sessions only through this broker, and none spawns, signals or kills guest processes itself. Reuse the host `TerminalSessionManager` (`internal/routes/terminal_session_manager.go`: multi-attach, ring replay, per-sink eviction) unchanged as the fanout layer; its dialer moves from the runtime PTY adapter (`internal/routes/workspace_runtime_terminal.go`) to `machined/sessions.go`. Before writing Rust, compare a long-lived mode of `packages/backend/microsandbox/guest/smithers-guest.py` (exec, relay, `setup`, cgroup kill) against the new daemon and record the choice (design-twice, E-04).
 - `packages/backend/docs/machined.md`: the session protocol; `docs:sync`, `docs:check`, `smthrs docs //packages/backend:docs`.
 
 ## Tests

@@ -1,11 +1,11 @@
 # T-COL-03f Fake machined for Go component tests
 
-Stage S2 · Size S · Depends on T-COL-10 · Unblocks T-COL-03, T-COL-04, T-COL-08b, T-REL-02 · Issue: [#3625](https://github.com/smithersai/smithers/issues/3625)
+Stage S2 · Size S · Depends on T-COL-03r · Unblocks T-COL-03, T-COL-04, T-COL-08b, T-REL-02 · Issue: [#3625](https://github.com/smithersai/smithers/issues/3625)
 Spec: spec.md §5.3 (`machine`), §7.6 (rows 1, 5), §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
 
 ## Goal
 
-Owner smithers-3f supplies a deterministic Go fake machined speaking the T-COL-10 bytes.
+Owner smithers-3f supplies a deterministic Go fake machined speaking the T-COL-03r bytes.
 
 ## Scope
 
@@ -17,9 +17,9 @@ Out:
 
 ## Changes
 
-- Encode and decode only through `packages/backend/internal/machined/wire` (T-COL-10); no local frame types, so the golden frames in `packages/backend/internal/compose/cocontracts_test.go` keep guarding this codec (smithers-3f, 2026-10-02).
+- Encode and decode only through `packages/backend/internal/machined/wire` (T-COL-03r); no local frame types, so the golden frames in `packages/backend/internal/compose/cocontracts_test.go` keep guarding this codec (smithers-3f, 2026-10-02).
 - `packages/backend/internal/machined/testfake/` (new), shared by registry, event-ingest and docrelay tests.
-- Consume fixtures from T-COL-10 without copying or regenerating expectations.
+- Consume fixtures from T-COL-03r without copying or regenerating expectations.
 
 ## Tests
 

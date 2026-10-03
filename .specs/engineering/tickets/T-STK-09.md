@@ -1,6 +1,6 @@
 # T-STK-09 Make TODO from an issue; the `todo` label freezes revision 1
 
-Stage S1 · Size M · Depends on T-STK-01, T-ACC-02, T-GH-02, T-STK-02, T-STK-14, T-ACC-05, T-GH-09, T-APP-16, T-FLW-11 · Unblocks T-APP-02, T-MNT-01, T-REL-02 · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
+Stage S1 · Size M · Depends on T-STK-01, T-ACC-02, T-GH-02, T-STK-02, T-APP-04 (confirmations), T-GH-09, T-APP-16, T-FLW-11 · Unblocks T-APP-02, T-MNT-01, T-REL-02 · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
 Spec: spec.md §3 (`todo_revisions`), §3.0, §5.2, §6.1.2b, §10.2.1–§10.2.1b, §10.4.2, §12.3 (issue labeled `todo`), §12.4.1, §14.5.1, §15.1.5, §17.5 · Delta: delta.md §6 (Modify admission from GitHub; `FileTodo` no longer creates an issue), §7 · Product: mvp.md J2.2, §6.3 (label and Make TODO rows), §14 trust rules, M-16, M-22, Appendix B.2 (`issue.implement`)
 
 ## Goal

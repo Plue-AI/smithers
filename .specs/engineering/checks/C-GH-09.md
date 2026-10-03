@@ -1,6 +1,6 @@
 # C-GH-09 Outbound writes: no duplicate at any crash point, and no replay over a newer action
 
-Proves: mvp.md §6.1 "Restart", §9 "Durability" · spec.md §3 (`outbound_writes`), §12.4.1, §12.4.1a, §12.4.1b, §12.5.2, §19.2 · Layer: fault · Stage: S1 · Tickets: T-GH-09, T-GH-14
+Proves: mvp.md §6.1 "Restart", §9 "Durability" · spec.md §3 (`pending_op`), §12.4.1, §12.4.1a, §12.4.1b, §12.5.2, §19.2 · Layer: fault · Stage: S1 · Tickets: T-GH-09, T-GH-01
 Automation: `packages/backend/internal/services/github_outbound_fault_test.go` (new) · Runs in: CI
 
 ## Setup
@@ -19,7 +19,7 @@ For each kind K in {open PR, update body, merge, close PR, close issue, add labe
 1. Arm the hook for (K, P).
 2. Run the worker step. At P the hook stops the service: the test cancels its context, closes its database pool and drops every in-memory value.
 3. Restart through production install composition on the same database and fake server; boot recovery reconciles outbound work before the worker resumes.
-4. Read the write log, the `outbound_writes` rows and the TODO.
+4. Read the write log, the `pending_op` entries and the TODO.
 
 Then run four ordering cases, each ending with a fresh service, its reconcile and its worker step:
 - O1, contrary action: Smithers closes T2's PR on Drop; the fake applies the close, and the service stops at P2. While it is down, `alice` reopens the PR on the fake.
@@ -35,7 +35,7 @@ Use a member, another App and the canonical App to supply matching comment marke
 For all baseline and extended cases:
 - The write log shows exactly one effective object per key: one PR per head branch, one comment per marker, at most one successful `PUT /merge` and no merge request after it, one close per PR or issue, each label applied or removed once, and the remote ref equal to the intended head after one ref update.
 - At P2 and P3, a lookup request (`GET`, or `git ls-remote` for push) precedes any repeat of the write.
-- The `outbound_writes` row is `done` with the GitHub object id or sha in `github_ref`.
+- The `pending_op` entry is `done` with the GitHub object id or sha in `github_ref`.
 - The TODO's state equals its committed literal expected fixture row.
 
 For the ordering cases:
@@ -57,4 +57,4 @@ For the ordering cases:
 - A row stays `intended` or `unknown`, or the TODO differs from its committed literal expected fixture row.
 
 ## Evidence
-`.artifacts/checks/C-GH-09/<UTC timestamp>/`: one directory per (K, P) with `writes.jsonl`, `outbound_writes.json` and `todo.json`; `summary.json` of all baseline and extended crash results and 4 ordering results; the test log and the commit.
+`.artifacts/checks/C-GH-09/<UTC timestamp>/`: one directory per (K, P) with `writes.jsonl`, `pending_op.json` and `todo.json`; `summary.json` of all baseline and extended crash results and 4 ordering results; the test log and the commit.

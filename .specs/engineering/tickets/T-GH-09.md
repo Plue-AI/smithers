@@ -1,6 +1,6 @@
 # T-GH-09 Outbound writes: keys, per-target order, supersession and reconcile
 
-Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-GH-02, T-GH-14, T-ACC-03, T-STK-07, T-STK-12 · Unblocks T-FLW-09, T-FLW-11, T-GH-03, T-GH-05, T-GH-06, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-STK-09, T-STK-16 · Issue: [#3520](https://github.com/smithersai/smithers/issues/3520)
+Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-GH-02, T-ACC-03, T-STK-12 · Unblocks T-FLW-09, T-FLW-11, T-GH-03, T-GH-06, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-STK-09, T-STK-16 · Issue: [#3520](https://github.com/smithersai/smithers/issues/3520)
 Spec: spec.md §3 (`outbound_writes`), §12.4.1–§12.4.1b, §12.5.2, §19.1, §19.2 · Delta: delta.md §7 · Product: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts)
 
 ## Goal

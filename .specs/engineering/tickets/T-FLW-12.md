@@ -21,7 +21,7 @@ Out:
 
 ## Changes
 - `packages/backend/internal/config/wiki_sync.go:15` (`Obsidian []WikiFolderSyncConfig`) → the install composition loads the folder list from `install_settings` (key `wiki_sync.obsidian`). Host-config loading stays for Plue only, marked composition-specific (spec §6.2.4).
-- `packages/backend/internal/services/wiki_sync_obsidian.go` (`NewObsidianSync`) → unchanged adapter. Validate the path is a directory the install user owns, and refuse paths inside `$STATE`.
+- Reuse `packages/backend/internal/services/wiki_sync_obsidian.go:27` (`NewObsidianSync`) unchanged as the only sync adapter (minimal-code synthesis, 2026-10-03, v2 reuse); no second watcher or importer. Validate the path is a directory the install user owns, and refuse paths inside `$STATE`.
 - The `wiki_sync.obsidian requires feature_flags.wiki` check (`wiki_sync.go:43`) → the wiki is on by default on the Mac install. Remove the gate there.
 - `PUT /api/install` settings key `wiki_sync.obsidian` and the hidden owner-only control `settings.obsidian` (`apps/app/src/mainview/flows/entries/settings.ts`). The `install` snapshot gains `wiki_sync {obsidian?: {path, last_sync_at?, error?}}`, and T-APP-03's `toSettingsModel` maps it to the Settings view model's Obsidian row (a T-APP-19 field; T-UI-02 renders it).
 - Docs: one quickstart paragraph, "Open the wiki in Obsidian".

@@ -1,6 +1,6 @@
 # T-COL-12 The coding agent sees outside changes
 
-Stage S2 · Size S · Depends on T-COL-04, T-COL-07, T-STK-06 · Unblocks T-REL-02 · Issue: [#3632](https://github.com/smithersai/smithers/issues/3632)
+Stage S2 · Size S · Depends on T-COL-04, T-COL-10, T-STK-06 · Unblocks T-REL-02 · Issue: [#3632](https://github.com/smithersai/smithers/issues/3632)
 Spec: spec.md §9.3.9, §10.7.3 · Delta: delta.md §4 · Product: mvp.md §6.8 External changes, J3.4
 
 ## Goal
@@ -13,7 +13,7 @@ In:
 - Outside-change notes for the active coding run on the changed branch, coalesced within one turn by actor and file. Preserve participant attribution (M-34).
 
 Out:
-- Digest checks (T-COL-07), watcher attribution (T-COL-04) and app-agent notes.
+- Digest checks (T-COL-10), watcher attribution (T-COL-04) and app-agent notes.
 
 ## Changes
 

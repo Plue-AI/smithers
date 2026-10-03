@@ -1,6 +1,6 @@
 # T-STK-16 Pre-approved TODOs merge when ready (M-39)
 
-Stage S1 · Size M · Depends on T-STK-04, T-GH-09, T-ACC-05, T-STK-01 · Unblocks T-REL-02 · Issue: [#3641](https://github.com/smithersai/smithers/issues/3641)
+Stage S1 · Size M · Depends on T-STK-04, T-GH-09, T-APP-04 (confirmations), T-STK-01 · Unblocks T-REL-02 · Issue: [#3641](https://github.com/smithersai/smithers/issues/3641)
 Spec: spec.md §2 rule 6, §3, §6.1, §10.6.2, §15.1.5 · Delta: none (M-39 addition) · Product: mvp.md M-39 (Will, 2026-10-02; product commit c6b76339), M-05, §2 rule 6, Appendix B.4
 
 ## Goal

@@ -1,6 +1,6 @@
 # T-MNT-01 Gate maintainer admission and expose passive incoming items
 
-Stage M · Size S · Depends on T-CAT-01, T-CUT-03, T-ACC-05, T-STK-09, T-GH-02, T-GH-09, T-APP-01, T-APP-19 · Unblocks T-MNT-02, T-MNT-04 · Issue: [#3593](https://github.com/smithersai/smithers/issues/3593)
+Stage M · Size S · Depends on T-CAT-01, T-CUT-03, T-APP-04, T-STK-09, T-GH-02, T-GH-09, T-APP-01, T-APP-19 · Unblocks T-MNT-02, T-MNT-04 · Issue: [#3593](https://github.com/smithersai/smithers/issues/3593)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: none (maintainer extension) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
 
 ## Goal

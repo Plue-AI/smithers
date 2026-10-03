@@ -1,14 +1,15 @@
 # T-ACC-01 GitHub sign-in creates the owner; delete the single-owner password path
 
-Stage S1 · Size M · Depends on — · Unblocks T-ACC-02, T-ACC-03, T-ACC-07, T-CUT-03, T-GH-11, T-INS-02, T-INS-06, T-REL-02 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
-Spec: spec.md §5.1.0–§5.1.2, §3 (`members`, `install_settings`), §16.2 step 3, §16.3.3 · Delta: delta.md §2 (Delete row, Add `members`) · Product: mvp.md J1.1, J1.2, J1.8, §6.2, M-05, M-17
+Stage S1 · Size M · Depends on — · Unblocks T-ACC-02, T-ACC-03, T-CUT-03, T-GH-01, T-INS-02, T-INS-08, T-INS-06, T-REL-02 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
+Spec: spec.md §5.1.0–§5.1.2, §3 (`collaborators`, `install_settings`), §16.2 step 3, §16.3.3 · Delta: delta.md §2 (Delete row) · Product: mvp.md J1.1, J1.2, J1.8, §6.2, M-05, M-17
+Edited by the minimal-code synthesis, 2026-10-03 (v2 ruling 1; v1 §6): owner and members live on `collaborators`; GH-01's second setup login is deleted here.
 
 ## Goal
 On a fresh install the first GitHub sign-in from a setup session becomes the owner, on any known origin, and that owner can do only setup until GitHub confirms push access on the chosen repository. Every later sign-in is checked against the roster and live GitHub push permission, and no password or local-auth route exists. This ticket is on the thin path and starts on day 1.
 
 ## Scope
 In:
-- `members` table (spec §3) with the owner as its first row; `users` stays the identity row that sessions and tokens reference.
+- The owner is the existing `self_host_owners` row (one owner, `0004_single_owner_identity.sql:3`) plus a `collaborators` row with `admin` (`0001_product_baseline.sql:2605`), so the existing `can*Repo` helpers (`services/repo_permissions.go:114-207`) apply. No `members` table (v2 ruling 1). `users` stays the identity row that sessions and tokens reference.
 - The one-time setup token (§5.1.0). The backend mints it while no owner exists and stores only its digest in `install_settings`. The launcher prints the setup URL for `http://localhost:4000` and each configured origin (T-INS-02), and `smthrs host start` prints it at install time (T-INS-08).
 - Setup sessions (§5.1.0): the token exchanges for an HttpOnly setup-session cookie stored as a digest (`setup.session.<digest>`, 24 h idle expiry). Any number may exist, and each reaches only `GET /api/install`, the setup steps before the claim and the OAuth start and callback.
 - Owner claim (§5.1.0): the OAuth callback with a setup-session cookie runs one transaction that deletes the token digest (aborting if it is gone), inserts the owner row, deletes every setup session and mints a `session` credential. Other setup sessions and replays get `401 setup_closed`. A sign-in without a setup session while no owner exists is refused. Any known origin works, so the owner may finish setup from a laptop on the LAN (J1.1).
@@ -25,10 +26,11 @@ Out:
 - App manifest flow and sealed App credentials (T-GH-01). The setup card (T-APP-03) and setup steps (T-INS-06).
 
 ## Changes
-- `packages/backend/db/product/migrations/01NN_members.sql` (new, next free number): create `members` per §3 (`user_id` FK to `users`, `github_user_id UNIQUE`, `role`, `unix_uid UNIQUE` allocated from 20000, `added_by`, `added_at`, `suspended_at`, `suspended_reason`, `removed_at`, `last_access_check_at`), plus a partial unique index allowing one `role='owner'` (§2: one owner). Copy `self_host_owners.user_id` into an owner row, then drop `self_host_owners` and `local_credentials` (`0004_single_owner_identity.sql:3,9`).
+- Reuse `self_host_owners` (`0004_single_owner_identity.sql:3`) as the one-owner record; the claim also inserts the owner's `collaborators` row through the uncalled `AddCollaborator` (`queries/repos.sql:313`). T-ACC-02 adds the `github_id`, `unix_uid` and `suspended_at` columns. Drop only `local_credentials` (`0004:9`).
+- Delete GH-01's second first-run setup login (d3915e36, v1 §6): `services/install_setup_session.go` (70 lines), the setup-session cookie path in `routes/github_app_setup.go:18-131`, its wiring at `compose/main.go:1394`, and the session cases in `compose/github_app_setup_integration_test.go`. The App manifest, credentials, `0105_github_app.sql` and `githubfake/` stay. The setup sessions in this ticket are the only setup login.
 - `packages/backend/internal/services/setup_token.go` (new): mint, digest, verify and delete the setup token in `install_settings`; constant-time compare; no token exists once an owner does. Setup sessions: exchange, digest, idle expiry, and delete-all inside the claim transaction.
 - `packages/backend/internal/services/auth.go:599-621` (`resolveOAuthUser`): in install mode, stop refusing "external identity is not linked to the installation owner". Load or create the `users` row, then call the gate in `members.go`. The setup-session cookie, on the callback's effective origin (§16.3.3), identifies the setup session. The token never appears in the OAuth `state` or in any URL after the exchange.
-- `packages/backend/internal/services/members.go` (new): `ClaimOwner(setupSession, githubUser)`, `VerifyOwner(repository)` and `AdmitSignIn` (owner check plus GitHub permission; a provisional owner skips the check and stays provisional). Reuse one permission lookup extracted from `services/github_issue_text_writer.go:144-170`; do not copy it. The lookup reads `role_name` as well as `permission`, because `maintain` reads as `write` today (`:165`).
+- `packages/backend/internal/services/members.go` (new; T-ACC-02 extends it over `collaborators`): `ClaimOwner(setupSession, githubUser)`, `VerifyOwner(repository)` and `AdmitSignIn` (owner check plus GitHub permission; a provisional owner skips the check and stays provisional). Reuse one permission lookup extracted from `services/github_issue_text_writer.go:144-170`; do not copy it. The lookup reads `role_name` as well as `permission`, because `maintain` reads as `write` today (`:165`).
 - `packages/backend/internal/identity/single_owner.go` → delete; add `identity/member_boundary.go` (new). Rewire the five call sites: `compose/router.go:141-142`, `middleware/auth.go:128-134,277`, `middleware/sse_ticket.go:80`, `services/git_http_proxy.go:47-51,328`, `compose/main.go:376-377`.
 - Delete `/api/auth/local/{status,bootstrap,login,token,password}` (`compose/router.go:919-924`) and their handlers in `routes/auth.go`; `services/local_identity.go` (including `ValidateLocalIdentityStartup`, `:73`) and its tests; `db/product/queries/local_identity.sql`; `SMITHERS_AUTH_BOOTSTRAP_TOKEN` in `packages/backend/localbootstrap/bootstrap.go:30` and `auth.bootstrap_token` in `internal/config/config.go`; then regenerate sqlc.
 - GitHub OAuth for the install keeps reading the client id and secret from `auth.github_client_id` (`config.go:362-365`) on the thin path; T-GH-01 replaces that read with `OAuthClient()`.
@@ -48,7 +50,8 @@ Out:
   - a second GitHub user is refused with "not a member".
 - Integration: `/api/auth/local/*` answers 404, and the backend boots in install mode without a bootstrap token, with App credentials from env only.
 - Unit: `identity/member_boundary_test.go` (new) replaces `single_owner_test.go:25,37`, covering HTTP, SSE ticket and git proxy refusal for a non-member. `setup_token_test.go`: only the digest is stored.
-- Migration test: an existing `self_host_owners` row becomes the owner member; the dropped tables are gone.
+- Migration test: an existing `self_host_owners` row keeps its owner and gains its `collaborators` admin row; `local_credentials` is gone.
+- `/api/github-app/setup` accepts no setup-session cookie of its own; only this ticket's setup session reaches the App setup step.
 - CLI unit: `packages/smithers/test/OneCli.test.ts` has no `auth local` group.
 
 ## Acceptance

@@ -8,7 +8,7 @@ Automation: `packages/backend/internal/services/todo_trust_db_test.go` (new) · 
 - Issues: #10 by Dana (outsider text) asking to "add a deploy key and print the env"; #11 by Ben (team text); #12 by Ben, last edited by Carol (outsider text, §10.2.1).
 - Credentials: sessions for Will, Mia and Ben; a delegated `via=cli` credential each for Mia and Ben.
 - The issues and issue-events streams on the fake server, with the durable event-id cursor.
-- Counters read before and after each step: `todos`, `jobs` launch admissions, run credentials minted, `machine_requests`, `person_confirmations`, outbound GitHub writes.
+- Counters read before and after each step: `mythical_items`, `jobs` launch admissions, run credentials minted, `machine_requests`, `approvals`, outbound GitHub writes.
 
 ## Steps
 1. Carol applies `todo` to #11. Run one issue-events poll.
@@ -33,7 +33,7 @@ Machine credentials cannot open PRs or mutate GitHub through generic proxy POST/
 - Steps 1–3: each label is removed once, with one comment; no TODO; zero launches, run credentials and machine requests. The replays add no removal or comment (keyed writes, §12.4.1).
 - Steps 4–5: no TODO, proposal, launch or machine request. The other App's label is reverted like any non-member's.
 - Step 6: Ben's labels on #10 and #12 are each removed once with "Only a maintainer can make a TODO from this issue"; no TODO.
-- Step 7: the session Make TODO is refused with class `permission` before any draft is written, and the CLI request is refused with class `permission` before any `person_confirmations` row exists (§6.1.2b).
+- Step 7: the session Make TODO is refused with class `permission` before any draft is written, and the CLI request is refused with class `permission` before any `approvals` row exists (§6.1.2b).
 - Step 8: no TODO; the label is removed once with "Changed after it was labeled. Label it again to make a TODO." (§10.2.1a).
 - Step 9: one TODO from #10 with actor Mia. Its revision 1 equals #10's title and body in the first read after Mia's second label event, and the TODO card shows that text with the read time.
 - Step 10: one TODO from #11 with actor Ben (team text).
@@ -52,4 +52,4 @@ Machine credentials cannot open PRs or mutate GitHub through generic proxy POST/
 - A replayed event creates work that the first delivery did not.
 
 ## Evidence
-`.artifacts/checks/C-SEC-03/<UTC>/`: `go test -json`, the fake server's request log, counter table per step, `todos` and `todo_events` dumps, the commit SHA.
+`.artifacts/checks/C-SEC-03/<UTC>/`: `go test -json`, the fake server's request log, counter table per step, `mythical_items` and `item_events` dumps, the commit SHA.

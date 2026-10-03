@@ -1,270 +1,210 @@
 # From main to the MVP spec
 
-Status: draft v0.4 by the engineering agent (smithers-8a), 2026-10-02, against `main` at `c04637a6f7`, for mvp.md v2.6. Rows tagged [S1]/[S2]/[S3] follow the build stages in spec.md §0. Deferred behavior (spec.md §0 [D]) has no rows here. For each subsystem: what exists, what the [spec](spec.md) requires, and the change list (Keep, Modify, Add, Delete, Restore). The evidence behind every path is in [research/](research/). Tickets in [tickets/](tickets/) implement these deltas.
+Status: draft v0.5, 2026-10-03, against `main` at `383f82f40e`, for mvp.md v2.6. It applies minimal-code synthesis v1 and v2 (`~/Smithers-Ops/Areas/minimal-spec-20261003/SYNTHESIS-v1.md`, `SYNTHESIS-v2.md`) and starts from the Astra classification of the 51 old Add rows (4 exist, 29 small, 1 restore, 17 new). This is the build plan for [spec.md](spec.md); the spec states behavior. Rows tagged [S1]/[S2]/[S3]/[R] follow the stages in spec.md §0. Deferred behavior has no rows. Existing code is not release evidence: tickets still owe their named checks. Product decisions that wait for Will are listed in §12 and change no row here.
 
-Paths: `B/` = `packages/backend/internal/`, `MV/` = `apps/app/src/mainview/`, `F/` = `flows/`.
+Paths: `B/` = `packages/backend/internal/`, `P/` = `packages/backend/microsandbox/`, `MV/` = `apps/app/src/mainview/`, `F/` = `flows/`, `UI/` = `packages/smithers/ui/src/`. Restore sources: `5b77095672` is the parent of `39e43c0fe` (MVP cut #3385); `a73a77de36` is the parent of `2753d2e3d` (second cut #3404); `06a13ab4ee` is the parent of `35ec608f6`.
 
 ## 0. Summary
 
+Build rule (Will): use as is, then re-enable, then restore deleted code, then reshape existing code, then write new code. Restored code is not new code. One implementation per behavior. No abstraction with fewer than two real users.
+
+| Class | Meaning |
+| --- | --- |
+| Reuse | Existing code serves as is. The ticket wires or qualifies it. |
+| Enable | Existing code that is unwired, unused or off is turned on. |
+| Restore | Code recovered from a named commit, then adapted. |
+| Reshape | Existing code changes; the row names what the change deletes. |
+| Net new | New code; the row names the existing or deleted code considered and why it cannot serve. |
+| Delete | A revert or removal with no replacement behavior, citing the commit. |
+
+Rows per class: Reuse 10, Enable 6, Restore 6, Reshape 63, Net new 8, Delete 8 (101 rows).
+
 ```
- Subsystem                     Today                                     Distance   Tickets
- ───────────────────────────── ───────────────────────────────────────── ────────── ─────────
- Install / package / HTTPS     dev launcher, loopback only, no package   M-L        T-INS-*
- Identity / roles / creds      single owner, password, PAT = person      L          T-ACC-*
- Machines / admission          per-user workspaces, cap 3, no queue      L          T-MCH-*
- machined / live docs          bash head loop, no watcher, wiki POST+SSE L (new)    T-COL-*
- Terminals / SSH               multi-viewer, single user, SSH unwired    M          T-TRM-*
- Stack / TODO                  issue-keyed items, 15 states, PR→main     L          T-STK-*
- GitHub sync                   App via env, 5/15 min polls, no ETag      M          T-GH-*
- Flows / versions / learning   pinning exists, no activation, no learn   M          T-FLW-*
- App shell / cards / catalog   ~267 commands, two catalogs, no TODO card L          T-APP-*, T-CAT-*
- Cuts / docs                   five-job UI, admin, billing still served  M          T-CUT-*, T-DOC-*
+ Subsystem                     Today (383f82f40e)                         Distance  Tickets
+ ───────────────────────────── ────────────────────────────────────────── ───────── ─────────
+ Install / package / HTTPS     host profile, toolchains, App manifest      M         T-INS-*
+                               landed; no bundle, no launchd, loopback
+ Identity / roles / creds      single password owner, PAT = person         M         T-ACC-*
+ Machines / admission          per-user workspaces, cap 3, untyped refusal M         T-MCH-*
+ machined / live layer         bash head loop, LiveChannel.ts unwired      L (new)   T-COL-*
+ Terminals / SSH               multi-viewer, one guest user, SSH unwired   M         T-TRM-*
+ Stack / TODO                  mythical_items keyed by issue, PR to main   M         T-STK-*
+ GitHub sync                   manifest + sealed App, 7 token minters      M         T-GH-*
+ Flows / versions / learning   run pinning exists, no activation, no learn M         T-FLW-*
+ App shell / cards / catalog   Views landed unmounted beside old cards     M         T-APP-*, T-CAT-*
+ Cuts / docs / landed reworks  five-job UI cut; harnesses and twins landed S         T-CUT-*, T-DOC-*
 ```
 
-What carries over unchanged and is load-bearing:
-- the durable flow engine (`@smthrs/flow`, journal, replay, fault suite);
-- the Go↔TS runtime bridge (`flowdispatch`, `smithers.flow-runtime/v1`);
-- the Mythical stack worker and its git machinery (`B/services/mythical*.go`);
-- microVMs via `msb` 0.6.16, with layers, fork and cold snapshots;
-- terminal multi-viewer with ring replay;
-- the secrets store (AES-GCM, main-only, egress binding);
-- the D-23 revision-bound approval gate;
-- webhook verification and the job queue;
-- the wiki (pages, revisions, Yrs merge, navigation index, folder sync);
-- the app's card registry, flow registry, toasts and Jev selection.
+Load-bearing code carried over unchanged: the durable flow engine (`@smthrs/flow`, journal, replay, fault suite); the Go and TS runtime bridge (`flowdispatch`, `smithers.flow-runtime/v1`); the Mythical stack worker and its git machinery (`B/services/mythical*.go`); microVMs via `msb` with layers, fork and cold snapshots; terminal multi-viewer with ring replay; the sealed secrets store; the D-23 revision-bound approval gate; webhook verification and the job queue; the wiki (pages, revisions, Yrs merge, folder sync); the app card registry, flow registry, toasts and Jev selection.
+
+The first merge (C-J1-04) needs 18 tickets: T-INS-01, -02, -03, -04, -06, -08; T-ACC-01, -02, -04; T-GH-01 (rework); T-STK-01, -04; T-APP-01, -02, -03, -04; T-FLW-08. The rest of stage 1 stays in stage 1 and stops blocking it (`tickets/README.md`).
 
 ## 1. Install, runtime, HTTPS
 
-Today (`research/install-runtime.md`):
-- `pnpm dev` → `apps/app/src/bun/serve.ts` → `NativeBackendProcess.ts` spawns `smithers-backend` + PG 18 on `127.0.0.1:4000`.
-- `localOrigin()` (`NativeBackendProcess.ts:74`) rejects non-loopback origins.
-- The env allowlist (`:62-72`) drops `SMITHERS_WORKSPACE_ISOLATION`, the platform keys, the GitHub settings and feature flags.
-- No producer exists for `apps/app/bin/` or `postgres/`, since `39e43c0fe4` deleted `build-native.ts`.
-- Upgrade (`distribution/upgrade.sh`) is Docker-only.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Restore→rewrite | Recover the bundling stages of `apps/app/scripts/build-native.ts` from parent `5b77095672`: node, git, jj, smithers-ffi, hosts, `bundlePostgres`, packaged smoke tests. Drop Electrobun, CEF, `NativeRendererServer.ts` and `DeepLink.ts`. Emit a Homebrew bottle layout plus `msb`/libkrun and the guest rootfs. | §16.1 |
-| Add [S1, R] | `smthrs host start|stop|status` [S1] (T-INS-08, C-INS-06) and `smthrs host upgrade|backup|restore` [R] (T-INS-07, C-REL-03, C-REL-06); `up` and `status` already mean other things (`packages/smithers/src/Verb.ts:87`). T-INS-08 owns the launchd plist; T-INS-05 owns the formula in a `smithersai/homebrew-tap` repository. | §16 |
-| Modify [S1] | `NativeBackendProcess.ts`: pass `SMITHERS_WORKSPACE_ISOLATION=microvm`, `SMITHERS_MICROSANDBOX_BIN` and the bind/public-origin settings from owner config, not the shell. GitHub App credentials are not launcher settings: they live sealed in PostgreSQL (`github_app`, spec §3) (today's allowlist at `:62-72` drops them). Loopback binding is unchanged. Extend the `backend-child-env` security entry in `apps/app/PACKAGE.ts:259-266` and its tests for the new variables. | §1.3, §16.3 |
-| Modify [S1] | Origin-agnostic serving: loopback by default; owner-set bind address and public origins (Settings, applied live) feed `SMITHERS_SERVER_ADDR`, `SMITHERS_PUBLIC_URL` and `SMITHERS_SERVER_ALLOWED_ORIGINS` (`B/config/config.go:244-251`, `:470`). `localOrigin()` (`NativeBackendProcess.ts:74`) accepts the configured bind; update its `PACKAGE.ts:259-266` security entry so a non-loopback bind is allowed only from owner config. One effective origin per request sets cookies, Origin checks and the OAuth callback (spec §16.3.3, C-INS-03). No TLS code and no Tailscale code. | §1.4, §16.3, M-28 |
-| Modify [S1] | Insecure-context support: one `getRandomValues` UUID helper replaces `crypto.randomUUID()` in 34 app files, with a lint ban; replace the single `crypto.subtle` use; clipboard `execCommand` fallback. | §16.3.2 |
-| Add [S1] | Host profile (`hw.memsize`, performance cores, free disk) drives capacity, VM memory, vCPUs and layer budget (`apps/backend/isolation.go:microVMConfig`, `microsandbox/runtime.go:222-240`, `layers.go:92-100`). | §8.2.1 |
-| Modify | `apps/backend/isolation.go`: microvm is the only mode on the Mac install; `process` remains for tests only. Refuse to start without msb. | §1.3 |
-| Add [S1] | The setup card's backend: durable setup steps and an `/api/install` resource (App, repository, squash-merge check, model access, mirror, first image). Model keys are set through the API into sealed owner secrets (`modelhost/owner_secrets.go`), replacing the `SMITHERS_PLATFORM_MODEL_KEYS_FILE` path for the Mac install. | §16.2 |
-| Modify [S1] | Setup order (spec §16.2): setup-link session → Address → which account owns the repository → App via manifest → owner GitHub sign-in completes the claim → repository and App install → three model roles (`fast`, `coding`, `jev`) → squash check → Source ready → Machine ready. Enable the ChatGPT subscription pool on the Mac install behind the owner setting (`config.go:172-182` flag today). | §16.2, §11.5a |
-| Add [S1] | `toolchains.json`: a pinned toolchain manifest (version → URL → SHA-256) shipped in the bundle. | §8.6.2a |
-| Restore [S1] | Owner-only model configuration from `5b77095672`: `model.*` entries and `ModelCards.tsx`, without the model laboratory (`ModelCallCard.tsx`, `controller/modelCall.ts` stay deleted). | §11.5a |
-| Add | `smthrs host upgrade`: quiesce, capture, `pg_dump` + `cp -c` clone, brew upgrade, migrate, health, restore hint. Reuse checks from `distribution/lib.sh`. Write `version.env` at first boot. | §16.4 |
-| Delete [R] | The Docker self-host image and its scripts (`distribution/Dockerfile`, `entrypoint.sh`, Docker `backup.sh`/`restore.sh`/`upgrade.sh`, `apps/app/scripts/mode-matrix/docker-web-selfhost.ts`, the CI image build). Nothing consumes it and it was never published (#2481). Decided by the tech lead 2026-10-02 (T-INS-05). | AGENTS.md, §16.1.0 |
-| Modify | Docs: `docs/architecture/self-host-implementation.md` and ADR 0001 single-owner/`trusted_process` statements are superseded for the MVP edition. Write ADR 0002 "Mac install: multi-member, microVM-only" (T-DOC-02). | §1 |
+| Restore [S1] | Recover `apps/app/scripts/build-native.ts` and `build-native.test.ts` from `5b77095672`: Node, Git, jj, smithers-ffi, hosts and packaged smoke stages. Drop Electrobun, CEF, `NativeRendererServer.ts` and `DeepLink.ts` stages. PostgreSQL comes from `brew --prefix` (E-01), so the bundled-PostgreSQL stage stays out. Also recover the setup and build steps of the `native-mode-matrix` job in `.github/workflows/release.yml` from the same parent (about 35 lines). Emit the bottle layout plus `msb`/libkrun and the guest rootfs. | T-INS-01; §16.1 |
+| Restore [S1] | Recover the launchd service code `F/organization/setup/service.ts` (297 lines, plist writer and launchctl adapter) from `06a13ab4ee`, deleted in `35ec608f6`. Adapt it to `smthrs host start`, `stop` and `status` and the setup handoff. `apps/app/src/bun/NativeBackendProcess.ts` stays the backend and PostgreSQL supervisor; no second supervisor. T-ACC-07 and T-INS-09 merge here. | T-INS-08; §16 |
+| Reshape [S1] | `NativeBackendProcess.ts`: pass `SMITHERS_WORKSPACE_ISOLATION=microvm`, `SMITHERS_MICROSANDBOX_BIN` and bind/public-origin settings from owner config. Delete the loopback-only rejection in `localOrigin()` (`:74`) once configured serving replaces it. GitHub App credentials stay sealed in PostgreSQL. Update the `backend-child-env` entry in `apps/app/PACKAGE.ts` and its tests in the same change. | T-INS-02, T-INS-04; §1.3, §16.3 |
+| Reshape [S1] | Origin-agnostic serving: loopback by default; the owner sets bind address and public origins in Settings, feeding `SMITHERS_SERVER_ADDR`, `SMITHERS_PUBLIC_URL` and `SMITHERS_SERVER_ALLOWED_ORIGINS` (`B/config/config.go`). One effective origin per request sets cookies, Origin checks and the OAuth callback. No TLS or Tailscale code. A bind change restarts the service (E-13). | T-INS-04; §1.4, §16.3, M-28 |
+| Reshape [S1] | Insecure-context support: one `getRandomValues` UUID helper replaces direct `crypto.randomUUID()` calls, with a lint ban; replace the one `crypto.subtle` use; one clipboard helper with an `execCommand` fallback. Delete the direct call sites. | T-INS-04; §16.3.2 |
+| Reshape [S1] | `apps/backend/isolation.go`: microvm is the only mode on the Mac install; `process` stays for tests. Refuse to start without msb. | T-INS-02; §1.3 |
+| Reuse [S1] | Host profile and sizing: `P/hostprofile.go:66` probes memory, performance cores and free disk; `:126` sizes; `apps/backend/isolation.go` applies it; `B/services/install_capacity.go:60` clamps owner overrides (landed `56c3fb2f4`). T-MCH-01 is qualification only. | T-MCH-01; §8.2 |
+| Reshape [S1] | Host-profile readers 3 → 1: consumers read the Go profile through install health. Delete the hardware receipt probe in `apps/app/e2e/playwright/view-stories.spec.ts:623`; the ops-health-line parser goes with `scripts/checks/run-check.mjs` (§11). Keep `packages/testing/src/HostSuite.ts`, a runtime-capability contract, not a hardware reader. | T-MCH-01, T-INS-08; §8.2 |
+| Reuse [S1] | Pinned toolchains: `P/toolchains.go` embeds and verifies the manifest (version, URL, SHA-256). No separate shipped `toolchains.json` loader. | T-MCH-10; §8.6.2a |
+| Net new [S1] | Durable setup sequence and install projection: setup link, Address, repository account, App, owner claim, repository and App install, three model roles, squash check, Source ready, Machine ready, resumable after restart. Considered `B/services/github_app_manifest.go` (App exchange only), `B/services/install_setup_session.go` (session exchange; deleted in the T-ACC-01 merge) and `B/services/install_machine_ready.go` (zero callers; deleted, §11). None sequences or resumes the steps. Reuse the manifest helpers. Status lives on `GET/PUT /api/install`. | T-INS-06; §16.2 |
+| Reshape [S1] | Model keys 3 stores → 1: the API writes keys into sealed owner secrets (`packages/backend/modelhost/owner_secrets.go:26`). Delete the keys-file store (`SMITHERS_PLATFORM_MODEL_KEYS_FILE`, `packages/backend/modelproxy/keys.go`) and the keychain reader `apps/app/src/bun/ModelCredentials.ts`. | T-INS-06; §11.5a, §16.2 |
+| Enable [S1] | The ChatGPT subscription pool on the Mac install, behind the owner setting (`SubscriptionConnections`, `B/config/config.go:172`). | T-INS-06; §11.5a |
+| Reshape [R] | `smthrs host upgrade`, `backup`, `restore`: port the manifest, PG-major and schema guards, the incomplete-upgrade marker and `version.env` from `distribution/upgrade.sh:10`, `backup.sh`, `restore.sh` and `lib.sh:79` into the Mac lifecycle; add quiesce, capture, `pg_dump` plus `cp -c` clone, brew upgrade, migrate, health and restore hint. Then delete `distribution/Dockerfile`, `entrypoint.sh`, the Docker lifecycle scripts, `apps/app/scripts/mode-matrix/docker-web-selfhost.ts` and the CI image build (never published, #2481). One upgrade implementation. | T-INS-07, T-INS-05; §16.1, §16.4 |
 
 ## 2. Identity, roles, credentials
 
-Today (`research/identity-access.md`):
-- Self-host is one password owner (`B/services/local_identity.go:123`, `self_host_owners` singleton), enforced by `B/identity/single_owner.go:40` on HTTP, SSE and git.
-- GitHub OAuth only re-links to the owner (`B/services/auth.go:599-621`).
-- Permission is a local ACL (`B/services/repo_permissions.go`).
-- `smthrs login` mints a person PAT with `write:approval` (`packages/smithers/src/internal/backend/Auth.ts:268`).
-- `RequirePerson` refuses run credentials and agent accounts only (`B/middleware/run_credential.go`).
-- The revocation bus exists (`B/revocation/event.go`).
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Delete | `self_host_owners` singleton semantics, `SingleOwnerBoundary` and the `/api/orgs*` 404 middleware for self-host; the local password owner path (`/api/auth/local/*`, `local_credentials`, the bootstrap token gate) once GitHub sign-in owns first boot. The owner is created by the first GitHub sign-in from a setup session opened with the one-time setup token printed by `smthrs host start`, and stays provisional until GitHub confirms push (spec §5.1.0, C-SEC-04). | §5.1, M-17 |
-| Add | `members` table and service (§3); `/api/members`; sign-in check (roster ∧ GitHub push permission via `GET /collaborators/{login}/permission`, reuse the `/collaborators/{login}/permission` call at `B/services/github_issue_text_writer.go:161`); hourly re-check job; role seeding. | §5.1 |
-| Modify | `repo_permissions.go` → one `Authorize(credential, action, subject)` over the §5.2 matrix. Owner = installer, Maintainer = admin, Member = write. Gate secrets, merge, triggers and settings. | §5.2 |
-| Add | Credential kind `delegated` with a `via` field (migration on `access_tokens`), `TokenCredentialKind` mapping (`run_credential.go:66`), `RequirePerson` refusing it. `/api/auth/github/cli` mints `delegated(via=cli|<agent>)`. | §5.3 |
-| Add | `person_confirmations` + `/api/confirmations` (session-only approve); the app's Confirm card; CLI `/merge` creates a confirmation. | §5.4 |
-| Add | Actor `via` on audit events (`B/services/audit.go:49`), activity, presence, todo_events. | §2, §6.4 |
-| Modify | Member removal publishes `collaborator_removed` on the revocation bus and deletes sessions, PATs and SSH grants (`B/revocation/*`). | §5.6 |
-| Restore (reference) | Closed-alpha roster (`88d42515d2`): add/list/remove semantics only. Write new code; do not restore the tables. | §5.1 |
+| Reuse [S1] | `RejectTenantProvisioning` in `B/middleware/single_owner.go:20` keeps `/api/orgs*` and `/api/admin/orgs*` at 404 on self-host (`:23`). The install is not a tenant service. | T-ACC-01; §5.1 |
+| Reshape [S1] | First GitHub sign-in from the one-time setup session creates the provisional owner; GitHub push access confirms the claim. Delete the local password owner (`/api/auth/local/*`, `local_credentials`, the bootstrap token gate), `self_host_owners` singleton semantics, `SingleOwnerBoundary` and `B/services/install_setup_session.go` (duplicate first-run login, landed with T-GH-01). | T-ACC-01; §5.1.0 |
+| Reshape [S1] | Members are the existing `collaborators` table (`db/product/migrations/0001_product_baseline.sql:2605`) plus three columns: GitHub id, unix uid, `suspended_at`. Use the uncalled `AddCollaborator` query (`B/db/repos.sql.go:27`). Copy only the last-owner `FOR UPDATE` lock from `B/services/org.go`. Sign-in and hourly checks reuse the collaborator-permission call at `B/services/github_issue_text_writer.go:161`. No `members` table; no `org_members`. | T-ACC-02 (+ T-ACC-06, T-TRM-04); §5.1 |
+| Reshape [S1] | `B/services/repo_permissions.go` becomes one `Authorize(credential, action, subject)` over the §5.2 matrix: Owner = installer, Maintainer = admin, Member = write. Delete parallel role checks. | T-ACC-03; §5.2 |
+| Reshape [S1] | Delegated credentials (E-09): a non-system PAT in install mode plus `via`, on `access_tokens`; classify in `B/middleware/run_credential.go:66`; `RequirePerson` refuses it. `/api/auth/github/cli` mints `via=cli`. No `credentials` table. Delete person-PAT issuance for delegated callers. | T-ACC-04; §5.3 |
+| Reshape [S1] | Actor and `via` on audit events (`B/services/audit.go:24`), activity and item events, derived from the credential. Actor, via and role enums 3 → 1 each in `packages/rpc/src/CardPrimitives.ts`; `MembersCard.ts` imports the role enum. | T-ACC-04; §2 |
+| Reshape [S1] | Person confirmations use the existing `approvals` table with kinds `one_click` and `review_merge`, a private requester audience and a catalog action plus revision binding. Reuse the pending-row CAS (`db/product/queries/approvals.sql:42`). No `person_confirmations` table. The Confirm card reuses `ConfirmView`. T-APP-04 merges here. | T-ACC-05; §5.4 |
+| Reshape [S1] | Removal or suspension publishes on the revocation bus (`B/revocation/event.go`) and deletes sessions, PATs, SSH grants and branch access in one transaction. Delete partial removal paths. | T-ACC-06; §5.6 |
+| Restore [S2] | Shared-access revocation race tests from `a73a77de36`: `pair_desktop_revocation_transaction_test.go:109`, `pair_mutation_authority_test.go`, `pair_queue_revocation_test.go`, plus `workspace_desktop_share_revocation_integration_test.go:19` from `5b77095672`. Keep only the race and authority assertions, adapted to branch access. The closed-alpha roster (`88d42515d`) is not restored. | T-ACC-06; §5.6 |
 
 ## 3. Machines, admission, images
 
-Today (`research/workspaces-machines.md`):
-- Workspace identity is `(repo, user, kind, bookmark, name)` (`0095_workspace_source_commit.sql:10-12 (re-created from 0084)`).
-- The agent path inserts its own `kind=agent` row (`B/services/workspace_agent.go:111-190`).
-- Cap: `MaxRunningVMs=3`, with an untyped refusal (`microsandbox/runtime.go:533-541`).
-- Owners wake machines on reads (`workspace_facets.go:459-466`).
-- Fork stops the source and copies its disk (`workspace_runtime.go:502-675`).
-- Disk reclaim has no capture step (`workspace_disk_reclaim.go`).
-- Layers refuse without `.smithers/target-index.json` (`microsandbox/layers.go:565`).
-- Branch locks are a separate service with no app consumer.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Modify | Identity: add `branches` + `machines` (§3) as the product model. A workspace row becomes the machine's runtime record, owned by the install system user. Drop `user_id` from the active-identity index (`uq_workspaces_active`, last re-created in `0095_workspace_source_commit.sql:10-12`); move `agent_session_id` uniqueness to a join table; stop counting machines in `enforce_workspace_user_quota`. The agent path attaches to the branch's machine instead of inserting `kind=agent`. | §8.1 |
-| Delete | Branch locks: `B/services/branch_lock.go`, 6 routes (`B/compose/router.go:1387-1399`), `branch_locks` + `branch_lock_join_requests` (drop migration), sqlc queries, `AuthorizeBranchLockJoin` on billing/admission, notification kind, error code, `ProductApi.ts` types, OpenAPI paths, 11 test files. | M-17 |
-| Add | Admission scheduler (`machine_requests`, classes, positions, safe-idle release) in front of `admitRunningLocked` and `CreateAgentWorkspace`. A typed `capacity` error replaces `fmt.Errorf("microVM capacity reached")`. | §8.3 |
-| Modify | Capacity from `hw.memsize` in `apps/backend/isolation.go:microVMConfig`. | §8.2 |
-| Modify | Reads of asleep branches serve from `refs/smithers/branches/<id>/head` in the host repo store; `ListWorkspaceFiles`/`ReadWorkspaceFile` never wake. | §8.4.4 |
-| Modify | Sleep/stop: final capture first (flush, snapshot, push head, verify). Replace the 2 s/30 s bash head loop (`B/services/workspace_head.go:52-171`) with `smithers-machined` capture. | §8.4.3, §9 |
-| Modify | Fork: from a captured revision; never stop the source (`workspace_runtime.go:547-560` stop-snapshot-resume is replaced by "capture, then create from revision"). | §8.5 |
-| Modify | Cleanup: delete only when the TODO is settled, captured and quiet for 24 h; replace `kind=agent` 24 h reclaim. | §8.12 |
-| Add | Toolchain detector (port `packages/smithers/src/suggest/Checklist.ts:174-226` logic to Go) emitting a recipe that `dependencyRecipe` (`layers.go:914`) consumes when no target index exists; `.smithers/machine.json` `packages[]`. | §8.6 |
-| Add [S1] | Fork, Add to stack and Rebase now as stage-1 system flows over today's workspaces (fork from `main` or an item's last verified head; Add to stack renames the scratch branch into the item branch and seeds the TODO with the forked item's change plus the scratch edits, which a drop of that item keeps). Stage 2 adds capture-first forks from any branch. | §8.5 |
-| Add [S2] | Per-member unix users (`smithers-guest.py setup USER UID` and `EnsureUser` exist, unused), `team` group, no sudo in the image, per-machine homes on the machine's disk with no virtiofs (spike T-MCH-02: shared homes lost data), with tool logins that persist locally across sleep and wake and no token copying (C-MCH-10); the synced credential store is deferred to product §16. Terminals and SSH sessions move from `msb exec -t` as the guest's single user (uid 1500, `microsandbox/runtime.go:50-51`) to daemon-owned sessions as each member's uid; the guest runs no sshd. | §5.5, §8.7, §8.10.3, §8.11 |
-| Modify [S2] | Secrets reach machines: all-branches secrets → `/run/smithers/env`, rewritten on change. Confirm today's gap: unbound repo secrets don't reach workspace machines (`workspace_provisioning.go:389-480`). | §8.8 |
-| Hide | `box.facet`, `box.services`, `box.egress`, `box.images` (the Machine view is deferred, spec §0 [D]); the backend facets stay for Plue. | §0 |
+| Reshape [S2] | E-03: members join a lane's workspace through write grants in the existing `workspace_shares`, read by `requireWorkspaceAccess` (`B/services/workspace_access.go:42-110`). No `branches` or `machines` table in S1. In S2 the workspace row is the branch machine's runtime record: drop `user_id` from active identity (`uq_workspaces_active`), move agent-session uniqueness to a join relation, stop per-user quota counting. Workspace creation services 2 → 1: delete the agent-only `kind=agent` path in `B/services/workspace_agent.go:111-190`. | T-MCH-04; §8.1 |
+| Restore [S2] | The workspace-share producer from `a73a77de36`: `ensureWorkspaceShare`, `revokeWorkspaceShare`, `publishWorkspaceShareRevocation` and `pairShareLevelForRole` (`B/services/pair_session.go:150-165`, `:1880-1966`, about 90 lines). Nothing else from Pair. | T-MCH-04; §8.1, M-17 |
+| Reshape [S2] | Delete branch locks: `B/services/branch_lock.go`, its 6 routes, `branch_locks` and `branch_lock_join_requests`, sqlc queries, `AuthorizeBranchLockJoin`, the notification kind, error code, `ProductApi.ts` types, OpenAPI paths and tests. | T-MCH-05; M-17 |
+| Reshape [S1] | Drop the 10 orphan tables in one forward migration: `pair_prompt_queue`, `pair_session_draft`, `pair_session_invites`, `pair_session_links`, `pair_session_members`, `pair_sessions`, `pair_share_links`, `pair_state`, `share_listing_event_cooldowns`, `share_listings`. | T-STK-01; §3 |
+| Reshape [S1] | Admission (E-11): extend `admitRunningLocked` and `MaxRunningVMs` (`P/runtime.go:86-87`, `:533-541`) with the typed `CapacityError` (`P/hostprofile.go:158`) and a people-first FIFO. Delete the untyped `fmt.Errorf("microVM capacity reached")`. Sandbox-start guards 2 → 1: fold billing `AuthorizeSandboxStart` into capacity `ValidateStart`. No `machine_requests` table. | T-MCH-06; §8.3 |
+| Reshape [S1, S2] | Fork, Add to stack and Rebase now as system flows over existing workspace creation (`B/services/workspace_agent.go:122`). S1 forks `main` or an item's last verified head. S2 forks from a captured revision; delete stop-snapshot-resume in `B/services/workspace_runtime.go:547-560`. One fork-to-TODO insertion. | T-MCH-08, T-STK-02, T-STK-08; §8.5 |
+| Reshape [S2] | Reads of sleeping branches serve from `refs/smithers/branches/<id>/head`; delete wake-on-read (`B/services/workspace_facets.go:459-466`). Stop only after final capture. Reclaim only settled, captured TODO machines quiet for 24 h; delete the unguarded `kind=agent` reclaim (`B/services/workspace_disk_reclaim.go:84`) and the proposed-lane release (`B/services/mythical_items.go:1124`). The 5-minute agent idle stop (`B/services/agent_dispatch.go:1125-1128`) never fires on a waiting TODO. Wake before delivering a signal. T-MCH-09 and T-MCH-14 are one policy. | T-MCH-07, T-MCH-09, T-MCH-14; §8.4, §8.12 |
+| Reuse [S1] | Toolchain detection: `P/toolchain_detect.go:63` and the target-index fallback in `P/layers.go:285` (landed `7a5ab6140`). Share signatures with `packages/smithers/src/suggest/Checklist.ts:183` rather than add a third list. Delete the duplicate recipe builder in `P/layers.go` (§11). | T-MCH-10; §8.6 |
+| Reshape [S2] | Per-member unix users: extend trusted provisioning (`P/runtime.go:585`, `P/guest/smithers-guest.py` `setup USER UID`, `EnsureUser`) for member uids, a `team` group and per-machine homes on the machine disk. No sudo, no virtiofs homes, no token copying. Delete member `developer`/`root` grant variants (`B/services/workspace_ssh.go:29`). | T-MCH-11; §5.5, §8.7 |
+| Reshape [S2] | All-branches secrets reach machines through `/run/smithers/env`, rewritten on change (`B/services/workspace_provisioning.go:389-480`). Main-only secrets stay out. | T-MCH-12; §8.8 |
 
-## 4. smithers-machined and live documents (new)
+## 4. smithers-machined and the live layer
 
-Today (`research/collab-terminals-wiki.md`):
-- No in-VM daemon exists. `microsandbox/guest/smithers-guest.py` is a one-shot helper invoked by `msb exec`.
-- No file watcher and no write attribution exist.
-- The wiki "Yjs" path is POST update plus an SSE "refetch" signal (`B/routes/wiki_collaboration.go`), merged by Yrs 0.27.4 through FFI (`crates/smithers-ffi/src/wiki_document.rs`).
-- File writes have no precondition (`PUT /workspaces/{id}/files/content`).
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Add [S2] | `crates/smithers-machined`: Rust, static linux-arm64, a root broker plus an unprivileged daemon (spec §9.5). [S2] inotify watcher with session-based attribution (spec §9.3.1; fanotify deferred) and separate metadata watches, bursts with per-file versions commits, the mutation lock, the durable outbox, capture, moved-off detection and the host connection. [S3] Yrs code documents with a state record saved before each acknowledgment (reuse `yrs =0.27.4` from `crates/smithers-ffi`). Installed into the guest rootfs and started by init before any session. No blob cache or per-entry Undo in the MVP. The MVP's one three-way merge is an outside save into an open live document (spec §9.2.3, S3); the merge3 rule for replaced-edit flags (§9.3.7) stays deferred. | §9 |
-| Add | Host relay: one authenticated multiplexed connection per machine, carried over the existing relay (`microsandbox` `relay` to a guest loopback port, per README "relay carries a byte stream to a guest loopback port"). | §9.1 |
-| Add [S1] | Live channel `/api/live` (WebSocket) in the Go host: topics on the existing broker (`Broker.Subscribe`), projection snapshot+delta with cursors (`projection_events`). [S2] presence map and terminal frames. [S3] Yjs relay. | §7 |
-| Modify [S3] | Wiki co-editing moves onto §7.4 together with code co-editing: the host-owned Yrs doc speaks the Yjs sync protocol over the live channel. Delete `POST .../updates`, the per-page SSE refetch stream and the client's POST queue (the `/updates` POST queue at `MV/wiki/CloudWiki.ts:288`). | §7.4.3 |
-| Add [S1] | ADR 0003 and the §7.6 contracts. The File card moves from the read-only Pierre file view (`@smthrs/ui/adapters/code-view`, `@pierre/diffs` `File`) to CodeMirror 6. Code-intelligence gestures (`code.hover`/`definition`/`diagnostics`, `MV/cards/CodeSurface.tsx`) are re-hosted as CodeMirror extensions. `PUT /workspaces/{id}/files/content` gains `base_digest` and actor. | §7.6 |
-| Add [S1] | `activity` table and the `branch:<id>:activity` topic (steers, answers, agent steps and GitHub comments arrive in S1). | §3, §7.2 |
-| Add [S2] | `burst_files` with per-file `before` and `after` versions; the `:files` topic; `file_written` and burst events; one versions commit per burst, pushed to the host through the outbox; File and Diff cards reload on change. | §3, §9.1.4, §9.3.4 |
-| Delete | `workspace_head.go` bash loop and its install path once `smithers-machined` captures heads. | §9 |
-| Reference | `packages/smithers/flows/sync/src/BranchPresence.ts` (lease-table presence, kept as a library). The product presence map lives in the Go host with the same lease semantics (30 s TTL). | §7.3 |
+| Reshape [S1] | Stage 1 co-editing contract is one rule: every write through Smithers carries `base_digest`, compared under the write lock in `B/services/workspace_facets.go:244`; a stale write is refused. Delete the unconditional write path. T-COL-07's `stale_read` is this compare and merges into T-COL-10. Reserved topics, document frames, golden frames and Go/Rust codecs move to the stage that first uses them. The wiki keeps its Yjs text. | T-COL-10; §7.6 |
+| Reshape [S1] | `/api/live` (E-05, E-06) is a WebSocket adapter over the existing `sse.Broker` (`B/sse/broker.go:296`) and durable-stream cursors (`B/sse/durable.go`). The client is the landed `MV/runtime/LiveChannel.ts` minus its unread TanStack collection (`:28-30`, from `efde4289f`). Card state is one pure function of facts committed in one transaction; no `projection_events` table. Terminals keep their WebSocket. Delete each per-resource SSE route (`/mythical/events`, `/workspaces/{id}/stream`, the wiki stream) when its last consumer moves. | T-COL-02, T-APP-08; §7 |
+| Enable [S2] | Presence: connect `packages/smithers/flows/sync/src/BranchPresence.ts` (442 lines, 30 s lease, unused) through the runtime bridge; add a person-or-agent kind and a location. Resumable follow reuses `BranchProtocol.ts` and `SyncClient.ts`. No new presence frames; Pair presence does not return. | T-COL-06; §7.3 |
+| Restore [S2] | Heartbeat and lease SQL shape from `a73a77de36` (`db/product/queries/pair_sessions.sql:152-176`, `UpdatePairSessionMemberPresence`, `TouchPairSessionMemberSeen`), adapted to surviving records, only where admission or presence needs it. Not sessions, invites, links, queue or draft. | T-COL-06, T-MCH-06; §7.3 |
+| Enable [S2] | Host relay: one authenticated connection per machine over the existing guest byte stream (`P/transport.go:92`, `:102`). No socket tunnel or sidecar. | T-COL-03; §9.1 |
+| Net new [S2] | `crates/smithers-machined`: boot lifecycle, inotify watcher with session attribution, bursts with per-file before/after versions and one versions commit each, mutation lock, durable outbox, capture and moved-off detection. Considered `B/services/workspace_head.go:52-171` (2 s/30 s bash head poll; no per-file versions or acknowledgment) and `P/guest/smithers-guest.py` (one-shot helper per `msb exec`; no long-lived process). Neither owns a durable watched-file outbox. Delete `workspace_head.go`'s loop and install path at cutover. T-COL-03r, -03f, -04a and -04 fold into T-COL-03a/-03. | T-COL-03a, T-COL-03, T-COL-04; §9 |
+| Reshape [S3] | Live documents: extract the Yrs core from `crates/smithers-ffi/src/wiki_document.rs:53` and use it for wiki and code documents; Yrs cores 2 → 1. The host-owned doc speaks the Yjs sync protocol over `/api/live`. Delete `POST .../updates`, the per-page SSE refetch and the client POST queue (`MV/wiki/CloudWiki.ts:288`). Restore the CodeMirror adapter from `4a36b0cfb` at this stage. | T-COL-08, T-COL-09; §7.4, §9.2 |
 
 ## 5. Terminals and SSH
 
-Today:
-- `B/routes/terminal_session_manager.go` gives one PTY per session, many viewers and a 512 KiB ring. The PTY comes from guest sshd on hosted workspaces, and from `msb exec -t` as the guest's single user on the Mac runtime (`B/routes/workspace_terminal.go:406-429`).
-- Any viewer's input reaches stdin (`workspace_terminal.go:659`).
-- The guest user is `developer` or `root` (`B/services/workspace_ssh.go:29`).
-- The SSH server (`packages/backend/ssh/ssh.go`, `B/ssh/server.go`, gliderlabs, `:2222`) is never constructed by `apps/backend`. Keys come only from `ssh_keys`.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Modify [S2] | Terminal sessions run as the owner's unix user; owner-only input (drop binary frames from other sinks in `terminal_session_manager.go`); read-only for others. | §8.11 |
-| Add | Terminal auto sign-in: mint `delegated(via=terminal)` at session start, write `/run/smithers/<uid>/token`, set `SMITHERS_TOKEN_FILE`/`SMITHERS_URL`; `Session.ts` gains a `SMITHERS_TOKEN_FILE` reader (none exists today; T-TRM-02). | §5.3.2 |
-| Add [S2] | Construct the SSH server in `apps/backend` on the install's bind address, port 2222 (loopback by default), with a `WorkspaceBridge` for the microVM runtime. Username = branch name. Admission request class `person`; per-member guest user; sftp, exec and `direct-tcpip`, with channel requests mapped onto the daemon session protocol (spec §9.6.2). | §8.10 |
-| Add [S2] | Session supervisor in the `smithers-machined` broker: pty, exec, sftp and tcp sessions with exit status, signals, resize, half-close, flow control, lingering processes and cgroup kill; spike T-TRM-06 first, then T-TRM-07. Port the guest helper's `cgroup_kill` (`microsandbox/guest/smithers-guest.py:56-85`) and `drop_to` (`:93`) to Rust. The terminal manager's `WindowChange`, `Wait` and `Close` (`B/routes/terminal_session_manager.go:39-49`) map onto `resize`, `exit` and `close_session`. | §9.5, §9.6 |
-| Add | GitHub key import (`GET /users/{login}/keys`) at sign-in and hourly into `ssh_keys` with source=github. | §8.10.2 |
-| Delete | `developer`/`root` grant variants for members (`root` stays for nothing: no member or agent root, M-29). | §5.5.2 |
+| Reuse [S2] | `B/routes/terminal_session_manager.go:93` keeps session startup, viewers and the 512 KiB ring. One host replay buffer. | T-TRM-01; §8.11 |
+| Reshape [S2] | Owner-only input: drop binary frames from other sinks (`B/routes/workspace_terminal.go:659`); others read only. Mint `delegated(via=terminal)` at session start, write `/run/smithers/<uid>/token`, revoke at end. `packages/smithers/src/internal/backend/Session.ts:151` gains a `SMITHERS_TOKEN_FILE` reader beside `SMITHERS_TOKEN`. | T-TRM-01, T-TRM-02; §5.3.2, §8.11 |
+| Enable [S2] | SSH: construct the existing server (`packages/backend/ssh/ssh.go:63`, `B/ssh/server.go:183`) in `apps/backend` on the install bind, port 2222. Supply branch-name usernames, member resolution and the `WorkspaceBridge` (`B/ssh/server.go:600`) for microVMs; add `direct-tcpip`. Keep its auth, revocation and session limits. | T-TRM-03; §8.10 |
+| Net new [S2] | Guest session supervisor in the machined broker: PTY, exec, sftp and tcp sessions with exit status, signals, resize, half-close, flow control and cgroup kill, as each member's uid. Terminal brokers 3 → 1. Considered `P/exec.go:599` (host PTY around `msb exec -t`, single guest user) and `terminal_session_manager.go:39-49` (host viewer manager): neither owns guest process lifetime. Port `cgroup_kill` and `drop_to` from `P/guest/smithers-guest.py:56-124`. Delete msb-per-terminal process ownership at cutover. | T-TRM-06, T-TRM-07; §9.5, §9.6 |
+| Reshape [S2] | GitHub key import at sign-in and hourly: reuse parsing, fingerprints and dedupe in `B/services/ssh_key.go:98`; add `source=github` and reconcile withdrawn keys. Runs inside the member revalidation job. | T-TRM-04 (in T-ACC-02); §8.10.2 |
 
 ## 6. Stack and TODOs
 
-Today (`research/stack-todos.md`):
-- `mythical_items` is keyed by issue number. Its prompt is the pinned `issue_body`.
-- It has one 15-value state enum.
-- Order is chat items first, then issue number (`mythical_items.go:1107-1116`).
-- The PR base is `main` (`:2095`), and the branch is `smithers/issue-N`.
-- Merge happens through the automerge label plus the Land record (`mythical_land_todo.go`).
-- There are no Before/Amend/Move/Drop/Pause operations.
-- Steering covers planning boundaries only (`F/coding/steering.ts`).
-- A conflict goes to `retrying` and then `blocked`.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Add [S1] | `todos`, `todo_revisions`, `todo_events`, `todo_attempts`, `todo_approvals`, `branches` (item branches exist from S1; `machines` arrives in S2), `stack_attention` (§3). `mythical_items.todo_id` (1:1); relax `mythical_items_issue_idx` (an issue link is optional). The TODO state machine (§4.1) is computed in one Go package (`B/services/todo_state.go`) with unit tests over every transition. | §4.1, M-16 |
-| Modify | Admission from GitHub: `ObserveIssue` (`mythical_items.go:165`) freezes revision 1 at the first issue read after the label event, never "until started" (`:236-262`). Today's trust gate stays (`approvesIssueText`, `github_issue_trust.go:158`): outsider text becomes a TODO only by a maintainer's label or Make TODO, and a non-member's edit after the label reverts it. `FileTodo` no longer creates a GitHub issue; chat TODOs have no issue. | §10.2.1 |
-| Add | Placement (`stack_position` dense key) and operations append/before/amend/move/drop; routes under `/api/todos`; items advance in stack order, not today's order (chat items first, then issue number, `mythical_items.go:1110-1116`). | §10.2 |
-| Modify [S1] | Merge: only the first unmerged item; `POST /api/todos/{n}/merge` (session + role + `MergeReady` and the merge fence, §10.6.2a–§10.6.2b; C-STK-07) replaces the `automerge` label and Land path; GitHub merge with `sha` and squash (kept from `mythical_github.go:324`); setup refuses repositories without squash merging. Delete `LandTodo`'s label-application path and the `automerge` label semantics. | §10.6 |
-| Add [S1] | Candidate generations: `stack.candidate` and `stack.propose` capture the working copy before checks and again at propose, and accept only equal trees on the current prefix. Today's separate verify lane gives that equality by construction (`mythical_items.go:1895-1905`); the one-run design keeps it. Check: C-STK-06. | §10.4.4 |
-| Modify [S1] | PRs stay based on `main` as verified candidates (today's design). Change: head `smithers/<slug>` instead of `smithers/issue-N` (`mythicalBranch` `:2115`); PR body with prompt, evidence, included earlier items and "Requested by" (`proposal()` `:2126`); the PR card diffs against the previous item's candidate. | §12.5 |
-| Add | Stop/Resume (state `paused`), Retry with attempt rows, Drop with PR close. | §10.7 |
-| Modify [S1] | One `todo` run per attempt (T-FLW-11): the worker's four launches (`mythical_items.go:1681,1775,1905` request, vibe, verify, plus review via the `mythicalReviewFlow` constant at `:2277`) become one run of the pinned `todo` flow, with the candidate handshake (`stack.candidate`, then `stack.propose`, C-STK-06) and the post-propose wait, which waits durably for rebase, steer, changes-requested, merge and drop signals until the TODO merges or is dropped. Integration, re-verification, PR and merge stay in the stack engine. The four registered entry points (`coding/Request`, `coding/Vibe`, `coding/Verify`, `review/change`) are deleted; Appendix C marks them Replaced, and their steps keep running inside the one run. The built-in `todo` flow becomes a composition file over step flows exported from `flows/coding/`. | §10.4.1 |
-| Add [S1] | Later items' PRs open as GitHub drafts and become ready when first (GraphQL `markPullRequestReadyForReview` / `convertPullRequestToDraft`), with a "[waits for Tn]" fallback where drafts are unavailable. An out-of-order merge marks the earlier items merged and closes their PRs as "Merged via". | §12.5.1, §10.6.4 |
-| Add [S1] | Retry with the current flow; Needs you → Queued after a machine release; a planner that declines with questions becomes a question wait (today's `declined` ends the item). | §4.1, §10.8.1a |
-| Add [S1] | Keep TODO workspaces until the TODO settles: no 5-min agent idle stop while a run waits (`defaultAgentIdleTimeout`, `B/services/agent_dispatch.go:1128`), no 24 h disk reclaim for unmerged TODOs (`workspace_disk_reclaim.go:20`), and wake before delivering a signal to a sleeping run (T-MCH-14). | §8.4, §10.4.1 |
-| Add | Steer route `/api/todos/{n}` `steer` → run signal; accept steers between implement turns (`F/coding/implementation/flow.ts` has no `ReceiveFeedback`) and in vibe/verify (`steering.ts` admits only `coding/request` roots). | §10.7.3 |
-| Add | Needs-you kinds and first-answer-wins answers (409 with `answered_by`). | §10.8 |
-| Modify | Rebase: presence-aware scheduling and Rebase now, via `smithers-machined` §9.4; conflicts → agent once → Needs you with Resolve, replacing the 3-attempt `retrying` → `blocked` loop (`mythical_items.go:1840-1847`). | §10.5 |
-| Delete | `change.land`/plue landing requests as a TODO merge path in the product. One merge path: §10.6. Keep the D-23 SQL gate logic by moving it to `todo_approvals`. | §10.6, zero tech debt |
-| Hide | `history.bootstrap`, `history.backfill`; `history.parallel` becomes the owner setting. | mvp.md §8 |
+| Reshape [S1] | The stack item is the TODO (E-07). Extend `mythical_items` in place: title, owner, public number, dense position, `paused_at`, `flow_digest`, needs-you, failure, merged/dropped, and revisions as jsonb. The issue link is optional (relax `mythical_items_issue_idx`). One Go function projects the nine product states, with a table test. No `todos`, `todo_revisions`, `todo_events`, `todo_waits`, `todo_attempts`, `todo_approvals`, `todo_preapprovals`, `stack_attention` (jsonb on `mythical_stacks`) or `mythical_items.todo_id`; no backfill or sync. One TODO schema in `packages/rpc`; REST and card shapes project it. T-STK-10 and T-STK-13 merge here; T-STK-14 keeps only the composition-safety check. | T-STK-01; §3, §4.1 |
+| Net new [S1] | `mythical_item_events`: one append-only log of per-item facts (attempts with evidence, steers, answers, agent steps, GitHub comments) written in the same transaction as the change it records, feeding the `branch:<id>:activity` topic. Considered `B/services/audit.go:42` (best-effort, can miss a committed change) and `mythical_items` columns (one current state per item; an item has many attempts and events). | T-STK-01; §3, §7.2 |
+| Reshape [S1] | GitHub admission: `ObserveIssue` (`B/services/mythical_items.go:165`) freezes revision 1 at the first read after the label; the trust gate (`approvesIssueText`, `github_issue_trust.go:158`) stays. Chat TODOs have no issue. Placement: append, before, amend, move, drop over `position`, through existing lane admission (`:443`). Delete mandatory issue creation in `FileTodo` and the chat-first, then issue-number comparator (`:1107-1116`). | T-STK-02, T-STK-09, T-STK-15; §10.2 |
+| Reshape [S1] | Merge only the first unmerged item, `POST /api/todos/{n}/merge`, sha-bound squash (`mythical_github.go:324`). Approvals reuse `checks.Land`; pre-approval reuses `checks.Automerge` (`mythical_items.go:215`) with no `todo_preapprovals`. Setup refuses repositories without squash merge. Delete `change.land` and Plue landing requests as product merge doors. The D-23 gate stays. | T-STK-04, T-STK-16; §10.6 |
+| Reuse [S1] | Candidate equality: today's separate verify lane gives equal trees on the current prefix (`mythical_items.go:1895-1905`, `:1954`, `:2029`), and `version` plus `generation` order captures. Spec §10.4.4 to §10.4.5a (generation receipts) is deleted. | T-STK-12; §10.4 |
+| Reshape [S1] | One pinned flow digest per attempt across its launches (E-19). Extend `F/coding/todo.ts` into the overridable composition covering route to deliver; verify and review stay engine launches (M-30). Delete the registered `coding/Request` and `coding/Vibe` entry points once the composition runs them. | T-FLW-11; §10.4.1 |
+| Reshape [S1] | PRs stay based on `main` as verified candidates. Head `smithers/<slug>` replaces `smithers/issue-N` (`mythicalBranch`, `:2115`); the body carries prompt, evidence, included items and "Requested by" (`proposal()`, `:2126`). Later items open as drafts and become ready when first; out-of-order merges mark earlier items merged. One PR lifecycle owner (T-GH-03, T-GH-05). | T-GH-03, T-GH-05; §12.5 |
+| Reshape [S1] | Control: extend the CAS retry (`mythical_items.go:2708-2765`) to Stop/Resume (`paused_at`), Retry with a new attempt on the current flow, and Drop with PR close. Delete the issue-only retry gate (`:2750`) and the planner `declined` settlement (`:1382`). | T-STK-05; §10.7 |
+| Reshape [S1] | Steers: generalize `F/coding/steering.ts:156` from `coding/request` roots to the pinned TODO run and call it at implement, vibe and verify boundaries. Amend appends a revision and delivers through it. Delete request-root-only steering. T-STK-15 merges here. | T-STK-06; §10.7.3 |
+| Reshape [S1] | Needs you: the item's needs-you column plus a CAS on `mythical_items.version`; first answer wins, a late answer gets 409 with `answered_by`. Delivery reuses deferred completion in `packages/smithers/flows/flow/src/HumanTask.ts:929`. Machine release requeues a capacity wait. No `todo_waits`. | T-STK-07; §10.8 |
+| Reshape [S1, S2] | Rebase now, then presence-aware scheduling: conflicts get one agent attempt, then Needs you with Resolve. Delete the three-attempt `retrying` to `blocked` loop (`mythical_items.go:1840-1847`). T-STK-11 adds a gate to T-STK-08's path. | T-STK-08, T-STK-11; §10.5 |
+| Reshape [S1] | Catalog visibility: hide `history.bootstrap` and `history.backfill`; `history.parallel` becomes the owner setting. | T-CAT-01; mvp.md §8 |
 
 ## 7. GitHub sync
 
-Today (`research/github-sync.md`):
-- The App comes from env (`SMITHERS_GITHUB_APP_*`), with the slug hard-coded to `smitherspreviewrelease`.
-- Polls: main 5 min, PRs 5 min, issues 15 min. There is no ETag handling.
-- Webhooks are verified but act only on issues, mentions and main pushes.
-- Missing: review and comment ingestion, thread replies, stacked bases, push ingestion (the code freezes the TODO instead), force-push handling, a sync-status UI and the manifest flow.
-- `mirror: pull` is required, and undeclared repos are skipped.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Add | App manifest flow and sealed App credentials in PostgreSQL; remove the hard-coded slug (`repo_connection_github_app.go:96`, `github_access_diagnosis.go:59`). | §12.1 |
-| Modify | Poll scheduler: one `github_sync` row per stream; conditional requests; cached installation tokens; one raw and charged budget (`github_budget.go`) on every call including the stack's `landingGitHubAPI.request`. Constants → §12.2 cadences. One GraphQL `pr-state` query replaces the per-PR `GET /pulls/{n}` follow (`mythical_items.go:2179`) and per-head check reads (`HeadChecks`, `mythical_github.go:611`). Label events come from the repository issue-events list with a cursor, not per-issue `labelHistory` (`mythical_github.go:398`). | §12.2 |
-| Modify [S1] | Outbound writes: the proposal's `PendingOp` record and recovery (`mythical_items.go:1978-2063`) become `outbound_writes` with keys per action revision, per-target order, supersession and reconcile by kind, for every GitHub writer (T-GH-09). | §12.4 |
-| Modify | `mirror: pull` is the default for the install's repository (policy check at `github_main_pull.go:578-581`). | §12.3 |
-| Add [S1] | Inbound reviews, review comments and conversation comments → activity + steer + `in_review → working` (`ObserveGitHubEvent` `mythical_items.go:2827` + poll fallback). | §12.3 |
-| Modify [S1] | Foreign push to `smithers/<slug>`: today's freeze (`mythical_items.go:2197-2206`) becomes `needs_you{foreign_push}` with the commit link. Bring in and Discard are decisions bound to the sha the card shows. After Discard, the next verified push leases against that sha; a newer push makes the lease fail and reopens the Needs you. | §12.3, §12.5.2 |
-| Modify | PR closed → `dropped` with actor; reopen restores (`mythicalSettledStates` `:85`). Checks name the failing required check (`HeadChecks` `mythical_github.go:611`) and run outside automerge. Build GitHub's refusal message: `landingGitHubStatusError` (`landing_github_pull.go:446-465`) discards the response body today, so the verbatim reason ("1 approving review required") is new work in T-GH-05. | §12.3 |
-| Add | Force-push to `main` → owner Needs you → confirm → reset mirror and rebase (non-fast-forward detection at `github_main_pull.go:585-590`). | §12.3 |
-| Add | Health model + `GET/POST /api/github/sync`; the home `main` row reads it. Remove the unused per-route statuses once the home card reads the new one. | §12.6 |
+| Reuse [S1] | App manifest and sealed credentials: `B/services/github_app_manifest.go:142`, `:259`; `B/services/github_app_credentials.go:76`, `:165`; dynamic slug in `repo_connection_github_app.go:178` and `github_access_diagnosis.go:171`. T-GH-01 keeps only its remaining phase; T-GH-10 to T-GH-14 merge into it. | T-GH-01; §12.1 |
+| Reshape [S1] | Installation-token minters 7 → 1: keep `CreateGitHubInstallationToken` in `B/services/repo_connection_github_app.go`; delete minting in `github_app_manifest.go`, `github_proxy.go`, `github_check_runs.go`, `mythical_github.go`, `stack.go` and `scripts/github-app-auth.mjs`. | T-GH-01, T-GH-02; §12.1 |
+| Reshape [S1] | Pollers (E-08): existing loops at M-03 cadences with ETags, cached scoped tokens and one charged budget (`github_budget.go`) for every call. Label events from the repository issue-events list, not per-issue `labelHistory` (`mythical_github.go:398`). No GraphQL `pr-state` query, no `github_sync` table, no request-per-hour arithmetic. | T-GH-02; §12.2 |
+| Reshape [S1] | Outbound writes: extend the proposal `PendingOp` and its recovery (`mythical_items.go:1978-2063`) with per-action keys, per-target order, supersession and reconcile by kind, for every GitHub writer. No `outbound_writes` table. | T-GH-09; §12.4 |
+| Reshape [S1] | Inbound reviews and comments: `ObserveGitHubEvent` (`mythical_items.go:2827`) stops ignoring review events (`:2831`); one normalizer shared with the poll fallback feeds steers and item events. | T-GH-04; §12.3 |
+| Reshape [S1] | Foreign push to `smithers/<slug>`: the freeze (`mythical_items.go:2197-2206`) becomes Needs you with Bring in and Discard bound to the shown sha; Discard leases the next push against it. PR closed becomes `dropped`, reopen restores (`mythicalSettledStates`, `:85`). Failing checks name the required check (`HeadChecks`, `mythical_github.go:611`). Keep GitHub's refusal text: `landingGitHubStatusError` (`landing_github_pull.go:446-465`) drops it today. | T-GH-05, T-GH-06; §12.3, §12.5.2 |
+| Reshape [S1] | Main sync: force-push to `main` becomes owner Needs you, confirm, mirror reset and rebase (detection at `github_main_pull.go:585-590`). Health and retry aggregate on `:193-261` behind `GET/POST /api/github/sync`; delete per-route statuses when Home reads it. `mirror: pull` is the install default (`:578-581`). T-GH-07 and T-GH-08 are one state machine. | T-GH-07, T-GH-08; §12.3, §12.6 |
+| Reshape [S1] | "Is commit A an ancestor of B" 3 → 1: delete the copies in `B/services/mythical_git.go`, `github_main_pull.go` and `git_mirror_sync.go` once callers share one. | T-GH-08; §12.3 |
 
-## 8. Flows, versions, triggers, learning
+## 8. Flows, versions, learning
 
-Today (`research/flows-engine.md`):
-- The engine, journal, replay and fault suite are built. A run pins `executionDigest`: the closure manifest records module and lockfile digests (`ExecutionSnapshot.ts:59-65`), and restore refuses a changed digest or lockfile (`:138-142`).
-- Repository flows beat built-ins (`F/repository/registry.ts:333-411`).
-- No Active/Merged state exists, and a failed refresh drops the previous entry (`Executable.ts:2036`).
-- The registrar is UTC-only (`F/repository/schema.ts:278`).
-- `improve.mine` is declared only. The config needs `.smithers/coding-project.json`.
-- Self-host runs flows as `trusted_process`.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Modify | Overridable flows run only in machines. The host never loads repository flows. Default self-host `trusted_process` launch of the coding host is replaced by the machine's coding host. | §1.3, §11.1 |
-| Add | `flow-load` background run on every `main` move, coalesced to the newest commit, + `flow_versions`/`flow_activations`; closures carry every repository module they import and their dependency environment; Active / merged-syncing / merged-failed / proposed projection; keep the previous executable on refusal (fix `Executable.ts:2036`, test "edit breaks existing flow"). | §11.3, §11.4 |
-| Modify | Coding host loads the pinned closure by digest for TODO runs; never the branch's `flows/`. Because hosts are per machine, #3377 (do-not-implement) is not needed. | §11.4 |
-| Add | `/flow.edit`: built-in source copy + patch → TODO with `seed_patch`. | §11.5 |
-| Add | Install-stored default config (checks, wiki pages, seats) with field-wise precedence for repo `.smithers/*` (`F/coding/project-config.ts`). | §11.2 |
-| Add | `F/learning/flow.ts` (`Flow.make("learning", …)`): pages + proposals + lessons count; `proposals` table and card. Replace the `improve.mine` fixture references. | §11.8 |
-| Add [S1] | Agent instructions as repository Markdown loaded as data (`.smithers/instructions/app.md`, the TODO flow's prompts); three model roles as owner settings applied immediately. Monitor step labels from mvp.md Appendix C's Inspect column, with engine bookkeeping collapsed. | §11.5a, §11.6.2 |
-| Hide | Triggers (deferred): `triggers.*` entries hidden from the MVP catalog; registrar and engine untouched. | §11.7 |
-| Add | Monitor: `/monitor` door, per-step cost (`modelprice`), durable-waits list with since. Delete the `forks` trace filter (`MV/flows/entries/runs.ts:177`). | §11.6 |
-| Add | Runtime event types needed by §11.6.1 that aren't already emitted (cost, wait since); conversation-entry summarizer job. | §11.6, §14.5 |
+| Enable [S1] | Repository flows run only in machines; the host never loads them (E-02, implemented by `c4e325b2d`). Each machine's coding host loads the pinned closure by digest, never the branch's `flows/`. #3377 is not needed. | T-FLW-01, T-FLW-04; §1.3, §11.1 |
+| Reuse [S1] | Run pinning: `packages/smithers/agent/registry/src/ExecutionSnapshot.ts:61` stores modules and lock digests; restore validates them (`:143`). No closure archive. | T-FLW-04; §11.4 |
+| Net new [S1] | `flow_versions` and flow-load on each `main` move, coalesced to the newest commit (E-12): a TODO pins (flow, source_commit, digest) at Starting; Active is the newest loaded row; a failed load keeps the previous one. Considered `ExecutionSnapshot.ts` (pins one run, no install-wide Active) and `Executable.ts:2036` (drops the old executable on a failed refresh; fixed here). No `flow_activations`, closure blobs or dependency packing. | T-FLW-03; §11.3, §11.4 |
+| Net new [S1] | `/flow.edit`: copy a built-in flow's source and its patch into an ordinary TODO `seed_patch`. Considered `ExecutionSnapshot.ts` (exact modules, no edit proposal) and lane submission at `mythical_items.go:443` (finished commits only). Reuses TODO placement and the fork seed path. | T-FLW-05; §11.5 |
+| Reshape [S1] | Config: `F/coding/project-config.ts:55` takes install defaults from `install_settings` with field-wise repository precedence. No `flow_config` table. Delete the mandatory private-config default. | T-FLW-02; §11.2 |
+| Restore [S1] | Owner model assignment: the assignment slice of `MV/cards/ModelCards.tsx` and `MV/flows/entries/model.ts` from `5b77095672` (`39e43c0fe^`), mapped to `fast`, `coding` and `jev`. Not the laboratory (`ModelCallCard.tsx`, `controller/modelCall.ts`). Delete `MV/cards/views/SettingsModels.tsx` (`786f9ac54`) as its duplicate. Instructions load as repository Markdown through `MV/state/controller/turns.ts:389`. | T-FLW-08; §11.5a, mvp.md §11 item 3 |
+| Net new [S3] | Learning: merged-TODO evidence, duplicate-signature suppression, proposals with accept and dismiss, lessons count. Considered `F/memory/mine/flow.ts:20` and `F/coding/learnings.ts:20`, which extract and judge but keep no proposal lifecycle, and `apps/tui/src/improve.ts` (deleted, a prediction calibrator). Compose those two flows; replace `improve.mine` fixtures. | T-FLW-06; §11.8 |
+| Reshape [S1] | Monitor: `/monitor` door over the RunTrace fold (`packages/smithers/gateway/src/RunTrace.ts:1352`, waits at `:1450`) and `packages/backend/modelprice/prices.go:271`; emit only the missing cost and wait-since fields. Delete the `forks` trace filter (`MV/flows/entries/runs.ts:167`). T-UI-12 merges here. | T-FLW-07; §11.6 |
+| Reshape [S1] | Hide deferred triggers (`triggers.*`) from the MVP catalog; registrar and engine untouched. Two `Flow.make` shapes → `@smthrs/flow` only: delete the second construction shape in `packages/smithers/flows/core/src/Flow.ts`. | T-FLW-01, T-CAT-02; §11.7 |
 
 ## 9. App shell, cards, catalog
 
-Today (`research/app-shell.md`, `research/cli-api-cuts.md`):
-- React with TanStack DB (OPFS SQLite). Cards are components (`MV/cards/CardRenderers.tsx`).
-- One app flow registry of about 267 entries, while the CLI has a separate incur tree of 205 backend commands. Two catalogs.
-- Missing: TODO, Draft, Confirm, Learning, Members and Setup cards, the Branch card with presence, the live File card, line comments and browser notifications.
-
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Add | One catalog source: command descriptors (payload schema, slash, CLI path, visibility, actor eligibility, minimum role, `agent` policy) in `packages/rpc/src/catalog/`, consumed by the app registry, the CLI mount (`packages/smithers/src/internal/backend/Commands.ts`) and the skill generator; `catalog.mvp.json`; parity tests C-CAT-01..03. | §6.1 |
-| Hide/Delete | Every command not in Appendix A: hidden or deleted per mvp.md §8 (about 200 ids). | §6.1.3 |
-| Modify | `StackCard.tsx` → Home card on the `home` topic: `main` row with sync health, counts as filters over TODO states, machines/capacity, background runs, shared placement. | §14.3 |
-| Add | Cards: [S1] TODO, Draft, Settings/Setup, Confirm, Flow versions, Agent (model), Members, Secrets. [S2] Branch (presence, activity), File reload-on-change with gone states, Terminal ownership. [S3] File live co-edit on `@smthrs/ui` CodeSurface + Yjs binding with gutter flags; Proposal. | §14.3 |
-| Add [S1] | Branch conversations: `conversations` (1:1 branch), shared `conversation_entries`, `member_conversation_state`; the branch tree; prompts run with their author's delegated credential. Today's per-member conversations (`MV/state/AppStore.ts` OPFS collections plus backend turn routes) become read-only archives visible only to their member. | §14.1 |
-| Add [S1] | Context preflight as the first step of every app-agent turn; `context[]` stored on the answer entry; "Context" line; Inspect shows preflight first. | §15.1.2 |
-| Modify [S1] | App-agent turns move from browser-side tool execution to a host turn runner that dispatches through the CLI's command→API mapping, with a host-minted delegated credential. The browser receives only UI-only instructions. | §15.1.4 |
-| Add [S2] | Browser notifications on secure origins (`notifications.allow`); Obsidian folder sync as a Settings control reading `install_settings` (`B/config/wiki_sync.go:15`, `B/services/wiki_sync_obsidian.go`). | §14.6, §13.3 |
-| Add [S1] | The allowlist test reads mvp.md Appendices A, B (B.1, B.2, B.4, B.6) and C (`.specs/product/actions.md`), and asserts each tag's runtime placement and the Replaced rows. | §6.1.2 |
-| Add [S1] | Left-edge toast map + timeline from `conversation_entries`; event toasts with per-member hiding; retire `ChatRunTimeline`. | §14.4, §14.5 |
-| Modify | Seams move from per-resource SSE (`/mythical/events`, `/workspaces/{id}/stream`, wiki stream) to live-channel topics. Delete each SSE route when its last consumer moves. | §7 |
-| Modify | Actor rendering with `via` badges ("Ben via Smithers"). | §2 |
-| Modify [S1] | Every card in scope splits into a design-owned `<Card>View` (props only) and an engineering-owned `<Card>Container` (topics → props, callbacks → catalog commands); `MV/cards/CardRenderers.tsx` renders Containers. View-model schemas go in `packages/rpc/src/<Card>Card.ts` (the `SubagentCard.ts` precedent) with fixtures in `MV/cards/fixtures/` (T-APP-19). An existing card file that mixes both is split in the change that ports it. | §14.2.1 |
+| Reshape [S1] | One catalog (E-14): the descriptor is the `Operation` in `UI/app-operations/index.ts`; `catalog.mvp.json`, the CLI mount (`packages/smithers/src/internal/backend/Commands.ts`) and skills are generated from it. Delete the temporary rpc catalog (`packages/rpc/src/catalog/index.ts`) and hand-kept copies beside `Definitions.ts` and `MV/flows/registry.ts` as each command moves. Hide or delete every command not in Appendix A. The allowlist test extends `F/test/system-flow-catalog.test.ts` and `MV/flows/parity.test.ts`. T-CAT-01, -02, -03 are one migration. | T-CAT-01; §6.1 |
+| Reshape [S1] | The card file is the container (E-21): it maps data to its View's props and mounts only in `MV/cards/CardRenderers.tsx`. A View lands in the commit that mounts it and deletes the card it replaces: Home replaces `StackCard.tsx` and `RepositoryHomeCard.tsx`; Confirm replaces `ApprovalCard.tsx` and `ApprovalAnswer.tsx`; Flow replaces `WorkflowCards.tsx`; File and Diff replace the duplicate rendering in `FileCards.tsx`/`CodeSurface.tsx` and `ChangeCards.tsx`/`DiffSurface.tsx`; Run replaces `RunTraceCard.tsx` and `RunsCards.tsx`. Fold `HomeContainer`, `FlowContainer`, `CommandsContainer`, `SettingsContainer`, `SetupContainer`, `TodoContainer` and `DraftContainer` into their card files at cutover. View props are TS types; zod only where data crosses HTTP or storage. | T-APP-01..07, T-APP-11, T-APP-15; §14.2 |
+| Reshape [S1] | Card actions 3 → 1: `MV/flows/cardActions.ts`; delete `MV/cards/CardActions.ts` and `InstallCardActions.ts`. Delete duplicated live kinds in `packages/rpc/src/Cards.ts`; keep a read-only decoder for old conversations. | card tickets; §14.2 |
+| Reshape [S1] | Design layers: fold `HomeRowView`, `HomeActionView`, `TodoActionView`, `CommandActionView`, `MembersActionView`, `EdgeGroupView` and `ToastNoticeView` into their parents; merge `MV/styles/views/*.css` into `MV/styles/cards.css`. T-UI-23 merges into T-UI-04. | T-UI-04; §14.2 |
+| Reuse [S1] | Actor labels: `MV/cards/views/actorName.ts:4`, re-exported by `MV/state/ProductActor.ts:18` and ActorChip. Delete any second label module (`TodoActors.ts`) that remains. | T-APP-09 (in T-APP-02); §2 |
+| Reshape [S1] | `StackCard.tsx` data moves to `HomeView` on the `home` topic: `main` row with sync health, state counts as filters, machines and capacity, background runs. | T-APP-01; §14.3 |
+| Net new [S1] | Shared branch conversations: entries visible to the branch's members, per-member read and hide state, prompts run with the author's delegated credential. Agent turns are `chat_turns` rows with `conversation_id` (E-18); host turns reuse the `chat_turns` claim, lease and dispatcher (E-20). Considered `chat_turns` (`B/chat/schema.sql:1`, user-owned, unique per user and run; reused for turns), `MV/state/AppStore.ts` OPFS collections (member-private) and Pair's FIFO and ACL (`pair_session.go:168`, a prompt queue, not a transcript). Delete `app_timelines`; old private turns stay readable as archives. The entry summarizer (model-written summaries, pending Will) would be one job over these entries on the existing jobs runtime. T-APP-16 merges here. | T-APP-16; §14.1, §14.5 |
+| Reshape [S1] | Context preflight: move the selector step in `MV/state/controller/turns.ts:408` into the host turn as its first recorded step, add context selection, and store `context[]` on the answer; `MV/ContextLine.tsx` renders it. Delete the browser preflight at cutover. | T-APP-17; §15.1.2 |
+| Reshape [S1] | App-agent tool calls run in the host turn runner through the CLI command-to-API mapping with a host-minted delegated credential. Delete browser-side execution of non-UI commands. | T-APP-16 (in T-APP-16); §15.1.4 |
+| Reshape [S1] | Toasts and timeline: feed `ToastStackView`, `EdgeMap` and `Timeline` (`406436c02`) from conversation entries with per-member hiding. Delete `MV/ToastStack.tsx`'s renderer and `MV/ChatRunTimeline.tsx` in the same change, or revert the new Views. | T-APP-07; §14.4, §14.5 |
+| Reshape [S1] | `TodoSeam` (`MV/state/seams/TodoSeam.ts:127`) calls `/api/todos`, which no route serves; point it at the T-STK-01 routes and delete StackSeam's TODO paths in the same change. | T-APP-02; §10.2 |
+| Enable [S2] | Browser notifications: existing notices (`MV/state/RepositoryNotifications.ts`) reach the Notification API on secure origins behind `notifications.allow`. | T-APP-18; §14.6 |
+| Reshape [S2] | Obsidian sync: `B/services/wiki_sync_obsidian.go:27` reads its folder from `install_settings`; delete the config-file-only source (`B/config/wiki_sync.go:10`). | T-FLW-12; §13.3 |
+| Reshape [S1] | Actor rendering with `via` badges ("Ben via Smithers"). | T-APP-09; §2 |
 
 ## 10. Cuts and docs
 
-| Action | Change | Spec |
+| Class | Change | Tickets; spec |
 | --- | --- | --- |
-| Delete | App: SetupChecklist, RepositorySetupCard, setup/chores/ci/feature flows, SignupCards, onboarding/tutorial, Registration*, AdminCards + admin flows, BurndownCard + issue-sweep entry, SubagentGrid, agent sessions, CommitCards, `change.split`. File list: `research/app-shell.md` "Cut surfaces". | mvp.md §8 |
-| Hide | Billing, Cloud, balance, plans and checkout: keep `flows/entries/billing.ts`, `cards/BillingCards.tsx`, `AnonymousCeilingCard.tsx`, `auth-billing.ts` and `phone-paywall.spec.ts` hidden (T-CUT-03). Keep multi-repository `repo.choose`, `repo.create`, `repo.select`, `repo.overview`, `repo.update` code hidden. | mvp.md §8, Appendix B.2; C-CUT-03 |
-| Delete | Backend/OpenAPI: `/api/repository-setup/*`, repository-jobs setup paths (keep event admission and dispatch), `/api/admin/*` except owner health, branch locks, `changes/{id}/split`, registration review. Delete the route and its OpenAPI row together (`openapi_conformance_test.go:220`). | §6.2.4 |
-| Hide | Keep deferred billing routes and OpenAPI definitions behind the T-CUT-03 composition gate. | mvp.md §8; C-CUT-03 |
-| Delete | `apps/review` (empty), `packages/smithers/create-app`. | AGENTS.md |
-| Defer | TUI: keep building; remove from launch docs, skill and release gate. | mvp.md §8 |
-| Modify | AGENTS.md "MVP scope boundaries": align with mvp.md §8 (the five jobs are cut as surfaces; admission and dispatch stay). | M-12 |
-| Replace | `docs/mvp/PRODUCT.md`, `ENGINEERING.md` and `DESIGN.md` → the approved `.specs/*` content (M-12), with inbound links (`AGENTS.md` D-16, `docs/design/shared-workspace-layers.md`, `apps/site/docs/UI-DOCS.md`) updated in the same change. | M-12 |
-| Add | Public docs: one quickstart (install → setup → first TODO → teammates) + flows reference, colocated in the package `docs/`, `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //<pkg>:docs`. | mvp.md §12.4 |
+| Reshape [S1, S2] | Finish the composition cut: delete remaining SetupChecklist, RepositorySetupCard, setup/chores/ci/feature flows, SignupCards, onboarding, Registration*, AdminCards and admin flows, BurndownCard and issue-sweep entry, SubagentGrid, agent sessions, CommitCards and `change.split`; backend `/api/repository-setup/*`, `/api/admin/*` except owner health, `changes/{id}/split` and registration review, each with its OpenAPI row (`openapi_conformance_test.go:220`). Keep event admission, dispatch and history decoders. | T-CUT-01, T-CUT-02; §6.2.4, mvp.md §8 |
+| Reshape [S1] | Billing, Cloud, balance, plans, checkout and multi-repository `repo.*` stay as code behind the T-CUT-03 composition gate; delete their MVP catalog and renderer exposure. Hide `box.facet`, `box.services`, `box.egress` and `box.images`; the backend facets stay for Plue. TUI keeps building and leaves launch docs and the release gate. | T-CUT-03; mvp.md §8 |
+| Reuse [S1] | `AGENTS.md` already states MVP scope and points background work at `MV/state/controller/backgroundWork.ts` (`AGENTS.md:190`); `docs/architecture/0002-mac-install.md` exists. `apps/review` and `packages/smithers/create-app` are already gone. | T-DOC-02; §1 |
+| Reshape [R] | Re-point the remaining `repositorySetup.ts` references (`docs/mvp/implementation/recovery-contract.md`, `.specs/engineering/card-kinds.md`). Replace `docs/mvp/ENGINEERING.md` and `DESIGN.md` with links to `.specs/*`; `PRODUCT.md` keeps only its decision index (M-12). Supersede ADR 0001's single-owner and `trusted_process` statements. | T-DOC-02; M-12 |
+| Reshape [R] | Public docs: replace onboarding in `packages/smithers/docs/quickstart.md` with install, setup, first TODO, teammates; keep flow reference. Reuse `pnpm docs:sync`, `pnpm docs:check` and `smthrs docs //<pkg>:docs`. Delete duplicate quickstarts. | T-DOC-01; mvp.md §12.4 |
 
-## 11. Conflicts with standing rules
+## 11. Landed code to revert or rework
 
-| Rule | Conflict | Resolution |
+Each row is a step in its owning ticket. Line counts are from the reviews in `~/Smithers-Ops/Areas/minimal-spec-20261003/`.
+
+| Class | Change | Tickets; source |
 | --- | --- | --- |
-| #3377 do-not-implement (concurrent pinned versions) | J5.4 needs running TODOs to keep their version | Not needed: one coding host per machine (§11.4.2). No action. |
-| #3401 do-not-implement (Pair) | M-17 needs shared access and presence | M-17 supersedes only for those parts. Build new; restore nothing from Pair beyond semantics. |
-| #2931 do-not-implement (DevTools) | §6.14 monitor | The monitor uses the trace/steps/graph views. The DevTools button stays as is. |
-| #3382 do-not-implement (shared workspace bases) | §8.6 layer cache shared across branches | Layer cache keyed by recipe digest is today's mechanism (`layers.go`), not #3382's prepared bases. No conflict. |
-| ADR 0001 self-host single-owner, `trusted_process` | M-17, §1.3 | ADR 0002 supersedes for the Mac install (T-DOC-02). |
-| AGENTS.md "retain all five maintenance jobs" | mvp.md §8 cuts the five-job surfaces | AGENTS.md edit in T-CUT-01 with Will's sign-off on mvp.md. |
-| AGENTS.md "Instant chat" reference implementation `repositorySetup.ts` | Cut by §8 | Re-point the reference to the TODO controller in T-CUT-01. |
+| Delete | Journey harness `d7134d536` + `bd2862abd` (−4,508): delete `scripts/journeys/`. J1 becomes one Playwright spec in `apps/app/e2e/real` when J1 exists. | T-REL-02; opus §4, fable §4 |
+| Delete | C-UI-13 inventory `8903feed4` + `94adaa285`: delete `apps/app/checks/Inventory.test.ts`, `MV/inventory/inventory.json` and the spec-digest gate it reads (`scripts/repo-contract/spec-transcriptions.mjs`). Replace C-UI-13 part B with one test: every `*View.tsx` is reachable from `CardRenderers` and no replaced legacy card remains. | T-UI-04; SYNTHESIS-v2 ruling 4 |
+| Delete | Check runners 2 → 1 (`36a199e19` vs `a109c5d0c`): keep `scripts/check-run.mjs`; delete `scripts/checks/run-check.mjs`, `qualify.mjs`, `thin.mjs`, `commands.mjs` and their tests, moving any needed binding into `scripts/check-commands.json`. A receipt may cite CI's check run at the landed SHA or a `smthrs test` run on the reference host. #3663 is re-scoped to this. | T-PRC-03, #3663; SYNTHESIS-v2 ruling 3 |
+| Delete | Card contracts `a292b7328` / `e3a521ad6`: delete `packages/rpc/test/cards/RetainedCards.test.ts` and its 5,046-line snapshot; delete the S2/S3 schemas and fixtures (Proposal, Terminal, Secrets, Branch, Docs, DebugApi) until their stage. Keep Todo, Draft, Setup, Settings, Confirm, Home, Members, `CardAction` and `CardPrimitives`. View-only zod becomes TS types. T-APP-19 and T-APP-19b close as landed history. | card tickets; opus §4 |
+| Delete | CodeMirror `4a36b0cfb`: delete `UI/adapters/code-editor/index.tsx`, `MV/cards/views/CodeEditorView.tsx` and the `@codemirror/*`, `yjs` and `y-codemirror.next` pins. The File card renders through the existing `UI/adapters/code-view/CodeFileView.tsx`. Keep `DiffView`, folded into `MV/cards/DiffSurface.tsx`. Restore the adapter at S3 (§4). | T-UI-11, T-APP-15; SYNTHESIS-v1 §3 |
+| Delete | `MV/cards/views/CommandsCases.ts` (421) and `CommandsExpectations.ts` (231) from `dc908a381`: a third copy of the catalog in product source. | T-UI-14; opus §4 |
+| Delete | `B/services/install_machine_ready.go` and its tests (zero callers) from `7a5ab6140`; merge the duplicate recipe builders in `P/layers.go` (about −830). | T-MCH-10; opus §4 |
+| Reshape [S1] | Fold `B/routes/host_status.go`, `/api/host`, its OpenAPI row, generated client and CLI `host status` handler into `GET/PUT /api/install` (`56c3fb2f4`). Keep the sizing code; `MV/state/seams/InstallModel.ts:25-32` already reads `/api/install`. | T-INS-08; opus §4 |
+| Delete | Design twins: `HomeView` (`ab2ab5e0b`), `FlowView` (`214c4feff`) and `ConfirmView` (`c90e3383a`) are mounted with the old card deleted in the same commit (§9), or reverted. Toast Views (`406436c02`) follow the §9 toast row. | T-APP-01, -04, -05, -07; SYNTHESIS-v2 |
+
+## 12. Standing rules and open items
+
+| Rule or item | Resolution |
+| --- | --- |
+| #3377 do-not-implement (concurrent pinned versions) | Not needed: one coding host per machine. |
+| #3401 do-not-implement (Pair) | M-17 restores shared access and presence only: the share producer, lease SQL shape and revocation tests above. Pair had no live push channel or co-editing. |
+| #3382 do-not-implement (shared workspace bases) | Layer caching stays the recipe-digest mechanism in `P/layers.go`. |
+| #2931 do-not-implement (DevTools) | Monitor uses trace, steps and graph views; the DevTools button stays. |
+| ADR 0001 single-owner, `trusted_process` | Superseded for the Mac install by `docs/architecture/0002-mac-install.md`. |
+| Public library packages | Kept, including those with no in-repo consumer (AGENTS.md "Still in force"). |
+| Will decides (product, unchanged) | Live code co-editing timing (M-02), API playground (M-36), in-app docs (M-35), transcript adapters (M-38), model-written summaries, admission-queue positions, the members roster. Rows keep current mvp.md scope until he rules. |

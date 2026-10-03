@@ -1,6 +1,6 @@
 # T-STK-02 Placement: append, before, move, drop; stack order
 
-Stage S1 · Size M · Depends on T-STK-01, T-STK-12, T-ACC-05 · Unblocks T-APP-02, T-CAT-02, T-FLW-05, T-FLW-08, T-GH-03, T-GH-05, T-MCH-08, T-REL-02, T-STK-03, T-STK-05, T-STK-08, T-STK-09, T-STK-15 · Issue: [#3528](https://github.com/smithersai/smithers/issues/3528)
+Stage S1 · Size M · Depends on T-STK-01, T-STK-12, T-APP-04 (confirmations) · Unblocks T-APP-02, T-CAT-01, T-FLW-05, T-FLW-08, T-GH-03, T-MCH-08, T-REL-02, T-STK-03, T-STK-05, T-STK-08, T-STK-09, T-STK-06 · Issue: [#3528](https://github.com/smithersai/smithers/issues/3528)
 Spec: spec.md §3, §6.3, §10.2.2, §10.2.3, §10.3.2, §10.4.2, §10.5.1, §10.7.3, §15.1.5 · Delta: delta.md §6 (Add placement; items advance in stack order) · Product: mvp.md §4.2, §6.6, J4.2, J7.1, M-07, Appendix B.2
 
 ## Goal

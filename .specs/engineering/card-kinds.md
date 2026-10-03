@@ -1,47 +1,43 @@
 # Card kinds, schemas and owners
 
-Version 0.1 · 2026-10-02 · Owner: engineering · Referenced by spec.md §14.1.5 and §14.2.1, T-APP-19 and T-APP-22
+Version 0.2 · 2026-10-03 · Owner: engineering · Referenced by spec.md §14.1.5 and §14.2.1, T-APP-19 and T-APP-22 · Minimal-code synthesis v1 §2 and v2 applied
 
-This page does three things. §1 gives each card's schemas and Containers one owner. §2 states how persisted cards stay readable when a kind is removed. §3 maps every card kind in `packages/rpc/src/Cards.ts` today to what replaces it, keeps it or cuts it. `MV` is `apps/app/src/mainview`.
+This page does three things. §1 names each card's one card file, its View and its owners. §2 states how persisted cards stay readable when a kind is removed. §3 maps every card kind in `packages/rpc/src/Cards.ts` today to what replaces it, keeps it or cuts it. `MV` is `apps/app/src/mainview`.
 
-## 1. Three schemas per card, one owner each
+## 1. One card file per card
 
-A card crosses three schemas:
-- **Topic schema.** The snapshot and deltas a topic publishes (spec §7.2). The ticket that publishes the topic owns the Go snapshot builder. The card's wiring ticket owns the TypeScript decoder `packages/rpc/src/topics/<Topic>.ts`, the golden fixture `packages/rpc/test/fixtures/topics/<topic>.json`, and one Go test, `<topic>_golden_test.go`, that runs the publisher's builder on a seeded database and compares its JSON with the golden. The decoder's unit test parses the same golden, so the Go and TypeScript halves can't drift.
-- **View model.** `packages/rpc/src/<Card>Card.ts` with fixtures in `packages/rpc/test/fixtures/<Card>.ts` (spec §14.2.1). T-APP-19 owns every view model in its list; a card added later (Docs, Debug API) has its wiring ticket own its view model. T-APP-19 is landed history; T-APP-19b owns the follow-up reconciliation of current §14.3 schemas and shared shell data contracts. RunView maps to MonitorCard, not a new RunCard. Checks: C-UI-08, C-UI-12.
-- **Card reference.** The `{kind, payload}` a conversation entry stores (`Cards.ts`, decoded by `CardSchema`). A card with a topic stores only its subject (`todo {n}`, `branch {id}`); a Draft stores its fields (spec §3, `conversation_entries.card`).
+A card has one card file in `MV/cards/`. It reads the card's data, maps it to the View's props, binds `actions[]` through `MV/flows/cardActions.ts` to `flowAction`, stores `onView` patches as view state, and is mounted only from `MV/cards/CardRenderers.tsx`. There is no separate Container class, view-model module, topic decoder fixture or golden test (minimal-code synthesis v1 §2). Where a `*Container.tsx` already landed, that file is the card file. The ticket that wires a View deletes the old card it replaces in the same change (C-UI-13).
 
-The **adapter** is a pure function `to<Card>Model(topic, viewer, view) → {model, actions}` in `MV/cards/containers/<card>Model.ts`, owned by the wiring ticket. It derives every per-viewer value (role-filtered attention, merged since last look, the §14.5.2 action) and labels every action. Its unit test feeds the golden topic fixture and asserts that the result parses with the view model. The **Container** `MV/cards/containers/<Card>Container.tsx` subscribes, calls the adapter, binds `actions[]` through `cardActions`, stores `onView` patches as view state, and renders the View. It holds no derivation of its own. The **View** is design's (spec §14.2.1).
+View props are TypeScript types. Zod schemas exist only where data crosses HTTP or storage: the card reference a conversation stores (`Cards.ts`, decoded by `CardSchema`) and the kept rpc card schemas Todo, Draft, Setup, Settings, Confirm, Home, Members, `CardAction` and `CardPrimitives`. T-APP-19 deletes the S2/S3 schemas (Proposal, Terminal, Secrets, Branch, Docs, DebugApi), `RetainedCards.test.ts` and its snapshot; each later card's ticket adds what it needs. A card with a topic stores only its subject (`todo {n}`, `branch {id}`); a Draft stores its fields (spec §3, `conversation_entries.card`).
 
-| Card | Topics | Snapshot builder | Decoder, golden, adapter, Container | View model | View |
-| --- | --- | --- | --- | --- | --- |
-| Home | `home` | T-APP-08 (items from T-STK-01's writers) | T-APP-08 (decoder and golden); T-APP-01 (adapter and Container) | T-APP-19 | T-UI-06 |
-| TODO | `todo:<n>` | T-STK-01 | T-APP-02 (T-STK-08 and T-MCH-08 add actions) | T-APP-19 | T-UI-04; T-UI-23 for conflict, moved-off, outside-push, Fork and Add to stack |
-| Draft | the entry's `card` column | T-APP-16 | T-APP-02 | T-APP-19 | T-UI-03 |
-| Setup, Settings | `install` | T-INS-06 | T-APP-03 (T-FLW-12 adds the Obsidian row) | T-APP-19 | T-UI-02 |
-| Confirm | `confirmations:<member>` | T-ACC-05 | T-APP-04 | T-APP-19 | T-UI-05 |
-| Flow | `flows` | T-FLW-03 | T-APP-05 | T-APP-19 | T-UI-10 |
-| Members | `members` | T-ACC-02 | T-APP-06 | T-APP-19 | T-UI-09 |
-| Branch | `branch:<id>`, `branch:<id>:activity` | T-COL-06; T-STK-01 (activity) | T-APP-10 | T-APP-19 | T-UI-15 |
-| File, Diff | `branch:<id>:files` [S2]; the live document [S3] | T-COL-04; T-COL-08 | T-APP-15 [S1], T-APP-11 [S2], T-APP-14 [S3] | T-APP-19 | T-UI-11, T-UI-16, T-UI-19 |
-| Terminal | the terminal stream; terminals on `branch:<id>` | T-TRM-01 | T-APP-12 | T-APP-19 | T-UI-17 |
-| Secrets | `secrets` | T-MCH-12 | T-APP-13 | T-APP-19 | T-UI-18 |
-| Run (monitor, Inspect) | `run:<id>` | T-FLW-07 | T-FLW-07 | T-APP-19 | T-UI-12 |
-| Agent | `agents` | T-FLW-08 | T-FLW-08 | T-APP-19 | T-UI-13 |
-| Proposal | `proposals` | T-FLW-06 | T-FLW-06 | T-APP-19 | T-UI-20 |
-| Commands | `catalog.mvp.json` (no topic) | T-CAT-01 | T-CAT-01 | T-APP-19 | T-UI-14 |
-| Docs | bundled pages (no topic) | none | T-APP-20 | T-APP-20 | T-UI-21 |
-| Debug API | bundled OpenAPI (no topic) | none | T-APP-21 | T-APP-21 | T-UI-22 |
-| Shell: entries, branch tree, Earlier | `conversation:<branch>`, `view:<member>:<branch>` | T-APP-16 | T-APP-16; T-APP-17 adds the Context line; T-APP-23 mounts them | T-APP-19 | T-UI-07 |
-| Timeline, toasts, edge map | entry fields on `conversation:<branch>` | T-APP-07 | T-APP-07; T-APP-18 adds Allow notifications | T-APP-19 | T-UI-08 |
-| Actor chip | the actor on every topic | each publisher | T-APP-09 (`ProductActor`, `toActor`, `actorName`) | T-APP-19 | T-UI-01 |
+| Card | Card file (wiring ticket) | Deleted in the same change | View |
+| --- | --- | --- | --- |
+| Home | `HomeContainer.tsx` (T-APP-01) | `StackCard.tsx`, `RepositoryHomeCard.tsx`, then `StackSeam.ts` | T-UI-06 |
+| TODO | `TodoContainer.tsx` (T-APP-02; T-STK-08 and T-MCH-08 add actions) | StackSeam's TODO paths, `history.view/todo/retry` | T-UI-04 (absorbs T-UI-23) |
+| Draft | `DraftContainer.tsx` (T-APP-02) | none | T-UI-03 |
+| Setup, Settings | `SetupContainer.tsx`, `SettingsContainer.tsx` (T-APP-03; T-FLW-12 adds the Obsidian row) | `AccountCard.tsx`, `EnvCard.tsx`, `RepoImportCard.tsx`, `RepositoryChoiceCard.tsx`, `CardActions.ts`, `InstallCardActions.ts` | T-UI-02 |
+| Confirm | `ApprovalCard.tsx`, migrated in place (T-APP-04) | `ApprovalAnswer.tsx` | T-UI-05 |
+| Flow | `FlowContainer.tsx` (T-APP-05) | `WorkflowCards.tsx` | T-UI-10 |
+| Members | `MembersCard.tsx`, new: no members card exists (T-APP-06) | none | T-UI-09 |
+| File, Diff | `FileCards.tsx` + `CodeSurface.tsx`; `ChangeCards.tsx` + `DiffSurface.tsx` (T-APP-15 [S1], T-APP-11 [S2], T-APP-14 [S3]) | `CodeEditorView.tsx`, the CodeMirror adapter (T-UI-11); `DiffView.tsx` folds into `DiffSurface.tsx` | T-UI-11, T-UI-16, T-UI-19 |
+| Run (monitor, Inspect) | `RunTraceCard.tsx`, reshaped in place (T-FLW-07) | `RunsCards.tsx` folds into it | T-UI-12 |
+| Agent, model roles | `AgentCards.tsx`; restored `ModelCards.tsx` slice (T-FLW-08) | `views/SettingsModels.tsx` | T-UI-13 |
+| Commands | `CommandsContainer.tsx` (T-UI-14, T-CAT-01) | `CommandsCases.ts`, `CommandsExpectations.ts` | T-UI-14 |
+| Shell: entries, branch tree, Earlier | the conversation surface (T-APP-16; T-APP-17 adds the Context line) | `BranchesCard.tsx` | T-UI-07 |
+| Timeline, toasts, edge map | `ChatRunTimeline.tsx`, `ToastStack.tsx`, `EdgeMap.tsx` (T-APP-07; T-APP-18 adds Allow notifications) | their old markup | T-UI-08 |
+| Actor chip | `MV/state/ProductActor.ts` (T-APP-09) | `views/actorName.ts` | T-UI-01 |
+| Branch [S2] | the existing branch card (T-APP-10) | named by T-APP-10 | T-UI-15 |
+| Terminal [S2] | the existing terminal card (T-APP-12) | named by T-APP-12 | T-UI-17 |
+| Secrets [S2] | `SecretsCard.tsx` (T-APP-13) | its old markup | T-UI-18 |
+| Proposal [S3] | T-FLW-06 | none | T-UI-20 |
+| Docs, Debug API [S2] | T-APP-20, T-APP-21 (pending Will's ruling on M-35, M-36) | none | T-UI-21, T-UI-22 |
 
 ## 2. Legacy decoding
 
-Confirm references and receipts are visible only to the person who must press the card; every other viewer sees nothing. Keep `file`, `diff`, `run-trace` and `agents` live when their names are reused under L4; never add those live kinds to `LEGACY_CARD_KINDS`. Checks: C-ACC-02, C-CUT-02. Legacy decoding preserves pinned records; current Confirm references validate their authorized confirmation subject. Legacy decoding never grants access to a forbidden Confirm subject. Check: C-UI-08.
+Confirm references and receipts are visible only to the person who must press the card; every other viewer sees nothing. Keep `file`, `diff`, `run-trace` and `agents` live when their names are reused under L4; never add those live kinds to `LEGACY_CARD_KINDS`. Check: C-ACC-02; T-APP-22's tests cover old-row decoding. Legacy decoding preserves pinned records; current Confirm references validate their authorized confirmation subject. Legacy decoding never grants access to a forbidden Confirm subject.
 
 
-L1. **One decoder.** `CardSchema` (`packages/rpc/src/Cards.ts`) decodes every persisted card: today's per-member transcripts (`MV/state/AppStore.ts`, OPFS or localStorage), the `card` frames of the agent turn journals read through `/api/agent/conversations/replay` (`packages/backend/internal/chat`), and from T-APP-16 `conversation_entries.card`. Its preprocessor turns a row whose kind is in `LEGACY_CARD_KINDS` into the tombstone `{kind: "retired", payload: {was: <kind>}}`. The tombstone keeps `id`, `ordinal`, `createdAt` and the stored `title`, and drops `body` and the payload. Today's two mechanisms, the preprocessor's `retiredKinds` (`Cards.ts:2952-2962`) and the app's `RETIRED_CARD_KINDS` (`MV/state/CardAvailability.ts:1`), become this one set. T-APP-22 builds it.
+L1. **One decoder.** `CardSchema` (`packages/rpc/src/Cards.ts`) decodes every persisted card: today's per-member transcripts (`MV/state/AppStore.ts`, OPFS or localStorage), the `card` frames of the agent turn journals read through `/api/agent/conversations/replay` (`packages/backend/internal/chat`), and from T-APP-16 `conversation_entries.card`. Its preprocessor turns a row whose kind is in `LEGACY_CARD_KINDS` into the tombstone `{kind: "retired", payload: {was: <kind>}}`. The tombstone keeps `id`, `ordinal`, `createdAt` and the stored `title`, and drops `body` and the payload. Today's two mechanisms, the preprocessor's `retiredKinds` (`Cards.ts:3040-3056`, 14 names) and the app's `RETIRED_CARD_KINDS` (`MV/state/CardAvailability.ts:1`, 20 names), become this one set. T-APP-22 builds it.
 
 L2. **Rendering.** A tombstone is a read-only entry row with its title alone: no body, no action, no maximize, no reopen. A tombstone with an empty title renders nothing. `cardAvailable` is false for it, so no flow reopens it and no turn sends it to a model. The View is T-UI-07's entry row without a card.
 
@@ -51,11 +47,11 @@ L4. **Reusing a name.** A ticket that keeps a kind's name for a new view model (
 
 L5. **New kinds** store a subject reference only: `home {repo}` (T-APP-01), `todo {n}` and `draft` (T-APP-02), `setup` and `settings` (T-APP-03), `confirm {confirmation_id}` (T-APP-04), `flow {name}` (T-APP-05), `members` (T-APP-06), `branch {id}` (T-APP-10), `terminal {id}` (T-APP-12), `docs` (T-APP-20), `debug-api` (T-APP-21), `proposal` (T-FLW-06) and `commands` (T-CAT-01). None reuses a name in `LEGACY_CARD_KINDS`.
 
-L6. **The pinned fixture.** `packages/rpc/test/fixtures/LegacyCards.ts` (T-APP-22) holds one row per kind in today's `CurrentCardSchema` (67 kinds) and one per name in today's `retiredKinds` (8), copied from producer output or the app's card fixtures at the commit T-APP-22 lands on. Rows are never edited. A ticket that adds a kind appends its row. Check: C-CUT-02.
+L6. **The pinned fixture.** `packages/rpc/test/fixtures/LegacyCards.ts` (T-APP-22) holds one row per kind in today's `CurrentCardSchema` (69 kinds) and one per name in today's `retiredKinds` (14), copied from producer output or the app's card fixtures at the commit T-APP-22 lands on. Rows are never edited. A ticket that adds a kind appends its row. T-APP-22's tests read it.
 
 ## 3. Every card kind today
 
-Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/src/Cards.ts | sort -u`, which prints 69 names: `error` (`Cards.ts:723`, inside `factory.home`'s payload) and `prs.triage` (`Cards.ts:2781`, inside `flow-form`'s payload) are nested discriminants, not card kinds, so 67 rows follow. Producers were found with `rg 'kind: "<kind>"'` under `apps/app/src` and `packages`, excluding tests. Decisions follow mvp.md §8 and Appendix B. "Legacy" means the kind joins `LEGACY_CARD_KINDS` when the named ticket lands, and its old rows read as tombstones. "Live" means it keeps its schema.
+Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/src/Cards.ts | sort -u`, which prints 71 names at `383f82f40`: `error` (`Cards.ts:744`, inside `factory.home`'s payload) and `prs.triage` (`Cards.ts:2801`, inside `flow-form`'s payload) are nested discriminants, not card kinds, so 69 rows follow. Producers were found with `rg 'kind: "<kind>"'` under `apps/app/src` and `packages`, excluding tests. Decisions follow mvp.md §8 and Appendix B. "Legacy" means the kind joins `LEGACY_CARD_KINDS` when the named ticket lands, and its old rows read as tombstones. "Live" means it keeps its schema.
 
 | Kind | Producer today | Decision | Becomes | Ticket | After |
 | --- | --- | --- | --- | --- | --- |
@@ -69,7 +65,7 @@ Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/s
 | `approvals-inbox` | `MV/state/controller/runs.ts` (`approvals.list`, `runs.attention`) | Replaced (B.2 Rename → `/runs`) | the retained run list (`run-list`) | T-CAT-01's follow-up (T-CAT-01 is frozen) | legacy |
 | `balance` | `MV/state/controller/auth-billing.ts:729` | Deferred (§8 billing) | hidden | T-CUT-03 | live |
 | `billing-plans` | `MV/state/seams/BillingSeam.ts` | Deferred (§8 billing) | hidden | T-CUT-03 | live |
-| `branches` | `MV/state/seams/BookmarksSeam.ts` (`branches.list`) | Replaced (§8 Merge; Appendix A `/branches`) | the branch tree (shell) | T-APP-23 | legacy |
+| `branches` | `MV/state/seams/BookmarksSeam.ts` (`branches.list`) | Replaced (§8 Merge; Appendix A `/branches`) | the branch tree (shell) | T-APP-16 | legacy |
 | `browser` | `MV/state/controller/presentation.ts:401` (`browser.open`) | Retained (§14.3.0) | `browser` | none | live |
 | `change` | `MV/state/seams/ChangeSeam.ts:961`, `MV/state/seams/SearchSeam.ts:238` | Retained (§14.3.0, Review findings) | `change` | none | live |
 | `ci-matrix` | none (`RETIRED_CARD_KINDS`) | Legacy today (§8 CI matrix cut) | none | T-APP-22 | legacy |
@@ -81,6 +77,7 @@ Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/s
 | `env` | `MV/state/seams/EnvironmentSeam.ts:184` (`env.*`) | Replaced (B.2 → Settings model access) | Settings | T-APP-03 | legacy |
 | `environment-images` | `MV/state/seams/WorkspaceSeam.ts` (`box.images`) | Deferred (§8, §16 Machine view) | hidden; T-APP-10 keeps its renderer when it deletes `WorkspaceCard.tsx` | T-CUT-03 | live |
 | `explain` | none (Explainer mode removed, AGENTS.md second-round scope) | Legacy today | none | T-APP-22 | legacy |
+| `draft` | `MV/state/seams/TodoSeam.ts:225` (96aed3b0a, `todo.new`) | New (§14.3 Draft) | Draft | T-APP-02 | live |
 | `factory.home` | `MV/App.tsx` | Replaced | Home | T-APP-01 | legacy |
 | `file` | `MV/state/seams/FilesSeam.ts:347,380`, `DiffFilesSeam.ts:30`, `SearchSeam.ts:309`, `WorkspaceSeam.ts:1517` | Replaced | File | T-APP-15 [S1], T-APP-11 [S2] | live, name reused (L4) |
 | `file-list` | `MV/state/seams/FilesSeam.ts` (`files.list`) | Retained (B.2 File card for `/files`) | `file-list` | T-APP-11 renames the door | live |
@@ -104,7 +101,7 @@ Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/s
 | `repo-update` | `MV/state/controller/repositoryUpdate.ts` (`repo.update`) | Deferred (§8 multi-repository) | hidden | T-CUT-03 | live |
 | `repository-choice` | `MV/state/AppController.ts:865` (`repo.choose`) | Deferred (§8 multi-repository) | hidden | T-CUT-03 | live |
 | `repository-setup` | `MV/state/controller/repositorySetup.ts` | Cut (§8 five-job setup) | none | T-CUT-01 (producer); T-CUT-04 (kind) | legacy |
-| `retired` | the decoder (`Cards.ts:2984`) | The tombstone itself | keeps `title`, gains `payload.was` | T-APP-22 | live (tombstone) |
+| `retired` | the decoder (`Cards.ts:3079`) | The tombstone itself | keeps `title`, gains `payload.was` | T-APP-22 | live (tombstone) |
 | `run-history` | none (`RETIRED_CARD_KINDS`) | Legacy today | none | T-APP-22 | legacy |
 | `run-list` | `MV/state/controller/runs.ts`, `MV/state/RuntimeProjection.ts` (`runs.list`) | Retained (§14.3.0; `/runs`, `/monitor`) | `run-list` | none | live |
 | `run-timeline` | none (`RETIRED_CARD_KINDS`) | Legacy today | none | T-APP-22 | legacy |
@@ -118,6 +115,7 @@ Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/s
 | `target-run` | none (`RETIRED_CARD_KINDS`) | Legacy today | none | T-APP-22 | legacy |
 | `targets` | none (`RETIRED_CARD_KINDS`) | Legacy today | none | T-APP-22 | legacy |
 | `theme-picker` | none (`RETIRED_CARD_KINDS`) | Legacy today | none | T-APP-22 | legacy |
+| `todo` | `MV/state/seams/TodoSeam.ts:53` (96aed3b0a) | New (§14.3 TODO) | TODO | T-APP-02 | live |
 | `trigger-list` | `MV/state/seams/TriggersSeam.ts` (`triggers.list`) | Deferred (§8, §16 triggers) | hidden | T-CUT-03 | live |
 | `wiki-graph` | `MV/state/controller/world.ts` | Retained (§14.3.0) | `wiki-graph` | none | live |
 | `wiki-history` | `MV/state/controller/cloud-wiki.ts` | Retained (§14.3.0) | `wiki-history` | none | live |
@@ -127,4 +125,4 @@ Listed with `rg -o 'kind: z\.literal\("([a-z0-9.\-]+)"\)' -r '$1' packages/rpc/s
 | `workspace` | `MV/state/seams/WorkspaceSeam.ts:728`, `MV/state/WorkspaceViews.ts:47` (`box.open`, `box.terminal`) | Replaced | Branch and Terminal | T-APP-10 (T-APP-12 takes the terminal facet) | legacy |
 | `world` | `MV/state/controller/world.ts:349`, `cloud-wiki.ts`, `presentation.ts:60` | Retained (§14.3.0 Wiki) | `world` | none | live |
 
-Totals: 17 replaced (5 of them keep their name), 7 cut, 14 legacy today, 8 deferred, 1 hidden, 19 retained, and the tombstone. Every replaced kind that doesn't keep its name and every cut kind ends in `LEGACY_CARD_KINDS`, so its old rows decode (L1). §14.3.0 doesn't list six retained kinds yet: `file-list`, `issue-list`, `pr-list` and `workflow-list`, whose cards Appendix B names, and `plan` and `status`, which are parts of an answer entry (§14.5.1).
+Totals: 2 new (`draft`, `todo`), 17 replaced (5 of them keep their name), 7 cut, 14 legacy today, 8 deferred, 1 hidden, 19 retained, and the tombstone. Every replaced kind that doesn't keep its name and every cut kind ends in `LEGACY_CARD_KINDS`, so its old rows decode (L1). §14.3.0 doesn't list six retained kinds yet: `file-list`, `issue-list`, `pr-list` and `workflow-list`, whose cards Appendix B names, and `plan` and `status`, which are parts of an answer entry (§14.5.1).

@@ -1,11 +1,11 @@
 # T-UI-22 Debug API view
 
-Stage S2 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-21, T-REL-02 · Issue: [#3584](https://github.com/smithersai/smithers/issues/3584)
-Spec: spec.md §14.2.1 · Delta: delta.md §9 · Product: mvp.md M-36 · Props: [ui-components.md § T-UI-22](../ui-components.md)
+Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-21, T-REL-02 · Issue: [#3584](https://github.com/smithersai/smithers/issues/3584)
+Spec: spec.md §14.2.1 · Delta: delta.md §9 · Product: mvp.md M-36 · Props: written by this ticket when S2 starts
 
 ## Goal
 
-`DebugApiView` exists as a props-only View matching the design mock and ui-components.md, so T-APP-21 only binds data and actions.
+`DebugApiView` exists as a props-only View matching the design mock, so T-APP-21 only binds data and actions.
 
 ## Ownership (Will, 2026-10-02)
 
@@ -14,8 +14,8 @@ Design (smithers-06) owns this ticket. smithers-b8 wires it in T-APP-21.
 ## Scope
 
 In:
-- `DebugApiView` (`DebugApiModel`, ui-components.md § T-UI-22): operation list, the request form from the Send action's generated `input`, the in-card confirmation for mutations, response pane (status, headers, body, duration) and the typed failure state.
-- Fixture stories for every state, light and dark, desktop and 390 px.
+- `DebugApiView` (props as a TypeScript type this ticket adds back in `packages/rpc/src/DebugApiCard.ts`, with its ui-components.md section, when S2 starts): operation list, the request form from the Send action's generated `input`, the in-card confirmation for mutations, response pane (status, headers, body, duration) and the typed failure state.
+- Stories for every state, light and dark, desktop and 390 px.
 
 Out:
 - Content loading, routing, requests and authorization (T-APP-21).
@@ -23,18 +23,17 @@ Out:
 ## Changes
 
 - `apps/app/src/mainview/cards/views/DebugApiView.tsx` and CSS. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
+- `apps/app/src/mainview/cards/views/DebugApiView.stories.tsx`: one story per state, with literal expected strings and actions.
 
 ## Tests
 
-- unit (C-UI-12): every fixture of the card renders with its actions and shows its `expect` strings, in light and dark at 1280 and 390 px; each press calls `onAction` or `onView` once. The View-seam rule passes on the View's file (C-UI-08).
+- unit (`cards/views/Views.test.tsx` over `*View.stories.tsx`): each story renders in both themes with no console error and shows its literal expected strings; each press calls `onAction` with its literal tag and arguments, or `onView` with its literal patch, once; a story with its first action removed shows no control for it. The View-seam rule (`flows/parity.test.ts`) passes on the View's file.
+- Playwright (`view-stories.spec.ts`): in both themes, no overflow at 390 px and no serious or critical axe-core violation.
 
 ## Acceptance
 
-- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
-
-
-- [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
+- Copy review: the design reviewer reads every story screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. The wiring ticket's own checks prove the card end to end.
 
 ## Risks and notes
 
-- A prop the View needs but ui-components.md lacks is a spec change: raise it with the tech lead.
+- A prop the View needs but spec §14.3 lacks is a spec change: raise it with the tech lead.

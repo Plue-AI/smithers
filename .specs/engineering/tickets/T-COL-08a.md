@@ -1,6 +1,6 @@
 # T-COL-08a Daemon Yrs documents and durable disk reconciliation
 
-Stage S3 · Size L · Depends on T-COL-10, T-COL-03r · Unblocks T-COL-08, T-REL-02 · Issue: [#3629](https://github.com/smithersai/smithers/issues/3629)
+Stage S3 · Size L · Depends on T-COL-03r, T-COL-08b · Unblocks T-COL-08, T-REL-02 · Issue: [#3629](https://github.com/smithersai/smithers/issues/3629)
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 
 ## Goal
@@ -38,12 +38,13 @@ Out:
 - Wiki pages (T-COL-09) and the File card client (T-APP-14a).
 - Carets and selections (cut, mvp.md §6.8).
 - Per-entry Undo, command names and replaced-edit flags (§9.3.5–9.3.7 [D]).
-- Rebase scheduling (T-STK-11).
-- Component boundary: inject watcher/session events and recorded versions using Linux fixtures; T-COL-08 integrates T-COL-04a’s production watcher. Consume T-COL-10 document envelopes and saved/epoch schemas.
+- Rebase scheduling (T-STK-08, which absorbed T-STK-11).
+- Component boundary: inject watcher/session events and recorded versions using Linux fixtures; T-COL-08 integrates T-COL-04a’s production watcher. Consume T-COL-08b's document envelopes and saved/epoch schemas.
 
 ## Changes
 
 - `crates/smithers-machined/Cargo.toml`: pin `yrs = "=0.27.4"`, matching `crates/smithers-ffi/Cargo.toml:35`. Share the Rust Yjs sync-protocol codec with `smithers-ffi`; T-COL-09 is its second user. ADR `docs/architecture/0003-live-code-co-editing.md` records this choice.
+- One Yrs core (minimal-code synthesis, 2026-10-03, v2 layers): reshape the document setup and update integration in `crates/smithers-ffi/src/wiki_document.rs:53` (`execute`, UTF-16 offsets, `apply`) into a module both crates import, parameterized by the text name (`markdown` for wiki, `content` for code). `smithers-machined` writes no second Yrs document core.
 
 - `crates/smithers-machined/src/doc/` (new): `host.rs` (documents, sync, close timer), `disk.rs` (flush with file and directory fsync), `merge.rs` (three-way merge, overlap detection, outside snapshot), `reconcile.rs` (minimal edit), `state.rs` (Yrs state under `/var/lib/smithers/docs/`), `authors.rs`, `gone.rs`.
 

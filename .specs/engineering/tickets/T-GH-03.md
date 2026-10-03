@@ -1,72 +1,43 @@
-# T-GH-03 PR shape: slug branch, body, item-only diff; later items' PRs are drafts until next
+# T-GH-03 TODO PRs both ways: slug branch, body, item-only diff, drafts; checks, GitHub's refusal text, merged, closed, reopened, out-of-order merge
 
-Stage S1 · Size M · Depends on T-STK-01, T-STK-10, T-GH-09, T-STK-12, T-STK-02, T-STK-15, T-GH-05, T-INS-04, T-INS-02, T-ACC-03 · Unblocks T-REL-02 · Issue: [#3452](https://github.com/smithersai/smithers/issues/3452)
-Spec: spec.md §8.1.1, §10.3.2, §10.6.3, §12.4.1 (PR title), §12.4.2, §12.5, §14.3 (Diff), §16.3.1 · Delta: delta.md §6 "PRs stay based on `main`", §7 · Product: mvp.md J10.1, §3 (TODO `T12`), §4.2 "Merging", §6.3 "From Smithers to GitHub", M-22
+Stage S1 · Size M · Depends on T-STK-01, T-STK-02, T-STK-06, T-STK-12, T-GH-02, T-GH-09, T-ACC-03, T-FLW-11, T-MCH-14, T-INS-02, T-INS-04 · Unblocks T-APP-01, T-GH-04, T-GH-06, T-STK-04, T-REL-02 · Issue: [#3452](https://github.com/smithersai/smithers/issues/3452)
+Spec: spec.md §4.1, §8.1.1, §10.3.2, §10.6.2–§10.6.4, §12.3, §12.4.1–§12.4.2, §12.5, §14.3 (Diff) · Delta: delta.md §6, §7 · Product: mvp.md J10.1, J10.5, J10.8, §4.2, §6.3, M-22
+
+Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges, GH-03+05). Absorbs T-GH-05 ([#3517](https://github.com/smithersai/smithers/issues/3517)).
 
 ## Goal
-When a TODO reaches In review, GitHub shows one PR from `smithers/<slug>` into `main` whose head commit has the item's persisted accepted-generation tree and whose body carries the prompt, acceptance, evidence, included earlier items, a link back and "Requested by @owner". Apply §12.5.1's ready/draft policy and its draft-unavailable fallback; a person's later ready action on GitHub is synchronized without an automatic corrective redraft. Smithers shows only the item's own change.
+A TODO in review has one PR from `smithers/<slug>` into `main` with the item's accepted tree, a body with prompt, evidence, included items and "Requested by @owner", and drafts for every item after the first. A merge, close or reopen on GitHub moves the TODO to Merged, Dropped or In review; checks show by name; a blocked merge shows GitHub's own sentence; a later item merged first marks both merged and asks maintainers for OK.
 
 ## Scope
-In (adopted owner pre-review):
-- Apply a controlled git configuration to every host publication caller, including the shared mythicalGit.command helper and diff, tree construction, merge, commit and push operations. Disable repository-controlled hooks, external diff, textconv, merge drivers and credential helpers; disabling only system/global configuration is insufficient. Repository code and checks execute only in isolated machines; missing isolation refuses execution. Check: C-J10-01.
-
-In:
-- Head branch = the TODO branch's recorded GitHub name (`branches.github_branch`, set once from `smithers/<slug>` by T-STK-01, §8.1.1). One branch and one PR for the TODO's life.
-- Base `main`. Each written head has the persisted accepted generation's exact tree and one parent, that generation's recorded main base. Use its immutable included-items manifest (§10.3.2a), which may omit unverified predecessors. Keep settled pr_head separate from pending intended head and current generation (§12.5.1a).
-- Draft state (§12.5.1): the first unmerged item's PR opens ready; later PRs open with `draft: true`. Where drafts are unavailable, use the literal title prefix `[waits for Tn]` and label `smithers:waiting`. When an item stops being first, use `convertPullRequestToDraft`; when it becomes first, remove fallback waiting decoration after the accepted head is pushed. A person marking a later PR ready without a stack-position change causes no corrective redraft; GH-05 synchronizes its actual state.
-- Becoming next: when the first item merges, the next item rebases onto the new `main`, its verified candidate holds only its own change, its PR is force-updated, and then it is marked ready with the GraphQL mutation `markPullRequestReadyForReview` (REST can't change draft state).
-- PR title = the TODO title (§12.4.1), with only the draft-unavailable waiting prefix specified above.
-- Body (§12.5.1): the latest prompt revision; acceptance; evidence (checks table, diff stat, review summary) from the latest attempt; the immutable accepted-generation manifest's included items in stack order, each as `Tn` and its title linked to its PR; a link back to the TODO at the install's first public origin (§16.3.1); "Requested by @owner" (§12.4.2). `Tn` doesn't autolink on GitHub, so no item is mistaken for issue or PR `#n`.
-- Body refresh on every verified update and when an earlier item merges, so a merged item drops off the list (§10.6.3). Pushes use `--force-with-lease` against the recorded head (§12.5.2).
-- Closing keywords stay stripped from every text the body quotes, so only completion closes an issue (§12.3 merged row).
-- Item-only diff: from the accepted generation's selected prefix candidate to its tree, or from its recorded main base if the manifest is empty (§10.3.2a). It feeds the TODO card's PR and the Diff card.
-
-Out: stacked bases and retargeting ([D] §12.5.3); agent replies in review threads ([D]); keys and crash reconcile for the open, body-update, ready and push writes (T-GH-09 wraps the calls made here); evidence collection (T-STK-10); slug derivation and the `branches` table (T-STK-01); merge (T-STK-04); a later draft un-drafted and merged on GitHub (T-GH-05, §10.6.4); UI Views/Containers (T-UI-04, T-UI-11, T-APP-02, T-APP-15); machine execution and isolation implementation (T-INS-02); merge authorization and order policy (T-STK-04).
+In: PR shape and draft policy (§12.5.1); inbound PR facts (§12.3); the 7-day reopen window; out-of-order merge (§10.6.4); controlled git configuration on every host publication caller (hooks, external diff, textconv, merge drivers and credential helpers disabled).
+Out: keyed write recovery (T-GH-09 wraps every write here); evidence collection (T-STK-01); merge command and guards (T-STK-04); rebase execution (T-STK-08); next attempt after reopen (T-STK-05); stacked bases [D].
 
 ## Changes
-- Apply a controlled git configuration to every host publication caller, including the shared mythicalGit.command helper and diff, tree construction, merge, commit and push operations. Disable repository-controlled hooks, external diff, textconv, merge drivers and credential helpers; disabling only system/global configuration is insufficient. Repository code and checks execute only in isolated machines; missing isolation refuses execution. Check: C-J10-01.
-
-- `packages/backend/internal/services/mythical_items.go:2115-2124` (`mythicalBranch`) → read `branches.github_branch`; delete the `issue-<n>`, `change-<hex>` and `-r<k>` forms.
-- `mythical_items.go:2126-2149` (`proposal()`) → render the §12.5.1 body from `todo_revisions`, accepted-generation `todo_attempts.evidence` and its immutable included-items manifest, and take the title from `todos.title` instead of the agent summary's first line. Keep `mythicalNoClosingKeywords` (`:2156`) over quoted text. Delete the fixed "One commit carrying…" sentence.
-- `mythical_items.go:2081-2113` (`openPull`) → open with `draft` set unless the item is first; record the PR's `node_id`; after the PR exists, update its body when the rendered body's digest differs from the recorded one.
-- Stack engine, after a merge's rebase pass (§10.6.3) → for the new first item, once its accepted generation is pushed, call `MarkReadyForReview`. Consume GH-05's production inbound merge/draft projection and STK-02 placement events; route ready, draft, waiting-label and body writes through GH-09. Add `ConvertToDraft(nodeID)` alongside `MarkReadyForReview`.
-- `packages/backend/internal/services/mythical_github.go:282` (`CreatePull`) → accept `draft`; add `UpdatePullBody(number, body)` and `MarkReadyForReview(nodeID)` (`POST /graphql`, `markPullRequestReadyForReview(input: {pullRequestId})`, idempotent when already ready).
-- `mythical_items.go:2419-2427` (`proposalDiff`) → diff the persisted accepted generation's selected prefix tree against its tree instead of `PRHead^..PRHead`. Keep `--no-ext-diff`; disable textconv, hooks, merge drivers and credential helpers through the controlled configuration used by every publication git caller. Repository-controlled programs must not execute on the host. Check: C-J10-01.
-- `GET /api/branches/{b}/diff` (§6.3) returns HTTP 200 JSON `{files: DiffModel[]}`, with one `DiffModel` per changed file, using the §14.3/ui-components.md shape: `{path, branch, against: {kind: "item_base", rev}, change, renamed_to?, binary?: {before_bytes, after_bytes}, hunks: [{old_start, new_start, lines: [{op, text}]}]}`. `change` is added, modified, deleted or renamed; `op` is space, + or -. For an item, `against.rev` is the accepted generation’s selected prefix candidate, or its recorded main base when the manifest is empty. Declare this response in `docs/api/openapi/branches.yaml` and re-bundle `docs/api/openapi.yaml`. The Diff card consumes each structured file model; a unified patch string is not this API response. Check: C-J10-01.
-- `packages/backend/internal/githubfake/` → `draft` on PR create and the `markPullRequestReadyForReview` GraphQL mutation.
-- `packages/backend/docs/github-sync.md` (created by prerequisite T-GH-02, currently absent) → a "Pull requests" section; docs gates as in T-GH-02.
-- `packages/backend/internal/githubfake/` and the target branch diff route are planned prerequisite/target paths, currently absent. The existing Go symbols and line anchors above are present in the main clone; use them as source anchors, not proof that the target API already exists.
+- Reshape `services/mythical_items.go:2115` (`mythicalBranch`): read the recorded branch name; delete the `issue-<n>`, `change-<hex>` and `-r<k>` forms.
+- Reshape `:2126` (`proposal`): render the §12.5.1 body from the item's latest revision, latest attempt evidence and accepted included-items manifest; title = TODO title. Keep `mythicalNoClosingKeywords`.
+- Reshape `:2081` (`openPull`) and `mythical_github.go:282` (`CreatePull`): `draft` unless first; add `UpdatePullBody`, `MarkReadyForReview` and `ConvertToDraft` (GraphQL). Draft-unavailable fallback: title prefix `[waits for Tn]` and label `smithers:waiting`.
+- Reshape `:2419` (`proposalDiff`): diff the accepted prefix candidate against the item's tree; serve it as `GET /api/branches/{b}/diff` `{files: DiffModel[]}` (OpenAPI in `docs/api/openapi/branches.yaml`).
+- Reshape `:2163` (`follow`) and `:2827` (`ObserveGitHubEvent`): one pure `decideGitHubFact(fact, item, now)` Go switch returns events, a no-op reason or an attention kind. No `.tsv` table; poll, review and foreign-push consumers share it.
+- Reshape `mythical_github.go:611` (`HeadChecks`): checks on every PR head, named, with `required` from `main`'s protection and rulesets (`administration: read`); the completion caller (`mythical_items.go:3224`) reads the same facts.
+- Reshape `landing_github_pull.go:455` (`landingGitHubStatusError`): keep the body's `message` and `errors[].message` (class `github`, code `github_refused`).
+- Reshape `:85` (`mythicalSettledStates`): a GitHub-closed TODO stays followed for 7 days; reopen restores its position if free, else appends, and recreates the branch from the last verified candidate.
+- Reshape `:3118` (`mythicalLanded`) and `:2223` (`mythicalHold`): out-of-order merge marks every contained earlier item merged with the note "T3 merged before T2; T2's change is in T3's commit" and holds the stack's merges until a maintainer presses OK. The hold is the existing notice, not a `stack_attention` table.
+- Reshape `:3168-3255` (`complete`, `completionBody`): close the issue only when `fixes_issue`, through T-GH-09.
+- Reuse `internal/githubfake/`: add `draft`, the ready and draft mutations, and protection reads.
+- New: none.
 
 ## Tests
-- Read the served diff route and validate the OpenAPI 200 response against fixed per-file DiffModel fixtures for text, rename and binary changes. Assert `against.kind = item_base`, literal selected-prefix candidate revisions, fallback main revision for an empty manifest and exact hunks for only the item’s change. Check: C-J10-01.
-
-- Through production candidate/propose, PR publication and served diff routes, use a repository with hostile local hooks, diff/textconv and merge drivers and credential helpers. Independent host canaries show zero execution for every publication git caller. Exercise unavailable isolation and assert refusal without host fallback; retain accepted-generation tree/body/diff assertions. Check: C-J10-01.
-
-- Unit, `mythical_proposal_test.go` (existing): the body holds the latest revision only; lists exactly the accepted generation's immutable included-items manifest in stack order as `Tn` links; names the owner's GitHub login; keeps no closing keyword from the prompt or evidence; stays under GitHub's 65,536-character body limit, with a link back when evidence is cut.
-- Unit: the PR title equals the TODO title; a TODO whose slug changes after its first push keeps its recorded branch name.
-- Integration, real PostgreSQL + real repository history + `githubfake` (`mythical_pr_shape_integration_test.go`, new): create TODOs through `POST /api/todos`; drive accepted generations through the production `stack.candidate`/`stack.propose` dispatcher with authorized run/machine credentials. Read `GET /api/branches/{b}/diff` through the production router. With fixed T1/T2/T3 source trees, T1 is ready and T2/T3 are drafts; T2's head has its recorded main base as parent and exact accepted tree. Assert literal body text, PR flags and changed paths from independent GitHub logs/tree fixtures. No direct proposal()/openPull()/proposalDiff() calls as acceptance, and no runtime spec or production-code-derived expectations.
-- Integration: the production GH-05 poll worker observes T1 merged on githubfake; after T2 accepts its rebased generation, T2's head is force-updated to main + T2, its body stops listing T1, and one effective ready transition follows the settled push; T3 stays draft. Restart across a lost ready response and require keyed GH-09 recovery without an extra effective transition.
-- Integration: `PATCH /api/todos/{n}` through STK-15's production dispatcher amends T2; after its next accepted generation, the same PR contains revision 2 only. Move T1 below T2 through `POST /api/todos/{n}`: T1 returns to draft and T2 becomes ready only after its accepted push settles. Pin separate fixtures for an unverified predecessor omitted from the manifest, draft-unavailable waiting decoration, and a human marking a later PR ready; the latter causes no corrective redraft.
-- Security integration: a repository fixture declares hostile hooks, external diff, textconv and merge drivers, and credential helpers; the served diff and publication paths execute none on the host. All check, coding and repository-flow processes run in an INS-02 machine; an unavailable machine/isolation refuses execution (C-SEC-02).
-- e2e: [C-J10-01](../checks/C-J10-01.md), after the journey's UI and merge-command tickets land. These consumer journey prerequisites do not replace the production dispatcher/route landing tests above.
+- Unit: body holds the latest revision only, `Tn` links in stack order, no closing keyword, under 65,536 characters; title equals the TODO title.
+- Unit: `decideGitHubFact` over literal fixtures for merged in order and out of order, closed, reopened at day 6, 7 and 8 (inclusive), closed twice; duplicates are no-ops.
+- Unit: a 405 body reaches the merge refusal unchanged; a 422 keeps each `errors[].message`.
+- Integration, real PostgreSQL, real git and `githubfake`, production routes and poller: T1 ready, T2 and T3 drafts; T1 merged on GitHub then T2 rebases, drops T1 from its body and turns ready once; T3 merged first marks T2 and T3 merged and holds merges until OK; OK from a member is refused and a stale revision returns 409.
+- Integration: crash before and after the inbound commit; replay yields one transition and no second close or comment.
+- Security: a repository with hostile hooks, diff drivers and credential helpers executes nothing on the host.
 
 ## Acceptance
-
-
-- [C-J10-01](../checks/C-J10-01.md): the PR on `smithers/<slug>` is based on `main`, its body has the prompt, evidence, included items and requester, and Smithers' diff shows only the item.
+- [C-J10-01](../checks/C-J10-01.md), [C-J10-05](../checks/C-J10-05.md), [C-J10-08](../checks/C-J10-08.md), [C-GH-13](../checks/C-GH-13.md), [C-STK-04](../checks/C-STK-04.md), [C-STK-07](../checks/C-STK-07.md), [C-STK-08](../checks/C-STK-08.md) (merges on GitHub during a steer, question or pause), [C-J1-04](../checks/C-J1-04.md), [C-SEC-02](../checks/C-SEC-02.md).
 
 ## Risks and notes
-- Risk: a long prompt (24 KiB today, `mythicalPromptBytes`) plus evidence can pass GitHub's body limit. Confirmed by a 422 from GitHub when the scratch repository gets a body over 65,536 characters.
-- Draft-unavailable behavior is specified in §12.5.1: waiting title prefix and label, with Smithers merge order enforced. smithers-8a accepts capability/refusal fixtures; Will decides any alternative product policy. Do not add a new setup prerequisite check.
-- Risk: T-STK-01's backfill must copy each open PR's branch into `branches.github_branch`, or an in-flight item opens a second PR after the upgrade. Confirmed on the dogfood install by counting PRs per TODO after the upgrade.
-- Resolved: §12.5.1. A TODO that stops being first returns its PR to draft (`convertPullRequestToDraft`), and the new first one is marked ready.
-- smithers-3f approves generation/publication, GitHub and security seams; smithers-b8 signs off the public diff/OpenAPI contract before implementation. smithers-8a accepts body truncation and draft-capability fixtures; Will decides product exceptions.
-
-## Ready checklist
-
-1. Runtime prerequisites: Depends on names TODO/branch storage (STK-01), evidence (STK-10), accepted generations (STK-12), placement/amend dispatch (STK-02/STK-15), inbound merge/draft state (GH-05), keyed writes (GH-09), link origins (INS-04), machine isolation (INS-02) and action authorization (ACC-03). All added edges are S1 and have no reverse path in the index.
-2. Exclusions: Scope names stacked bases, review replies, recovery implementation, evidence collection, slugs/storage, merge/foreign-merge policy, UI implementation and isolation implementation.
-3. Boundary tests: named production TODO, candidate/propose, poll, move/amend and diff boundaries use real storage/history and fixed GitHub/tree/body fixtures; C-J10-01 is joint browser evidence. No runtime spec/code oracle.
-4. Decisions: smithers-3f approves Go/publication/security seams; smithers-b8 signs off the public diff API; smithers-8a accepts truncation/capability fixtures; Will decides product exceptions.
-5. Owner pre-review before start: smithers-3f answers whether accepted-generation manifests determine every written head/body/diff, whether ready/draft transitions follow settled pushes and keyed reconciliation, and whether git helpers can execute repository hooks/drivers on the host; smithers-b8 answers whether the item-only diff response and OpenAPI contract fit existing card consumers. smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered, BLOCKING edits applied (tech lead adopts).
-6. Security: smithers-3f reviews M-29 machine-only coding/check/flow execution, run/machine authorization, host-only App credentials and inert host git operations. C-SEC-02 and the hostile-hook/driver production-route fixture prove isolation and no host repository execution.
+- Risk: a 24 KiB prompt plus evidence exceeds GitHub's body limit; GitHub answers 422. The body truncates evidence and links back.
+- Risk: `closed_by` is null when the head branch is deleted; the reason then reads "closed on GitHub".
+- smithers-3f approves the fact decision and containment proof; smithers-b8 the diff and OK contracts.

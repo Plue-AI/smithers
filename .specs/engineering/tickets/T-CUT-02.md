@@ -21,7 +21,7 @@ In: one decision per route, recorded in `packages/rpc/src/catalog/cuts.json` (fr
 | Cloud agent sessions | `/api/admin/agent-sessions*` and repo `agent-sessions` routes (`router.go:1349,1827-1828`) | Admin routes as the admin row; repo routes are deleted if only cut app code called them |
 
 Out:
-- `/api/agent/turn*` and `/api/agent/conversations*` (`packages/rpc/src/AgentApiRoutes.ts:13-48`). Research listed them among the agent-session cuts, but they are the app agent's turn routes. T-APP-23 deletes the write half (`/api/agent/turn`, `/cancel`, `/retire`) at the host-turn cutover and keeps the read half for the Earlier archive (spec §14.1.5).
+- `/api/agent/turn*` and `/api/agent/conversations*` (`packages/rpc/src/AgentApiRoutes.ts:13-48`). Research listed them among the agent-session cuts, but they are the app agent's turn routes. T-APP-16 deletes the write half (`/api/agent/turn`, `/cancel`, `/retire`) at the host-turn cutover and keeps the read half for the Earlier archive (spec §14.1.5).
 - Branch locks (T-MCH-05).
 - Billing routes (T-CUT-03).
 - Deleting kept event-admission, dispatch, reply or approval machinery; deleting Plue-only admin routes; changing generic workflow RPC behavior or installing a host executor. Preserve the existing GET /api/health route. T-INS-08's host status must report process health without /api/install before the install admin routes are unmounted; T-INS-06 later adds richer install telemetry.

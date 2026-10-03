@@ -1,63 +1,32 @@
-# T-MCH-01 Measure VM memory on 24 and 32 GB; capacity formula
+# T-MCH-01 Qualify machine sizing on 24 and 32 GB hosts; one host-profile reader
 
-Stage W0, S2 · Size M · Depends on W0: — · S2: T-INS-06, T-INS-08, T-ACC-03, T-APP-03, T-COL-02 · Unblocks T-MCH-06, T-REL-02 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
-Spec: spec.md §8.2.1, §8.2.2, §8.6.1, §10.3.1, §14.3 (Settings), §18, §20.2 · Delta: delta.md §1 (host profile row), §3 (capacity row) · Product: mvp.md §6.7 Capacity and queue, §9, M-06
+Stage W0, S2 · Size S · Depends on W0: — · S2: T-INS-06, T-INS-08 · Unblocks T-MCH-06, T-REL-02 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
+Spec: spec.md §8.2.1, §8.2.2, §14.3 (Settings), §20.2 · Delta: delta.md §1 (host profile row), §3 (capacity row) · Product: mvp.md §6.7, §9, M-06
+
+Rescoped by the minimal-code synthesis, 2026-10-03 (v2 "Reuse named in tickets": T-MCH-01 is qualification only; v1 §6 host-profile readers 3 → 1).
 
 ## Goal
-
-Every machine limit (capacity, machine memory, vCPUs, layer budget) is computed from the host profile the install detects at start with the spec.md §8.2.1 formula, never from a Mac model, and recorded runs on two hosts calibrate the reserve and the per-machine memory.
+The sizing code landed in `56c3fb2f4` is qualified on two hosts: recorded runs on 24 GB and 32 GB Macs fix the reserve and per-machine memory, and every machine limit still comes from the one Go host profile.
 
 ## Scope
-
-In:
-- A host profile detected at start (§8.2.1): `hw.memsize`, `hw.perflevel0.physicalcpu` (performance cores) plus `hw.physicalcpu`, free disk on the `$STATE` volume, the macOS version and Hypervisor.framework availability. Nothing reads `hw.model` or a table of machine models.
-- The §8.2.1 formula, with all sizes in GiB:
-
-  ```
-  machine_mem  = 8, or 6 when host memory < 24
-  machine_cpus = clamp(perf_cores / 2, 2, 4)
-  capacity     = min(floor((mem − reserve) / machine_mem),
-                    floor(perf_cores / 2),
-                    floor((free_disk − 40) / 32))      reserve = 8; may be 0
-  layer_budget = min(48, 25 % of free_disk)
-  ```
-
-  The disk term's 32 GiB per machine and 40 GiB floor are the per-machine disk size and the free-space floor the runtime uses. The spec's three example profiles give capacity 2, 3 and 6.
-- Capacity 0 (§8.2.1a): `Sizing` returns the limiting term (memory, cores or disk) with the capacity. The host service refuses to start a fresh install (no owner) at capacity 0 and names the term and its fix with the amount missing; an install with an owner starts, grants nothing, and Settings and `smthrs host status` show the term and fix. Slots, the per-grant disk re-check and preparation inside a grant are T-MCH-06's (§8.2.1b, §8.2.2).
-- Owner setting: the owner may lower capacity and may not raise it above the formula (§8.2.1). The clamp applies on every read, so a smaller host after a restore lowers it.
-- The profile and the resulting limits appear in Settings (§14.3) and `smthrs host status` (§20.2), and `machines {in_use, capacity}` appears in the `home` topic (§7.2).
-- W0 calibration: C-SPK-05 runs on two hosts with different memory sizes (24 and 32 GB are the expected examples). It calibrates the reserve and the per-machine memory, never the formula's shape, and adds no host-specific rule (§8.2.1).
-
-Out:
-- The admission queue, positions and release (T-MCH-06).
-- The `parallel` setting, its default (§10.3.1) and its clamp (T-STK-03).
+In: the C-SPK-05 calibration runs on two hosts; the C-MCH-04 qualification of the landed formula and owner clamp; collapsing the host-profile readers to one.
+Out: admission, positions and release (T-MCH-06); the `parallel` setting (T-STK-03); folding `routes/host_status.go` and `/api/host` into `GET/PUT /api/install`, which is T-INS-06's.
 
 ## Changes
-
-- `packages/backend/microsandbox/hostprofile.go` (new): `type HostProfile {MemoryBytes, PerfCores, PhysicalCores, DiskFreeBytes, MacOSVersion, Hypervisor}`, `Detect()` (macOS `sysctl` and `statfs`), a pure `Sizing(HostProfile) Sizing` holding the reserve and per-machine memory as the only calibrated constants, and `Clamp(owner, formula int) (int, error)`.
-- `apps/backend/isolation.go:147` `microVMConfig`: fill `CPUs`, `MemoryMiB`, `MaxRunningVMs` and `LayerBudgetBytes` from `Sizing`; the per-machine disk (32 GiB) and free floor (40 GiB) are named constants shared with the formula. Delete the `SMITHERS_MICROVM_CPUS`, `_MEMORY_MIB`, `_DISK_MIB`, `_MAX_RUNNING`, `_LAYER_BUDGET_GIB` and `_MIN_FREE_GIB` overrides (`:168-197`). The owner capacity setting, stored with the install settings T-INS-06 adds, replaces the cap override.
-- `packages/backend/microsandbox/runtime.go:219-240` `applyDefaults` and `layers.go:76-100` `defaults`: the fixed defaults (4 CPUs, 8,192 MiB, 3 VMs; prepare 6 CPUs and 12,288 MiB; 48 GiB budget) go. A zero value is a programming error, refused at start.
-- `scripts/spikes/mch-01-memory/run.sh` (new): the C-SPK-05 calibration run. It moves to `scripts/perf/` (new) if T-REL-01 reuses it.
-- Tests that pin the old defaults: `packages/backend/microsandbox/parameters_unit_test.go:169-183`, `apps/backend/isolation_test.go`.
-- Docs: `packages/backend/microsandbox/README.md` (VM shape and layer budget sections); `pnpm docs:sync`, `pnpm docs:check`.
+- Use as is (landed `56c3fb2f4`): `packages/backend/microsandbox/hostprofile.go` (`HostProfile`, `Detect`, `Sizing`), `capacity.go`, `services/install_capacity.go` and their tests. Change only the calibrated constants if C-SPK-05 requires it, and record them in spec.md §8.2.1.
+- Reshape, host-profile readers 3 → 1: the Go profile is the only hardware reader. The `hostProfile()` and health-line parsing in `scripts/checks/run-check.mjs:237-268` (`SMITHERS_CHECK_HEALTH_FILE`, added by `86deb6462`) go with that runner under v2 ruling 3; receipts that need host facts read them from the install API. `packages/testing/src/HostSuite.ts:57` `HostProfile` declares host capabilities for a conformance suite, not hardware, and stays.
+- Reuse `scripts/spikes/mch-01-memory/` for the calibration run; delete the harness after the verdict is recorded, keeping the verdict file.
+- New: none.
 
 ## Tests
-
-- unit (`packages/backend/microsandbox/hostprofile_test.go`, new): a table over synthetic profiles, not Mac models, that includes the three §8.2.1 example columns and every edge: memory on both sides of 24 GiB, performance cores from 2 to 16, free disk on both sides of the disk term and of the 25 % layer budget. Every output equals the formula. This is C-MCH-04.
-- unit: `Clamp` keeps lower owner values, reduces higher ones, and refuses 0 and negatives.
-- unit: profiles just below one machine (13.9 GiB memory; 1 performance core; 71.9 GiB free) give capacity 0 with the matching limiting term. A start without an owner refuses with that term's fix; a start with an owner proceeds at capacity 0.
-- unit (`apps/backend/isolation_test.go`): `microVMConfig` uses an injected profile. A detection error refuses start with a typed message and never falls back to a constant.
-- integration (real PostgreSQL, `packages/backend/internal/services/install_capacity_integration_test.go`, new): the owner lowers capacity; a non-owner is refused (§5.2); a stored value above a smaller host's formula reads back clamped.
-- spike (two hosts): C-SPK-05.
+- Use as is: `hostprofile_test.go` (synthetic profiles incl. the three §8.2.1 examples and every edge), `capacity_unit_test.go` and `install_capacity_integration_test.go` (owner lowers capacity, non-owner refused, stored value clamped on a smaller host). These are the C-MCH-04 evidence.
+- Spike, two hosts: C-SPK-05 with swap and pressure recorded at the formula's sizes; each artifact records the host profile.
+- Regression: no script or package outside `microsandbox/` runs `sysctl hw.memsize` or reads `os.totalmem()` to size machines (`git grep` in the check).
 
 ## Acceptance
-
-- [C-SPK-05](../checks/C-SPK-05.md): the calibration runs fix the reserve and per-machine memory, with swap and pressure inside the thresholds at the formula's sizes.
-- [C-MCH-04](../checks/C-MCH-04.md): the profile, formula and clamp hold across synthetic hosts, including the three §8.2.1 examples, and the owner can lower but not exceed.
+- [C-SPK-05](../checks/C-SPK-05.md): the calibration runs fix the reserve and per-machine memory, with swap and pressure inside the thresholds.
+- [C-MCH-04](../checks/C-MCH-04.md): the profile, formula and clamp hold across synthetic hosts; the owner can lower but not exceed.
 
 ## Risks and notes
-
-- One reserve doesn't fit both hosts: the smaller host needs a larger reserve. Confirmed if C-SPK-05's effective reserve differs by more than 2 GiB between hosts. The tech lead then records new constants in spec.md §8.2.1; the formula's shape stays, and a third host size checks the result.
-- Resolved (tech lead): the layer-prepare VM is sized like one machine (§8.2.2). If a layer build fails out of memory, the run reports it and T-MCH-01's calibration revisits the machine memory, not this exception.
-- Asleep machines keep their disks (§8.4.3), and disk use grows with branches, not with capacity. The 32 GiB per-machine disk is a ceiling, so N retained disks can exceed free disk. Confirmed by summing allocated disk bytes after 20 merged TODOs within 24 h. The per-grant disk re-check (§8.2.1b, T-MCH-06) stops new grants before retained disks reach the 40 GiB floor, and cleanup (T-MCH-09) frees the space.
-- Every perf and spike artifact records the host profile, because the reference host is the team's Mac mini, whatever its size.
+- Risk: one reserve does not fit both hosts. Confirmed if C-SPK-05's effective reserve differs by more than 2 GiB between hosts. The tech lead records new constants; the formula's shape stays.
+- Retained disks can exceed free disk after many merged TODOs; T-MCH-06's per-grant disk re-check and T-MCH-09's cleanup cover it.

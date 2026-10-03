@@ -4,7 +4,7 @@ Proves: mvp.md J1.1, J1.2, J1.8, §6.2 "Team sign-in", §3 "Member", M-05, M-17,
 Automation: `packages/backend/internal/compose/signin_gate_integration_test.go` (new) · Runs in: CI
 
 ## Setup
-- The backend at the commit under test, in install mode, with real PostgreSQL migrated to head and no `members` rows.
+- The backend at the commit under test, in install mode, with real PostgreSQL migrated to head and no `collaborators` rows.
 - Sealed GitHub App credentials (T-GH-01 fixture).
 - A fake GitHub covering the OAuth web flow, `GET /user` and `GET /repos/{o}/{r}/collaborators/{login}/permission`.
 - Fake GitHub logins and permissions:
@@ -28,7 +28,7 @@ Automation: `packages/backend/internal/compose/signin_gate_integration_test.go` 
 
 ## Pass when
 - Step 1 is refused twice, and no owner is created.
-- Step 2 creates exactly one `members` row with `role = owner`, and the setup token's digest is gone from `install_settings`.
+- Step 2 creates exactly one `collaborators` row with `role = owner`, and the setup token's digest is gone from `install_settings`.
 - Step 3 is refused with "not a member", and the owner is unchanged.
 - In step 4, `ben` → maintainer and `alice` → member. Adding `carol` is refused with "needs access on GitHub ↗", and no row is stored for her.
 - In step 5, `ben` and `alice` get sessions; `dave` is refused with `not a member`.
@@ -48,5 +48,5 @@ Automation: `packages/backend/internal/compose/signin_gate_integration_test.go` 
 Written to `.artifacts/checks/C-ACC-04/<UTC timestamp>/`:
 - `signins.jsonl`: login, listener, status, body and `Set-Cookie` presence;
 - the fake GitHub request log;
-- the `members` and `install_settings` rows after each step (token digest redacted);
+- the `collaborators` and `install_settings` rows after each step (token digest redacted);
 - `go test -json` output and the commit SHA.

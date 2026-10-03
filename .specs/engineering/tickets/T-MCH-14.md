@@ -1,6 +1,6 @@
 # T-MCH-14 Keep TODO workspaces until settled; wake before delivering a signal
 
-Stage S1 · Size S · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11, T-GH-04, T-GH-05, T-REL-02, T-STK-07 · Issue: [#3526](https://github.com/smithersai/smithers/issues/3526)
+Stage S1 · Size S · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11, T-GH-04, T-GH-03, T-REL-02, T-STK-01 · Issue: [#3526](https://github.com/smithersai/smithers/issues/3526)
 Spec: spec.md §8.4, §10.4.1, §10.7.4, §8.12 · Delta: delta.md §6 · Product: mvp.md J10.2, M-31
 Ready: 2026-10-02 smithers-8a sha256:0b262f7780b5
 

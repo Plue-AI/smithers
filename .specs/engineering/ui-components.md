@@ -1,8 +1,8 @@
 # UI components: design builds, engineering wires
 
-Version 0.4 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
+Version 0.5 · 2026-10-03 · Owner: engineering (contract), design (components) · Rulings: Will, 2026-10-02 (spec.md §14.2.1); minimal-code synthesis v1 §2 and v2, 2026-10-03
 
-Design builds Views and visual components. Engineering uses the existing card file as the container, mapping data to props and callbacks to catalog commands. `CardRenderers.tsx` is the only mount point. Each card ticket owns schema changes. No separate Container class, fixture layer or golden layer is required. Checks: C-UI-08, C-UI-13.
+Design builds Views and visual components. Engineering uses the existing card file as the container, mapping data to props and callbacks to catalog commands. `CardRenderers.tsx` is the only mount point. Each card ticket owns its schema changes. No separate Container class, fixture layer or golden layer exists. The ticket that wires a View deletes the old card it replaces in the same change. Check: C-UI-13.
 
 ```
   topic → existing card file → <Card>View
@@ -13,24 +13,24 @@ Design builds Views and visual components. Engineering uses the existing card fi
 
 ## Rules
 
-- A View takes props only. It imports no state, store, topic, controller, flow, RPC client or command module, and it does no fetch (C-UI-08).
+- A View takes props only. It imports no state, store, topic, controller, flow, RPC client or command module, and it does no fetch (`flows/parity.test.ts`).
 - A View never decides who may act. The container passes `actions[]` already filtered for the viewer, and the View renders them in order. A missing action means no button. A non-button gesture (hover, go to definition, a docs link) uses the action in `gestures`; a missing one means the gesture does nothing.
-- A View handler does exactly one of three things (frontend lead, smithers-b8, adopted by the tech lead 2026-10-02). `flows/parity.test.ts` fails any other handler (C-UI-08):
+- A View handler does exactly one of three things (frontend lead, smithers-b8, adopted by the tech lead 2026-10-02). `flows/parity.test.ts` fails any other handler:
   1. It calls `onAction(action.tag, {...action.args, ...input})` with an action from `actions[]`, `gestures` or a row's own `actions`, and the control carries `data-flow={action.tag}`.
   2. It calls `onView(patch)` for per-member view state: maximize, tab, filter, scroll, selection, the cursor line, a timeline jump and hidden toasts. The container stores the patch in `member_conversation_state` (§14.1.2), where the UI-only flows (`card.maximize`, `toast.dismiss`, B.1) write the same fields.
-  3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-UI-01 exports it; smithers-38 approves it; C-UI-12).
-- Tags are opaque to the View. The ticket touching card actions merges `CardActions.ts` and `InstallCardActions.ts` into `flows/cardActions.ts` and deletes both extra layers in the same change. Check: C-UI-08.
-- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. The existing card file binds `actions[]` and `gestures` through `flows/cardActions.ts` to `flowAction`. The View-seam rules also cover the branch tree, entry rows, Context line, Earlier archive, toasts, edge map and timeline. Their tickets update parity scans in the same change. Check: C-UI-08.
-- Each card ticket updates §14.3, this page and its schema together; smithers-38 reviews the public API under §21.1. Check: C-UI-08.
+  3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-UI-01 exports it).
+- Tags are opaque to the View. T-APP-03 merges `CardActions.ts` and `InstallCardActions.ts` into `flows/cardActions.ts` and deletes both extra layers in the same change.
+- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. The existing card file binds `actions[]` and `gestures` through `flows/cardActions.ts` to `flowAction`. The View-seam rules also cover the branch tree, entry rows, Context line, Earlier archive, toasts, edge map and timeline. Their tickets update parity scans in the same change.
+- View props are TypeScript types. Zod schemas exist only where data crosses HTTP or storage; the kept rpc card schemas are Todo, Draft, Setup, Settings, Confirm, Home, Members, `CardAction` and `CardPrimitives`. Private `@smthrs/rpc` card files need no public-API sign-off. Each card ticket updates §14.3 and this page with its own change.
 - Copy follows §14.6b: product words, body blocks of 12 words or fewer, one sentence at most, and no explanatory sentences. Visual wrapping does not count. Check: C-UI-02.
 
 ## Completion gates
 
-Each card ticket checks its schema and View with C-UI-08 and C-UI-12. C-UI-13 passes only when the card is mounted and its legacy duplicate is deleted in the same commit. The journey checks (C-J*) prove wiring end to end. No separate fixture or golden layer gates completion.
+Each View ticket tests its View in `apps/app/src/mainview/cards/views/Views.test.tsx`; each wiring ticket tests its card file in its own suite. C-UI-13 is one test: every `*View.tsx` is reachable from `CardRenderers` and no replaced legacy card remains. The journey checks (C-J*) prove wiring end to end. No fixture or golden layer gates completion.
 
 ## Order of need
 
-Stage 1 is on the critical path. Within a stage, design builds in J1 order, then J2, J4, J5 and J11. Each card ticket changes its own schema. Check: C-UI-08.
+Stage 1 is on the critical path. Within a stage, design builds in J1 order, then J2, J4, J5 and J11. Each card ticket changes its own schema.
 
 | # | Design ticket | Component | Wiring ticket | Stage | First need |
 | --- | --- | --- | --- | --- | --- |
@@ -38,28 +38,30 @@ Stage 1 is on the critical path. Within a stage, design builds in J1 order, then
 | 2 | [T-UI-02](tickets/T-UI-02.md) | `SetupView`, `SettingsView` | T-APP-03, T-FLW-12 | S1 | J1.2–J1.4 |
 | 3 | [T-UI-07](tickets/T-UI-07.md) | Conversation shell: `BranchTree`, `EntryRow`, `ContextLine`, Earlier archive | T-APP-16, T-APP-17 | S1 | J1.5, the first question |
 | 4 | [T-UI-06](tickets/T-UI-06.md) | `HomeView` (with the `main` sync row and Retry) | T-APP-01, T-GH-08 | S1 | J1.5: `main`'s conversation opens on it |
-| 5 | [T-UI-11](tickets/T-UI-11.md) | `CodeEditorView` (File, read-only) and `DiffView` | T-APP-15 | S1 | J1.5: the answer's file cards |
+| 5 | [T-UI-11](tickets/T-UI-11.md) | File on the existing `CodeFileView`; `DiffView` folded into `DiffSurface` | T-APP-15 | S1 | J1.5: the answer's file cards |
 | 6 | [T-UI-03](tickets/T-UI-03.md) | `DraftView` | T-APP-02 | S1 | J1.6, J2.2 |
-| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: states, question and approval forms, failure, evidence, PR, merge and repair controls | T-APP-02, T-STK-08, T-MCH-08, T-GH-06 | S1 | J1.6–J1.7; repair: J7, J10.3 |
+| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: states, question and approval forms, failure, evidence, PR, merge and repair controls (absorbs T-UI-23) | T-APP-02, T-STK-08, T-MCH-08, T-GH-06 | S1 | J1.6–J1.7; repair: J7, J10.3 |
 | 8 | [T-UI-08](tickets/T-UI-08.md) | `ToastStack`, `EdgeMap`, `Timeline` (Allow notifications variant at S2) | T-APP-07, T-APP-18 | S1 | J1.6: background progress |
 | 9 | [T-UI-05](tickets/T-UI-05.md) | `ConfirmView` (`one_click`, `review_merge`) | T-APP-04 | S1 | J1.7 by an agent, J6 |
 | 10 | [T-UI-09](tickets/T-UI-09.md) | `MembersView` | T-APP-06 | S1 | J1.8 |
-| 11 | [T-UI-14](tickets/T-UI-14.md) | `CommandsView` (`/help`) | T-CAT-01 | S1 | any journey |
+| 11 | [T-UI-14](tickets/T-UI-14.md) | `CommandsView` (`/help`) | T-UI-14 (`CommandsContainer.tsx`), T-CAT-01 | S1 | any journey |
 | 12 | [T-UI-10](tickets/T-UI-10.md) | `FlowView` | T-APP-05 | S1 | J5 |
-| 13 | [T-UI-12](tickets/T-UI-12.md) | `RunView` monitor and Inspect | T-FLW-07 | S1 | J11 |
-| 14 | [T-UI-13](tickets/T-UI-13.md) | `AgentView` and model roles | T-FLW-08 | S1 | J11 |
+| 13 | [T-UI-12](tickets/T-UI-12.md) | Run monitor and Inspect: `RunTraceCard.tsx` reshaped in place | T-FLW-07 | S1 | J11 |
+| 14 | [T-UI-13](tickets/T-UI-13.md) | Model roles: restored `ModelCards.tsx` slice; `AgentCards.tsx` | T-FLW-08 | S1 | J11 |
 | 15 | [T-UI-15](tickets/T-UI-15.md) | `BranchView` (with moved-off controls) | T-APP-10, T-COL-05 | S2 | J3, J7 |
 | 16 | [T-UI-16](tickets/T-UI-16.md) | File and Diff states: reload, gone, renamed, Restore, Compare | T-APP-11 | S2 | J3 |
 | 17 | [T-UI-17](tickets/T-UI-17.md) | `TerminalView` | T-APP-12 | S2 | J3, J6 |
 | 18 | [T-UI-18](tickets/T-UI-18.md) | `SecretsView` | T-APP-13 | S2 | J1.8 |
 | 19 | [T-UI-21](tickets/T-UI-21.md) | `DocsView` | T-APP-20 | S2 | any journey |
 | 20 | [T-UI-22](tickets/T-UI-22.md) | `DebugApiView` | T-APP-21 | S2 | J11 |
-| 21 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on `CodeEditorView` | T-APP-14 | S3 | J3.5, J8 |
+| 21 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on the File card (CodeMirror restored by T-APP-14) | T-APP-14 | S3 | J3.5, J8 |
 | 22 | [T-UI-20](tickets/T-UI-20.md) | `ProposalView` and the lessons receipt | T-FLW-06 | S3 | J5, J8 |
 
-Retained cards keep their existing schemas and renderers, outside `cards/views/` and the View-seam rule. Spec §14.3.0 lists them with the ticket that owns each one, and C-UI-08 pins their schemas. A field change to one of them is a spec change that first adds its §14.3 row.
+Retained cards keep their existing schemas and renderers, outside `cards/views/` and the View-seam rule. Spec §14.3.0 lists them with the ticket that owns each one. A field change to one of them is a spec change that first adds its §14.3 row.
 
-Design tickets delete the seven one-user sub-Views and the second stylesheet tree `styles/views/*.css` in the same change. Check: C-UI-08.
+Design tickets fold the seven one-user sub-Views into their parents (`HomeRowView`, `HomeActionView`, `TodoActionView`, `CommandActionView`, `MembersActionView`, `EdgeGroupView`, `ToastNoticeView`) and merge `styles/views/*.css` into each card's existing CSS without the `mvp-` prefix.
+
+The S2 and S3 props sections (T-UI-15 to T-UI-22) are deleted until their stage. Each of those tickets writes its props here when its stage starts, as TypeScript types (minimal-code synthesis v2).
 
 ## Tone
 
@@ -163,9 +165,9 @@ type StateWordProps = { state: TodoState; step?: string }   // "Working · Imple
 
 ### T-UI-02 Setup and Settings (`install` topic)
 
-At once / settings.parallel is absent in S1 and is bound only after T-STK-03's S2 backend guard lands. T-APP-03 implements the S1 controls. Checks: C-J4-01, C-UI-12.
+At once / settings.parallel is absent in S1 and is bound only after T-STK-03's S2 backend guard lands. T-APP-03 implements the S1 controls. Check: C-J4-01.
 
-Capacity 0 renders "No machine fits", the supplied limiting term and fix link on one line. The third role UI label is "Decisions"; its key field remains "AI Gateway key". Check: C-UI-12.
+Capacity 0 renders "No machine fits", the supplied limiting term and fix link on one line. The third role UI label is "Decisions"; its key field remains "AI Gateway key". 
 
 ```ts
 // One step identity and order: spec §16.2 and T-INS-06 steps 0–6. T-INS-06 stores each step under `setup.<id>`
@@ -216,7 +218,7 @@ type SettingsModel = SetupModel & {
 
 ### T-UI-03 Draft
 
-When `private` is true, the header shows the small "Only you" lock chip used by Confirm. Commit removes the chip. Check: C-UI-12.
+When `private` is true, the header shows the small "Only you" lock chip used by Confirm. Commit removes the chip. 
 
 ```ts
 type DraftModel = {                  // spec §14.3 Draft
@@ -234,17 +236,17 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 // gestures.set: a field edit, sent on blur as { field: "title" | "prompt" | "acceptance" | "place" | "fixes", value }
 // value is a string: title/prompt unchanged; acceptance JSON.stringify(string[]);
 // place JSON.stringify({ mode: "append" | "before" | "amend", n?: number }); fixes "true" or "false".
-// Emit place properties in mode, n order; omit n for append. C-UI-12 asserts literal strings.
+// Emit place properties in mode, n order; omit n for append. The View test asserts literal strings.
 // Commit forwards the complete supplied Draft input; the owning card ticket reconciles typed input.
-// Discard binds draft.discard {draft: DraftId}; person or app agent, author only. It deletes the author’s uncommitted private Draft, never a TODO. The runtime strict z.object accepts only draft; the server policy enforces authorship (C-CAT-01, C-UI-12).
-// It deletes the author's uncommitted private Draft and never drops a TODO (C-CAT-01, C-UI-12).
+// Discard binds draft.discard {draft: DraftId}; person or app agent, author only. It deletes the author’s uncommitted private Draft, never a TODO. The runtime strict z.object accepts only draft; the server policy enforces authorship (C-CAT-01).
+// It deletes the author's uncommitted private Draft and never drops a TODO (C-CAT-01).
 // (`form.set` into the entry's card column, T-APP-02). buttons: Commit ("Commit puts it on the stack as T12"), Discard.
 // Make TODO is the Issue card's button that opens a Draft.
 ```
 
 ### T-UI-04 TODO (`todo:<n>` topic)
 
-A question and moved_off can be open together. Render separate wait rows and actions, primary first; T-UI-04 supplies the repair form. Check: C-UI-12.
+A question and moved_off can be open together. Render separate wait rows and actions, primary first; T-UI-04 supplies the repair form. 
 
 ```ts
 type TodoModel = {
@@ -310,10 +312,10 @@ type ConfirmModel = {
 // buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel 
 // Verb, Merge / Review & merge and Cancel dispatch their supplied actions[] entries, not model.action.tag.
 // T-APP-04 binds approve/deny with subject/revision in args. Cancel binds confirm.cancel
-// with {confirmation, revision}; person only, no agent path, pending confirmations only (C-ACC-02, C-UI-12). Use the existing Confirm revision schema; stale revision returns typed stale (C-ACC-02, C-UI-12).
+// with {confirmation, revision}; person only, no agent path, pending confirmations only (C-ACC-02). Use the existing Confirm revision schema; stale revision returns typed stale (C-ACC-02).
 
 // T-STK-04 owns the prs.land handler and merge route; T-APP-04 binds the control only (C-STK-04, C-ACC-02).
-// C-UI-12 asserts literal approval, denial and cancellation payloads.
+// The View test asserts literal approval, denial and cancellation payloads.
 // Only the person who must press sees this card; other viewers see nothing (C-ACC-02).
 ```
 
@@ -342,8 +344,8 @@ type HomeModel = {
                      detail?: string; actions: Action[] }[]   // Retry and Dismiss on a failed run (B.4)
 }
 // buttons: Retry (main sync), Fix (refused sync, opens Settings), New TODO, each row's actions 
-// The 1 s clock uses useClock from @smthrs/ui/clock; no mainview useEffect import (C-UI-08).
-// Home tests cover attention/background actions and owner/non-owner main.reset-to-github (C-UI-12).
+// The 1 s clock uses useClock from @smthrs/ui/clock; no mainview useEffect import .
+// Home tests cover attention/background actions and owner/non-owner main.reset-to-github.
 // HomeView reports onView({on_screen: boolean}) through an IntersectionObserver in a ref callback.
 // card file advances last look after 2 s on screen (C-J4-01).
 type HomeViewState = { on_screen?: boolean }
@@ -352,7 +354,7 @@ type HomeViewProps = CardProps<HomeModel, HomeViewState>
 
 ### T-UI-07 Conversation shell
 
-Private entries show the Draft "Only you" lock chip. A tombstone shows only the card title in one muted line, with no summary or action. The final muted branch-tree node reads "Earlier · N" and opens archives with a "Read-only" chip and no mutation controls. Check: C-UI-12.
+Private entries show the Draft "Only you" lock chip. A tombstone shows only the card title in one muted line, with no summary or action. The final muted branch-tree node reads "Earlier · N" and opens archives with a "Read-only" chip and no mutation controls. 
 
 [S2, M-38] T-AGT-03 supplies existing chat components with normalized message/tool/error parts plus `origin: "external"`, `agent_kind: "claude-code" | "codex"`, `format_version: string`, `source_id: string`, `session_id: string`, `actor: Actor` and `read_only: true`. Tool calls/results retain their correlation id; edit reports retain path and reported outcome. Mutation action lists are empty. Copy, disclosure and navigation use existing handlers. smithers-06 owns presentation in T-UI-07 and T-UI-01; smithers-b8 owns binding. No new View or card is introduced. Check: C-AGT-02.
 
@@ -361,20 +363,20 @@ Private entries show the Draft "Only you" lock chip. A tombstone shows only the 
 // "earlier" is the single read-only node for legacy per-member conversations (spec §14.1.5).
 type BranchTreeNode = { id: string; name: string; kind: "main" | "item" | "scratch" | "earlier"
                         todo?: number; state?: TodoState; present: Actor[]; children: BranchTreeNode[]
-                        archive_count?: number; action?: Action }   // archive_count required for earlier (C-UI-12)
+                        archive_count?: number; action?: Action }   // archive_count required for earlier
 type BranchTreeView = { selected_branch?: string }
 type BranchTreeProps = { nodes: BranchTreeNode[]; view: BranchTreeView
                          onAction: CardProps<unknown>["onAction"]
                          onView: (patch: Partial<BranchTreeView>) => void }
 // A node with action dispatches onAction(action.tag, action.args) and carries data-flow.
-// A node without action emits onView({ selected_branch: node.id }); no command (C-UI-12).
+// A node without action emits onView({ selected_branch: node.id }); no command.
 type EarlierArchiveModel = { node: BranchTreeNode & { kind: "earlier"; archive_count: number }
                              archives: { id: string; title: string; entries: React.ReactNode[] }[]
                              read_only: true }
 type EarlierArchiveView = { selected_archive?: string }
 type EarlierArchiveProps = { model: EarlierArchiveModel; view: EarlierArchiveView
                              onView: (patch: Partial<EarlierArchiveView>) => void }
-// Earlier has no mutation action or onAction. Selection emits selected_archive (C-UI-12).
+// Earlier has no mutation action or onAction. Selection emits selected_archive.
 // React nodes are rendered slots, not serialized rpc fields.
 type EntryRowProps = {
   kind: "prompt" | "answer" | "card" | "event"
@@ -382,7 +384,7 @@ type EntryRowProps = {
   context?: { count: number; items: { kind: "file" | "page" | "todo" | "run" | "issue"; label: string
                                       ref: string; revision?: string }[] }   // §15.1.2 context[]
   action?: Action; private?: boolean; card?: React.ReactNode
-  tombstone?: boolean   // true: title only; ignore summary, action and card (C-UI-12)
+  tombstone?: boolean   // true: title only; ignore summary, action and card
   onAction: CardProps<unknown>["onAction"]
 }
 type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["context"]>["items"]; expanded: boolean
@@ -391,7 +393,7 @@ type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["conte
 
 ### T-UI-08 Toasts, edge map, timeline
 
-Show at most three notices. "+N more" opens all hidden entries through local disclosure state; the supplied `toasts` array includes those entries and `more` is their hidden count. Keyboard activation opens the same disclosure. Timeline and wide edge rows start at ≥1180 px. Check: C-UI-12.
+Show at most three notices. "+N more" opens all hidden entries through local disclosure state; the supplied `toasts` array includes those entries and `more` is their hidden count. Keyboard activation opens the same disclosure. Timeline and wide edge rows start at ≥1180 px. 
 
 ```ts
 type Toast = { id: string; title: string; detail?: string; tone: Tone; action?: Action; entry_id: string
@@ -433,24 +435,24 @@ type FlowModel = {
                      | { id: "merge"; wait: true; signals: { on: "rebase" | "steer"; to: string }[] } )[] }[]
                                                   // TODO flow: clean rebase → check; resolved conflict → implement → check → review; steer → implement (§10.4.1)
 // added: relative to Active; adapter sets it, View marks it (C-J5-01).
-// The version chip selection uses React local state; it emits no view patch (C-UI-12).
+// The version chip selection uses React local state; it emits no view patch.
 }
 // buttons: Source, Plan, Run, Edit
 ```
 
 ### T-UI-11 File (read-only) and Diff
 
-Render CodeEditorView through the existing CodeFileView; fold DiffView into DiffSurface. Revert the CodeMirror adapter and `@codemirror/*` pins from 4a36b0cfb. Check: C-UI-13.
+The File card renders through the existing `CodeFileView` (`@smthrs/ui` `adapters/code-view`) via `cards/CodeSurface.tsx`. Revert the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*`, `yjs` and `y-codemirror.next` pins from 4a36b0cfb; T-APP-14 restores them in S3. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
 
-Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to show · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor. Check: C-UI-12.
+Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to show · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor.
 
 ```ts
 type FileModel = FileBase & FileStates & CoEdit  // one schema, `FileCard.ts`; S2 and S3 fields are absent or empty before their stage
 type FileBase = {                                 // `branch:<id>:files` (§14.3 File)
   path: string; branch: string; language: string; digest: string
-  github_url?: string   // required for binary and too_large: "on GitHub ↗" (C-UI-12)
+  github_url?: string   // required for binary and too_large: "on GitHub ↗"
   content: { kind: "text"; text: string }         // UTF-8
-         | { kind: "too_large"; bytes: number; text: string }   // over 1 MiB: muted size line and GitHub link, no editor (C-UI-12)
+         | { kind: "too_large"; bytes: number; text: string }   // over 1 MiB: muted size line and GitHub link, no editor
          | { kind: "binary"; bytes: number }      // no editor
   mode: "read_only" | "live"                      // live only at S3, for text up to 1 MiB
   last_writer?: Actor
@@ -459,16 +461,13 @@ type FileBase = {                                 // `branch:<id>:files` (§14.3
   reveal?: { line: number; col?: number; to_line?: number } // a same-file definition, or a cited range
 }
 type FileView = { line?: number; compare?: boolean }         // the viewer's cursor line feeds presence {path, line} (§7.6)
-// CodeEditorView export: @smthrs/ui/adapters/code-editor (new in T-UI-11).
-// Before Ready, record exact direct @codemirror/* and compatible y-codemirror.next pins
-// with smithers-38 under §21.1; C-UI-12 records editor identity/binding compatibility.
-type CodeEditorViewProps = CardProps<FileModel, FileView, "hover" | "definition">
-                         & { binding?: EditorBinding }       // present only when mode is live (T-UI-19)
+type FileProps = CardProps<FileModel, FileView, "hover" | "definition">   // rendered by CodeSurface over CodeFileView;
+                                                                         // the live binding arrives with T-APP-14 (S3)
 // Gestures: hover raises onAction(gestures.hover.tag, { path, line, col }); the container answers through
 // `hover`. Definition raises onAction(gestures.definition.tag, { path, line, col }); the container opens the
 // target's File card, or sets `reveal` when the target is in this file. line is 1-based; col counts UTF-16 units.
-// Read-only mode: a changed content.text applies to the same EditorView as one minimal transaction, with no
-// remount, so scroll and the cursor line survive (T-APP-11).
+// Read-only mode: a changed content.text updates the same view with no remount, so scroll and the cursor
+// line survive (T-APP-11).
 
 type DiffModel = {
   path: string; branch: string
@@ -480,17 +479,17 @@ type DiffModel = {
   hunks: { old_start: number; new_start: number; lines: { op: " " | "+" | "-"; text: string }[] }[]
 }
 // buttons: Restore this file (against.kind burst only, §9.3.5)
-// DiffView reuses @smthrs/ui/adapters/pierre-diff-view; serialize hunks to its unified patch.
+// DiffSurface (with DiffView folded in) reuses @smthrs/ui/adapters/pierre-diff-view; serialize hunks to its unified patch.
 // Count context/removal lines for the old range and context/addition lines for the new range;
-// preserve op/text and file paths, with /dev/null for added/deleted sides. C-UI-12 pins literal patches.
+// preserve op/text and file paths, with /dev/null for added/deleted sides. The View test pins literal patches.
 ```
 
 ### T-UI-12 Run monitor and Inspect (`run:<id>` topic)
 
 ```ts
 type PhaseTone = "live" | "ok" | "fail" | "thrash" | "wait"
-// Run is the UI name; the schema is @smthrs/rpc/MonitorCard and fixtures are @smthrs/rpc/fixtures/Monitor.
-// The Run ticket reconciles waits.settled, key/usage, engine, journal, replay and RunView (C-UI-08).
+// Run is the UI name. No new RunView: RunTraceCard.tsx and RunTracePhaseStrip.tsx are reshaped in place to
+// take these props, and RunsCards.tsx folds into the same card (T-UI-12). Props are TypeScript types.
 type RunModel = {
   id: string; flow: string; version: string; title: string
   todo?: number; branch?: string
@@ -537,7 +536,7 @@ type RunViewProps = CardProps<RunModel, RunView> & { custom?: React.ReactNode }
 
 ### T-UI-13 Agent and model roles
 
-Use Decisions as the third-role UI label. Keep the internal role id jev. Check: C-UI-12.
+No new AgentView. Restore the model-assignment slice of `cards/ModelCards.tsx` and `flows/entries/model.ts` from `39e43c0f^`, without the laboratory, and delete `views/SettingsModels.tsx` (786f9ac5) as its duplicate (ruling 5). The Agent card stays `cards/AgentCards.tsx`. Use Decisions as the third-role UI label. Keep the internal role id jev.
 
 ```ts
 type AgentModel = {
@@ -550,14 +549,14 @@ type AgentModel = {
   owner: boolean
 }
 // buttons: Change model (owner only), Edit instructions (opens a Draft TODO)
-// Change model binds settings.model.set {role, model}; owner session only, agent: never (C-CAT-01, C-UI-12). Use the existing model-role enum (including jev) and model-catalog id schema. Strict z.object runtime parsing and producer tests validate all three inputs (C-CAT-01, C-UI-12).
-// Edit instructions uses the supplied Draft-opening tag with prefilled text, never a TODO-commit
-// todo.new binding is covered by C-UI-12.
+// Change model binds settings.model.set {role, model}; owner session only, agent: never. Use the existing
+// model-role enum (including jev) and model-catalog id schema; the HTTP route parses the input strictly.
+// Edit instructions uses the supplied Draft-opening tag with prefilled text, never a TODO commit.
 ```
 
 ### T-UI-14 Commands (`/help`)
 
-Advanced starts collapsed and supports keyboard disclosure. Descriptions match all 57 product Appendix A rows. The supplied `agent` policy renders a muted trailing "Asks first" for confirm or "Only you" for never; run renders no mark. Check: C-UI-12.
+Advanced starts collapsed and supports keyboard disclosure. The model comes from the live command registry, like `chat.commands`; `CommandsCases.ts` and `CommandsExpectations.ts` are deleted. The supplied `agent` policy renders a muted trailing "Asks first" for confirm or "Only you" for never; run renders no mark.
 
 ```ts
 type CommandsModel = { groups: { label: string; advanced: boolean
@@ -565,134 +564,6 @@ type CommandsModel = { groups: { label: string; advanced: boolean
                                              synopsis: string       // "/todo.answer Tn"
                                              description: string    // "Answer the agent's question" (Appendix A)
                                              agent: "run" | "confirm" | "never" }[] }[] }
-```
-
-### T-UI-15 Branch (`branch:<id>`, `:activity`, `:files`) [S2]
-
-```ts
-type BranchModel = {
-  id: string; name: string
-  item?: { n: number; title: string; state: TodoState; step?: string; place: number }
-  scratch?: { forked_from: { kind: "main" } | { kind: "item"; n: number; title: string }
-                         | { kind: "branch"; name: string } }   // Add to stack: "after Tn" or "at the end" (§8.5.3)
-  machine: MachineState                           // §4.2: awake, asleep, waking, waiting #n, closed; failed with Retry
-  rebase?: { state: "pending"; onto: string
-             waiting_for?: { actor: Actor; terminal: string } }   // a freeze timed out (§9.4.2): "Waiting for a write
-                                                  // in Ben's terminal"; the container sends it only to the member who pressed
-         | { state: "rebasing"; onto: string }    // "Rebasing…", under 2 s
-         | { state: "conflict"; onto: string; paths: string[] }   // scratch only (§8.5.2b): Resolve, Done
-  moved_off?: { by: Actor; item: number }
-  presence: { actor: Actor                        // people and agents (M-34)
-              where: { kind: "file"; path: string; line?: number } | { kind: "terminal"; id: string }
-                   | { kind: "step"; label: string } | { kind: "branch" }   // §7.3.1
-              watching?: string }[]               // a terminal id
-  terminals: { id: string; title: string; owner: Actor; agents: Actor[]; watchers: Actor[]
-               command?: string; frozen: boolean }[]   // frozen: "Rebasing…" (§9.4.2)
-  activity: { id: string; actor: Actor; asked_by?: Actor               // spec §3 activity
-              kind: "step" | "steer" | "question" | "answer" | "edit" | "change"
-                  | "github" | "rebase" | "read" | "context"
-              text: string; items?: string[]       // read paths, context labels
-              files?: number; github?: boolean; at: string
-              actions: Action[] }[]               // a change or edit entry opens its burst's diff (§9.3.4)
-  changed_files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; renamed_to?: string
-                   authors: Actor[] }[]
-  ssh_line: string
-}
-// buttons: Sleep, Wake, Retry (failed machine), Return to Tn, Keep for now, Fork, Add to stack, Rebase now,
-// Resolve, Done (scratch conflict), New terminal, Steer, Answer
-```
-
-### T-UI-16 File and Diff states [S2]
-
-```ts
-type FileStates = {
-  gone?: { kind: "deleted"; by: Actor } | { kind: "renamed"; to: string; by: Actor }   // Restore, Follow (§9.2.6)
-  outside?: { version: string; at: string }       // "Changed outside Smithers · Compare": the outside version
-                                                  // that Compare reads (§9.2.3)
-}
-// buttons: Restore (deleted), Follow (renamed), Compare. Restore this file is on the burst Diff (T-UI-11).
-```
-
-### T-UI-17 Terminal [S2]
-
-```ts
-type TerminalModel = { id: string; title: string; branch: string
-                       owner: Actor; agents: Actor[]              // agents working in it, e.g. Claude Code for Ben (M-34)
-                       watchers: Actor[]; command?: string
-                       viewer_is_owner: boolean
-                       frozen: boolean }                          // "Rebasing…" while a rebase freezes it (§9.4.2)
-// the stream is a separate prop: { write: (bytes) => void; onData: (cb) => void }; input only when viewer_is_owner
-```
-
-### T-UI-18 Secrets [S2]
-
-```ts
-type SecretsModel = { secrets: { name: string
-                                 scope: "all_branches" | "main_only"   // "all branches", "main only" (§8.8, mvp.md §6.15)
-                                 hosts?: string[]                      // egress-bound hosts (§8.8.0)
-                                 actions: Action[] }[] }               // Replace, Delete
-// buttons: Add (name, value, scope, optional hosts). Values are write-only.
-```
-
-### T-UI-19 Co-editing [S3]
-
-```ts
-type CoEdit = {
-  authors: Actor[]                                // index i colours AuthorRange.author === i
-  editors: { actor: Actor; line: number }[]       // a gutter name flag per remote editor line: from presence
-                                                  // at S2 (§7.6), from awareness at S3 (§7.4.5)
-  saved?: "saving" | "saved"                      // from the daemon's `saved` frames only (§7.4.6)
-  unsaved?: { count: number; text: string }       // a recovered document lost these edits:
-                                                  // "N edits weren't saved", Reapply and Copy (§7.4.6)
-}
-// Seam module `packages/smithers/ui/src/adapters/code-editor/seam.ts` (T-APP-15 writes it; design reviews):
-type EditorBinding = { extensions: Extension[] }  // engineering's non-visual CodeMirror extensions: the
-                                                  // y-codemirror.next sync and the own-edits UndoManager (T-APP-14)
-type AuthorRange = { from: number; to: number; author: number }   // document offsets; author indexes CoEdit.authors
-// export const authorRanges: Facet<AuthorRange[]>  (engineering's binding provides it; design's decorations read it)
-// Design owns every visual extension: author colours, gutter flags, the Saved state, the gone banners.
-// buttons: Reapply (an action; it re-adds the edits as new attributed edits), Copy (copyText)
-```
-
-### T-UI-20 Proposal and lessons receipt [S3]
-
-```ts
-type ProposalModel = { id: string; title: string; evidence: string[]; refs: { label: string; url: string }[]
-                       state: "open" | "accepted" | "dismissed"
-                       todo?: { n: number; title: string } }   // the TODO it became (Learning.tsx)
-type LessonsReceipt = { todo: number; lessons: { title: string; ref: string }[] }
-// buttons: Make TODO, Dismiss (`learning.accept`, `learning.dismiss`, B.4)
-```
-
-### T-UI-21 Docs (`/docs`) [S2]
-
-```ts
-type DocsModel = {                                // T-APP-20, M-35; bundled pages, no fetch
-  toc: { slug: string; title: string }[]          // `apps/app/src/docs/toc.ts`, in order
-  page: { slug: string; title: string; summary: string; markdown: string }
-  anchor?: string                                 // a heading slug to scroll to
-  not_found?: string                              // the requested slug; the first page shows with a not-found state (C-UI-09)
-}
-type DocsViewProps = CardProps<DocsModel, {}, "open">
-// gestures.open: a toc entry or an in-page `.md` link raises onAction(gestures.open.tag, { page: "<slug>#<anchor>" })
-// (the `docs` flow). The View renders `markdown` through the wiki's read-only renderer.
-```
-
-### T-UI-22 Debug API (`/debug-api`) [S2]
-
-```ts
-type DebugApiModel = {                            // T-APP-21, M-36; person-only
-  operations: { id: string; method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE"
-                path: string; summary: string; group: string }[]   // every documented operation (docs/api/openapi.yaml)
-  selected?: string                               // an operation id
-  pending?: { method: string; path: string }      // a mutation waiting for its in-card confirmation; nothing sent yet
-  exchange?: { request: { method: string; url: string; headers: [string, string][]; body?: string }
-               response?: { status: number; headers: [string, string][]; body: string; duration_ms: number }
-               failure?: { class: string; message: string; status?: number } }   // typed, e.g. a 401 (C-UI-10)
-}
-type DebugApiView = { selected?: string }         // picking an operation: onView({ selected })
-// buttons: Send, whose `input` is the form generated from the operation's parameters and request body
-// (a JSON body is a multiline field); then, for a mutation, Confirm <METHOD> <path> and Cancel.
 ```
 
 ### TODO repair props (T-UI-04)

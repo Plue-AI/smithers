@@ -1,6 +1,6 @@
 # T-GH-04 Reviews and comments on TODO PRs become steers
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-06, T-GH-05, T-ACC-04, T-MCH-14, T-APP-19b · Unblocks T-REL-02 · Issue: [#3516](https://github.com/smithersai/smithers/issues/3516)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-06, T-GH-03, T-ACC-04, T-MCH-14, T-APP-19b · Unblocks T-REL-02 · Issue: [#3516](https://github.com/smithersai/smithers/issues/3516)
 Spec: spec.md §2, §3 (`activity`), §3.0, §4.1 (`in_review → working`), §10.4.1, §10.7.3, §12.3 (review rows), §12.5.3, §14.6a, §17.1, §17.5 · Delta: delta.md §7 "Inbound reviews…" · Product: mvp.md J10.2, §6.3 "A review or review comment on a TODO's PR", §6.10 "Line comments", M-22
 
 ## Goal

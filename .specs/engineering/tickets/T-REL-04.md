@@ -1,6 +1,6 @@
 # T-REL-04 Fault suite: kill points across runs, merges, writes, bursts, rebases
 
-Stage S2, R · Size M · Depends on T-FLW-09, T-COL-04, T-STK-11 · Unblocks T-REL-02 · Issue: [#3459](https://github.com/smithersai/smithers/issues/3459)
+Stage S2, R · Size M · Depends on T-FLW-09, T-COL-04, T-STK-08 · Unblocks T-REL-02 · Issue: [#3459](https://github.com/smithersai/smithers/issues/3459)
 Spec: spec.md §4.1, §10.4.1, §19.1, §19.2, §9.3.4, §9.4.1, §10.5, §10.6.2, §11.4, §12.4.1 (`outbound_writes`), §21 (Fault row) · Delta: delta.md §0 (fault suite carries over) · Product: mvp.md §9 Durability and Honesty, §6.1 Restart, §12.1 (restart mid-run, recovery receipts)
 
 ## Goal

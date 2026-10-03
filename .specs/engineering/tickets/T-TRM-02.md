@@ -1,6 +1,6 @@
 # T-TRM-02 Terminal auto sign-in and the Smithers skill on machines
 
-Stage S1, S2 · Size S · Depends on S1: T-ACC-04, T-CAT-02, T-INS-01, T-INS-02, T-ACC-06, T-APP-09 · S2: T-MCH-11, T-TRM-01, T-ACC-05, T-APP-04, T-COL-06 · Unblocks T-REL-02 · Issue: [#3537](https://github.com/smithersai/smithers/issues/3537)
+Stage S1, S2 · Size S · Depends on S1: T-ACC-04, T-CAT-01, T-INS-01, T-INS-02, T-ACC-02, T-APP-09 · S2: T-MCH-11, T-TRM-01, T-APP-04 (confirmations), T-COL-06 · Unblocks T-REL-02 · Issue: [#3537](https://github.com/smithersai/smithers/issues/3537)
 Spec: spec.md §5.3, §5.3.2, §6.4, §8.11.1, §15.3, §17.2 · Delta: delta.md §5 (terminal auto sign-in row) · Product: mvp.md J6.1–J6.3, §6.13 CLI and Attribution, M-18, M-21
 
 ## Goal

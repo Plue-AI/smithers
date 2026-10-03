@@ -1,74 +1,44 @@
 # T-UI-07 Conversation shell: branch tree, entry rows, Context line, Earlier archive
 
-Stage S1 · Size L · Depends on T-UI-01, T-APP-19b · Unblocks T-AGT-03, T-APP-16, T-APP-17, T-APP-22, T-APP-23, T-REL-02 · Issue: [#3544](https://github.com/smithersai/smithers/issues/3544)
+Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-AGT-03, T-APP-16, T-APP-17, T-APP-22, T-REL-02 · Issue: [#3544](https://github.com/smithersai/smithers/issues/3544)
 Spec: spec.md §14.2.1, §14.1, §14.5.1, §15.1.2 · Delta: delta.md §9 · Product: mvp.md §6.3, M-08 · Props: [ui-components.md § T-UI-07](../ui-components.md)
-Ready: 2026-10-02 smithers-8a sha256:8cc667bfc04b
+
+Landed (f21ddd50a).
 
 ## Goal
 
-The conversation shell (`BranchTree`, `EntryRow`, `ContextLine` and the Earlier archive) exists as props-only components matching the design mock and ui-components.md, so the wiring ticket only binds data and actions.
+The conversation shell (`BranchTree`, `EntryRow`, `ContextLine`, `EarlierArchive`) renders from props, so T-APP-16 only binds data and actions.
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) owns this ticket. Engineering wires it in T-APP-16, T-APP-17 and reviews nothing visual. Design reviews engineering's wiring when idle.
-
-[S2, M-38] Design owns the shared chat extension for T-AGT-03: imported prompts, assistant turns, tool calls/results, file-edit reports and errors, all read-only, with T-UI-01 agent avatars. Extend existing chat components; add no card or View. T-AGT-03 owns the S2 schema fixtures and wiring. This extension is outside the S1 completion gate. C-AGT-02 proves the live conversation and read-only controls.
+Design (smithers-06) owns this ticket. Engineering wires it in T-APP-16 and T-APP-17. [S2, M-38] Design extends the existing chat components for T-AGT-03's read-only imported transcripts; no new card or View, and it is outside the S1 gate.
 
 ## Scope
 
 In:
-- Declare BranchTreeProps, per-node action? and an alternative onView navigation patch; declare EarlierArchiveProps and read-only Earlier node data in ui-components.md. Include archive_count and tombstone fixtures in T-APP-19b. Check: C-UI-12.
-- Private entries use the same small "Only you" lock chip as Drafts. A title-only tombstone is one muted line containing the card title, with no summary or action (§14.1.5). Place the muted "Earlier · N" node at the end of the branch tree; it opens read-only archives with a "Read-only" chip. Check: C-UI-12.
-- The crumbs and `BranchTree` with presence, `EntryRow` with author, title, summary, tone and derived action, private-entry styling, `ContextLine` chips (the preflight cell in Inspect is T-UI-12), and the read-only Earlier archive node.
-- Props exactly as `ui-components.md` § T-UI-07 with the zod type reconciled by T-APP-19b from `packages/rpc/src/<Card>Card.ts`.
-- Fixture stories for every state the props allow, light and dark, desktop and 390 px.
+- Landed in `apps/app/src/mainview/`: `BranchTree.tsx` with crumbs, presence, per-node `action?` or an `onView` navigation patch, and the muted "Earlier · N" node last; `EntryRow.tsx` with author, title, summary, tone and action, the "Only you" lock chip on private entries, and title-only tombstones as one muted line; `ContextLine.tsx` chips; `EarlierArchive.tsx`, read-only with a "Read-only" chip.
+- Remaining: merge `apps/app/src/mainview/styles/views/conversation.css` into `styles/chat.css` and drop the `mvp-` prefix (minimal-code synthesis v1 §6).
 
 Out:
-- No archive migration, conversation access enforcement or mutation control in Earlier. No shell exemption from seam/import rules. T-APP-19b owns shared data contracts. Check: C-UI-08.
-- Topic subscriptions, Containers, command dispatch, permission decisions and product copy changes. Will decides copy changes; smithers-06 reviews their presentation (§14.6b).
-- Conversation storage, subscriptions, archive migration or access enforcement, app-agent turns, preflight selection, summaries, transcript ingestion and executable tool calls. T-APP-16/T-APP-17 own S1 wiring; T-AGT-03 owns S2 transcript fixtures and wiring. Inspect's preflight cell is T-UI-12. No person-to-person chat, external-agent resend/edit/retry/stop/steer controls, or new external-agent card.
+- Conversation storage, subscriptions, archive migration, access enforcement, preflight selection, summaries and transcript ingestion (T-APP-16, T-APP-17, T-AGT-03). The Inspect preflight cell is T-UI-12.
 
 ## Changes
 
-- Extend the three-handler seam rule and Architecture.test.ts import-rule scope to apps/app/src/mainview/BranchTree.tsx, EntryRow.tsx, ContextLine.tsx and EarlierArchive.tsx in this change. Remove these files from legacy handler pins and test them under the seam rule. BranchTree action controls carry data-flow; nodes without an action navigate only through a declared onView patch. Check: C-UI-08.
-
-- Private entries use the same small "Only you" lock chip as Drafts. A title-only tombstone is one muted line containing the card title, with no summary or action (§14.1.5). Place the muted "Earlier · N" node at the end of the branch tree; it opens read-only archives with a "Read-only" chip. Check: C-UI-12.
-
-- Title-only tombstone rows, branch tree, Earlier and Context chips. Check: C-UI-12.
-
-
-- Add props-only `apps/app/src/mainview/BranchTree.tsx`, `EntryRow.tsx`, `ContextLine.tsx` and `EarlierArchive.tsx` (new) and CSS. These shell parts are not card rows and add no card View under `cards/views/`. Consume T-APP-19b shell types and fixtures through module subpaths. Every handler calls `onAction` with `data-flow`, `onView`, or local presentation state.
-- Fixtures from `@smthrs/rpc/fixtures/BranchTreeNode`, `@smthrs/rpc/fixtures/ContextLine` and `@smthrs/rpc/fixtures/EntryRow` (EntryRow is new in T-APP-19b).
+- Move `styles/views/conversation.css` into `styles/chat.css`, renaming `mvp-` classes in the four shell files; delete it and its import in `styles/views.css`.
+- Mounting: T-APP-16 mounts the shell. `cards/BranchesCard.tsx` is deleted in the change that mounts `BranchTree` (pair: BranchTree; v1 §2).
 
 ## Tests
 
-- Mount the production shell files with declared callbacks. Assert per-node action tag/args and data-flow, alternative selected_branch patch, archive selection patch, final Earlier count, read-only archives and title-only tombstones. Seed an illegal handler and forbidden import in each shell file; each fails the rule. Check: C-UI-08, C-UI-12.
-
-- Assert the shared private lock chip, one-line muted tombstone title with no summary or action, final muted "Earlier · N" node, and archive "Read-only" chip with mutation controls absent. Retain ancestry coverage (J6 s11; J11 s13). Check: C-UI-12.
-
-- C-UI-12, named case `Conversation shell renders branch navigation, entries and Earlier`: render the production exports in `apps/app/src/mainview/cards/views/Views.test.tsx` and `apps/app/e2e/playwright/view-stories.spec.ts` (new harnesses), in light and dark at 1280 and 390 px; each supplied action carries `data-flow`, disabled controls show their supplied reason and do not dispatch, and each enabled press calls only its agreed callback once. Cover main/item/scratch/Earlier nodes, agent presence, title-only tombstones, private styling, absent summaries, Context disclosure and read-only archive entries. Click supplied navigation actions and Context disclosure and compare literal tags/patches. Render the actual shell exports through the C-UI-12 harness, not a synthetic card. S2 external transcript acceptance belongs to T-AGT-03/C-AGT-02 and cannot block this S1 gate.
-- Commit reviewed literal expected strings, tags, argument objects, patches and tone token names independently of the implementation. No test reads `.specs/` or derives expectations from schemas, action arrays, rendering helpers or other production code at runtime. C-UI-08 checks the production presentation files and seeded seam violations.
-- smithers-06 records copy approval from the screenshots. C-UI-02 includes these fixtures when T-CAT-01 supplies the lint; that downstream audit does not block this props-only ticket.
+The shell cases in `apps/app/src/mainview/cards/views/Views.test.tsx` cover:
+- per-node action tag and arguments, the `selected_branch` patch, the archive selection patch and the final "Earlier · N" count;
+- the lock chip on private entries; a tombstone is one muted line with the title and no summary or action;
+- archived entries show "Read-only" and no mutation controls;
+- shell text renders inert; a missing selected branch shows no unnamed crumb; popover arrow keys move and go to the parent.
 
 ## Acceptance
 
-- Copy review: the design reviewer reads every fixture screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. Check: C-UI-12.
-
-
-- [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19b's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
+- The tests above pass in CI at the landed SHA. `styles/views/conversation.css` is gone.
 
 ## Risks and notes
 
-- T-UI-01 and T-APP-19b are the landing prerequisites. Local props and fixtures allow drafting before the contracts land, not completion. S1 lands on the shell contracts and fixtures only. The S2 extension starts with T-AGT-03's reviewed fixtures and is accepted there; it is not a dependency of this S1 ticket. This ticket adds its own C-UI-12 harness coverage with smithers-b8 pre-review.
-- smithers-06 decides visuals and accepts screenshots. Will decides product copy and behavior changes. Tech lead smithers-8a accepts any ADR or spec-field change after smithers-b8 approves the app callback seam and smithers-38 approves the shared TypeScript API; raise §14.3 and ui-components.md gaps through T-APP-19b before implementation; UI lanes never raise piecemeal schema changes.
-
-## Ready checklist
-
-T-UI-02 through T-UI-14 go Ready together after T-APP-19b lands with smithers-38's §21.1 review. Local props permit drafting only. This UI lane makes no piecemeal schema change. Check: C-UI-08.
-
-1. Dependencies: T-UI-01 supplies shared primitives; T-APP-19b supplies contracts and committed fixtures. S1 lands on the shell contracts and fixtures only. The S2 extension starts with T-AGT-03's reviewed fixtures and is accepted there; it is not a dependency of this S1 ticket.
-2. Exclusions: Out names the runtime effects and adjacent surfaces this presentation ticket must not implement.
-3. Tests: C-UI-12 case `Conversation shell renders branch navigation, entries and Earlier` renders production exports and asserts committed literal output/callback expectations; C-UI-08 checks the seam. No spec or production-derived runtime oracle.
-4. Decisions: smithers-06 accepts visuals and screenshots; Will decides product changes; smithers-8a accepts ADR/spec changes after smithers-b8 seam and smithers-38 API approval.
-5. Owner pre-review before start: smithers-06: answered 18:10 with these changes (mock 21b445a6) smithers-b8: answered, BLOCKING edits applied (tech lead adopts); smithers-38: answered, BLOCKING edits applied (tech lead adopts). smithers-38: answered 18:2x, ok (component verdict); the adopted process ruling requires T-APP-19b.
-6. Security: This presentation executes no repository code, shell commands or imported tool text. smithers-b8 pre-reviews data-only rendering and absence of RPC/fetch or host execution; wiring that executes repository code requires machine-only execution (M-29) and smithers-3f review.
+- S2 transcript acceptance belongs to T-AGT-03 and cannot block this S1 ticket.

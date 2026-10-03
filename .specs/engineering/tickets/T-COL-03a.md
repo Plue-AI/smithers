@@ -1,6 +1,6 @@
 # T-COL-03a Rust daemon core, broker, capture and durable outbox
 
-Stage S2 · Size L · Depends on T-COL-01, T-COL-10, T-COL-03r, T-TRM-06 · Unblocks T-COL-03, T-REL-02 · Issue: [#3624](https://github.com/smithersai/smithers/issues/3624)
+Stage S2 · Size L · Depends on T-COL-01, T-COL-03r, T-TRM-06 · Unblocks T-COL-03, T-REL-02 · Issue: [#3624](https://github.com/smithersai/smithers/issues/3624)
 Spec: spec.md §5.3 (`machine`), §7.6 (rows 1, 5), §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
 
 ## Goal

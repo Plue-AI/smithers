@@ -1,6 +1,6 @@
 # C-ACC-02 Only a person's session merges or approves; confirmations are session-only and revision-bound
 
-Proves: mvp.md §2 rule 6, §6.10 "Agents can't merge", §6.13 "CLI", M-05, M-21, Appendix B legend (A✓) · spec.md §5.3, §5.4, §10.6.2, §10.6.2a, §10.6.2c, §15.1.4, §15.1.5 · Layer: integration · Stage: S1 · Tickets: T-ACC-04, T-ACC-05, T-STK-04, T-APP-04
+Proves: mvp.md §2 rule 6, §6.10 "Agents can't merge", §6.13 "CLI", M-05, M-21, Appendix B legend (A✓) · spec.md §5.3, §5.4, §10.6.2, §10.6.2a, §10.6.2c, §15.1.4, §15.1.5 · Layer: integration · Stage: S1 · Tickets: T-ACC-04, T-APP-04, T-STK-04
 Automation: `packages/backend/internal/compose/confirmations_integration_test.go` (new) · Runs in: CI
 
 M-39 (Will, 2026-10-02): a maintainer's pre-approval of a TODO is itself a person-session approval. It isn't revision-bound, and the merge it authorizes runs only through T-STK-16's MergeReady evaluator (C-STK-13). No agent, delegated, run or machine credential can grant or remove it. Nothing in this check is weakened: Review & merge stays revision-bound.
@@ -71,6 +71,6 @@ T-ACC-04 proves real OAuth/token minting and the missing-consumer guard. T-ACC-0
 Written to `.artifacts/checks/C-ACC-02/<UTC timestamp>/`:
 - `requests.jsonl`: credential kind, route, status, body keys and request id for each request;
 - `github-calls.jsonl`;
-- the final `person_confirmations` rows;
+- the final `approvals` rows;
 - `go test -json` output;
 - the commit SHA.

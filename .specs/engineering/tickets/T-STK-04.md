@@ -1,6 +1,6 @@
 # T-STK-04 Merge: person session, one predicate and an in-flight fence, sha-bound, squash
 
-Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-STK-12, T-ACC-04, T-ACC-05, T-STK-07, T-GH-02, T-GH-05, T-GH-09, T-INS-02 · Unblocks T-APP-04, T-REL-02, T-STK-05, T-STK-16 · Issue: [#3529](https://github.com/smithersai/smithers/issues/3529)
+Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-STK-12, T-ACC-04, T-APP-04 (confirmations), T-GH-02, T-GH-03, T-GH-09, T-INS-02 · Unblocks T-APP-04, T-REL-02, T-STK-05, T-STK-16 · Issue: [#3529](https://github.com/smithersai/smithers/issues/3529)
 Spec: spec.md §4.1, §4.1.2a, §5.2, §5.3, §6.2.4, §10.4.5, §10.6.1, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.6.3, §12.1.2, §12.3 (TODO PR merged), §12.5, §16.4 · Delta: delta.md §6 (Modify merge; Delete `change.land` path) · Product: mvp.md §4.2 Merging, §6.10, J1.7, J2.6, M-01, M-05, rule 6, Appendix B.4 (Stack: merge)
 
 ## Goal
@@ -23,7 +23,7 @@ In:
 
 Out:
 - New Merge/Confirm Views and unrelated Plue-only landing remain outside this deletion.
-- The Confirm card and person confirmations for delegated credentials (T-ACC-05, T-APP-04).
+- The Confirm card and person confirmations for delegated credentials (T-APP-04).
 - Reading required checks from branch protection, protection reason text and out-of-order merges on GitHub (T-GH-05).
 - Implementing outbound idempotency keys and crash reconcile (T-GH-09); the merge path must consume them before it is enabled.
 - New card Views, generic Plue landing removal, direct agent merge and host execution of checks.
@@ -104,7 +104,7 @@ Out:
 - After a merge, later items rebase onto the new `main` and their open PRs are force-updated (§10.6.3) through the existing integrate path. Record the voiding reason before deleting active approvals when a new generation starts (S10).
 - `todo_approvals.generation` migration remains here. T-STK-12 owns the `todos.merging` migration (C-STK-07).
 - Consume `LockStack(tx)` and `FenceSet(tx, todo)` from T-STK-12 in every merge transaction. Do not create another lock or held-signal queue (C-STK-07).
-- `packages/backend/internal/routes/todos.go` (new) → the merge route. Refusals use S1–S22’s exact §6.2.3 envelopes and row precedence. Authorization is T-ACC-03’s decision; `MergeReady` owns readiness only. Eligible delegated requests return 202 with a private confirmation through T-ACC-05; only its author’s eligible session executes Merge (§5.2.1, C-ACC-02).
+- `packages/backend/internal/routes/todos.go` (new) → the merge route. Refusals use S1–S22’s exact §6.2.3 envelopes and row precedence. Authorization is T-ACC-03’s decision; `MergeReady` owns readiness only. Eligible delegated requests return 202 with a private confirmation through T-APP-04; only its author’s eligible session executes Merge (§5.2.1, C-ACC-02).
 - Delete `packages/backend/internal/services/mythical_land_todo.go`, `mythical_land_todo_test.go`, route `POST /mythical/items/{id}/land` (`internal/compose/router.go:1123`, `routes/mythical.go:321`) and its OpenAPI row (`docs/api/openapi/repositories.yaml:12095`).
 - Delete the app doors: `history.land` and `HISTORY_LAND_USER_ONLY_REASON` (`apps/app/src/mainview/flows/entries/history.ts:24`, `:120`), `StackSeam.landStackItem` (`state/seams/StackSeam.ts:613`), `landable` (`packages/rpc/src/StackView.ts:81`), `change.land` (`flows/entries/change.ts:76`) and `ChangeSeam.landChange`/`land` (`state/seams/ChangeSeam.ts:1347-1364`), with their tests.
 - `docs/api/openapi/todos.yaml` → the merge row; regenerate `ProductApi.ts` (`smthrs run //:openapiClients`); update `packages/backend/docs/todos.md` and run the docs gates.
@@ -113,7 +113,7 @@ Out:
 
 - Assert TUI and CLI expose no TODO Land command and send no POST /items/{id}/land. Retain tests for unrelated landablePrefix and Plue-only landing. Check: C-STK-07.
 
-- Wire T-ACC-05’s confirmation-to-action seam to the real merge service before enabling Merge. Drive production confirmation approval and merge routes through the composed router with real PostgreSQL and fake GitHub. Prove C-ACC-02’s session/role/revision checks, pending-on-state-conflict behavior and outbound reconciliation through T-GH-09 after a kill between approval and the external call. A test-only merge handler cannot discharge this gate. Keep Depends on T-ACC-05; do not add a reverse edge.
+- Wire T-APP-04’s confirmation-to-action seam to the real merge service before enabling Merge. Drive production confirmation approval and merge routes through the composed router with real PostgreSQL and fake GitHub. Prove C-ACC-02’s session/role/revision checks, pending-on-state-conflict behavior and outbound reconciliation through T-GH-09 after a kill between approval and the external call. A test-only merge handler cannot discharge this gate. Keep Depends on T-APP-04; do not add a reverse edge.
 - `review_merge` binds generation plus reviewed PR head. Changing generation with unchanged displayed head refuses without effects. MergeReady and definitive GitHub refusals leave the confirmation pending; only confirmed merge approves it. Prove through the real approval route and production merge consumer. Check: C-ACC-02.
 - Include `prs.land` in the C-STK-07 executable-door deletion gate; assert its install command and route are absent and the control binds only the supported Merge command.
 

@@ -1,7 +1,7 @@
 # C-DUR-03 Killing the host during a GitHub write or push reconciles it without duplication
 
-Proves: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts) · spec.md §3 (`outbound_writes`), §12.4.1, §19.1, §19.2 · Layer: fault · Stage: S1, S2 · Tickets: T-GH-09, T-FLW-09, T-REL-04
-Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: CI
+Proves: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts) · spec.md §3 (`pending_op`), §12.4.1, §19.1, §19.2 · Layer: fault · Stage: S1, S2 · Tickets: T-GH-09, T-FLW-09, T-REL-04
+Automation: to write, as a `smthrs test` target · Runs in: CI
 
 ## Setup
 - `smithers-backend` built from the commit under test and started as a subprocess with real PostgreSQL. `SMITHERS_GITHUB_APP_API_BASE_URL` and `SMITHERS_GITHUB_GIT_BASE_URL` point at `githubfake`; the `github_app` row holds a test App key the fake accepts.
@@ -11,7 +11,7 @@ Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) ·
 
 Candidate Automation declaration (unapproved): S1: `packages/backend/internal/compose/github_outbound_kill_test.go` (new). S2: `packages/smithers/test/faults/github-step-kill.test.ts` (new, T-FLW-09) · Runs in: CI
 
-Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
+Receipt: CI's own check run at the landed SHA, or a `smthrs test` run on the reference host, recorded through `scripts/check-run.mjs` (minimal-code synthesis ruling 3).
 
 ## Steps
 For each kind in {open PR, update body, merge, close PR, close issue, add label, revert label, comment, push} and each window W:
@@ -21,7 +21,7 @@ For each kind in {open PR, update body, merge, close PR, close issue, add label,
 
 1. Arm the hook. Let the host's worker reach the write.
 2. When the hook fires, `SIGKILL` the host's process group. Release the held request after the kill.
-3. Start the host subprocess again. Wait until `outbound_writes` has no `intended` or `unknown` row and the TODO reaches a terminal or stable state, with a 60 s limit.
+3. Start the host subprocess again. Wait until `pending_op` holds no `intended` or `unknown` entry and the TODO reaches a terminal or stable state, with a 60 s limit.
 4. Compare the write log and the TODO with the committed expected fixture rows and counts.
 
 S2: repeat steps 1–4 with the kill inside the run's "open PR" step and its push step.
@@ -45,4 +45,4 @@ Exercise every production GitHub writer: TODO issue creation, landing push and P
 - The host's own push is reported as a foreign push.
 
 ## Evidence
-`.artifacts/checks/C-DUR-03/<UTC timestamp>/`: per case `writes.jsonl`, host logs before and after the kill, `outbound_writes` rows before and after, the recovery receipts, `summary.json`, the commit and the built binary's version.
+`.artifacts/checks/C-DUR-03/<UTC timestamp>/`: per case `writes.jsonl`, host logs before and after the kill, `pending_op` entries before and after, the recovery receipts, `summary.json`, the commit and the built binary's version.

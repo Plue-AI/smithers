@@ -1,92 +1,44 @@
-# T-ACC-02 Members roster, access check, hourly recheck, `/api/members`
+# T-ACC-02 Members on `collaborators`: roster, hourly recheck, revocation within 5 s, GitHub SSH keys
 
-Stage S1 · Size M · Depends on T-ACC-01, T-STK-01 · Unblocks T-ACC-04, T-ACC-06, T-APP-06, T-APP-16, T-FLW-13, T-GH-02, T-MCH-11, T-REL-02, T-STK-09, T-TRM-04 · Issue: [#3491](https://github.com/smithersai/smithers/issues/3491)
-Spec: spec.md §5.1.2–§5.1.4, §2 (Install: one owner), §3 (`members`), §3.1, §6.3 (`/api/members`), §7.2 (`members` topic), §12.2 (members' permission stream) · Delta: delta.md §2 (Add `members`; Restore-reference closed-alpha roster) · Product: mvp.md J1.8, §3 "Member", §6.2, §6.15 "Members and maintainers", M-05
-Ready: 2026-10-02 smithers-8a sha256:302d66636763
+Stage S1, S2 · Size M · Depends on S1 roster: T-ACC-01, T-STK-01 · S1 revocation: T-ACC-04, T-INS-02 · S2 keys: T-GH-02 · Unblocks T-ACC-04, T-APP-02, T-APP-06, T-APP-16, T-FLW-13, T-GH-02, T-MCH-11, T-REL-02, T-STK-09, T-TRM-02 · Issue: [#3491](https://github.com/smithersai/smithers/issues/3491)
+Spec: spec.md §5.1.2–§5.1.4, §5.6, §8.10.2, §12.2 · Product: mvp.md J1.8, J3.2, §6.15, M-05, M-24
+Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ruling 1; v2 ticket merges; v1 §4). Absorbs T-ACC-06 ([#3495](https://github.com/smithersai/smithers/issues/3495)) and T-TRM-04 ([#3576](https://github.com/smithersai/smithers/issues/3576)).
 
 ## Goal
-A maintainer adds a person by GitHub username. That person can sign in only while they are on the roster and hold `push` or higher on GitHub. Losing GitHub write access suspends them within one hour.
+A maintainer adds a person by GitHub username; that person signs in only while listed and holding `push` or higher. Losing GitHub write access suspends them within one hour. Removal or suspension ends every session, credential, socket, terminal and SSH session within 5 s. In S2 their GitHub SSH keys work without manual setup.
 
 ## Scope
-Approved integration requirements (In):
-- After credential validity, scope, minimum role and actor/delegation policy pass, any request to demote or remove the owner, or set any member's role to owner, returns HTTP 403, class `permission`, code `owner_immutable`, and creates no member or projection change. The owner is equally subject to this invariant. Lower-role callers retain the ordinary permission refusal; eligible delegated callers retain the preceding `never` refusal. A no-op write on an owner record does not constitute owner transfer and must not be used to bypass the invariant. The member boundary returns current role/state/provisional status; non-active or missing member credentials are dead, with no conflicting not_a_member 403. Serialize state changes with writes. Checks: C-ACC-01, C-ACC-03.
-In:
-- GET /api/members admits every active member session (minimum role member), no delegated/run/machine path. Check: C-ACC-01.
-- `POST` (add by login), `PATCH` (role) and `DELETE` (remove) on `/api/members`, owner or maintainer only.
-- Role seeding from GitHub: admin or maintain becomes `maintainer`, write becomes `member` (§5.1.4).
-- A person with only read access, or none, cannot be added: return `{code: "needs_github_access", class: "user", fix: "https://github.com/<o>/<r>/settings/access"}` and store no row (§5.1.4). API messages contain no "↗" glyph; the UI renders `fix` as the link. A member whose access later drops below `push` is suspended (§5.1.3). Checks: C-ACC-04, C-J1-05.
-- The owner can't be demoted or removed by anyone, and there is exactly one owner (§2, §5.1.4). Owner transfer is deferred.
-- Sign-in gate widened from owner-only (T-ACC-01) to roster ∧ `push` (§5.1.2).
-- Hourly recheck of every active member, plus an immediate recheck on a 401 or 403 from GitHub for that member (§5.1.3). Loss sets `suspended_at`; regaining access clears it.
-- Stable `unix_uid` allocated at add time (§5.5.1; first used in S2).
-- A `members` projection event in the same transaction as each change (§3.1).
-
-Out:
-- Closing sessions, sockets and grants on removal or suspension (T-ACC-06).
-- The matrix authorizer (T-ACC-03). This ticket's owner-or-maintainer check is folded into `Authorize` and deleted there.
-- The Members card (T-APP-06), SSH key import (T-TRM-04), unix users on machines (T-MCH-11).
-- Invitations, organizations and teams. mvp.md §6.15 says there are no invitations, and `/api/orgs*` stays 404.
-
-- Out of scope: owner transfer, delegated member administration, changing GitHub permissions, and a second permission scheduler. No repository code executes in this ticket.
+In: `GET/POST /api/members`, `PATCH/DELETE /api/members/{login}`; role seeding (admin or maintain = Maintainer, write = Member); one immutable owner (`owner_immutable`, HTTP 403); `needs_github_access` and `unknown_github_user` refusals with no stored row; hourly and on-401/403 recheck; transactional revocation; `todo.takeover`; GitHub key import (S2).
+Out: hosted `/api/orgs*` (stays 404 on self-host), invitations, teams, owner transfer, a `members` table, the Members card (T-APP-06), unix users on machines (T-MCH-11).
 
 ## Changes
-- `packages/backend/internal/services/members.go` (from T-ACC-01): `Add`, `SetRole`, `Remove`, `List`, `Recheck(member)`, `RecheckAll`.
-  - Permission comes from the shared lookup extracted in T-ACC-01 (`GET /repos/{o}/{r}/collaborators/{login}/permission` with the installation token). It returns `{permission, role_name}` plus a classified outcome. Successful member-level `none` or `read` suspends an existing member; installation-level 401/403/404 sets the permission stream’s `github_sync` health to `refused` (§4.4) with no member change. An expired installation token or an App that lost the repository is an installation failure. Disambiguate 404 through `GET /users/{login}` before assigning an unknown-user or no-permission result; an unresolved lookup fails closed with no member change. Checks: C-ACC-03, C-ACC-04.
-  - An unknown GitHub login returns `{code: "unknown_github_user", class: "user"}`. Owner demotion or removal returns `{code: "owner_immutable", class: "permission"}`. After T-ACC-03 integration, a Member role caller returns HTTP 403 permission/permission before delegation and owner invariants. A transient GitHub error returns `{code: "github_unavailable", class: "github", retry_at}` and preserves the last state. Checks: C-ACC-04, C-J1-05.
-- `packages/backend/internal/routes/members.go` (new) and its mount in `compose/router.go`: `GET/POST /api/members`, `PATCH/DELETE /api/members/{login}`.
-  - Every mutating request takes an `Idempotency-Key` (§6.2.1).
-  - Errors use the typed envelope (§6.2.3). Until T-ACC-03 lands, POST/PATCH/DELETE reuse `RequirePerson` (`packages/backend/internal/middleware/run_credential.go:145`) before any mutation, refusing non-person credentials (run tokens today, delegated credentials when available) with HTTP 403 `{code: "person_only", class: "never", message: "Only a person can do this"}`. T-ACC-03 replaces this interim gate with §5.2.1 precedence: dead holders=401 permission/unauthenticated; run/machine and scope/role failures=403 permission/permission; eligible delegated person-only=403 never/never. PATCH accepts `{role: "maintainer"|"member"}`; `{role: "owner"}` returns `owner_immutable` with class `permission`, never owner transfer. GET returns exactly the `packages/rpc/src/MembersCard.ts` model owned by T-APP-19: `{members: [{login, name, avatar_url, color_index, role, needs_access, suspended, actions}], access_url}`. Keep `unix_uid` internal and omit it from the public response; the container has no second mapping. Checks: C-ACC-04, C-J1-05, C-UI-08.
-- `packages/backend/db/product/queries/members.sql` (new); regenerate sqlc.
-- Hourly recheck job on the existing periodic runner (`packages/backend/internal/cleanup/`, pattern of `auth_cleaner.go`).
-  - Each GitHub call goes through the shared budget (`services/github_budget.go`).
-  - T-GH-02 adopts this job as the §12.2 "members' permission" stream. No second scheduler.
-- Immediate recheck hook: a 401 or 403 on a member user-token call enqueues the shared `Recheck(member)` job. Cover `services/github_proxy.go:275-292` and `RefreshUserGitHubToken` (`services/auth.go:1384`) with its callers `github_user_repos.go:579`, `github_import.go:2464` and `auth.go:1673`. Carry the member identity and token kind through refresh errors; installation errors update sync health and never suspend a member. C-ACC-03 drives each caller and the non-refreshing proxy 403.
-- The identity boundary from frozen T-ACC-01 returns current role, state (active | suspended | removed) and provisional status, including absence for dead-credential handling; lookup failure gives no allow/effect. Checks: C-ACC-01, C-ACC-03.
-- OpenAPI: add `docs/api/openapi/members.yaml` (new), then run `scripts/openapi-bundle.mjs`.
-- Docs: add a members section to the backend package docs (`packages/backend/docs/`), then run `pnpm docs:sync`, `pnpm docs:check` and `smthrs docs //packages/backend:docs`.
-
-## Decisions and pre-review
-- Before start, smithers-3f approves the member-boundary, scheduler and transaction seams; smithers-b8 approves the public members API and refusal text. The tech lead (smithers-8a) resolves contract disagreements; Will decides any product-policy change. Existing role and access rules are binding.
-- The thin path uses T-ACC-01's installation-token lookup. T-GH-01 and T-GH-02 later replace credential storage and adopt the job; neither is required to land this API.
+- Reuse `collaborators` (`packages/backend/db/product/migrations/0001_product_baseline.sql:2605`) as the roster: owner from T-ACC-01, Maintainer = `admin`, Member = `write`. Reuse `ListCollaboratorsByRepo` and `GetCollaboratorPermissionForRepoUser` (`db/product/queries/repos.sql:280,318`) and the `can*Repo` helpers over `repoPermissionForUser` (`internal/services/repo_permissions.go:114-207`).
+- Enable the uncalled `AddCollaborator` (`repos.sql:313`; interface only at `internal/services/repo.go:80`) for add.
+- Reshape `collaborators`: one migration adds `github_id`, `unix_uid` (unique, from 20000, never reused) and `suspended_at`.
+- Reuse the last-owner `FOR UPDATE` pattern from `internal/services/org.go:1014-1170` (`GetOrgMemberForUpdate`, `CountOrgOwners`) for owner invariants. Do not reuse `org_members`/`OrgService`: they lack GitHub id, unix uid and suspension (3f).
+- Reuse the GitHub permission lookup in `github_issue_text_writer.go:145` (`Maintainer`, TTL cache) for the hourly recheck, run by `internal/cleanup/` on the `auth_cleaner.go` pattern. T-GH-02 adopts it as the §12.2 members stream.
+- Reuse revocation: suspension sets `suspended_at` and `users.prohibit_login`, which fires `user_access_revocation` (`0001:12080`, function at `:927`); removal calls the dead `publishCollaboratorsRemoved` (`internal/services/revocation_publishers.go:157`); sessions go through `DeleteUserSessions` (`internal/db/auth.sql.go:620`); bus kinds `token_revoked`, `collaborator_removed`, `ssh_key_revoked` (`internal/revocation/event.go:38-62`). Existing consumers: `routes/workspace_socket_revocation.go`, `ssh/revocation.go`. Catch-up poll at most 1 s.
+- Restore test cases from `2753d2e3^:packages/backend/internal/services/pair_desktop_revocation_transaction_test.go` that cover commit-before-publish and rollback-publishes-nothing.
+- Delete: one migration drops the 10 orphan tables `pair_*` (8) and `share_listing*` (2) (`0001:4678-5512`; no queries or Go references at HEAD).
+- S2: reshape `ssh_keys` with `source manual|github` and a unique user fingerprint index; the sign-in path and the hourly recheck sync `GET /users/{login}/keys` with `If-None-Match`.
+- New: `internal/routes/members.go` (about 120 lines). Rejected reuse: no roster route exists; `/api/orgs*` must stay 404.
 
 ## Tests
-- Active Member session GET succeeds; delegated O/M/E GET=never and run/machine=permission. Dead credentials=401. Test current role/state/provisional boundary, owner demotion/removal and role-to-owner precedence; no refused member/projection effects. Checks: C-ACC-01, C-ACC-03.
-- Integration, real PostgreSQL plus an httptest GitHub fake: `packages/backend/internal/compose/members_integration_test.go` (new).
-  - Role seeding covers all four GitHub answers: admin, maintain, write and read.
-  - Adding a login with read or no access returns the literal `needs_github_access` code, `user` class and repository access `fix`, with no glyph in the message and no stored row.
-  - Demoting or removing the owner is refused for every role, including the owner's own session.
-  - Adding a member with an unknown login is refused.
-  - A Member may not add, change roles or remove; an owner or maintainer may.
-  - `unix_uid` values are unique, start at 20000, and are never reused after a removal.
-- Integration with an injected clock: after GitHub flips a member to read, `RecheckAll` sets `suspended_at` within one tick. The member's next sign-in is refused. A flip back clears the suspension.
-- Integration: a 401 from GitHub on the member's token triggers a recheck without waiting for the hour.
-- Unit: the role-seeding table, and the decision on transient errors (fail closed, no state change).
-
-- Boundary integration in `compose/members_integration_test.go`: send GET/POST/PATCH/DELETE through the composed install router with real cookies, real PostgreSQL and fixed GitHub responses. Exercise sign-in through OAuth start/callback. Advance the composed periodic runner's clock, rather than calling `RecheckAll`; trigger both 401 and 403 through the served GitHub proxy route. Assert literal statuses, roles, messages, UID values and stored events from reviewed test fixtures; never load spec Markdown or derive expected values from implementation code. C-ACC-03 and C-ACC-04 cover these paths. After T-ACC-03 lands, run/machine writes=403 permission/permission and eligible delegated writes=403 never/never; role/scope failure=permission, with no member/projection effects. Report interim person_only gates separately, not final matrix passes. Add delegated cases when T-ACC-04 lands. Assert each refusal code/class, GitHub `retry_at`, PATCH owner refusal, and the exact MembersCard GET fields with no `unix_uid`; validate against the T-APP-19 schema. Checks: C-ACC-04, C-J1-05, C-UI-08.
-- C-ACC-03's socket/grant revocation and C-J1-05's Members view remain joint acceptance with T-ACC-06 and T-APP-06, not prerequisites for landing this ticket.
-
-- C-ACC-03 adds literal lookup fixtures for installation 401/403/404, expired token, removed App repository, member `none`/`read`, existing-user 404 and unknown-user 404. Drive hourly and each reactive caller; assert sync health, unchanged member rows for installation failures and suspension only for confirmed member permission loss.
+- Integration, real PostgreSQL and `internal/githubfake/server.go`: role seeding for admin, maintain, write, read; read/none refused with no row; owner demotion/removal refused for every caller; Member cannot mutate.
+- Injected clock: a read flip suspends within one tick; next sign-in refused; flip back clears it. A 401 on the member token rechecks at once.
+- Revocation through `DELETE /api/members/{login}` and the recheck job over real terminal, SSE and SSH transports: every one closed within 5 s, max of 20 runs; old cookie refused right after the response; guest child processes end. `RevokeMember` is idempotent.
+- `todo.takeover`: maintainer once; delegated 403 `never`; Member 403 `permission`; no change on refusal.
+- S2: key diff over new, unchanged, removed, manual duplicate and another member's fingerprint; 304 does nothing; a revoked key's open session closes within 5 s.
 
 ## Acceptance
-
-
-
-- [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
-
-- [C-ACC-03](../checks/C-ACC-03.md): GitHub loss suspends within one hour. The revocation half comes from T-ACC-06.
-- [C-ACC-04](../checks/C-ACC-04.md): a sign-in off the roster or without write is refused, with the reason.
-- [C-J1-05](../checks/C-J1-05.md): add by username, "needs access on GitHub", and a teammate signs in. Passes together with T-APP-06.
+- [C-J1-04](../checks/C-J1-04.md): S1 part.
+- [C-ACC-03](../checks/C-ACC-03.md): GitHub loss suspends within one hour; removal revokes every credential and stream within 5 s.
+- [C-ACC-04](../checks/C-ACC-04.md): off-roster or no-write sign-in refused with the reason.
+- [C-J1-05](../checks/C-J1-05.md): add by username; passes with T-APP-06.
+- [C-APP-01](../checks/C-APP-01.md): `todo.takeover` is maintainer-only and person-only.
+- [C-J3-06](../checks/C-J3-06.md) (S2): SSH uses only the GitHub key imported at sign-in.
 
 ## Risks and notes
-- **`maintain` is invisible in `permission`.** GitHub's legacy `permission` field reports `maintain` as `write`. Confirm with the fake GitHub and once against a real repository: a user with the maintain role must seed as Maintainer through `role_name`.
-- **Catalog doors:** add, change role and remove are the catalog commands `members.add`, `members.role` and `members.remove` behind `/members` (mvp.md Appendix B.2, Maintainer, person only). T-CAT-01 assigns their visibility; the API here doesn't depend on it.
-- **Projection events:** T-STK-01 supplies the §3.1 migration and transactional writer. T-COL-02 adds transport later; it is not a landing precondition.
-- Don't restore the closed-alpha tables (`0100_drop_alpha_access_tables.sql`). Delta §2 marks them reference-only.
-
-## Ready checklist
-1. Dependencies: T-ACC-01 supplies identity and the permission lookup; T-STK-01 supplies the transactional projection writer. Later credential storage, transport and revocation remain named integrations.
-2. Exclusions: owner transfer, invitations, teams, delegated administration, GitHub ACL writes, machine users, UI and a second scheduler are explicit.
-3. Tests: composed members routes, OAuth callback, proxy and periodic runner use literal reviewed fixtures; no runtime spec or implementation oracle.
-4. Decisions: smithers-3f approves backend seams; smithers-b8 approves the public API; smithers-8a resolves seams and Will decides product changes.
-5. Owner pre-review: smithers-3f: Answered at 2026-10-02 23:39 UTC; tech lead ADOPTS the blocking permission classification and all refresh-hook callers. Member/projection changes stay atomic and hourly/reactive checks share one job. smithers-b8: Answered at 17:05 with these changes: person-only mutation gates, literal refusal envelopes, PATCH roles and the MembersCard response.
-6. Security: no repository execution is added; smithers-3f reviews fail-closed access checks and identity gates. Machine execution remains subject to §1.3 and M-29.
+- GitHub's legacy `permission` reports `maintain` as `write`; seed from `role_name`.
+- `collaborators.user_id` is nullable; a member added before first sign-in is matched by `github_id`. Unverified: the OAuth callback links a pre-created row.
+- The unique fingerprint index fails on duplicate keys; the migration refuses with a readable error.

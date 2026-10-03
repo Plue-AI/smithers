@@ -1,6 +1,6 @@
 # T-APP-13 Secrets card
 
-Stage S2 · Size S · Depends on T-MCH-12, T-UI-18, T-APP-19, T-APP-22 · Unblocks T-REL-02 · Issue: [#3462](https://github.com/smithersai/smithers/issues/3462)
+Stage S2 · Size S · Depends on T-MCH-12, T-UI-18, T-APP-22 · Unblocks T-REL-02 · Issue: [#3462](https://github.com/smithersai/smithers/issues/3462)
 Spec: spec.md §2 (Secret), §5.2, §7.2 (`secrets`), §8.8, §14.2, §14.3 (Secrets) · Delta: delta.md §3 (Modify: secrets reach machines) · Product: mvp.md J1.8, §6.15 Secrets, M-25, D-24 (via §8.8.2), Appendix A `/secrets`
 
 ## Goal
@@ -8,11 +8,11 @@ From `/secrets`, a maintainer adds, replaces and deletes secrets and sets each o
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds the `SecretsView`, with the CSS, in T-UI-18. This ticket builds no View, CSS or editor presentation. It owns the topic decoder and golden fixture, the adapter, the Container and the commands in Changes ([card-kinds.md §1](../card-kinds.md)). The seam is the view model from T-APP-19 (spec §14.2.1).
+Design (smithers-06) builds the `SecretsView`, with the CSS, in T-UI-18. This ticket builds no View, CSS or editor presentation. It owns the Secrets card file, which maps the topic to `SecretsView` props, and the commands in Changes (minimal-code synthesis v1 §2).
 
 ## Scope
 In:
-- Wire the Secrets card to the `secrets` topic: one row per secret with its name, scope (all branches or main only, §14.3 Secrets) and optional hosts, with Replace and Delete (confirm); Add with NAME, a write-only Value, scope and optional Hosts. `SecretsView` (T-UI-18) replaces `cards/SecretsCard.tsx` (139 lines).
+- Wire the Secrets card to the `secrets` topic: one row per secret with its name, scope (all branches or main only, §14.3 Secrets) and optional hosts, with Replace and Delete (confirm); Add with NAME, a write-only Value, scope and optional Hosts. `cards/SecretsCard.tsx` (139 lines) stays the card file and renders `SecretsView` (T-UI-18) in place of its own markup.
 - Values travel only in the write request; the card payload, the topic and the DOM never hold one after the request (§2 "Value write-only"). "Nobody reads values back" covers the API and this card; any session on a machine can print all-branches values by design (§8.8.1).
 - Members see names and scopes read-only; writes refuse with the `permission` class for anyone but the owner and maintainers (§5.2, §6.2.3).
 - Widening a secret from main only to all branches asks first, as today's card does.
@@ -25,22 +25,20 @@ Out:
 - Coding-account connections (`secrets.connect*`, cloud runtime): cut surfaces (T-CUT-01).
 
 ## Changes
-- `packages/rpc/src/topics/Secrets.ts` (new): the `secrets` decoder. `packages/rpc/test/fixtures/topics/secrets.json` (new): the golden, compared by a Go golden test with T-MCH-12's builder.
-- `apps/app/src/mainview/cards/containers/secretsModel.ts` (new): `toSecretsModel(secrets, viewer)`: rows with name, scope and hosts; Add, Replace and Delete only for a maintainer or owner viewer; widening from main only to all branches carries a confirm step.
-- `apps/app/src/mainview/cards/containers/SecretsContainer.tsx` (new): renders `SecretsView` (T-UI-18); Add and Replace send the value only in the write request.
+- `apps/app/src/mainview/cards/SecretsCard.tsx` stays the Secrets card file and the only mount point through `CardRenderers.tsx`: rows with name, scope and hosts; Add, Replace and Delete only for a maintainer or owner viewer; widening from main only to all branches carries a confirm step; Add and Replace send the value only in the write request. Deletes its own markup and the matching `SecretsCard.test.tsx` assertions (pair: SecretsView ↔ `SecretsCard` markup). T-APP-03 removes its `provider-accounts` family first.
+- `packages/rpc/src/SecretsCard.ts` (T-UI-18 adds back the props type): zod only for the `secrets` payload, which crosses the live socket.
 - `apps/app/src/mainview/state/seams/SecretsSeam.ts`: reads move to the `secrets` topic through `runtime/LiveChannel.ts` (T-APP-08); writes stay `PUT`/`DELETE /api/secrets` with `Idempotency-Key`.
 - `apps/app/src/mainview/flows/entries/secrets.ts`: scope words become "all branches" and "main only" (product words, §2); `/secrets` replaces the member doors of `secrets.list` (`:140`) and `secrets.set` (`:100`).
-- `packages/rpc/src/Cards.ts`: the `secrets` payload loses per-secret host counts. The kind keeps its name, so every pinned `secrets` row still decodes (card-kinds.md L4). Delete `cards/SecretsCard.tsx` once `SecretsView` lands; T-APP-03 removes its `provider-accounts` family first.
+- `packages/rpc/src/Cards.ts`: the `secrets` payload loses per-secret host counts. The kind keeps its name, so every pinned `secrets` row still decodes (card-kinds.md L4).
 
 ## Tests
-- Unit (`secretsModel.test.ts`): maintainer versus member actions; Delete and widening carry a confirm step; after Add, no value string remains in the model or the card payload.
-- Unit: every `Action.label` and `disabled.reason` the adapter emits passes C-UI-02's `lintText` (engineering's copy; the View's copy is its T-UI ticket's).
-- Integration (`SecretsSeam.test.ts`, real backend with PostgreSQL): a member's `PUT` returns 403 `permission`; `GET /api/secrets` never returns a value field; the Go golden test equals the golden.
-- e2e: the C-MCH-07 script's card steps through `SecretsView`.
+- Unit (`SecretsCard.test.tsx`, literal topic payloads): maintainer versus member actions; Delete and widening carry a confirm step; after Add, no value string remains in the props or the card payload.
+- Unit: every `Action.label` and `disabled.reason` the card file emits passes T-CAT-01's `lintText` (engineering's copy; the View's copy is T-UI-18's).
+- Integration (`SecretsSeam.test.ts`, real backend with PostgreSQL): a member's `PUT` returns 403 `permission`; `GET /api/secrets` never returns a value field.
+- e2e: a maintainer adds a main-only secret on the card through `SecretsView`; a member sees its name and scope read-only, and no value appears in the DOM, the card payload or `GET /api/secrets`.
 
 ## Acceptance
-- [C-MCH-07](../checks/C-MCH-07.md): secrets set on this card are present in every session and the coding host, and no API or card path reads a value back.
-- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
+- [C-UI-13](../checks/C-UI-13.md): `SecretsView` is reachable from `CardRenderers`; the `SecretsCard.tsx` markup is deleted.
 
 ## Risks and notes
 - Resolved: the MVP card has no separate Bind door. Add and Replace take an optional Hosts field, and a secret with hosts stays egress-bound (§8.8.0, §14.3).

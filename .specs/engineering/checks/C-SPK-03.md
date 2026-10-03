@@ -1,7 +1,7 @@
 # C-SPK-03 Host↔guest relay round trip
 
 Proves: mvp.md §9 Live updates (transport share) · spec.md §9.1.1, §1.4 (host-relay port), §8.2.1; overview.md E-04 · Layer: spike · Stage: W0 · Tickets: T-COL-01, T-COL-11
-Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) · Runs in: reference host
+Automation: to write, as a `smthrs test` target · Runs in: reference host
 
 ## Setup
 
@@ -12,7 +12,7 @@ Automation: unavailable (owner-approved executable mapping pending; C-PRC-03) ·
 
 Candidate Automation declaration (unapproved): `scripts/spikes/col-01/relay-rtt/` (new; `scripts/spikes/col-01/run.sh rtt`) · Runs in: reference host
 
-Owner action before PRC-03 activation: supply an explicit approved executable command and its declared Runs in host. Do not infer a command from a path or prose. Until that mapping is approved and available, the runner refuses this check and ticket closure remains blocked. Check: C-PRC-03.
+Receipt: CI's own check run at the landed SHA, or a `smthrs test` run on the reference host, recorded through `scripts/check-run.mjs` (minimal-code synthesis ruling 3).
 
 ## Steps
 

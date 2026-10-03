@@ -1,6 +1,6 @@
 # C-SEC-02 The host never loads or executes repository flows
 
-Proves: mvp.md §9 Isolation, §6.12 Change the factory, M-29, M-30 · spec.md §1.3, §11.1, §17.3, §10.4.4, §11.4, §15.2 · Layer: integration · Stage: S1 · Tickets: T-FLW-01, T-INS-02, T-ACC-07, T-FLW-11, T-STK-12, T-MCH-14
+Proves: mvp.md §9 Isolation, §6.12 Change the factory, M-29, M-30 · spec.md §1.3, §11.1, §17.3, §10.4.4, §11.4, §15.2 · Layer: integration · Stage: S1 · Tickets: T-FLW-01, T-INS-02, T-INS-08, T-FLW-11, T-STK-12, T-MCH-14
 Automation: `packages/backend/internal/compose/flow_isolation_integration_test.go` (new), with the process-tree sampler `scripts/checks/host-process-sampler.mjs` (new) · Runs in: reference host (needs `msb` 0.6.16 and libkrun), nightly
 
 ## Setup

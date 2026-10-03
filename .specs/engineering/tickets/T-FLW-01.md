@@ -1,6 +1,6 @@
 # T-FLW-01 Overridable flows run only in machines; system flow catalog
 
-Stage S1 · Size M · Depends on — · Unblocks T-AGT-04, T-COL-02, T-COL-07, T-FLW-02, T-FLW-03, T-FLW-11, T-FLW-13, T-INS-06, T-MCH-14, T-MNT-04, T-REL-02, T-STK-12 · Issue: [#3438](https://github.com/smithersai/smithers/issues/3438)
+Stage S1 · Size M · Depends on — · Unblocks T-AGT-04, T-COL-02, T-COL-10, T-FLW-02, T-FLW-03, T-FLW-11, T-FLW-13, T-INS-06, T-MCH-14, T-MNT-04, T-REL-02, T-STK-12 · Issue: [#3438](https://github.com/smithersai/smithers/issues/3438)
 Spec: spec.md §1.3, §10.4.1, §10.4.1a, §11.1, §17.3 · Delta: delta.md §8 (row 1), §11 (ADR 0001 row) · Product: mvp.md §6.12 "Change the factory", §9 Isolation, M-29, M-30
 
 ## Goal
@@ -26,6 +26,7 @@ Out:
 - `packages/backend/flowhost/resolver.go:199` (`resolve`) and `workspace_launcher.go:24-35` → an overridable run binds only through `NewWorkspaceLauncher` on a runtime whose `Isolation()` is `IsolationSandboxed`. A `trusted_process` runtime returns `isolation_required` (class `infra`). Tests opt in to the process runtime through an explicit `flowhost` config field, never an environment variable on the install.
 - `apps/backend/main.go:113-121` → the `control` runtime (`isolation.go:136-141`) stays for packaged hosts only (the model host). Assert in a test that no flow-host binding resolves to it.
 - Self-host coding host (handed over by T-INS-02) → `packages/backend/internal/compose/flow_composition.go:155-170` binds the Mac install's coding host as a guest host (helper at `services.WorkspaceJJExportGuestPath`) that publishes source through the backend. Delete `SMITHERS_CODING_LOCAL_OWNER=1` from `apps/app/src/bun/NativeBackendProcess.ts:383` and its expectation at `NativeBackendProcess.test.ts:165`. Tests that set it explicitly (`packages/backend/flowdispatch/real_host_test.go:144`, `flowhost/fresh_box_real_host_test.go:110`) keep it.
+- One `Flow.make` shape (minimal-code synthesis, 2026-10-03, v1 §6; smithers-38): the deprecated object-form `Flow.make` in `packages/smithers/flows/core/src/Flow.ts` (`@smthrs/core/Flow`, about 40 body-less callers, for example `flows/repository/registry.ts:3`) → move each caller to `@smthrs/flow` or a plain FlowBinding record and delete core's `make` in the same change (AGENTS.md "Flow layering").
 - `docs/api/openapi/` → no route change. `flows/README.md` → add the overridable and system sets; run `pnpm docs:sync` and `pnpm docs:check`.
 
 ## Tests

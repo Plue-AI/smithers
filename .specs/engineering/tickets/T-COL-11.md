@@ -18,11 +18,11 @@ In:
 
 Out:
 - The landed scope of T-COL-01, except the follow-up measurements stated here.
-- Production relay, mirror, daemon, document, capture-retention and kernel-fallback implementation; wire/API changes, presence, attribution and UI Views. T-COL-10 owns topology-neutral contracts; T-COL-03 and T-COL-08 implement the chosen topology.
+- Production relay, mirror, daemon, document, capture-retention and kernel-fallback implementation; wire/API changes, presence, attribution and UI Views. T-COL-10 owns the `base_digest` rule, T-COL-03r the wire contract and T-COL-08b the document frames (minimal-code synthesis, 2026-10-03); T-COL-03 and T-COL-08 implement the chosen topology.
 
 ## Changes
 
-- `docs/architecture/0003-live-code-co-editing.md`: fill ADR 0003's topology section with the decision, the rejected alternatives (host-side documents through `PUT /files/content`; per-file `msb exec`), and the T-COL-01 latency results with their artifact path. S1 depends on T-COL-10 supplying the §7.6 contracts and creating the ADR. W0 records its measurements and provisional topology result in check evidence without editing that later-stage file. smithers-8a accepts ADR 0003 after smithers-3f reviews the transport and disk-authority seam; smithers-38 reviews any TS contract impact. Checks: C-SPK-03, C-SPK-07.
+- `docs/architecture/0003-live-code-co-editing.md`: fill ADR 0003's topology section with the decision, the rejected alternatives (host-side documents through `PUT /files/content`; per-file `msb exec`), and the T-COL-01 latency results with their artifact path. S1 depends on T-COL-10 creating the ADR with the `base_digest` rule. W0 records its measurements and provisional topology result in check evidence without editing that later-stage file. smithers-8a accepts ADR 0003 after smithers-3f reviews the transport and disk-authority seam; smithers-38 reviews any TS contract impact. Checks: C-SPK-03, C-SPK-07.
 - Extend the disposable spike and retain its raw evidence in the existing check evidence directories.
 - `scripts/spikes/col-01/` (new): `run.sh` (one command), `relay-rtt/` (Go client), `echo/` (Rust guest server), `dochost/` (Rust Yrs host), `fanout/` (Go WebSocket fan-out), `keystrokes.spec.ts` (Playwright, two pages), `jj-snapshot/` (timing script run inside the VM). The prototype runs against `packages/backend/microsandbox/transport.go:67` (`DialWorkspacePort`) and `:126` (`startBridges`) without modifying them.
 - No change to `packages/`, `apps/` or `crates/`. Delete `scripts/spikes/col-01/` when ADR 0003 records the result. The evidence directory keeps the raw samples (AGENTS.md: benchmark methods and artifacts are retained).
@@ -42,7 +42,7 @@ Out:
 
 ## Risks and notes
 
-- First run (2026-10-02, QA): relay 4 KiB busy p95 197 ms (target 20 ms) and bridge 30 Hz keystroke p95 1,738 ms (target 1 s), on a contended M3 Max with no second device. That run doesn't decide anything: the spike re-runs on an idle reference host with browsers on a second device, and T-COL-10's decision rule turns that re-run into ADR 0003's topology.
+- First run (2026-10-02, QA): relay 4 KiB busy p95 197 ms (target 20 ms) and bridge 30 Hz keystroke p95 1,738 ms (target 1 s), on a contended M3 Max with no second device. That run doesn't decide anything: the spike re-runs on an idle reference host with browsers on a second device, and this ticket's decision rule turns that re-run into ADR 0003's topology.
 
 ## Ready checklist
 

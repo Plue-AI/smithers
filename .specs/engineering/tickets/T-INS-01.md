@@ -1,45 +1,38 @@
-# T-INS-01 Server bundle assembler from the `build-native.ts` stages at `5b77095672`
+# T-INS-01 Restore `build-native.ts` from `5b77095672` as the server bundle assembler
 
-Stage S1 · Size M · Depends on — · Unblocks T-ACC-07, T-INS-02, T-INS-05, T-INS-08, T-INS-09, T-REL-02, T-TRM-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
-Spec: spec.md §1.2, §16.1.0, §16.1.1 · Delta: delta.md §1 (Restore→rewrite row) · Product: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1, §12.5, M-10
+Stage S1 · Size M · Depends on — · Unblocks T-INS-02, T-INS-05, T-INS-08, T-INS-09, T-REL-02, T-TRM-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
+Spec: spec.md §1.2, §16.1.0, §16.1.1 · Product: mvp.md J1.1, §6.1, §11 stage 1 item 1, M-10
+Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §5). Restored code is not new code.
 
 ## Goal
 One command in a clean checkout produces a relocatable darwin-arm64 server bundle that the launcher starts with no hand-placed file.
 
 ## Scope
-In:
-- Restore the bundling stages of `apps/app/scripts/build-native.ts` at `5b77095672` (313 lines; `jj --ignore-working-copy file show -r 5b77095672 apps/app/scripts/build-native.ts`): `SMITHERS_BUILD_SHA` pin (`:20-21`), Node 26.4+ and pnpm pins (`:42-75`), `rustup toolchain install` (`:175`), `smithers-ffi` (`:181`), jj at rev `47589ada70…` (`:182-195`), Go backend through `scripts/build-backend.sh` (`:196-200`), coding host `flows/coding/build.mjs` (`:203`), model host `apps/model-host/build.mjs` (`:214`), linux-arm64 `smithers-jj-export` (`:217-224`), flow host manifest `distribution/flow-host-manifest.mjs` (`:225-236`), Node runtime and licenses (`:240-245`), git packaging and the packaged git/jj smoke (`:248-288`), FFI and `smithers-jj-export` copies (`:290-304`), `bundlePostgres` (`:305`), the web bundle `pnpm run build:web` (`:307`).
-- Add stages: the launcher compiled from `apps/app/src/bun/serve.ts` to `bin/smithers-server`; `msb` 0.6.16 with `lib/libkrunfw.5.dylib` from the pinned `@superradcompany/microsandbox-darwin-arm64` package, version checked against `packages/backend/microsandbox/cli.go:19`; the guest helper `packages/backend/microsandbox/guest/smithers-guest.py`.
-- The pinned guest base image as an OCI archive (spec §16.1.0), so the first machine needs no registry pull. The runtime loads the image from the archive instead of pulling it by digest at first wake (`packages/backend/microsandbox/runtime.go:57`).
-- A bundle manifest: every file with its sha256 and the stage that produced it.
-- The layout `apps/app/src/bun/NativeBackendProcess.ts:300-345` resolves (`bin/`, `libexec/git-core`, `share/git-core/templates`, `postgres/`, `bin/flow-hosts.json`, `bin/linux-arm64/`), under one prefix that T-INS-05 installs as a keg `libexec`.
-
-Out:
-- Electrobun `.app`, the CEF matrix (`build-native.ts:25-37, 308-313`), `electrobun.config.ts`, `NativeApp.ts`, `NativeRendererServer.ts`, `DeepLink.ts`: deleted at `39e43c0fe4` and stay deleted.
-- Formula, entitlement signing, launchd and the `smthrs host` lifecycle group (T-INS-03, T-INS-05, T-INS-07).
-- Launcher environment changes (T-INS-02).
-- `smithers-machined` in the guest root filesystem (T-COL-03 adds a stage to this assembler).
+In: the restored non-desktop stages, the launcher binary, `msb` with `libkrunfw`, the guest base image archive, a manifest, one build target and the release build steps.
+Out: Electrobun `.app`, the CEF matrix, `electrobun.config.ts`, `NativeApp.ts`, `NativeRendererServer.ts`, `DeepLink.ts` (deleted at `39e43c0fe4`, stay deleted); formula, signing, launchd and `smthrs host` (T-INS-03, T-INS-05, T-INS-07, T-INS-08); launcher environment (T-INS-02); `smithers-machined` (T-COL-03 adds its stage).
 
 ## Changes
-- `apps/app/scripts/build-server-bundle.ts` (new) ← the stages above. Writes `apps/app/.server-bundle/` (gitignored) and `manifest.json`.
-- `apps/app/scripts/build-server-bundle.test.ts` (new) ← `5b77095672:apps/app/scripts/build-native.test.ts` without the Electrobun and CEF cases.
-- Reused unchanged: `apps/app/scripts/bundle-postgres.ts` (already ad-hoc signs PostgreSQL, `:200`), `system-linkage.ts`, `validate-git-bundle.ts`, `distribution/flow-host-manifest.mjs`, `scripts/build-backend.sh`.
-- PostgreSQL 18 bundle and the linux-arm64 helper become declared build steps (pinned download with sha256; the release job's helper artifact), replacing the operator-supplied `SMITHERS_POSTGRES_BUNDLE_DIR` and `SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY` of `build-native.ts:141-147, 217-220`.
-- `apps/app/PACKAGE.ts:337-338` → add a `serverBundle` ToolBuild target, so `smthrs build //apps/app:serverBundle` is the one command. Add the assembler to the `backend-child-env` security entry's `paths` (`PACKAGE.ts:257-268`; paths there are relative to `apps/app`).
-- `.github/workflows/release.yml` → a darwin-arm64 job builds `serverBundle` and uploads the archive; fix the stale comment at `:520`.
-- `distribution/README.md` "Native application" section and `apps/app/scripts/README.md` → describe the bundle; delete `build:native` text (stale per research/install-runtime.md).
+- Restore `5b77095672:apps/app/scripts/build-native.ts` (313 lines) at its old path, minus `:25-37` and `:308-313` (Electrobun and CEF). Kept stages: `SMITHERS_BUILD_SHA` pin, Node and pnpm pins, rustup, `smithers-ffi`, jj at the pinned rev, `scripts/build-backend.sh`, coding and model hosts, linux-arm64 `smithers-jj-export`, `distribution/flow-host-manifest.mjs`, Node runtime and licenses, git packaging and the packaged git/jj smoke, FFI copies, `bundlePostgres`, `pnpm run build:web`.
+- Restore `5b77095672:apps/app/scripts/build-native.test.ts` (79 lines) without the Electrobun and CEF cases.
+- Restore the `native-mode-matrix` setup and build steps of `39e43c0fe4^:.github/workflows/release.yml:78-117` (about 35 lines) as the darwin-arm64 bundle job.
+- Reuse unchanged: `apps/app/scripts/bundle-postgres.ts`, `system-linkage.ts`, `validate-git-bundle.ts`, `scripts/build-backend.sh`. PostgreSQL 18 comes from `brew --prefix postgresql@18`, as the old release job did (`release.yml:117`).
+- Reuse: the guest helper ships embedded in the backend (`packages/backend/microsandbox/guest.go:18`, `//go:embed`); no separate stage.
+- Reshape `apps/app/PACKAGE.ts`: one `serverBundle` target, so `smthrs build //apps/app:serverBundle` is the one command.
+- New: the launcher stage (`apps/app/src/bun/serve.ts` compiled to `bin/smithers-server`). Rejected reuse: the old stages built only the Electrobun `.app` launcher.
+- New: `msb` 0.6.16 with `lib/libkrunfw.5.dylib` from the pinned `@superradcompany/microsandbox-darwin-arm64` package, checked against `packages/backend/microsandbox/cli.go:19`, and the pinned guest base image as an OCI archive. Rejected reuse: no stage at `5b77095672` packaged microVM tools; the runtime otherwise pulls by digest at first wake (`runtime.go:57`).
+- New: `manifest.json` with each file's sha256 and producing stage. Rejected reuse: `distribution/flow-host-manifest.mjs` covers flow hosts only.
+- Docs: `apps/app/scripts/README.md` and `distribution/README.md` describe the bundle; delete stale `build:native` text.
 
 ## Tests
-- unit `apps/app/scripts/build-server-bundle.test.ts`: refuses a missing or short `SMITHERS_BUILD_SHA`, a PostgreSQL major other than 18, Node outside 26.4+, an `msb` other than 0.6.16, and a binary linking a non-system dylib (`system-linkage.ts`).
-- unit: a bundle file with no manifest entry, or a hash mismatch, fails the manifest check.
-- integration `apps/app/scripts/server-bundle.integration.test.ts` (new): fresh clone, one build command, launcher started from the output with an empty state dir; `/readyz` within 30 s; every spawned executable and loaded dylib lives under the bundle prefix or the OS; `smithers-backend microvm doctor` is ready with the bundled `msb`; the first machine boots with the network to the image registry blocked.
+- Unit (restored test): refuses a missing or short `SMITHERS_BUILD_SHA`, PostgreSQL other than 18, Node outside 26.4+, `msb` other than 0.6.16, and a binary linking a non-system dylib.
+- Unit: a file with no manifest entry, or a hash mismatch, fails the manifest check.
+- Integration `apps/app/scripts/server-bundle.integration.test.ts` (new): fresh clone, one build command, launcher started with an empty state dir; `/readyz` within 30 s; every spawned executable and loaded dylib is under the bundle prefix or the OS; `microvm doctor` is ready with the bundled `msb`; the first machine boots with the image registry blocked.
 
 ## Acceptance
-- [C-INS-05](../checks/C-INS-05.md): a clean checkout's build output starts with no hand-assembled file and no tool from nvm or Homebrew.
-- [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
+- [C-INS-05](../checks/C-INS-05.md): a clean checkout's build output starts with no hand-assembled file and no tool from nvm or Homebrew at run time.
+- [C-J1-04](../checks/C-J1-04.md): S1 part.
 
 ## Risks and notes
-- The jj stage compiles from a git revision with cargo. Observation that confirms the risk: the macOS build exceeds 30 min. Cache the jj binary by revision.
-- `msb` may not accept a local OCI archive in place of a registry reference. Observation that confirms it: setup's Machine ready step makes a registry request with the archive present. Fallback: load the archive into `msb`'s image store at first start.
-- `smthrs host` is the install lifecycle group (`start`, `stop`, `status`, `upgrade`, `backup`, `restore`; T-INS-05, T-INS-07). The launchd daemon runs this bundle's `bin/smithers-server`, so one launcher implementation exists.
-- Open (Will): AGENTS.md puts CI/CD on Smithers Cloud, which has no macOS host, and the bundle needs a macOS arm64 builder. Where release builds run is undecided.
+- The jj stage compiles with cargo; cache the binary by revision if the build exceeds 30 min.
+- `msb` may refuse a local OCI archive. Fallback: load it into `msb`'s image store at first start.
+- Open (Will): release builds need a macOS arm64 builder; where they run is undecided.

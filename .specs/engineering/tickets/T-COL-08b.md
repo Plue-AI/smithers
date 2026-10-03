@@ -1,15 +1,20 @@
 # T-COL-08b Backend document relay and optional host mirror
 
-Stage S3 · Size M · Depends on T-COL-10, T-COL-02, T-COL-03f · Unblocks T-COL-08, T-REL-02 · Issue: [#3630](https://github.com/smithersai/smithers/issues/3630)
+Stage S3 · Size M · Depends on T-COL-03r, T-COL-02, T-COL-03f, T-COL-11 · Unblocks T-COL-08, T-REL-02, T-APP-14a · Issue: [#3630](https://github.com/smithersai/smithers/issues/3630)
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 
 ## Goal
 
-Implement docrelay.go against a Go fake daemon; keep the browser protocol independent of topology.
+Define the document wire payloads and implement docrelay.go against a Go fake daemon; keep the browser protocol independent of topology.
+
+Scope changed by the minimal-code synthesis, 2026-10-03 (v1 §3): the reserved `doc:*` topics, document stream frames and the TS document contract move here from T-COL-10, because this is their first consumer.
 
 ## Scope
 
 In:
+- Reserved live-channel topics `doc:code:<branch>:<path>` and `doc:wiki:<page>` and binary frame kinds 1–2 on T-COL-02's channel.
+- ADR 0004 S3 section: document sync, saved state vectors and epochs as payloads of the document kinds T-COL-03r reserved, without changing reserved bytes. Golden document frames join `packages/backend/internal/compose/testdata/cocontracts/`.
+- `packages/rpc/src/LiveDoc.ts` (smithers-38): per-module TS contract; the `409 stale` refusal and `unsupported` reply are tagged schemas. `packages/rpc/src/testing/LiveDocRelay.ts`: fake relay that replays the golden browser frames for T-APP-14a. Pin `yjs` 13.6.32 in `packages/rpc/package.json` and record it in `MANIFEST.json`.
 - Subscribe and authorize topics; resolve the authenticated actor, envelope frames on the reserved daemon document stream, reject cross-branch routing, and revoke subscriptions within 5 s.
 - Enforce the 2 MiB budget and restart sync step 1 on overflow. Relay saved and epoch unchanged.
 - If ADR 0003 selects a mirror, build codedoc.go here: sync as a §7.4.6 client and rebuild from the daemon after host restart before serving browsers. Reject foreign actor client ids on the browser-facing sync side.
@@ -18,12 +23,13 @@ Out:
 
 ## Changes
 
-- Encode and decode only through `packages/backend/internal/machined/wire` (T-COL-10); no local frame types, so the golden frames in `packages/backend/internal/compose/cocontracts_test.go` keep guarding this codec (smithers-3f, 2026-10-02).
+- Encode and decode only through `packages/backend/internal/machined/wire` (T-COL-03r); no local frame types, so the golden frames in `packages/backend/internal/compose/cocontracts_test.go` keep guarding this codec (smithers-3f, 2026-10-02).
 - `packages/backend/internal/live/docrelay.go` and `docrelay_integration_test.go`; conditional `codedoc.go`.
-- Extend T-COL-03f with scriptable document stream behavior using the T-COL-10 fixtures. No real machine registry dependency; inject the branch connection interface.
+- Extend T-COL-03f with scriptable document stream behavior using the T-COL-03r fixtures plus this ticket's document frames. No real machine registry dependency; inject the branch connection interface.
 
 ## Tests
 
+- Contract: Go, Rust and TS decode the same document frames; the version test fails when the `yrs` or `yjs` pin differs from `MANIFEST.json`.
 - Contract: Go fake daemon replays golden frames for sync, actors, awareness, saved, epochs, gone, refusals and backpressure; real relay must produce and consume the same bytes.
 - Integration with real PostgreSQL and live middleware: unauthorized subscription refused, revocation ≤ 5 s, actor spoof refused, two branches isolated, overflow restarts sync.
 - Mirror topology: kill and rebuild mirror against fake daemon; no premature saved or snapshot before rebuild.
@@ -34,5 +40,5 @@ Out:
 
 ## Risks and notes
 
-- T-COL-10 fixes topology before implementation. A Go fake proves routing and protocol only; it cannot prove disk durability or p95.
+- T-COL-11 fixes topology before implementation. A Go fake proves routing and protocol only; it cannot prove disk durability or p95.
 

@@ -1,6 +1,6 @@
 # T-COL-03 Host registry, per-boot credentials, daemon planting and head-reporter replacement
 
-Stage S2 · Size M · Depends on T-MCH-04, T-COL-03a, T-COL-03f, T-COL-10 · Unblocks T-COL-04, T-COL-07, T-MCH-07, T-MCH-08, T-MCH-12, T-REL-02, T-STK-11, T-TRM-01, T-TRM-03, T-TRM-05, T-TRM-07 · Issue: [#3560](https://github.com/smithersai/smithers/issues/3560)
+Stage S2 · Size M · Depends on T-MCH-04, T-COL-03a, T-COL-03f, T-COL-03r · Unblocks T-COL-04, T-COL-10, T-MCH-07, T-MCH-08, T-MCH-12, T-REL-02, T-STK-08, T-TRM-01, T-TRM-03, T-TRM-05, T-TRM-07 · Issue: [#3560](https://github.com/smithersai/smithers/issues/3560)
 Spec: spec.md §5.3 (`machine`), §7.6 (rows 1, 5), §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
 
 ## Goal

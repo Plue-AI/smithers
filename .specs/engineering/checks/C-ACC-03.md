@@ -1,6 +1,6 @@
 # C-ACC-03 Losing GitHub write suspends within 1 h; removal revokes everything within 5 s
 
-Proves: mvp.md §3 "Member", §6.15 "Members and maintainers", M-05 · spec.md §5.1.3, §5.6, §12.2 (members' permission stream), §15.1.4 · Layer: integration · Stage: S1 · Tickets: T-ACC-02, T-ACC-06
+Proves: mvp.md §3 "Member", §6.15 "Members and maintainers", M-05 · spec.md §5.1.3, §5.6, §12.2 (members' permission stream), §15.1.4 · Layer: integration · Stage: S1 · Tickets: T-ACC-02
 Automation: `packages/backend/internal/compose/member_revocation_integration_test.go` (new) · Runs in: CI
 
 ## Setup
@@ -15,7 +15,7 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
   - an SSE ticket stream;
   - a workspace SSH session through `packages/backend/internal/ssh` (harness of `ssh/workspace_session_test.go`); SSH gateway sessions on `:2222` join this check when T-TRM-03 lands (S2);
   - an `/api/live` socket.
-- A owns T3, which has 5 `todo_events` rows.
+- A owns T3, which has 5 `item_events` rows.
 
 T-APP-23 reruns revocation with real queued/running host turns; T-TRM-07 reruns it through kill_sessions and waits for populated 0; T-MCH-15 proves store deletion and awake-machine file removal, plus deletion before first session after wake. These downstream cases stay pending until consumers land; socket closure alone does not prove them. Preserve all approved member-bound run-sponsor revocation cases.
 
@@ -31,7 +31,7 @@ T-APP-23 reruns revocation with real queued/running host turns; T-TRM-07 reruns 
 4. Repeat step 3, but return 403 on a call made with A's user token instead of advancing the clock.
 5. Switch A back to `write` and advance one tick.
 6. O takes over T3. Then E (another Member) attempts a takeover.
-7. Exercise permission lookups returning installation 401/403/404, expired installation token and an App that lost repository access. Assert `github_sync` health `refused` and byte-for-byte unchanged member access fields. Disambiguate permission 404 with `GET /users/{login}` fixtures for an existing user, unknown user and unresolved installation failure. Confirmed member `none`/`read` suspends; an installation failure never does.
+7. Exercise permission lookups returning installation 401/403/404, expired installation token and an App that lost repository access. Assert GitHub sync health `refused` (§12.2) and byte-for-byte unchanged member access fields. Disambiguate permission 404 with `GET /users/{login}` fixtures for an existing user, unknown user and unresolved installation failure. Confirmed member `none`/`read` suspends; an installation failure never does.
 8. Trigger user-token 401/403 through `RefreshUserGitHubToken` callers in `github_user_repos.go`, `github_import.go` and `auth.go`, and through refreshing/non-refreshing proxy paths. Assert one shared reactive recheck without waiting for the hour.
 
 9. Through the real S1 microVM terminal path, start a member command with a lingering guest child, remove the member through DELETE /api/members/{id}, and prove no matching session process remains within 5 s of revocation commit. Record commit-to-close and response-to-close timings. Use POST /api/todos/{n}/takeover, including a delegated attempt returning 403 never without ownership change. Expected responses, events and the 5 s limit are committed literals; no runtime spec or implementation oracle.
@@ -61,6 +61,6 @@ Written to `.artifacts/checks/C-ACC-03/<UTC timestamp>/`:
 - `close-times.csv`: run, stream kind and seconds;
 - `requests.jsonl`;
 - the revocation bus metrics snapshot (`revocation/bus_metrics.go`);
-- the `members` rows before and after;
+- the `collaborators` rows before and after;
 - `go test -json` output;
 - the commit SHA.

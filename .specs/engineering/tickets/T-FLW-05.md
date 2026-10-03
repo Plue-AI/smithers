@@ -1,6 +1,6 @@
 # T-FLW-05 `/flow.edit` with a seed patch
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11, T-FLW-04, T-ACC-05, T-APP-23, T-APP-05, T-APP-04, T-CAT-02 · Unblocks T-FLW-06, T-REL-02 · Issue: [#3513](https://github.com/smithersai/smithers/issues/3513)
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11, T-FLW-04, T-APP-04 (confirmations), T-APP-16, T-APP-05 · Unblocks T-FLW-06, T-REL-02 · Issue: [#3513](https://github.com/smithersai/smithers/issues/3513)
 Spec: spec.md §3 (`todo_revisions.seed_patch_blob`), §6.1.2, §6.1.4, §6.3 `POST /api/flows edit{name, request}`, §10.2, §10.4.1a, §11.1, §11.5, §11.5b, §15.1.5 · Delta: delta.md §8 (`/flow.edit` row) · Product: mvp.md J5.1–J5.3, §6.12 Change the factory, Appendix A `/flow.edit <name>`, Appendix B.2 (`flow.edit`), M-04, M-11, M-30
 
 ## Goal
@@ -51,7 +51,7 @@ Out:
 - Risk: the app agent's patch edits a step's internals that the composition only imports. Observed as a refused diff outside `flows/<name>/**`. The prompt to the app agent includes the composition and the exported step names, so it adds or replaces a step instead.
 
 ## Ready checklist
-1. Dependencies: T-FLW-03 supplies Active source; T-FLW-04 keeps the edit on the old flow; T-FLW-11 applies seeds in the TODO composition; T-STK-02 supplies placement; T-ACC-05/T-APP-04 supply confirmation and its card; T-APP-23 supplies the host app-agent turn; T-APP-05 supplies the proposal/Source card seam; T-CAT-01/T-CAT-02 supply catalog and CLI doors. The launcher is inherited through T-FLW-11.
+1. Dependencies: T-FLW-03 supplies Active source; T-FLW-04 keeps the edit on the old flow; T-FLW-11 applies seeds in the TODO composition; T-STK-02 supplies placement; T-ACC-05/T-APP-04 supply confirmation and its card; T-APP-16 supplies the host app-agent turn; T-APP-05 supplies the proposal/Source card seam; T-CAT-01/T-CAT-02 supply catalog and CLI doors. The launcher is inherited through T-FLW-11.
 2. Exclusions: Out excludes activation, pinning implementation, Flow views/doors, owner models and learning; also excludes direct writes to main, host-side patch execution and edits outside the selected flow directory.
 3. Boundary tests: production catalog/API edit → person confirmation → Make TODO API → machine seed application and evidence, with literal patch and refusal fixtures (C-J5-01, C-ACC-02). No runtime spec or validator-derived oracle.
 4. Decisions: smithers-3f accepts base revision, proposal storage, idempotency and confinement; smithers-38 accepts composition imports and seed application; smithers-b8 signs off command/API payloads and proposal handoff; smithers-06 accepts the existing FlowView action seam. Will through smithers-8a decides broader patch scope.

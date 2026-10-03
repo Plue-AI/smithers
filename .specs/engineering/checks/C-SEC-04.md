@@ -1,6 +1,6 @@
 # C-SEC-04 Only the setup token claims the install, once; the owner can do only setup until GitHub confirms access
 
-Proves: mvp.md J1.1, J1.2 · spec.md §5.1.0, §5.1.2, §16.2, §16.3.3 · Layer: integration · Stage: S1 · Tickets: T-ACC-01, T-INS-06 · T-ACC-07 owns the setup-URL stdout handoff and pre-claim restart rotation.
+Proves: mvp.md J1.1, J1.2 · spec.md §5.1.0, §5.1.2, §16.2, §16.3.3 · Layer: integration · Stage: S1 · Tickets: T-ACC-01, T-INS-06 · T-INS-08 owns the setup-URL stdout handoff and pre-claim restart rotation.
 Automation: `packages/backend/internal/services/setup_claim_integration_test.go` (new), including an external-process harness for the real compiled backend in native install mode; packaged relay in `apps/app/scripts/server-bundle.integration.test.ts` with T-INS-02 · Runs in: CI (backend), macOS arm64/reference host (packaged relay)
 
 ## Setup

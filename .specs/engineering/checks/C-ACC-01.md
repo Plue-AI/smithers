@@ -1,6 +1,6 @@
 # C-ACC-01 Every permission-matrix cell is enforced server-side for every credential kind
 
-Proves: mvp.md §6.15 "Roles", M-05, §2 rule 6, Appendix B.5 · spec.md §5.2, §5.2.1, §5.3, §5.4, §6.2.3, §15.1.4, §17.2 · Layer: integration · Stage: S1 · Tickets: T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-TRM-02, T-CUT-03, T-STK-15
+Proves: mvp.md §6.15 "Roles", M-05, §2 rule 6, Appendix B.5 · spec.md §5.2, §5.2.1, §5.3, §5.4, §6.2.3, §15.1.4, §17.2 · Layer: integration · Stage: S1 · Tickets: T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06
 Automation: `packages/backend/internal/compose/access_matrix_integration_test.go` (new) · Runs in: CI
 
 ## Setup
@@ -49,7 +49,7 @@ Automation: `packages/backend/internal/compose/access_matrix_integration_test.go
 - Run allows own conflict answer, own-branch join, source co-edit, fork and flow execution only as explicitly granted. Own personal terminal, SSH, add-to-stack, rebase/rebase-now, sleep/wake and other-branch commands return 403 permission/permission. Child credentials stay newly scoped without person privileges. Bound TODO/files/diffs/run-trace/coding-readable wiki reads allow only execution fields; no global list, agents.read, roster, secret names/values, private entries, confirmations or view state.
 - Machine has no person-command write. It admits exact-bound execution reads and separately declared head/events/children/provider-pool/candidate/propose system grants. Missing/cross binding, wrong ancestry or run/generation mismatch returns 403 permission/permission before effects. Omitted credential_policy kinds deny; unknown and legacy sync/platform kinds have no implicit install authority.
 - `/workflows/{name}/dispatch` authorizes the body command id and subject. A permitted route name never admits a forbidden body command. Unknown or mismatched bindings refuse before dispatch; all 12 non-router person gates enforce the same catalog policy.
-- No refused cell causes a side effect. The fake GitHub has zero merge calls from refused cells, and no row changed in `members`, `secrets` or `todos`.
+- No refused cell causes a side effect. The fake GitHub has zero merge calls from refused cells, and no row changed in `collaborators`, `secrets` or `mythical_items`.
 - No secrets route returns a value field.
 - Every served `/api` route has exactly one declared action, so the unmapped list is empty.
 - Routes whose ticket has not landed are reported as "pending route" with that ticket ID. They are not counted as passes. Final acceptance requires zero pending rows.

@@ -1,6 +1,6 @@
 # T-ACC-04 Delegated credentials with `via`; `smthrs login --agent`; attribution
 
-Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-ACC-05, T-ACC-06, T-APP-09, T-APP-23, T-CAT-02, T-GH-04, T-REL-02, T-STK-04, T-STK-07, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
+Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-APP-04, T-ACC-02, T-APP-09, T-APP-16, T-CAT-01, T-GH-04, T-REL-02, T-STK-04, T-STK-01, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Add `delegated` + `via`; Add actor `via` on audit) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
 
 ## Goal
@@ -19,14 +19,14 @@ In:
 - The `Smithers-Via` header: the CLI sets it from the environment, and the host records `via` with the credential first (§6.4).
 - One actor resolver producing `{person, via?, session?}` / `{agent: "coding", run}` (§2) for audit and for every event writer that adopts it.
 - A host-side minting API for the other doors:
-  - `delegated(via=smithers)` per app-agent turn for the prompt's author (§15.1.1, §15.1.4). The host turn runner holds it in memory for the turn and revokes it at the turn's end; it never reaches a browser. T-APP-23 moves turns and command dispatch onto the host and uses it.
+  - `delegated(via=smithers)` per app-agent turn for the prompt's author (§15.1.1, §15.1.4). The host turn runner holds it in memory for the turn and revokes it at the turn's end; it never reaches a browser. T-APP-16 moves turns and command dispatch onto the host and uses it.
   - `delegated(via=terminal)` for T-TRM-02.
 - The browser holds only its `session` cookie. Every request from a browser is a person's request; no bearer rides beside the cookie, and the server never has to choose between two credentials on one request.
 - SG-02 (security, tech lead 2026-10-02 18:01): issue a person-bound session credential with stored via `terminal` or `cli` only to a person typing with no agent session; issue a delegated credential, with issuer-bound stored via, to every agent session. Never take kind or authority from `Smithers-Via`, environment flags or client actor assertions, and never place the person direct-append credential in the S1 shared guest token file. Checks: C-SEC-05, C-J6-01.
 
 Out:
 - Confirmations and per-command `agent` dispatch (§15.1.5, T-ACC-05).
-- The host turn runner and the live-channel UI-only instructions (T-APP-23); context preflight (T-APP-17).
+- The host turn runner and the live-channel UI-only instructions (T-APP-16); context preflight (T-APP-17).
 - Terminal auto sign-in files (T-TRM-02).
 - Rendering "via" badges (T-APP-09).
 - Presence and activity actors (S2: T-COL-04, T-COL-06).
@@ -59,7 +59,7 @@ Out:
 ## Tests
 - Through production OAuth/token, command and Git HTTP routes with real PostgreSQL, migrate identical pre-existing install and Plue PAT fixtures. Install PATs lose approval authority; Plue fixtures retain their prior outcomes. Send expired, revoked, inactive-member and wrong-branch credentials and assert typed refusals before writes. Exercise turn completion/cancellation, terminal close and suspension/removal, measuring revocation and testing replacement identity isolation. Check: C-ACC-01.
 
-- Boundary: `compose/delegated_credential_integration_test.go` drives the actual composed OAuth start/callback, token exchange and `POST /api/user/tokens`, then sends the issued bearer through production command dispatch and reads persisted audit rows. CLI cases invoke the registered `smthrs login --agent` command through `makeCli`, not only an option parser. Use committed literal credential kinds, via values, response envelopes and audit fields; no runtime spec, catalog or implementation-derived oracle. T-APP-23 must prove turn-end revocation through its real runner; this ticket proves the mint/revoke API and that no HTTP route exposes a turn bearer.
+- Boundary: `compose/delegated_credential_integration_test.go` drives the actual composed OAuth start/callback, token exchange and `POST /api/user/tokens`, then sends the issued bearer through production command dispatch and reads persisted audit rows. CLI cases invoke the registered `smthrs login --agent` command through `makeCli`, not only an option parser. Use committed literal credential kinds, via values, response envelopes and audit fields; no runtime spec, catalog or implementation-derived oracle. T-APP-16 must prove turn-end revocation through its real runner; this ticket proves the mint/revoke API and that no HTTP route exposes a turn bearer.
 - Forge attribution headers without changing class/profile/scope. Equal class/profile/role/subject gives equal decisions; app-only terminal and external-only source co-edit differ. Replacement/session/delegated identities with equal member/key cannot reuse results. Inactive holders=401 permission/unauthenticated. Checks: C-ACC-01, C-ACC-02, C-SEC-05.
 - Integration, real PostgreSQL: `compose/delegated_credential_integration_test.go` (new).
   - The CLI OAuth flow with `agent=claude-code` stores `kind=delegated, via=claude-code`.
@@ -85,7 +85,7 @@ Out:
 ## Risks and notes
 - Decisions before start: smithers-3f approves credential backfill, active-member checks, TTL/revoke semantics and install/Plue isolation; smithers-b8 approves OAuth/header/OpenAPI/CLI contracts; smithers-38 approves the actor and client-library seams. smithers-8a accepts shared contracts. No new credential privileges are an implementation choice.
 - Security: mint only for an active member; bind terminal credentials to member and branch with the S1 scope restriction (§5.3.2), and keep turn bearers host-only. This ticket launches no repository code. Any terminal or run using a bearer still requires §1.3/M-29 machine confinement. smithers-3f reviews scopes, revocation and bearer/cookie precedence (C-ACC-01, C-ACC-02, C-SEC-05).
-- Today an agent-driven `/merge` runs in the browser with the session cookie (`apps/app/src/mainview/runtime/ApplicationClient.test.ts:45` `credentials: "include"`) and acts as the person. T-APP-23 must move dispatch onto the host with `MintForTurn`; the full app-agent C-ACC-02 row remains pending until that real runner lands.
+- Today an agent-driven `/merge` runs in the browser with the session cookie (`apps/app/src/mainview/runtime/ApplicationClient.test.ts:45` `credentials: "include"`) and acts as the person. T-APP-16 must move dispatch onto the host with `MintForTurn`; the full app-agent C-ACC-02 row remains pending until that real runner lands.
 - Keep install-mode delegated classification separate from Plue’s existing PAT authority. smithers-3f approves the shared-schema migration and smithers-8a accepts any cross-composition seam; Will must approve any product-policy change before Plue behavior changes. Existing Plue regression fixtures must retain their outcomes (C-ACC-01).
 - C-ACC-01's delegated column passes only once this ticket mints delegated tokens.
 - `smthrs auth login --admin` tokens (`packages/smithers/src/internal/backend/Auth.ts:120-125`) serve Plue operators. They're out of scope; `/api/admin/*` isn't mounted on the install (T-CUT-02).
@@ -93,7 +93,7 @@ Out:
 ## Ready checklist
 1. Dependencies: T-ACC-03 supplies fail-closed authorization, T-ACC-02 active-member status and revocation seam. Confirmations, turn runner and terminal token installation remain downstream. Landing condition for the T-INS-04 edge cut: ACC-04 lands stored-kind migration, attribution and host mint/revoke APIs against ACC-03/02. Install OAuth start/callback, exchange and public minting remain unmounted or return **503 infra/credential_issuer_unavailable** before cookies, token mint or disclosure unless the INS-04 effective-origin provider is installed. This code is a proposed new refusal contract, requiring the named API owner's review. Never fall back to the old global-origin middleware. INS-04 integration then wires the provider and runs the actual configured-origin OAuth/login matrix before enabling those routes.; its integration test with T-INS-04 runs after T-INS-04 lands and gates C-ACC-01 and C-J6-02 (S1 configured-origin credential exit).
 2. Exclusions: confirmation storage/dispatch, host turns, context preflight, terminal files, actor views, presence and Plue admin tokens are explicit; Plue PAT policy changes require a separate decision.
-3. Tests: real OAuth/token routes and production dispatcher, registered login command and audit persistence use fixed outcomes. Turn-runner lifetime cases remain pending for T-APP-23; no runtime spec or code oracle.
+3. Tests: real OAuth/token routes and production dispatcher, registered login command and audit persistence use fixed outcomes. Turn-runner lifetime cases remain pending for T-APP-16; no runtime spec or code oracle.
 4. Decisions: smithers-3f credential/schema/TTL/scopes, smithers-b8 public CLI/API, smithers-38 library seams, smithers-8a cross-composition contracts; Will alone decides product-policy changes.
 5. Owner pre-review before start: smithers-3f: Does backfill preserve Plue and restrict install tokens? Are active-member, branch scope, TTL and revocation enforced? smithers-b8: Do login, header and API contracts keep bearers out of browsers? smithers-38: Do actor/client consumers use one credential-first attribution contract? smithers-3f: answered, BLOCKING edits applied (tech lead adopts). smithers-b8: answered 18:23, ok.
 6. Security: no repository execution added; terminal/run consumers require §1.3/M-29 machines. smithers-3f reviews host-only turn minting, narrowed S1 terminal scopes and credential precedence under C-ACC-01/C-ACC-02/C-SEC-05.

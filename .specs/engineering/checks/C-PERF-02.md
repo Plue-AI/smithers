@@ -10,7 +10,7 @@ Automation: `scripts/perf/projection-delta.mjs` (new) · Runs in: reference host
 
 ## Steps
 1. For i in 1..200: t0 = B's `performance.now()` just before sending a card-visible mutation (`POST /api/todos/{n}` move up, then move down, alternating, each with a fresh `Idempotency-Key`); t1 = arrival at S1 of the delta frame whose cursor follows the last one and whose payload names that move; t2 = the same at S2.
-2. Record each mutation's `projection_events` row (`topic`, `seq`, `at`) from the database afterwards.
+2. Record each mutation's durable-stream cursor (`topic`, `seq`, `at`) afterwards.
 
 ## Pass when
 - n = 200 (at least 100 required); nearest-rank p95(t1 − t0) < 1 s and p95(t2 − t0) < 1 s.

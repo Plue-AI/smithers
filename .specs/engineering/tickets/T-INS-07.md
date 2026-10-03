@@ -20,11 +20,11 @@ Out:
 - The Docker scripts `distribution/{backup,restore,upgrade}.sh` (deleted with the Docker image by T-INS-05).
 
 ## Changes
-- `packages/smithers/src/commands/Host.ts` (T-INS-08) → `upgrade`, `backup`, `restore` in the `host` group.
+- The `host` group in `packages/smithers/src/internal/backend/Commands.ts` (T-INS-08) → `upgrade`, `backup`, `restore`.
 - `packages/backend/internal/services/install_quiesce.go` (new): the §16.5.1 freeze, lease, drain, machine capture and stop (T-MCH-07's final capture) and reopen, behind one gate that every mutating route, the admission scheduler (T-MCH-06), the host flow runtime, GitHub sync streams and periodic jobs consult. `POST` and `DELETE /api/install/quiesce` (owner), with rows in `docs/api/openapi/install.yaml`.
 - `packages/backend/native/native.go:23-41` → write or verify `$STATE/version.env` before `app.Migrate`; refuse on `.upgrade-incomplete`.
 - `apps/backend/main.go:43` `migrate` subcommand → `migrate status` used by the health check.
-- Port the `distribution/lib.sh` checks to Go or TypeScript; do not call the shell scripts (they need `flock`, which macOS lacks, and a Docker data root). Then delete `distribution/lib.sh`, `distribution/version.env` and their Go tests in this change.
+- Reuse the guards in `distribution/upgrade.sh`, `backup.sh`, `restore.sh` and `lib.sh:72-99` (manifest check, PostgreSQL-major refusal, schema-downgrade refusal, `.upgrade-incomplete` marker, `version.env`): port each check to Go, one for one, and carry the cases of `distribution/upgrade_recovery_test.go` over as the port's regression tests (minimal-code synthesis, 2026-10-03, v2 "Reuse named in tickets"). Do not re-derive the guards, and do not call the shell scripts (they need `flock`, which macOS lacks, and a Docker data root). Then delete `distribution/lib.sh`, `distribution/version.env` and their Go tests in this change.
 - `packages/backend/docs/upgrade-recovery.md` → a Mac install section; CLI reference; docs gates (`pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/smithers:docs`).
 
 ## Tests

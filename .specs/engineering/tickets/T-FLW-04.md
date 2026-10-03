@@ -1,7 +1,7 @@
 # T-FLW-04 Coding host loads the pinned closure by digest
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11, T-COL-02 · Unblocks T-APP-05, T-FLW-05, T-FLW-13, T-MNT-02, T-MNT-04, T-REL-02, T-STK-05, T-STK-10 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
-Spec: spec.md §3 (`todos.flow_name`, `todos.flow_digest`), §4.1, §10.4.1, §11.3.0, §11.4 · Delta: delta.md §8 (pinning row), §11 (#3377 row) · Product: mvp.md J5.4, §6.12 Pinned versions
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11, T-COL-02 · Unblocks T-APP-05, T-FLW-05, T-FLW-13, T-MNT-02, T-MNT-04, T-REL-02, T-STK-01, T-STK-05 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
+Spec: spec.md §3 (`mythical_items.flow_digest`), §4.1, §10.4.1, §11.3.0, §11.4 · Delta: delta.md §8 (pinning row), §11 (#3377 row) · Product: mvp.md J5.4, §6.12 Pinned versions
 
 ## Goal
 A TODO run executes exactly the Active flow version recorded when the TODO entered Starting, keeps it across Resume and ordinary Retry, pins the Active version only for an explicit Retry with the current flow, and never runs the `flows/` in its own branch's working copy.
@@ -23,11 +23,12 @@ Out:
 - Host execution, dependency resolution from the working copy and silent version upgrades on ordinary Retry or Resume.
 
 ## Changes
-- Stack engine admission (`packages/backend/internal/services/mythical_items.go`, the `todo` launch T-FLW-11 replaces at `:1681`) → read `flow_activations` for `todo` and write `todos.flow_name`, `todos.flow_digest` and the attempt's digest in the transaction that moves the TODO to `starting`. With no Active version, refuse with class `infra` and never fall back to the working copy.
+- Reuse `packages/smithers/agent/registry/src/ExecutionSnapshot.ts:61` (`Manifest`: `executionDigest`, `entry`, `modules`, `lockfileDigest`) as the pinned-closure record. No second manifest, digest algorithm or pinning library (minimal-code synthesis, 2026-10-03, v2 reuse).
+- Stack engine admission (`packages/backend/internal/services/mythical_items.go`, the `todo` launch T-FLW-11 replaces at `:1681`) → read the Active `flow_versions` row for `todo` (T-FLW-03) and write `mythical_items.flow_name`, `mythical_items.flow_digest` (T-STK-01) and the attempt's digest in the transaction that moves the TODO to `starting`. With no Active version, refuse with class `infra` and never fall back to the working copy.
 - `packages/backend/flowdispatch/types.go:63-85` (`RuntimeCheckpoint`) → `ExecutionDigest` is set from the pinned digest at launch, not from what the host reports later.
 - Coding host start in the machine (`flows/coding/host.ts`, `flows/repository/registry.ts:377-388` `loadBody`) → for a TODO run, build the registry from the restored closure only. A digest mismatch fails with the existing `execution_changed` code.
 - Closure fetch → `GET` of the T-FLW-03 blob route with the run credential; verify each blob's SHA-256 address before import, then restore through `packages/smithers/agent/registry/src/ExecutionSnapshot.ts:152-160`.
-- Retry (T-STK-05) → the new `todo_attempts` row copies the previous attempt's pinned digest. Only explicit Retry with the current flow selects the Active digest for the new attempt. Resume reuses the run's checkpoint digest; earlier attempts are unchanged.
+- Retry (T-STK-05) → the new attempt copies the previous attempt's pinned digest. Only explicit Retry with the current flow selects the Active digest for the new attempt. Resume reuses the run's checkpoint digest; earlier attempts are unchanged.
 - Run projection (`run:<id>`) and TODO card → expose `flow_name`, `digest` and the version's source commit (§11.4.1). Label a scratch-branch run of a working-copy flow "draft version".
 - No OpenAPI change beyond T-FLW-03's routes.
 

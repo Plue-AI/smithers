@@ -1,6 +1,6 @@
 # C-STK-06 The PR head's tree is the tree checks ran on; a new item starts on the available prefix
 
-Proves: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), Appendix B.5 (Stack: integrate, Stack: propose) · spec.md §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5 · Layer: integration · Stage: S1 · Tickets: T-STK-12, T-FLW-11, T-STK-13, T-GH-09, T-MCH-14
+Proves: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), Appendix B.5 (Stack: integrate, Stack: propose) · spec.md §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5 · Layer: integration · Stage: S1 · Tickets: T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14
 Automation: `packages/backend/internal/services/todo_candidate_flow_db_test.go` (new) · Runs in: reference host (real microVM, real PostgreSQL, packaged guest flow host, fake GitHub); fixture system-operation coverage lands with T-STK-12, built-in run-loop coverage with T-FLW-11
 
 ## Setup
@@ -65,7 +65,7 @@ Part E, the available prefix:
 - Step 3: `stack.propose{g1}` is refused with `edited`; the write log has no push and no PR for g1; the run re-enters `candidate` on the same run id; the next generation's tree contains the step 2 edit.
 - Step 4: the generation written in step 4 has the snapshot's tree, without the `src/b.ts` edit; its propose is refused with `edited`; the next generation contains the edit and is accepted.
 - For every accepted generation: its check's line in `check-trees.log` equals the file digests of its tree; the PR head commit's tree equals its tree (`git rev-parse <pr_head>^{tree}`); the `review` step read exactly its `base..head`; every evidence entry in the PR body names it.
-- Step 5: propose is refused with `stale_inputs`; the run re-enters `implement` with the steer first; the next accepted generation's `inputs_seq` is at least the steer's `todo_events.seq`.
+- Step 5: propose is refused with `stale_inputs`; the run re-enters `implement` with the steer first; the next accepted generation's `inputs_seq` is at least the steer's `item_events.seq`.
 - Step 6: propose is refused with `rebase_pending`; after the rebase, the next generation's base is the new `main` tip; checks run again and `review` doesn't (equal `git patch-id --stable`); the PR shows the earlier generation's review summary.
 - Step 7: refused with `stale_generation`; no GitHub write.
 - Every recorded `head` still resolves through `refs/smithers/keep/<head>` to the same tree at the end.
