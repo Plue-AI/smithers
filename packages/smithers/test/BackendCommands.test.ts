@@ -1167,7 +1167,7 @@ describe("host status", () => {
     try {
       const result = await f.run(["host", "status", "--json"])
       expect(result.code).toBe(0)
-      expect(seen).toEqual(["GET /api/host"])
+      expect(seen).toEqual(["GET /api/install"])
       expect(result.output).toContain("\"capacity\": 2")
     } finally {
       await f.close()

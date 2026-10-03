@@ -3,7 +3,9 @@ package routes
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 )
 
 const GitHubAppSetupSessionCookie = "smithers_setup_session"
@@ -39,6 +42,7 @@ type InstallSetupSessionAuthority interface {
 }
 
 type GitHubAppSetupHandler struct {
+	Capacity       *services.InstallCapacityService
 	Sessions       InstallSetupSessionAuthority
 	Service        GitHubAppSetupService
 	Store          GitHubAppSetupCredentials
@@ -139,6 +143,13 @@ func writeGitHubAppOriginError(w http.ResponseWriter, origin string) {
 
 func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	// CLI tokens retain the scoped capacity projection; setup details require
+	// the existing setup or owner browser session.
+	info := middleware.AuthInfoFromContext(r.Context())
+	if h.Capacity != nil && (h.Store == nil || (info != nil && info.IsTokenAuth)) {
+		middleware.RequireAuth(middleware.RequireScope(middleware.ScopeReadUser)(http.HandlerFunc(h.capacityStatus))).ServeHTTP(w, r)
+		return
+	}
 	if origin, ok := h.requestOrigin(r); !ok {
 		writeGitHubAppOriginError(w, origin)
 		return
@@ -152,7 +163,7 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	credentials, err := h.Store.Load(r.Context())
 	if errors.Is(err, services.ErrGitHubAppNotConfigured) {
-		pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"github_app": map[string]any{"configured": false, "installed": false}})
+		h.writeInstallStatus(w, r, map[string]any{"github_app": map[string]any{"configured": false, "installed": false}})
 		return
 	}
 	if err != nil {
@@ -174,7 +185,7 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
-	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"github_app": map[string]any{"configured": true, "installed": credentials.InstallationID > 0, "slug": credentials.Slug, "installation_id": credentials.InstallationID, "install_url": installURL, "callback_urls": callbackURLs, "callback_fixes": callbackFixes}})
+	h.writeInstallStatus(w, r, map[string]any{"github_app": map[string]any{"configured": true, "installed": credentials.InstallationID > 0, "slug": credentials.Slug, "installation_id": credentials.InstallationID, "install_url": installURL, "callback_urls": callbackURLs, "callback_fixes": callbackFixes}})
 }
 func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 	origin, ok := h.requestOrigin(r)
@@ -281,4 +292,64 @@ func (h *GitHubAppSetupHandler) Installed(w http.ResponseWriter, r *http.Request
 	origin, _ := h.requestOrigin(r)
 	http.SetCookie(w, &http.Cookie{Name: GitHubAppStateCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(origin, "https://")})
 	pkgerrors.WriteJSON(w, http.StatusOK, map[string]bool{"installed": true})
+}
+
+func (h *GitHubAppSetupHandler) writeInstallStatus(w http.ResponseWriter, r *http.Request, status map[string]any) {
+	if h.Capacity != nil {
+		capacity, err := h.Capacity.Read(r.Context())
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "host_status_unavailable", "class": "infra", "message": "host status unavailable"})
+			return
+		}
+		status["profile"], status["limits"], status["machines"] = capacity.Profile, capacity.Limits, capacity.Machines
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, status)
+}
+func (h *GitHubAppSetupHandler) capacityStatus(w http.ResponseWriter, r *http.Request) {
+	h.writeInstallStatus(w, r, map[string]any{})
+}
+
+// SetCapacity uses the authenticated person; the SQL write rechecks ownership.
+func (h *GitHubAppSetupHandler) SetCapacity(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	if err := middleware.RequirePerson(r.Context(), "set capacity"); err != nil {
+		http.Error(w, "person required", http.StatusForbidden)
+		return
+	}
+	var input struct {
+		Capacity int `json:"capacity"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		http.Error(w, "invalid capacity", http.StatusBadRequest)
+		return
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		http.Error(w, "invalid capacity", http.StatusBadRequest)
+		return
+	}
+	if err := h.Capacity.Set(r.Context(), user.ID, input.Capacity); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		var typed *microsandbox.CapacityError
+		if errors.As(err, &typed) {
+			status := http.StatusUnprocessableEntity
+			if typed.Class == "permission" {
+				status = http.StatusForbidden
+			}
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(typed)
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": "host_status_unavailable", "class": "infra", "message": "host status unavailable"})
+		}
+		return
+	}
+	h.capacityStatus(w, r)
 }

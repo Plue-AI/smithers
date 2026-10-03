@@ -73,18 +73,3 @@ to a Debian snapshot.
 | Dependency script                                    | `guestUser` (`agent`) | Runs repository-selected dependency commands at a nonzero uid.                                                           |
 | npm, pnpm, yarn and bun installs                     | `guestUser` (`agent`) | Use `--ignore-scripts` during preparation. Lifecycle scripts run only at workspace link time, at a nonzero uid.          |
 | pip wheel builds (`setup.py`) and `toolNode` entries | `guestUser` (`agent`) | Run repository code during preparation. Their effects are baked into a shared layer keyed by the digests of every input. |
-
-## Setup readiness
-
-`InstallMachineReadyService` reports `source` and `machine` separately, each
-with `state`, `pct`, and an optional typed error. Source becomes ready only
-after the mirror resolves `main` to a commit. Machine becomes ready only after
-the layer builder completes and verifies required layers. Source remains ready
-while the machine builds or a machine build fails.
-
-The service accepts a persistence interface for serialized readiness receipts.
-Each attempt resolves the current cached recipe even when `main` is unchanged,
-so detector and manifest updates cannot reuse a stale machine receipt. An
-attempt fence rejects a late build result. The install settings, durable setup
-runner, HTTP resource and shared projection writer are supplied by their own
-tickets; this service does not implement their schema or notifications.

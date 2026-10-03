@@ -1056,7 +1056,40 @@ type GitHubAppSetupRequest struct {
 
 // GitHubAppSetupStatus is generated from docs/api/openapi.yaml.
 type GitHubAppSetupStatus struct {
-	GithubApp GitHubAppSetupStatusGithubApp `json:"github_app"`
+	Profile   *GitHubAppSetupStatusProfile   `json:"profile,omitempty"`
+	Limits    *GitHubAppSetupStatusLimits    `json:"limits,omitempty"`
+	Machines  *GitHubAppSetupStatusMachines  `json:"machines,omitempty"`
+	GithubApp *GitHubAppSetupStatusGithubApp `json:"github_app,omitempty"`
+}
+
+// GitHubAppSetupStatusProfile is generated from docs/api/openapi.yaml.
+type GitHubAppSetupStatusProfile struct {
+	MemoryBytes   int64  `json:"memory_bytes"`
+	PerfCores     int64  `json:"perf_cores"`
+	PhysicalCores int64  `json:"physical_cores"`
+	DiskFreeBytes int64  `json:"disk_free_bytes"`
+	MacosVersion  string `json:"macos_version"`
+	Hypervisor    bool   `json:"hypervisor"`
+}
+
+// GitHubAppSetupStatusLimits is generated from docs/api/openapi.yaml.
+type GitHubAppSetupStatusLimits struct {
+	MemoryMib        int64   `json:"memory_mib"`
+	Cpus             int64   `json:"cpus"`
+	Capacity         int64   `json:"capacity"`
+	LayerBudgetBytes int64   `json:"layer_budget_bytes"`
+	MemoryCapacity   int64   `json:"memory_capacity"`
+	CoreCapacity     int64   `json:"core_capacity"`
+	DiskCapacity     int64   `json:"disk_capacity"`
+	LimitingTerm     string  `json:"limiting_term"`
+	Missing          *int64  `json:"missing,omitempty"`
+	Fix              *string `json:"fix,omitempty"`
+}
+
+// GitHubAppSetupStatusMachines is generated from docs/api/openapi.yaml.
+type GitHubAppSetupStatusMachines struct {
+	InUse    int64 `json:"in_use"`
+	Capacity int64 `json:"capacity"`
 }
 
 // GitHubAppSetupStatusGithubApp is generated from docs/api/openapi.yaml.
@@ -1140,48 +1173,6 @@ type PostAPIBillingCheckoutBody struct {
 	Interval string `json:"interval"`
 }
 
-// GetAPIHostResponse is generated from docs/api/openapi.yaml.
-type GetAPIHostResponse struct {
-	Profile  GetAPIHostResponseProfile  `json:"profile"`
-	Limits   GetAPIHostResponseLimits   `json:"limits"`
-	Machines GetAPIHostResponseMachines `json:"machines"`
-}
-
-// GetAPIHostResponseProfile is generated from docs/api/openapi.yaml.
-type GetAPIHostResponseProfile struct {
-	MemoryBytes   int64  `json:"memory_bytes"`
-	PerfCores     int64  `json:"perf_cores"`
-	PhysicalCores int64  `json:"physical_cores"`
-	DiskFreeBytes int64  `json:"disk_free_bytes"`
-	MacosVersion  string `json:"macos_version"`
-	Hypervisor    bool   `json:"hypervisor"`
-}
-
-// GetAPIHostResponseLimits is generated from docs/api/openapi.yaml.
-type GetAPIHostResponseLimits struct {
-	MemoryMib        int64   `json:"memory_mib"`
-	Cpus             int64   `json:"cpus"`
-	Capacity         int64   `json:"capacity"`
-	LayerBudgetBytes int64   `json:"layer_budget_bytes"`
-	MemoryCapacity   int64   `json:"memory_capacity"`
-	CoreCapacity     int64   `json:"core_capacity"`
-	DiskCapacity     int64   `json:"disk_capacity"`
-	LimitingTerm     string  `json:"limiting_term"`
-	Missing          *int64  `json:"missing,omitempty"`
-	Fix              *string `json:"fix,omitempty"`
-}
-
-// GetAPIHostResponseMachines is generated from docs/api/openapi.yaml.
-type GetAPIHostResponseMachines struct {
-	InUse    int64 `json:"in_use"`
-	Capacity int64 `json:"capacity"`
-}
-
-// PatchAPIHostBody is generated from docs/api/openapi.yaml.
-type PatchAPIHostBody struct {
-	Capacity int64 `json:"capacity"`
-}
-
 // GetAPIStatusResponse is generated from docs/api/openapi.yaml.
 type GetAPIStatusResponse struct {
 	Status     string                         `json:"status"`
@@ -1198,6 +1189,11 @@ type GetAPIStatusResponseComponents struct {
 type GetAPIStatusResponseComponentsCanary struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+}
+
+// PutAPIInstallBody is generated from docs/api/openapi.yaml.
+type PutAPIInstallBody struct {
+	Capacity int64 `json:"capacity"`
 }
 
 // GetAPIReposOwnerRepoIssueViewsResponseItem is generated from docs/api/openapi.yaml.
@@ -2114,20 +2110,6 @@ func (c *Client) PostAPIGithubSyncedReposOwnerRepoMirrorStatus(ctx context.Conte
 	return out, err
 }
 
-// GetAPIHost calls GET /api/host.
-func (c *Client) GetAPIHost(ctx context.Context) (GetAPIHostResponse, error) {
-	var out GetAPIHostResponse
-	err := c.do(ctx, "GET", "/api/host", nil, nil, &out)
-	return out, err
-}
-
-// PatchAPIHost calls PATCH /api/host.
-func (c *Client) PatchAPIHost(ctx context.Context, body PatchAPIHostBody) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PATCH", "/api/host", nil, body, &out)
-	return out, err
-}
-
 // GetAPIStatus calls GET /api/status.
 func (c *Client) GetAPIStatus(ctx context.Context) (GetAPIStatusResponse, error) {
 	var out GetAPIStatusResponse
@@ -2153,6 +2135,13 @@ func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 func (c *Client) GetAPIInstall(ctx context.Context) (GitHubAppSetupStatus, error) {
 	var out GitHubAppSetupStatus
 	err := c.do(ctx, "GET", "/api/install", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIInstall calls PUT /api/install.
+func (c *Client) PutAPIInstall(ctx context.Context, body PutAPIInstallBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "PUT", "/api/install", nil, body, &out)
 	return out, err
 }
 

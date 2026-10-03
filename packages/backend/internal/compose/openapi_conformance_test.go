@@ -108,11 +108,11 @@ func walkServedRoutes(t *testing.T, router chi.Routes, into map[string]servedRou
 // openAPIConformanceRouter composes every optional product handler so each
 // route family a deployment can enable is mounted.
 func openAPIConformanceRouter(cfg *config.Config) chi.Router {
-	return hostStatusProductionRouter(cfg, db.New(nil), &routes.HostStatusHandler{})
+	return installCapacityProductionRouter(cfg, db.New(nil), &services.InstallCapacityService{})
 }
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
-func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *routes.HostStatusHandler) chi.Router {
+func installCapacityProductionRouter(cfg *config.Config, queries *db.Queries, capacity *services.InstallCapacityService) chi.Router {
 	authHandler := &routes.AuthHandler{}
 	if config.IsSingleOwner(cfg.Auth) {
 		authHandler.LocalService = (*services.AuthService)(nil)
@@ -134,7 +134,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
 		routerExtras{
-			HostStatus:          host,
+			InstallCapacity:     capacity,
 			BillingCapabilities: services.BillingCapabilities{Overview: true, Plans: true, Checkout: true, Portal: true, Webhook: true},
 			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{},
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
