@@ -26,9 +26,6 @@ g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 }
 
 func TestGuestHelperInstallPinsInterpreterAndEnv(t *testing.T) {
-	t.Run("filesystem", TestGuestBootstrapFilesystemSupplemental)
-	t.Run("approved-startup", TestRootBoundaryApprovedBundleStartup)
-
 	t.Run("CSEC02", func(t *testing.T) { rootBoundaryLifecycle(t, false) })
 	args := guestArgs("fixture", map[string]string{"PATH": "/hostile", "PYTHONPATH": "/hostile", "LD_PRELOAD": "/hostile"}, false, "kill-all")
 	joined := strings.Join(args, " ")
@@ -44,9 +41,6 @@ func TestGuestHelperInstallPinsInterpreterAndEnv(t *testing.T) {
 }
 
 func TestRootSetupNeverFollowsMemberSymlinks(t *testing.T) {
-	t.Run("replacement", TestRootHomeReplacementSupplemental)
-	t.Run("approved-retained", TestRootBoundaryApprovedBundleRetainedHome)
-
 	t.Run("CSEC02", func(t *testing.T) { rootBoundaryLifecycle(t, true) })
 	boundaryPython(t, `
 with tempfile.TemporaryDirectory() as directory:
@@ -95,9 +89,6 @@ with tempfile.TemporaryDirectory() as directory:
 }
 
 func TestRootPreflightParsesOnlyEnvelope(t *testing.T) {
-	t.Run("identity", TestRootIdentityDropOrderingSupplemental)
-	t.Run("approved-dispatch", TestRootBoundaryApprovedBundleDispatch)
-
 	t.Run("CSEC02", func(t *testing.T) {
 		rootBoundaryLifecycle(t, false)
 		t.Run("files", TestRealMicroVMWorkspaceConformance)
