@@ -3016,3 +3016,7 @@
 .proposal-view.proposal-lessons > svg { flex: none; }
 .proposal-view .proposal-page { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .proposal-view .proposal-status[data-state="open"] { color: var(--attention-text); }
+.proposal-view, .proposal-view * { box-sizing: border-box; }
+.proposal-view .smithers-card-header { flex-wrap: wrap; }
+.proposal-view .smithers-card-title { min-width: 0; white-space: normal; }
+.proposal-view .proposal-actions .flow-control + .flow-control { margin-left: auto; }
