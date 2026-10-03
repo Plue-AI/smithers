@@ -116,13 +116,22 @@ describe("props-only View imports (C-UI-08)", () => {
         : undefined
     }
     const violations: string[] = []
+    const selected: string[] = []
     for (
       const directory of [resolve(import.meta.dir, "cards/views"), resolve(repository, "packages/smithers/ui/src")]
     ) {
       if (!existsSync(directory)) continue // Design adds card Views in its own tickets.
-      for await (const path of new Bun.Glob("**/*View.tsx").scan({ cwd: directory, absolute: true })) {
+      for await (const path of new Bun.Glob(directory.endsWith("cards/views") ? "**/*.{ts,tsx}" : "**/{*View,actor-chip,state-word}.tsx").scan({ cwd: directory, absolute: true })) {
+        if (/\.(test|stories)\.tsx?$/.test(path)) continue
+        selected.push(path)
         violations.push(...viewAuthorityViolations(path, (file) => readFileSync(file, "utf8"), locate))
       }
+    }
+    for (const name of ["ActorChip.tsx", "StateWord.tsx", "actorName.ts"]) expect(selected).toContain(resolve(import.meta.dir, "cards/views", name))
+    for (const name of ["actor-chip.tsx", "state-word.tsx"]) {
+      const path = resolve(repository, "packages/smithers/ui/src", name)
+      if (existsSync(path)) expect(selected).toContain(path)
+      expect(viewAuthorityViolations(path, () => 'import { store } from "./state/Store"', () => undefined).length).toBeGreaterThan(0)
     }
     expect(violations).toEqual([])
   })

@@ -37,6 +37,7 @@ export default defineConfig({
     gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     timeout: 240_000,
     env: {
+      SMITHERS_VIEW_STORIES: "1",
       SMITHERS_LOCAL_PORT: String(PORT),
       SMITHERS_CHAT_STUB: CHAT_STUB
     }

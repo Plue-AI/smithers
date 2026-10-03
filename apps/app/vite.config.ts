@@ -76,7 +76,7 @@ export default defineConfig({
   build: {
     outDir: `${here}dist`,
     emptyOutDir: true,
-    rollupOptions: { input: { app: resolve(here, "src/mainview/index.html"), stories: resolve(here, "src/mainview/view-stories.html") } },
+    rollupOptions: { input: { app: resolve(here, "src/mainview/index.html"), ...(process.env.SMITHERS_VIEW_STORIES === "1" ? { stories: resolve(here, "src/mainview/view-stories.html") } : {}) } },
     assetsInlineLimit: (filePath) => filePath.endsWith("/wa-sqlite.wasm") ? false : undefined,
     // Milkdown ships one indivisible 818 kB ESM module, now behind the World
     // editor's dynamic import. Keep warnings meaningful for every other chunk.

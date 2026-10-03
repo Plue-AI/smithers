@@ -18,15 +18,17 @@ message into the UI.
 
 ### Copy affordances
 
-`src/internal/copyToClipboard.ts` is the one copy path behind `CodeBlock`,
+`copyText` is a public export from `@smthrs/ui` (implemented in
+`src/internal/copyToClipboard.ts`), the one copy path behind `CodeBlock`,
 `Snippet`, and `SecretField`. It awaits either the caller's `onCopy` or
-`navigator.clipboard.writeText`, and returns `{ ok: true }` or
+`navigator.clipboard.writeText`, falling back to `document.execCommand("copy")`
+when the native API is absent or refuses the write, and returns `{ ok: true }` or
 `{ ok: false, code, cause }`.
 
 | Code                     | Emitted when                                                                                                                       | After                                                                     |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `clipboard-unavailable`  | No `onCopy` was supplied and the host has no `navigator.clipboard.writeText`. `cause` is `undefined`, because nothing threw.        | Nothing was copied. The control does not enter its copied state.          |
-| `clipboard-write-failed` | `onCopy` or `writeText` rejected or threw. `cause` is the original rejection.                                                       | Same.                                                                     |
+| `clipboard-unavailable`  | No `onCopy` was supplied and neither Clipboard API nor DOM fallback is available. `cause` is `undefined`, because nothing threw.        | Nothing was copied. The control does not enter its copied state.          |
+| `clipboard-write-failed` | The supplied `onCopy` or both native and fallback writes failed. `cause` is the original rejection.                                                       | Same.                                                                     |
 
 The copied state is set only after the write fulfills, so a control that says
 "Copied" copied something.

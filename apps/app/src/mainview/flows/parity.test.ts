@@ -702,7 +702,8 @@ describe("View and Container catalog seam (C-UI-08)", () => {
   test("every design-owned View handler uses the action or presentation seam", () => {
     const root = fileURLToPath(new URL("../cards/", import.meta.url))
     const files = readdirSync(root, { recursive: true, encoding: "utf8" })
-      .filter((entry) => entry.split("\\").join("/").startsWith("views/") && entry.endsWith("View.tsx"))
+      .filter((entry) => entry.split("\\").join("/").startsWith("views/") && /\.tsx?$/.test(entry) && !/\.(test|stories)\.tsx?$/.test(entry))
+    for (const name of ["ActorChip.tsx", "StateWord.tsx", "actorName.ts"]) expect(files).toContain(`views/${name}`)
     expect(
       files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`)).map((violation) => `${file}: ${violation}`))
     ).toEqual([])
@@ -712,8 +713,13 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     const root = fileURLToPath(new URL("../../../../../packages/smithers/ui/src/", import.meta.url))
     const files = readdirSync(root, { recursive: true, encoding: "utf8" })
       .map((entry) => entry.split("\\").join("/"))
-      .filter((entry) => entry.endsWith("View.tsx"))
+      .filter((entry) => entry.endsWith("View.tsx") || ["actor-chip.tsx", "state-word.tsx"].includes(entry))
       .sort()
+    for (const name of ["actor-chip.tsx", "state-word.tsx"]) {
+      if (readdirSync(root).includes(name)) expect(files).toContain(name)
+      expect(viewSeamViolations('<img onError={event => { event.currentTarget.hidden = true }} />')).not.toEqual([])
+      expect(viewSeamViolations('const [failed, setFailed] = useState(false); const chip = <img onError={() => setFailed(true)} />')).toEqual([])
+    }
     expect(files.length).toBeGreaterThan(0)
     const found = Object.fromEntries(
       files.map((file) => [file, viewSeamViolations(readFileSync(`${root}${file}`, "utf8"))] as const)
