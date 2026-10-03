@@ -16,7 +16,7 @@ async function mounted(story: ViewStory, removed = false) {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
-  const onAction = mock((_tag: string, _args: Record<string, unknown>) => {})
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
   const onView = mock((_patch: Record<string, unknown>) => {})
   await act(async () => root.render(story.render({ onAction, onView }, removed ? story.actions?.slice(1) : story.actions)))
   return { host, onAction, onView, close: async () => { await act(async () => root.unmount()); host.remove() } }

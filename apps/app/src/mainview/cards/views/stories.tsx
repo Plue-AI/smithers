@@ -1,10 +1,10 @@
 import type { ReactNode } from "react"
 
-export type StoryAction = { tag: string; label: string; args?: Record<string, unknown>; disabled?: { reason: string } }
-export type StoryCallbacks = { onAction: (tag: string, args: Record<string, unknown>) => void; onView: (patch: Record<string, unknown>) => void }
+export type StoryAction = { tag: string; label: string; args?: Record<string, string>; disabled?: { reason: string } }
+export type StoryCallbacks = { onAction: (tag: string, args?: Record<string, string>) => void; onView: (patch: Record<string, unknown>) => void }
 export type StoryInteraction = {
   selector: string; event?: "click" | "input" | "change" | "keydown"; value?: string; key?: string;
-  action?: { tag: string; args: Record<string, unknown> }; patch?: Record<string, unknown>
+  action?: { tag: string; args: Record<string, string> }; patch?: Record<string, unknown>
 }
 export type ViewStory = {
   name: string; expect: readonly string[]; actions?: readonly StoryAction[];
