@@ -475,6 +475,8 @@ test.each([24, 32])(
     await delegate("other", "Other review")
     await delegate("third", "Third review")
     await stream(1)
+    // A live step shows its prose only expanded.
+    await key("o", { ctrl: true })
     await key("ARROW_RIGHT", { ctrl: true })
     await key("ARROW_RIGHT", { ctrl: true })
     expect(frame()).toContain("Continue Review one file")

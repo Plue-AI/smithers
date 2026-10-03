@@ -40,7 +40,7 @@ describe("worker failure card", () => {
         tab.seat
       )
       const failed = { ...tab, failure }
-      expect(Tabs.actions(failed).map((action) => action.keys[0])).toContain("w")
+      expect(Tabs.actions(failed).map((action) => action.keys[0])).toContain("alt+w")
       expect(Tabs.actions(failed).find((action) => action.id === "wait")?.label).toBe("Wait for reset")
       setup = await testRender(<FailureCard tab={failed} transcript={Transcript.empty} details={false} />, {
         width: 100,
@@ -55,7 +55,7 @@ describe("worker failure card", () => {
       ...tab,
       failure: FailureCopy.describe(new ModelError({ code: "quota_exceeded", message: "empty" }), tab.seat)
     }
-    expect(Tabs.actions(terminal).map((action) => action.keys[0])).toEqual(["m", "r"])
+    expect(Tabs.actions(terminal).map((action) => action.keys[0])).toEqual(["alt+m", "alt+r"])
   })
 
   it("shows a body-load refusal in expanded details without a private stack", async () => {

@@ -107,7 +107,7 @@ beforeEach(() => {
   starts = 0
   listed = [
     module("sum", "Add two numbers"),
-    { ...module("review", "Reviews the change"), kind: "markdown", tui: { keys: [{ key: "alt+r", label: "Review" }] } }
+    { ...module("review", "Reviews the change"), kind: "markdown", tui: { keys: [{ key: "alt+z", label: "Review" }] } }
   ]
   loaded = {
     flows: [{ name: "sum", input: Schema.Struct({ a: Schema.Number, unit: Schema.Literals(["kg", "lb"]) }) }],
@@ -130,10 +130,10 @@ afterEach(async () => {
 
 test("the home screen lists the repository's declared flows with their keys", async () => {
   await mount()
-  await waitFor(() => frame().includes("alt+r"))
+  await waitFor(() => frame().includes("alt+z"))
   const lines = frame().split("\n")
   expect(lines.find((line) => /^\s+sum\b/.test(line))).toBeDefined()
-  expect(lines.find((line) => /^\s+review\s+alt\+r\s*$/.test(line))).toBeDefined()
+  expect(lines.find((line) => /^\s+review\s+alt\+z\s*$/.test(line))).toBeDefined()
   expect(frame()).toContain("smithers")
 })
 
@@ -157,7 +157,7 @@ test("/flows shows inputs and keys; a flow added after launch says Restart to lo
   await waitFor(() => frame().includes("Restart to load"))
   const row = (name: string) => frame().split("\n").find((line) => line.includes(` ${name} `)) ?? ""
   expect(row("sum")).toMatch(/sum\s+a, unit/)
-  expect(row("review")).toContain("alt+r")
+  expect(row("review")).toContain("alt+z")
   expect(row("echo-label")).toMatch(/echo-label\s+Restart to load/)
   expect(frame()).toContain("enter Run")
   await type("echo")
@@ -173,7 +173,7 @@ test("/flows shows inputs and keys; a flow added after launch says Restart to lo
 test("/flow on a flow added after launch says Restart to load instead of No flow named", async () => {
   listed = [...listed, module("echo-label", "Echo a label")]
   await mount()
-  await waitFor(() => frame().includes("alt+r"))
+  await waitFor(() => frame().includes("alt+z"))
   // A flow that cannot run yet is not offered on the home screen.
   expect(frame()).not.toContain("echo-label")
   await type("/flow echo-label")
@@ -186,7 +186,7 @@ test("/flow on a flow added after launch says Restart to load instead of No flow
 
 test("a flow form shows every field and its choices, with no estimate toast", async () => {
   await mount()
-  await waitFor(() => frame().includes("alt+r"))
+  await waitFor(() => frame().includes("alt+z"))
   await type("/flow sum")
   await press("ESCAPE")
   await press("RETURN")
@@ -206,7 +206,7 @@ test("a flow form shows every field and its choices, with no estimate toast", as
 
 test("/smithers shows only factory content, never the flows or their runs", async () => {
   await mount()
-  await waitFor(() => frame().includes("alt+r"))
+  await waitFor(() => frame().includes("alt+z"))
   await type("/smithers")
   await press("ESCAPE")
   await press("RETURN")

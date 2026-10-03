@@ -118,7 +118,7 @@ beforeEach(async () => {
         models={[{ seat: "replay:test", label: "Replay", provider: "Fixture" }]}
         contextWindow={() => 10000}
       />,
-      { width: 100, height: 30, exitOnCtrlC: false }
+      { width: 100, height: 36, exitOnCtrlC: false }
     )
   })
   await type("Run checks")
@@ -410,24 +410,24 @@ test.each(
     await press("a", false, true)
     expect(replies).toEqual([])
     if (action === "disabled-cap") {
-      expect(frame()).not.toContain("tab Next field")
+      expect(frame()).not.toContain("tab Next")
       await press(key, false, true)
       expect(replies).toEqual([{ request: workerRequest, choice }])
       expect(inputs).toHaveLength(3)
       return
     }
-    expect(frame()).toContain("tab Next field")
+    expect(frame()).toContain("tab Next")
     if (action === "cap") expect(frame()).toMatch(/Cap\s+100/)
     else expect(frame()).toContain("Which path?")
     await act(async () => {
       await setTimeout(300)
     })
     await setup!.renderOnce()
-    expect(frame()).toContain("tab Next field")
+    expect(frame()).toContain("tab Next")
     expect(frame()).not.toContain("alt+y allow")
     expect(replies).toEqual([])
     await press("ESCAPE")
-    await waitFor(() => !frame().includes("tab Next field"))
+    await waitFor(() => !frame().includes("tab Next"))
     expect(textarea(setup!.renderer.root)).toBe(editor)
     expect(editor.plainText).toBe(draft)
     expect(editor.cursorOffset).toBe(cursor)

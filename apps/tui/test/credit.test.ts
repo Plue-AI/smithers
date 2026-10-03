@@ -162,7 +162,7 @@ describe("a session's credit ledger", () => {
     // Out of hosted credit, another model is the way on too.
     const hosted = FailureCopy.describe(new ModelError({ code: "out_of_credit", message: "x" }), sol)
     expect(hosted.actions).toEqual(["switch-model", "resume", "details"])
-    expect(Tabs.actions({ status: "failed", failure: hosted }).map((action) => action.keys[0])).toEqual(["m", "r"])
+    expect(Tabs.actions({ status: "failed", failure: hosted }).map((action) => action.keys[0])).toEqual(["alt+m", "alt+r"])
     // A passing limit keeps its own order, and the account is named as the picker names it.
     const limited = FailureCopy.describe(new ModelError({ code: "rate_limited", message: "x" }), sol)
     expect(limited).toMatchObject({
@@ -511,7 +511,7 @@ describe("a worker whose model has no credit", () => {
         headline: "OpenAI quota exhausted",
         actions: ["switch-model", "resume", "details"]
       })
-      expect(Tabs.actions(failed).map((action) => action.keys[0])).toEqual(["m", "r"])
+      expect(Tabs.actions(failed).map((action) => action.keys[0])).toEqual(["alt+m", "alt+r"])
       expect(f.host.credit!.spent("sol")).toBe(true)
       // The chat card says what failed, and the model is named as the picker names it.
       const card = Subagents.subagent(failed, f.workspace.transcript("first"), [])
