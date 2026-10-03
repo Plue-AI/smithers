@@ -41,7 +41,7 @@ export const CodeSurface = ({ model, view, actions, gestures, onAction }: CodeEd
       </> : model.outside ? <div className="code-file-notice" data-tone="outside"><FolderSync size={14} aria-hidden="true" /><span>Changed outside Smithers</span>{controls}</div> : null}
       {!model.gone && !model.outside ? controls : null}
       <div className="code-file-editor" data-snapshot={model.gone ? "" : undefined}>
-      {model.content.kind !== "text" ? <p className="code-file-size">{model.content.kind === "binary" ? "Binary file" : "Too large to show"} · {formatBytes(model.content.bytes, "decimal")} {model.github_url ? <a href={model.github_url} target="_blank" rel="noreferrer">on GitHub ↗</a> : null}</p> :
+      {model.content.kind !== "text" ? <p className="code-file-size">{model.content.kind === "binary" ? "Binary file" : "Too large to co-edit"} · {formatBytes(model.content.bytes, "decimal")} {model.github_url ? <a href={model.github_url} target="_blank" rel="noreferrer">on GitHub ↗</a> : null}</p> :
         <div className="code-surface" tabIndex={0} role="region" aria-label="File content"
           data-flow={gestures.hover?.tag} data-flow-activate={gestures.definition?.tag}
           onKeyDown={event => {

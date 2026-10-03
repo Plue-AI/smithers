@@ -15,6 +15,7 @@
 	--avatar-ink: var(--surface);
 	--attention: var(--warning);
 	--attention-text: var(--warning);
+	--attention-border: color-mix(in srgb, var(--attention) 30%, var(--border));
 	--attention-wash: color-mix(in srgb, var(--attention) 10%, var(--surface));
 
 	/* ── Paper raw scale (the brand palette's source; still named directly by a few surfaces) ── */

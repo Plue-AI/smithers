@@ -1487,14 +1487,72 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   try {
     const onAction = mock(() => {})
-    const host = render(<CodeEditorView {...files.unsaved_one} onAction={onAction} onView={() => {}} />)
+    const { FilePresenceView } = await import("./FilePresenceView")
+    const { fileStories } = await import("./FilePresenceView.stories")
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host)
+    await act(async () => root.render(<FilePresenceView {...fileStories.unsaved_one} onAction={onAction} onView={() => {}} />))
     expect(host.textContent).toContain("1 edit wasn't saved")
-    await act(async () => host.querySelector<HTMLButtonElement>('.code-recovery button')!.click())
+    await act(async () => host.querySelector<HTMLButtonElement>('.code-notice button')!.click())
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText).toHaveBeenCalledWith('const recovered = true')
+    expect(writeText).toHaveBeenCalledWith('Recovered text')
     expect(onAction).toHaveBeenCalledTimes(0)
   } finally {
     if (previous) Object.defineProperty(navigator, 'clipboard', previous)
     else Reflect.deleteProperty(navigator, 'clipboard')
   }
+})
+
+describe("File presence review regressions", () => {
+  test("presence without binding shares undelegated agent colour with avatar", async () => {
+    const { FilePresenceView } = await import("./FilePresenceView")
+    const { fixtures } = await import("@smthrs/rpc/fixtures/File")
+    const agent = { kind: "agent" as const, agent: "coding" as const, id: "agent-1", avatar_url: "", name: "Agent", color_index: 2 as const }
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host)
+    await act(async () => root.render(<FilePresenceView {...fixtures.live} model={{ ...fixtures.live.model, editors: [{ actor: agent, line: 1 }] }} onAction={() => {}} onView={() => {}} />))
+    expect(host.querySelector(".code-name-flag")).not.toBeNull()
+    const flag = host.querySelector<HTMLElement>(".code-name-flag")!
+    const avatar = host.querySelector<HTMLElement>(".code-avatar-stack .mvp-avatar")!
+    expect(flag.style.getPropertyValue("--who")).toBe("var(--lane-6)")
+    expect(flag.style.getPropertyValue("--who")).toBe(avatar.style.getPropertyValue("--who"))
+    expect(host.querySelector(".cm-editor")).toBeNull()
+    await act(async () => root.unmount())
+  })
+  test("recovery notice owns primary Reapply and reports Copy failure", async () => {
+    const { stories } = await import("./FilePresenceView.stories")
+    const { host, onAction, close } = await mounted(stories.find(story => story.name === "unsaved")!)
+    const action = host.querySelector<HTMLButtonElement>('.code-notice [data-flow="file.reapply"]')!
+    expect(action.dataset.primary).toBe("true")
+    await act(async () => action.click())
+    expect(onAction.mock.calls).toEqual([["file.reapply", { path: "flows/todo/flow.ts" }]])
+    const write = spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("unavailable"))
+    const exec = Object.getOwnPropertyDescriptor(document, "execCommand")
+    Object.defineProperty(document, "execCommand", { configurable: true, value: () => false })
+    try {
+      await act(async () => host.querySelector<HTMLButtonElement>(".code-notice button")!.click())
+      expect(write).toHaveBeenCalledWith('  description: "Build",\n')
+      expect(host.querySelector('[role="status"]')?.textContent).toBe("Copy failed")
+    } finally {
+      write.mockRestore()
+      if (exec) Object.defineProperty(document, "execCommand", exec)
+      else delete (document as unknown as Record<string, unknown>).execCommand
+      await close()
+    }
+  })
+  test("outside notice owns Compare", async () => {
+    const { stories } = await import("./FilePresenceView.stories")
+    const { host, close } = await mounted(stories.find(story => story.name === "outside")!)
+    expect(host.querySelector('.code-notice[data-tone="outside"] [data-flow="file.compare"]')?.textContent).toBe("Compare")
+    expect(host.querySelector(".code-actions")).toBeNull()
+    await close()
+  })
+})
+test("File editor avatars overlap and cap at four", async () => {
+  const { stories } = await import("./FilePresenceView.stories")
+  const { host, close } = await mounted(stories.find(story => story.name === "five_editors")!)
+  expect(host.querySelectorAll(".code-avatar-stack .mvp-avatar")).toHaveLength(4)
+  expect(host.querySelector(".code-avatar-stack")?.textContent).toContain("+1")
+  expect(host.querySelector(".code-avatar-stack")?.getAttribute("aria-label")).toBe("Ben, Claude Code for Ben, Ben, Claude Code for Ben, Ben")
+  await close()
 })

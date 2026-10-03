@@ -1,6 +1,6 @@
 import type { Action } from "../../src/CardAction.ts"
 import type { FileCard, FileView } from "../../src/FileCard.ts"
-import { agent, at, claude_code, outside, person } from "./_shared.ts"
+import { agent, at, claude_code, outside, person, will_person } from "./_shared.ts"
 import { type Story, story } from "./_story.ts"
 
 type FileStory = Story<FileCard, FileView, "hover" | "definition">
@@ -78,18 +78,26 @@ export const fixtures = {
       mode: "live",
       last_writer: person,
       authors: [person, claude_code],
-      editors: [{ actor: person, line: 1 }, { actor: claude_code, line: 2 }],
+      editors: [{ actor: person, line: 1 }, { actor: claude_code, line: 1 }],
       saved: "saving"
     },
     { view: { maximized: true, line: 1 }, expect: [path] }
   ),
+  live_separate: file("Live people and agent on separate lines", {
+    ...base, mode: "live", content: { kind: "text", text: "const one = 1\nconst two = 2\nconst three = 3\n" },
+    authors: [person, will_person, claude_code],
+    editors: [{ actor: person, line: 1 }, { actor: will_person, line: 2 }, { actor: claude_code, line: 3 }]
+  }, { expect: ["const one = 1", "const two = 2", "const three = 3"] }),
+  unsaved_one: file("One edit wasn't saved", {
+    ...base, mode: "live", unsaved: { count: 1, text: "const recovered = true" }
+  }, { expect: ["const recovered = true"] }),
   saved: file("Live and saved", { ...base, mode: "live", authors: [person], editors: [], saved: "saved" }, {
     expect: [path]
   }),
   unsaved: file(
     "A recovered document lost edits",
     { ...base, mode: "live", authors: [person], unsaved: { count: 3, text: "  description: \"Build\",\n" } },
-    { expect: ["  description: \"Build\","] }
+    { actions: [{ tag: "file.reapply", label: "Reapply", args: { path }, primary: true }], expect: ["  description: \"Build\","] }
   ),
   deleted: file(
     "Deleted by Ben",

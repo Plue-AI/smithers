@@ -444,7 +444,7 @@ type FlowModel = {
 
 The File card renders through the existing `CodeFileView` (`@smthrs/ui` `adapters/code-view`) via `cards/CodeSurface.tsx`. Revert the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*` and `y-codemirror.next` pins from 4a36b0cfb; T-APP-14 restores them in S3. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
 
-Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to show · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor.
+Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to co-edit · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor.
 
 ```ts
 type FileModel = FileBase & FileStates & CoEdit  // one schema, `FileCard.ts`; S2 and S3 fields are absent or empty before their stage

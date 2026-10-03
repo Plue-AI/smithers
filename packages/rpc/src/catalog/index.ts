@@ -94,6 +94,7 @@ export const IN_CARD_TAGS = [
   "branch.discard-foreign",
   "file.restore",
   "file.compare",
+  "file.reapply",
   "file.restore-deleted",
   "file.follow-rename",
   "todo.retry-current-flow",

@@ -2,10 +2,17 @@ import { useState, type CSSProperties, type ReactNode } from "react"
 import { Bot, FolderSync, SquareTerminal } from "lucide-react"
 
 import type { ActorChipCard } from "@smthrs/rpc/ActorChipCard"
+import type { Actor } from "@smthrs/rpc/CardPrimitives"
 export type { Actor } from "@smthrs/rpc/CardPrimitives"
 export type ActorChipProps = ActorChipCard
 import { actorName } from "./actorName"
 export { actorName } from "./actorName"
+export function actorColour(actor: Actor) {
+  const agent = actor.kind === "agent"
+  const delegated = agent && actor.for_member !== undefined
+  const index = actor.kind === "person" || delegated ? actor.color_index : agent ? 6 : 7
+  return agent && actor.agent === "smithers" && !delegated ? "var(--text)" : `var(--lane-${index})`
+}
 function AvatarImage({ url, fallback }: { url: string; fallback: ReactNode }) {
   const [failed, setFailed] = useState(false)
   return failed ? fallback : <><img src={url} alt="" onError={() => setFailed(true)} /><span className="mvp-avatar-fallback" aria-hidden="true">{fallback}</span></>
@@ -15,8 +22,7 @@ export function ActorChip({ actor, size, live = false }: ActorChipProps) {
   const agent = actor.kind === "agent"
   const smithers = agent && actor.agent === "smithers"
   const delegated = agent && actor.for_member !== undefined
-  const index = actor.kind === "person" || delegated ? actor.color_index : agent ? 6 : 7
-  const style = { "--size": size === "s" ? "22px" : "28px", "--who": smithers && !delegated ? "var(--text)" : `var(--lane-${index})` } as CSSProperties
+  const style = { "--size": size === "s" ? "22px" : "28px", "--who": actorColour(actor) } as CSSProperties
   const avatar = actor.kind === "person" ? actor.avatar_url : undefined
   const initials = actor.kind === "person" ? actor.name.trim().split(/\s+/).slice(0, 2).map(word => word[0]).join("") : label[0]
   return <span className="mvp-avatar" role="img" aria-label={label} title={label} style={style}

@@ -158,6 +158,7 @@ export interface CardCommandInput {
   readonly "branch.discard-foreign": { readonly branch: string; readonly revision: string }
   readonly "file.restore": { readonly path: string; readonly revision: string }
   readonly "file.compare": { readonly path: string }
+  readonly "file.reapply": { readonly path: string }
   readonly "file.restore-deleted": { readonly path: string }
   readonly "file.follow-rename": { readonly path: string }
   readonly "todo.retry-current-flow": { readonly n: number }
