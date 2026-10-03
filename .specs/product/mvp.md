@@ -768,7 +768,7 @@ Coding agents and external agents can't call these (they have no screen). The ap
 | `appearance.dark-mode` | Light or dark, per person | P, A | Rename → `/theme` | none |
 | `input.mode` | Normal, Vim, dictation | P, A | Keep | none |
 | `chat.send`, `chat.stop`, `chat.retry` | Send a prompt, stop or retry the answer | P (retry: A) | Keep (`/stop`) | conversation |
-| `chat.queue`, `.edit`, `.remove`, `.restore`, `.resume` | Queued prompts: each waits on the branch's turn queue until its turn starts; `.resume` resumes a queue its author paused | P | Keep | composer |
+| `chat.queue`, `.edit`, `.remove`, `.restore` | Queued prompts: each waits on the branch's turn queue until its turn starts (the queue never pauses) | P | Keep | composer |
 | `chat.filter`, `.grep`, `.toggle`, `.reset` | Filter the conversation | P, A | Keep | conversation |
 | `chat.copy-message`, `chat.dictate`, `chat.open`, `chat.reload`, `chat` | Copy, dictate, open composer, reload | P (reload: A) | Keep | none |
 | `chat.commands` | List commands | P, A | Rename → `/help` | message |
@@ -905,7 +905,8 @@ These are actions on a card, not slash commands, each with a stable id for the c
 | `order.ok` (**OK**) | Needs you: out-of-order merge ("T3 merged before T2") | Acknowledge, and both items stay Merged with the note | P, A |
 | `background.retry` (**Retry**) / `background.dismiss` (**Dismiss**) | Home card: a failed background run | Retry the run, or remove it from the home card (its record stays) | P, A |
 | `main.reset-to-github` (**Reset to GitHub main**) | Needs you: `main` rewritten on GitHub (§6.3) | Accept the rewritten `main`; the stack rebases onto it | Owner only |
-| `image.add` (**Add to machine image**) | Machine setup: a missing system package | Propose the package as a change to the image declaration (M-29). It becomes a TODO reviewed like any other; merging stays with maintainers | P, A✓ |
+| `image.add` (**Add to machine image**) | Settings; TODO: a failed step that names a missing package | Draft a TODO whose seed patch adds the package to the image declaration, `.smithers/machine.json` (M-29). Committing it follows the usual TODO rule (A✓); merging stays with maintainers | P, A |
+| `file.reapply` (**Reapply**) | File: "N edits weren't saved" | Re-add the member's unsaved edits as new attributed edits on the recovered document | P |
 
 ### B.5 System orchestration and background runs
 
