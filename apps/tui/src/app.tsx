@@ -854,14 +854,9 @@ export function App(props: AppProps) {
     panelFocus,
     width
   })
-  /** How long each answer's program ran: `ctrl+o program · 11s` beneath it. */
-  const programTimes = useMemo(
-    () =>
-      new Map(
-        [...Transcript.programs(transcript)].map((
-          [id, span]
-        ) => [id, RunCard.duration(span.startedAt, span.endedAt, 0)])
-      ),
+  /** Each answer's program hint: `ctrl+o program · 11s` beneath it. */
+  const programHints = useMemo(
+    () => new Map([...Transcript.programs(transcript)].map(([id, span]) => [id, RunCard.programHint(span)])),
     [transcript]
   )
   const settlements = useMemo(() => new Toasts.Settlements(workspace.snapshot().tabs, runs.snapshot()), [
@@ -3053,7 +3048,7 @@ export function App(props: AppProps) {
                                 selected={row.key === jumpTarget}
                                 program={Timeline.program(filter)}
                                 {...(step === undefined ? {} : { step })}
-                                {...(programTimes.has(row.item.id) ? { ran: programTimes.get(row.item.id)! } : {})}
+                                {...(programHints.has(row.item.id) ? { hint: programHints.get(row.item.id)! } : {})}
                               />
                             )}
                         </box>

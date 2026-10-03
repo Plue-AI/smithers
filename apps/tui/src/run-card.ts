@@ -33,6 +33,12 @@ export const duration = (startedAt: number, endedAt: number | undefined, now: nu
   return ms < 1000 ? `${Math.floor(ms)}ms` : `${Math.floor(ms / 1000)}s`
 }
 
+/** Beneath an answer whose turn ran a program: `ctrl+o program · 11s`, without a time under a second. */
+export const programHint = (span: Transcript.Span): string =>
+  span.endedAt - span.startedAt < 1000
+    ? "ctrl+o program"
+    : `ctrl+o program · ${duration(span.startedAt, span.endedAt, 0)}`
+
 /** Two terminal lines, including wrapping; fence delimiters stay in the opened run. */
 export const summary = (text: string, width: number): ReadonlyArray<string> => {
   const room = Math.max(1, width)

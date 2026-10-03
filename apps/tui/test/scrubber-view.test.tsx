@@ -378,10 +378,10 @@ test("an edit approval shows its changed lines, bounded, and offers the change's
 
 describe("an answer's program", () => {
   const answer = { kind: "answer" as const, id: "9", text: "Fixed add: it returned a - b; it now returns a + b." }
-  const draw = async (width: number, ran?: string) => {
+  const draw = async (width: number, hint?: string) => {
     setup = await testRender(
       <box style={{ width }}>
-        <View.Entry item={answer} now={0} tick="" expanded={false} {...(ran === undefined ? {} : { ran })} />
+        <View.Entry item={answer} now={0} tick="" expanded={false} {...(hint === undefined ? {} : { hint })} />
       </box>,
       { width, height: 6 }
     )
@@ -396,7 +396,7 @@ describe("an answer's program", () => {
   test.each([110, 80])("names Ctrl+O and the program's time, right-aligned beneath the answer at %s columns", async (
     width
   ) => {
-    const rows = await draw(width, "11s")
+    const rows = await draw(width, "ctrl+o program · 11s")
     expect(rows[0]).toContain("Fixed add")
     expect(rows[1]!.trim()).toBe("ctrl+o program · 11s")
     expect(rows[1]!.trimEnd().length).toBe(width - 2)
@@ -408,11 +408,15 @@ describe("an answer's program", () => {
     expect(rows[1]!.trim()).toBe("")
   })
 
-  test("redraws when the program's time changes", () => {
+  test("redraws when the program's hint changes", () => {
     const base = { item: answer, now: 0, tick: "", expanded: false }
-    expect(View.sameEntry({ ...base, ran: "11s" }, { ...base, ran: "11s" })).toBe(true)
-    expect(View.sameEntry({ ...base, ran: "11s" }, { ...base, ran: "12s" })).toBe(false)
-    expect(View.sameEntry(base, { ...base, ran: "1s" })).toBe(false)
+    expect(View.sameEntry({ ...base, hint: "ctrl+o program · 11s" }, { ...base, hint: "ctrl+o program · 11s" })).toBe(
+      true
+    )
+    expect(View.sameEntry({ ...base, hint: "ctrl+o program · 11s" }, { ...base, hint: "ctrl+o program · 12s" })).toBe(
+      false
+    )
+    expect(View.sameEntry(base, { ...base, hint: "ctrl+o program" })).toBe(false)
     expect(View.sameEntry({ ...base, program: false }, { ...base, program: true })).toBe(false)
   })
 })

@@ -204,8 +204,8 @@ export interface EntryProps {
   readonly step?: Scrubber.Step
   /** `/filter` shows Cells: a cell draws its program, not only what it did. */
   readonly program?: boolean
-  /** How long the program behind an answer ran, `11s`; it reads `ctrl+o program · 11s` beneath the answer. */
-  readonly ran?: string
+  /** Beneath an answer whose turn ran a program: `ctrl+o program · 11s`. */
+  readonly hint?: string
 }
 
 /** Whether a row draws the clock: an unfinished cell or call, or a shell command still running. */
@@ -227,7 +227,7 @@ const sameStep = (a: Scrubber.Step | undefined, b: Scrubber.Step | undefined): b
  */
 export const sameEntry = (a: EntryProps, b: EntryProps): boolean =>
   a.item === b.item && a.expanded === b.expanded && a.selected === b.selected && a.tone === b.tone &&
-  a.program === b.program && a.ran === b.ran &&
+  a.program === b.program && a.hint === b.hint &&
   sameStep(a.step, b.step) && (!ticking(b.item) || (a.now === b.now && a.tick === b.tick))
 
 export const Entry = memo(EntryView, sameEntry)
@@ -257,9 +257,9 @@ function EntryView(props: EntryProps) {
       return (
         <box style={{ marginBottom: 1, paddingLeft: 2, paddingRight: 2 }}>
           <markdown content={item.text} syntaxStyle={syntax} />
-          {props.ran === undefined ? null : (
+          {props.hint === undefined ? null : (
             <text fg={color.faint} wrapMode="none" style={{ alignSelf: "flex-end" }}>
-              ctrl+o program · {props.ran}
+              {props.hint}
             </text>
           )}
         </box>

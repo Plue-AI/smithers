@@ -297,3 +297,27 @@ test("a code-only final message keeps its content and operators within two physi
   expect(narrow.every((line) => stringWidth(line) <= 12)).toBe(true)
   expect(narrow.join(" ")).not.toContain("```")
 })
+
+test("an answer's program hint never shows a sub-second or missing time", () => {
+  const cell = (startedAt: number, endedAt?: number): Transcript.Item => ({
+    kind: "cell",
+    id: `c${startedAt}`,
+    index: 1,
+    prose: "",
+    source: "x",
+    status: endedAt === undefined ? "running" : "done",
+    calls: [],
+    printed: "",
+    startedAt,
+    ...(endedAt === undefined ? {} : { endedAt })
+  })
+  const hint = (...cells: ReadonlyArray<Transcript.Item>) =>
+    RunCard.programHint(
+      Transcript.programs({ ...Transcript.empty, items: [...cells, { kind: "answer", id: "a", text: "ok" }] }).get("a")!
+    )
+  expect(hint(cell(5_000))).toBe("ctrl+o program")
+  expect(hint(cell(5_000, 5_000))).toBe("ctrl+o program")
+  expect(hint(cell(5_000, 5_999))).toBe("ctrl+o program")
+  expect(hint(cell(5_000, 6_000))).toBe("ctrl+o program · 1s")
+  expect(hint(cell(5_000, 5_400), cell(6_000, 16_999))).toBe("ctrl+o program · 11s")
+})

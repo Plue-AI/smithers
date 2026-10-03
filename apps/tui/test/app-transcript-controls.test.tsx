@@ -224,7 +224,8 @@ test("Chat hides program source by default; Ctrl+O and the Cells filter each sho
   seed("Code question", "Code answer", "const sourceOnlyNeedle = 7")
   await mount(48)
   const original = records()
-  const program = /Code answer\s*\n\s+ctrl\+o program · \d+m?s\s*\n/
+  // The seeded program ran under a second, so the hint names no time.
+  const program = /Code answer\s*\n\s+ctrl\+o program *\n/
   await visibleRow("Code answer")
   expect(frame()).toMatch(program)
   expect(frame()).not.toContain("sourceOnlyNeedle")
