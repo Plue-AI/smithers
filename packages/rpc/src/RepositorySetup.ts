@@ -18,13 +18,6 @@ import { digestSync } from "./Sha256.ts"
  */
 export const REPOSITORY_JOBS = ["issues", "review", "ci", "feature", "chores"] as const
 /**
- * Same-origin setup execution API.
- *
- * @since 1.0.0
- * @category constants
- */
-export const REPOSITORY_SETUP_API = "/api/repository-setup"
-/**
  * A job whose setup does not activate any other job.
  *
  * @since 1.0.0
