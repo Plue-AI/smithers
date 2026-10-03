@@ -4,11 +4,12 @@
  */
 
 import { describe, expect, test } from "vitest"
+import { ActionSchema } from "../../src/CardAction.ts"
 import { SetupCardSchema } from "../../src/SetupCard.ts"
 import { cardContract } from "../cardContract.ts"
-import { fixtures } from "../fixtures/Setup.ts"
+import { fixtures, personOnlyFixtures } from "../fixtures/Setup.ts"
 
-cardContract("Setup", SetupCardSchema, fixtures)
+cardContract("Setup", SetupCardSchema, { ...fixtures, ...personOnlyFixtures })
 
 // Literal oracles: spec §16.2 step order, T-INS-06 states and mvp.md §6.5 model roles; never read from the schema.
 const STEP_IDS = ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"] as const
@@ -112,7 +113,7 @@ describe("Setup capacity", () => {
       memory_gb: 8,
       disk_free_gb: 18,
       capacity: 0,
-      limit: { term: "memory", fix: "Close apps to free 6 GB" }
+      limit: { term: "memory", fix: { tag: "settings", label: "Close apps to free 6 GB", args: { step: "machine" } } }
     })
   })
   test("capacity is a non-negative whole number", () => {
@@ -120,6 +121,56 @@ describe("Setup capacity", () => {
       expect(SetupCardSchema.safeParse({ ...done, this_mac: { ...done.this_mac, capacity } }).success).toBe(
         capacity === 0 || capacity === 3
       )
+    }
+  })
+})
+
+describe("Setup fix and person-only key retry", () => {
+  test.each(["", "arbitrary.command", "/settings"])("rejects fix tag %j", (tag) => {
+    const model = fixtures.no_capacity.model
+    const fix = { ...model.this_mac.limit!.fix, tag }
+    expect(
+      SetupCardSchema.safeParse({
+        ...model,
+        this_mac: { ...model.this_mac, limit: { term: "memory", fix } }
+      }).success
+    ).toBe(false)
+  })
+  test("rejects the old prose fix and non-string bound args", () => {
+    const model = fixtures.no_capacity.model
+    for (const fix of ["Close apps to free 6 GB", { tag: "settings", label: "Fix", args: { step: 1 } }]) {
+      expect(
+        SetupCardSchema.safeParse({
+          ...model,
+          this_mac: { ...model.this_mac, limit: { term: "memory", fix } }
+        }).success
+      ).toBe(false)
+    }
+  })
+  test.each(["password", "hidden", "Secret", ""])("rejects retry input kind %j", (kind) => {
+    const action = fixtures.models_failed.actions[0]!
+    expect(
+      ActionSchema.safeParse({
+        ...action,
+        input: [{ ...action.input![0], kind }]
+      }).success
+    ).toBe(false)
+  })
+  test("the person retries with an unfilled secret; agents receive no form", () => {
+    expect(fixtures.models_failed.actions).toEqual([{
+      tag: "settings.model-key",
+      label: "Retry",
+      primary: true,
+      args: { role: "jev", provider: "AI Gateway" },
+      input: [{ name: "key", label: "AI Gateway key", kind: "secret", required: true }]
+    }])
+    expect(personOnlyFixtures.models_failed_agent.actions).toEqual([])
+    for (const story of Object.values(fixtures)) {
+      for (const action of story.actions) {
+        for (const field of action.input ?? []) {
+          if (field.kind === "secret") expect(field).not.toHaveProperty("value")
+        }
+      }
     }
   })
 })

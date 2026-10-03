@@ -2,6 +2,7 @@ import { z } from "zod"
 import { SetupCardSchema, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
+import { ActionSchema } from "@smthrs/rpc/CardAction"
 
 // T-APP-03: T-INS-06 wire states are mapped only at the View boundary.
 export const InstallErrorSchema = z.object({
@@ -22,7 +23,7 @@ export const InstallModelSchema = z.object({
     blocked: z.object({ line: z.string(), fix_url: z.string().url() }).optional(),
     error: InstallErrorSchema.omit({ code: true }).extend({ code: z.string().optional() }).optional() })),
   this_mac: z.object({ memory_gb: z.number().nonnegative(), disk_free_gb: z.number().nonnegative(),
-    capacity: z.number().int().nonnegative(), limit: z.object({ term: z.string(), fix: z.string() }).optional() }),
+    capacity: z.number().int().nonnegative(), limit: z.object({ term: z.string(), fix: ActionSchema }).optional() }),
   github: z.object({ owner: z.string().optional(), signed_in: z.boolean(), app_installed: z.boolean(),
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),

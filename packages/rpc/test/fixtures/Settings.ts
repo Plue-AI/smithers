@@ -61,6 +61,21 @@ export const fixtures = {
     actions: owner,
     expect: ["smthrs login http://mac-mini.local:8080", "Machines", "TODOs per day"]
   }),
+  address_failed: story(
+    "Address apply failed; the previous bind remains active",
+    {
+      ...base,
+      address: {
+        ...base.address,
+        failed: {
+          from: "0.0.0.0:8080",
+          to: "0.0.0.0:9090",
+          reason: { class: "infra", message: "Address already in use" }
+        }
+      }
+    },
+    { actions: owner, expect: ["0.0.0.0:8080", "0.0.0.0:9090", "Address already in use"] }
+  ),
   notifications_need_https: story(
     "Notifications need HTTPS on a plain-HTTP origin",
     { ...base, notifications_need_https: true },

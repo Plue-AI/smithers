@@ -5,7 +5,7 @@
 
 import { z } from "zod"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
-import { SyncHealthSchema } from "./CardPrimitives.ts"
+import { CardErrorSchema, SyncHealthSchema } from "./CardPrimitives.ts"
 import { SetupCardSchema } from "./SetupCard.ts"
 
 /**
@@ -16,6 +16,9 @@ import { SetupCardSchema } from "./SetupCard.ts"
  * @category schemas
  */
 export const SettingsCardSchema = SetupCardSchema.extend({
+  address: SetupCardSchema.shape.address.extend({
+    failed: z.object({ from: z.string(), to: z.string(), reason: CardErrorSchema }).optional()
+  }),
   capacity: z.number().int().nonnegative(),
   parallel: z.number().int().nonnegative().optional(),
   todo_daily_admissions: z.number().int().positive().optional(),

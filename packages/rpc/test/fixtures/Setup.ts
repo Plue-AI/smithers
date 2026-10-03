@@ -152,7 +152,14 @@ export const fixtures = {
         { role: "jev", provider: "AI Gateway", key: "failed", error: "401 from the gateway" }
       ]
     },
-    { actions: [retry("models")], expect: ["Key rejected", "401 from the gateway", "Retry"] }
+    {
+      actions: [step("models", "Retry", {
+        tag: "settings.model-key",
+        args: { role: "jev", provider: "AI Gateway" },
+        input: [{ name: "key", label: "AI Gateway key", kind: "secret", required: true }]
+      })],
+      expect: ["Key rejected", "401 from the gateway", "AI Gateway key", "Retry"]
+    }
   ),
   source_running: story("Copying the source", { ...done, steps: steps(5, { source: { state: "running", pct: 45 } }) }, {
     expect: ["smithers"]
@@ -176,10 +183,17 @@ export const fixtures = {
         memory_gb: 8,
         disk_free_gb: 18,
         capacity: 0,
-        limit: { term: "memory", fix: "Close apps to free 6 GB" }
+        limit: { term: "memory", fix: { tag: "settings", label: "Close apps to free 6 GB", args: { step: "machine" } } }
       }
     },
     { expect: ["Close apps to free 6 GB"] }
   ),
   done: story("Setup done", done, { expect: ["https://smithers.example.test", "Cerebras"] })
+} satisfies Record<string, Story<SetupCard>>
+
+// Key entry is person-only; the agent projection carries no retry form.
+export const personOnlyFixtures = {
+  models_failed_agent: story("A rejected key viewed by an agent", fixtures.models_failed.model, {
+    expect: ["Key rejected", "401 from the gateway"]
+  })
 } satisfies Record<string, Story<SetupCard>>
