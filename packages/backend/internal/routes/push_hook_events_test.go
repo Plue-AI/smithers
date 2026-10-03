@@ -76,7 +76,7 @@ func postAndProcess(t *testing.T, h *InternalPushHookHandler, rec *httptest.Resp
 	before := len(store.snapshot())
 	h.PostPushEvent(rec, req)
 	for i, row := range store.snapshot()[before:] {
-		_ = h.ProcessRepoPushEvent(context.Background(), pushEventFromInsert(int64(before+i+1), row), nil)
+		_ = h.ProcessRepoPushEvent(context.Background(), pushEventFromInsert(int64(before+i+1), row), nil, nil)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestProcessRepoPushEvent_RetryRunsOnlyFailedSteps(t *testing.T) {
 		mu.Unlock()
 		return nil
 	}
-	err := h.ProcessRepoPushEvent(context.Background(), event, markStep)
+	err := h.ProcessRepoPushEvent(context.Background(), event, markStep, nil)
 	require.ErrorIs(t, err, indexErr)
 	assert.ElementsMatch(t, []string{PushStepWebhooks, PushStepWorkflows}, marked)
 	assert.Equal(t, 1, dispatches)
@@ -193,7 +193,7 @@ func TestProcessRepoPushEvent_RetryRunsOnlyFailedSteps(t *testing.T) {
 	indexer.err = nil
 	dispatcher.dispatchedType = ""
 	marked = nil
-	require.NoError(t, h.ProcessRepoPushEvent(context.Background(), event, markStep))
+	require.NoError(t, h.ProcessRepoPushEvent(context.Background(), event, markStep, nil))
 	assert.Equal(t, []string{PushStepSearchIndex}, marked)
 	assert.Equal(t, 1, dispatches, "a retried event must not dispatch workflows twice")
 	assert.Empty(t, dispatcher.dispatchedType, "a retried event must not enqueue webhooks twice")
@@ -206,7 +206,7 @@ func TestProcessRepoPushEvent_UnrecordedStepFailsEvent(t *testing.T) {
 
 	h := &InternalPushHookHandler{RepoResolver: &mockPushHookRepoResolver{}, Dispatcher: &mockPushHookDispatcher{}}
 	err := h.ProcessRepoPushEvent(context.Background(), db.RepoPushEvent{RepositoryID: 101, Owner: "alice", Repo: "demo"},
-		func(context.Context, string) error { return errors.New("claim lost") })
+		func(context.Context, string) error { return errors.New("claim lost") }, nil)
 	require.ErrorContains(t, err, "claim lost")
 }
 

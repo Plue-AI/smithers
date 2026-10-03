@@ -73,7 +73,7 @@ func TestSystemCredentialPushNeverSavesWorkflowCachesPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, events, 1)
 		assert.Equal(t, push.credential, events[0].PusherCredential)
-		require.NoError(t, hook.ProcessRepoPushEvent(ctx, events[0], nil))
+		require.NoError(t, hook.ProcessRepoPushEvent(ctx, events[0], nil, nil))
 
 		var runID int64
 		var trigger string

@@ -223,7 +223,7 @@ func TestInternalPushHookHandler_ProcessRepoPushEvent_SlowHistoryDoesNotBlockWor
 	}
 	event := db.RepoPushEvent{ID: 1, RepositoryID: 101, Owner: "alice", Repo: "demo", RefName: "refs/heads/main", CommitSha: "abc", PusherID: 42}
 	processed := make(chan error, 1)
-	go func() { processed <- handler.ProcessRepoPushEvent(context.Background(), event, nil) }()
+	go func() { processed <- handler.ProcessRepoPushEvent(context.Background(), event, nil, nil) }()
 
 	select {
 	case recordCtx := <-started:

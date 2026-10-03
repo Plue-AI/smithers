@@ -39,8 +39,11 @@ type RepoPushEventWorkerQuerier interface {
 
 // RepoPushEventProcessor runs the side effects of one push event, skipping
 // steps already in event.StepsDone and calling markStep after each success.
+// It calls releaseSlot once only a slow step it may wait on remains; the job
+// then keeps its claim and heartbeat but frees its worker slot, so pushes to
+// other repositories are still claimed.
 type RepoPushEventProcessor interface {
-	ProcessRepoPushEvent(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error) error
+	ProcessRepoPushEvent(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error, releaseSlot func()) error
 }
 
 // RepoPushEventWorker drains repo_push_events: webhooks, change sync,
@@ -118,8 +121,9 @@ func (w *RepoPushEventWorker) PollOnce(ctx context.Context) error {
 		w.running.Add(1)
 		go func(event db.RepoPushEvent) {
 			defer w.running.Done()
-			defer func() { <-w.slots }()
-			w.runJob(ctx, event)
+			releaseSlot := sync.OnceFunc(func() { <-w.slots })
+			defer releaseSlot()
+			w.runJob(ctx, event, releaseSlot)
 		}(event)
 	}
 	return nil
@@ -128,7 +132,7 @@ func (w *RepoPushEventWorker) PollOnce(ctx context.Context) error {
 // Wait blocks until every job PollOnce started has finished.
 func (w *RepoPushEventWorker) Wait() { w.running.Wait() }
 
-func (w *RepoPushEventWorker) runJob(ctx context.Context, event db.RepoPushEvent) {
+func (w *RepoPushEventWorker) runJob(ctx context.Context, event db.RepoPushEvent, releaseSlot func()) {
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	heartbeatDone := make(chan struct{})
@@ -153,7 +157,7 @@ func (w *RepoPushEventWorker) runJob(ctx context.Context, event db.RepoPushEvent
 				err = fmt.Errorf("panic: %v", r)
 			}
 		}()
-		err = w.processor.ProcessRepoPushEvent(jobCtx, event, markStep)
+		err = w.processor.ProcessRepoPushEvent(jobCtx, event, markStep, releaseSlot)
 	}()
 	cancel()
 	<-heartbeatDone

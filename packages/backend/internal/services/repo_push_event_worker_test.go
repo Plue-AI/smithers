@@ -83,7 +83,7 @@ type fakeRepoPushEventProcessor struct {
 	process func(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error) error
 }
 
-func (p fakeRepoPushEventProcessor) ProcessRepoPushEvent(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error) error {
+func (p fakeRepoPushEventProcessor) ProcessRepoPushEvent(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error, _ func()) error {
 	return p.process(ctx, event, markStep)
 }
 

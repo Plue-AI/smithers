@@ -94,6 +94,8 @@ type InternalPushHookHandler struct {
 	SearchIndex    PushHookSearchIndexer
 	ChangeRecorder PushHookChangeRecorder
 	Events         PushEventStore
+
+	changeSyncs changeSyncCoalescer
 }
 
 type PushHookEventRequest struct {
@@ -196,7 +198,9 @@ func (h *InternalPushHookHandler) PostPushEvent(w http.ResponseWriter, r *http.R
 // already in event.StepsDone. The steps run concurrently so a slow history
 // import cannot delay workflow dispatch. markStep is called after each step
 // succeeds; the returned error joins the failures of the remaining steps.
-func (h *InternalPushHookHandler) ProcessRepoPushEvent(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error) error {
+// releaseSlot, when set, is called once every step but the change sync has
+// finished, so a job waiting only on a slow sync stops holding a worker slot.
+func (h *InternalPushHookHandler) ProcessRepoPushEvent(ctx context.Context, event db.RepoPushEvent, markStep func(context.Context, string) error, releaseSlot func()) error {
 	req := PushHookEventRequest{
 		DeliveryID:  event.DeliveryID,
 		Owner:       event.Owner,
@@ -225,13 +229,17 @@ func (h *InternalPushHookHandler) ProcessRepoPushEvent(ctx context.Context, even
 	}
 
 	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		errs []error
+		fast, changes sync.WaitGroup
+		mu            sync.Mutex
+		errs          []error
 	)
 	for name, run := range steps {
 		if slices.Contains(event.StepsDone, name) {
 			continue
+		}
+		wg := &fast
+		if name == PushStepChanges {
+			wg = &changes
 		}
 		wg.Add(1)
 		go func() {
@@ -247,7 +255,11 @@ func (h *InternalPushHookHandler) ProcessRepoPushEvent(ctx context.Context, even
 			}
 		}()
 	}
-	wg.Wait()
+	fast.Wait()
+	if releaseSlot != nil {
+		releaseSlot()
+	}
+	changes.Wait()
 	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 	return stdErrors.Join(errs...)
 }
@@ -291,18 +303,88 @@ func acquirePushSlot(ctx context.Context, slots chan struct{}) (func(), error) {
 	}
 }
 
+// handleChangesForPush waits for a full change sync of the repository that
+// starts after this call. RecordPush syncs every change, so pushes queued
+// behind a running sync share the one sync that runs next.
 func (h *InternalPushHookHandler) handleChangesForPush(ctx context.Context, repoID int64, owner, repo string) error {
-	ctx, cancel := context.WithTimeout(ctx, pushChangeSyncTimeout)
-	defer cancel()
-	release, err := acquirePushSlot(ctx, pushChangeSyncSlots)
-	if err != nil {
-		return err
+	run := h.changeSyncs.join(ctx, repoID, func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, pushChangeSyncTimeout)
+		defer cancel()
+		release, err := acquirePushSlot(ctx, pushChangeSyncSlots)
+		if err != nil {
+			return err
+		}
+		defer release()
+		if err := h.ChangeRecorder.RecordPush(ctx, repoID, owner, repo); err != nil {
+			return fmt.Errorf("change revision sync: %w", err)
+		}
+		return nil
+	})
+	select {
+	case <-run.done:
+		return run.err
+	case <-ctx.Done():
+		return fmt.Errorf("wait for change sync: %w", ctx.Err())
 	}
-	defer release()
-	if err := h.ChangeRecorder.RecordPush(ctx, repoID, owner, repo); err != nil {
-		return fmt.Errorf("change revision sync: %w", err)
+}
+
+// changeSyncCoalescer runs at most one change sync per repository and queues
+// at most one more: every caller that arrives while a sync runs joins the
+// next one. Syncs run detached from callers so one caller giving up does not
+// cancel the sync the others wait on. The zero value is ready to use.
+type changeSyncCoalescer struct {
+	mu    sync.Mutex
+	repos map[int64]*repoChangeSyncs
+}
+
+type repoChangeSyncs struct {
+	running, next *changeSyncRun
+}
+
+type changeSyncRun struct {
+	ctx  context.Context
+	fn   func(context.Context) error
+	done chan struct{}
+	err  error
+}
+
+func (c *changeSyncCoalescer) join(ctx context.Context, repoID int64, fn func(context.Context) error) *changeSyncRun {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.repos == nil {
+		c.repos = map[int64]*repoChangeSyncs{}
 	}
-	return nil
+	runs := c.repos[repoID]
+	if runs == nil {
+		runs = &repoChangeSyncs{}
+		c.repos[repoID] = runs
+	}
+	if runs.running == nil {
+		runs.running = &changeSyncRun{ctx: context.WithoutCancel(ctx), fn: fn, done: make(chan struct{})}
+		go c.execute(repoID, runs.running)
+		return runs.running
+	}
+	if runs.next == nil {
+		runs.next = &changeSyncRun{done: make(chan struct{})}
+	}
+	// The latest caller's repository coordinates are the freshest.
+	runs.next.ctx, runs.next.fn = context.WithoutCancel(ctx), fn
+	return runs.next
+}
+
+func (c *changeSyncCoalescer) execute(repoID int64, run *changeSyncRun) {
+	run.err = runPushStep(run.ctx, PushStepChanges, run.fn)
+	close(run.done)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	runs := c.repos[repoID]
+	runs.running, runs.next = runs.next, nil
+	if runs.running == nil {
+		delete(c.repos, repoID)
+		return
+	}
+	go c.execute(repoID, runs.running)
 }
 
 func (h *InternalPushHookHandler) handleSearchIndexForPush(ctx context.Context, repoID int64, req PushHookEventRequest) error {
