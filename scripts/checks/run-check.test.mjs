@@ -528,7 +528,7 @@ test("platform receipts and required architecture distinguish Mac and other host
     assert.equal((await probePrerequisite("darwin-arm64", { ...config, os, arch })) === null, passes)
   }
   assert.equal(await probePrerequisite("build-budget", { ...config, guard: async (root, builds) => { assert.equal(root, ROOT); assert.equal(builds, true); return null } }), null)
-  const unknown = await hostProfile(async () => ({ ...goodRun, stdout: "" }), ROOT)
+  const unknown = await hostProfile(async () => ({ ...goodRun, stdout: "" }), ROOT, { os: "darwin" })
   assert.equal(unknown["hw.model"], "unknown")
   const linux = await hostProfile(execute, ROOT, { os: "linux", processors: [{ model: "fixture-cpu" }], memory: 1234, hostId: "fixture", osRelease: "fixture-release", arch: "x64" })
   assert.equal(linux["hw.model"], "fixture-cpu")
