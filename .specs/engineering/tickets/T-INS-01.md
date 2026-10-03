@@ -3,6 +3,7 @@
 Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T-INS-02, T-INS-03, T-INS-05, T-INS-08, T-REL-02, T-TRM-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
 Spec: spec.md §1.2, §16.1.0, §16.1.1 · Product: mvp.md J1.1, §6.1, §11 stage 1 item 1, M-10
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §5). Restored code is not new code.
+Ready: 2026-10-03 smithers-8a sha256:bc6bed23a1c7
 
 ## Goal
 One command in a clean checkout produces a digest-matched, relocatable darwin-arm64 server bundle. Launcher readiness belongs to T-INS-02.
@@ -28,7 +29,7 @@ Out: Electrobun `.app`, the CEF matrix, `electrobun.config.ts`, `NativeApp.ts`, 
 ## Tests
 - Unit (restored test): refuses a missing or short `SMITHERS_BUILD_SHA`, PostgreSQL other than 18, Node outside 26.4+, `msb` other than 0.6.16, and a binary linking a non-system dylib.
 - Unit: a file with no manifest entry, or a hash mismatch, fails the manifest check.
-- Integration: build from a clean checkout, verify the manifest and move the bundle to a different prefix. Require `bin/msb`, `lib/libkrunfw.5.dylib`, `share/microsandbox/{smithers-guest.py,base-image.oci.tar,base-image.json}` and `manifest.json`; every payload digest matches and executable/library paths resolve inside the relocated bundle or OS. No launcher start is required to land assembly.
+- Integration apps/app/scripts/server-bundle.integration.test.ts (new): invoke production smthrs build //apps/app:serverBundle and relocate the output. Literal bundle-layout/version/refusal fixtures and independent file hashes/linkage observations define expectations, never spec or assembler code. Run as build user with no sudo/guest startup. Check: C-INS-05.
 
 ## Acceptance
 - [C-INS-05](../checks/C-INS-05.md): assembly steps 1–3 and the layout/relocation assertion pass; startup steps 4–7 belong to T-INS-02.
@@ -38,3 +39,11 @@ Out: Electrobun `.app`, the CEF matrix, `electrobun.config.ts`, `NativeApp.ts`, 
 - The jj stage compiles with cargo; cache the binary by revision if the build exceeds 30 min.
 - `msb` may refuse a local OCI archive. Fallback: load it into `msb`'s image store at first start.
 - Open (Will): release builds need a macOS arm64 builder; where they run is undecided.
+
+## Ready checklist
+1. No first-merge ticket edge; clean darwin-arm64 builder/pinned tools/PG18 required. Will selects release builder.
+2. Out of scope explicitly includes desktop/CEF, formula/signing/launchd, runtime startup, new platform/image recipes and privileged installation.
+3. C-INS-05: production smthrs build //apps/app:serverBundle and relocation. Commit literal layout/step/state/SHA/status/error/UID/role/secret fixtures; independent hashes and external effect logs supply expectations, never runtime spec/production oracles. Later checks run only with their providers.
+4. smithers-b8 accepts apps/CLI/API; smithers-38 accepts packages TypeScript/public schemas; smithers-3f accepts Go/infra/security; smithers-06 accepts touched View/navigation contracts; smithers-8a accepts shared/schema/Plue seams. Will decides product-policy exceptions.
+5. smithers-b8: Is restoration desktop-free and layout correct? smithers-38: Are target/host contracts preserved? smithers-3f: Are pins/release steps reproducible and unprivileged? No answers recorded.
+6. Assembly/OAuth/cards introduce no root step. Host processes are unprivileged; no sudo lane plist. Execution consumers inherit the complete R1–R5 inventories and named production tests in T-INS-02/T-INS-06/T-STK-01; smithers-3f accepts receipts. M-29 confines code to unprivileged machines; unvalidated branch data blocks and branch-built root code is forbidden.

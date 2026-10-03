@@ -1,6 +1,6 @@
 # T-APP-11 File and Diff cards reload on change; deleted/renamed states; Restore this file; language server on the daemon
 
-Stage S2 · Size M · Depends on T-COL-04, T-APP-15, T-UI-16, T-APP-22, T-APP-09, T-CAT-01, T-ACC-03, T-COL-02, T-TRM-07, T-MCH-11, T-MCH-07, T-TRM-03, T-STK-12, T-MCH-08 · Unblocks T-APP-10, T-APP-14, T-APP-14a, T-REL-02 · Issue: [#3556](https://github.com/smithersai/smithers/issues/3556)
+Stage S2 · Size M · Depends on T-COL-04, T-APP-15, T-UI-16, T-APP-22, T-APP-09, T-CAT-01, T-ACC-03, T-COL-02, T-TRM-07, T-MCH-11, T-MCH-07, T-TRM-03, T-STK-12, T-MCH-08 · Unblocks T-APP-10, T-APP-14, T-APP-14a, T-REL-01, T-REL-02 · Issue: [#3556](https://github.com/smithersai/smithers/issues/3556)
 Spec: spec.md §7.2 (`branch:<id>:files`), §7.6, §8.4.4, §9.1.2 (`read_file`, `write_file`), §9.2 (stage-2 paragraph), §9.2.6, §9.3.4, §12.5.1, §14.3 (File, Diff), §18 · Delta: delta.md §4 (daemon and live layer), §9 (reshape existing card files and actions) · Product: mvp.md J3.2, J3.4, §6.8 External changes, Live updates, M-02, M-27, Appendix A `/file`, `/files`, `/diff`
 Ready: 2026-10-03 smithers-8a sha256:b743a8042902
 

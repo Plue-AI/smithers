@@ -2,6 +2,7 @@
 
 Stage S2 · Size M · Depends on T-COL-04, T-COL-03, T-COL-03a, T-COL-03r, T-STK-01, T-MCH-04, T-COL-10 (S2), T-CAT-01, T-COL-02, T-TRM-07 · Unblocks T-APP-10, T-COL-08, T-REL-02 · Issue: [#3562](https://github.com/smithersai/smithers/issues/3562)
 Spec: spec.md §3 (`workspaces`; moved-off branch fact), §4.1 (working → needs_you), §6.1.2 (`in-card`), §9.1.2 (`return_to_item`), §9.3.2–9.3.4, §9.3.8, §9.4.2, §10.8, §14.5.2 · Delta: delta.md §4 (moved-off detection) · Product: mvp.md §6.8 External changes, M-27, M-14
+Ready: 2026-10-03 smithers-8a sha256:f4c4d5958fb1
 
 ## Goal
 

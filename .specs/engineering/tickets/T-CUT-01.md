@@ -2,6 +2,7 @@
 
 Stage S1 · Size L · Depends on — · Unblocks T-CUT-02, T-CUT-03, T-CUT-04, T-REL-02 · Issue: [#3435](https://github.com/smithersai/smithers/issues/3435)
 Spec: spec.md §6.1.2, §6.1.3, §14.2 · Delta: delta.md §10 (Delete app rows; Modify AGENTS.md), §11 (AGENTS.md conflicts) · Product: mvp.md §8 (Cut rows), Appendix B (B.1, B.2 Cut rows), §12 release item 3, M-12, §13 (strategy reconciliation)
+Ready: 2026-10-03 smithers-8a sha256:4712d7f5eb93
 
 ## Goal
 None of the app surfaces mvp.md §8 or Appendix B marks **Cut** exist in the app's source, renderers, flows or specs, so T-CAT-01's allowlist test passes. AGENTS.md describes the MVP scope that mvp.md §8 sets.

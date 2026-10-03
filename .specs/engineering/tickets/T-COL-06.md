@@ -1,7 +1,8 @@
 # T-COL-06 Presence on the existing `BranchPresence` lease roster
 
-Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-03r, T-COL-03, T-ACC-02, T-ACC-03 · Unblocks T-AGT-02, T-APP-10, T-REL-02, T-REL-03, T-STK-08, T-TRM-02 · Issue: [#3563](https://github.com/smithersai/smithers/issues/3563)
+Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-03r, T-COL-03, T-ACC-02, T-ACC-03 · Unblocks T-AGT-02, T-APP-10, T-MCH-06, T-REL-02, T-REL-03, T-STK-08, T-TRM-02 · Issue: [#3563](https://github.com/smithersai/smithers/issues/3563)
 Spec: spec.md §2 (Presence, actor notation), §5.6, §7.3.0–7.3.2, §7.6 (row 4), §8.4.1, §14.3 (Branch) · Delta: delta.md §4 (presence row) · Product: mvp.md J3.2–J3.3, §6.8 Presence, M-17, M-34
+Ready: 2026-10-03 smithers-8a sha256:bce2501ce929
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §4): reuse the existing lease roster; no new presence system and no Pair presence beside it.
 

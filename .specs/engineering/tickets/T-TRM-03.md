@@ -1,6 +1,6 @@
 # T-TRM-03 SSH gateway: branch usernames, member users, sftp, port forwarding
 
-Stage S2 · Size L · Depends on T-MCH-06, T-MCH-11, T-INS-04, T-COL-03, T-TRM-07 · Unblocks T-APP-10, T-APP-11, T-COL-08, T-REL-02 · Issue: [#3575](https://github.com/smithersai/smithers/issues/3575)
+Stage S2 · Size L · Depends on T-MCH-06, T-MCH-11, T-INS-04, T-COL-03, T-TRM-07 · Unblocks T-APP-10, T-APP-11, T-COL-08, T-REL-01, T-REL-02 · Issue: [#3575](https://github.com/smithersai/smithers/issues/3575)
 Spec: spec.md §1.4, §8.10, §8.3 (person class), §8.4.1, §9.1.2 (`open_session`, `tcp_connect`), §9.6, §5.6, §16.3 · Delta: delta.md §5 (SSH server row) · Product: mvp.md J3.2, J3.4, J10.3, §6.15 SSH into a branch, Appendix A `/ssh`, M-24, M-28, M-29
 
 ## Goal

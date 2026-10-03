@@ -1,18 +1,19 @@
 # T-APP-02 TODO card and Draft card
 
-Stage S1 · Size M · Depends on first merge: T-STK-01; rest of S1: T-STK-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-ACC-02, T-APP-16, T-APP-04, T-APP-09, T-UI-03, T-UI-04, T-GH-06, T-FLW-07, T-MCH-10, T-APP-15 · Unblocks T-APP-01, T-APP-03, T-APP-05, T-REL-02 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
+Stage S1 · Size M · Depends on first merge: T-STK-01, T-STK-04; rest of S1: T-STK-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-ACC-02, T-APP-16, T-APP-04, T-APP-09, T-UI-03, T-UI-04, T-GH-06, T-FLW-07, T-MCH-10, T-APP-15 · Unblocks T-APP-01, T-APP-03, T-APP-05, T-FLW-06, T-FLW-10, T-REL-02 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
 Spec: spec.md §14.2, §14.3 (TODO, Draft), §5.6, §8.6.1, §14.5.1, §4.1, §6.1.4, §6.2.1–6.2.2, §10.2, §10.4, §10.5.4, §10.6, §10.7, §10.8, §12.3, §12.5.1, §15.1.5, §19.3 · Product: mvp.md J2, J4, J9, §4.1, §4.2, §6.6 TODO card, Appendix A "TODOs and the stack"
+Ready: 2026-10-03 smithers-8a sha256:47e1d03944fe
 
 ## Goal
 A member opens `/todo Tn` and sees the TODO's prompt, place, flow progress, every open wait, failure or evidence, and acts on it from the card; `/todo.new` and "make that a TODO" open a Draft card that commits a placed TODO exactly once.
 
 ## Scope
-First merge: Mount TodoContainer through its card file over T-STK-01 routes; retain existing Draft/append and evidence paths. Take over and image.add wait for rest of S1. Check: C-J1-04.
+First merge: Mount TodoContainer through its card file over T-STK-01 routes; retain existing Draft/append and evidence paths. Take over and image.add wait for rest of S1. Check: C-J1-04. First merge retains browser-private Draft/landed refresh paths; shared-card persistence and Settings replacement activate only with their later providers. Check: C-J1-04.
 Later dependency integrations land dark until their providers and phase checks pass.
 In:
 - `todo` card: title, state word (Queued with its position, Starting, Working with its step, §4.1), owner; place and linked issue; prompt and acceptance while Queued or Dropped, step strip otherwise, "+n" amendments.
 - Needs you by kind (§10.8.1): Answer inline (`/todo.answer Tn`); after the first answer "Ben answered …"; a late submitter's `409 {answered_by}` keeps their text with **Send as steer**. `foreign_push` shows **Bring in** and **Discard** (§12.3). A conflict shows conflicted files, the terminal and SSH line, and **Done** (§10.5.4).
-- Failure: "<step> failed", message, Retry (`/todo.retry Tn`). Evidence of the current attempt (§10.4.3): PR link, diff stat, checks, review summary, included items, "approval cleared by rebase". The PR/diff/merge section stays unavailable until T-GH-03 supplies PR data; its handlers refuse `503 infra/pr_projection_unavailable` before any effect, with no fake PR URL, diff or head.
+- First merge retains landed PR/evidence and binds session Merge to T-STK-04. Expanded projections wait for T-GH-03; unavailable data refuses before effects with 503 infra/pr_projection_unavailable, never fabricated URL/head. Check: C-J1-04.
 - Merge (`/merge Tn` with the head sha) only for the first item and a viewer who may merge, from `merge_block` (§10.6.2a); otherwise its reason.
 - Open branch, Inspect, Stop, Resume, Drop (confirm). Stop parks the run in a durable wait; Resume continues it; Retry starts a new attempt and keeps the earlier one's evidence.
 - **Edit** while Queued (mvp.md §6.6): Save runs `/todo.amend Tn {prompt, acceptance}` with one `Idempotency-Key`, appends revision n+1 and creates no TODO.
@@ -20,13 +21,13 @@ In:
 - **Add to machine image** (`image.add`) on a failure naming a missing package (`failure.missing_tool`): reads `main:.smithers/machine.json` (absent means `{"packages": []}`), validates the §8.6.1 rules, keeps package order and opens a private Draft whose read-only seed touches only that file. This ticket owns the shared command; T-APP-03 binds Settings to it.
 - `draft` card (§14.3 Draft): Title, Prompt, Acceptance, Place (Append, Before Tn, Amend Tn), "Closes #i" from an issue, read-only seed, Discard and Commit. Private to its author until Commit, which clears the audience in the transaction that creates the TODO; one `Idempotency-Key` per Commit (§6.2.1).
 - Commands `/todo.new`, `/todo Tn`, `/todo.answer`, `/todo.steer`, `/todo.amend`, `/todo.stop`, `/todo.resume`, `/todo.retry`, `/todo.drop`, three doors each. Commit, amend and drop are `agent: confirm` (T-APP-04).
-- J9: an answer offers **Make TODO** and **Save to wiki** (`/wiki.save` over `wiki.cloud.new`, `flows/entries/wiki.ts:50`, not the refresh in `app-operations/wiki.ts:53`).
+- J9: an answer offers **Make TODO** and **Save to wiki** (`/wiki.save` over `wiki.cloud.new`, `flows/entries/wiki.ts:49`, not the refresh in `app-operations/wiki.ts:53`).
 - Queue reason `daily_limit` and the daily-budget pause render as on Home (T-APP-01). Check: C-STK-06.
 
 Out: `/todo.from-issue` (T-STK-09); state transitions, placement and steer delivery (T-STK-01/02/05/06/08); merge execution (T-STK-04); Confirm (T-APP-04); line comments; notifications (T-APP-18); S2 Branch card and moved-off controls (T-COL-05, T-APP-10); package installation and host execution of seeds.
 
 ## Changes
-- `cards/TodoContainer.tsx` and `cards/DraftContainer.tsx` (landed, 96aed3b0a) are the card files. They map `TodoSeam`'s entries to `TodoView` and the landed `DraftView` (f18e88958..c60db0f4b) props and bind actions with `flows/cardActions.ts`. Remove `todo` and `draft` from `PENDING_CARD_KINDS` (`CardRenderers.tsx:58`) and render them there. Draft field edits arrive as `gestures.set` and write the private entry's `card` column through `form.set` (T-APP-16): title and prompt as strings, acceptance as a JSON string array, place as `{mode, n?}` (`n` required for before and amend, absent for append), fixes as literal `true` or `false`; anything else is a typed error.
+- Mount landed TodoContainer/DraftContainer over TodoSeam and landed TodoView/DraftView through flows/cardActions.ts; remove todo/draft from PENDING_CARD_KINDS in CardRenderers.tsx:58. Retain browser-private Draft edits through gestures.set/existing seam, without T-APP-16 shared-card writes. Validate title/prompt strings, acceptance string arrays, place {mode,n?} and fixes booleans before Commit. Checks: C-J1-04, C-UI-13.
 - `state/seams/TodoSeam.ts` (landed): it calls `/api/todos` and `/api/todos/{n}/{operation}` (`:126-127`), which no route serves today (only `POST /mythical/todos`, `compose/router.go:1134`). Point it at T-STK-01's routes. Toasts settle on the TODO's terminal event (§6.2.2).
 - `flows/entries/todo.ts` (landed): add `todo.retry-current-flow` and `todo.takeover`.
 - Delete StackSeam's TODO paths (`fileTodo`, `StackSeam.ts:77`, and its `POST /mythical/todos` client) and the `history.view`, `history.todo` and `history.retry` entries in `flows/entries/history.ts`, `FlowArgs.ts:46-49,199-202` and `FlowName.ts:139-143`, with their `StackCard.test.tsx` cases (pair: TodoView and DraftView ↔ the TODO rows in StackCard and StackSeam; minimal-code synthesis v1 §2).
@@ -59,4 +60,10 @@ Out: `/todo.from-issue` (T-STK-09); state transitions, placement and steer deliv
 - Draft text, issue content and seed diffs are data. Commit and Retry admit the TODO flow on a machine (T-FLW-11, T-INS-02; §17.3, M-29), with no host import, shell or package install. smithers-3f reviews that boundary.
 
 ## Ready checklist
-1. Before start, smithers-3f confirms Commit, Amend and Answer are atomic and idempotent on T-STK-01's routes. Record pre-review in #3466.
+1. T-STK-01 routes/state/evidence and T-STK-04 session Merge; landed Views/private browser Draft reused; later controls gated.
+2. Out of scope explicitly includes engine/merge implementation, Confirm/issue ingestion/new Views/comments/notifications/S2 controls/package installs/host seed execution.
+3. C-J1-04: dispatcher/CardRenderers/Todo-Draft card files/Views/composed TODO-Merge routes; C-UI-13 literal table. Commit literal layout/step/state/SHA/status/error/UID/role/secret fixtures; independent hashes and external effect logs supply expectations, never runtime spec/production oracles. Later checks run only with their providers.
+4. smithers-b8 accepts apps/CLI/API; smithers-38 accepts packages TypeScript/public schemas; smithers-3f accepts Go/infra/security; smithers-06 accepts touched View/navigation contracts; smithers-8a accepts shared/schema/Plue seams. Will decides product-policy exceptions.
+5. smithers-b8: Do Draft/evidence/Merge work with later controls disabled? smithers-06: Are state/gesture props preserved? smithers-38: Are rpc/MachineJson exports sound? smithers-3f: Are enabled writes atomic/idempotent and seeds data only? Record #3466; no answers recorded.
+6. Assembly/OAuth/cards introduce no root step. Host processes are unprivileged; no sudo lane plist. Execution consumers inherit the complete R1–R5 inventories and named production tests in T-INS-02/T-INS-06/T-STK-01; smithers-3f accepts receipts. M-29 confines code to unprivileged machines; unvalidated branch data blocks and branch-built root code is forbidden.
+

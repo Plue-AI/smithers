@@ -1,6 +1,6 @@
 # T-TRM-01 Terminals run as their owner; only the owner types
 
-Stage S2 · Size S · Depends on T-MCH-11, T-COL-03, T-TRM-07 · Unblocks T-AGT-02, T-APP-12, T-REL-02, T-TRM-02, T-TRM-05 · Issue: [#3574](https://github.com/smithersai/smithers/issues/3574)
+Stage S2 · Size S · Depends on T-MCH-11, T-COL-03, T-TRM-07 · Unblocks T-AGT-02, T-APP-12, T-REL-01, T-REL-02, T-TRM-02, T-TRM-05 · Issue: [#3574](https://github.com/smithersai/smithers/issues/3574)
 Spec: spec.md §2 (Terminal), §3 (`terminals`), §7.1, §7.5, §8.11, §8.4.1, §9.1.2 (`open_session`), §5.6 · Delta: delta.md §3 (per-member users row), §5 (terminal sessions row) · Product: mvp.md J3.3, J6.5, §6.8 Terminals, M-18
 
 ## Goal

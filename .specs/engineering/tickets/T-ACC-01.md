@@ -3,6 +3,7 @@
 Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T-ACC-02, T-ACC-03, T-FLW-08, T-GH-01, T-INS-02, T-INS-04, T-INS-06, T-INS-08, T-REL-02, T-STK-04 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
 Spec: spec.md §5.1.0–§5.1.2, §3 (`collaborators`, `install_settings`), §16.2 step 3, §16.3.3 · Delta: delta.md §2 (Delete row) · Product: mvp.md J1.1, J1.2, J1.8, §6.2, M-05, M-17
 Edited by the minimal-code synthesis, 2026-10-03 (v2 ruling 1; v1 §6): owner and members live on `collaborators`; GH-01's second setup login is deleted here.
+Ready: 2026-10-03 smithers-8a sha256:c5d777feb3ed
 
 ## Goal
 On a fresh install the first GitHub sign-in from a setup session becomes the owner, on any known origin, and that owner can do only setup until GitHub confirms push access on the chosen repository. Every later sign-in is checked against the roster and live GitHub push permission, and no password or local-auth route exists. This ticket is on the thin path and starts on day 1.
@@ -30,13 +31,13 @@ Out:
 ## Changes
 - Reuse `self_host_owners` (`0004_single_owner_identity.sql:3`) as the one-owner record; the claim also inserts the owner's `collaborators` row through the uncalled `AddCollaborator` (`queries/repos.sql:313`). T-ACC-02 adds the `github_id`, `unix_uid` and `suspended_at` columns. Drop only `local_credentials` (`0004:9`).
 - Reuse `services/install_setup_session.go` and the cookie exchange in `routes/github_app_setup.go` as the only setup login; T-ACC-01 owns expiry and claim invalidation. Keep the manifest and sealed App credentials.
-- Reshape the existing bootstrap token: backend mint, constant-time verification, digest in `install_settings`, single-use owner claim. Keep the launcher’s bootstrap-token handling; extend the existing setup-session service for expiry and atomic claim invalidation.
-- `packages/backend/internal/services/auth.go:599-621` (`resolveOAuthUser`): in install mode, stop refusing "external identity is not linked to the installation owner". Load or create the `users` row, then call the gate in `members.go`. The setup-session cookie, on the callback's effective origin (§16.3.3), identifies the setup session. The token never appears in the OAuth `state` or in any URL after the exchange.
+- Backend mint/claim share pg_advisory_xact_lock(installSetupOwnerLockID); emit one newline-terminated {"setup_urls":[...]} line only after digest commit while no owner exists. Extend existing sessions for expiry/claim invalidation. T-INS-02 relays; T-INS-08 adds file handoff; no second minter. Check: C-SEC-04.
+- `packages/backend/internal/services/auth.go:573-624` (`resolveOAuthUser`): in install mode, stop refusing "external identity is not linked to the installation owner". Load or create the `users` row, then call the gate in `members.go`. The setup-session cookie, on the callback's effective origin (§16.3.3), identifies the setup session. The token never appears in the OAuth `state` or in any URL after the exchange.
 - `packages/backend/internal/services/members.go` (new; T-ACC-02 extends it over `collaborators`): `ClaimOwner(setupSession, githubUser)`, `VerifyOwner(repository)` and `AdmitSignIn` (owner check plus GitHub permission; a provisional owner skips the check and stays provisional). Reuse one permission lookup extracted from `services/github_issue_text_writer.go:144-170`; do not copy it. The lookup reads `role_name` as well as `permission`, because `maintain` reads as `write` today (`:165`).
 - Reshape `identity/single_owner.go` into the member boundary at its existing five call sites; retain the singleton owner record.
-- Delete `/api/auth/local/{status,bootstrap,login,token,password}` (`compose/router.go:919-924`) and their handlers in `routes/auth.go`; `services/local_identity.go` (including `ValidateLocalIdentityStartup`, `:73`) and its tests; `db/product/queries/local_identity.sql`; then regenerate sqlc.
+- Delete `/api/auth/local/{status,bootstrap,login,token,password}` (`compose/router.go:931-936`) and their handlers in `routes/auth.go`; `services/local_identity.go` (including `ValidateLocalIdentityStartup`, `:73`) and its tests; `db/product/queries/local_identity.sql`; then regenerate sqlc.
 - GitHub OAuth for the install keeps reading the client id and secret from `auth.github_client_id` (`config.go:362-365`) on the thin path; T-GH-01 replaces that read with `OAuthClient()`.
-- CLI: delete `smthrs auth local login|bootstrap` (`packages/smithers/src/internal/backend/Auth.ts:233-280`), the `"auth local"` group (`Commands.ts:72`), and its local-auth calls in `ProductApi.ts`.
+- CLI: delete `smthrs auth local login|bootstrap` (`packages/smithers/src/internal/backend/Auth.ts:233-280`), the `"auth local"` group (`Commands.ts:74`), and its local-auth calls in `ProductApi.ts`.
 - App: delete `apps/app/src/mainview/LocalAuthPanel.tsx` and its test, and its use in `SessionNavigation.tsx`. Remove the local branch of `state/IdentityProvider.ts` and `packages/rpc/src/ApplicationAuth.ts`. Sign-in is one "Sign in with GitHub" door.
 - OpenAPI: delete the `/api/auth/local/*` rows in `docs/api/openapi/authentication.yaml:425-592`, then re-bundle with `scripts/openapi-bundle.mjs`. `openapi_conformance_test.go:222` stays green.
 - Docs: replace the bootstrap-token steps in `apps/site/src/content/docs/docs/self-hosting.mdx` with the setup URL. Run `pnpm docs:sync` and `pnpm docs:check`.
@@ -67,3 +68,11 @@ Out:
 - delta.md §2 still lists the `/api/orgs*` 404 middleware for deletion. This ticket follows spec.md §5.1.0 and keeps the 404 (T-CUT-03).
 - The thin-path journey C-J1-04 needs this ticket's owner session to merge, but it isn't this ticket's check.
 - **Plue impact:** `IsSingleOwner` (`config/auth_mode.go:13`) selects the install path. Multitenant (Plue) must not change; `servedAPIRoutes` (`openapi_conformance_test.go:150`) covers both modes.
+
+## Ready checklist
+1. No first-merge edge; landed App/setup-session/OAuth/PG suffice; stdout owned here, relay later.
+2. Out of scope explicitly includes roster/full matrix/delegation, App internals/cards/steps, owner transfer, repository execution and Plue identity changes.
+3. C-ACC-04/C-SEC-04: composed /setup/OAuth start/callback, real PG/restart/GitHub fake, registered CLI/rendered sign-in. Commit literal layout/step/state/SHA/status/error/UID/role/secret fixtures; independent hashes and external effect logs supply expectations, never runtime spec/production oracles. Later checks run only with their providers.
+4. smithers-b8 accepts apps/CLI/API; smithers-38 accepts packages TypeScript/public schemas; smithers-3f accepts Go/infra/security; smithers-06 accepts touched View/navigation contracts; smithers-8a accepts shared/schema/Plue seams. Will decides product-policy exceptions.
+5. smithers-3f: Do mint/claim/expiry share durable authority? smithers-b8: Is every local door removed? smithers-38: Are rpc/client exports complete? smithers-06: Does GitHub navigation survive removal? No answers recorded.
+6. Assembly/OAuth/cards introduce no root step. Host processes are unprivileged; no sudo lane plist. Execution consumers inherit the complete R1–R5 inventories and named production tests in T-INS-02/T-INS-06/T-STK-01; smithers-3f accepts receipts. M-29 confines code to unprivileged machines; unvalidated branch data blocks and branch-built root code is forbidden.

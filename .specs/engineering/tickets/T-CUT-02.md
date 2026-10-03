@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-CUT-01 · Unblocks T-INS-06, T-REL-02 · Issue: [#3509](https://github.com/smithersai/smithers/issues/3509)
 Spec: spec.md §6.2.4, §6.3 (target surface), §17.5, §20.2 · Delta: delta.md §10 (Reshape composition cut row), §6 (Hide `history.bootstrap/backfill`) · Product: mvp.md §8 (Cut rows), §12 release item 3, §14 (kept machinery), M-09
+Ready: 2026-10-03 smithers-8a sha256:07a982bfbd2d
 
 ## Goal
 The install serves no route for a surface mvp.md §8 cuts. Every route deleted from the code is deleted from `docs/api/openapi/*.yaml` in the same change. Routes that Plue still serves are unmounted in the install composition only, and their OpenAPI rows carry `x-composition: plue` (§6.2.4).

@@ -1,6 +1,6 @@
 # T-STK-12 Candidate generations: capture, propose receipts, pending work, the item's prefix
 
-Stage S1 · Size M · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-APP-11, T-APP-17, T-COL-03, T-FLW-11, T-GH-03, T-GH-09, T-MCH-08, T-REL-02, T-STK-02, T-STK-04, T-STK-06, T-STK-08 · Issue: [#3533](https://github.com/smithersai/smithers/issues/3533)
+Stage S1 · Size M · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-APP-11, T-APP-17, T-COL-03, T-FLW-11, T-GH-03, T-GH-04, T-GH-09, T-MCH-08, T-REL-02, T-STK-02, T-STK-04, T-STK-06, T-STK-08 · Issue: [#3533](https://github.com/smithersai/smithers/issues/3533)
 Spec: spec.md §4.1 (`working → in_review`, `in_review → in_review`), §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5, §10.5.3 · Delta: delta.md §6 (one `todo` run per attempt; PRs stay based on `main` as verified candidates) · Product: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), §6.10 PR card, Appendix B.5 (Stack: integrate, Stack: propose)
 
 ## Goal

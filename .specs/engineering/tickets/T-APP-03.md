@@ -2,16 +2,17 @@
 
 Stage S1 · Size M · Depends on first merge: T-INS-06; rest of S1: T-INS-08, T-UI-02, T-FLW-08, T-MCH-10, T-APP-22, T-APP-02, T-GH-01, T-GH-07 · Unblocks T-APP-24, T-FLW-12, T-MCH-01, T-REL-02 · Issue: [#3497](https://github.com/smithersai/smithers/issues/3497)
 Spec: spec.md §14.3 (Setup / Settings), §8.6.1, §16.2, §16.3, §1.4, §5.1.0, §5.1.1, §6.3 (`/api/install`), §7.2 (`install`), §8.2.1, §10.3.1, §10.6.2, §12.1, §4.4, §17.6, §19.3, §20.2 · Product: mvp.md J1.2–J1.4, J1.8, §6.1 Reaching the install, §6.3 Sync status, M-11, M-28, Appendix A `/settings`
+Ready: 2026-10-03 smithers-8a sha256:817d04ed2e3b
 
 ## Goal
 From the setup link `smthrs host start` prints, on the Mac or a LAN laptop, the owner completes setup on one card (GitHub App, repository, owner sign-in, model access) and watches **Source ready** and **Machine ready** as separate steps; afterwards `/settings` shows the same install model with the address, host limits, capacity and the laptop-agent line.
 
 ## Scope
-First merge: Mount SetupContainer through its card file over InstallSeam; keep existing question/file-card path. Settings waits for rest of S1. Check: C-J1-04.
+First merge: Mount SetupContainer through its card file over InstallSeam; keep existing question/file-card path. Settings waits for rest of S1. Check: C-J1-04. First merge retains browser-private Draft/landed refresh paths; shared-card persistence and Settings replacement activate only with their later providers. Check: C-J1-04.
 Later dependency integrations land dark until their providers and phase checks pass.
 In:
-- `setup` card: one row per §16.2 step in the order T-INS-06 reports (`address`, `app`, `sign_in`, `repository`, `models`, `source`, `machine`), each with one control and a check mark only when its event exists. A step's control enables only when the step before it is done; every row survives a reload mid-step.
-  - Before an owner exists the card reads `GET /api/install` with the setup token (§5.1.0); after the claim it follows `/api/live`.
+- `setup` card: one row per §16.2 step in the order T-INS-06 reports (`address`, `app_manifest`, `sign_in`, `repository`, `models`, `source`, `machine`), each with one control and a check mark only when its event exists. A step's control enables only when the step before it is done; every row survives a reload mid-step.
+  - Exchange printed /setup token for the HttpOnly setup-session cookie and redirect without token. GET /api/install uses that cookie before claim, owner session afterwards. Reuse landed refresh/reconnect at first merge; /api/live binds later. Checks: C-J1-02, C-SEC-04.
   - GitHub: the owning account first (§12.1.1), then Create the GitHub App, sign in as owner, choose the repository and install the App. An organization repository whose creator isn't an organization owner shows the URL to hand to one. "Enable squash merging on GitHub ↗" when `squash_allowed` is false.
   - Model access: provider key, AI Gateway key, optional ChatGPT sign-in. Keys go to the API once and never come back; a refused key keeps its field open with the typed reason.
   - Source ready and Machine ready as two progress rows; a failed image build keeps its reason and Retry. The listen addresses and "This Mac" with its derived limits, read-only.
@@ -25,13 +26,13 @@ In:
 Out: step execution, setup token, App manifest exchange, origin validation and squash probe (T-INS-06, T-GH-01, T-INS-04); agent models (T-FLW-08); members (T-APP-06); secrets (T-APP-13); VPN, proxy, LAN CA and mDNS (never built); S2 `parallel` control (T-STK-03), notification guidance and Obsidian (T-FLW-12); host package installation.
 
 ## Changes
-- `cards/SetupContainer.tsx` and `cards/SettingsContainer.tsx` (landed, e4c93b0b9 and d689a6833) are the card files, over `state/seams/InstallSeam.ts` and `InstallModel.ts`. Map kinds `setup` and `settings` to them in `cards/CardRenderers.tsx`.
+- Mount landed SetupContainer/SetupView through CardRenderers over InstallSeam/InstallModel at first merge; Settings/replacement waits for its phase. Change seam/model/SetupContainer/settings.setup IDs, labels and literal fixtures to app_manifest end to end, deleting InstallModel.ts:55 remapping. Only transport chooses POST /api/install/setup/app. Checks: C-J1-02, C-UI-13.
 - Model settings: the Settings model section is the restored model-assignment slice of `ModelCards.tsx` (ruling 5; T-FLW-08 restores the Models section), not `views/SettingsModels.tsx`.
 - Delete the cards Setup and Settings replace, in this change (pair: SetupView and SettingsView ↔ the legacy setup cards; minimal-code synthesis v1 §2): `cards/AccountCard.tsx` and `AccountCard.test.tsx`; `cards/EnvCard.tsx` and `EnvCard.test.tsx`; `cards/RepoImportCard.tsx`; `cards/RepositoryChoiceCard.tsx`, `.css` and `.test.tsx`; the `provider-accounts` body `ProviderAccountsCardBody` (`cards/SecretsCard.tsx:83`) and `ProviderAccountsCard.test.tsx`; the `connector-setup` family (`cards/SyncCards.tsx:154,270`). Remove their producers in `state/controller/account.ts`, `state/seams/EnvironmentSeam.ts`, `SecretsSeam.ts`, `GitHubSeam.ts` and `RepoImportSeam.ts`, and their entries in `CardRenderers.tsx`. `account.show` folds into Settings; every member keeps `/sign-in` and `/sign-out`; `repos.import*` stays a hidden system flow.
-- Collapse the card-action layers (v1 §6, smithers-b8): delete `cards/CardActions.ts`, `CardActions.test.tsx` and `cards/InstallCardActions.ts`; `App.tsx`, `SetupContainer.tsx` and `SettingsContainer.tsx` use `flows/cardActions.ts`.
+- Use landed flows/cardActions.ts in App.tsx and both install card files. Current main has no cards/CardActions.ts or cards/InstallCardActions.ts; remove obsolete tests/references where present. Preserve cards/installKeyAction.ts transient write-only key handling. Check: C-UI-13.
 - `packages/rpc/src/Cards.ts`: kinds `setup` and `settings`; `account`, `env`, `provider-accounts`, `connector-setup` and `repo-import` move to the legacy decoder (T-APP-22).
 - `flows/entries/settings.ts`: `/settings` and the hidden controls `settings.address`, `settings.capacity`, `settings.model-key`, plus the daily-admissions and pre-approval controls, each writing an actor-attributed event. Transient key input is cleared after the write and never enters card state, view state, `/api/live` frames or request logs.
-- `e2e/real/setup.spec.ts` (new) replaces `e2e/playwright/repository-setup.spec.ts`.
+- apps/app/e2e/real/setup.spec.ts (new) tests mounted Setup. e2e/playwright/repository-setup.spec.ts is absent today, not a replacement target. Check: C-J1-02.
 
 ## Tests
 - Unit (`InstallContainers.test.tsx`, landed): every T-INS-06 step id and state passes through, with `blocked` and `failed` keeping their fix; a later step's action is disabled until the earlier one is done; Source ready is done only at `source.state = ready`. Every origin is listed with its scheme; non-localhost `http` is unencrypted; a refused origin carries its reason; the capacity + action is disabled at the formula value; a non-owner gets the typed `permission` refusal. After a key save, no key value is in the props or the request log.
@@ -50,4 +51,10 @@ Out: step execution, setup token, App manifest exchange, origin validation and s
 - Setup may build layers and run dependency installers only inside prepare or branch machines (T-INS-02, T-MCH-10; §17.3, M-29). Settings only drafts reviewed image changes. smithers-3f reviews setup-token scope, origins and sealed keys.
 
 ## Ready checklist
-1. Before start, smithers-3f confirms setup-token scopes, origin and CSRF rules and sealed-key writes. Record pre-review in #3497.
+1. T-INS-06 steps/authority/models/qualified preparation; terminal localhost link and landed refresh suffice, Settings/service/live/LAN later.
+2. Out of scope explicitly includes step/token/App/origin/squash execution, new Views/Agent UI/members/secrets/VPN/proxy/CA/mDNS/S2 parallel/notifications/Obsidian/host installs.
+3. C-J1-04: terminal link/dispatcher/CardRenderers/Setup card/View/composed install; later LAN/Settings checks. Commit literal layout/step/state/SHA/status/error/UID/role/secret fixtures; independent hashes and external effect logs supply expectations, never runtime spec/production oracles. Later checks run only with their providers.
+4. smithers-b8 accepts apps/CLI/API; smithers-38 accepts packages TypeScript/public schemas; smithers-3f accepts Go/infra/security; smithers-06 accepts touched View/navigation contracts; smithers-8a accepts shared/schema/Plue seams. Will decides product-policy exceptions.
+5. smithers-b8: Are question/File cards retained and Settings deletion delayed? smithers-06: Are IDs/readiness/actions preserved? smithers-38: Does app_manifest pass without alias? smithers-3f: Are scope/Origin/CSRF/sealed keys and preparation gates enforced? Record #3497; no answers recorded.
+6. Assembly/OAuth/cards introduce no root step. Host processes are unprivileged; no sudo lane plist. Execution consumers inherit the complete R1–R5 inventories and named production tests in T-INS-02/T-INS-06/T-STK-01; smithers-3f accepts receipts. M-29 confines code to unprivileged machines; unvalidated branch data blocks and branch-built root code is forbidden.
+

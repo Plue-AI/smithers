@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-CAT-01, T-CUT-01 · Unblocks T-ACC-03, T-APP-10, T-MNT-01, T-REL-02 · Issue: [#3447](https://github.com/smithersai/smithers/issues/3447)
 Spec: spec.md §0 ([D] list), §6.1.2, §6.1.3, §6.2.4, §11.7, §14.6 · Delta: delta.md §8 (Hide triggers), §10 (billing routes; TUI Defer) · Product: mvp.md §8 (Defer rows: hosting and billing, repository switching, TUI), Appendix B.2, §6.14, §14, §16, M-09
+Ready: 2026-10-03 smithers-8a sha256:7853129aca1c
 
 ## Goal
 A member of the install can't reach billing, the TUI, repository switching, triggers or any other spec §0 [D] surface from any door: palette, `/help`, agent tools, MVP CLI docs, the skill or the launch docs. Deferred code that Appendix B keeps still builds and its tests still run. The TUI's standalone docs site, `apps/tui-docs`, is deleted (M-35).

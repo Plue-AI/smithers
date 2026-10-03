@@ -1,6 +1,6 @@
 # T-APP-16 Branch conversations: storage, topics, view state, branch tree, Earlier archive
 
-Stage S1 · Size L · Depends on T-COL-02, T-ACC-02, T-ACC-04, T-UI-07, T-APP-22, T-APP-09, T-CAT-01, T-INS-02, T-FLW-08, T-FLW-01 · Cutover: T-APP-04 · Cutover also on T-APP-04 · Unblocks T-AGT-01, T-AGT-02, T-AGT-03, T-APP-01, T-APP-02, T-APP-05, T-APP-06, T-APP-07, T-APP-10, T-APP-17, T-FLW-05, T-FLW-13, T-REL-02, T-REL-03, T-STK-09 · Issue: [#3446](https://github.com/smithersai/smithers/issues/3446), [#3609](https://github.com/smithersai/smithers/issues/3609) (host-turn issue absorbed)
+Stage S1 · Size L · Depends on T-COL-02, T-ACC-02, T-ACC-04, T-UI-07, T-APP-22, T-APP-09, T-CAT-01, T-INS-02, T-FLW-08, T-FLW-01 · Cutover: T-APP-04 · Cutover also on T-APP-04 · Unblocks T-AGT-01, T-AGT-02, T-AGT-03, T-APP-01, T-APP-02, T-APP-05, T-APP-06, T-APP-07, T-APP-10, T-APP-17, T-FLW-05, T-FLW-13, T-REL-01, T-REL-02, T-REL-03, T-STK-09 · Issue: [#3446](https://github.com/smithersai/smithers/issues/3446), [#3609](https://github.com/smithersai/smithers/issues/3609) (host-turn issue absorbed)
 Spec: spec.md §2 (Conversation), §3, §5.6, §6.3 (`/api/conversations`), §7.2, §14.1, §14.1.5, §14.5.1, §15.1.1–15.1.5 · Delta: delta.md §9 · Product: mvp.md §3 Conversation, §6.4 Branch conversations, M-08, M-34, Appendix B.1 (`chat.send`, `chat.stop`, `chat.queue*`) · Engineering: overview.md E-18, E-20
 Ready: 2026-10-03 smithers-8a sha256:ba927a7143ae
 

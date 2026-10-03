@@ -2,6 +2,7 @@
 
 Stage R · Size S · Depends on — · Unblocks T-MNT-05 · Issue: [#3591](https://github.com/smithersai/smithers/issues/3591)
 Spec: none (process; spec.md is one of the approved documents) · Delta: delta.md §10 (Reshape [R] docs row) · Product: mvp.md M-12, §13 (reconcile standing strategy)
+Ready: 2026-10-03 smithers-8a sha256:15d816f20ff3
 
 ## Goal
 `docs/mvp/` holds no requirement, design or engineering text that competes with `.specs/`, and no file in the repository links to a page this change removes.

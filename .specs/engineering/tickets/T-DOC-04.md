@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on — · Unblocks T-REL-02 · Issue: [#3510](https://github.com/smithersai/smithers/issues/3510)
 Spec: spec.md §6.1 · Delta: delta.md §10 · Product: mvp.md M-35, §8 ("libraries stay published on npm, each with its README and colocated `docs/` in the package"; product ruling 2026-10-02 at abd79a91)
+Ready: 2026-10-03 smithers-8a sha256:0d018e51d250
 
 ## Goal
 

@@ -2,6 +2,7 @@
 
 Stage R · Size M · Depends on T-APP-20, T-CAT-01 · Unblocks T-MNT-05 · Issue: [#3458](https://github.com/smithersai/smithers/issues/3458)
 Spec: spec.md §16.3.4 and §17.6 (the quickstart documents Tailscale serve and Caddy and recommends HTTPS in front), §16.1.2 (the launchd fallback); content follows §1.4, §5.1.0, §5.3.1, §8.10.5, §11, §16 · Delta: delta.md §10 (Add: public docs) · Product: mvp.md M-35 (docs in the app), §12.4, §6.13 API, §8 (CLI and Smithers skill row), J1, J5, M-11, M-28, M-30
+Ready: 2026-10-03 smithers-8a sha256:8204980c3ef2
 
 ## Goal
 The app's `/docs` flow (T-APP-20) offers one quickstart (install, setup, first TODO, teammates) and one flows reference, and every command, slash command and step they show exists in the release. The website keeps only the README and one install page (product M-35, 2026-10-02).

@@ -2,6 +2,7 @@
 
 Stage W0, S1 · Size M · Depends on W0: — · S1: T-INS-02, T-INS-04, T-ACC-01 · Unblocks T-APP-03, T-GH-02, T-GH-09, T-INS-06, T-REL-02 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
 Spec: spec.md §3 (`github_app`), §5.1.0, §5.1.1, §6.3 (`/api/install`), §12.1, §16.2 steps 1–2, §16.3.3, §17.4 · Delta: delta.md §1, §7 · Product: mvp.md J1.2, §6.3 "GitHub App setup", M-03, M-28, §11 item 7
+Ready: 2026-10-03 smithers-8a sha256:f97663b49e26
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §6 token minters, §7 merges; v2 ruling 6). Absorbs T-GH-01 ([#3616](https://github.com/smithersai/smithers/issues/3616)), T-GH-01 ([#3617](https://github.com/smithersai/smithers/issues/3617)), T-GH-01 ([#3618](https://github.com/smithersai/smithers/issues/3618)), T-GH-01 ([#3619](https://github.com/smithersai/smithers/issues/3619)) and T-GH-01 ([#3620](https://github.com/smithersai/smithers/issues/3620)). In the first-merge set as "T-GH-01 (rework)".
 

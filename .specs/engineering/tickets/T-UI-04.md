@@ -1,6 +1,6 @@
 # T-UI-04 TODO view: states, waits, repair, evidence, PR and merge
 
-Stage S1 · Size M · Depends on T-UI-01 · Unblocks T-APP-02, T-GH-06, T-MCH-08, T-REL-02, T-STK-08 · Issue: [#3541](https://github.com/smithersai/smithers/issues/3541), [#3552](https://github.com/smithersai/smithers/issues/3552)
+Stage S1 · Size M · Depends on T-UI-01 · Unblocks T-APP-02, T-FLW-10, T-GH-06, T-MCH-08, T-REL-02, T-STK-08 · Issue: [#3541](https://github.com/smithersai/smithers/issues/3541), [#3552](https://github.com/smithersai/smithers/issues/3552)
 Spec: spec.md §14.2.1, §4.1, §4.1.0a, §8.5, §9.3.8, §10.5.4, §10.6.4, §12.3, §12.5.1, §14.3 (TODO) · Delta: delta.md §9 · Product: mvp.md J2, J4, J7, J10, J10.3, M-32, M-33 · Props: [ui-components.md § T-UI-04](../ui-components.md)
 
 Landed (7d73b0720). Absorbs T-UI-04 (minimal-code synthesis v1 §7).

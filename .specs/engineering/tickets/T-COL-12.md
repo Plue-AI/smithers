@@ -2,6 +2,7 @@
 
 Stage S2 · Size S · Depends on T-COL-04, T-STK-06 · Unblocks T-REL-02 · Issue: [#3632](https://github.com/smithersai/smithers/issues/3632)
 Spec: spec.md §9.3.9, §10.7.3 · Delta: delta.md §4 · Product: mvp.md §6.8 External changes, J3.4
+Ready: 2026-10-03 smithers-8a sha256:ad85e392a463
 
 ## Goal
 

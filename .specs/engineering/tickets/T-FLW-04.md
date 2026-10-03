@@ -1,7 +1,8 @@
 # T-FLW-04 Coding host loads the pinned closure by digest
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11, T-COL-02, T-INS-02, T-FLW-01, T-SEC-01 · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-FLW-05, T-FLW-13, T-MNT-02, T-MNT-04, T-REL-02, T-STK-05 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11, T-COL-02, T-INS-02, T-FLW-01, T-SEC-01 · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-FLW-05, T-FLW-09, T-FLW-13, T-MNT-02, T-MNT-04, T-REL-02, T-STK-05 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
 Spec: spec.md §3 (`mythical_items.flow_digest`), §4.1, §10.4.1, §11.3.0, §11.4 · Delta: delta.md §8 (pinning row), §11 (#3377 row) · Product: mvp.md J5.4, §6.12 Pinned versions
+Ready: 2026-10-03 smithers-8a sha256:41b6cbe5da92
 
 ## Goal
 A TODO run executes exactly the Active flow version recorded when the TODO entered Starting, keeps it across Resume and ordinary Retry, pins the Active version only for an explicit Retry with the current flow, and never runs the `flows/` in its own branch's working copy.
