@@ -30,10 +30,6 @@ type InvokedFlowDispatcher interface {
 	CancelRequestInTx(context.Context, pgx.Tx, jobs.Scope, string) (jobs.Operation, error)
 }
 
-type InvokedFlowWorkspace interface {
-	CreateWorkspace(context.Context, CreateWorkspaceInput) (WorkspaceResponse, error)
-}
-
 // InvokedFlowService runs an invoked repository flow on the canonical Flow
 // runtime: it admits one Flow launch in the same transaction as the product
 // run, authorizes the launch's host on the invoker's box, and projects the
@@ -42,14 +38,14 @@ type InvokedFlowWorkspace interface {
 type InvokedFlowService struct {
 	pool           *pgxpool.Pool
 	repositoryJobs *RepositoryJobService
-	workspaces     InvokedFlowWorkspace
+	workspaces     RepositorySetupWorkspace
 	dispatcher     InvokedFlowDispatcher
 	secrets        *SecretInjector
 	terminal       WorkflowRunTerminalPublisher
 	sources        repositorySourceHost
 }
 
-func NewInvokedFlowService(pool *pgxpool.Pool, repositoryJobs *RepositoryJobService, workspaces InvokedFlowWorkspace) *InvokedFlowService {
+func NewInvokedFlowService(pool *pgxpool.Pool, repositoryJobs *RepositoryJobService, workspaces RepositorySetupWorkspace) *InvokedFlowService {
 	return &InvokedFlowService{pool: pool, repositoryJobs: repositoryJobs, workspaces: workspaces}
 }
 

@@ -337,7 +337,7 @@ func (g *repositoryJobTestGateway) projectPending(ctx context.Context) error {
 }
 
 // pressTrial records the person's own press of Trial for request, as the
-// person-only setup route does (repositorySetupAPI).
+// persisted setup record requires.
 func pressTrial(t *testing.T, pool *pgxpool.Pool, target BoxHostTarget, job, requestID string, request RepositoryJobTrialInput) {
 	t.Helper()
 	ctx := context.Background()

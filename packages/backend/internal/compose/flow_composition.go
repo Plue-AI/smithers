@@ -33,7 +33,7 @@ type flowComposition struct {
 	stopper    flowhost.RetirementStopper
 }
 
-func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService) (*flowComposition, error) {
+func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
 	if options.FlowHostRegistry == nil {
 		return nil, nil
 	}
@@ -105,6 +105,10 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}
 	additionalTargets := []flowhost.TargetResolver{browserFlowTarget{queries: db.New(pool)}}
 	projectors := []flowdispatch.Projector{agents, repositoryJobs}
+	if len(setupServices) == 1 {
+		additionalTargets = append(additionalTargets, setupServices[0])
+		projectors = append(projectors, setupServices[0])
+	}
 	targets := flowTargetResolver(agentTargets, repositoryJobTargets, additionalTargets...)
 	if invoked != nil {
 		targets = withInvokedFlowTargets(targets, invoked)
@@ -189,6 +193,11 @@ func flowTargetResolver(agents, repositoryJobs flowhost.TargetResolver, browserT
 			return agents.ResolveFlowHostTarget(ctx, target)
 		case "repository-job-dispatch":
 			return repositoryJobs.ResolveFlowHostTarget(ctx, target)
+		case "repository-setup":
+			if len(browserTargets) == 2 {
+				return browserTargets[1].ResolveFlowHostTarget(ctx, target)
+			}
+			return flowhost.Authority{}, errors.New("repository setup Flow target unavailable")
 		case "browser-flow":
 			if len(browserTargets) >= 1 {
 				return browserTargets[0].ResolveFlowHostTarget(ctx, target)
