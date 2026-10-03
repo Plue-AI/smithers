@@ -32,6 +32,17 @@ Depends on uses `first merge: …; rest of S1: …`. Only first-merge edges gate
 
 A ticket closes only with passing machine-written receipts for every named check, bound to the landed commit with verified log digests. Reports list receipt paths. Missing or unwritten Automation blocks closure; prose PASS and --force do not waive evidence (T-PRC-03, C-PRC-03).
 
+<!-- ready-frontier:start (generated; tech lead) -->
+**Ready frontier** (2026-10-03 15:26 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
+
+- W0: 2 stamped, 4 pending. T-COL-01 `97d2f3b1853f`, T-COL-11 `640f6dcf1015`
+- S1: 10 stamped, 63 pending. T-INS-04 `78cb92746bf6`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
+- S2: 4 stamped, 36 pending. T-AGT-01 `29aa84c2e61e`, T-AGT-02 `0435c9e09b24`, T-AGT-03 `ee2088b0987c`, T-APP-18 `d93ce26dfe3d`
+- S3: 2 stamped, 8 pending. T-COL-08 `3141eb3f61a0`, T-COL-09 `396865c1ddf6`
+- R: 1 stamped, 6 pending. T-INS-03 `bae4217452ca`
+- M: 2 stamped, 4 pending. T-MNT-01 `2747b5025504`, T-AGT-04 `ee5f585f9ed4`
+<!-- ready-frontier:end -->
+
 ## Index
 
 Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` and one owner (C-PRC-02). Assign numbers at landing through `scripts/renumber-migration.mjs`; the default Go gate runs without PostgreSQL. Landing runs the five-target drift set from §21.2 before push (C-PRC-01). Closing requires receipts for every named phase check at the landed commit (C-PRC-03).
@@ -40,30 +51,30 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | ID | Title | Stage | Size | Depends on | Checks |
 | --- | --- | --- | --- | --- | --- |
 | **Maintainer release: launch + 1 week** | | | | | |
-| [T-MNT-01](T-MNT-01.md) | Gate maintainer admission and expose passive incoming items | M | S | T-CAT-01, T-CUT-03, T-APP-04, T-STK-09, T-GH-02, T-GH-09, T-APP-01 | C-MNT-01, C-MNT-06, C-SEC-03 |
+| [T-MNT-01](T-MNT-01.md) | Gate maintainer admission and expose passive incoming items | M | S | T-CAT-01, T-CUT-03, T-APP-04, T-STK-09, T-GH-02, T-GH-09, T-APP-01, T-ACC-02, T-ACC-03, T-ACC-04, T-INS-02, T-FLW-01, T-FLW-03, T-MCH-06, T-MCH-11 | C-MNT-01, C-MNT-06, C-SEC-03 |
 | [T-MNT-02](T-MNT-02.md) | Triage issues with duplicate and reproduction evidence | M | M | T-MNT-01, T-FLW-03, T-FLW-04, T-MCH-06, T-MCH-11, T-UI-19 | C-MNT-02, C-MNT-06, C-SEC-03 |
 | [T-MNT-03](T-MNT-03.md) | Approve exact author replies before publishing | M | S | T-MNT-02, T-APP-04, T-GH-09, T-UI-05 | C-MNT-03, C-MNT-06, C-SEC-03 |
 | [T-MNT-04](T-MNT-04.md) | Review outside PRs with the shared review step | M | M | T-MNT-01, T-FLW-01, T-FLW-04, T-MCH-06, T-UI-19 | C-MNT-04, C-MNT-06, C-SEC-03 |
 | [T-MNT-05](T-MNT-05.md) | Ship the day-seven maintainer upgrade and journey | M | S | T-MNT-03, T-MNT-04, T-INS-07, T-REL-01, T-DOC-03 | C-MNT-05, C-MNT-06, C-SEC-03 |
 | **Spikes** | | | | | |
 | [T-MCH-02](T-MCH-02.md) | Spike: virtiofs `/home` across two VMs (answered NO: homes are per machine) | W0 | S | — | C-SPK-02 |
-| [T-COL-01](T-COL-01.md) | Spike: relay round trip, Yjs keystroke p95, jj capture cost and guest kernel probes in a VM; re-run on an idle reference host decides ADR 0003's topology | W0 | S | — | C-SPK-03, C-SPK-07 |
+| [T-COL-01](T-COL-01.md) | Spike: relay round trip, Yjs keystroke p95 and jj capture cost in a disposable machine | W0 | S | — | C-SPK-03, C-SPK-07 |
 | [T-MCH-01](T-MCH-01.md) | Qualify machine sizing on 24 and 32 GB hosts; one host-profile reader | W0, S2 | S | W0: — · S2: T-INS-06, T-INS-08 | W0: C-SPK-05 · S2: C-MCH-04 |
-| [T-INS-03](T-INS-03.md) | Record Homebrew signing and LaunchAgent evidence | R | S | — | C-J1-04, C-SPK-06 |
+| [T-INS-03](T-INS-03.md) | Record Homebrew signing and LaunchAgent evidence | R | S | T-INS-01 | C-SPK-06 |
 | [T-TRM-06](T-TRM-06.md) | Spike: daemon sessions carry VS Code Remote; revocation in 5 s | W0 | M | — | C-SPK-08 |
 | [T-COL-11](T-COL-11.md) | Spike: reference-host rerun and the ADR 0003 topology decision; capture growth, versions commit, kernel probes | W0, S1 | M | W0: T-COL-01 · S1: T-COL-10 | W0: C-SPK-03, C-SPK-07 · S1: C-SPK-03, C-SPK-07 |
 | **Install and runtime** | | | | | |
 | [T-INS-01](T-INS-01.md) | Restore `build-native.ts` from `5b77095672` as the server bundle assembler | S1 | M | first merge: —; rest of S1: — | C-INS-05, C-J1-04 |
 | [T-INS-02](T-INS-02.md) | Launcher passes isolation, GitHub, model and public-URL settings; microVM-only | S1 | M | first merge: T-INS-01, T-ACC-01; rest of S1: — | C-J1-04, C-SEC-02 |
 | [T-INS-08](T-INS-08.md) | Restore the launchd service code; `smthrs host start/stop/status` from a built bundle; setup-URL handoff | S1 | M | first merge: T-INS-01, T-INS-02, T-ACC-01; rest of S1: — | C-INS-06, C-SEC-04, C-SEC-02, C-J1-01, C-J1-04, C-REL-02 |
-| [T-INS-04](T-INS-04.md) | Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency | S1 | M | T-INS-02, T-INS-08, T-ACC-03 | C-INS-01, C-INS-03, C-J1-04 |
+| [T-INS-04](T-INS-04.md) | Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency | S1 | M | T-INS-02, T-INS-08, T-ACC-03, T-ACC-01, T-UI-01 | C-INS-01, C-INS-03, C-J1-04 |
 | [T-INS-06](T-INS-06.md) | Install setup backend: durable steps, model access API, squash check | S1 | M | first merge: T-INS-02, T-ACC-01; rest of S1: T-INS-04, T-GH-01, T-MCH-10, T-ACC-03, T-CUT-02, T-FLW-01 | C-J1-02, C-J1-03, C-J1-04, C-SEC-04 |
 | [T-INS-05](T-INS-05.md) | Homebrew tap and release bottles; delete the Docker image | R | M | T-INS-01, T-INS-03, T-INS-08 | C-J1-01, C-J1-04, C-REL-02 |
 | [T-INS-07](T-INS-07.md) | `smthrs host upgrade`, `backup`, `restore` with quiesce and a backup manifest (M-26) | R | L | T-INS-05, T-INS-08, T-MCH-06, T-MCH-07 | C-REL-03, C-REL-06 |
 | **Access** | | | | | |
 | [T-ACC-01](T-ACC-01.md) | GitHub sign-in creates the owner; delete the single-owner password path | S1 | M | first merge: —; rest of S1: — | C-ACC-04, C-J1-04, C-SEC-04 |
 | [T-ACC-07](T-ACC-07.md) | Merged into T-INS-08 | — | — | — | — |
-| [T-ACC-02](T-ACC-02.md) | Members on `collaborators`: roster, hourly recheck, revocation within 5 s, GitHub SSH keys | S1, S2 | M | S1 roster: T-ACC-01,  · S1 revocation: T-INS-02 · S2 keys: — | S1: C-J1-04, C-ACC-03, C-ACC-04, C-J1-05, C-APP-01 · S2: C-J3-06 |
+| [T-ACC-02](T-ACC-02.md) | Members on `collaborators`: roster, hourly recheck, revocation within 5 s, GitHub SSH keys | S1, S2 | M | S1 roster: T-ACC-01, T-ACC-03, T-GH-01 · S1 revocation: T-INS-02, T-SEC-01 · S1 takeover: T-STK-01 · S2 keys: — | S1: C-J1-04, C-ACC-03, C-ACC-04, C-J1-05, C-APP-01, C-SEC-02 · S2: C-J3-06 |
 | [T-ACC-03](T-ACC-03.md) | One authorizer over the permission matrix | S1 | M | T-ACC-01, T-CAT-01 | C-ACC-01, C-J1-04, C-J10-07 |
 | [T-ACC-04](T-ACC-04.md) | Delegated credentials with `via`; `smthrs login --agent`; attribution | S1 | M | T-ACC-03, T-ACC-02 | C-ACC-01, C-ACC-02, C-J1-04, C-J6-02 |
 | [T-ACC-05](T-ACC-05.md) | Merged into T-APP-04 | — | — | — | — |
@@ -136,8 +147,8 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-COL-07](T-COL-07.md) | Merged into T-COL-10 | — | — | — | — |
 | [T-COL-08b](T-COL-08b.md) | Backend document relay and optional host mirror | S3 | M | T-COL-03r, T-COL-02, T-COL-03f, T-COL-11 | C-DUR-04, C-J3-04, C-PERF-03 |
 | [T-COL-08a](T-COL-08a.md) | Daemon Yrs documents and durable disk reconciliation | S3 | L | T-COL-03r, T-COL-08b | C-COL-03, C-DUR-04, C-J3-04, C-PERF-03 |
-| [T-COL-08](T-COL-08.md) | Live code document integration, fault recovery and reference-host p95 | S3 | M | T-COL-04, T-COL-08a, T-COL-08b, T-APP-14a, T-COL-11 | C-COL-03, C-DUR-04, C-J3-04, C-PERF-03 |
-| [T-COL-09](T-COL-09.md) | Wiki co-editing on the live channel; delete POST+SSE | S3 | M | T-COL-08, T-APP-14a | C-DUR-04, C-J8-02, C-J8-05 |
+| [T-COL-08](T-COL-08.md) | Live code document integration, fault recovery and reference-host p95 | S3 | M | T-COL-04, T-COL-08a, T-COL-08b, T-APP-14a, T-COL-11, T-COL-10, T-UI-19, T-MCH-07, T-COL-05, T-STK-08 (S2), T-TRM-03, T-TRM-05 | C-COL-03, C-COL-04, C-DUR-04, C-J3-04, C-PERF-03 |
+| [T-COL-09](T-COL-09.md) | Wiki co-editing on the live channel; delete POST+SSE | S3 | M | T-COL-08, T-APP-14a, T-FLW-10 | C-DUR-04, C-J8-02, C-J8-05 |
 | **Terminals and SSH** | | | | | |
 | [T-TRM-02](T-TRM-02.md) | Terminal auto sign-in and the Smithers skill on machines | S1, S2 | S | S1: T-ACC-04, T-CAT-01, T-INS-01, T-INS-02, T-ACC-02, T-APP-09 · S2: T-MCH-11, T-TRM-01, T-APP-04 (confirmations), T-COL-06 | S1: C-J6-01, C-SEC-05 · S2: C-J6-01 |
 | [T-TRM-01](T-TRM-01.md) | Terminals run as their owner; only the owner types | S2 | S | T-MCH-11, T-COL-03, T-TRM-07 | C-J3-02 |
@@ -145,22 +156,22 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-TRM-04](T-TRM-04.md) | Merged into T-ACC-02 | — | — | — | — |
 | [T-TRM-05](T-TRM-05.md) | The coding agent's `bash` runs in its own terminal session, shown in the Terminal card | S2 | M | T-TRM-01, T-COL-03, T-TRM-07 | C-J3-10 |
 | [T-TRM-07](T-TRM-07.md) | Session supervisor: broker sessions, the §9.6 protocol, lingering processes, kill and restart rules | S2 | M | T-COL-03, T-TRM-06, T-MCH-11 | C-COL-04, C-J3-06 |
-| [T-AGT-01](T-AGT-01.md) | External transcript mapping and Claude Code/Codex adapters | S2 | M | — | C-AGT-01 |
-| [T-AGT-02](T-AGT-02.md) | Session-owned transcript tail and branch ingestion | S2 | L | T-AGT-01, T-TRM-07, T-TRM-01, T-COL-02, T-COL-06 | C-AGT-02 |
+| [T-AGT-01](T-AGT-01.md) | External transcript mapping and Claude Code/Codex adapters | S2 | M | T-APP-16, T-APP-09 | C-AGT-01 |
+| [T-AGT-02](T-AGT-02.md) | Session-owned transcript tail and branch ingestion | S2 | L | T-AGT-01, T-TRM-07, T-TRM-01, T-COL-02, T-COL-06, T-APP-16, T-COL-03r | C-AGT-02 |
 | [T-AGT-03](T-AGT-03.md) | Read-only external conversations in shared chat | S2 | M | T-AGT-02, T-APP-09, T-APP-16, T-UI-07, T-UI-01 | C-AGT-02 |
-| [T-AGT-04](T-AGT-04.md) | Internal /ceo repository flow dogfood | M | S | T-APP-05, T-FLW-01 |  |
+| [T-AGT-04](T-AGT-04.md) | Internal /ceo repository flow dogfood | M | S | T-APP-05, T-FLW-01, T-INS-02, T-FLW-03, T-FLW-04, T-FLW-07, T-CAT-01, T-ACC-03, T-SEC-01 |  |
 | **App** | | | | | |
 | [T-APP-08](T-APP-08.md) | Merged into T-COL-02 | — | — | — | — |
 | [T-APP-22](T-APP-22.md) | Legacy card decoder: removed card kinds read as titled tombstones | S1 | S | T-UI-07 | C-CUT-01, C-CUT-02, C-J1-04 |
-| [T-APP-01](T-APP-01.md) | Home card on the `home` topic | S1 | M | T-COL-02, T-STK-01, T-STK-05, T-APP-16, T-APP-07, T-APP-22, T-APP-02, T-APP-04, T-UI-06, T-GH-03, T-GH-07 | C-J1-04, C-J4-01, C-J8-06, C-UI-13 |
+| [T-APP-01](T-APP-01.md) | Home card on the `home` topic | S1 | M | T-COL-02, T-STK-01, T-STK-05, T-APP-16, T-APP-07, T-APP-22, T-APP-02, T-APP-04, T-UI-06, T-GH-03, T-GH-07, T-INS-06, T-INS-02, T-FLW-01, T-FLW-03, T-FLW-04, T-FLW-02, T-CAT-01, T-ACC-02, T-ACC-04, T-STK-02, T-STK-04, T-STK-08, T-SEC-01 | C-J1-04, C-J4-01, C-J8-06, C-UI-13 |
 | [T-APP-02](T-APP-02.md) | TODO card and Draft card | S1 | M | first merge: T-STK-01; rest of S1: T-STK-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-ACC-02, T-APP-16, T-APP-04, T-APP-09, T-UI-03, T-UI-04, T-GH-06, T-FLW-07, T-MCH-10, T-APP-15 | C-APP-01, C-APP-02, C-APP-03, C-J1-04, C-J2-01, C-J4-02, C-J9-01, C-UI-13 |
 | [T-APP-03](T-APP-03.md) | Setup and Settings cards; Add to machine image | S1 | M | first merge: T-INS-06; rest of S1: T-INS-08, T-UI-02, T-FLW-08, T-MCH-10, T-APP-22, T-APP-02, T-GH-01, T-GH-07 | C-APP-03, C-J1-02, C-J1-04, C-UI-13 |
-| [T-APP-04](T-APP-04.md) | Confirm card: one-click confirmations and Review & merge | S1 | M | T-ACC-02, T-ACC-04, T-CAT-01 (descriptors), T-STK-01, T-COL-02, T-UI-05, T-APP-22, T-APP-09 | C-ACC-02, C-J1-04, C-UI-13 |
-| [T-APP-05](T-APP-05.md) | Flow card with versions | S1 | M | T-FLW-03, T-FLW-04, T-FLW-08, T-APP-16, T-APP-15, T-APP-02, T-APP-04, T-UI-10 | C-J1-04, C-J11-02, C-J5-01, C-UI-13 |
-| [T-APP-06](T-APP-06.md) | Members card | S1 | S | T-ACC-02, T-ACC-03, T-APP-16, T-APP-09, T-CAT-01, T-UI-09 | C-J1-04, C-J1-05, C-UI-13 |
-| [T-APP-07](T-APP-07.md) | Edge toast map, timeline, conversation-entry and monitor summaries | S1 | M | T-COL-02, T-APP-16, T-UI-08, T-APP-09 · Summaries only: T-FLW-08, T-FLW-07 | C-J1-04, C-J11-01, C-PRC-02, C-UI-04, C-UI-13 |
+| [T-APP-04](T-APP-04.md) | Confirm card: one-click confirmations and Review & merge | S1 | M | T-ACC-02, T-ACC-03 (Authorize and credential-scoped idempotency), T-ACC-04, T-CAT-01 (descriptors), T-STK-01, T-COL-02, T-UI-05, T-APP-22, T-APP-09 | C-ACC-02, C-J1-04, C-UI-13 |
+| [T-APP-05](T-APP-05.md) | Flow card with versions | S1 | M | T-FLW-03, T-FLW-04, T-FLW-08, T-APP-16, T-APP-15, T-APP-02, T-APP-04, T-UI-10, T-FLW-01, T-FLW-11, T-INS-02, T-SEC-01, T-CAT-01, T-STK-01, T-APP-22 | C-J1-04, C-J11-02, C-J5-01, C-UI-13 |
+| [T-APP-06](T-APP-06.md) | Members card | S1 | S | T-ACC-02, T-ACC-03, T-APP-16, T-APP-09, T-CAT-01, T-UI-09, T-COL-02 | C-J1-04, C-J1-05, C-UI-13 |
+| [T-APP-07](T-APP-07.md) | Edge toast map, timeline, conversation-entry and monitor summaries | S1 | M | T-COL-02, T-APP-16, T-UI-08, T-APP-09, T-STK-01, T-STK-04, T-STK-05, T-CAT-01, T-APP-04 · Summaries only: T-FLW-08, T-FLW-07 | C-J1-04, C-J11-01, C-PRC-02, C-UI-04, C-UI-13 |
 | [T-APP-09](T-APP-09.md) | Actor adapter: participants and "for Ben" (§14.6a, M-34) | S1 | S | T-ACC-04, T-UI-01 | C-J1-04, C-J6-01, C-UI-13 |
-| [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07, T-UI-08 | C-UI-03, C-UI-13 |
+| [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07, T-UI-08, T-CAT-01 | C-UI-03, C-UI-13 |
 | [T-APP-19](T-APP-19.md) | Closed as landed history | — | — | — | — |
 | [T-APP-19b](T-APP-19b.md) | Closed as landed history | — | — | — | — |
 | [T-UI-01](T-UI-01.md) | Primitives: actor chip, state word, tone | S1 | S | — | C-UI-12 |
@@ -184,7 +195,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-UI-18](T-UI-18.md) | Secrets view | S2 | S | T-UI-01 | C-UI-12 |
 | [T-UI-19](T-UI-19.md) | Co-editing visuals | S3 | M | T-UI-01, T-APP-14a | C-UI-12 |
 | [T-UI-20](T-UI-20.md) | Proposal view and lessons receipt | S3 | S | T-UI-01 | C-UI-12 |
-| [T-APP-15](T-APP-15.md) | File card with code intelligence (read-only) | S1 | S | T-INS-02, T-CAT-01 | C-COL-01, C-J1-03, C-J1-04, C-UI-11, C-UI-13 |
+| [T-APP-15](T-APP-15.md) | File card with code intelligence (read-only) | S1 | S | T-INS-02, T-CAT-01, T-INS-06, T-SEC-01 | C-COL-01, C-J1-03, C-J1-04, C-UI-11, C-UI-13 |
 | [T-APP-16](T-APP-16.md) | Branch conversations: storage, topics, view state, branch tree, Earlier archive | S1 | L | T-COL-02, T-ACC-02, T-ACC-04, T-UI-07, T-APP-22, T-APP-09, T-CAT-01, T-INS-02, T-FLW-08 | C-APP-04, C-J1-04, C-UI-13 |
 | [T-APP-24](T-APP-24.md) | Settings HTTPS hint opens the quickstart page | S2 | S | T-APP-20, T-APP-03 | C-UI-09 |
 | [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-16, T-UI-07, T-FLW-07, T-INS-06, T-STK-12, T-FLW-08, T-FLW-07 | C-J1-04, C-UI-07, C-UI-13 |

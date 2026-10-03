@@ -1,6 +1,6 @@
 # T-FLW-04 Coding host loads the pinned closure by digest
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11, T-COL-02 · Unblocks T-APP-05, T-FLW-05, T-FLW-13, T-MNT-02, T-MNT-04, T-REL-02, T-STK-05 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11, T-COL-02 · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-FLW-05, T-FLW-13, T-MNT-02, T-MNT-04, T-REL-02, T-STK-05 · Issue: [#3512](https://github.com/smithersai/smithers/issues/3512)
 Spec: spec.md §3 (`mythical_items.flow_digest`), §4.1, §10.4.1, §11.3.0, §11.4 · Delta: delta.md §8 (pinning row), §11 (#3377 row) · Product: mvp.md J5.4, §6.12 Pinned versions
 
 ## Goal

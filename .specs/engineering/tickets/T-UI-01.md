@@ -1,6 +1,6 @@
 # T-UI-01 Primitives: actor chip, state word, tone
 
-Stage S1 · Size S · Depends on — · Unblocks T-AGT-03, T-APP-09, T-REL-02, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22 · Issue: [#3538](https://github.com/smithersai/smithers/issues/3538)
+Stage S1 · Size S · Depends on — · Unblocks T-AGT-03, T-APP-09, T-INS-04, T-REL-02, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22 · Issue: [#3538](https://github.com/smithersai/smithers/issues/3538)
 Spec: spec.md §14.2.1, §14.6a, §14.5.2, §4.1 · Delta: delta.md §9 · Product: mvp.md §3, B.3 · Props: [ui-components.md § T-UI-01](../ui-components.md)
 
 Landed (788a3ad7e, ad4d02f45).

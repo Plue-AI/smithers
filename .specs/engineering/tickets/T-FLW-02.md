@@ -1,6 +1,6 @@
 # T-FLW-02 Install-stored default config: checks, wiki pages, seats
 
-Stage S1 · Size M · Depends on T-FLW-01, T-MCH-10, T-INS-06 · Unblocks T-FLW-08, T-FLW-10, T-REL-02, T-STK-08 · Issue: [#3449](https://github.com/smithersai/smithers/issues/3449)
+Stage S1 · Size M · Depends on T-FLW-01, T-MCH-10, T-INS-06 · Unblocks T-APP-01, T-FLW-08, T-FLW-10, T-REL-02, T-STK-08 · Issue: [#3449](https://github.com/smithersai/smithers/issues/3449)
 Spec: spec.md §3 (`install_settings`), §8.6.2, §11.2, §11.5a, §13.5 · Delta: delta.md §8 (install-stored config row) · Product: mvp.md J1.4, §6.9 Works TODOs, §6.11 Generated pages, §6.12 Default flows, M-11
 
 ## Goal

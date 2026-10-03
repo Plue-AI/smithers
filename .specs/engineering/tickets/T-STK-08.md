@@ -1,6 +1,6 @@
 # T-STK-08 Rebase now, conflicts (agent once, then Needs you with Resolve) and presence-aware rebase
 
-Stage S1, S2 · Size L · Depends on S1: T-STK-01, T-STK-02, T-STK-12, T-FLW-02, T-FLW-11, T-MCH-08 (S1), T-UI-04 · S2: T-COL-03, T-COL-04, T-COL-06, T-MCH-04, T-MCH-07 · Unblocks T-APP-02, T-APP-10, T-GH-06, T-REL-01, T-REL-02, T-REL-04 · Issue: [#3532](https://github.com/smithersai/smithers/issues/3532)
+Stage S1, S2 · Size L · Depends on S1: T-STK-01, T-STK-02, T-STK-12, T-FLW-02, T-FLW-11, T-MCH-08 (S1), T-UI-04 · S2: T-COL-03, T-COL-04, T-COL-06, T-MCH-04, T-MCH-07 · Unblocks T-APP-01, T-APP-02, T-APP-10, T-COL-08, T-GH-06, T-REL-01, T-REL-02, T-REL-04 · Issue: [#3532](https://github.com/smithersai/smithers/issues/3532)
 Spec: spec.md §8.5.0, §8.5.2a, §9.4.2, §10.5.1–§10.5.5, §14.5.2, §15.1.5 · Delta: delta.md §6 (Modify rebase) · Product: mvp.md §4.2 Rebase, J7.4, J10.4, M-32, Appendix A `/branch.rebase`
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges STK-08+11). Absorbs T-STK-08 ([#3573](https://github.com/smithersai/smithers/issues/3573)).

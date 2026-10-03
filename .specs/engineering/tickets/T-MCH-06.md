@@ -1,6 +1,6 @@
 # T-MCH-06 Admission scheduler: slots to confirmed stop, per-branch coalescing, disk re-check, positions, safe-idle release
 
-Stage S2 · Size L · Depends on T-MCH-04, T-MCH-01 · Unblocks T-FLW-06, T-INS-07, T-MNT-02, T-MNT-04, T-REL-01, T-REL-02, T-STK-03, T-TRM-03 · Issue: [#3567](https://github.com/smithersai/smithers/issues/3567)
+Stage S2 · Size L · Depends on T-MCH-04, T-MCH-01 · Unblocks T-FLW-06, T-INS-07, T-MNT-01, T-MNT-02, T-MNT-04, T-REL-01, T-REL-02, T-STK-03, T-TRM-03 · Issue: [#3567](https://github.com/smithersai/smithers/issues/3567)
 Spec: spec.md §4.1.1, §4.2, §8.2.1a, §8.2.1b, §8.2.2, §8.3, §8.4.1, §8.4.2, §6.2.3, §7.2, §18 (warm wake) · Delta: delta.md §3 (admission row) · Product: mvp.md J3, J4, §6.7 Capacity and queue, M-06, M-13
 
 ## Goal

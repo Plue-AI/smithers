@@ -1,6 +1,6 @@
 # T-ACC-03 One authorizer over the permission matrix
 
-Stage S1 · Size M · Depends on T-ACC-01, T-CAT-01 · Unblocks T-ACC-04, T-APP-06, T-APP-21, T-COL-02, T-FLW-03, T-FLW-08, T-FLW-12, T-GH-03, T-GH-06, T-GH-07, T-GH-09, T-INS-04, T-INS-06, T-MCH-04, T-REL-02, T-REL-03, T-STK-04 · Issue: [#3492](https://github.com/smithersai/smithers/issues/3492)
+Stage S1 · Size M · Depends on T-ACC-01, T-CAT-01 · Unblocks T-ACC-02, T-ACC-04, T-AGT-04, T-APP-04, T-APP-06, T-APP-21, T-COL-02, T-FLW-03, T-FLW-08, T-FLW-12, T-GH-03, T-GH-06, T-GH-07, T-GH-09, T-INS-04, T-INS-06, T-MCH-04, T-MNT-01, T-REL-02, T-REL-03, T-STK-04 · Issue: [#3492](https://github.com/smithersai/smithers/issues/3492)
 Spec: spec.md §5.2, §5.2.1, §5.3, §5.4, §6.2.3, §6.3 (`/api/agents`), §11.5a, §15.1.4, §17.2 · Delta: delta.md §2 (Modify `repo_permissions.go` → one `Authorize`) · Product: mvp.md §6.15 "Roles", M-05, §2 rule 6, Appendix B.6
 
 ## Goal

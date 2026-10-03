@@ -1,6 +1,6 @@
 # T-INS-06 Install setup backend: durable steps, model access API, squash check
 
-Stage S1 · Size M · Depends on first merge: T-INS-02, T-ACC-01; rest of S1: T-INS-04, T-GH-01, T-MCH-10, T-ACC-03, T-CUT-02, T-FLW-01 · Unblocks T-APP-03, T-APP-17, T-FLW-02, T-FLW-08, T-MCH-01, T-REL-01, T-REL-02, T-REL-03, T-STK-01 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
+Stage S1 · Size M · Depends on first merge: T-INS-02, T-ACC-01; rest of S1: T-INS-04, T-GH-01, T-MCH-10, T-ACC-03, T-CUT-02, T-FLW-01 · Unblocks T-APP-01, T-APP-03, T-APP-15, T-APP-17, T-FLW-02, T-FLW-08, T-MCH-01, T-REL-01, T-REL-02, T-REL-03, T-STK-01 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
 Spec: spec.md §3 (`install_settings`, `github_app`), §3.1, §5.1.0, §6.2, §6.3 (`/api/install`), §7.2 (`install` topic), §8.6.3, §10.6.2, §11.5a, §12.1, §14.3 (Setup/Settings), §15.1, §15.2, §16.2, §17.4 · Delta: delta.md §1 (Add [S1] setup card backend) · Product: mvp.md J1.2–J1.5, §6.1, §6.5, §6.9 Model access, M-09, M-11
 Edited by the minimal-code synthesis, 2026-10-03 (v2 reverts list; v1 §6): `/api/host` folds into `/api/install`; three model-key stores become the sealed owner secrets.
 

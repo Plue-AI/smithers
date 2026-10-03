@@ -1,6 +1,6 @@
 # T-INS-01 Restore `build-native.ts` from `5b77095672` as the server bundle assembler
 
-Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T-INS-02, T-INS-05, T-INS-08, T-REL-02, T-TRM-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
+Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T-INS-02, T-INS-03, T-INS-05, T-INS-08, T-REL-02, T-TRM-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
 Spec: spec.md §1.2, §16.1.0, §16.1.1 · Product: mvp.md J1.1, §6.1, §11 stage 1 item 1, M-10
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §5). Restored code is not new code.
 
