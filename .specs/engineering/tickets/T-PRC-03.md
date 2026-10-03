@@ -2,7 +2,7 @@
 
 Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3615](https://github.com/smithersai/smithers/issues/3615)
 Spec: spec.md §21.4 · Delta: delta.md (engineering process) · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-22
-Ready: VOID 2026-10-02 22:13 smithers-8a: product's 20:07 close-reason amendment changes scope; restamp after it is recorded here
+Ready: 2026-10-02 smithers-8a sha256:fb444c464c3e
 
 ## Goal
 
@@ -14,6 +14,8 @@ In:
 - `scripts/check-run.mjs` (new): map Automation explicitly to an executable command and its declared `Runs in` host. Refuse absent paths, unwritten declarations, unparsable Automation and unavailable declared hosts. Execute with a scrubbed environment: no `GH_TOKEN`, `GITHUB_TOKEN` or `SMITHERS_GITHUB_PROXY`; `~/.config/issue-claim` is unreadable to the check process. Write `log.txt` beside `receipt.json`, hash the completed log and write the version-1 receipt after completion. Publication credentials stay behind `issue-claim.mjs` write(). smithers-22 approves each mapping; no guessed command or prose PASS creates a receipt. Check: C-PRC-03.
 - `scripts/issue-claim.mjs`: require `--landed <sha>` for every `comment --close` variant; verify a full SHA that is an ancestor of `origin/main`. Derive required check IDs from the ticket, not caller-supplied coverage. Require each receipt’s `commit` to equal that SHA and verify version, successful integer exit, ISO UTC timestamps and log digest. Resolve receipts and sibling logs under `.artifacts/checks/`; refuse symlinks in either path and `..` components before reading, then verify realpath confinement. Refuse before every issue write with exit 2, `action: "evidence-refused"` and per-check `{check, receipt?, reason: missing|coverage|failed|commit|digest}`. Keep held-claim exit 2 as `action: "refused"`. Reuse the production proxy write path; tests intercept only remote writes. Check: C-PRC-03.
 - Completion reports list receipt paths.
+- Non-landing closes (product, 2026-10-02 20:07): `comment --close --reason not-planned|duplicate|superseded --note <link>` closes with GitHub's matching `state_reason` and no receipts. It can never close as completed; a completed close keeps the full evidence gate. `--note` is required, and for duplicate or superseded it must link the replacing issue or commit.
+- Enforcement (product, 21:5x): on, with no switch. Every completed close needs receipts for all of its checks. Every new check implementation adds its mapping in the same change. Coverage rule (tech lead, 22:16): a NEEDS-OWNER check gets its argv and host from the implementing ticket's landing, and that ticket's close is refused until then; a MANUAL check needs an owner-signed receipt bound to the commit SHA; nothing is waived.
 
 Out:
 - Product runtime behavior, check implementations, live-issue closure in tests, claim arbitration changes, release/deploy policy, a hosted evidence service and any receipt bypass. M-29 governs branch machines and does not require this engineering runner to execute on a machine. Check: C-PRC-03.
