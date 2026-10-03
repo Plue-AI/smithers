@@ -91,9 +91,9 @@
   },
   "tui-fix-add.gif": {
     "source": "tui",
-    "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording fix-add).",
-    "revision": "60f00de5dc",
-    "captured": "2026-09-27"
+    "detail": "Production TUI in a PTY replaying the recorded fix-add model run (apps/tui/test/fixtures/fix-add.jsonl).",
+    "revision": "21986f0c15",
+    "captured": "2026-10-03"
   },
   "tui-flow-approval.gif": {
     "source": "tui",
@@ -193,9 +193,9 @@
   },
   "tui-transcript-filter.gif": {
     "source": "tui",
-    "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording transcript-filter).",
-    "revision": "60f00de5dc",
-    "captured": "2026-09-27"
+    "detail": "Production TUI in a PTY replaying the recorded fix-add model run (apps/tui/test/fixtures/fix-add.jsonl).",
+    "revision": "21986f0c15",
+    "captured": "2026-10-03"
   },
   "tui-undo-edit.gif": {
     "source": "tui",
