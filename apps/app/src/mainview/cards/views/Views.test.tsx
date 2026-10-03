@@ -436,3 +436,38 @@ test("queued edit uses supplied prefilled inputs", () => {
   expect(view.calls).toEqual([["todo.amend", { n: "12", text: "Publish card projections" }]]);
   view.close();
 });
+
+test("clean rebase lights Check from step while checks rerun", () => {
+  const view = mount(todoStories.clean_rebase);
+  expect([...view.element.querySelectorAll(".todo-steps li")].map(row => row.getAttribute("data-phase"))).toEqual(["done", "done", "current", "next", "next"]);
+  const checks = view.element.querySelectorAll(".todo-evidence-row [data-check]");
+  expect([...checks].map(row => row.getAttribute("data-check"))).toEqual(["running", "pending"]);
+  expect(view.element.querySelectorAll(".todo-spinner").length).toBe(2);
+  expect(view.element.textContent).toContain("Reviewed 4bc79ae · same change");
+  expect(view.element.textContent).toContain("Checks running");
+  expect(Boolean(checks[1]!.compareDocumentPosition(view.element.querySelector(".todo-merge-reason")!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  view.close();
+});
+test("passed checks complete Propose and hold the dashed merge wait", () => {
+  const view = mount(todoStories.checks_passed);
+  expect([...view.element.querySelectorAll(".todo-steps li")].map(row => row.getAttribute("data-phase"))).toEqual(["done", "done", "done", "done", "held"]);
+  expect(view.element.querySelector('.todo-steps [data-phase="held"]')?.getAttribute("data-wait")).toBe("true");
+  expect(view.element.querySelectorAll(".todo-spinner").length).toBe(0);
+  expect(view.element.querySelector("header")!.textContent).toContain("In reviewNext to mergetodo/12");
+  view.close();
+});
+
+test("an open merge wait is current without a step label", () => {
+  const view = mount({ ...todoStories.checks_passed, model: { ...todoStories.checks_passed.model, step: undefined } });
+  expect(view.element.querySelector('.todo-steps [data-phase="held"]')?.textContent).toBe("Wait for merge");
+  view.close();
+});
+test("a question holds the named step, not the first unfinished step", () => {
+  const view = mount({ ...todoStories.needs_you, model: { ...todoStories.needs_you.model, steps: [
+    { id: "plan", label: "Plan", state: "next" },
+    { id: "implement", label: "Implement", state: "next" },
+    { id: "merge", kind: "wait", state: "next" },
+  ] } });
+  expect([...view.element.querySelectorAll(".todo-steps li")].map(row => row.getAttribute("data-phase"))).toEqual(["done", "waiting", "next"]);
+  view.close();
+});

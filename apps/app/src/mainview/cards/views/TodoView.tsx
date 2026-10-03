@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Loader } from "lucide-react";
 import { TodoActionView } from "./TodoActionView";
 import type { EvidenceItem } from "@smthrs/rpc/CardPrimitives";
 import type { TodoViewProps } from "@smthrs/rpc/TodoCard";
@@ -15,14 +16,16 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
       );
     case "check":
       return (
-        <span data-check={item.state}>
+        <span className="todo-check" data-check={item.state}>
+          {item.state === "running" && <Loader className="todo-spinner" size={13} aria-hidden="true" />}
           {item.log_url ? <a href={item.log_url}>{item.name}</a> : item.name} · {item.state}
           {item.took_s === undefined ? "" : ` · ${item.took_s}s`}
         </span>
       );
     case "github_check":
       return (
-        <span data-check={item.state}>
+        <span className="todo-check" data-check={item.state}>
+          {item.state === "pending" && <Loader className="todo-spinner" size={13} aria-hidden="true" />}
           <a href={item.url}>{item.name}</a> · {item.required ? "Required" : "Optional"} · {item.state}
         </span>
       );
@@ -62,6 +65,11 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       review_required: "Review required",
       github: "Waiting on GitHub",
     }[todo.merge.reason ?? "state"];
+  const currentIndex = todo.steps.findIndex((step) =>
+    "label" in step
+      ? step.label.toLowerCase() === todo.step?.toLowerCase() || step.id.toLowerCase() === todo.step?.toLowerCase()
+      : step.state === "held" && (!todo.step || todo.step.toLowerCase() === "merge"),
+  );
   return (
     <article className="todo-view" data-keyboard-pane="TODO" aria-label={`TODO T${todo.n}`}>
       <header>
@@ -69,15 +77,15 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           <span className="todo-ref">T{todo.n}</span> {todo.title}
         </h2>
         <StateWord state={todo.state} />
+        {todo.place && <span className="todo-title-meta">{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
+        <span className="todo-title-meta">{todo.branch.name}</span>
         <img className="todo-owner" src={todo.owner.avatar_url} alt={todo.owner.name} />
       </header>
       <div className="todo-meta">
-        <span>{todo.branch.name}</span>
         <span>
           {todo.owner.name}
           {todo.owner_removed ? " · Removed" : ""}
         </span>
-        {todo.place && <span>{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
         {todo.run && <span>Attempt {todo.run.attempt}</span>}
         {todo.issue && (
           <a href={todo.issue.url}>
@@ -124,15 +132,24 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
         </details>
       )}
       <ol className="todo-steps" aria-label="Flow steps">
-        {todo.steps.map((step) => (
-          <li key={step.id} data-phase={step.state} data-wait={"kind" in step ? true : undefined}>
+        {todo.steps.map((step, index) => {
+          const phase = currentIndex < 0 ? step.state
+            : index < currentIndex ? "done"
+            : index > currentIndex ? "next"
+            : "kind" in step ? "held"
+            : todo.waits.length ? "waiting"
+            : todo.state === "failed" ? "failed"
+            : todo.state === "paused" ? "paused" : "current";
+          return (
+          <li key={step.id} data-phase={phase} data-wait={"kind" in step ? true : undefined}>
             <span className="todo-step-mark" aria-hidden="true">
-              {step.state === "done" ? "✓" : ""}
+              {phase === "done" ? "✓" : ""}
             </span>
             <span>{"label" in step ? step.label : "Wait for merge"}</span>
             {"detail" in step && step.detail && <small>{step.detail}</small>}
           </li>
-        ))}
+          );
+        })}
       </ol>
       {todo.run?.indicators.map((flag, index) => (
         <p className="todo-meta" key={index}>
@@ -166,9 +183,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       {todo.first_answer && (
         <div className="todo-authored">
           <b>
-            {todo.first_answer.by.kind === "person"
-              ? todo.first_answer.by.name.split(" ")[0]
-              : actorName(todo.first_answer.by)}{" "}
+            {actorName(todo.first_answer.by)}{" "}
             answered
           </b>
           <span>{todo.first_answer.text}</span>

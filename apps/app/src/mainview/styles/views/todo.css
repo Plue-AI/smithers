@@ -22,7 +22,7 @@
   font-size: 15px;
   font-weight: 600;
   margin: 0;
-  flex: 1;
+  min-width: 0;
 }
 .todo-ref {
   color: var(--text-muted);
@@ -240,3 +240,16 @@
     gap: 8px;
   }
 }
+
+.todo-steps [data-phase="held"] .todo-step-mark { border-color: var(--text-muted); }
+.todo-check { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.todo-view [data-check="running"], .todo-view [data-check="pending"] { color: var(--brand); }
+.todo-spinner { animation: todo-spin 1s linear infinite; }
+@keyframes todo-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .todo-spinner { animation: none; } }
+
+.todo-view header { flex-wrap: wrap; }
+.todo-title-meta { color: var(--text-muted); font-size: 11px; }
+.todo-owner { margin-left: auto; }
+
+.todo-view header .mvp-state { padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
