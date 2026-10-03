@@ -9009,6 +9009,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/changes/{change_id}/split:
     post:
+      x-composition: plue
       summary: POST /api/repos/{owner}/{repo}/changes/{change_id}/split
       operationId: post_api_repos_owner_repo_changes_change_id_split
       tags:

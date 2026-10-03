@@ -1152,7 +1152,9 @@ func buildRouter(
 				r.With(writeRepo...).Post("/bookmarks", jjVCSHandler.CreateBookmark)
 				r.With(writeRepo...).Delete("/bookmarks/{name}", jjVCSHandler.DeleteBookmark)
 				r.With(writeRepo...).Post("/changes/{change_id}/revert", jjVCSHandler.RevertChange)
-				r.With(writeRepo...).Post("/changes/{change_id}/split", jjVCSHandler.SplitChange)
+				if !config.IsSingleOwner(cfg.Auth) {
+					r.With(writeRepo...).Post("/changes/{change_id}/split", jjVCSHandler.SplitChange)
+				}
 				r.With(writeRepo...).Put("/changes/{change_id}/walkthrough", jjVCSHandler.PutChangeWalkthrough)
 				if stackHandler != nil {
 					r.With(append(writeRepo, repoStackQuota)...).Post("/stacks/active", stackHandler.UpsertActiveStack)
@@ -1795,64 +1797,66 @@ func buildRouter(
 				writeAdmin := []func(http.Handler) http.Handler{
 					middleware.RequireScope(middleware.ScopeWriteAdmin),
 				}
-				if extras.AdminGrant != nil {
-					r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
-				}
-				if workspaceHandler != nil && workspaceHandler.EnvironmentImages != nil {
-					// Platform base NixOS images (repository_id NULL) for kind=vm.
-					r.With(readAdmin...).Get("/sandbox/environment-images", workspaceHandler.EnvironmentImages.ListBaseImages)
-					r.With(writeAdmin...).Post("/sandbox/environment-images", workspaceHandler.EnvironmentImages.RegisterBaseImage)
-				}
-				if adminUserHandler != nil && !config.IsSingleOwner(cfg.Auth) {
-					r.With(readAdmin...).Get("/users", adminUserHandler.ListUsers)
-					r.With(writeAdmin...).Post("/users", adminUserHandler.CreateUser)
-					r.With(writeAdmin...).Delete("/users/{username}", adminUserHandler.DeleteUser)
-					r.With(writeAdmin...).Post("/users/{username}/erase", adminUserHandler.EraseUser)
-					r.With(writeAdmin...).Post("/users/{username}/export", adminUserHandler.ExportUser)
-					r.With(writeAdmin...).Patch("/users/{username}", adminUserHandler.PatchUser)
-					r.With(writeAdmin...).Patch("/users/{username}/admin", adminUserHandler.PatchUserAdmin)
-					r.With(writeAdmin...).Post("/users/{username}/tokens", adminUserHandler.PostUserToken)
-					r.With(writeAdmin...).Delete("/users/{username}/tokens/{token_id}", adminUserHandler.DeleteUserToken)
-				}
-				if adminOrgHandler != nil {
-					r.With(readAdmin...).Get("/orgs", adminOrgHandler.ListOrgs)
-				}
-				if adminRepoHandler != nil {
-					r.With(readAdmin...).Get("/repos", adminRepoHandler.ListRepos)
-				}
-				if adminGitHubAppHandler != nil {
-					r.With(writeAdmin...).Post("/github-app/reconcile", adminGitHubAppHandler.Reconcile)
-				}
-				if adminAuditHandler != nil {
-					r.With(readAdmin...).Get("/audit-logs", adminAuditHandler.ListAuditLogs)
-				}
 				if extras.AdminSystemHealth != nil {
 					r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
 				}
-				if extras.AdminSystemStatus != nil {
-					r.With(readAdmin...).Get("/system/status", extras.AdminSystemStatus.SystemStatus)
-				}
-				if extras.AdminAnalytics != nil {
-					r.With(readAdmin...).Get("/analytics/summary", extras.AdminAnalytics.Summary)
-				}
-				if extras.AdminAgentSessions != nil {
-					r.With(readAdmin...).Get("/agent-sessions", extras.AdminAgentSessions.List)
-					r.With(writeAdmin...).Post("/agent-sessions/{id}/cancel", extras.AdminAgentSessions.Cancel)
-				}
-				if extras.AdminWorkspaces != nil {
-					r.With(readAdmin...).Get("/workspaces", extras.AdminWorkspaces.List)
-					r.With(writeAdmin...).Post("/workspaces/{id}/stop", extras.AdminWorkspaces.Stop)
-					r.With(writeAdmin...).Post("/workspaces/{id}/suspend", extras.AdminWorkspaces.Suspend)
-				}
-				if extras.AdminTokens != nil {
-					r.With(readAdmin...).Get("/tokens", extras.AdminTokens.List)
-				}
-				for _, route := range extras.DeploymentAdmin {
-					scope := readAdmin
-					if route.Write {
-						scope = writeAdmin
+				if !config.IsSingleOwner(cfg.Auth) {
+					if extras.AdminGrant != nil {
+						r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
 					}
-					r.With(scope...).Method(route.Method, route.Pattern, withAdminAuditActor(route.Handler))
+					if workspaceHandler != nil && workspaceHandler.EnvironmentImages != nil {
+						// Platform base NixOS images (repository_id NULL) for kind=vm.
+						r.With(readAdmin...).Get("/sandbox/environment-images", workspaceHandler.EnvironmentImages.ListBaseImages)
+						r.With(writeAdmin...).Post("/sandbox/environment-images", workspaceHandler.EnvironmentImages.RegisterBaseImage)
+					}
+					if adminUserHandler != nil {
+						r.With(readAdmin...).Get("/users", adminUserHandler.ListUsers)
+						r.With(writeAdmin...).Post("/users", adminUserHandler.CreateUser)
+						r.With(writeAdmin...).Delete("/users/{username}", adminUserHandler.DeleteUser)
+						r.With(writeAdmin...).Post("/users/{username}/erase", adminUserHandler.EraseUser)
+						r.With(writeAdmin...).Post("/users/{username}/export", adminUserHandler.ExportUser)
+						r.With(writeAdmin...).Patch("/users/{username}", adminUserHandler.PatchUser)
+						r.With(writeAdmin...).Patch("/users/{username}/admin", adminUserHandler.PatchUserAdmin)
+						r.With(writeAdmin...).Post("/users/{username}/tokens", adminUserHandler.PostUserToken)
+						r.With(writeAdmin...).Delete("/users/{username}/tokens/{token_id}", adminUserHandler.DeleteUserToken)
+					}
+					if adminOrgHandler != nil {
+						r.With(readAdmin...).Get("/orgs", adminOrgHandler.ListOrgs)
+					}
+					if adminRepoHandler != nil {
+						r.With(readAdmin...).Get("/repos", adminRepoHandler.ListRepos)
+					}
+					if adminGitHubAppHandler != nil {
+						r.With(writeAdmin...).Post("/github-app/reconcile", adminGitHubAppHandler.Reconcile)
+					}
+					if adminAuditHandler != nil {
+						r.With(readAdmin...).Get("/audit-logs", adminAuditHandler.ListAuditLogs)
+					}
+					if extras.AdminSystemStatus != nil {
+						r.With(readAdmin...).Get("/system/status", extras.AdminSystemStatus.SystemStatus)
+					}
+					if extras.AdminAnalytics != nil {
+						r.With(readAdmin...).Get("/analytics/summary", extras.AdminAnalytics.Summary)
+					}
+					if extras.AdminAgentSessions != nil {
+						r.With(readAdmin...).Get("/agent-sessions", extras.AdminAgentSessions.List)
+						r.With(writeAdmin...).Post("/agent-sessions/{id}/cancel", extras.AdminAgentSessions.Cancel)
+					}
+					if extras.AdminWorkspaces != nil {
+						r.With(readAdmin...).Get("/workspaces", extras.AdminWorkspaces.List)
+						r.With(writeAdmin...).Post("/workspaces/{id}/stop", extras.AdminWorkspaces.Stop)
+						r.With(writeAdmin...).Post("/workspaces/{id}/suspend", extras.AdminWorkspaces.Suspend)
+					}
+					if extras.AdminTokens != nil {
+						r.With(readAdmin...).Get("/tokens", extras.AdminTokens.List)
+					}
+					for _, route := range extras.DeploymentAdmin {
+						scope := readAdmin
+						if route.Write {
+							scope = writeAdmin
+						}
+						r.With(scope...).Method(route.Method, route.Pattern, withAdminAuditActor(route.Handler))
+					}
 				}
 			})
 		})

@@ -4576,20 +4576,6 @@ func (c *Client) DeleteAPIRepoConnection(ctx context.Context) error {
 	return c.do(ctx, "DELETE", "/api/repo-connection", nil, nil, nil)
 }
 
-// GetAPIRepositorySetupOperation calls GET /api/repository-setup/{operation}.
-func (c *Client) GetAPIRepositorySetupOperation(ctx context.Context, operation string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repository-setup/"+url.PathEscape(operation), nil, nil, &out)
-	return out, err
-}
-
-// PostAPIRepositorySetupOperation calls POST /api/repository-setup/{operation}.
-func (c *Client) PostAPIRepositorySetupOperation(ctx context.Context, operation string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repository-setup/"+url.PathEscape(operation), nil, body, &out)
-	return out, err
-}
-
 // GetAPISearchCode calls GET /api/search/code.
 func (c *Client) GetAPISearchCode(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON

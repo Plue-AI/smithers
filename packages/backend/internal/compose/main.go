@@ -1165,7 +1165,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repositoryJobService.SetOutsiderEgress(workspaceService)
 	repositoryJobService.SetRepositoryPolicyReader(repoHostClient)
 	mythicalService.SetPolicyReader(repoHostClient)
-	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
 	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)
 	invokedFlowService.SetSecretInjector(secretInjector)
@@ -1178,7 +1177,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	} else {
 		return errors.New("workflow run service cannot cancel invoked Flow runs")
 	}
-	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, repositorySetupService)
+	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService)
 	if err != nil {
 		return err
 	}
@@ -1194,7 +1193,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if flow != nil {
 		agentService.SetFlowDispatcher(flow.dispatcher)
 		repositoryJobService.SetFlowDispatcher(flow.dispatcher)
-		repositorySetupService.SetFlowDispatcher(flow.dispatcher)
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
 		if options.topology.workers() {
@@ -1469,7 +1467,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		browser := &browserFlowAPI{registrationPool: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
 			resumes: background.Jobs[string]{Timeout: 6 * time.Minute, FailureTTL: time.Minute},
 			limit:   middleware.GlobalAPIRateLimit(queries)}
-		mountBrowserFlow(router, cfg, queries, browser, &repositorySetupAPI{repos: repoService, setup: repositorySetupService})
+		mountBrowserFlow(router, cfg, queries, browser)
 	}
 	if chatService != nil && options.topology.servesHTTP() {
 		mountChatPublic(router, chatService.runtime, queries, cfg)

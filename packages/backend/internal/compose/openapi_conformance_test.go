@@ -145,7 +145,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		},
 	)
 	// The routes run() mounts beside buildRouter.
-	mountBrowserFlow(router, cfg, queries, &browserFlowAPI{}, &repositorySetupAPI{})
+	mountBrowserFlow(router, cfg, queries, &browserFlowAPI{})
 	mountChatPublic(router, &chat.Runtime{Handler: &chat.Handler{}}, queries, cfg)
 	mountModelPublic(router, modelhost.OwnerModels{}, queries, cfg)
 	return router
@@ -425,4 +425,33 @@ func openAPITag(paths *yaml.Node, path string) string {
 		}
 	}
 	return best
+}
+
+// The Mac composition keeps owner health while hosted operations remain mounted
+// for Plue. Walk the production router so optional handlers cannot hide a route.
+func TestCutBackendCompositionRoutes(t *testing.T) {
+	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = mode
+			served := map[string]servedRoute{}
+			walkServedRoutes(t, openAPIConformanceRouter(cfg), served)
+			require.Contains(t, served, "get /api/admin/system/health")
+			hosted := mode == config.AuthModeMultitenant
+			_, split := served["post /api/repos/{owner}/{repo}/changes/{change_id}/split"]
+			require.Equal(t, hosted, split)
+			admins := 0
+			for _, route := range served {
+				require.NotContains(t, route.path, "/api/repository-setup/")
+				if strings.HasPrefix(route.path, "/api/admin/") && route.path != "/api/admin/system/health" {
+					admins++
+				}
+			}
+			if hosted {
+				require.Positive(t, admins)
+			} else {
+				require.Zero(t, admins)
+			}
+		})
+	}
 }

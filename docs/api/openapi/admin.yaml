@@ -1,6 +1,7 @@
 paths:
   /api/admin/grant:
     post:
+      x-composition: plue
       summary: Grant credit to a user
       description: Requires a verified administrator and write:admin for personal access tokens. The operation key globally binds the recipient, amount and administrator; retries return the original receipt.
       operationId: post_api_admin_grant
@@ -41,6 +42,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}:
     delete:
+      x-composition: plue
       summary: DELETE /api/admin/users/{username}
       operationId: delete_api_admin_users_username
       tags:
@@ -73,6 +75,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     patch:
+      x-composition: plue
       summary: PATCH /api/admin/users/{username}
       operationId: patch_api_admin_users_username
       tags:
@@ -110,6 +113,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/tokens/{token_id}:
     delete:
+      x-composition: plue
       summary: DELETE /api/admin/users/{username}/tokens/{token_id}
       operationId: delete_api_admin_users_username_tokens_token_id
       tags:
@@ -148,6 +152,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/agent-sessions:
     get:
+      x-composition: plue
       summary: GET /api/admin/agent-sessions
       operationId: get_api_admin_agent_sessions
       tags:
@@ -180,6 +185,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/analytics/summary:
     get:
+      x-composition: plue
       summary: GET /api/admin/analytics/summary
       operationId: get_api_admin_analytics_summary
       tags:
@@ -212,6 +218,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/audit-logs:
     get:
+      x-composition: plue
       summary: GET /api/admin/audit-logs
       operationId: get_api_admin_audit_logs
       tags:
@@ -244,6 +251,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/orgs:
     get:
+      x-composition: plue
       summary: GET /api/admin/orgs
       operationId: get_api_admin_orgs
       tags:
@@ -276,6 +284,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/repos:
     get:
+      x-composition: plue
       summary: GET /api/admin/repos
       operationId: get_api_admin_repos
       tags:
@@ -308,6 +317,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/sandbox/environment-images:
     get:
+      x-composition: plue
       summary: GET /api/admin/sandbox/environment-images
       operationId: get_api_admin_sandbox_environment_images
       tags:
@@ -339,6 +349,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
+      x-composition: plue
       summary: POST /api/admin/sandbox/environment-images
       operationId: post_api_admin_sandbox_environment_images
       tags:
@@ -403,6 +414,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/system/status:
     get:
+      x-composition: plue
       summary: GET /api/admin/system/status
       operationId: get_api_admin_system_status
       tags:
@@ -435,6 +447,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/tokens:
     get:
+      x-composition: plue
       summary: GET /api/admin/tokens
       operationId: get_api_admin_tokens
       tags:
@@ -467,6 +480,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users:
     get:
+      x-composition: plue
       summary: GET /api/admin/users
       operationId: get_api_admin_users
       tags:
@@ -498,6 +512,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
+      x-composition: plue
       summary: POST /api/admin/users
       operationId: post_api_admin_users
       tags:
@@ -530,6 +545,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/workspaces:
     get:
+      x-composition: plue
       summary: GET /api/admin/workspaces
       operationId: get_api_admin_workspaces
       tags:
@@ -562,6 +578,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/erase:
     post:
+      x-composition: plue
       summary: POST /api/admin/users/{username}/erase
       description: Erases the user's owned data, including stored workspace snapshots, and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records with the name and email removed. Repeating the erase changes nothing and succeeds. With user_id the erase targets exactly that account, which must hold or have held the username. Without it, a username registered after the request date resolves to the earlier tombstone; a live account created after the request date, or a name reused after an earlier erase when both accounts predate the request, is refused with 409. An admin.user.erase_started event is written before any teardown and an admin.user.erase event with the result.
       operationId: post_api_admin_users_username_erase
@@ -633,6 +650,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/export:
     post:
+      x-composition: plue
       summary: POST /api/admin/users/{username}/export
       description: Returns the account's data as a gzip-compressed tar archive, built in full before the response starts. The archive holds profile.json, repositories.json, one cloneable git bundle per owned repository under repositories/, issues.json, comments.json, landing_requests.json, runs.json, and manifest.json listing every other file with its size, SHA-256 and record count. Each export writes an admin.user.export audit event.
       operationId: post_api_admin_users_username_export
@@ -670,6 +688,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/admin:
     patch:
+      x-composition: plue
       summary: PATCH /api/admin/users/{username}/admin
       operationId: patch_api_admin_users_username_admin
       tags:
@@ -707,6 +726,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/agent-sessions/{id}/cancel:
     post:
+      x-composition: plue
       summary: POST /api/admin/agent-sessions/{id}/cancel
       operationId: post_api_admin_agent_sessions_id_cancel
       tags:
@@ -744,6 +764,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/github-app/reconcile:
     post:
+      x-composition: plue
       summary: POST /api/admin/github-app/reconcile
       operationId: post_api_admin_github_app_reconcile
       tags:
@@ -776,6 +797,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/tokens:
     post:
+      x-composition: plue
       summary: POST /api/admin/users/{username}/tokens
       operationId: post_api_admin_users_username_tokens
       tags:
@@ -813,6 +835,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/workspaces/{id}/stop:
     post:
+      x-composition: plue
       summary: POST /api/admin/workspaces/{id}/stop
       operationId: post_api_admin_workspaces_id_stop
       tags:
@@ -850,6 +873,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/workspaces/{id}/suspend:
     post:
+      x-composition: plue
       summary: POST /api/admin/workspaces/{id}/suspend
       operationId: post_api_admin_workspaces_id_suspend
       tags:

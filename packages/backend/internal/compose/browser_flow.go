@@ -349,9 +349,9 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 	_, _ = w.Write(answer)
 }
 
-// mountBrowserFlow serves the browser's flow and repository-setup seams. The
-// OpenAPI conformance test walks the same mounts.
-func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries, browser *browserFlowAPI, setup *repositorySetupAPI) {
+// mountBrowserFlow serves the browser Flow seam. The OpenAPI conformance test
+// walks the same mounts.
+func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries, browser *browserFlowAPI) {
 	if browser.reports == nil && browser.registrationPool != nil {
 		browser.reports = services.NewRegistrationReports(browser.registrationPool)
 	}
@@ -371,10 +371,4 @@ func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries
 	// The seam takes the API budget itself: a run's progress polls (a
 	// snapshot every two seconds per run) stay out of it (browserFlowAPI.limit).
 	router.With(access(false)...).Post("/api/workflow/rpc", browser.rpc)
-	router.With(flowAccess...).Post("/api/repository-setup/{operation}", setup.serve)
-	// A setup's progress is polled every few seconds for up to six hours,
-	// so its reads stay out of the API budget like a run's progress reads.
-	unlimited := access(false)
-	setupReads := append(unlimited[:len(unlimited)-1:len(unlimited)-1], middleware.RequireScope(middleware.ScopeReadRepository))
-	router.With(setupReads...).Get("/api/repository-setup/{operation}", setup.serve)
 }

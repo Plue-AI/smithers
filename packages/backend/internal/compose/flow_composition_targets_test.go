@@ -68,10 +68,10 @@ func TestInvokedFlowTargetsRouteOnlyWorkflowInvokeBindings(t *testing.T) {
 		return flowhost.Authority{}, nil
 	})
 	resolver := withInvokedFlowTargets(base, invoked)
-	for _, kind := range []string{"workflow-invoke", "agent-session", "repository-setup"} {
+	for _, kind := range []string{"workflow-invoke", "agent-session"} {
 		_, err := resolver.ResolveFlowHostTarget(context.Background(), flowruntime.Target{BindingKind: kind})
 		require.NoError(t, err)
 	}
 	require.Equal(t, []string{"workflow-invoke"}, invokedKinds)
-	require.Equal(t, []string{"agent-session", "repository-setup"}, baseKinds)
+	require.Equal(t, []string{"agent-session"}, baseKinds)
 }

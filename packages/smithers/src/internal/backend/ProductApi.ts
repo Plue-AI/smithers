@@ -4882,29 +4882,6 @@ export const postApiRepoConnection = (transport: Transport): Promise<PostApiRepo
 export const deleteApiRepoConnection = (transport: Transport): Promise<void> =>
   transport.request("DELETE", `/api/repo-connection`).then(() => undefined)
 
-export type GetApiRepositorySetupOperationResponse = AnyJSON
-
-export interface GetApiRepositorySetupOperationInput {
-  readonly path: { readonly operation: string }
-}
-
-/** GET /api/repository-setup/{operation} */
-export const getApiRepositorySetupOperation = (transport: Transport, input: GetApiRepositorySetupOperationInput): Promise<GetApiRepositorySetupOperationResponse> =>
-  transport.request("GET", `/api/repository-setup/${segment(input.path.operation)}`) as Promise<GetApiRepositorySetupOperationResponse>
-
-export type PostApiRepositorySetupOperationBody = AnyJSON
-
-export type PostApiRepositorySetupOperationResponse = AnyJSON
-
-export interface PostApiRepositorySetupOperationInput {
-  readonly path: { readonly operation: string }
-  readonly body?: PostApiRepositorySetupOperationBody
-}
-
-/** POST /api/repository-setup/{operation} */
-export const postApiRepositorySetupOperation = (transport: Transport, input: PostApiRepositorySetupOperationInput): Promise<PostApiRepositorySetupOperationResponse> =>
-  transport.request("POST", `/api/repository-setup/${segment(input.path.operation)}`, input.body) as Promise<PostApiRepositorySetupOperationResponse>
-
 export type GetApiSearchCodeResponse = AnyJSON
 
 /** GET /api/search/code */
