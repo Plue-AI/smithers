@@ -645,3 +645,12 @@ HTML. TOC and document links dispatch the supplied `open` gesture with
 `{...args, page: "<slug>#<anchor>"}`; absent or disabled gestures are inert.
 The adapter reveals `anchor` once per page/anchor reset. At 390px the rail wraps
 above the page. No router, loader or authorization belongs to this View.
+
+### T-UI-22 Debug API
+
+`DebugApiView` consumes `DebugApiViewProps` from `@smthrs/rpc/DebugApiCard`.
+Operations are grouped in supplied order; selection emits `onView({ selected })`.
+Send renders its supplied `input` through the shared action form, including multiline
+JSON bodies. Pending mutations show method and path beside supplied confirmation
+actions. The exchange shows request, response status, headers, body and duration;
+typed failures use ember. The View makes no request and decides no authorization.

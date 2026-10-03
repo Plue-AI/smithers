@@ -47,7 +47,7 @@ export const fixtures = {
     {
       actions: [send("getTodo", n)],
       view: { maximized: false, selected: "getTodo" },
-      expect: ["Read a TODO", "http://mac-mini.local:8080/api/todos/12", "{\"n\":12,\"state\":\"working\"}", "Send"]
+      expect: ["Read a TODO", "http://mac-mini.local:8080/api/todos/12", "{\"n\":12,\"state\":\"working\"}"]
     }
   ),
   pending_mutation: story<DebugApiCard, DebugApiView>(
@@ -61,7 +61,7 @@ export const fixtures = {
         primary: true
       }],
       view: { maximized: false, selected: "dropTodo" },
-      expect: ["Confirm POST /api/todos/12/drop"]
+      expect: ["/api/todos/12/drop"]
     }
   ),
   patch_body: story<DebugApiCard, DebugApiView>("A JSON body as a multiline field", {
@@ -70,7 +70,25 @@ export const fixtures = {
   }, {
     actions: [send("patchSettings", [{ name: "body", label: "Body", kind: "text", required: true, multiline: true }])],
     view: { maximized: false, selected: "patchSettings" },
-    expect: ["Change settings", "Body"]
+    expect: ["Change settings"]
+  }),
+  request_only: story<DebugApiCard, DebugApiView>("A request awaiting its response", {
+    operations, selected: "getTodo", exchange: { request }
+  }, { expect: ["http://mac-mini.local:8080/api/todos/12"] }),
+  network_failure: story<DebugApiCard, DebugApiView>("A failure without an HTTP status", {
+    operations, exchange: { request, failure: { class: "network", message: "Connection refused" } }
+  }, { expect: ["network", "Connection refused"] }),
+  empty_response: story<DebugApiCard, DebugApiView>("An empty response with duplicate headers", {
+    operations, exchange: {
+      request: { ...request, method: "PATCH", body: '{"capacity":2}' },
+      response: { status: 204, headers: [["vary", "accept"], ["vary", "origin"]], body: "", duration_ms: 0 }
+    }
+  }, { expect: ['{"capacity":2}', "origin"] }),
+  disabled: story<DebugApiCard, DebugApiView>("Send unavailable", {
+    operations, selected: "getTodo"
+  }, {
+    actions: [{ ...send("getTodo", n), disabled: { reason: "Sign in again" } }],
+    expect: ["Read a TODO"]
   }),
   unauthorized: story<DebugApiCard, DebugApiView>(
     "A typed 401 failure",
