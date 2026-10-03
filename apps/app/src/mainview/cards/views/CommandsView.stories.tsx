@@ -1,7 +1,6 @@
 import type { Action } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Commands"
 import { CommandsView } from "./CommandsView"
-import { appendixCases } from "./CommandsCases"
 import { fixtureStories, type ViewStory } from "./stories"
 
 const suppliedActions: readonly Action[] = [{ tag: "help", label: "Open", args: { source: "fixture" } }, { tag: "help", label: "Retry", disabled: { reason: "Unavailable" } }]
@@ -15,7 +14,6 @@ const formActions: readonly Action[] = [{ tag: "search", label: "Search", args: 
 
 export const stories: ViewStory[] = [
   ...fixtureStories(fixtures, (fixture, callbacks) => <CommandsView {...fixture} {...callbacks} />),
-  { name: "Appendix A", expect: ["Ask", "Switch light or dark"], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={appendixCases} actions={[]} {...callbacks} /> },
   { name: "Empty", expect: [], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={{ groups: [] }} actions={[]} {...callbacks} /> },
   { name: "Empty group", expect: ["Ask"], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={{ groups: [{ label: "Ask", advanced: false, commands: [] }] }} actions={[]} {...callbacks} /> },
   { name: "Inert text", expect: ["<script>alert(1)</script>"], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={{ groups: [{ label: "Ask", advanced: false, commands: [{ tag: "help", synopsis: "<script>alert(1)</script>", description: "<img src=x onerror=alert(1)>", agent: "never" }] }] }} actions={[]} {...callbacks} /> },

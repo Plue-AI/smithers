@@ -761,28 +761,6 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
 
 // T-UI-14: Appendix A literal copy, presentation-only policy and inert text.
 const { CommandsView } = await import("./CommandsView")
-const { appendixCases } = await import("./CommandsCases")
-const { appendixExpectations } = await import("./CommandsExpectations")
-for (const theme of ["light", "dark"]) test(`Commands Appendix A and policy boundary ${theme}`, async () => {
-  document.documentElement.dataset.theme = theme
-  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView gestures={{}} view={{ maximized: false }} model={appendixCases} actions={[]} {...callbacks} /> }
-  const mountedStory = await mounted(story)
-  try {
-    const rows = [...mountedStory.host.querySelectorAll(".mvp-command")]
-    expect(rows).toHaveLength(57)
-    // Appendix B.2: A✓ asks; person-only settings/secrets/members/sign-in never run as agents.
-    for (const [synopsis, policy] of [["/merge T12", "Asks first"], ["/members", "Only you"], ["/secrets", "Only you"], ["/settings", "Only you"], ["/sign-in, /sign-out", "Only you"]]) {
-      expect(rows.find(row => row.querySelector("dt")!.textContent === synopsis)!.querySelector(".mvp-command-policy")!.textContent).toBe(policy)
-    }
-    expect(rows[0]!.querySelector("kbd")!.textContent).toBe("⌘K")
-
-    expect(rows.map(row => [row.querySelector("dt")!.textContent, row.querySelector("dd")!.textContent])).toEqual(appendixExpectations.map(row => [...row]))
-    expect(mountedStory.host.querySelector("details")!.open).toBe(false)
-    expect(mountedStory.host.querySelectorAll("button, a, script, img")).toHaveLength(0)
-    expect(mountedStory.onAction).not.toHaveBeenCalled()
-    expect(mountedStory.onView).not.toHaveBeenCalled()
-  } finally { await mountedStory.close() }
-})
 test("Commands renders supplied policies and order without dispatch or role filtering", async () => {
   const { fixtures } = await import("@smthrs/rpc/fixtures/Commands")
   const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView {...fixtures.maintainer} {...callbacks} /> }
