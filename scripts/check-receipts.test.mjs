@@ -5,7 +5,7 @@ import { readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createServer, connect } from 'node:net'
-import { validMapping } from './check-evidence.mjs'
+import { validMapping, zeroTests } from './check-evidence.mjs'
 import { fixture } from './fixtures/check-receipts.mjs'
 
 const digest = (data) => `sha256:${createHash('sha256').update(data).digest('hex')}`
@@ -328,5 +328,40 @@ test('check cannot read gh authentication configuration', () => {
     f.put('canary.mjs', `import {readFileSync} from 'node:fs'; try {readFileSync(${JSON.stringify(join(f.root,'home/.config/gh/hosts.yml'))});process.exit(43)} catch(e) {if(!['EACCES','EPERM'].includes(e.code))throw e;console.log('gh denied')}`)
     f.commit(); const path=f.evidence('C-FIX-01')
     assert.equal(readFileSync(join(f.root,path,'..','log.txt'),'utf8'),'gh denied\n')
+  } finally { f.cleanup() }
+})
+
+test('an approved mapping cannot drop obligations its pending binding still lists open (4386fc25e review)', () => {
+  const approved = { approvedBy: 'smithers-22', host: 'CI', command: ['node', 'x.mjs'] }
+  assert.equal(validMapping(approved), true)
+  assert.equal(validMapping({ ...approved, pendingBinding: { commands: [{ expectedCaseIds: ['a'] }], unboundSubcases: [{ name: 'T-UI-02-copy', reason: 'open' }] } }), false)
+  assert.equal(validMapping({ ...approved, pendingBinding: { commands: [{ expectedCaseIds: [] }] } }), false)
+  assert.equal(validMapping({ ...approved, pendingBinding: { commands: [{}] } }), false)
+  assert.equal(validMapping({ ...approved, pendingBinding: { commands: [{ expectedCaseIds: ['a'] }], unboundSubcases: [] } }), true)
+  // A pending entry may keep its open proposal; it is refused at closure as missing anyway.
+  assert.equal(validMapping({ status: 'pending-owner', reason: 'r', ticket: 'T-UI-01', pendingBinding: { unboundSubcases: [{ name: 'x' }] } }), true)
+})
+
+test('a run that executed no tests is empty for every reporter, and a run with tests is not', () => {
+  for (const log of ['ℹ tests 0\nℹ pass 0', '# tests 0', 'Ran 0 tests across 0 files. [3ms]', 'No test files found, exiting with code 1', 'Error: No tests found', 'ok  \tgithub.com/x/y\t0.01s [no tests to run]', '?   \tgithub.com/x/z\t[no test files]']) assert.equal(zeroTests(log), true, log)
+  for (const log of ['ℹ tests 12', 'Ran 3 tests across 1 file.', 'ok  \tgithub.com/x/y\t0.51s', 'ok  \tgithub.com/x/y\t0.51s\nok  \tgithub.com/x/w\t0.01s [no tests to run]', '{"Action":"pass","Package":"p","Test":"TestA","Elapsed":0}\n[no tests to run]', '--- PASS: TestA (0.00s)', 'canary passed']) assert.equal(zeroTests(log), false, log)
+})
+
+test('an exit-0 run with zero tests fails the runner and its receipt cannot close', () => {
+  const f = fixture()
+  try {
+    f.put('canary.mjs', "console.log('ℹ tests 0')")
+    f.commit()
+    const paths = ['C-FIX-01', 'C-FIX-02'].map(id => {
+      const out = f.runner(id)
+      assert.equal(out.status, 1, out.stderr + out.stdout)
+      const path = JSON.parse(out.stdout).receipt
+      assert.equal(JSON.parse(readFileSync(join(f.root, path))).exit, 0)
+      return path
+    })
+    const closed = f.close(paths)
+    assert.equal(closed.code, 2)
+    assert.deepEqual(closed.out.checks.map(c => [c.check, c.reason]), [['C-FIX-01', 'failed'], ['C-FIX-02', 'failed']])
+    assert.equal(f.writes.length, 0)
   } finally { f.cleanup() }
 })

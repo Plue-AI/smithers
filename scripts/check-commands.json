@@ -547,7 +547,7 @@
     },
     "C-MCH-04": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/microsandbox/hostprofile_test.go, packages/backend/internal/services/install_capacity_integration_test.go",
+      "reason": "Automation present (packages/backend/microsandbox/hostprofile_test.go, packages/backend/internal/services/install_capacity_integration_test.go); awaiting smithers-22 mapping approval",
       "ticket": "T-MCH-01"
     },
     "C-MCH-05": {
@@ -652,7 +652,7 @@
     },
     "C-PRC-03": {
       "status": "pending-owner",
-      "reason": "Absent: scripts/check-receipts.test.mjs",
+      "reason": "Automation present (scripts/check-receipts.test.mjs); awaiting smithers-22 mapping approval",
       "ticket": "T-PRC-03"
     },
     "C-REL-01": {
@@ -1027,7 +1027,7 @@
     },
     "C-UI-12": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/src/mainview/cards/views/Views.test.tsx, apps/app/e2e/playwright/view-stories.spec.ts",
+      "reason": "Automation present (apps/app/src/mainview/cards/views/Views.test.tsx, apps/app/e2e/playwright/view-stories.spec.ts); awaiting smithers-22 mapping approval",
       "ticket": "T-UI-01",
       "pendingBinding": {
         "commands": [

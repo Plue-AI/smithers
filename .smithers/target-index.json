@@ -46372,6 +46372,31 @@
     }
   },
   {
+    "label": "//scripts:hostProcessSampler",
+    "package": "scripts",
+    "name": "hostProcessSampler",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/checks/host-process-sampler.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/checks/host-process-sampler.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:issueClaim",
     "package": "scripts",
     "name": "issueClaim",

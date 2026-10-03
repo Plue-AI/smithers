@@ -14,7 +14,18 @@ export const validMapping = (mapping) => {
   if (!mapping || typeof mapping.reason !== 'string' && mapping.status) return false
   if (mapping.status === 'manual') return Boolean(mapping.reason.trim())
   if (mapping.status === 'pending-owner') return Boolean(mapping.reason.trim() && /^T-[A-Z]+-\d+[a-z]*$/.test(mapping.ticket ?? ''))
+  // An approved mapping may not drop obligations its proposal still lists open.
+  const pending = mapping.pendingBinding
+  if (!mapping.status && pending && ((pending.unboundSubcases ?? []).length || (pending.commands ?? []).some(command => !command.expectedCaseIds?.length))) return false
   return !mapping.status && mapping.approvedBy === 'smithers-22' && typeof mapping.host === 'string' && Boolean(mapping.host.trim()) && Array.isArray(mapping.command) && mapping.command.length > 0 && mapping.command.every(arg => typeof arg === 'string' && Boolean(arg))
+}
+
+/** A run that executed no tests is never a pass, whatever its exit code. */
+export const zeroTests = (log) => {
+  const text = String(log)
+  if (/^(?:ℹ|#) tests 0$/m.test(text) || /^Ran 0 tests across/m.test(text) || /No test files found/.test(text) || /^Error: No tests found/m.test(text)) return true
+  const goRan = /^ok\s+\S+\s+[\d.]+s\s*$/m.test(text) || /^--- PASS/m.test(text) || /"Action":"pass"[^}\n]*"Test":/.test(text)
+  return !goRan && /\[no tests to run\]|\bno test files\b/.test(text)
 }
 
 /** Reject traversal and every symlink component before opening a receipt or log. */
@@ -82,7 +93,9 @@ export const evidenceGate = ({ root, issue, landed, receipts }) => {
       else {
         try {
           const log = confined(root, join(resolve(root, path), '..', 'log.txt'))
-          if (typeof r.log_digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(r.log_digest) || hashLog(readFileSync(log)) !== r.log_digest) reason = 'digest'
+          const bytes = readFileSync(log)
+          if (typeof r.log_digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(r.log_digest) || hashLog(bytes) !== r.log_digest) reason = 'digest'
+          else if (zeroTests(bytes)) reason = 'failed'
         } catch { reason = 'digest' }
       }
     }

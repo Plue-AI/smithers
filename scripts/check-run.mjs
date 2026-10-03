@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { confined, fullSha, gitRead, hashLog, validMapping } from './check-evidence.mjs'
+import { confined, fullSha, gitRead, hashLog, validMapping, zeroTests } from './check-evidence.mjs'
 
 const root = realpathSync(process.cwd())
 const id = process.argv[2]
@@ -62,5 +62,6 @@ try {
   writeFileSync(join(root, dir, 'log.txt'), log, { flag: 'wx' })
   writeFileSync(join(root, dir, 'receipt.json'), JSON.stringify({ version: 1, check: id, commit, layer, command: mapping.command, exit, started, ended, log_digest: hashLog(log) }, null, 2) + '\n', { flag: 'wx' })
   console.log(JSON.stringify({ check: id, receipt: join(dir, 'receipt.json'), exit }))
-  process.exitCode = exit
+  // The receipt records the observed exit; closure also refuses an empty run.
+  process.exitCode = exit === 0 && zeroTests(log) ? 1 : exit
 } catch (error) { refuse(error.message) } finally { if (snapshot) rmSync(snapshot, { recursive: true, force: true }) }

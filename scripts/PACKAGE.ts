@@ -658,6 +658,19 @@ const githubTriage = Smithers.NodeTest({
 })
 
 /**
+ * C-SEC-02's host-process sampler: process-tree and open-file sampling with
+ * real `ps`/`lsof` positive controls, and injected launchd resolution.
+ *
+ * @since 1.0.0
+ * @category test
+ */
+const hostProcessSampler = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/checks/host-process-sampler.test.mjs")]),
+  srcs: [Smithers.file("//scripts/checks/host-process-sampler.mjs")],
+  deps: []
+})
+
+/**
  * The shared issue-claim convention and the machine's GitHub proxy it calls
  * GitHub through. The issue-claim suite fakes the proxy and proves that a live
  * claim blocks other agents, a stale one can be taken over, racing claimants
@@ -1026,6 +1039,7 @@ export const Package = Smithers.Package({
     effectVersion,
     githubTriage,
     issueClaim,
+    hostProcessSampler,
     journeys,
     lint,
     localSmithers,
