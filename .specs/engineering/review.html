@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Smithers MVP · engineering</title>
+<style>
+:root{
+--bg:#f7f5f0;--paper:#fffdf9;--ink:#1d1b18;--ink2:#47423a;--muted:#6c655a;--line:#e4dfd5;--line2:#cfc8bb;
+--accent:#a3401c;--warn:#b42318;--eng:#ebe6dc;--design:#e5e0f2;--design-ink:#433770;
+--done:#2e7a4c;--prog:#b5780f;--open:#3a66a8;--nf:#cdc5b6;
+--zone:#f0ece4;--zone2:#e9e4d9;--edge:#8c8478;
+--amber-bg:#f5e7cb;--amber-ink:#73500d;--blue-bg:#e0e9f6;--blue-ink:#2b4f88;--neu-bg:#ebe7df;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+--serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,ui-serif,serif;
+--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+--bg:#161513;--paper:#1f1d1a;--ink:#ece7df;--ink2:#cbc4b8;--muted:#9c9488;--line:#302d28;--line2:#47423a;
+--accent:#e8875d;--warn:#f2776c;--eng:#2a2723;--design:#2d2840;--design-ink:#cbc0f2;
+--done:#5cb684;--prog:#e3a646;--open:#7da7e6;--nf:#4f4a42;
+--zone:#1c1b18;--zone2:#24221e;--edge:#8a8377;
+--amber-bg:#3a2e15;--amber-ink:#f0c877;--blue-bg:#1d2a3e;--blue-ink:#a8c5f2;--neu-bg:#2a2824;
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1440px;margin:0 auto;padding:0 32px}
+.top{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:20px;height:48px}
+.brand{font:600 15px var(--serif);text-decoration:none;white-space:nowrap}
+nav{display:flex;gap:2px;margin-left:auto}
+nav a{font-size:13px;text-decoration:none;color:var(--muted);padding:5px 11px;border-radius:999px;white-space:nowrap}
+nav a:hover{color:var(--ink)}
+nav a.on{color:var(--ink);background:var(--eng)}
+section{padding:44px 0 36px;scroll-margin-top:48px;border-top:1px solid var(--line)}
+section.hero{border-top:0;padding:40px 0 34px}
+h1{font:400 40px/1.1 var(--serif);margin:0;letter-spacing:-.01em}
+h1 span{color:var(--muted)}
+h2{font:400 28px/1.2 var(--serif);margin:0 0 22px;display:flex;align-items:baseline;gap:12px}
+h2 small{font:500 12px var(--mono);color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:18px 32px}
+.commit{font:12px var(--mono);color:var(--muted);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:3px 10px}
+.commit:hover,.docs a:hover{color:var(--ink);border-color:var(--ink2)}
+.stats{display:flex;flex-wrap:wrap;gap:8px 36px;margin-top:26px}
+.stat{text-decoration:none;display:flex;flex-direction:column}
+.stat b{font:400 40px/1 var(--serif)}
+.stat span{font-size:12px;color:var(--muted);margin-top:4px}
+.stat:hover span{color:var(--ink)}
+.docs{display:flex;flex-wrap:wrap;gap:8px}
+.docs a{font-size:13px;text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:5px 12px;color:var(--ink2)}
+.ext::after{content:" ↗";color:var(--muted);font-size:.85em}
+.nw{white-space:nowrap}
+/* architecture */
+.arch svg{display:block;width:100%;height:auto}
+.zn-mac{fill:var(--zone);stroke:var(--line2)}
+.zn-m,.zn-g{fill:var(--zone2);stroke:var(--line2);stroke-dasharray:5 4}
+.zn-g{opacity:.7}
+.zl rect{fill:var(--bg);stroke:var(--line2)}
+.zl text{font:600 11px var(--sans);letter-spacing:.09em;fill:var(--muted)}
+.node rect{fill:var(--paper);stroke:var(--line2)}
+.node.outside rect{fill:var(--bg);stroke:var(--edge)}
+.node .l{font:600 15px var(--sans);fill:var(--ink)}
+.node .s{font:12.5px var(--sans);fill:var(--muted)}
+.node:hover rect,.node.hot rect{stroke:var(--accent);stroke-width:1.5}
+.node:focus{outline:none}
+.node:focus-visible rect{stroke:var(--accent);stroke-width:3}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.3;stroke-linejoin:round}
+#arw path{fill:var(--edge)}
+#arw2 path{fill:var(--accent)}
+.el rect{fill:var(--paper);stroke:var(--line)}
+.el text{font:11.5px var(--sans);fill:var(--ink2)}
+.arch.hl .edge,.arch.hl .el{opacity:.25}
+.arch.hl .edge.hot{opacity:1;stroke:var(--accent);stroke-width:1.8}
+.arch.hl .el.hot{opacity:1}
+.alist{display:none}
+.az{position:relative;border:1px solid var(--line2);border-radius:12px;padding:22px 10px 10px;background:var(--zone);margin:14px 0}
+.az.m{border-style:dashed;background:var(--zone2);margin:12px 0 2px}
+.az>.zt{position:absolute;top:-9px;left:12px;background:var(--bg);border:1px solid var(--line2);border-radius:999px;padding:0 8px;font:600 10.5px/16px var(--sans);letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.ag{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.ag a{display:block;padding:8px 10px;border:1px solid var(--line2);border-radius:8px;background:var(--paper);text-decoration:none;font-size:12px;color:var(--muted);line-height:1.35}
+.ag a b{display:block;color:var(--ink);font-size:14px;margin-bottom:2px}
+/* plan */
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;font-size:12px;color:var(--muted);margin:-6px 0 26px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend b{font-weight:600;color:var(--ink2)}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--eng);border:1px solid var(--line2)}
+.sw.d{background:var(--design)}
+.sw.t{background:transparent;border:1.5px solid var(--accent)}
+.dash{display:inline-block;width:20px;border-top:1.5px dashed var(--warn)}
+.bar{display:inline-block;width:4px;height:13px;border-radius:2px;background:var(--st)}
+.plan{position:relative;display:grid;column-gap:16px;grid-template-rows:auto auto auto auto}
+.stage,.dog{grid-row:span 4;display:grid;grid-template-rows:subgrid;min-width:0}
+.rail{position:relative;height:18px}
+.rail::before{content:"";position:absolute;left:0;right:-16px;top:8px;border-top:1.5px solid var(--line2)}
+.stage:last-of-type .rail::before{right:0}
+.rail i{position:absolute;left:0;top:3px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--ink2)}
+.sh{display:block;text-decoration:none;padding:12px 0 14px}
+.sh .id{font:400 30px/1 var(--serif)}
+.sh .t{display:block;font-weight:600;font-size:15px;margin:6px 0 2px;line-height:1.3}
+.sh .eta{display:flex;flex-wrap:wrap;align-items:center;gap:0 8px;font-size:13px;color:var(--ink2);margin-top:3px}
+.sh .eta em{font-style:normal;color:var(--muted)}
+.sh .g{display:block;font-size:12px;color:var(--muted);margin-top:7px;line-height:1.4}
+.sh:hover .t{color:var(--accent)}
+.conf{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted)}
+.conf i{display:inline-block;width:5px;height:11px;border-radius:1px;border:1px solid var(--ink2)}
+.conf i.f{background:var(--ink2)}
+.meta{padding-bottom:12px;display:flex;flex-direction:column;gap:8px}
+.cnt{display:flex;align-items:center;gap:10px;font:12px var(--mono);color:var(--ink2)}
+.cnt span{display:inline-flex;align-items:center;gap:4px}
+.sbar{display:flex;flex:1;height:6px;border-radius:3px;overflow:hidden;background:var(--line);min-width:30px;gap:1px}
+.sbar i{background:var(--st)}
+.thin{display:flex;flex-wrap:wrap;align-items:center;gap:3px 5px;font:11px var(--mono);color:var(--muted)}
+.thin a{color:var(--accent);text-decoration:none;font-weight:600}
+.thin a:hover{text-decoration:underline}
+.thin em{font:600 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;font-style:normal;color:var(--accent);margin-right:4px}
+.chips{display:grid;gap:4px;grid-template-columns:var(--cols,repeat(auto-fill,minmax(92px,1fr)));align-content:start}
+.chips+.chips{margin-top:8px}
+.chip{--st:var(--nf);position:relative;display:flex;align-items:center;gap:4px;height:22px;padding:0 4px 0 8px;border-radius:4px;background:var(--eng);font:500 10.5px/1 var(--mono);transition:opacity .12s}
+.chip::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:4px 0 0 4px;background:var(--st)}
+.chip.d{background:var(--design);color:var(--design-ink)}
+.chip .i{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}
+.chip .i::after{content:"";position:absolute;inset:0;border-radius:4px}
+.chip .i:focus-visible{outline:none}
+.chip .i:focus-visible::after{outline:2px solid var(--accent);outline-offset:1px}
+.chip .z{font-size:9px;color:var(--muted)}
+.chip .h{position:relative;z-index:1;width:10px;text-align:center;color:var(--muted);text-decoration:none;font-size:10px}
+.chip a.h:hover{color:var(--accent)}
+.chip.tp{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.chip.tp .i{color:var(--accent);font-weight:700}
+.st-done{--st:var(--done)}.st-prog{--st:var(--prog)}.st-open{--st:var(--open)}.st-nf{--st:var(--nf)}
+.hl .chip{opacity:.25}
+.hl .chip.on,.hl .chip.dep,.hl .chip.rdep{opacity:1}
+.chip.on{box-shadow:inset 0 0 0 1.5px var(--ink)}
+.chip.dep{box-shadow:inset 0 0 0 1.5px var(--ink2)}
+.chip.rdep{outline:1.5px dashed var(--ink2);outline-offset:-1.5px}
+.late{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2}
+.late path{fill:none;stroke:var(--warn);stroke-width:1.4;stroke-dasharray:4 3;stroke-linejoin:round}
+#lw path{fill:var(--warn);stroke:none}
+.hl .late{opacity:.15}
+.dog{position:relative}
+.dog .rail b{position:absolute;left:12px;top:3px;width:12px;height:12px;background:var(--accent);transform:rotate(45deg);border-radius:2px}
+.dog a{grid-row:2 / span 3;position:relative;display:block;text-decoration:none;writing-mode:vertical-rl;font-size:12px;color:var(--muted);padding:14px 0 0;margin-left:24px;line-height:1.25}
+.dog a::before{content:"";position:absolute;left:-7px;top:0;bottom:0;border-left:1.5px dashed var(--accent)}
+.dog a strong{color:var(--accent);font-weight:600}
+.dog a:hover strong{text-decoration:underline}
+/* forecast */
+.fc,.chains{display:grid;grid-template-columns:minmax(200px,270px) minmax(0,1fr);gap:8px 28px;align-items:center}
+.fl{font-size:12.5px;line-height:1.4;color:var(--muted)}
+.fl b{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:500;color:var(--ink2)}
+.fl.m b{font-weight:700;color:var(--ink)}
+.fl.m b::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c)}
+.fl.cap{font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase}
+.days{position:relative;display:flex;height:34px}
+.days i{flex:1;border-left:1px solid var(--line);font:11px/1.25 var(--mono);font-style:normal;text-align:center;color:var(--muted)}
+.days i.we{background:var(--zone)}
+.days i:last-child{border-right:1px solid var(--line)}
+.ax{height:auto}
+.ax i{padding:3px 0;border-left-color:transparent}
+.ax i:last-child{border-right-color:transparent}
+.ax i.td{color:var(--accent);font-weight:600}
+.days b{position:absolute;top:50%;height:3px;margin-top:-1.5px;background:var(--c);border-radius:2px}
+.days b::before{content:"";position:absolute;left:-6px;top:-4.5px;width:12px;height:12px;border-radius:50%;background:var(--c)}
+.days b::after{content:"";position:absolute;right:-1px;top:-5.5px;width:3px;height:14px;border-radius:1px;background:var(--c)}
+.r-x{--c:var(--edge)}.r-today{--c:var(--prog)}.r-plan{--c:var(--ink)}
+.chains{margin-top:30px;gap:12px 28px}
+.cs{display:flex;flex-wrap:wrap;align-items:center;gap:6px 5px;color:var(--muted);font-size:12px}
+.cs .chip{width:92px}
+.fnote{margin:26px 0 0;font-size:14px;color:var(--ink2)}
+.fnote a{margin-left:8px;color:var(--accent);text-underline-offset:3px}
+/* risks */
+.risks{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:14px}
+.risk{display:flex;flex-direction:column;gap:8px;padding:16px 18px 18px;border:1px solid var(--line);border-radius:10px;background:var(--paper);text-decoration:none}
+.risk:hover{border-color:var(--ink2)}
+.risk h3{margin:0;font:600 16px/1.35 var(--sans)}
+.risk p{margin:0;font-size:13px;color:var(--muted);line-height:1.45}
+.pill{align-self:flex-start;font:600 11px/1 var(--sans);letter-spacing:.03em;padding:4px 9px;border-radius:999px;background:var(--neu-bg);color:var(--ink2)}
+.r-showing .pill{background:var(--amber-bg);color:var(--amber-ink)}
+.r-spike .pill{background:var(--blue-bg);color:var(--blue-ink)}
+.r-retired{background:transparent}
+.r-retired h3{text-decoration:line-through;color:var(--muted);font-weight:500}
+.r-retired .pill{background:transparent;border:1px solid var(--line2);color:var(--muted)}
+/* for will */
+.calm{display:flex;align-items:center;gap:22px;padding:40px 44px;border:1px solid var(--line);border-radius:14px;background:var(--paper)}
+.calm svg{flex:none}
+.calm b{font:400 36px/1.1 var(--serif)}
+.dec{display:grid;gap:10px}
+.dec a{display:block;padding:18px 22px;border:1px solid var(--accent);border-radius:10px;background:var(--paper);text-decoration:none;font:400 20px/1.35 var(--serif)}
+.fyi{margin-top:26px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px}
+.fyi>span{font:600 11px var(--sans);letter-spacing:.09em;color:var(--muted)}
+.fyi a{font-size:14px;color:var(--ink2);text-decoration-color:var(--line2);text-underline-offset:3px}
+.fyi a:hover{color:var(--ink);text-decoration-color:var(--ink2)}
+#tip{position:fixed;z-index:30;max-width:340px;padding:10px 12px;border-radius:8px;background:var(--ink);color:var(--bg);font-size:12.5px;line-height:1.4;pointer-events:none;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+#tip .k{font:600 12px var(--mono)}
+#tip .m{opacity:.75;font-size:11.5px;margin-top:5px}
+#tip .m code{font:11px var(--mono)}
+#tip .w{opacity:1;color:var(--bg);font-weight:600}
+@media (max-width:900px){
+.plan{display:block}
+.stage{display:block;margin-bottom:26px}
+.rail{display:none}
+.sh{padding-top:0}
+.dog{display:block;margin:0 0 26px}
+.dog a{writing-mode:horizontal-tb;margin:0;padding:10px 0 10px 22px;border-top:1.5px dashed var(--accent);border-bottom:1.5px dashed var(--accent)}
+.dog a::before{left:4px;top:50%;bottom:auto;width:9px;height:9px;margin-top:-5px;border:0;background:var(--accent);transform:rotate(45deg)}
+.chips{grid-template-columns:repeat(auto-fill,minmax(92px,1fr))}
+.fc,.chains{grid-template-columns:minmax(0,1fr);gap:6px}
+.fl{margin-top:10px}
+}
+@media (max-width:760px){.arch svg{display:none}.alist{display:block}}
+@media (max-width:600px){
+.wrap{padding:0 16px}
+.brand{display:none}
+nav{margin:0 auto}
+nav a{padding:5px 7px;font-size:12.5px}
+h1{font-size:28px}
+.stat b{font-size:32px}
+.stats{gap:8px 26px}
+.calm{padding:26px 22px;gap:16px}
+.calm b{font-size:28px}
+.calm svg{width:40px;height:40px}
+}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="#top">Smithers MVP</a>
+  <nav aria-label="Sections"><a href="#arch">Architecture</a><a href="#plan">Plan</a><a href="#forecast">Forecast</a><a href="#risks">Risks</a><a href="#will">For Will</a></nav>
+</div></header>
+<main class="wrap">
+  <section class="hero" id="top">
+    <div class="row"><h1>Smithers MVP <span>·</span>&nbsp;engineering</h1><a class="commit" id="commit"></a></div>
+    <div class="row"><div class="stats" id="stats"></div><div class="docs" id="docs"></div></div>
+  </section>
+  <section id="arch"><h2><small>01</small>Architecture</h2><div class="arch" id="archBox"></div></section>
+  <section id="plan"><h2><small>02</small>Plan</h2><div class="legend" id="legend"></div><div class="plan hlz" id="planGrid"></div></section>
+  <section id="forecast"><h2><small>03</small>Stage 1 forecast</h2><div id="fcBox"></div></section>
+  <section id="risks"><h2><small>04</small>Risks</h2><div class="risks" id="riskGrid"></div></section>
+  <section id="will"><h2><small>05</small>For Will</h2><div id="willBox"></div></section>
+</main>
+<div id="tip" role="tooltip" hidden></div>
+<script id="data" type="application/json">{"commit": "015be2a3", "spec_href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md", "overview_href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md", "tickets_href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/README.md", "checks_href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/checks/README.md", "counts": {"tickets": 170, "checks": 149, "design": 23}, "arch": {"nodes": [{"id": "people", "label": "Team in browsers", "sub": "one app, any origin the owner sets", "zone": "outside", "x": 0, "y": 0, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L1398"}, {"id": "laptop", "label": "Laptop agents", "sub": "Claude Code, Codex via smthrs login", "zone": "outside", "x": 0, "y": 2, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L1357"}, {"id": "github", "label": "GitHub", "sub": "repo, issues, PRs; squash merge", "zone": "outside", "x": 4, "y": 0, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L1094"}, {"id": "models", "label": "Model providers", "sub": "fast, coding, jev roles", "zone": "outside", "x": 4, "y": 2, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L1053"}, {"id": "host", "label": "Host service", "sub": "smithers-backend + PostgreSQL 18, launchd", "zone": "mac", "x": 2, "y": 0, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L33"}, {"id": "live", "label": "Live channel", "sub": "/api/live: cards, presence, terminals, docs", "zone": "mac", "x": 1, "y": 1, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L450"}, {"id": "stack", "label": "Stack service", "sub": "only writer of branch history; TODO engine", "zone": "mac", "x": 2, "y": 1, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L849"}, {"id": "sync", "label": "GitHub sync", "sub": "App, ETag polling, outbound keys", "zone": "mac", "x": 3, "y": 1, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L1115"}, {"id": "creds", "label": "Credential store", "sub": "5 tool login files per member, sealed", "zone": "mac", "x": 3, "y": 2, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L640"}, {"id": "machines", "label": "Machines", "sub": "one microVM per awake branch (msb, libkrun)", "zone": "mac", "x": 2, "y": 3, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L545"}, {"id": "daemon", "label": "smithers-machined", "sub": "sessions, watcher, bursts, snapshots, docs", "zone": "machine", "x": 1, "y": 4, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L696"}, {"id": "todo", "label": "TODO run", "sub": "one durable run per attempt", "zone": "machine", "x": 3, "y": 4, "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L884"}], "edges": [["people", "live", "WebSocket"], ["laptop", "host", "delegated credential"], ["live", "host", ""], ["host", "stack", ""], ["host", "sync", ""], ["sync", "github", "App"], ["stack", "github", "PRs"], ["host", "models", "provider keys"], ["host", "machines", "admission"], ["machines", "daemon", ""], ["machines", "todo", ""], ["creds", "daemon", "seed + return", "both"], ["todo", "stack", "stack.propose"]]}, "stages": [{"id": "W0", "title": "Spikes", "goal": "Yes/no answers before code depends on them", "etas": [{"date": "Oct 2\u20135", "confidence": "high"}], "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L86"}, {"id": "S1", "title": "Walking skeleton", "goal": "Install on a Mac, one TODO from issue to merged PR, the team's stack (J1 J2 J4 J5 J7)", "etas": [{"what": "thin path", "date": "Mon Oct 5", "confidence": "medium"}, {"what": "J1 + J2 pass (plan of record)", "date": "Wed Oct 7 (P90 Thu Oct 8)", "confidence": "medium"}], "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L91"}, {"id": "S2", "title": "Multiplayer", "goal": "One live branch: people, the agent, terminals, SSH, presence (J3 without co-editing)", "etas": [{"what": "all tickets landed", "date": "by Wed Oct 14 (P90 Fri Oct 16)", "confidence": "low"}], "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L114"}, {"id": "S3", "title": "Co-editing and learning", "goal": "Live code co-editing, learning proposals, plans cite the wiki (J3.5, J8)", "etas": [{"what": "all tickets landed", "date": "by Wed Oct 14 (P90 Fri Oct 16)", "confidence": "low"}], "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L119"}, {"id": "R", "title": "Release", "goal": "Homebrew tap, upgrade/backup, quickstart, budgets, recordings on a fresh Mac mini", "etas": [{"what": "launch, this model (stage 1 + 14 days dogfood)", "date": "~Oct 21\u201322", "confidence": "low"}, {"what": "launch, Fable's estimate", "date": "Fri Nov 13", "confidence": "low"}], "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L121"}, {"id": "M", "title": "Maintainers", "goal": "Incoming admission, triage, approved replies, outside-PR review, in-place upgrade", "etas": [{"date": "launch + 7 days", "confidence": "low"}], "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L123"}], "dogfood": {"title": "Dogfood: Smithers builds itself on its own stack", "when": "after S1 passes J1 and J2 (plan of record P50 Wed Oct 7); 5 machines on the reference host", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L127"}, "tickets": [{"id": "T-MNT-01", "title": "Gate maintainer admission and expose passive incoming items", "stage": "M", "stages": "M", "size": "S", "deps": ["T-CAT-01", "T-CUT-03", "T-ACC-05", "T-STK-09", "T-GH-02", "T-GH-09", "T-APP-01", "T-APP-19"], "checks": "C-MNT-01, C-MNT-06, C-SEC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MNT-01.md", "issue": "https://github.com/smithersai/smithers/issues/3593", "status": "open"}, {"id": "T-MNT-02", "title": "Triage issues with duplicate and reproduction evidence", "stage": "M", "stages": "M", "size": "M", "deps": ["T-MNT-01", "T-FLW-03", "T-FLW-04", "T-MCH-06", "T-MCH-11", "T-MCH-15", "T-UI-19"], "checks": "C-MNT-02, C-MNT-06, C-SEC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MNT-02.md", "issue": "https://github.com/smithersai/smithers/issues/3594", "status": "open"}, {"id": "T-MNT-03", "title": "Approve exact author replies before publishing", "stage": "M", "stages": "M", "size": "S", "deps": ["T-MNT-02", "T-ACC-05", "T-GH-09", "T-UI-05", "T-APP-04"], "checks": "C-MNT-03, C-MNT-06, C-SEC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MNT-03.md", "issue": "https://github.com/smithersai/smithers/issues/3595", "status": "open"}, {"id": "T-MNT-04", "title": "Review outside PRs with the shared review step", "stage": "M", "stages": "M", "size": "M", "deps": ["T-MNT-01", "T-FLW-01", "T-FLW-04", "T-MCH-06", "T-UI-19", "T-APP-19"], "checks": "C-MNT-04, C-MNT-06, C-SEC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MNT-04.md", "issue": "https://github.com/smithersai/smithers/issues/3596", "status": "open"}, {"id": "T-MNT-05", "title": "Ship the day-seven maintainer upgrade and journey", "stage": "M", "stages": "M", "size": "S", "deps": ["T-MNT-03", "T-MNT-04", "T-INS-07", "T-REL-01", "T-DOC-03"], "checks": "C-MNT-05, C-MNT-06, C-SEC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MNT-05.md", "issue": "https://github.com/smithersai/smithers/issues/3597", "status": "open"}, {"id": "T-MCH-02", "title": "Spike: virtiofs /home across two VMs (answered NO: homes are per machine)", "stage": "W0", "stages": "W0", "size": "S", "deps": [], "checks": "C-SPK-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-02.md", "issue": "https://github.com/smithersai/smithers/issues/3437", "status": "done"}, {"id": "T-COL-01", "title": "Spike: relay round trip, Yjs keystroke p95, jj capture cost and guest kernel probes in a VM; re-run on an idle reference host decides ADR 0003's topology", "stage": "W0", "stages": "W0", "size": "S", "deps": [], "checks": "C-SPK-03, C-SPK-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-01.md", "issue": "https://github.com/smithersai/smithers/issues/3441", "status": "open"}, {"id": "T-MCH-01", "title": "Measure VM memory on 24 and 32 GB; capacity formula", "stage": "W0", "stages": "W0, S2", "size": "M", "deps": [], "checks": "W0: C-SPK-05 \u00b7 S2: C-MCH-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-01.md", "issue": "https://github.com/smithersai/smithers/issues/3470", "status": "in progress"}, {"id": "T-INS-03", "title": "Spike: Homebrew ad-hoc signing and Hypervisor.framework from a launchd daemon", "stage": "W0", "stages": "W0", "size": "S", "deps": [], "checks": "C-J1-04, C-SPK-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-03.md", "issue": "https://github.com/smithersai/smithers/issues/3471", "status": "open"}, {"id": "T-TRM-06", "title": "Spike: daemon sessions carry VS Code Remote; revocation in 5 s", "stage": "W0", "stages": "W0", "size": "M", "deps": [], "checks": "C-SPK-08", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-06.md", "issue": "https://github.com/smithersai/smithers/issues/3554", "status": "open"}, {"id": "T-COL-11", "title": "Spike: reference-host rerun and the ADR 0003 topology decision; capture growth, versions commit, kernel probes", "stage": "W0", "stages": "W0", "size": "M", "deps": ["T-COL-01"], "checks": "C-SPK-03, C-SPK-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-11.md", "issue": "https://github.com/smithersai/smithers/issues/3553", "status": "open"}, {"id": "T-INS-01", "title": "Server bundle assembler from the build-native.ts stages at 5b77095672", "stage": "S1", "stages": "S1", "size": "M", "deps": [], "checks": "C-INS-05, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-01.md", "issue": "https://github.com/smithersai/smithers/issues/3432", "status": "in progress"}, {"id": "T-INS-02", "title": "Launcher passes isolation, GitHub, model and public-URL settings; microVM-only", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-INS-01", "T-ACC-01", "T-ACC-07", "T-INS-03"], "checks": "C-J1-04, C-SEC-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-02.md", "issue": "https://github.com/smithersai/smithers/issues/3521", "status": "open"}, {"id": "T-INS-08", "title": "Launchd service and smthrs host start/stop/status from a built bundle", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-INS-01", "T-INS-02", "T-INS-03"], "checks": "C-INS-06, C-J1-01, C-J1-04, C-REL-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-08.md", "issue": "https://github.com/smithersai/smithers/issues/3523", "status": "open"}, {"id": "T-INS-04", "title": "Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-INS-02"], "checks": "C-INS-01, C-INS-03, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-04.md", "issue": "https://github.com/smithersai/smithers/issues/3522", "status": "open"}, {"id": "T-INS-06", "title": "Install setup backend: durable steps, model access API, squash check", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-INS-04", "T-GH-01", "T-ACC-01", "T-MCH-10"], "checks": "C-J1-02, C-J1-03, C-J1-04, C-SEC-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-06.md", "issue": "https://github.com/smithersai/smithers/issues/3455", "status": "open"}, {"id": "T-INS-05", "title": "Homebrew tap and release bottles; delete the Docker image", "stage": "R", "stages": "R", "size": "M", "deps": ["T-INS-01", "T-INS-03", "T-INS-08"], "checks": "C-J1-01, C-J1-04, C-REL-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-05.md", "issue": "https://github.com/smithersai/smithers/issues/3460", "status": "open"}, {"id": "T-INS-07", "title": "smthrs host upgrade, backup, restore with quiesce and a backup manifest (M-26)", "stage": "R", "stages": "R", "size": "L", "deps": ["T-INS-05", "T-INS-08", "T-MCH-06", "T-MCH-07"], "checks": "C-REL-03, C-REL-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-07.md", "issue": "https://github.com/smithersai/smithers/issues/3444", "status": "open"}, {"id": "T-ACC-01", "title": "GitHub sign-in creates the owner; delete the single-owner password path", "stage": "S1", "stages": "S1", "size": "M", "deps": [], "checks": "C-ACC-04, C-J1-04, C-SEC-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-01.md", "issue": "https://github.com/smithersai/smithers/issues/3443", "status": "in progress"}, {"id": "T-ACC-07", "title": "Structured setup-URL stdout handoff", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-ACC-01", "T-INS-01"], "checks": "C-J1-04, C-SEC-02, C-SEC-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-07.md", "issue": "https://github.com/smithersai/smithers/issues/3607", "status": "open"}, {"id": "T-ACC-02", "title": "Members roster, access check, hourly recheck, /api/members", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-ACC-01", "T-STK-01"], "checks": "C-ACC-03, C-ACC-04, C-J1-04, C-J1-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-02.md", "issue": "https://github.com/smithersai/smithers/issues/3491", "status": "open"}, {"id": "T-ACC-03", "title": "One authorizer over the permission matrix", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-ACC-01", "T-CAT-01"], "checks": "C-ACC-01, C-J1-04, C-J10-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-03.md", "issue": "https://github.com/smithersai/smithers/issues/3492", "status": "open"}, {"id": "T-ACC-04", "title": "Delegated credentials with via; smthrs login --agent; attribution", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-ACC-03"], "checks": "C-ACC-01, C-ACC-02, C-J1-04, C-J6-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-04.md", "issue": "https://github.com/smithersai/smithers/issues/3493", "status": "open"}, {"id": "T-ACC-05", "title": "Person confirmations", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-ACC-04", "T-CAT-01"], "checks": "C-ACC-02, C-J1-04, C-J6-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-05.md", "issue": "https://github.com/smithersai/smithers/issues/3494", "status": "open"}, {"id": "T-ACC-06", "title": "Revocation on removal or suspension within 5 s", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-ACC-02", "T-STK-01"], "checks": "C-ACC-03, C-APP-01, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-ACC-06.md", "issue": "https://github.com/smithersai/smithers/issues/3495", "status": "open"}, {"id": "T-STK-01", "title": "TODO tables, state machine, events, the activity table and topic, projection", "stage": "S1", "stages": "S1", "size": "L", "deps": [], "checks": "C-J1-04, C-STK-01, C-UI-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-01.md", "issue": "https://github.com/smithersai/smithers/issues/3433", "status": "in progress"}, {"id": "T-STK-02", "title": "Placement: append, before, move, drop; stack order", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01"], "checks": "C-APP-02, C-J1-04, C-J4-02, C-J7-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-02.md", "issue": "https://github.com/smithersai/smithers/issues/3528", "status": "open"}, {"id": "T-STK-04", "title": "Merge: person session, one predicate and an in-flight fence, sha-bound, squash", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-STK-01", "T-ACC-03", "T-STK-12", "T-ACC-04", "T-ACC-05", "T-STK-07", "T-GH-02", "T-GH-05", "T-GH-09", "T-INS-02"], "checks": "C-ACC-02, C-J1-04, C-J2-05, C-J4-03, C-STK-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-04.md", "issue": "https://github.com/smithersai/smithers/issues/3529", "status": "open"}, {"id": "T-STK-05", "title": "Stop, resume, Retry and Retry with the current flow, drop, reopen", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01", "T-FLW-11", "T-FLW-03", "T-STK-04"], "checks": "C-J1-04, C-J10-08, C-J4-02, C-J7-02, C-STK-03, C-STK-08", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-05.md", "issue": "https://github.com/smithersai/smithers/issues/3530", "status": "open"}, {"id": "T-STK-06", "title": "Steers at every boundary of the TODO flow", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01", "T-FLW-11", "T-STK-12"], "checks": "C-J1-04, C-J3-05, C-STK-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-06.md", "issue": "https://github.com/smithersai/smithers/issues/3531", "status": "open"}, {"id": "T-STK-07", "title": "Needs you: independent waits, precedence, first answer wins, ask bound for implementing seats", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01"], "checks": "C-J1-04, C-J2-03, C-STK-08", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-07.md", "issue": "https://github.com/smithersai/smithers/issues/3451", "status": "open"}, {"id": "T-STK-08", "title": "Rebase now; rebase conflicts: agent once, then Needs you with Resolve (M-32)", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-07", "T-UI-23", "T-APP-19"], "checks": "C-J7-03, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-08.md", "issue": "https://github.com/smithersai/smithers/issues/3532", "status": "open"}, {"id": "T-STK-09", "title": "Make TODO from an issue; the todo label freezes revision 1", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01", "T-ACC-02", "T-GH-02"], "checks": "C-J2-01, C-J2-02, C-SEC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-09.md", "issue": "https://github.com/smithersai/smithers/issues/3457", "status": "open"}, {"id": "T-STK-10", "title": "Evidence per attempt", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-STK-01", "T-FLW-11"], "checks": "C-J1-04, C-J2-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-10.md", "issue": "https://github.com/smithersai/smithers/issues/3464", "status": "open"}, {"id": "T-STK-14", "title": "Existing-item backfill and Plue confirmation", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01"], "checks": "C-STK-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-14.md", "issue": "https://github.com/smithersai/smithers/issues/3535", "status": "open"}, {"id": "T-STK-15", "title": "Amend a TODO through the durable steer path", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-02", "T-STK-06"], "checks": "C-ACC-01, C-J7-01, C-STK-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-15.md", "issue": "https://github.com/smithersai/smithers/issues/3536", "status": "open"}, {"id": "T-STK-03", "title": "Parallel setting clamped by capacity; admission in stack order", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-STK-02", "T-MCH-06"], "checks": "C-STK-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-03.md", "issue": "https://github.com/smithersai/smithers/issues/3572", "status": "open"}, {"id": "T-STK-11", "title": "Presence-aware rebase: Rebase pending, Rebase now, write hold", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-STK-08", "T-COL-06", "T-COL-03", "T-COL-04", "T-MCH-04", "T-MCH-07"], "checks": "C-COL-03, C-J10-04, C-PERF-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-11.md", "issue": "https://github.com/smithersai/smithers/issues/3573", "status": "open"}, {"id": "T-GH-01", "title": "App manifest flow from localhost; sealed App credentials", "stage": "W0", "stages": "W0, S1", "size": "M", "deps": ["T-INS-02"], "checks": "W0: C-GH-01 \u00b7 S1: C-GH-01, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-01.md", "issue": "https://github.com/smithersai/smithers/issues/3440", "status": "open"}, {"id": "T-GH-10", "title": "App manifest prerequisites by stage", "stage": "W0", "stages": "W0, S1", "size": "S", "deps": ["T-GH-01"], "checks": "W0: C-GH-01 \u00b7 S1: C-GH-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-10.md", "issue": "https://github.com/smithersai/smithers/issues/3616", "status": "open"}, {"id": "T-GH-11", "title": "App setup ordering: Address, account, claim, repository", "stage": "W0", "stages": "W0, S1", "size": "S", "deps": ["T-GH-01", "T-GH-01", "T-INS-04", "T-ACC-01"], "checks": "W0: C-GH-01 \u00b7 S1: C-GH-01, C-J1-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-11.md", "issue": "https://github.com/smithersai/smithers/issues/3617", "status": "open"}, {"id": "T-GH-12", "title": "Durable App step and literal manifest boundary tests", "stage": "W0", "stages": "W0, S1", "size": "S", "deps": ["T-GH-01", "T-GH-01", "T-GH-11", "T-INS-04"], "checks": "W0: C-GH-01 \u00b7 S1: C-GH-01, C-J1-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-12.md", "issue": "https://github.com/smithersai/smithers/issues/3618", "status": "open"}, {"id": "T-GH-13", "title": "Complete manual App credential fallback on either setup origin", "stage": "W0", "stages": "W0, S1", "size": "S", "deps": ["T-GH-01", "T-GH-01", "T-GH-11", "T-GH-12"], "checks": "W0: C-GH-01 \u00b7 S1: C-GH-01, C-J1-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-13.md", "issue": "https://github.com/smithersai/smithers/issues/3619", "status": "open"}, {"id": "T-GH-14", "title": "Expose canonical App identity for outbound attribution", "stage": "W0", "stages": "W0, S1", "size": "S", "deps": ["T-GH-01", "T-GH-01"], "checks": "W0: C-GH-01 \u00b7 S1: C-GH-01, C-GH-09", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-14.md", "issue": "https://github.com/smithersai/smithers/issues/3620", "status": "open"}, {"id": "T-GH-02", "title": "Poll scheduler: streams, ETags, token cache, budget, 30\u2013120 s cadences", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-GH-01", "T-STK-01", "T-ACC-02"], "checks": "C-GH-07, C-GH-08, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-02.md", "issue": "https://github.com/smithersai/smithers/issues/3515", "status": "open"}, {"id": "T-GH-03", "title": "PR shape: slug branch, body, item-only diff; later items' PRs are drafts until next", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01", "T-STK-10", "T-GH-09"], "checks": "C-J10-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-03.md", "issue": "https://github.com/smithersai/smithers/issues/3452", "status": "open"}, {"id": "T-GH-04", "title": "Reviews and comments on TODO PRs become steers", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-GH-02", "T-STK-06"], "checks": "C-GH-13, C-J10-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-04.md", "issue": "https://github.com/smithersai/smithers/issues/3516", "status": "open"}, {"id": "T-GH-05", "title": "Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-GH-02", "T-STK-01", "T-STK-07"], "checks": "C-GH-13, C-J1-04, C-J10-05, C-J10-08, C-STK-04, C-STK-08", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-05.md", "issue": "https://github.com/smithersai/smithers/issues/3517", "status": "open"}, {"id": "T-GH-06", "title": "Outside push to a TODO branch: hold the agent's push; Needs you with Bring in or Discard (M-33)", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-GH-02", "T-STK-07", "T-UI-23"], "checks": "C-GH-13, C-J10-03, C-STK-08", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-06.md", "issue": "https://github.com/smithersai/smithers/issues/3518", "status": "open"}, {"id": "T-GH-07", "title": "Force-push to main becomes Needs you for the owner", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-GH-02", "T-STK-07"], "checks": "C-J10-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-07.md", "issue": "https://github.com/smithersai/smithers/issues/3519", "status": "open"}, {"id": "T-GH-08", "title": "Follow main by default; sync health and Retry", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-GH-02", "T-UI-06", "T-APP-19"], "checks": "C-J10-06, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-08.md", "issue": "https://github.com/smithersai/smithers/issues/3453", "status": "open"}, {"id": "T-GH-09", "title": "Outbound writes: keys, per-target order, supersession and reconcile", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-GH-01", "T-STK-01"], "checks": "C-DUR-03, C-GH-09, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-GH-09.md", "issue": "https://github.com/smithersai/smithers/issues/3520", "status": "open"}, {"id": "T-FLW-01", "title": "Overridable flows run only in machines; system flow catalog", "stage": "S1", "stages": "S1", "size": "M", "deps": [], "checks": "C-J1-04, C-J10-09, C-SEC-01, C-SEC-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-01.md", "issue": "https://github.com/smithersai/smithers/issues/3438", "status": "open"}, {"id": "T-FLW-02", "title": "Install-stored default config: checks, wiki pages, seats", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-FLW-01", "T-MCH-10"], "checks": "C-J1-04, C-J1-06, C-J8-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-02.md", "issue": "https://github.com/smithersai/smithers/issues/3449", "status": "open"}, {"id": "T-FLW-03", "title": "flow-load, versions, activation; keep previous on failure (Executable.ts:2036)", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-FLW-01", "T-GH-02", "T-FLW-11"], "checks": "C-J1-04, C-J5-01, C-J5-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-03.md", "issue": "https://github.com/smithersai/smithers/issues/3511", "status": "open"}, {"id": "T-FLW-04", "title": "Coding host loads the pinned closure by digest", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-FLW-03", "T-STK-01", "T-FLW-11"], "checks": "C-J1-04, C-J11-02, C-J5-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-04.md", "issue": "https://github.com/smithersai/smithers/issues/3512", "status": "open"}, {"id": "T-FLW-05", "title": "/flow.edit with a seed patch", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-FLW-03", "T-STK-02", "T-CAT-01", "T-FLW-11"], "checks": "C-J11-02, C-J5-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-05.md", "issue": "https://github.com/smithersai/smithers/issues/3513", "status": "open"}, {"id": "T-FLW-11", "title": "One todo run per attempt: composition flow over coding steps, the candidate handshake and the post-propose wait", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-FLW-01", "T-STK-01", "T-MCH-14", "T-STK-12", "T-INS-02", "T-STK-07", "T-GH-09"], "checks": "C-CAT-01, C-J1-04, C-J5-01, C-STK-03, C-STK-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-11.md", "issue": "https://github.com/smithersai/smithers/issues/3450", "status": "open"}, {"id": "T-FLW-08", "title": "Agent card and owner model configuration restored from 5b77095672", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-INS-06", "T-ACC-03", "T-UI-13", "T-APP-19", "T-APP-22"], "checks": "C-J11-03, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-08.md", "issue": "https://github.com/smithersai/smithers/issues/3454", "status": "open"}, {"id": "T-FLW-09", "title": "Reconcile before retry for push, GitHub write and shell steps", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-GH-09"], "checks": "C-DUR-01, C-DUR-02, C-DUR-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-09.md", "issue": "https://github.com/smithersai/smithers/issues/3564", "status": "open"}, {"id": "T-FLW-06", "title": "Learning flow, proposals, Proposal card, lessons receipt", "stage": "S3", "stages": "S3", "size": "L", "deps": ["T-STK-10", "T-FLW-05", "T-MCH-06", "T-UI-20", "T-APP-19"], "checks": "C-J2-05, C-J5-03, C-J8-01, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-06.md", "issue": "https://github.com/smithersai/smithers/issues/3588", "status": "open"}, {"id": "T-FLW-07", "title": "Monitor: /monitor, cost, waits since, interrupted state, no fork filter", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-COL-02", "T-UI-12", "T-APP-19", "T-APP-22"], "checks": "C-J11-01, C-J11-02, C-J11-04, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-07.md", "issue": "https://github.com/smithersai/smithers/issues/3514", "status": "open"}, {"id": "T-FLW-12", "title": "Obsidian folder sync as a Settings control", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-ACC-03", "T-APP-03", "T-UI-02", "T-APP-19"], "checks": "C-J8-03, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-12.md", "issue": "https://github.com/smithersai/smithers/issues/3463", "status": "open"}, {"id": "T-FLW-10", "title": "Plans cite wiki page revisions", "stage": "S3", "stages": "S3", "size": "S", "deps": ["T-FLW-02", "T-APP-17"], "checks": "C-J8-04, C-J8-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-10.md", "issue": "https://github.com/smithersai/smithers/issues/3465", "status": "open"}, {"id": "T-MCH-10", "title": "Toolchain detection, .smithers/machine.json, Source and Machine ready", "stage": "S1", "stages": "S1", "size": "M", "deps": [], "checks": "C-APP-03, C-J1-04, C-J1-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-10.md", "issue": "https://github.com/smithersai/smithers/issues/3439", "status": "in progress"}, {"id": "T-MCH-14", "title": "Keep TODO workspaces until settled; wake before delivering a signal", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-STK-01", "T-INS-02", "T-FLW-01"], "checks": "C-J1-04, C-J10-08, C-STK-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-14.md", "issue": "https://github.com/smithersai/smithers/issues/3526", "status": "open"}, {"id": "T-MCH-04", "title": "One machine per branch: drop user_id from the 0084 key; the agent attaches", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-ACC-03", "T-STK-01"], "checks": "C-MCH-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-04.md", "issue": "https://github.com/smithersai/smithers/issues/3565", "status": "open"}, {"id": "T-MCH-05", "title": "Delete branch locks", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-MCH-04"], "checks": "C-CUT-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-05.md", "issue": "https://github.com/smithersai/smithers/issues/3566", "status": "open"}, {"id": "T-MCH-06", "title": "Admission scheduler: slots to confirmed stop, per-branch coalescing, disk re-check, positions, safe-idle release", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-MCH-04", "T-MCH-01"], "checks": "C-J10-09, C-MCH-02, C-MCH-11, C-PERF-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-06.md", "issue": "https://github.com/smithersai/smithers/issues/3567", "status": "open"}, {"id": "T-MCH-07", "title": "Sleep with final capture; reads never wake", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-03", "T-MCH-04"], "checks": "C-MCH-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-07.md", "issue": "https://github.com/smithersai/smithers/issues/3568", "status": "open"}, {"id": "T-MCH-08", "title": "Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2)", "stage": "S1", "stages": "S1, S2", "size": "M", "deps": ["T-STK-02", "T-UI-23", "T-APP-19", "T-COL-03", "T-MCH-04"], "checks": "S1: C-J1-04, C-J7-02, C-UI-13 \u00b7 S2: C-MCH-08, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-08.md", "issue": "https://github.com/smithersai/smithers/issues/3525", "status": "open"}, {"id": "T-MCH-09", "title": "Cleanup only after settled, captured and quiet", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-MCH-07"], "checks": "C-MCH-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-09.md", "issue": "https://github.com/smithersai/smithers/issues/3569", "status": "open"}, {"id": "T-MCH-11", "title": "Member unix users, team group, no-sudo image, per-machine homes", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-MCH-02", "T-ACC-02"], "checks": "C-COL-04, C-MCH-06, C-MCH-09", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-11.md", "issue": "https://github.com/smithersai/smithers/issues/3570", "status": "open"}, {"id": "T-MCH-15", "title": "Per-member credential store: tool logins carry across machines", "stage": "S2", "stages": "S2, R", "size": "M", "deps": ["T-MCH-11", "T-COL-03"], "checks": "S2: C-COL-04, C-MCH-10 \u00b7 R: C-REL-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-15.md", "issue": "https://github.com/smithersai/smithers/issues/3571", "status": "open"}, {"id": "T-MCH-12", "title": "Secrets into machines; main-only kept out", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-MCH-11", "T-COL-03"], "checks": "C-MCH-07, C-SEC-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-MCH-12.md", "issue": "https://github.com/smithersai/smithers/issues/3456", "status": "open"}, {"id": "T-COL-10", "title": "Co-editing contracts: ADR 0004 wire contract, golden frames, the Go codec and the topology-neutral stage-1 contracts (spec \u00a77.6)", "stage": "S1", "stages": "S1", "size": "L", "deps": [], "checks": "C-COL-01, C-J1-04, C-UI-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-10.md", "issue": "https://github.com/smithersai/smithers/issues/3508", "status": "open"}, {"id": "T-COL-02", "title": "Live channel /api/live: topics, cursors, backpressure", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-STK-01", "T-ACC-03", "T-ACC-04", "T-INS-04", "T-COL-10", "T-FLW-01"], "checks": "C-COL-02, C-J1-04, C-PERF-02, C-UI-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-02.md", "issue": "https://github.com/smithersai/smithers/issues/3506", "status": "open"}, {"id": "T-COL-03r", "title": "Rust crate skeleton, golden-frame codec and component hooks", "stage": "S2", "stages": "S2", "size": "S-M", "deps": ["T-COL-10"], "checks": "C-COL-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-03r.md", "issue": "https://github.com/smithersai/smithers/issues/3626", "status": "open"}, {"id": "T-COL-03f", "title": "Fake machined for Go component tests", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-COL-10"], "checks": "", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-03f.md", "issue": "https://github.com/smithersai/smithers/issues/3625", "status": "open"}, {"id": "T-COL-03a", "title": "Rust daemon core, broker, capture and durable outbox", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-COL-01", "T-COL-10", "T-COL-03r", "T-TRM-06"], "checks": "C-COL-01, C-COL-03, C-COL-04, C-DUR-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-03a.md", "issue": "https://github.com/smithersai/smithers/issues/3624", "status": "open"}, {"id": "T-COL-03", "title": "Host registry, per-boot credentials, daemon planting and head-reporter replacement", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-MCH-04", "T-COL-03a", "T-COL-03f", "T-COL-10"], "checks": "C-COL-01, C-COL-03, C-COL-04, C-DUR-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-03.md", "issue": "https://github.com/smithersai/smithers/issues/3560", "status": "open"}, {"id": "T-COL-04a", "title": "Rust watcher, attribution, versions and overflow resync", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-10", "T-COL-03r"], "checks": "C-COL-01, C-COL-05, C-DUR-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-04a.md", "issue": "https://github.com/smithersai/smithers/issues/3627", "status": "open"}, {"id": "T-COL-04", "title": "Backend change events, restore and watcher integration", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-03", "T-COL-04a", "T-COL-03f", "T-TRM-07", "T-MCH-11", "T-COL-10"], "checks": "C-COL-01, C-COL-05, C-DUR-04, C-J3-03, C-J3-06, C-PERF-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-04.md", "issue": "https://github.com/smithersai/smithers/issues/3561", "status": "open"}, {"id": "T-COL-05", "title": "Moved off the item: detect; Return to Tn; Keep for now", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-04", "T-STK-07", "T-MCH-04", "T-UI-15", "T-APP-19"], "checks": "C-COL-03, C-COL-05, C-J3-09, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-05.md", "issue": "https://github.com/smithersai/smithers/issues/3562", "status": "open"}, {"id": "T-COL-06", "title": "Presence map and heartbeats", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-02", "T-COL-04", "T-COL-10"], "checks": "C-COL-01, C-J3-01, C-J3-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-06.md", "issue": "https://github.com/smithersai/smithers/issues/3563", "status": "open"}, {"id": "T-COL-07", "title": "Agent write tool checks base_digest", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-COL-10"], "checks": "C-COL-01, C-J1-04, C-UI-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-07.md", "issue": "https://github.com/smithersai/smithers/issues/3507", "status": "open"}, {"id": "T-COL-08b", "title": "Backend document relay and optional host mirror", "stage": "S3", "stages": "S3", "size": "M", "deps": ["T-COL-10", "T-COL-02", "T-COL-03f"], "checks": "C-DUR-04, C-J3-04, C-PERF-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-08b.md", "issue": "https://github.com/smithersai/smithers/issues/3630", "status": "open"}, {"id": "T-COL-08a", "title": "Daemon Yrs documents and durable disk reconciliation", "stage": "S3", "stages": "S3", "size": "L", "deps": ["T-COL-10", "T-COL-03r"], "checks": "C-COL-03, C-DUR-04, C-J3-04, C-PERF-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-08a.md", "issue": "https://github.com/smithersai/smithers/issues/3629", "status": "open"}, {"id": "T-COL-08", "title": "Live code document integration, fault recovery and reference-host p95", "stage": "S3", "stages": "S3", "size": "M", "deps": ["T-COL-04", "T-COL-08a", "T-COL-08b", "T-APP-14a", "T-COL-10", "T-COL-11"], "checks": "C-COL-03, C-DUR-04, C-J3-04, C-PERF-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-08.md", "issue": "https://github.com/smithersai/smithers/issues/3586", "status": "open"}, {"id": "T-COL-09", "title": "Wiki co-editing on the live channel; delete POST+SSE", "stage": "S3", "stages": "S3", "size": "M", "deps": ["T-COL-08", "T-APP-14a"], "checks": "C-DUR-04, C-J8-02, C-J8-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-09.md", "issue": "https://github.com/smithersai/smithers/issues/3587", "status": "open"}, {"id": "T-TRM-02", "title": "Terminal auto sign-in and the Smithers skill on machines", "stage": "S1", "stages": "S1, S2", "size": "S", "deps": ["T-ACC-04", "T-CAT-02", "T-MCH-11", "T-TRM-01", "T-ACC-05"], "checks": "S1: C-J6-01, C-SEC-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-02.md", "issue": "https://github.com/smithersai/smithers/issues/3537", "status": "open"}, {"id": "T-TRM-01", "title": "Terminals run as their owner; only the owner types", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-MCH-11", "T-COL-03", "T-TRM-07"], "checks": "C-J3-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-01.md", "issue": "https://github.com/smithersai/smithers/issues/3574", "status": "open"}, {"id": "T-TRM-03", "title": "SSH gateway: branch usernames, member users, sftp, port forwarding", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-MCH-06", "T-MCH-11", "T-INS-04", "T-COL-03", "T-TRM-07"], "checks": "C-J3-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-03.md", "issue": "https://github.com/smithersai/smithers/issues/3575", "status": "open"}, {"id": "T-TRM-04", "title": "Import GitHub SSH keys", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-ACC-02"], "checks": "C-J3-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-04.md", "issue": "https://github.com/smithersai/smithers/issues/3576", "status": "open"}, {"id": "T-TRM-05", "title": "The coding agent's bash runs in its own terminal session, shown in the Terminal card", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-TRM-01", "T-COL-03", "T-TRM-07"], "checks": "C-J3-10", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-05.md", "issue": "https://github.com/smithersai/smithers/issues/3577", "status": "open"}, {"id": "T-TRM-07", "title": "Session supervisor: broker sessions, the \u00a79.6 protocol, lingering processes, kill and restart rules", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-03", "T-TRM-06", "T-MCH-11"], "checks": "C-COL-04, C-J3-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-TRM-07.md", "issue": "https://github.com/smithersai/smithers/issues/3578", "status": "open"}, {"id": "T-AGT-01", "title": "External transcript mapping and Claude Code/Codex adapters", "stage": "S2", "stages": "S2", "size": "M", "deps": [], "checks": "C-AGT-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-AGT-01.md", "issue": "https://github.com/smithersai/smithers/issues/3621", "status": "open"}, {"id": "T-AGT-02", "title": "Session-owned transcript tail and branch ingestion", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-AGT-01", "T-TRM-07", "T-TRM-01", "T-COL-02", "T-COL-06"], "checks": "C-AGT-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-AGT-02.md", "issue": "https://github.com/smithersai/smithers/issues/3622", "status": "open"}, {"id": "T-AGT-03", "title": "Read-only external conversations in shared chat", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-AGT-02", "T-APP-09", "T-APP-16", "T-UI-07", "T-UI-01"], "checks": "C-AGT-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-AGT-03.md", "issue": "https://github.com/smithersai/smithers/issues/3623", "status": "open"}, {"id": "T-AGT-04", "title": "Internal /ceo repository flow dogfood", "stage": "M", "stages": "M", "size": "S", "deps": ["T-APP-05", "T-FLW-01"], "checks": "", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-AGT-04.md", "issue": "https://github.com/smithersai/smithers/issues/3631", "status": "open"}, {"id": "T-APP-08", "title": "Seams move to the live channel; delete per-resource SSE", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-COL-02", "T-STK-01"], "checks": "C-J1-04, C-UI-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-08.md", "issue": "https://github.com/smithersai/smithers/issues/3502", "status": "open"}, {"id": "T-APP-22", "title": "Legacy card decoder: removed card kinds read as titled tombstones", "stage": "S1", "stages": "S1", "size": "S", "deps": [], "checks": "C-CUT-01, C-CUT-02, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-22.md", "issue": "https://github.com/smithersai/smithers/issues/3608", "status": "open"}, {"id": "T-APP-01", "title": "Home card on the home topic", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-COL-02", "T-STK-01", "T-APP-08", "T-APP-16", "T-UI-06", "T-APP-19", "T-APP-22"], "checks": "C-J1-04, C-J4-01, C-J8-06, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-01.md", "issue": "https://github.com/smithersai/smithers/issues/3496", "status": "open"}, {"id": "T-APP-02", "title": "TODO card and Draft card", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-STK-01", "T-APP-08", "T-UI-03", "T-UI-04", "T-APP-19", "T-STK-02", "T-ACC-06", "T-APP-16"], "checks": "C-APP-01, C-APP-02, C-APP-03, C-J1-04, C-J2-01, C-J4-02, C-J9-01, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-02.md", "issue": "https://github.com/smithersai/smithers/issues/3466", "status": "in progress"}, {"id": "T-APP-03", "title": "Setup and Settings cards; Add to machine image", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-INS-06", "T-UI-02", "T-APP-19", "T-MCH-10", "T-APP-22"], "checks": "C-APP-03, C-J1-02, C-J1-04, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-03.md", "issue": "https://github.com/smithersai/smithers/issues/3497", "status": "in progress"}, {"id": "T-APP-04", "title": "Confirm card: one-click confirmations and Review & merge", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-ACC-05", "T-STK-04", "T-UI-05", "T-APP-19"], "checks": "C-ACC-02, C-J1-04, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-04.md", "issue": "https://github.com/smithersai/smithers/issues/3498", "status": "open"}, {"id": "T-APP-05", "title": "Flow card with versions", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-FLW-03", "T-APP-16", "T-UI-10", "T-APP-19"], "checks": "C-J1-04, C-J11-02, C-J5-01, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-05.md", "issue": "https://github.com/smithersai/smithers/issues/3499", "status": "open"}, {"id": "T-APP-06", "title": "Members card", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-ACC-02", "T-UI-09", "T-APP-19"], "checks": "C-J1-04, C-J1-05, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-06.md", "issue": "https://github.com/smithersai/smithers/issues/3500", "status": "in progress"}, {"id": "T-APP-07", "title": "Edge toast map, timeline, conversation-entry and monitor summaries", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-COL-02", "T-APP-08", "T-APP-23", "T-UI-08", "T-APP-19"], "checks": "C-J1-04, C-J11-01, C-UI-04, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-07.md", "issue": "https://github.com/smithersai/smithers/issues/3501", "status": "open"}, {"id": "T-APP-09", "title": "Actor adapter: participants and \"for Ben\" (\u00a714.6a, M-34)", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-ACC-04", "T-UI-01", "T-APP-19"], "checks": "C-J1-04, C-J6-01, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-09.md", "issue": "https://github.com/smithersai/smithers/issues/3503", "status": "open"}, {"id": "T-APP-18", "title": "Browser notifications on secure origins", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-APP-07", "T-UI-08", "T-APP-19"], "checks": "C-UI-03, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-18.md", "issue": "https://github.com/smithersai/smithers/issues/3558", "status": "open"}, {"id": "T-APP-19", "title": "Card view-model schemas and fixtures from ui-components.md: the seam between design's views and engineering's containers", "stage": "S1", "stages": "S1", "size": "S", "deps": [], "checks": "C-J1-04, C-UI-08", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-19.md", "issue": "https://github.com/smithersai/smithers/issues/3474", "status": "done"}, {"id": "T-UI-01", "title": "Primitives: actor chip, state word, tone", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-01.md", "issue": "https://github.com/smithersai/smithers/issues/3538", "status": "in progress"}, {"id": "T-UI-02", "title": "Setup and Settings views", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-02.md", "issue": "https://github.com/smithersai/smithers/issues/3539", "status": "open"}, {"id": "T-UI-03", "title": "Draft view", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-03.md", "issue": "https://github.com/smithersai/smithers/issues/3540", "status": "open"}, {"id": "T-UI-04", "title": "TODO view: states, questions, failure, evidence, PR and merge", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-04.md", "issue": "https://github.com/smithersai/smithers/issues/3541", "status": "open"}, {"id": "T-UI-05", "title": "Confirm view", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-05.md", "issue": "https://github.com/smithersai/smithers/issues/3542", "status": "open"}, {"id": "T-UI-06", "title": "Home view with the main sync row", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-06.md", "issue": "https://github.com/smithersai/smithers/issues/3543", "status": "open"}, {"id": "T-UI-07", "title": "Conversation shell: branch tree, entry rows, Context line, Earlier archive", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-07.md", "issue": "https://github.com/smithersai/smithers/issues/3544", "status": "open"}, {"id": "T-UI-08", "title": "Toasts, edge map and timeline", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-08.md", "issue": "https://github.com/smithersai/smithers/issues/3545", "status": "open"}, {"id": "T-UI-09", "title": "Members view", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-09.md", "issue": "https://github.com/smithersai/smithers/issues/3546", "status": "open"}, {"id": "T-UI-10", "title": "Flow view", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-10.md", "issue": "https://github.com/smithersai/smithers/issues/3547", "status": "open"}, {"id": "T-UI-11", "title": "Code editor and Diff views (read-only)", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-11.md", "issue": "https://github.com/smithersai/smithers/issues/3548", "status": "open"}, {"id": "T-UI-12", "title": "Run monitor and Inspect views", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-12.md", "issue": "https://github.com/smithersai/smithers/issues/3549", "status": "open"}, {"id": "T-UI-13", "title": "Agent view and model roles", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-13.md", "issue": "https://github.com/smithersai/smithers/issues/3550", "status": "open"}, {"id": "T-UI-14", "title": "Commands view (/help)", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-14.md", "issue": "https://github.com/smithersai/smithers/issues/3551", "status": "open"}, {"id": "T-UI-23", "title": "TODO view: conflict, moved-off and outside-push forms; Fork and Add to stack", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-UI-04", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-23.md", "issue": "https://github.com/smithersai/smithers/issues/3552", "status": "open"}, {"id": "T-UI-15", "title": "Branch view with moved-off controls", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-15.md", "issue": "https://github.com/smithersai/smithers/issues/3579", "status": "open"}, {"id": "T-UI-16", "title": "File and Diff live states", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-16.md", "issue": "https://github.com/smithersai/smithers/issues/3580", "status": "open"}, {"id": "T-UI-17", "title": "Terminal view", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-17.md", "issue": "https://github.com/smithersai/smithers/issues/3581", "status": "open"}, {"id": "T-UI-18", "title": "Secrets view", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-18.md", "issue": "https://github.com/smithersai/smithers/issues/3582", "status": "open"}, {"id": "T-UI-19", "title": "Co-editing visuals", "stage": "S3", "stages": "S3", "size": "M", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-19.md", "issue": "https://github.com/smithersai/smithers/issues/3589", "status": "open"}, {"id": "T-UI-20", "title": "Proposal view and lessons receipt", "stage": "S3", "stages": "S3", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-20.md", "issue": "https://github.com/smithersai/smithers/issues/3590", "status": "open"}, {"id": "T-APP-15", "title": "File card on CodeMirror 6 with code intelligence (read-only)", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-COL-10", "T-UI-11", "T-APP-19"], "checks": "C-COL-01, C-J1-03, C-J1-04, C-UI-11, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-15.md", "issue": "https://github.com/smithersai/smithers/issues/3461", "status": "open"}, {"id": "T-APP-16", "title": "Branch conversations: storage, topics, view state, branch tree, Earlier archive", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-COL-02", "T-ACC-02", "T-UI-07", "T-APP-19", "T-APP-22"], "checks": "C-APP-04, C-J1-04, C-UI-06, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-16.md", "issue": "https://github.com/smithersai/smithers/issues/3446", "status": "open"}, {"id": "T-APP-23", "title": "Host turns: the app agent's turns move to the host; cutover to shared conversations", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-APP-16", "T-APP-22", "T-ACC-04", "T-ACC-05", "T-ACC-06", "T-CAT-02", "T-UI-07"], "checks": "C-APP-05, C-CUT-02, C-J1-04, C-UI-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-23.md", "issue": "https://github.com/smithersai/smithers/issues/3609", "status": "open"}, {"id": "T-APP-17", "title": "Context preflight: selection step, Context line, Inspect", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-APP-23", "T-UI-07", "T-APP-19", "T-UI-12"], "checks": "C-J1-04, C-UI-07, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-17.md", "issue": "https://github.com/smithersai/smithers/issues/3504", "status": "open"}, {"id": "T-APP-10", "title": "Branch card: presence, activity, machine state, terminals, SSH line", "stage": "S2", "stages": "S2", "size": "L", "deps": ["T-COL-06", "T-COL-04", "T-APP-16", "T-APP-09", "T-MCH-08", "T-STK-11", "T-UI-15", "T-APP-19", "T-APP-11", "T-APP-22"], "checks": "C-J3-01, C-J3-03, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-10.md", "issue": "https://github.com/smithersai/smithers/issues/3555", "status": "open"}, {"id": "T-APP-11", "title": "File and Diff cards reload on change; deleted/renamed states; Restore this file; language server on the daemon", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-COL-04", "T-APP-15", "T-UI-16", "T-APP-19", "T-APP-22"], "checks": "C-J3-08, C-PERF-04, C-UI-11, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-11.md", "issue": "https://github.com/smithersai/smithers/issues/3556", "status": "open"}, {"id": "T-APP-12", "title": "Terminal card ownership UI", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-TRM-01", "T-UI-17", "T-APP-19"], "checks": "C-J3-02, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-12.md", "issue": "https://github.com/smithersai/smithers/issues/3557", "status": "open"}, {"id": "T-APP-13", "title": "Secrets card", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-MCH-12", "T-UI-18", "T-APP-19", "T-APP-22"], "checks": "C-MCH-07, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-13.md", "issue": "https://github.com/smithersai/smithers/issues/3462", "status": "open"}, {"id": "T-APP-20", "title": "/docs flow: in-app docs from one Markdown source per page", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-APP-19", "T-UI-21", "T-CAT-01"], "checks": "C-UI-09, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-20.md", "issue": "https://github.com/smithersai/smithers/issues/3481", "status": "in progress"}, {"id": "T-APP-21", "title": "/debug-api playground: call the documented API from the app", "stage": "S2", "stages": "S2", "size": "M", "deps": ["T-APP-19", "T-UI-22", "T-CAT-01", "T-ACC-03"], "checks": "C-UI-10, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-21.md", "issue": "https://github.com/smithersai/smithers/issues/3559", "status": "in progress"}, {"id": "T-UI-21", "title": "Docs view", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-21.md", "issue": "https://github.com/smithersai/smithers/issues/3583", "status": "open"}, {"id": "T-UI-22", "title": "Debug API view", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-UI-01", "T-APP-19"], "checks": "C-UI-12", "owner": "design", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-UI-22.md", "issue": "https://github.com/smithersai/smithers/issues/3584", "status": "open"}, {"id": "T-COL-12", "title": "The coding agent sees outside changes", "stage": "S2", "stages": "S2", "size": "S", "deps": ["T-COL-04", "T-COL-07", "T-STK-06"], "checks": "C-J3-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-COL-12.md", "issue": "https://github.com/smithersai/smithers/issues/3632", "status": "open"}, {"id": "T-APP-14a", "title": "File card client against the TS fake relay", "stage": "S3", "stages": "S3", "size": "M", "deps": ["T-COL-10", "T-APP-15", "T-UI-19", "T-APP-19"], "checks": "C-J3-04, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-14a.md", "issue": "https://github.com/smithersai/smithers/issues/3628", "status": "open"}, {"id": "T-APP-14", "title": "File card live co-editing", "stage": "S3", "stages": "S3", "size": "M", "deps": ["T-COL-08", "T-APP-14a"], "checks": "C-J3-04, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-APP-14.md", "issue": "https://github.com/smithersai/smithers/issues/3585", "status": "open"}, {"id": "T-CAT-01", "title": "One command catalog source; catalog.mvp.json; allowlist test from mvp.md Appendix B", "stage": "S1", "stages": "S1", "size": "L", "deps": ["T-UI-14", "T-APP-19"], "checks": "C-CAT-01, C-J1-04, C-UI-02, C-UI-13", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CAT-01.md", "issue": "https://github.com/smithersai/smithers/issues/3434", "status": "open"}, {"id": "T-CAT-02", "title": "CLI doors for Appendix A; skill generated from the catalog", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-CAT-01"], "checks": "C-CAT-02, C-CAT-03, C-J1-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CAT-02.md", "issue": "https://github.com/smithersai/smithers/issues/3448", "status": "open"}, {"id": "T-CUT-01", "title": "Delete cut app surfaces; align AGENTS.md scope", "stage": "S1", "stages": "S1", "size": "L", "deps": [], "checks": "C-CUT-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CUT-01.md", "issue": "https://github.com/smithersai/smithers/issues/3435", "status": "in progress"}, {"id": "T-CUT-02", "title": "Delete cut backend routes with their OpenAPI rows", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-CUT-01"], "checks": "C-CUT-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CUT-02.md", "issue": "https://github.com/smithersai/smithers/issues/3509", "status": "open"}, {"id": "T-CUT-03", "title": "Hide deferred surfaces: billing, TUI, multi-repository, triggers; delete the TUI docs site", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-CAT-01"], "checks": "C-CUT-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CUT-03.md", "issue": "https://github.com/smithersai/smithers/issues/3447", "status": "open"}, {"id": "T-CUT-04", "title": "Cut card kinds read as tombstones; leftover cut producers in shared files (follow-up of frozen T-CUT-01)", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-CUT-01", "T-APP-22"], "checks": "C-CUT-01, C-CUT-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CUT-04.md", "issue": "https://github.com/smithersai/smithers/issues/3610", "status": "open"}, {"id": "T-DOC-02", "title": "ADR 0002: Mac install, multi-member, microVM-only, origin-agnostic", "stage": "S1", "stages": "S1", "size": "S", "deps": [], "checks": "C-REL-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-DOC-02.md", "issue": "https://github.com/smithersai/smithers/issues/3442", "status": "open"}, {"id": "T-STK-12", "title": "Candidate generations: capture, propose receipts, pending work, the item's prefix", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01", "T-INS-02", "T-FLW-01"], "checks": "C-J1-04, C-STK-06, C-STK-07", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-12.md", "issue": "https://github.com/smithersai/smithers/issues/3533", "status": "open"}, {"id": "T-INS-09", "title": "Bundle references for the built-bundle host lifecycle", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-INS-01"], "checks": "C-INS-05", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-INS-09.md", "issue": "https://github.com/smithersai/smithers/issues/3524", "status": "open"}, {"id": "T-CAT-03", "title": "Reject replaced flow tags after the TODO composition lands", "stage": "S1", "stages": "S1", "size": "S", "deps": ["T-CAT-01"], "checks": "C-CAT-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-CAT-03.md", "issue": "https://github.com/smithersai/smithers/issues/3505", "status": "open"}, {"id": "T-STK-13", "title": "TODO projection for independent waits and attached resumed runs", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-STK-01"], "checks": "C-STK-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-STK-13.md", "issue": "https://github.com/smithersai/smithers/issues/3534", "status": "open"}, {"id": "T-REL-03", "title": "Alpha scorecard instrumentation (mvp.md \u00a710)", "stage": "S1", "stages": "S1, S2, S3", "size": "M", "deps": ["T-STK-01", "T-INS-06", "T-COL-04", "T-COL-06", "T-FLW-06"], "checks": "S1: C-REL-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-REL-03.md", "issue": "https://github.com/smithersai/smithers/issues/3527", "status": "open"}, {"id": "T-REL-04", "title": "Fault suite: kill points across runs, merges, writes, bursts, rebases", "stage": "S2", "stages": "S2, R", "size": "M", "deps": ["T-FLW-09", "T-COL-04", "T-STK-11"], "checks": "S2: C-DUR-01, C-DUR-02, C-DUR-03, C-DUR-04", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-REL-04.md", "issue": "https://github.com/smithersai/smithers/issues/3459", "status": "open"}, {"id": "T-DOC-01", "title": "Quickstart and flows reference as in-app pages; one install page on the site", "stage": "R", "stages": "R", "size": "M", "deps": ["T-INS-05", "T-APP-20"], "checks": "C-J1-04, C-REL-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-DOC-01.md", "issue": "https://github.com/smithersai/smithers/issues/3458", "status": "in progress"}, {"id": "T-DOC-03", "title": "Replace docs/mvp/* with the approved specs (M-12)", "stage": "R", "stages": "R", "size": "S", "deps": ["T-CUT-01"], "checks": "C-REL-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-DOC-03.md", "issue": "https://github.com/smithersai/smithers/issues/3591", "status": "open"}, {"id": "T-REL-01", "title": "Performance benchmarks on the reference host", "stage": "R", "stages": "R", "size": "M", "deps": ["T-APP-01", "T-COL-04", "T-COL-08", "T-APP-14", "T-MCH-06", "T-MCH-07", "T-STK-11", "T-INS-06"], "checks": "C-PERF-01, C-PERF-02, C-PERF-03, C-PERF-04, C-PERF-05, C-PERF-06", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-REL-01.md", "issue": "https://github.com/smithersai/smithers/issues/3592", "status": "open"}, {"id": "T-REL-02", "title": "Journey recordings J1\u2013J8, J10 and J11 on a fresh Mac mini (mvp.md \u00a712 item 1)", "stage": "R", "stages": "R", "size": "M", "deps": ["T-ACC-01", "T-ACC-02", "T-ACC-03", "T-ACC-04", "T-ACC-05", "T-ACC-06", "T-ACC-07", "T-AGT-01", "T-AGT-02", "T-AGT-03", "T-APP-01", "T-APP-02", "T-APP-03", "T-APP-04", "T-APP-05", "T-APP-06", "T-APP-07", "T-APP-08", "T-APP-09", "T-APP-10", "T-APP-11", "T-APP-12", "T-APP-13", "T-APP-14", "T-APP-14a", "T-APP-15", "T-APP-16", "T-APP-17", "T-APP-18", "T-APP-19", "T-APP-20", "T-APP-21", "T-APP-22", "T-APP-23", "T-CAT-01", "T-CAT-02", "T-CAT-03", "T-COL-02", "T-COL-03", "T-COL-03a", "T-COL-03f", "T-COL-03r", "T-COL-04", "T-COL-04a", "T-COL-05", "T-COL-06", "T-COL-07", "T-COL-08", "T-COL-08a", "T-COL-08b", "T-COL-09", "T-COL-10", "T-COL-12", "T-CUT-01", "T-CUT-02", "T-CUT-03", "T-CUT-04", "T-DOC-02", "T-DOC-04", "T-FLW-01", "T-FLW-02", "T-FLW-03", "T-FLW-04", "T-FLW-05", "T-FLW-06", "T-FLW-07", "T-FLW-08", "T-FLW-09", "T-FLW-10", "T-FLW-11", "T-FLW-12", "T-FLW-13", "T-GH-01", "T-GH-02", "T-GH-03", "T-GH-04", "T-GH-05", "T-GH-06", "T-GH-07", "T-GH-08", "T-GH-09", "T-GH-10", "T-GH-11", "T-GH-12", "T-GH-13", "T-GH-14", "T-INS-01", "T-INS-02", "T-INS-04", "T-INS-06", "T-INS-08", "T-INS-09", "T-MCH-01", "T-MCH-04", "T-MCH-05", "T-MCH-06", "T-MCH-07", "T-MCH-08", "T-MCH-09", "T-MCH-10", "T-MCH-11", "T-MCH-12", "T-MCH-14", "T-MCH-15", "T-PRC-01", "T-PRC-02", "T-PRC-03", "T-REL-03", "T-REL-04", "T-STK-01", "T-STK-02", "T-STK-03", "T-STK-04", "T-STK-05", "T-STK-06", "T-STK-07", "T-STK-08", "T-STK-09", "T-STK-10", "T-STK-11", "T-STK-12", "T-STK-13", "T-STK-14", "T-STK-15", "T-TRM-01", "T-TRM-02", "T-TRM-03", "T-TRM-04", "T-TRM-05", "T-TRM-07", "T-UI-01", "T-UI-02", "T-UI-03", "T-UI-04", "T-UI-05", "T-UI-06", "T-UI-07", "T-UI-08", "T-UI-09", "T-UI-10", "T-UI-11", "T-UI-12", "T-UI-13", "T-UI-14", "T-UI-15", "T-UI-16", "T-UI-17", "T-UI-18", "T-UI-19", "T-UI-20", "T-UI-21", "T-UI-22", "T-UI-23"], "checks": "C-J1-01, C-J1-02, C-J1-03, C-J1-04, C-J1-05, C-J1-06, C-J10-01, C-J10-09, C-J11-01, C-J11-04, C-J2-01, C-J2-05, C-J3-01, C-J3-06, C-J3-08, C-J3-10, C-J4-01, C-J4-03, C-J5-01, C-J5-03, C-J6-01, C-J6-02, C-J7-01, C-J7-03, C-J8-01, C-J8-06, C-REL-05, C-UI-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-REL-02.md", "issue": "https://github.com/smithersai/smithers/issues/3445", "status": "open"}, {"id": "T-DOC-04", "title": "Delete the generated library docs sites; one wildcard redirect to package docs", "stage": "S1", "stages": "S1", "size": "M", "deps": [], "checks": "C-REL-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-DOC-04.md", "issue": "https://github.com/smithersai/smithers/issues/3510", "status": "in progress"}, {"id": "T-FLW-13", "title": "Review a member's PR in a background machine", "stage": "S1", "stages": "S1", "size": "M", "deps": ["T-FLW-01"], "checks": "C-J10-09", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-FLW-13.md", "issue": "https://github.com/smithersai/smithers/issues/3612", "status": "open"}, {"id": "T-PRC-01", "title": "Declared-input existence in //:targetIndex and the drift set at landing", "stage": "S1", "stages": "S1", "size": "S", "deps": [], "checks": "C-PRC-01", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-PRC-01.md", "issue": "https://github.com/smithersai/smithers/issues/3613", "status": "open"}, {"id": "T-PRC-02", "title": "DB-free migration gate and planned table ownership at Ready", "stage": "S1", "stages": "S1", "size": "S", "deps": [], "checks": "C-PRC-02", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-PRC-02.md", "issue": "https://github.com/smithersai/smithers/issues/3614", "status": "open"}, {"id": "T-PRC-03", "title": "Check receipts required to close a ticket", "stage": "S1", "stages": "S1", "size": "S", "deps": [], "checks": "C-PRC-03", "owner": "engineering", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/tickets/T-PRC-03.md", "issue": "https://github.com/smithersai/smithers/issues/3615", "status": "open"}], "late_deps": [["T-GH-01", "T-INS-02"], ["T-GH-11", "T-INS-04"], ["T-GH-11", "T-ACC-01"], ["T-GH-12", "T-INS-04"], ["T-MCH-08", "T-COL-03"], ["T-MCH-08", "T-MCH-04"], ["T-TRM-02", "T-MCH-11"], ["T-TRM-02", "T-TRM-01"], ["T-REL-03", "T-COL-04"], ["T-REL-03", "T-COL-06"], ["T-REL-03", "T-FLW-06"]], "forecast": {"what": "Stage 1 passes J1 and J2", "start": "2026-10-02", "rows": [{"label": "Today's trajectory", "mark": "today", "yield": 0.2, "reviewers": 2, "p50": "2026-10-15", "p90": "2026-10-17"}, {"label": "Two reviewers", "yield": 0.35, "reviewers": 2, "p50": "2026-10-10", "p90": "2026-10-11"}, {"label": "Plan of record", "mark": "plan", "yield": 0.35, "reviewers": 4, "p50": "2026-10-07", "p90": "2026-10-08"}, {"label": "Higher yield", "yield": 0.5, "reviewers": 4, "p50": "2026-10-06", "p90": "2026-10-07"}], "chains": [{"label": "binding chain", "ids": ["T-ACC-01", "T-ACC-07", "T-INS-02", "T-GH-01", "T-GH-02", "T-GH-09", "T-FLW-11", "T-STK-10", "T-GH-03", "T-GH-05", "T-STK-04"]}, {"label": "spine", "ids": ["T-STK-01", "T-STK-12", "T-STK-04", "T-STK-06", "T-STK-02", "T-STK-09"]}, {"label": "co-edit chain (stages 2\u20133): 55 h P50 / 75 h P90 on 1 lane at yield 0.35 (78 / 113 h at 0.2), plus the reference-host p95 run; planning units said ~30 agent-days", "ids": ["T-COL-10", "T-COL-03a", "T-COL-03", "T-TRM-07", "T-COL-04", "T-COL-08", "T-APP-14"]}], "note": "71 tickets in the J1/J2 closure. Review yield and review concurrency set the date; lanes, cuts and install machines (2 or 5) move it < 1 day.", "method_href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/forecast/README.md"}, "risks": [{"title": "One TODO run replaces four launches (T-FLW-11)", "mitigation": "Land before steer, retry and flow tickets; two lanes", "status": "open", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L137"}, {"title": "Co-editing latency", "mitigation": "Relay p95 197 ms (target 20) \u00b7 bridge 1.7 s (target 1 s) \u00b7 re-run idle, else host mirror before S3", "status": "showing", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L138"}, {"title": "Attribution says 'changed outside Smithers' too often", "mitigation": "C-J3-03 on the reference host; fanotify parked", "status": "open", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L140"}, {"title": "One catalog breaks specs or deletes too much", "mitigation": "Allowlist test; migrate group by group", "status": "open", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L141"}, {"title": "Hypervisor from a launchd daemon", "mitigation": "Spike T-INS-03; fallback launchd agent + auto-login; Developer ID exists", "status": "spike pending", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L142"}, {"title": "Shared home directories lose data", "mitigation": "Per-machine homes + credential store (T-MCH-11, T-MCH-15)", "status": "retired", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/spec.md?plain=1#L634"}], "decisions": {"for_will": [], "fyi": [{"text": "Reference host ready: Mac mini, 64 GiB, 10 performance cores, 208 GiB free: 5 machines.", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/overview.md?plain=1#L151"}, {"text": "Ready stamps: 5 of 96 open stage-1 tickets at 18:00; 13 Codex lanes pre-check the rest by 18:35.", "href": "https://github.com/smithersai/smithers/blob/015be2a3/.specs/engineering/README.md"}]}, "thin_path": ["T-INS-01", "T-INS-02", "T-INS-08", "T-ACC-01", "T-ACC-03", "T-STK-01", "T-STK-12", "T-STK-04"]}</script>
+<script>
+(() => {
+'use strict';
+const D = JSON.parse(document.getElementById('data').textContent);
+const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => (r || document).querySelectorAll(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
+const ext = (href, cls, inner, attrs) => `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener"${attrs || ''}>${inner}</a>`;
+const STATUSES = ['done', 'in progress', 'open', 'not filed'];
+const sk = s => ({'done': 'done', 'in progress': 'prog', 'open': 'open'})[s] || 'nf';
+const tickets = D.tickets || [], byId = {}, rdeps = {}, lateOf = {};
+tickets.forEach(t => { byId[t.id] = t; });
+tickets.forEach(t => (t.deps || []).forEach(d => (rdeps[d] = rdeps[d] || []).push(t.id)));
+const late = (D.late_deps || []).filter(p => byId[p[0]] && byId[p[1]]);
+late.forEach(([a, b]) => (lateOf[a] = lateOf[a] || []).push(b));
+const thin = D.thin_path || [], thinSet = new Set(thin);
+const forWill = (D.decisions && D.decisions.for_will) || [], fyi = (D.decisions && D.decisions.fyi) || [];
+
+
+const chip = t => {
+const tip = [t.id, t.title, t.size, t.status, t.owner].join(' · ');
+return `<span class="chip st-${sk(t.status)}${t.owner === 'design' ? ' d' : ''}${thinSet.has(t.id) ? ' tp' : ''}" data-id="${esc(t.id)}">` +
+ext(t.href, 'i', esc(t.id), ` title="${esc(tip)}" aria-label="${esc(tip)}"`) + `<span class="z">${esc(t.size)}</span>` +
+(t.issue ? ext(t.issue, 'h', '#', ` aria-label="GitHub issue for ${esc(t.id)}"`) : '<span class="h"></span>') + '</span>';
+};
+
+/* header */
+{
+const repo = String(D.spec_href || '').split('/blob/')[0], c = $('#commit'), n = D.counts || {};
+c.textContent = String(D.commit || '').slice(0, 12);
+if (repo) Object.assign(c, {href: `${repo}/commit/${D.commit}`, target: '_blank', rel: 'noopener', title: 'Spec pinned to this commit'});
+$('#stats').innerHTML =
+ext(D.tickets_href, 'stat', `<b>${esc(n.tickets)}</b><span>tickets</span>`) +
+ext(D.checks_href, 'stat', `<b>${esc(n.checks)}</b><span>checks</span>`) +
+ext(D.tickets_href, 'stat', `<b>${esc(n.design)}</b><span>design-owned</span>`) +
+`<a class="stat" href="#will"><b>${forWill.length}</b><span>for you to decide</span></a>`;
+$('#docs').innerHTML = [['Spec', D.spec_href], ['Overview', D.overview_href], ['Tickets', D.tickets_href], ['Checks', D.checks_href]]
+.filter(x => x[1]).map(x => ext(x[1], 'ext', x[0])).join('');
+}
+
+/* architecture */
+(() => {
+const A = D.arch || {}, nodes = A.nodes || [], edges = A.edges || [];
+if (!nodes.length) return;
+const G = 10, C = 15, BEND = 5, W = 210, H = 70, CS = 270, RS = 130, XG = 50, YG = 20;
+const maxX = Math.max(...nodes.map(n => n.x)), maxY = Math.max(...nodes.map(n => n.y));
+const outCol = x => nodes.filter(n => n.x === x).every(n => n.zone === 'outside');
+const mRow = y => nodes.some(n => n.y === y && n.zone === 'machine');
+const cx = [130], cy = [90];
+for (let i = 1; i <= maxX; i++) cx[i] = cx[i - 1] + CS + (outCol(i) !== outCol(i - 1) ? XG : 0);
+for (let j = 1; j <= maxY; j++) cy[j] = cy[j - 1] + RS + (mRow(j) && !mRow(j - 1) ? YG : 0);
+const box = {};
+nodes.forEach(n => { box[n.id] = {n, cx: cx[n.x], cy: cy[n.y], x: cx[n.x] - W / 2, y: cy[n.y] - H / 2, w: W, h: H, used: {}}; });
+const boxes = Object.values(box);
+const bb = (list, p) => {
+if (!list.length) return null;
+const x0 = Math.min(...list.map(b => b.x)), y0 = Math.min(...list.map(b => b.y));
+const x1 = Math.max(...list.map(b => b.x + b.w)), y1 = Math.max(...list.map(b => b.y + b.h));
+return {x: x0 - p[3], y: y0 - p[0], w: x1 - x0 + p[1] + p[3], h: y1 - y0 + p[0] + p[2]};
+};
+const mz = bb(boxes.filter(b => b.n.zone === 'machine'), [36, 16, 16, 16]);
+let macList = boxes.filter(b => b.n.zone === 'mac');
+if (mz) macList = macList.concat([{x: mz.x - 14, y: mz.y - 14, w: mz.w + 34, h: mz.h + 34}]);
+const zm = bb(macList, [34, 22, 18, 22]);
+const SW = cx[maxX] + W / 2 + 25, SH = Math.max(zm ? zm.y + zm.h : 0, cy[maxY] + H / 2) + 14;
+const zones = [], zlab = [];
+const addZone = (z, cls, t) => { if (z) { zones.push({z, cls}); zlab.push({x: z.x + 16, y: z.y - 9, w: t.length * 7.2 + 18, h: 18, t}); } };
+addZone(zm, 'zn-mac', 'THIS MAC');
+addZone(mz, 'zn-m', 'MACHINE · ONE PER AWAKE BRANCH');
+
+/* A* orthogonal router on a 10px grid */
+const GW = Math.floor(SW / G) + 1, GH = Math.floor(SH / G) + 1, N = GW * GH;
+const blk = new Uint8Array(N), soft = new Uint8Array(N * 2), used = new Uint8Array(N * 2);
+const block = (x0, y0, x1, y1) => {
+for (let gy = Math.max(0, Math.ceil(y0 / G)); gy <= Math.min(GH - 1, Math.floor(y1 / G)); gy++)
+for (let gx = Math.max(0, Math.ceil(x0 / G)); gx <= Math.min(GW - 1, Math.floor(x1 / G)); gx++) {
+const px = gx * G, py = gy * G;
+if (px > x0 && px < x1 && py > y0 && py < y1) blk[gy * GW + gx] = 1;
+}
+};
+boxes.forEach(b => block(b.x - C, b.y - C, b.x + b.w + C, b.y + b.h + C));
+zlab.forEach(r => block(r.x - 6, r.y - 6, r.x + r.w + 6, r.y + r.h + 6));
+zones.forEach(({z}) => {
+for (let gx = 0; gx < GW; gx++) for (let gy = 0; gy < GH; gy++) {
+const px = gx * G, py = gy * G, k = gy * GW + gx;
+const inX = px >= z.x - G && px <= z.x + z.w + G, inY = py >= z.y - G && py <= z.y + z.h + G;
+if (inX && (Math.abs(py - z.y) < 2 * G || Math.abs(py - z.y - z.h) < 2 * G)) soft[k * 2] = 1;
+if (inY && (Math.abs(px - z.x) < 2 * G || Math.abs(px - z.x - z.w) < 2 * G)) soft[k * 2 + 1] = 1;
+}
+});
+const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
+const ports = b => {
+const P = [];
+[[0, 0], [-70, 2], [70, 2]].forEach(([o, c]) => {
+P.push({k: 't' + o, dir: 3, bx: b.cx + o, by: b.y, gx: (b.cx + o) / G, gy: Math.floor((b.y - C) / G), c});
+P.push({k: 'b' + o, dir: 1, bx: b.cx + o, by: b.y + b.h, gx: (b.cx + o) / G, gy: Math.ceil((b.y + b.h + C) / G), c});
+});
+[[0, 0], [-20, 2], [20, 2]].forEach(([o, c]) => {
+P.push({k: 'l' + o, dir: 2, bx: b.x, by: b.cy + o, gx: Math.floor((b.x - C) / G), gy: (b.cy + o) / G, c});
+P.push({k: 'r' + o, dir: 0, bx: b.x + b.w, by: b.cy + o, gx: Math.ceil((b.x + b.w + C) / G), gy: (b.cy + o) / G, c});
+});
+return P.filter(p => !b.used[p.k] && p.gx >= 0 && p.gy >= 0 && p.gx < GW && p.gy < GH && !blk[p.gy * GW + p.gx]);
+};
+const face = (P, a, b) => { P.forEach(p => { const v = DX[p.dir] * (b.cx - a.cx) + DY[p.dir] * (b.cy - a.cy); p.c += v > 0 ? 0 : v === 0 ? 3 : 12; }); return P; };
+const hpush = (h, e) => { let i = h.length; h.push(e); while (i > 0) { const p = (i - 1) >> 1; if (h[p][0] <= e[0]) break; h[i] = h[p]; i = p; } h[i] = e; };
+const hpop = h => {
+const top = h[0], last = h.pop();
+if (h.length) {
+let i = 0;
+for (;;) {
+const l = 2 * i + 1, r = l + 1; let m = i, mv = last[0];
+if (l < h.length && h[l][0] < mv) { m = l; mv = h[l][0]; }
+if (r < h.length && h[r][0] < mv) m = r;
+if (m === i) break;
+h[i] = h[m]; i = m;
+}
+h[i] = last;
+}
+return top;
+};
+const routeEdge = (sb, tb) => {
+const S = face(ports(sb), sb, tb), T = face(ports(tb), tb, sb);
+if (!S.length || !T.length) return null;
+const g = new Float64Array(N * 4).fill(Infinity), prev = new Int32Array(N * 4).fill(-1), heap = [], start = {}, tgt = {};
+T.forEach(p => { tgt[p.gy * GW + p.gx] = p; });
+const hf = (x, y) => Math.min(...T.map(p => Math.abs(p.gx - x) + Math.abs(p.gy - y)));
+S.forEach(p => { const s = (p.gy * GW + p.gx) * 4 + p.dir; if (p.c < g[s]) { g[s] = p.c; start[s] = p; hpush(heap, [p.c + hf(p.gx, p.gy), p.c, s]); } });
+let best = Infinity, bs = -1, bt = null;
+while (heap.length) {
+const [f, gs, s] = hpop(heap);
+if (f >= best) break;
+if (gs > g[s]) continue;
+const cell = s >> 2, d = s & 3, x = cell % GW, y = (cell / GW) | 0, tp = tgt[cell];
+if (tp && d !== tp.dir) { const tot = gs + tp.c + (d === ((tp.dir + 2) & 3) ? 0 : BEND); if (tot < best) { best = tot; bs = s; bt = tp; } }
+for (let nd = 0; nd < 4; nd++) {
+if (nd === ((d + 2) & 3)) continue;
+const nx = x + DX[nd], ny = y + DY[nd];
+if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+const nc = ny * GW + nx; if (blk[nc]) continue;
+const ax = nd & 1, sd = ax ? 1 : GW;
+const adj = (used[(nc - sd) * 2 + ax] || 0) + (used[(nc + sd) * 2 + ax] || 0);
+const ng = gs + 1 + (nd !== d ? BEND : 0) + used[nc * 2 + ax] * 8 + used[nc * 2 + 1 - ax] + soft[nc * 2 + ax] * 3 + adj * 2;
+const ns = nc * 4 + nd;
+if (ng < g[ns]) { g[ns] = ng; prev[ns] = s; hpush(heap, [ng + hf(nx, ny), ng, ns]); }
+}
+}
+if (bs < 0) return null;
+const chain = []; for (let s2 = bs; s2 >= 0; s2 = prev[s2]) chain.push(s2); chain.reverse();
+const sp = start[chain[0]];
+sb.used[sp.k] = 1; tb.used[bt.k] = 1;
+const pts = [[sp.bx, sp.by]];
+chain.forEach(st => { const c2 = st >> 2; pts.push([(c2 % GW) * G, ((c2 / GW) | 0) * G]); used[c2 * 2 + (st & 1)] = 1; });
+pts.push([bt.bx, bt.by]);
+const out = [pts[0]];
+for (let k = 1; k < pts.length - 1; k++) {
+const a = out[out.length - 1], b = pts[k], c = pts[k + 1];
+if (!((a[0] === b[0] && b[0] === c[0]) || (a[1] === b[1] && b[1] === c[1]))) out.push(b);
+}
+out.push(pts[pts.length - 1]);
+return out;
+};
+const routes = edges.map((e, i) => ({e, i, a: box[e[0]], b: box[e[1]]})).filter(o => o.a && o.b)
+.sort((p, q) => (Math.abs(p.a.n.x - p.b.n.x) + Math.abs(p.a.n.y - p.b.n.y)) - (Math.abs(q.a.n.x - q.b.n.x) + Math.abs(q.a.n.y - q.b.n.y)) || p.i - q.i)
+.map(o => ({e: o.e, pts: routeEdge(o.a, o.b) || [[o.a.cx, o.a.cy], [o.b.cx, o.b.cy]]}));
+const rpath = p => {
+let d = `M${p[0][0]},${p[0][1]}`;
+for (let i = 1; i < p.length - 1; i++) {
+const [a, b, c] = [p[i - 1], p[i], p[i + 1]];
+const l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(c[0] - b[0], c[1] - b[1]), r = Math.min(9, l1 / 2, l2 / 2);
+d += ` L${b[0] + (a[0] - b[0]) / l1 * r},${b[1] + (a[1] - b[1]) / l1 * r} Q${b[0]},${b[1]} ${b[0] + (c[0] - b[0]) / l2 * r},${b[1] + (c[1] - b[1]) / l2 * r}`;
+}
+return d + ` L${p[p.length - 1][0]},${p[p.length - 1][1]}`;
+};
+/* labels avoid nodes, labels, other edges */
+const hit = (r, list, pad) => list.some(o => r.x < o.x + o.w + pad && r.x + r.w + pad > o.x && r.y < o.y + o.h + pad && r.y + r.h + pad > o.y);
+const placed = zlab.slice(), labels = [], segR = [];
+routes.forEach((rt, ri) => {
+for (let i = 1; i < rt.pts.length; i++) {
+const a = rt.pts[i - 1], b = rt.pts[i];
+segR.push({ri, x: Math.min(a[0], b[0]) - 1, y: Math.min(a[1], b[1]) - 1, w: Math.abs(b[0] - a[0]) + 2, h: Math.abs(b[1] - a[1]) + 2});
+}
+});
+routes.forEach((rt, ri) => {
+const t = rt.e[2]; if (!t) return;
+const others = segR.filter(q => q.ri !== ri), w = t.length * 6.2 + 14, h = 19, segs = [];
+for (let i = 0; i < rt.pts.length - 1; i++) {
+const a = rt.pts[i], b = rt.pts[i + 1], L = Math.abs(b[0] - a[0]) + Math.abs(b[1] - a[1]);
+const vx = a[0] === b[0] ? [0, w / 2 + 5, -w / 2 - 5] : [0];
+[.5, .35, .65, .2, .8].forEach((f, fi) => { if (fi === 0 || L > 120) vx.forEach((o, oi) => segs.push({L: L - fi - oi * 5, x: a[0] + (b[0] - a[0]) * f + o, y: a[1] + (b[1] - a[1]) * f})); });
+}
+segs.sort((p, q) => q.L - p.L);
+let pick = null, near = null;
+for (const sg of segs) {
+const r = {x: sg.x - w / 2, y: sg.y - h / 2, w, h};
+if (!hit(r, boxes, 4) && !hit(r, placed, 4)) { near = near || r; if (!hit(r, others, 3)) { pick = r; break; } }
+}
+pick = pick || near || {x: segs[0].x - w / 2, y: segs[0].y - h / 2, w, h};
+placed.push(pick); labels.push({r: pick, t, e: rt.e});
+});
+
+const mk = id => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z"/></marker>`;
+let svg = `<svg viewBox="0 0 ${SW} ${SH}" role="img" aria-label="Architecture"><defs>${mk('arw')}${mk('arw2')}</defs>`;
+zones.forEach(({z, cls}) => {
+if (cls === 'zn-m') svg += `<rect class="zn-g" x="${z.x + 7}" y="${z.y + 7}" width="${z.w}" height="${z.h}" rx="12"/>`;
+svg += `<rect class="${cls}" x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="14"/>`;
+});
+zlab.forEach(l => { svg += `<g class="zl"><rect x="${l.x}" y="${l.y}" width="${l.w}" height="${l.h}" rx="9"/><text x="${l.x + 9}" y="${l.y + 13}">${esc(l.t)}</text></g>`; });
+routes.forEach(({e, pts}) => { svg += `<path class="edge" data-a="${esc(e[0])}" data-b="${esc(e[1])}" data-both="${e[3] === 'both' ? 1 : ''}" d="${rpath(pts)}" marker-end="url(#arw)"${e[3] === 'both' ? ' marker-start="url(#arw)"' : ''}/>`; });
+boxes.forEach(b => {
+const n = b.n; let lines = [''];
+String(n.sub || '').split(/\s+/).forEach(wd => { const cur = lines[lines.length - 1]; if (cur && (cur + ' ' + wd).length > 29 && lines.length < 2) lines.push(wd); else lines[lines.length - 1] = cur ? cur + ' ' + wd : wd; });
+if (!lines[0]) lines = [];
+const ly = lines.length > 1 ? 24 : lines.length ? 30 : 41;
+svg += `<a class="node ${esc(n.zone)}" data-id="${esc(n.id)}" href="${esc(n.href)}" target="_blank" rel="noopener"><title>${esc(n.label + ' — ' + (n.sub || ''))}</title>` +
+`<rect x="${b.x}" y="${b.y}" width="${W}" height="${H}" rx="9"/><text class="l" x="${b.x + 13}" y="${b.y + ly}">${esc(n.label)}</text>` +
+lines.map((l, k) => `<text class="s" x="${b.x + 13}" y="${b.y + ly + 19 + k * 16}">${esc(l)}</text>`).join('') + '</a>';
+});
+labels.forEach(({r, t, e}) => { svg += `<g class="el" data-a="${esc(e[0])}" data-b="${esc(e[1])}"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="9.5"/><text x="${r.x + r.w / 2}" y="${r.y + 13.5}" text-anchor="middle">${esc(t)}</text></g>`; });
+svg += '</svg>';
+
+/* narrow: zones as nested cards */
+const card = b => ext(b.n.href, '', `<b>${esc(b.n.label)}</b>${esc(b.n.sub || '')}`);
+const pick = f => boxes.filter(f).sort((p, q) => p.n.y - q.n.y || p.n.x - q.n.x);
+const grid = list => list.length ? `<div class="ag">${list.map(card).join('')}</div>` : '';
+const mch = pick(b => b.n.zone === 'machine');
+const list = '<div class="alist">' + grid(pick(b => b.n.zone === 'outside' && b.n.x <= maxX / 2)) +
+`<div class="az"><span class="zt">This Mac</span>${grid(pick(b => b.n.zone === 'mac'))}` +
+(mch.length ? `<div class="az m"><span class="zt">Machine · one per awake branch</span>${grid(mch)}</div>` : '') + '</div>' +
+grid(pick(b => b.n.zone === 'outside' && b.n.x > maxX / 2)) + '</div>';
+const host = $('#archBox');
+host.innerHTML = svg + list;
+const setHot = id => {
+host.classList.toggle('hl', !!id);
+$$('.edge,.el', host).forEach(el => {
+const on = !!id && (el.dataset.a === id || el.dataset.b === id);
+el.classList.toggle('hot', on);
+if (el.classList.contains('edge')) {
+const m = on ? 'url(#arw2)' : 'url(#arw)';
+el.setAttribute('marker-end', m);
+if (el.dataset.both) el.setAttribute('marker-start', m);
+}
+});
+};
+$$('.node', host).forEach(a => {
+const id = a.dataset.id;
+['mouseenter', 'focus'].forEach(ev => a.addEventListener(ev, () => setHot(id)));
+['mouseleave', 'blur'].forEach(ev => a.addEventListener(ev, () => setHot(null)));
+});
+})();
+
+/* plan */
+const stages = D.stages || [], planGrid = $('#planGrid'), stageEls = [];
+const level = c => { const v = ['low', 'medium', 'high'].map((k, i) => String(c || '').toLowerCase().includes(k) ? i + 1 : 0).filter(Boolean); return v.length ? Math.max(...v) : 0; };
+const meter = c => `<span class="conf" title="Confidence: ${esc(c)}">${[1, 2, 3].map(i => `<i class="${level(c) >= i ? 'f' : ''}"></i>`).join('')}${esc(c)}</span>`;
+const dogAt = Math.max(0, stages.findIndex(s => s.id === 'S1'));
+{
+const cnt = {}; tickets.forEach(t => { cnt[t.status] = (cnt[t.status] || 0) + 1; });
+$('#legend').innerHTML =
+'<span><i class="sw"></i>engineering</span><span><i class="sw d"></i>design</span>' +
+STATUSES.map(s => `<span class="st-${sk(s)}"><i class="bar"></i>${s} <b>${cnt[s] || 0}</b></span>`).join('') +
+'<span><i class="sw t"></i>thin path</span>' +
+(late.length ? `<span><i class="dash"></i>needs a later stage <b>${late.length}</b></span>` : '') +
+'<span>S · M · L size</span>' +
+'<span class="conf"><i class="f"></i><i class="f"></i><i></i>confidence</span>' +
+'<span>hover a ticket: dependencies</span>';
+const key = id => { const m = /^T-([A-Z]+)-(\d+)/.exec(id); return m ? [m[1], +m[2]] : [id, 0]; };
+const sorted = list => {
+const first = {};
+list.forEach((t, i) => { const a = key(t.id)[0]; if (!(a in first)) first[a] = i; });
+return list.slice().sort((p, q) => { const a = key(p.id), b = key(q.id); return first[a[0]] - first[b[0]] || a[1] - b[1]; });
+};
+let html = '';
+stages.forEach((st, si) => {
+const mine = tickets.filter(t => t.stage === st.id);
+const eng = sorted(mine.filter(t => t.owner !== 'design')), des = sorted(mine.filter(t => t.owner === 'design'));
+const sc = {}; mine.forEach(t => { sc[t.status] = (sc[t.status] || 0) + 1; });
+const present = STATUSES.filter(s => sc[s]);
+const etas = st.etas || [{date: st.eta, confidence: st.confidence}];
+const thinHtml = thin.length && thin.every(id => byId[id] && byId[id].stage === st.id)
+? '<div class="thin"><em>Thin path</em>' + thin.map(id => ext(byId[id].href, '', esc(id), ` title="${esc(id + ' · ' + byId[id].title)}"`)).join('<span aria-hidden="true">→</span>') + '</div>' : '';
+html += `<div class="stage" data-stage="${esc(st.id)}"><div class="rail"><i></i></div>` +
+ext(st.href, 'sh', `<span class="id">${esc(st.id)}</span><span class="t">${esc(st.title)}</span>` +
+etas.map(e => `<span class="eta">${e.what ? `<em>${esc(e.what)}</em>` : ''}${esc(e.date)}${e.confidence ? meter(e.confidence) : ''}</span>`).join('') +
+`<span class="g">${esc(st.goal)}</span>`) +
+`<div class="meta"><div class="cnt"><span title="engineering"><i class="sw"></i>${eng.length}</span><span title="design"><i class="sw d"></i>${des.length}</span>` +
+`<b class="sbar" title="${esc(present.map(s => sc[s] + ' ' + s).join(' · '))}">${present.map(s => `<i class="st-${sk(s)}" style="flex:${sc[s]}"></i>`).join('')}</b></div>${thinHtml}</div>` +
+`<div class="cg">${eng.length ? `<div class="chips">${eng.map(chip).join('')}</div>` : ''}${des.length ? `<div class="chips">${des.map(chip).join('')}</div>` : ''}</div></div>`;
+stageEls.push({L: eng.length, Dz: des.length});
+if (si === dogAt && D.dogfood) {
+const dt = String(D.dogfood.title || 'Dogfood'), ci = dt.indexOf(':');
+html += '<div class="dog"><div class="rail"><b></b></div>' + ext(D.dogfood.href, '',
+`<strong>${esc(ci > 0 ? dt.slice(0, ci) : dt)}</strong>${ci > 0 ? ' · ' + esc(dt.slice(ci + 1).trim()) : ''} · ${esc(D.dogfood.when || '')}`,
+` title="${esc(dt + ' — ' + (D.dogfood.when || ''))}"`) + '</div>';
+}
+});
+planGrid.innerHTML = html + '<svg class="late" aria-hidden="true"></svg>';
+
+/* stage-crossing deps: dashed arrows through row gaps and a gutter, never over an ID */
+const drawLate = narrow => {
+const svg = $('.late', planGrid), P = planGrid.getBoundingClientRect();
+let h = '<defs><marker id="lw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,1 L9,5 L0,9 z"/></marker></defs>';
+late.forEach(([a, b], i) => {
+const A = $(`.chip[data-id="${a}"]`, planGrid), B = $(`.chip[data-id="${b}"]`, planGrid);
+if (!A || !B) return;
+const r1 = A.getBoundingClientRect(), r2 = B.getBoundingClientRect(), X = v => v - P.left, Y = v => v - P.top;
+const xc = narrow ? -4 - (i % 4) * 2.5 : X(A.closest('.stage').getBoundingClientRect().right) + 3 + (i % 5) * 2.5;
+const ax = X(r1.left + r1.width / 2), bx = X(r2.left + r2.width / 2), ay = Y(r1.bottom) + 2, by = Y(r2.top) - 2;
+const pts = [[ax, Y(r1.bottom)], [ax, ay], [xc, ay], [xc, by], [bx, by], [bx, Y(r2.top)]];
+h += `<path d="M${pts.map(p => p.join(',')).join(' L')}" marker-end="url(#lw)"/>`;
+});
+svg.innerHTML = h;
+};
+const CHIP = 92, CG = 4, MINW = 124, GAP = 16, DOGW = 44;
+const layout = () => {
+const els = $$('.stage', planGrid), hasDog = !!$('.dog', planGrid);
+const setCols = k => els.forEach((el, i) => $$('.chips', el).forEach(c => k ? c.style.setProperty('--cols', `repeat(${k[i]},minmax(0,1fr))`) : c.style.removeProperty('--cols')));
+if (matchMedia('(max-width: 900px)').matches) { planGrid.style.gridTemplateColumns = ''; setCols(null); drawLate(1); return; }
+const avail = planGrid.clientWidth - (hasDog ? DOGW : 0) - GAP * (stageEls.length - (hasDog ? 0 : 1));
+const k = stageEls.map(() => 1), width = n => Math.max(MINW, n * CHIP + (n - 1) * CG);
+const rows = (i, n) => Math.ceil(stageEls[i].L / n) + Math.ceil(stageEls[i].Dz / n);
+for (let guard = 0; guard < 200; guard++) {
+let worst = -1, wr = -1;
+k.forEach((n, i) => { const r = rows(i, n); if (r > wr && Math.max(stageEls[i].L, stageEls[i].Dz) > n) { wr = r; worst = i; } });
+if (worst < 0) break;
+k[worst]++;
+if (k.reduce((s, n) => s + width(n), 0) > avail) { k[worst]--; break; }
+}
+const cols = [];
+k.forEach((n, i) => { cols.push(`minmax(0,${width(n)}fr)`); if (hasDog && i === dogAt) cols.push(DOGW + 'px'); });
+planGrid.style.gridTemplateColumns = cols.join(' ');
+setCols(k);
+drawLate();
+};
+layout();
+let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(layout, 60); });
+}
+
+/* forecast */
+{
+const F = D.forecast, box = $('#fcBox');
+if (!F || !(F.rows || []).length) { $('#forecast').hidden = true; $('nav a[href="#forecast"]').hidden = true; }
+else {
+const day = s => new Date(s + 'T12:00:00Z'), DAY = 864e5;
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmt = s => { const d = day(s); return `${WD[d.getUTCDay()]} ${MO[d.getUTCMonth()]} ${d.getUTCDate()}`; };
+const t0 = day(F.start || F.rows[0].p50);
+const n = Math.max(...F.rows.map(r => Math.round((day(r.p90) - t0) / DAY))) + 1;
+const pos = s => (Math.round((day(s) - t0) / DAY) + .5) / n * 100;
+const cells = lab => Array.from({length: n}, (_, i) => {
+const d = new Date(+t0 + i * DAY), we = d.getUTCDay() % 6 === 0;
+return `<i class="${we ? 'we' : ''}${lab && !i ? ' td' : ''}">${lab ? (i ? WD[d.getUTCDay()] : 'today') + '<br>' + d.getUTCDate() : ''}</i>`;
+}).join('');
+let h = `<div class="fc"><div class="fl cap">${esc(F.what || '')}</div><div class="days ax" aria-hidden="true">${cells(1)}</div>`;
+F.rows.forEach(r => {
+const cls = r.mark ? 'r-' + r.mark : 'r-x', a = pos(r.p50), b = pos(r.p90);
+h += `<div class="fl ${cls}${r.mark ? ' m' : ''}"><b>${esc(r.label)}</b>P50 ${fmt(r.p50)} · P90 ${fmt(r.p90)}<br>yield ${esc(r.yield)} · ${esc(r.reviewers)} reviewers</div>` +
+`<div class="days ${cls}" role="img" aria-label="${esc(r.label)}: P50 ${fmt(r.p50)}, P90 ${fmt(r.p90)}">${cells(0)}<b style="left:${a}%;width:${b - a}%"></b></div>`;
+});
+h += '</div><div class="chains hlz">' + (F.chains || []).map(c => `<div class="fl"><b>${esc(c.label)}</b></div><div class="cs">` +
+c.ids.map(id => byId[id] ? chip(byId[id]) : `<span class="chip">${esc(id)}</span>`).join('<span aria-hidden="true">→</span>') + '</div>').join('') + '</div>';
+if (F.note || F.method_href) h += `<p class="fnote">${esc(F.note || '')}${F.method_href ? ext(F.method_href, '', 'method') : ''}</p>`;
+box.innerHTML = h;
+}
+}
+
+/* ticket hover: tooltip + dependency rings */
+{
+const tip = $('#tip'); let cur = null;
+const mark = (ids, cls) => ids.forEach(d => $$(`.chip[data-id="${d}"]`).forEach(c => c.classList.add(cls)));
+const show = c => {
+const t = byId[c.dataset.id]; if (!t) return;
+cur = c;
+const zone = c.closest('.hlz'); if (zone) zone.classList.add('hl');
+mark([t.id], 'on'); mark(t.deps || [], 'dep'); mark(rdeps[t.id] || [], 'rdep');
+const list = (lab, ids, cls) => ids && ids.length ? `<div class="m${cls || ''}">${lab} <code>${esc(ids.join(' '))}</code></div>` : '';
+tip.innerHTML = `<div><span class="k">${esc(t.id)}</span> · ${esc(t.size)} · ${esc(t.status)} · ${esc(t.owner)}${t.stages && t.stages !== t.stage ? ' · ' + esc(t.stages) : ''}${t.issue ? ' · #' + String(t.issue).split('/').pop() : ''}</div>` +
+`<div style="margin-top:3px">${esc(t.title)}</div>` + list('needs', t.deps) + list('unblocks', rdeps[t.id]) +
+list('needs a later stage', (lateOf[t.id] || []).map(d => `${d} (${byId[d].stage})`), ' w');
+tip.hidden = false;
+const r = c.getBoundingClientRect(), tr = tip.getBoundingClientRect();
+let y = r.top - tr.height - 8; if (y < 56) y = r.bottom + 8;
+tip.style.left = Math.min(Math.max(8, r.left), innerWidth - tr.width - 8) + 'px'; tip.style.top = y + 'px';
+};
+const hide = () => {
+if (!cur) return;
+const a = $('.i', cur); if (a && a.dataset.title) { a.title = a.dataset.title; delete a.dataset.title; }
+cur = null; tip.hidden = true;
+$$('.hl').forEach(z => z.classList.remove('hl'));
+$$('.chip.on,.chip.dep,.chip.rdep').forEach(c => c.classList.remove('on', 'dep', 'rdep'));
+};
+document.addEventListener('mouseover', e => {
+const c = e.target.closest ? e.target.closest('.chip') : null;
+if (c === cur) return;
+hide();
+if (c) { const a = $('.i', c); if (a && a.title) { a.dataset.title = a.title; a.removeAttribute('title'); } show(c); }
+});
+document.addEventListener('focusin', e => { const c = e.target.closest('.chip'); hide(); if (c) show(c); });
+document.addEventListener('focusout', hide);
+addEventListener('scroll', hide, {passive: true});
+}
+
+/* risks */
+{
+const nw = s => esc(s).replace(/T-[A-Z]+-\d+/g, '<span class="nw">$&</span>');
+const cls = {'showing': 'r-showing', 'spike pending': 'r-spike', 'retired': 'r-retired'};
+$('#riskGrid').innerHTML = (D.risks || []).map(r => ext(r.href, 'risk ' + (cls[r.status] || 'r-open'), `<span class="pill">${esc(r.status)}</span><h3>${nw(r.title)}</h3><p>${nw(r.mitigation)}</p>`)).join('');
+}
+
+/* for Will */
+{
+let h = forWill.length
+? '<div class="dec">' + forWill.map(d => { const t = typeof d === 'string' ? d : (d.text || d.title || ''); return d.href ? ext(d.href, '', esc(t)) : `<a>${esc(t)}</a>`; }).join('') + '</div>'
+: '<div class="calm"><svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24" fill="none" stroke="var(--done)" stroke-width="2"/><path d="M15 27 l7 7 l15 -16" fill="none" stroke="var(--done)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><b>Nothing to decide</b></div>';
+if (fyi.length) h += '<div class="fyi"><span>FYI</span>' + fyi.map(f => ext(f.href, 'ext', esc(f.text))).join('') + '</div>';
+$('#willBox').innerHTML = h;
+}
+
+/* nav state */
+if ('IntersectionObserver' in window) {
+const links = {}; $$('nav a').forEach(a => { links[a.getAttribute('href').slice(1)] = a; });
+const io = new IntersectionObserver(es => es.forEach(e => {
+if (e.isIntersecting) Object.keys(links).forEach(k => links[k].classList.toggle('on', k === e.target.id));
+}), {rootMargin: '-45% 0px -50% 0px'});
+Object.keys(links).forEach(k => { const s = document.getElementById(k); if (s) io.observe(s); });
+}
+})();
+</script>
+</body>
+</html>
