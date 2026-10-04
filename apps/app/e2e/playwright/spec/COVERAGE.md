@@ -167,3 +167,14 @@ is lost on reload in the seeded world; persistence remains tracked by T-MCH-08.
 Cycle 20: maintainer admission/reply surfaces and reference-host performance
 evidence remain pending. Home production doors currently refuse with
 “Home provider unavailable”; no passing mutation projection is claimed.
+| C-PERF-03 | [C-PERF-03.spec.ts](C-PERF-03.spec.ts) | fixme-before-implementation | T-COL-08, T-COL-08a, T-COL-08b, T-REL-01 |
+| C-PERF-04 | [C-PERF-04.spec.ts](C-PERF-04.spec.ts) | fixme-before-implementation | T-COL-04, T-APP-11, T-REL-01 |
+| C-PERF-05 | [C-PERF-05.spec.ts](C-PERF-05.spec.ts) | fixme-before-implementation | T-MCH-06, T-REL-01 |
+| C-PERF-06 | [C-PERF-06.spec.ts](C-PERF-06.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-01 |
+| C-PRC-01 | [C-PRC-01.spec.ts](C-PRC-01.spec.ts) | fixme-before-implementation | T-PRC-01 |
+| C-PRC-02 | [C-PRC-02.spec.ts](C-PRC-02.spec.ts) | fixme-before-implementation | T-PRC-02 |
+
+Cycle 21: reference-host co-editing, SSH write, wake and rebase performance
+qualification remains pending. C-PRC-01/02 are engineering-only checks folded
+into their implementing tickets; terminal projections require isolated live
+fixtures and do not qualify gate correctness or publication refusal.
