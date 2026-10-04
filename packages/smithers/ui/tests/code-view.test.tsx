@@ -634,3 +634,14 @@ describe("CodeFileView annotations and token gestures", () => {
     expect(rest.rests).toEqual([{ line: 2, column: 11, text: "a" }]);
   }, 90_000);
 });
+
+test("full-contrast opt-in keeps file text and can return to syntax colours", async () => {
+  await mount(<CodeFileView name="contrast.ts" contents="const answer = 42" mode="light" monochrome />);
+  await highlighted();
+  expect(shadow().textContent).toContain("const answer = 42");
+  expect(shadow().querySelector("style[data-unsafe-css]")?.textContent ?? shadow().textContent).toContain("color: var(--code-text, currentColor) !important");
+  await rerender(<CodeFileView name="contrast.ts" contents="const answer = 42" mode="light" />);
+  await highlighted();
+  expect(shadow().textContent).toContain("const answer = 42");
+  expect(shadow().textContent).not.toContain("color: var(--code-text, currentColor) !important");
+});

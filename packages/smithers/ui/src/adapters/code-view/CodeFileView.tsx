@@ -97,6 +97,8 @@ export type CodeFileViewProps = {
   mode?: CodeViewMode | undefined;
   /** Palette override. Defaults to the active `data-palette` value. */
   palette?: ResolvedPalette | undefined;
+  /** Use full-contrast inherited text when syntax colours cannot meet the host contrast requirement. */
+  monochrome?: boolean | undefined;
   /** Extra class on the frame. */
   className?: string | undefined;
   /** Rendered under their lines; the consumer memoizes the array, a new one redraws pierre's rows. */
@@ -138,6 +140,7 @@ const revealLine = (host: HTMLElement, line: number): boolean => {
 };
 
 export function CodeFileView({
+  monochrome = false,
   name,
   contents,
   line,
@@ -242,14 +245,14 @@ export function CodeFileView({
       theme,
       themeType: resolvedMode,
       disableFileHeader: true,
-      // Paper ink keeps Night Owl Light tokens above AA contrast.
-      unsafeCSS: resolvedMode === "light" ? 'span[style*="color:#4876D6"] { color: var(--lane-1, var(--diffs-light)) !important; } span[style*="color:#C96765"] { color: var(--danger, var(--diffs-light)) !important; }' : undefined,
+      // Paper ink keeps Night Owl Light tokens above AA contrast; monochrome replaces syntax colour entirely.
+      unsafeCSS: monochrome ? "[data-line] span { color: var(--code-text, currentColor) !important; }" : resolvedMode === "light" ? 'span[style*="color:#4876D6"] { color: var(--lane-1, var(--diffs-light)) !important; } span[style*="color:#C96765"] { color: var(--danger, var(--diffs-light)) !important; }' : undefined,
       overflow: "wrap",
       enableLineSelection: false,
       onPostRender,
       ...(interactive ? { useTokenTransformer: true, onTokenEnter, onTokenLeave, onTokenClick } : {}),
     }),
-    [theme, resolvedMode, onPostRender, interactive, onTokenEnter, onTokenLeave, onTokenClick],
+    [theme, resolvedMode, monochrome, onPostRender, interactive, onTokenEnter, onTokenLeave, onTokenClick],
   );
 
   const lineAnnotations = useMemo<LineAnnotation<AnnotationMeta>[] | undefined>(

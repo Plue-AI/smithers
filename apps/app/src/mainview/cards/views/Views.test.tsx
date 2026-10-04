@@ -1556,3 +1556,10 @@ test("File editor avatars overlap and cap at four", async () => {
   expect(host.querySelector(".code-avatar-stack")?.getAttribute("aria-label")).toBe("Ben, Claude Code for Ben, Ben, Claude Code for Ben, Ben")
   await close()
 })
+test("File over-limit text uses the co-editing limit copy", async () => {
+  const { stories } = await import("./FilePresenceView.stories")
+  const { host, close } = await mounted(stories.find(story => story.name === "too_large")!)
+  expect(host.querySelector(".code-file-size")?.textContent).toContain("Too large to co-edit · 2.4 MB")
+  expect(host.querySelector('[data-slot="code-view"]')).toBeNull()
+  await close()
+})

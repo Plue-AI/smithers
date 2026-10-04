@@ -537,3 +537,36 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
     expect(await page.evaluate(async () => (await (window as unknown as { axe: { run: () => Promise<{ violations: { impact: string }[] }> } }).axe.run()).violations.filter(v => v.impact === "serious" || v.impact === "critical"))).toEqual([])
   }
 })
+
+test("File recovery Copy and Reapply remain keyboard accessible", async ({ page }) => {
+  await page.goto("/view-stories.html?story=FilePresenceView/unsaved")
+  await page.evaluate(() => {
+    const calls: unknown[] = []
+    Object.assign(window, { fileRecoveryCalls: calls })
+    window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
+  })
+  const notice = page.locator('.code-notice[data-tone="attention"]')
+  const copy = notice.getByRole("button", { name: "Copy", exact: true })
+  const reapply = notice.getByRole("button", { name: "Reapply", exact: true })
+  await page.keyboard.press("Tab")
+  await expect(copy).toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(reapply).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => page.evaluate(() => (window as unknown as { fileRecoveryCalls: unknown[] }).fileRecoveryCalls)).toEqual([
+    { kind: "action", value: { tag: "file.reapply", args: { path: "flows/todo/flow.ts" } } },
+  ])
+  await expect(notice.locator("pre")).toHaveText('  description: "Build",\n')
+})
+
+test("File Copy failure remains visible and retains recovered text", async ({ page }) => {
+  await page.goto("/view-stories.html?story=FilePresenceView/unsaved")
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("unavailable") } } })
+    document.execCommand = () => false
+  })
+  await page.getByRole("button", { name: "Copy", exact: true }).click()
+  await expect(page.getByRole("status")).toHaveText("Copy failed")
+  await expect(page.locator('.code-notice pre')).toHaveText('  description: "Build",\n')
+  await expect(page.getByRole("button", { name: "Reapply", exact: true })).toBeEnabled()
+})
