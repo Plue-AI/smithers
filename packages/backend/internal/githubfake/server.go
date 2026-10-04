@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,6 +62,7 @@ type Server struct {
 	converted bool
 	writes    []Write
 	tokens    map[string]int64
+	pulls     map[string]Pull
 }
 
 func New(config Config) (*Server, error) {
@@ -92,7 +94,7 @@ func New(config Config) (*Server, error) {
 		installations[i].Repositories = append([]Repository(nil), installation.Repositories...)
 	}
 	config.Installations = installations
-	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64)}
+	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull)}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
 	return s, nil
 }
@@ -116,7 +118,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, response = failure(http.StatusBadRequest, "request body unreadable")
 	} else {
-		status, response = s.respond(r)
+		status, response = s.respond(r, body)
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status})
@@ -126,7 +128,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-func (s *Server) respond(r *http.Request) (int, any) {
+func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 	path := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if r.Method == http.MethodPost && len(path) == 3 && path[0] == "app-manifests" && path[2] == "conversions" {
 		if path[1] != s.config.ConversionCode || s.converted {
@@ -150,6 +152,24 @@ func (s *Server) respond(r *http.Request) (int, any) {
 		repos := append([]Repository{}, installation.Repositories...)
 		start, end := pageBounds(r, len(repos))
 		return http.StatusOK, map[string]any{"total_count": len(repos), "repositories": repos[start:end]}
+	}
+	if installationID, ok := s.tokens[token]; ok {
+		if r.URL.Path == "/graphql" {
+			return s.pullMutation(installationID, body)
+		}
+		if len(path) >= 4 && path[0] == "repos" {
+			installation, _ := s.installation(installationID)
+			fullName := path[1] + "/" + path[2]
+			allowed := false
+			for _, repo := range installation.Repositories {
+				allowed = allowed || repo.FullName == fullName
+			}
+			if !allowed {
+				return failure(404, "repository outside installation")
+			}
+			return s.pullRequest(r, fullName, path[3:], body)
+		}
+		return failure(404, "endpoint not found")
 	}
 	if !s.validJWT(token) {
 		return failure(http.StatusUnauthorized, "App JWT required")
@@ -261,4 +281,152 @@ func (s *Server) validJWT(token string) bool {
 	}
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 	return rsa.VerifyPKCS1v15(s.key, crypto.SHA256, digest[:], signature) == nil
+}
+
+// Pull is a fixture PR receipt; all writes still pass through the App token
+// boundary and permanent write log. The fake previously served no PR API.
+type Pull struct {
+	Repository string `json:"-"`
+	Number     int64  `json:"number"`
+	NodeID     string `json:"node_id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	State      string `json:"state"`
+	Draft      bool   `json:"draft"`
+	HTMLURL    string `json:"html_url"`
+	Head       struct {
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
+	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
+}
+
+func (s *Server) pullRequest(r *http.Request, repo string, path []string, body []byte) (int, any) {
+	if r.Method == http.MethodGet && strings.Join(path, "/") == "branches/main/protection" {
+		return 200, map[string]any{"required_status_checks": map[string]any{"contexts": []string{}, "checks": []any{}}}
+	}
+	if r.Method == http.MethodGet && strings.Join(path, "/") == "rules/branches/main" {
+		return 200, []any{}
+	}
+	if len(path) == 0 || path[0] != "pulls" {
+		return failure(404, "endpoint not found")
+	}
+	if len(path) == 1 && r.Method == http.MethodPost {
+		var input struct {
+			Title, Head, Base, Body string
+			Draft                   bool
+		}
+		if json.Unmarshal(body, &input) != nil || input.Head == "" || input.Base == "" {
+			return failure(422, "head and base required")
+		}
+		number := int64(1)
+		for _, p := range s.pulls {
+			if p.Repository != repo {
+				continue
+			}
+			if p.Head.Ref == input.Head && p.State == "open" {
+				return failure(422, "A pull request already exists")
+			}
+			if p.Number >= number {
+				number = p.Number + 1
+			}
+		}
+		p := Pull{Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
+		p.Head.Ref = input.Head
+		p.Head.Repo.FullName = repo
+		p.Base.Ref = input.Base
+		s.pulls[repo+"/"+strconv.FormatInt(number, 10)] = p
+		return 201, p
+	}
+	if len(path) == 1 && r.Method == http.MethodGet {
+		result := []Pull{}
+		head := strings.TrimPrefix(r.URL.Query().Get("head"), strings.Split(repo, "/")[0]+":")
+		for _, p := range s.pulls {
+			if p.Repository == repo && (head == "" || head == p.Head.Ref) {
+				result = append(result, p)
+			}
+		}
+		sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
+		start, end := pageBounds(r, len(result))
+		return 200, result[start:end]
+	}
+	if len(path) == 2 {
+		key := repo + "/" + path[1]
+		p, ok := s.pulls[key]
+		if !ok {
+			return failure(404, "pull request not found")
+		}
+		if r.Method == http.MethodGet {
+			return 200, p
+		}
+		if r.Method == http.MethodPatch {
+			var input struct {
+				Body  *string
+				Title *string
+				State *string
+			}
+			if json.Unmarshal(body, &input) != nil {
+				return failure(422, "invalid pull update")
+			}
+			if input.Body != nil {
+				p.Body = *input.Body
+			}
+			if input.Title != nil {
+				p.Title = *input.Title
+			}
+			if input.State != nil {
+				if *input.State != "open" && *input.State != "closed" {
+					return failure(422, "invalid pull state")
+				}
+				p.State = *input.State
+			}
+			s.pulls[key] = p
+			return 200, p
+		}
+	}
+	return failure(404, "endpoint not found")
+}
+func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {
+	var input struct {
+		Query     string
+		Variables struct{ ID string }
+	}
+	if json.Unmarshal(body, &input) != nil {
+		return failure(400, "invalid GraphQL request")
+	}
+	mutation := ""
+	if strings.Contains(input.Query, "markPullRequestReadyForReview(") {
+		mutation = "markPullRequestReadyForReview"
+	}
+	if strings.Contains(input.Query, "convertPullRequestToDraft(") {
+		mutation = "convertPullRequestToDraft"
+	}
+	if mutation == "" {
+		return failure(400, "unsupported GraphQL mutation")
+	}
+	installation, _ := s.installation(installationID)
+	for key, p := range s.pulls {
+		if p.NodeID != input.Variables.ID {
+			continue
+		}
+		allowed := false
+		for _, repo := range installation.Repositories {
+			allowed = allowed || repo.FullName == p.Repository
+		}
+		if !allowed {
+			return failure(404, "pull request outside installation")
+		}
+		if p.State != "open" {
+			return 200, map[string]any{"errors": []map[string]string{{"message": "Pull request is closed"}}}
+		}
+		p.Draft = mutation == "convertPullRequestToDraft"
+		s.pulls[key] = p
+		return 200, map[string]any{"data": map[string]any{mutation: map[string]any{"pullRequest": map[string]any{"id": p.NodeID, "isDraft": p.Draft}}}}
+	}
+	return 200, map[string]any{"errors": []map[string]string{{"message": "Pull request not found"}}}
 }

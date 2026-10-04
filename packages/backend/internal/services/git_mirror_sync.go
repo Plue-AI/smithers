@@ -684,8 +684,14 @@ func mirrorRefReached(change gitMirrorRefChange, refs map[string]string) bool {
 // HTTP headers.
 func mirrorCommand(ctx context.Context, binary string, args ...string) *exec.Cmd {
 	safeArgs := append([]string(nil), args...)
-	config := []string{}
-	count := 0
+	// Host transfers consume repository data without repository programs.
+	config := []string{
+		"GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + os.DevNull,
+		"GIT_CONFIG_KEY_1=credential.helper", "GIT_CONFIG_VALUE_1=",
+		"GIT_CONFIG_KEY_2=diff.external", "GIT_CONFIG_VALUE_2=",
+		"GIT_CONFIG_KEY_3=core.attributesFile", "GIT_CONFIG_VALUE_3=" + os.DevNull,
+	}
+	count := 4
 	for i, arg := range safeArgs {
 		remote, err := url.Parse(arg)
 		if err != nil || remote.User == nil || (remote.Scheme != "https" && remote.Scheme != "http") {
@@ -714,13 +720,16 @@ func mirrorCommand(ctx context.Context, binary string, args ...string) *exec.Cmd
 	}
 	cmd.WaitDelay = 5 * time.Second
 	for _, entry := range os.Environ() {
-		if strings.HasPrefix(entry, "GIT_CONFIG_COUNT=") || strings.HasPrefix(entry, "GIT_CONFIG_KEY_") || strings.HasPrefix(entry, "GIT_CONFIG_VALUE_") || strings.HasPrefix(entry, "GIT_TERMINAL_PROMPT=") {
+		if strings.HasPrefix(entry, "GIT_") {
 			continue
 		}
 		cmd.Env = append(cmd.Env, entry)
 	}
 	cmd.Env = append(cmd.Env, config...)
-	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(count), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(count), "GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_ASKPASS=false", "GIT_ATTR_NOSYSTEM=1",
+		// Empty-tree attributes suppress repository textconv and merge drivers.
+		"GIT_ATTR_SOURCE=4b825dc642cb6eb9a060e54bf8d69288fbee4904")
 	return cmd
 }
 

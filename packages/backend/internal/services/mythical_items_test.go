@@ -286,7 +286,7 @@ func (g *fakeMythicalGitHub) FindPull(_ context.Context, _ mythicalGitHubRepo, b
 	return nil, nil
 }
 
-func (g *fakeMythicalGitHub) CreatePull(_ context.Context, _ mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error) {
+func (g *fakeMythicalGitHub) CreatePull(_ context.Context, _ mythicalGitHubRepo, title, head, base, body string, draft bool) (mythicalPull, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.pulls == nil {
@@ -436,6 +436,10 @@ func newMythicalOrchestration(t *testing.T) *mythicalOrchestration {
 	f.git(f.work, "push", "-q", github.dir, "main:refs/heads/main")
 	o := &mythicalOrchestration{mythicalServiceFixture: f, github: github, launcher: &fakeMythicalLauncher{}, lanes: &fakeMythicalLanes{}}
 	f.service.SetOrchestration(github, o.launcher, o.lanes)
+	// Accepted publication fixtures stand in for the not-yet-installed provider.
+	f.service.prFacts = func(_ context.Context, item db.MythicalItem) (mythicalPRShape, error) {
+		return mythicalPRShape{Branch: fmt.Sprintf("smithers/todo-%d", item.IssueNumber.Int64), Title: item.IssueTitle, Prompt: item.IssueBody, Acceptance: "Fixture acceptance", Evidence: "Fixture evidence", DiffStat: "Fixture diff stat", Review: "Fixture review", URL: "http://localhost/todos/fixture", Owner: "ben", First: true, FixesIssue: true, DraftsAvailable: true}, nil
+	}
 	// The owner's policy names roninjin10; no issue is a TODO on its own
 	// unless a test sets todoSince.
 	f.service.SetPolicyReader(policyHost{mythicalPolicy("")})
@@ -649,7 +653,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	item = o.item(7)
 	require.Equal(t, "proposed", item.State, item.Reason)
 	require.True(t, item.PRNumber.Valid)
-	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/issue-7")
+	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/todo-7")
 	assert.Equal(t, o.hostTree(candidate), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"))
 	assert.Equal(t, o.git(o.github.dir, "rev-parse", "refs/heads/main"), o.git(o.github.dir, "rev-parse", branchHead+"^"))
 	message := o.git(o.github.dir, "log", "-1", "--format=%B", branchHead)
@@ -682,7 +686,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 
 	// The owner squash-merges on GitHub; the main pull brings it to Smithers.
 	o.git(o.work, "pull", "-q", "--ff-only", o.github.dir, "main")
-	o.git(o.work, "fetch", "-q", o.github.dir, "refs/heads/smithers/issue-7")
+	o.git(o.work, "fetch", "-q", o.github.dir, "refs/heads/smithers/todo-7")
 	o.git(o.work, "merge", "-q", "--squash", branchHead)
 	o.git(o.work, "commit", "-q", "-m", "📝 docs: add docs (#101)")
 	merged := o.publish()
@@ -702,7 +706,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "item", changes[0].Kind)
-	assert.Equal(t, "📝 docs: add docs", changes[0].Title)
+	assert.Equal(t, "Add docs", changes[0].Title)
 	assert.EqualValues(t, 7, changes[0].IssueNumber.Int64)
 	assert.Equal(t, merged, changes[0].FoldedFrom)
 
@@ -820,7 +824,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	o.wake()
 	item = o.item(11)
 	require.Equal(t, "proposed", item.State, item.Reason)
-	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/issue-11")
+	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/todo-11")
 	assert.Equal(t, o.hostTree(item.CandidateHead), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"),
 		"the proposal is exactly the verified rebased tree")
 
@@ -1129,8 +1133,8 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	tree := o.hostTree(candidate)
 	head := o.git(o.hostDir, "commit-tree", tree, "-p", main, "-m", "✨ feat: x")
 	o.git(o.hostDir, "update-ref", repohost.MythicalReservedRefNS+"keep/"+head, head)
-	o.git(o.hostDir, "push", "-q", o.github.dir, head+":refs/heads/smithers/issue-21")
-	pending, _ := json.Marshal(mythicalProposalOp{Branch: "smithers/issue-21", Expected: "", Head: head})
+	o.git(o.hostDir, "push", "-q", o.github.dir, head+":refs/heads/smithers/todo-21")
+	pending, _ := json.Marshal(mythicalProposalOp{Branch: "smithers/todo-21", Expected: "", Head: head})
 	item.PendingOp = pending
 	_, err = db.New(o.pool).SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
@@ -1164,7 +1168,6 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	assert.Equal(t, "queued", view.State)
 	retried := o.item(21)
 	assert.False(t, retried.PRNumber.Valid)
-	assert.Equal(t, "smithers/issue-21-r1", mythicalBranch(retried))
 }
 
 // An outsider's approved item never changes a protected path; a maintainer's
@@ -1197,7 +1200,7 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "protected_paths", Kind: "stopped"}, mythicalChecksOf(item).Fault, "only a person lifts it")
 	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
-	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")
+	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/todo-31"), "nothing is pushed")
 
 	maintainer := mythicalIssue{Number: 32, Title: "Maintainer", Body: "fix ci", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, maintainer, maintainerTodo))

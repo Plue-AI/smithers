@@ -237,3 +237,54 @@ func TestPaginationAndUserOwner(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &app))
 	require.Equal(t, "User", app.Owner.Type)
 }
+
+func TestPullDraftLifecycleRequiresScopedInstallation(t *testing.T) {
+	server, config, key := fixture(t)
+	status, raw := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, config.AppID, time.Now().Add(time.Minute)), []byte(`{"permissions":{"pull_requests":"write","administration":"read"}}`))
+	require.Equal(t, 201, status)
+	var token struct{ Token string }
+	require.NoError(t, json.Unmarshal(raw, &token))
+	status, raw = request(t, server, "POST", "/repos/acme/app/pulls", token.Token, []byte(`{"title":"Retry webhooks","head":"smithers/retry","base":"main","body":"Prompt","draft":true}`))
+	require.Equal(t, 201, status)
+	var pull Pull
+	require.NoError(t, json.Unmarshal(raw, &pull))
+	require.True(t, pull.Draft)
+	require.Equal(t, "main", pull.Base.Ref)
+	for _, tc := range []struct {
+		mutation string
+		draft    bool
+	}{{"markPullRequestReadyForReview", false}, {"convertPullRequestToDraft", true}} {
+		body, err := json.Marshal(map[string]any{"query": "mutation { " + tc.mutation + "(input: {}) { pullRequest { id isDraft } } }", "variables": map[string]string{"id": pull.NodeID}})
+		require.NoError(t, err)
+		status, _ = request(t, server, "POST", "/graphql", token.Token, body)
+		require.Equal(t, 200, status)
+		status, raw = request(t, server, "GET", "/repos/acme/app/pulls/1", token.Token, nil)
+		require.Equal(t, 200, status)
+		require.NoError(t, json.Unmarshal(raw, &pull))
+		require.Equal(t, tc.draft, pull.Draft)
+	}
+	status, raw = request(t, server, "PATCH", "/repos/acme/app/pulls/1", token.Token, []byte(`{"body":"Latest revision"}`))
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(raw, &pull))
+	require.Equal(t, "Latest revision", pull.Body)
+	status, raw = request(t, server, "GET", "/repos/acme/app/pulls?head=acme:smithers/retry&state=all", token.Token, nil)
+	require.Equal(t, 200, status)
+	var pulls []Pull
+	require.NoError(t, json.Unmarshal(raw, &pulls))
+	require.Len(t, pulls, 1)
+	status, _ = request(t, server, "POST", "/repos/acme/app/pulls", token.Token, []byte(`{"head":"smithers/retry","base":"main"}`))
+	require.Equal(t, 422, status)
+	for _, path := range []string{"/repos/acme/app/branches/main/protection", "/repos/acme/app/rules/branches/main"} {
+		status, _ = request(t, server, "GET", path, token.Token, nil)
+		require.Equal(t, 200, status)
+	}
+	status, _ = request(t, server, "GET", "/repos/acme/foreign/pulls", token.Token, nil)
+	require.Equal(t, 404, status)
+	status, _ = request(t, server, "GET", "/repos/acme/app/pulls", jwt(t, key, config.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 404, status)
+	writes := server.Writes()
+	require.Len(t, writes, 6)
+	for _, write := range writes {
+		require.NotContains(t, string(write.Body), token.Token)
+	}
+}

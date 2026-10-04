@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -545,12 +546,12 @@ func TestMirrorCommandCancelLifecycleAndSanitizedGitEnvironment(t *testing.T) {
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := mirrorCommand(ctx, "sh", "-c", "exit 0")
-	require.Contains(t, cmd.Env, "GIT_CONFIG_COUNT=0")
-	require.Contains(t, cmd.Env, "GIT_TERMINAL_PROMPT=0")
-	require.NotContains(t, cmd.Env, "GIT_CONFIG_COUNT=99")
-	require.NotContains(t, cmd.Env, "GIT_CONFIG_KEY_0=http.secret.extraHeader")
-	require.NotContains(t, cmd.Env, "GIT_CONFIG_VALUE_0=Authorization: stale")
-	require.NotContains(t, cmd.Env, "GIT_TERMINAL_PROMPT=1")
+	require.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_COUNT=4"))
+	require.True(t, slices.Contains(cmd.Env, "GIT_TERMINAL_PROMPT=0"))
+	require.False(t, slices.Contains(cmd.Env, "GIT_CONFIG_COUNT=99"))
+	require.False(t, slices.Contains(cmd.Env, "GIT_CONFIG_KEY_0=http.secret.extraHeader"))
+	require.False(t, slices.Contains(cmd.Env, "GIT_CONFIG_VALUE_0=Authorization: stale"))
+	require.False(t, slices.Contains(cmd.Env, "GIT_TERMINAL_PROMPT=1"))
 	require.NoError(t, cmd.Cancel(), "cancellation before Start has no process to kill")
 	require.NoError(t, cmd.Run())
 	require.ErrorIs(t, cmd.Cancel(), os.ErrProcessDone)

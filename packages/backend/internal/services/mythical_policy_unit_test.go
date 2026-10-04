@@ -114,20 +114,6 @@ func TestMythicalPolicy_RetryAndTransientDelayPreserveItem(t *testing.T) {
 	}
 }
 
-func TestMythicalProposalDoesNotCloseIssueBeforeCompletionEvidence(t *testing.T) {
-	t.Parallel()
-	st := &mythicalItemStep{}
-	item := db.MythicalItem{IssueNumber: pgtype.Int8{Int64: 7, Valid: true}, IssueTitle: "Add docs", Summary: "📝 docs: add docs\n\nAdds the docs page."}
-	title, body := st.proposal(item)
-	require.Equal(t, "📝 docs: add docs", title)
-	require.NotContains(t, body, "Closes #7", "the merge alone never closes the issue")
-	require.NotContains(t, strings.ToLower(body), "fixes #")
-	require.NotContains(t, strings.ToLower(body), "resolves #")
-	require.Contains(t, body, "Adds the docs page.\n\nRefs #7")
-	_, chat := st.proposal(db.MythicalItem{Summary: "chat change"})
-	require.NotContains(t, chat, "#", "a chat item names no issue")
-}
-
 func TestMythicalCompletionBodyCarriesTheEvidence(t *testing.T) {
 	t.Parallel()
 	item := db.MythicalItem{PRNumber: pgtype.Int8{Int64: 12, Valid: true}, PRURL: "https://github.com/o/r/pull/12",
@@ -183,18 +169,6 @@ func TestMythicalOnlyTheCompletionNoticeIsKeyed(t *testing.T) {
 	for _, key := range []string{"", "hold:review:abc", "stop:3", "landed"} {
 		require.Empty(t, mythicalNoticeCommentKey(key), "%q posts anew", key)
 	}
-}
-
-func TestMythicalProposalNeutralizesAgentClosingKeywords(t *testing.T) {
-	t.Parallel()
-	st := &mythicalItemStep{}
-	item := db.MythicalItem{IssueNumber: pgtype.Int8{Int64: 7, Valid: true}, IssueTitle: "Add docs",
-		Summary: "📝 docs: fixes #7 docs\n\nCloses #7. Resolves: o/r#8, fixed https://github.com/o/r/issues/9 and closes  #10.\nA fix for #11 stays; prefixes #12 stays."}
-	title, body := st.proposal(item)
-	require.Equal(t, "📝 docs: Refs #7 docs", title)
-	require.Equal(t, "Refs #7. Refs o/r#8, Refs https://github.com/o/r/issues/9 and Refs #10.\nA fix for #11 stays; prefixes #12 stays.\n\nRefs #7\n\n"+
-		"One commit carrying this item's verified change from the repository's mythical stack.", body)
-	require.NotRegexp(t, mythicalClosingKeyword, title+"\n"+body)
 }
 
 func TestMythicalLandedOwesItsIssueTheEvidence(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,13 +151,13 @@ func TestGitMirrorCredentialsRejectUnsafeDestination(t *testing.T) {
 func TestMirrorCommandKeepsCredentialsOutOfArguments(t *testing.T) {
 	cmd := mirrorCommand(context.Background(), "git", "fetch", "https://x-access-token:source-secret@forge.example/a/b.git", "https://x-access-token:target-secret@github.com/c/d.git")
 	assert.Equal(t, []string{"git", "fetch", "https://forge.example/a/b.git", "https://github.com/c/d.git"}, cmd.Args)
-	assert.Contains(t, cmd.Env, "GIT_CONFIG_COUNT=2")
-	assert.Contains(t, cmd.Env, "GIT_CONFIG_VALUE_0=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:source-secret")))
-	assert.Contains(t, cmd.Env, "GIT_CONFIG_VALUE_1=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:target-secret")))
-	assert.Contains(t, cmd.Env, "GIT_CONFIG_KEY_0=http.https://forge.example/a/b.git.extraHeader")
-	assert.Contains(t, cmd.Env, "GIT_CONFIG_KEY_1=http.https://github.com/c/d.git.extraHeader")
-	assert.Contains(t, cmd.Env, "GIT_TERMINAL_PROMPT=0")
-	assert.NotContains(t, cmd.Env, "GITSYNC_TARGET_INSECURE_SKIP_TLS_VERIFY=true")
+	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_COUNT=6"))
+	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_VALUE_4=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:source-secret"))))
+	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_VALUE_5=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:target-secret"))))
+	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_KEY_4=http.https://forge.example/a/b.git.extraHeader"))
+	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_KEY_5=http.https://github.com/c/d.git.extraHeader"))
+	assert.True(t, slices.Contains(cmd.Env, "GIT_TERMINAL_PROMPT=0"))
+	assert.False(t, slices.Contains(cmd.Env, "GITSYNC_TARGET_INSECURE_SKIP_TLS_VERIFY=true"))
 }
 
 func TestMirrorCredentialErrorsRedactEncodedAndBareSecrets(t *testing.T) {

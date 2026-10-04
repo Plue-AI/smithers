@@ -925,6 +925,7 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 // ---- the worker's side ----
 
 type mythicalItemStep struct {
+	prShape  *mythicalPRShape
 	s        *MythicalService
 	r        *mythicalRun
 	q        *db.Queries
@@ -1950,6 +1951,18 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		return &next, nil
 	}
 	s, r := st.s, st.r
+	if s.prFacts == nil {
+		return nil, &mythicalPRUnavailable{}
+	}
+	shape, err := s.prFacts(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	title, body, err := shape.render()
+	if err != nil {
+		return nil, err
+	}
+	st.prShape = &shape
 	next := item
 	if err := s.outboundReady(ctx, item, "push"); err != nil {
 		return mythicalLater(item, err.Error(), st.now), nil
@@ -1980,7 +1993,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		return &next, nil
 	}
 	gh := *st.gh
-	branch := mythicalBranch(item)
+	branch := shape.Branch
 	if len(item.PendingOp) > 0 {
 		return st.recoverOutbound(ctx, item)
 	}
@@ -2000,7 +2013,6 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 			return nil, err
 		}
 	}
-	title, body := st.proposal(item)
 	stamp := "0 +0000"
 	if item.CreatedAt.Valid {
 		stamp = strconv.FormatInt(item.CreatedAt.Time.Unix(), 10) + " +0000"
@@ -2069,6 +2081,13 @@ func mythicalPublicationAuthority() error {
 
 func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string) (*db.MythicalItem, error) {
 	s, r := st.s, st.r
+	if st.prShape == nil || st.prShape.Branch != branch {
+		return nil, &mythicalPRUnavailable{}
+	}
+	title, body, err := st.prShape.render()
+	if err != nil {
+		return nil, err
+	}
 	next := item
 	if len(item.PendingOp) > 0 {
 		return nil, errors.New("pending GitHub operation must settle before opening PR")
@@ -2089,7 +2108,14 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		if base == "" {
 			base = "main"
 		}
-		title, body := st.proposal(item)
+
+		draft := !st.prShape.First && st.prShape.DraftsAvailable
+		if !st.prShape.First && !st.prShape.DraftsAvailable {
+			if st.prShape.FirstNumber <= 0 {
+				return nil, &mythicalPRUnavailable{}
+			}
+			title = fmt.Sprintf("[waits for T%d] %s", st.prShape.FirstNumber, title)
+		}
 		op := MythicalOutboundOp{Kind: "open", Target: branch, Desired: item.PRHead, State: "intended"}
 		next.PendingOp, _ = json.Marshal(op)
 		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
@@ -2102,11 +2128,17 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		if err != nil {
 			return nil, err
 		}
-		created, err := s.github.CreatePull(ctx, gh, title, branch, base, body)
+
+		created, err := s.github.CreatePull(ctx, gh, title, branch, base, body, draft)
 		if err != nil {
 			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
 		pull = &created
+	}
+	if !st.prShape.First && !st.prShape.DraftsAvailable {
+		if err := s.github.AddLabel(ctx, gh, pull.Number, "smithers:waiting"); err != nil {
+			return mythicalInfraOutage(next, "github", "the waiting label could not be applied: "+err.Error(), st.now), nil
+		}
 	}
 	next.PendingOp = nil
 	next.PRNumber = pgtype.Int8{Int64: pull.Number, Valid: true}
@@ -2118,40 +2150,6 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	next.Checks = proposed.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 	return &next, nil
-}
-
-func mythicalBranch(item db.MythicalItem) string {
-	suffix := ""
-	if item.ProposalRound > 0 {
-		suffix = "-r" + strconv.FormatInt(int64(item.ProposalRound), 10)
-	}
-	if item.IssueNumber.Valid {
-		return "smithers/issue-" + strconv.FormatInt(item.IssueNumber.Int64, 10) + suffix
-	}
-	return "smithers/change-" + strings.ReplaceAll(uuidString(item.ID), "-", "")[:12] + suffix
-}
-
-func (st *mythicalItemStep) proposal(item db.MythicalItem) (string, string) {
-	summary := strings.TrimSpace(item.Summary)
-	title, rest, _ := strings.Cut(summary, "\n")
-	title = mythicalNoClosingKeywords(strings.TrimSpace(title))
-	if title == "" {
-		title = item.IssueTitle
-	}
-	if len(title) > 250 {
-		title = title[:250]
-	}
-	body := mythicalNoClosingKeywords(strings.TrimSpace(rest))
-	if item.IssueNumber.Valid {
-		if body != "" {
-			body += "\n\n"
-		}
-		// Never a closing keyword: GitHub would close the issue at the
-		// merge, before its completion evidence is on it (complete).
-		body += "Refs #" + strconv.FormatInt(item.IssueNumber.Int64, 10)
-	}
-	body += "\n\nOne commit carrying this item's verified change from the repository's mythical stack."
-	return title, strings.TrimSpace(body)
 }
 
 // mythicalClosingKeyword is a GitHub closing keyword before an issue
@@ -2198,11 +2196,32 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		}
 		next.Checks = answered.encode()
 	}
+	fact := mythicalGitHubFact{Head: pull.HeadSHA, MergeCommit: pull.MergeCommit}
 	switch {
 	case pull.Merged:
-		next = mythicalLanded(next, pull.MergeCommit, st.now)
+		fact.Kind = "merged"
 	case pull.State == "closed":
-		next.PRState, next.State, next.Reason = "closed", "rejected", "the pull request was closed without merging"
+
+		fact.Kind = "closed"
+	default:
+		fact.Kind = "push"
+	}
+	if pull.Merged && pull.MergeCommit != "" {
+		fact.OnMain, err = s.github.OnMain(ctx, *st.gh, "main", pull.MergeCommit)
+		if err != nil {
+			return mythicalInfraOutage(item, "github", "GitHub did not answer for the merge commit on main", st.now), nil
+		}
+	}
+	decision := decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead}, st.now)
+	switch {
+	case decision.Event == "merged":
+		next = mythicalLanded(next, pull.MergeCommit, st.now)
+	case fact.Kind == "merged":
+		// A PR receipt alone is insufficient. Retain it and poll until main
+		// contains the commit; do not expose completion evidence prematurely.
+		return &next, nil
+	case decision.Event == "dropped":
+		next.PRState, next.State, next.Reason = "closed", "rejected", "closed on GitHub"
 	case pull.HeadSHA != "" && pull.HeadSHA != item.PRHead:
 		// Someone pushed to the pull request: its new head is theirs, so the
 		// stack neither reviews nor merges it.
@@ -2438,7 +2457,7 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 			return "", fmt.Errorf("fetch the proposal: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
 	}
-	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", item.PRHead+"^", item.PRHead)
+	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-textconv", item.CandidateBase, item.PRHead)
 }
 
 // merge merges an automerge TODO's pull request at exactly the approved
@@ -3098,6 +3117,15 @@ func mythicalNoticeCommentKey(key string) string {
 // carries the commit, and the close only once the comment is on the issue.
 // Each step that fails is tried again on a later pass.
 func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.MythicalItem, now time.Time) db.MythicalItem {
+	// fixes_issue is an accepted TODO fact, never inferred from an issue link.
+	// Retain the completion obligation until its provider is installed.
+	if s.prFacts == nil {
+		return item
+	}
+	shape, err := s.prFacts(ctx, item)
+	if err != nil {
+		return item
+	}
 	checks := mythicalChecksOf(item)
 	// Only an item the stack itself saw land owes its issue the evidence
 	// (mythicalLanded); one that landed before is left as it is.
@@ -3169,11 +3197,15 @@ func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.
 			return later("the completion comment could not be posted", nil)
 		}
 	}
-	if err := s.github.CloseIssue(ctx, gh, item.IssueNumber.Int64); err != nil {
-		item = next
-		return later("the issue could not be closed", err)
+	if shape.FixesIssue {
+		if err := s.github.CloseIssue(ctx, gh, item.IssueNumber.Int64); err != nil {
+			item = next
+			return later("the issue could not be closed", err)
+		}
+		checks.Completion.Outcome = mythicalCompletionClosed
+	} else {
+		checks.Completion.Outcome = "commented"
 	}
-	checks.Completion.Outcome = mythicalCompletionClosed
 	next.Checks, next.NextAttemptAt = checks.encode(), pgtype.Timestamptz{}
 	saved, err := s.queries().SaveMythicalItem(ctx, next)
 	if err != nil {

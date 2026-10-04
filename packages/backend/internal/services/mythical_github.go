@@ -45,6 +45,8 @@ type mythicalIssue struct {
 
 // mythicalPull is one GitHub pull request as the stack follows it.
 type mythicalPull struct {
+	Draft       bool
+	NodeID      string
 	Number      int64
 	URL         string
 	State       string // open | closed
@@ -70,7 +72,7 @@ type mythicalGitHub interface {
 	Maintainer(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error)
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
-	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error)
+	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string, draft bool) (mythicalPull, error)
 	// HeadChecks answers GitHub CI's verdict on one commit (mythicalCIGreen,
 	// mythicalCIPending or mythicalCIRed).
 	HeadChecks(ctx context.Context, gh mythicalGitHubRepo, sha string) (string, error)
@@ -252,7 +254,7 @@ type mythicalGitHubPull struct {
 }
 
 func (p mythicalGitHubPull) pull() mythicalPull {
-	out := mythicalPull{Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
+	out := mythicalPull{Draft: p.Draft, NodeID: p.NodeID, Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
 		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, MergeableState: p.MergeableState}
 	if out.Merged && p.MergeCommitSHA != nil {
 		out.MergeCommit = *p.MergeCommitSHA
@@ -303,9 +305,9 @@ func (g *mythicalGitHubAPI) FindPull(ctx context.Context, gh mythicalGitHubRepo,
 	return &pull, nil
 }
 
-func (g *mythicalGitHubAPI) CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error) {
+func (g *mythicalGitHubAPI) CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string, draft bool) (mythicalPull, error) {
 	created, err := g.api.Create(ctx, gh.Token, gh.Owner, gh.Name, landingGitHubPullCreate{Title: title, Head: head, Base: base, Body: body,
-		MaintainerCanModify: true})
+		MaintainerCanModify: true, Draft: draft})
 	if err != nil {
 		if err == errLandingGitHubPullExists {
 			found, findErr := g.FindPull(ctx, gh, head)
@@ -345,11 +347,15 @@ func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, nu
 		Merged bool   `json:"merged"`
 	}
 	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/pulls/" + strconv.FormatInt(number, 10) + "/merge"
-	status, err := g.api.request(ctx, token, http.MethodPut, path, map[string]string{"sha": head, "merge_method": "squash"}, &merged)
+	var refusal GitHubRefusal
+	status, err := g.api.request(ctx, token, http.MethodPut, path, map[string]string{"sha": head, "merge_method": "squash"}, &merged, &refusal)
 	if err != nil {
 		return "", err
 	}
 	if status != http.StatusOK || !merged.Merged {
+		if (status == 405 || status == 409 || status == 422) && refusal.Message != "" {
+			return "", &refusal
+		}
 		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "merge pull requests")
 	}
 	return merged.SHA, nil
@@ -638,89 +644,41 @@ func (g *mythicalGitHubAPI) headSuites(ctx context.Context, token string, gh myt
 // HeadChecks is green only when at least one check reported on the commit
 // and every check run and commit status on it finished successfully
 // (success, neutral or skipped). A failed one is red; one still running, or
-// no report at all yet, is pending. Nothing reads a job name, so an advisory
-// job's failure holds the merge for a person too.
+// no report at all yet, is pending. Required names absent from the head
+// remain pending; advisory failures retain the existing merge hold.
+// HeadChecks and projections read the same named facts.
 func (g *mythicalGitHubAPI) HeadChecks(ctx context.Context, gh mythicalGitHubRepo, sha string) (string, error) {
+	facts, err := g.HeadCheckFacts(ctx, gh, sha)
+	if err != nil {
+		return "", err
+	}
+	if len(facts) == 0 {
+		return mythicalCIPending, nil
+	}
+	pending := false
+	for _, f := range facts {
+		if f.State == mythicalCIRed {
+			return mythicalCIRed, nil
+		}
+		pending = pending || f.State == mythicalCIPending
+	}
 	token, err := g.installationToken(ctx, gh, map[string]string{"checks": "read", "statuses": "read"})
 	if err != nil {
 		return "", err
 	}
 	commit := landingGitHubRepoPath(gh.Owner, gh.Name) + "/commits/" + url.PathEscape(sha)
-	reported, pending := 0, false
-	for page := 1; ; page++ {
-		if page > 10 {
-			// Runs past what is read could be red: never green on a part.
-			return mythicalCIPending, nil
-		}
-		var runs struct {
-			CheckRuns []struct {
-				Status     string  `json:"status"`
-				Conclusion *string `json:"conclusion"`
-			} `json:"check_runs"`
-		}
-		status, err := g.api.request(ctx, token, http.MethodGet, commit+"/check-runs?per_page=100&page="+strconv.Itoa(page), nil, &runs)
-		if err != nil {
-			return "", err
-		}
-		if status != http.StatusOK {
-			return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read check runs")
-		}
-		for _, run := range runs.CheckRuns {
-			reported++
-			switch {
-			case run.Status != "completed" || run.Conclusion == nil:
-				pending = true
-			case *run.Conclusion != "success" && *run.Conclusion != "neutral" && *run.Conclusion != "skipped":
-				return mythicalCIRed, nil
-			}
-		}
-		if len(runs.CheckRuns) < 100 {
-			break
-		}
-	}
-	// A workflow whose later jobs have no check run yet still has a suite
-	// that has not completed: CI is green only once every suite finished.
-	// GitHub also opens a suite on every push for each installed App that
-	// may write checks, and one whose App never runs on the commit stays
-	// queued with no runs forever: such a suite is not CI. A GitHub Actions
-	// suite always counts, so a workflow whose jobs are not created yet
-	// (ci.yml's required jobs among them) keeps the head pending.
-	for page := 1; ; page++ {
-		if page > 10 {
-			return mythicalCIPending, nil
-		}
+	for page := 1; page <= 10; page++ {
 		verdict, full, err := g.headSuites(ctx, token, gh, commit, page)
 		if err != nil || verdict == mythicalCIRed {
 			return verdict, err
 		}
 		pending = pending || verdict == mythicalCIPending
 		if !full {
-			break
+			if pending {
+				return mythicalCIPending, nil
+			}
+			return mythicalCIGreen, nil
 		}
 	}
-	var combined struct {
-		State      string `json:"state"`
-		TotalCount int    `json:"total_count"`
-	}
-	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/status", nil, &combined)
-	if err != nil {
-		return "", err
-	}
-	if status != http.StatusOK {
-		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read commit statuses")
-	}
-	if combined.TotalCount > 0 {
-		reported += combined.TotalCount
-		switch combined.State {
-		case "success":
-		case "pending":
-			pending = true
-		default:
-			return mythicalCIRed, nil
-		}
-	}
-	if pending || reported == 0 {
-		return mythicalCIPending, nil
-	}
-	return mythicalCIGreen, nil
+	return mythicalCIPending, nil
 }

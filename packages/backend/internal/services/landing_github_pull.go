@@ -78,6 +78,8 @@ func (r landingGitHubRemotes) close() {
 
 type landingGitHubPullRequest struct {
 	Number   int64   `json:"number"`
+	NodeID   string  `json:"node_id"`
+	Draft    bool    `json:"draft"`
 	HTMLURL  string  `json:"html_url"`
 	State    string  `json:"state"`
 	MergedAt *string `json:"merged_at"`
@@ -109,6 +111,7 @@ type landingGitHubPullCreate struct {
 	Base                string `json:"base"`
 	Body                string `json:"body"`
 	MaintainerCanModify bool   `json:"maintainer_can_modify"`
+	Draft               bool   `json:"draft"`
 }
 
 // LandingGitHubPullService opens and reports the GitHub pull request of a landing.
@@ -418,7 +421,7 @@ type landingGitHubAPI struct {
 	baseURL func() string
 }
 
-func (a *landingGitHubAPI) request(ctx context.Context, token, method, path string, body any, out any) (int, error) {
+func (a *landingGitHubAPI) request(ctx context.Context, token, method, path string, body any, out any, refusal ...*GitHubRefusal) (int, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -444,6 +447,11 @@ func (a *landingGitHubAPI) request(ctx context.Context, token, method, path stri
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode >= 400 && len(refusal) > 0 && refusal[0] != nil {
+		_ = json.Unmarshal(raw, refusal[0])
+		refusal[0].Status = resp.StatusCode
+		refusal[0].Code, refusal[0].Class = "github_refused", "github"
+	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
 			return resp.StatusCode, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an unreadable pull request receipt")

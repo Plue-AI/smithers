@@ -46,7 +46,22 @@ type recordedGitHub struct {
 	routes map[string]func(w http.ResponseWriter)
 }
 
+func fixtureStatuses(combined map[string]any) []map[string]any {
+	if combined["total_count"] == 0 {
+		return []map[string]any{}
+	}
+	return []map[string]any{{"context": "legacy", "state": combined["state"]}}
+}
+
 func (g *recordedGitHub) api(t *testing.T) *mythicalGitHubAPI {
+	if g.routes != nil {
+		if _, ok := g.routes["GET /repos/o/r/branches/main/protection"]; !ok {
+			g.routes["GET /repos/o/r/branches/main/protection"] = answer(200, map[string]any{})
+		}
+		if _, ok := g.routes["GET /repos/o/r/rules/branches/main"]; !ok {
+			g.routes["GET /repos/o/r/rules/branches/main"] = answer(200, []any{})
+		}
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		key := r.Method + " " + r.URL.RequestURI()
@@ -101,15 +116,15 @@ func TestMythicalGitHubHeadChecksNeedsEveryReportGreen(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
-				"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_runs": tc.runs}),
+				"GET /repos/o/r/commits/abc/check-runs?filter=latest&per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_runs": tc.runs}),
 				"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{
 					"check_suites": []map[string]any{{"status": "completed", "conclusion": "success"}}}),
-				"GET /repos/o/r/commits/abc/status": answer(http.StatusOK, tc.combined),
+				"GET /repos/o/r/commits/abc/statuses?per_page=100&page=1": answer(http.StatusOK, fixtureStatuses(tc.combined)),
 			}}
 			verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, verdict)
-			assert.Contains(t, github.calls[0], " checks=read,statuses=read ", "a read-only token")
+			assert.Contains(t, github.calls[0], " administration=read,checks=read,statuses=read ", "a read-only token")
 		})
 	}
 	github := &recordedGitHub{}
@@ -260,10 +275,10 @@ func TestMythicalGitHubHeadChecksWaitsForEverySuite(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
-				"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1": answer(http.StatusOK, map[string]any{
+				"GET /repos/o/r/commits/abc/check-runs?filter=latest&per_page=100&page=1": answer(http.StatusOK, map[string]any{
 					"check_runs": []map[string]any{{"status": "completed", "conclusion": "success"}}}),
 				"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_suites": tc.suites}),
-				"GET /repos/o/r/commits/abc/status":                           answer(http.StatusOK, map[string]any{"state": "pending", "total_count": 0}),
+				"GET /repos/o/r/commits/abc/statuses?per_page=100&page=1":     answer(http.StatusOK, []any{}),
 			}}
 			verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
 			require.NoError(t, err)
@@ -283,16 +298,16 @@ func TestMythicalGitHubHeadChecksReadsEveryPage(t *testing.T) {
 		suites[i] = green
 		runs[i] = map[string]any{"status": "completed", "conclusion": "success"}
 	}
-	status := answer(http.StatusOK, map[string]any{"state": "pending", "total_count": 0})
+	status := answer(http.StatusOK, []any{})
 
 	t.Run("a failed suite on the second page", func(t *testing.T) {
 		t.Parallel()
 		github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
-			"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1":   answer(http.StatusOK, map[string]any{"check_runs": runs[:1]}),
-			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{"total_count": 101, "check_suites": suites}),
+			"GET /repos/o/r/commits/abc/check-runs?filter=latest&per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_runs": runs[:1]}),
+			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1":             answer(http.StatusOK, map[string]any{"total_count": 101, "check_suites": suites}),
 			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=2": answer(http.StatusOK, map[string]any{"total_count": 101, "check_suites": []map[string]any{
 				{"status": "completed", "conclusion": "failure", "latest_check_runs_count": 1, "app": map[string]any{"slug": "github-actions"}}}}),
-			"GET /repos/o/r/commits/abc/status": status,
+			"GET /repos/o/r/commits/abc/statuses?per_page=100&page=1": status,
 		}}
 		verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
 		require.NoError(t, err)
@@ -302,14 +317,14 @@ func TestMythicalGitHubHeadChecksReadsEveryPage(t *testing.T) {
 		t.Parallel()
 		github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 			"GET /repos/o/r/commits/abc/check-suites?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_suites": suites[:1]}),
-			"GET /repos/o/r/commits/abc/status":                           status,
+			"GET /repos/o/r/commits/abc/statuses?per_page=100&page=1":     status,
 		}}
 		for page := 1; page <= 10; page++ {
-			github.routes["GET /repos/o/r/commits/abc/check-runs?per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, map[string]any{"check_runs": runs})
+			github.routes["GET /repos/o/r/commits/abc/check-runs?filter=latest&per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, map[string]any{"check_runs": runs})
 		}
 		verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
-		require.NoError(t, err)
-		assert.Equal(t, mythicalCIPending, verdict, "an unread eleventh page could be red")
+		require.ErrorContains(t, err, "listing is incomplete")
+		assert.Empty(t, verdict, "an unread eleventh page cannot produce a verdict")
 	})
 }
 
