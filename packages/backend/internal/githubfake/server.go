@@ -90,6 +90,23 @@ type Server struct {
 	// labels are each issue's or pull request's labels, by repo/number.
 	labels   map[string][]string
 	comments int64
+	// main holds the squash commits GitHub's main contains; held are merged
+	// commits main has not reached yet (HoldMain).
+	main     map[string]bool
+	held     []string
+	holdMain bool
+	refusals map[string]Refusal
+	checks   map[string][]CheckRun
+	required []string
+	// accounts are GitHub accounts beyond the owner (id 7), by id; access
+	// is each login's repository permission. The owner is admin unless
+	// SetCollaborator says otherwise; any other login is not a user.
+	accounts map[int64]string
+	access   map[string]string
+	// reviewRule is how many approving reviews main's protection requires
+	// (0: none); reviews are each PR's latest review state per reviewer.
+	reviewRule int
+	reviews    map[string]map[string]string
 }
 
 // FailNextWrites makes the next n writes to path answer 502 and apply
@@ -106,6 +123,153 @@ func (s *Server) LoseNextPushResponses(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lostPushes = n
+}
+
+// Refusal is GitHub's answer to a merge it will not make.
+type Refusal struct {
+	Status  int
+	Message string
+}
+
+// CheckRun is one check GitHub reports on a commit.
+type CheckRun struct {
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	Conclusion *string `json:"conclusion"`
+}
+
+// HoldMain keeps later squash merges off main until ReleaseMain: GitHub
+// reports the PR merged while main does not contain its commit yet.
+func (s *Server) HoldMain() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.holdMain = true
+}
+
+// ReleaseMain lets main contain every held merge.
+func (s *Server) ReleaseMain() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.holdMain = false
+	for _, commit := range s.held {
+		s.main[commit] = true
+	}
+	s.held = nil
+}
+
+// RefuseNextMerge makes the next merge of repo#number answer refusal, as
+// GitHub refuses a merge its branch protection does not allow.
+func (s *Server) RefuseNextMerge(repo string, number int64, refusal Refusal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refusals[repo+"/"+strconv.FormatInt(number, 10)] = refusal
+}
+
+// UpdatePull changes a pull request outside the App, as a person or GitHub
+// itself would: a push, a draft, a close or a recomputed mergeability.
+func (s *Server) UpdatePull(repo string, number int64, change func(*Pull)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := repo + "/" + strconv.FormatInt(number, 10)
+	p := s.pulls[key]
+	change(&p)
+	s.pulls[key] = p
+}
+
+// SetCheck records the latest run of the named check on a commit.
+func (s *Server) SetCheck(repo, sha, name, status, conclusion string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := CheckRun{Name: name, Status: status}
+	if conclusion != "" {
+		run.Conclusion = &conclusion
+	}
+	key := repo + "@" + sha
+	runs := s.checks[key][:0:0]
+	for _, existing := range s.checks[key] {
+		if existing.Name != name {
+			runs = append(runs, existing)
+		}
+	}
+	s.checks[key] = append(runs, run)
+}
+
+// RequireCheck makes main's branch protection require the named check.
+func (s *Server) RequireCheck(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.required = append(s.required, name)
+}
+
+// SetCollaborator makes GitHub account id the user login with permission
+// (admin, maintain, write, triage, read or none) on every repository: a new
+// collaborator, or the owner (id 7) promoted or demoted.
+func (s *Server) SetCollaborator(id int64, login, permission string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accounts[id] = login
+	s.access[login] = permission
+}
+
+// RequireReviews makes main's branch protection require count approving
+// reviews; 0 requires none.
+func (s *Server) RequireReviews(count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reviewRule = count
+}
+
+// Review records login's latest review of repo#number: APPROVED,
+// CHANGES_REQUESTED, DISMISSED or COMMENTED.
+func (s *Server) Review(repo string, number int64, login, state string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := repo + "/" + strconv.FormatInt(number, 10)
+	if s.reviews[key] == nil {
+		s.reviews[key] = map[string]string{}
+	}
+	s.reviews[key][login] = state
+}
+
+// reviewDecision is GitHub's reviewDecision for a PR: nil while main
+// requires no review, CHANGES_REQUESTED while any reviewer's latest review
+// requests changes, APPROVED once enough latest reviews approve.
+func (s *Server) reviewDecision(p Pull) any {
+	if s.reviewRule == 0 {
+		return nil
+	}
+	approvals := 0
+	for _, state := range s.reviews[p.Repository+"/"+strconv.FormatInt(p.Number, 10)] {
+		switch state {
+		case "CHANGES_REQUESTED":
+			return "CHANGES_REQUESTED"
+		case "APPROVED":
+			approvals++
+		}
+	}
+	if approvals >= s.reviewRule {
+		return "APPROVED"
+	}
+	return "REVIEW_REQUIRED"
+}
+
+// view is the PR as GitHub answers it: an open PR main's review rule does
+// not yet allow is blocked, as GitHub computes it.
+func (s *Server) view(p Pull) Pull {
+	p = p.view()
+	if p.MergeableState == "clean" && s.reviewDecision(p) != nil && s.reviewDecision(p) != "APPROVED" {
+		p.MergeableState = "blocked"
+	}
+	return p
+}
+
+// reviewRefusal is GitHub's refusal of a merge main's review rule does not
+// allow yet.
+func (s *Server) reviewRefusal() string {
+	if s.reviewRule == 1 {
+		return "At least 1 approving review is required by reviewers with write access."
+	}
+	return fmt.Sprintf("At least %d approving reviews are required by reviewers with write access.", s.reviewRule)
 }
 
 // Handler creates the same fake without opening an httptest listener.
@@ -143,7 +307,10 @@ func Handler(config Config) (*Server, error) {
 		installations[i].Repositories = append([]Repository(nil), installation.Repositories...)
 	}
 	config.Installations = installations
-	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull), failures: make(map[string]int), labels: make(map[string][]string)}
+	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull),
+		failures: make(map[string]int), labels: make(map[string][]string),
+		main: make(map[string]bool), refusals: make(map[string]Refusal), checks: make(map[string][]CheckRun),
+		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string)}
 	s.codes = make(map[string]string)
 	if config.OAuthCode != "" {
 		s.codes[config.OAuthCode] = ""
@@ -288,9 +455,19 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 	}
 	if installationID, ok := s.tokens[token]; ok {
 		if r.Method == http.MethodGet && r.URL.Path == "/user/7" {
-			return 200, map[string]any{"id": 7, "login": s.config.OwnerLogin}
+			return 200, map[string]any{"id": 7, "login": s.login(7), "type": "User"}
+		}
+		if r.Method == http.MethodGet && len(path) == 2 && path[0] == "user" {
+			id, _ := strconv.ParseInt(path[1], 10, 64)
+			if login := s.login(id); login != "" {
+				return 200, map[string]any{"id": id, "login": login, "type": "User"}
+			}
+			return failure(404, "Not Found")
 		}
 		if r.URL.Path == "/graphql" {
+			if strings.Contains(string(body), "reviewDecision") {
+				return s.pullReviewDecision(installationID, body)
+			}
 			return s.pullMutation(installationID, body)
 		}
 		if len(path) >= 3 && path[0] == "repos" {
@@ -310,8 +487,10 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 					}
 				}
 			}
-			if len(path) == 6 && path[3] == "collaborators" && path[4] == s.config.OwnerLogin && path[5] == "permission" && r.Method == http.MethodGet {
-				return 200, map[string]any{"permission": "admin", "role_name": "admin", "user": map[string]any{"login": s.config.OwnerLogin, "permissions": map[string]bool{"admin": true, "push": true, "pull": true}}}
+			if len(path) == 6 && path[3] == "collaborators" && path[5] == "permission" && r.Method == http.MethodGet {
+				if permission, ok := s.permission(path[4]); ok {
+					return 200, collaborator(path[4], permission)
+				}
 			}
 			return s.pullRequest(r, fullName, path[3:], body)
 		}
@@ -374,6 +553,37 @@ func (s *Server) app() map[string]any {
 
 func permissions() map[string]string {
 	return map[string]string{"contents": "write", "workflows": "write", "pull_requests": "write", "issues": "write", "checks": "read", "statuses": "read", "administration": "read", "metadata": "read", "members": "read"}
+}
+
+// login is the GitHub account id's login: the owner is 7.
+func (s *Server) login(id int64) string {
+	if login, ok := s.accounts[id]; ok {
+		return login
+	}
+	if id == 7 {
+		return s.config.OwnerLogin
+	}
+	return ""
+}
+
+// permission is login's repository permission: the owner is admin unless
+// SetCollaborator says otherwise.
+func (s *Server) permission(login string) (string, bool) {
+	if permission, ok := s.access[login]; ok {
+		return permission, true
+	}
+	return "admin", login == s.config.OwnerLogin
+}
+
+// collaborator is GitHub's collaborator permission answer: permission is the
+// legacy word (admin, write, read, none) and role_name the role itself.
+func collaborator(login, role string) map[string]any {
+	permission := map[string]string{"maintain": "write", "triage": "read"}[role]
+	if permission == "" {
+		permission = role
+	}
+	return map[string]any{"permission": permission, "role_name": role, "user": map[string]any{"login": login,
+		"permissions": map[string]bool{"admin": role == "admin", "maintain": role == "admin" || role == "maintain", "push": permission == "admin" || permission == "write", "pull": permission != "none"}}}
 }
 
 func (s *Server) installation(id int64) (Installation, bool) {
@@ -443,6 +653,11 @@ type Pull struct {
 	MergedAt       *time.Time `json:"merged_at"`
 	MergeCommitSHA string     `json:"merge_commit_sha"`
 	HTMLURL        string     `json:"html_url"`
+	// Mergeable and MergeableState are GitHub's computed mergeability. An
+	// empty MergeableState answers what GitHub computes for the PR as it is;
+	// UpdatePull sets one to answer it instead (unknown, dirty, blocked).
+	Mergeable      *bool  `json:"mergeable"`
+	MergeableState string `json:"mergeable_state"`
 	Head           struct {
 		Ref  string `json:"ref"`
 		SHA  string `json:"sha"`
@@ -460,15 +675,58 @@ type Label struct {
 	Name string `json:"name"`
 }
 
+// view is the PR as GitHub answers it, with its computed mergeability.
+func (p Pull) view() Pull {
+	if p.MergeableState != "" {
+		return p
+	}
+	switch mergeable := true; {
+	case p.State != "open":
+		p.MergeableState = "unknown"
+	case p.Draft:
+		p.Mergeable, p.MergeableState = &mergeable, "draft"
+	default:
+		p.Mergeable, p.MergeableState = &mergeable, "clean"
+	}
+	return p
+}
+
 func (s *Server) pullRequest(r *http.Request, repo string, path []string, body []byte) (int, any) {
 	if r.Method == http.MethodGet && strings.Join(path, "/") == "branches/main/protection" {
-		return 200, map[string]any{"required_status_checks": map[string]any{"contexts": []string{}, "checks": []any{}}}
+		protection := map[string]any{"required_status_checks": map[string]any{"contexts": append([]string{}, s.required...), "checks": []any{}}}
+		if s.reviewRule > 0 {
+			protection["required_pull_request_reviews"] = map[string]any{"required_approving_review_count": s.reviewRule}
+		}
+		return 200, protection
 	}
 	if r.Method == http.MethodGet && strings.Join(path, "/") == "rules/branches/main" {
 		return 200, []any{}
 	}
 	if len(path) == 3 && path[0] == "issues" && r.Method == http.MethodPost && (path[2] == "labels" || path[2] == "comments") {
 		return s.issueWrite(repo, path[1], path[2], body)
+	}
+	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "commits" && path[2] == "check-runs" {
+		runs := append([]CheckRun{}, s.checks[repo+"@"+path[1]]...)
+		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page > 1 {
+			runs = []CheckRun{}
+		}
+		return 200, map[string]any{"total_count": len(runs), "check_runs": runs}
+	}
+	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "commits" && path[2] == "statuses" {
+		return 200, []any{}
+	}
+	if r.Method == http.MethodGet && len(path) == 2 && path[0] == "compare" {
+		// main contains a commit it is not behind; a held merge is ahead of it.
+		base, head, ok := strings.Cut(path[1], "...")
+		switch {
+		case !ok || base != "main":
+			return failure(404, "Not Found")
+		case s.main[head]:
+			return 200, map[string]any{"status": "behind", "ahead_by": 0, "behind_by": 1}
+		case slices.Contains(s.held, head):
+			return 200, map[string]any{"status": "ahead", "ahead_by": 1, "behind_by": 0}
+		}
+		return failure(404, "No common ancestor between main and "+head)
 	}
 	if len(path) == 0 || path[0] != "pulls" {
 		return failure(404, "endpoint not found")
@@ -513,14 +771,14 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		p.Base.Ref = input.Base
 		key := repo + "/" + strconv.FormatInt(number, 10)
 		s.pulls[key] = p
-		return 201, s.current(key)
+		return 201, s.view(s.current(key))
 	}
 	if len(path) == 1 && r.Method == http.MethodGet {
 		result := []Pull{}
 		head := strings.TrimPrefix(r.URL.Query().Get("head"), strings.Split(repo, "/")[0]+":")
 		for key, p := range s.pulls {
 			if p.Repository == repo && (head == "" || head == p.Head.Ref) {
-				result = append(result, s.current(key))
+				result = append(result, s.view(s.current(key)))
 			}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
@@ -547,11 +805,18 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			if json.Unmarshal(body, &input) != nil || input.Method != "squash" {
 				return failure(422, "squash merge required")
 			}
+			if refusal, ok := s.refusals[key]; ok {
+				delete(s.refusals, key)
+				return failure(refusal.Status, refusal.Message)
+			}
 			if input.SHA != p.Head.SHA {
 				return failure(409, "Head branch was modified")
 			}
 			if p.Draft || (p.State != "open" && !p.Merged) {
 				return failure(405, "Pull request is not mergeable")
+			}
+			if decision := s.reviewDecision(p); !p.Merged && decision != nil && decision != "APPROVED" {
+				return failure(405, s.reviewRefusal())
 			}
 			if !p.Merged {
 				now := time.Now().UTC()
@@ -561,6 +826,11 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				digest := sha256.Sum256([]byte("squash/" + key + "/" + p.Head.SHA))
 				p.MergeCommitSHA = fmt.Sprintf("%x", digest)[:40]
 				s.pulls[key] = p
+				if s.holdMain {
+					s.held = append(s.held, p.MergeCommitSHA)
+				} else {
+					s.main[p.MergeCommitSHA] = true
+				}
 			}
 			return 200, map[string]any{"merged": true, "sha": p.MergeCommitSHA, "message": "Pull Request successfully merged"}
 		}
@@ -572,7 +842,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		}
 		p := s.current(key)
 		if r.Method == http.MethodGet {
-			return 200, p
+			return 200, s.view(p)
 		}
 		if r.Method == http.MethodPatch {
 			var input struct {
@@ -596,7 +866,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				p.State = *input.State
 			}
 			s.pulls[key] = p
-			return 200, p
+			return 200, s.view(p)
 		}
 	}
 	return failure(404, "endpoint not found")
@@ -679,6 +949,33 @@ func (s *Server) current(key string) Pull {
 		}
 	}
 	return p
+}
+
+// pullReviewDecision answers GraphQL's repository.pullRequest.reviewDecision
+// for a PR the installation can read.
+func (s *Server) pullReviewDecision(installationID int64, body []byte) (int, any) {
+	var input struct {
+		Variables struct {
+			Owner, Name string
+			Number      int64
+		}
+	}
+	if json.Unmarshal(body, &input) != nil {
+		return failure(400, "invalid GraphQL request")
+	}
+	repo := input.Variables.Owner + "/" + input.Variables.Name
+	installation, _ := s.installation(installationID)
+	for _, allowed := range installation.Repositories {
+		if allowed.FullName != repo {
+			continue
+		}
+		p, ok := s.pulls[repo+"/"+strconv.FormatInt(input.Variables.Number, 10)]
+		if !ok {
+			break
+		}
+		return 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"reviewDecision": s.reviewDecision(p)}}}}
+	}
+	return 200, map[string]any{"data": map[string]any{"repository": nil}, "errors": []map[string]string{{"message": fmt.Sprintf("Could not resolve to a PullRequest with the number of %d.", input.Variables.Number)}}}
 }
 
 func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -613,4 +614,280 @@ func TestIssueLabelsAndCommentsNeedAnIssueAndFailedWritesApplyNothing(t *testing
 		"/repos/acme/app/issues/9/comments 404",
 		"/repos/acme/app/issues/1/comments 422",
 	}, receipts)
+}
+
+// The merge facts the stack reads: computed mergeability, main's
+// containment of a merge (held until released), a refusal GitHub states
+// once, protection's required checks and the check runs on a commit.
+func TestMergeFactsContainmentRefusalAndChecks(t *testing.T) {
+	server, cfg, key := fixture(t)
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	get := func(path string, out any) int {
+		t.Helper()
+		status, body := request(t, server, "GET", path, access.Token, nil)
+		if out != nil && status == 200 {
+			require.NoError(t, json.Unmarshal(body, out))
+		}
+		return status
+	}
+	open := func(head string) Pull {
+		t.Helper()
+		status, body := request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"T","head":"`+head+`","base":"main"}`))
+		require.Equal(t, 201, status)
+		var pull Pull
+		require.NoError(t, json.Unmarshal(body, &pull))
+		return pull
+	}
+	merge := func(pull Pull) (int, string) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"sha": pull.Head.SHA, "merge_method": "squash"})
+		status, raw := request(t, server, "PUT", fmt.Sprintf("/repos/acme/app/pulls/%d/merge", pull.Number), access.Token, body)
+		var answer struct{ Message string }
+		require.NoError(t, json.Unmarshal(raw, &answer))
+		return status, answer.Message
+	}
+	var account map[string]any
+	require.Equal(t, 200, get("/user/7", &account))
+	require.Equal(t, "User", account["type"])
+
+	first := open("smithers/first")
+	require.Equal(t, "clean", first.MergeableState)
+	require.NotNil(t, first.Mergeable)
+	require.True(t, *first.Mergeable)
+	server.UpdatePull("acme/app", first.Number, func(p *Pull) { p.Draft = true })
+	var read Pull
+	require.Equal(t, 200, get("/repos/acme/app/pulls/1", &read))
+	require.Equal(t, "draft", read.MergeableState)
+	server.UpdatePull("acme/app", first.Number, func(p *Pull) { p.Draft, p.MergeableState = false, "dirty" })
+	require.Equal(t, 200, get("/repos/acme/app/pulls/1", &read))
+	require.Equal(t, "dirty", read.MergeableState)
+	server.UpdatePull("acme/app", first.Number, func(p *Pull) { p.MergeableState = "" })
+
+	server.RefuseNextMerge("acme/app", first.Number, Refusal{Status: 405, Message: "At least 1 approving review is required"})
+	status, message := merge(first)
+	require.Equal(t, 405, status)
+	require.Equal(t, "At least 1 approving review is required", message)
+	require.Equal(t, 200, get("/repos/acme/app/pulls/1", &read))
+	require.False(t, read.Merged, "a refused merge changes nothing")
+	require.Equal(t, 404, get("/repos/acme/app/compare/main..."+strings.Repeat("0", 40), nil))
+	status, _ = merge(first)
+	require.Equal(t, 200, status, "the refusal is said once")
+	require.Equal(t, 200, get("/repos/acme/app/pulls/1", &read))
+	require.Equal(t, "unknown", read.MergeableState)
+	var compare struct {
+		Status  string `json:"status"`
+		AheadBy int    `json:"ahead_by"`
+	}
+	require.Equal(t, 200, get("/repos/acme/app/compare/main..."+read.MergeCommitSHA, &compare))
+	require.Equal(t, 0, compare.AheadBy)
+
+	server.HoldMain()
+	second := open("smithers/second")
+	status, _ = merge(second)
+	require.Equal(t, 200, status)
+	require.Equal(t, 200, get("/repos/acme/app/pulls/2", &read))
+	require.True(t, read.Merged)
+	require.Equal(t, 200, get("/repos/acme/app/compare/main..."+read.MergeCommitSHA, &compare))
+	require.Equal(t, 1, compare.AheadBy, "GitHub reports the merge before main contains it")
+	server.ReleaseMain()
+	require.Equal(t, 200, get("/repos/acme/app/compare/main..."+read.MergeCommitSHA, &compare))
+	require.Equal(t, 0, compare.AheadBy)
+	require.Equal(t, 404, get("/repos/acme/app/compare/other..."+read.MergeCommitSHA, nil))
+
+	server.RequireCheck("unit")
+	server.SetCheck("acme/app", first.Head.SHA, "unit", "in_progress", "")
+	server.SetCheck("acme/app", first.Head.SHA, "unit", "completed", "failure")
+	server.SetCheck("acme/app", first.Head.SHA, "lint", "completed", "success")
+	var protection struct {
+		Required struct {
+			Contexts []string `json:"contexts"`
+		} `json:"required_status_checks"`
+	}
+	require.Equal(t, 200, get("/repos/acme/app/branches/main/protection", &protection))
+	require.Equal(t, []string{"unit"}, protection.Required.Contexts)
+	var runs struct {
+		Total int        `json:"total_count"`
+		Runs  []CheckRun `json:"check_runs"`
+	}
+	require.Equal(t, 200, get("/repos/acme/app/commits/"+first.Head.SHA+"/check-runs?filter=latest&per_page=100&page=1", &runs))
+	require.Equal(t, 2, runs.Total, "the latest run of each check")
+	require.Equal(t, "unit", runs.Runs[0].Name)
+	require.Equal(t, "completed", runs.Runs[0].Status)
+	require.Equal(t, "failure", *runs.Runs[0].Conclusion)
+	require.Equal(t, 200, get("/repos/acme/app/commits/"+first.Head.SHA+"/check-runs?filter=latest&per_page=100&page=2", &runs))
+	require.Empty(t, runs.Runs)
+	var statuses []any
+	require.Equal(t, 200, get("/repos/acme/app/commits/"+first.Head.SHA+"/statuses?per_page=100&page=1", &statuses))
+	require.Empty(t, statuses)
+	require.Equal(t, 200, get("/repos/acme/app/commits/"+second.Head.SHA+"/check-runs", &runs))
+	require.Empty(t, runs.Runs)
+}
+
+// The authority facts the merge reads: a GitHub account by id and its
+// repository permission, which SetCollaborator adds, demotes or promotes.
+func TestCollaboratorAccountsAndPermissions(t *testing.T) {
+	server, cfg, key := fixture(t)
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	permission := func(login string) (int, string, string) {
+		t.Helper()
+		status, body := request(t, server, "GET", "/repos/acme/app/collaborators/"+login+"/permission", access.Token, nil)
+		var answer struct {
+			Permission string `json:"permission"`
+			Role       string `json:"role_name"`
+		}
+		if status == 200 {
+			require.NoError(t, json.Unmarshal(body, &answer))
+		}
+		return status, answer.Permission, answer.Role
+	}
+	account := func(id int64) (int, string) {
+		t.Helper()
+		status, body := request(t, server, "GET", "/user/"+strconv.FormatInt(id, 10), access.Token, nil)
+		var answer struct {
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
+		}
+		if status == 200 {
+			require.NoError(t, json.Unmarshal(body, &answer))
+			require.Equal(t, id, answer.ID)
+		}
+		return status, answer.Login
+	}
+
+	status, login, role := permission("acme")
+	require.Equal(t, []any{200, "admin", "admin"}, []any{status, login, role}, "the owner is admin by default")
+	status, _, _ = permission("bea")
+	require.Equal(t, 404, status, "a login GitHub does not know")
+	status, login = account(7)
+	require.Equal(t, []any{200, "acme"}, []any{status, login})
+	status, _ = account(8)
+	require.Equal(t, 404, status)
+
+	server.SetCollaborator(8, "bea", "maintain")
+	status, login, role = permission("bea")
+	require.Equal(t, []any{200, "write", "maintain"}, []any{status, login, role})
+	status, login = account(8)
+	require.Equal(t, []any{200, "bea"}, []any{status, login})
+
+	server.SetCollaborator(7, "acme", "read")
+	status, login, role = permission("acme")
+	require.Equal(t, []any{200, "read", "read"}, []any{status, login, role}, "the owner demoted")
+	server.SetCollaborator(7, "acme", "none")
+	_, login, _ = permission("acme")
+	require.Equal(t, "none", login)
+
+	other, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(other.Close)
+	require.Equal(t, "admin", func() string { p, _ := other.permission("acme"); return p }(), "configuration is per server")
+}
+
+// Main's review rule as GitHub computes it: GraphQL's reviewDecision, the
+// PR's mergeable_state and a merge's refusal agree, and each reviewer's
+// latest review counts.
+func TestRequiredReviewsDecideMergeability(t *testing.T) {
+	server, cfg, key := fixture(t)
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"T","head":"smithers/t","base":"main"}`))
+	require.Equal(t, 201, status)
+	var pull Pull
+	require.NoError(t, json.Unmarshal(body, &pull))
+	decision := func(repo string, number int64) (any, string) {
+		t.Helper()
+		owner, name, _ := strings.Cut(repo, "/")
+		query, _ := json.Marshal(map[string]any{"query": "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewDecision } } }",
+			"variables": map[string]any{"owner": owner, "name": name, "number": number}})
+		status, raw := request(t, server, "POST", "/graphql", access.Token, query)
+		require.Equal(t, 200, status)
+		var answer struct {
+			Data struct {
+				Repository *struct {
+					PullRequest struct {
+						ReviewDecision any `json:"reviewDecision"`
+					} `json:"pullRequest"`
+				} `json:"repository"`
+			} `json:"data"`
+			Errors []struct{ Message string } `json:"errors"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &answer))
+		if len(answer.Errors) > 0 {
+			return nil, answer.Errors[0].Message
+		}
+		return answer.Data.Repository.PullRequest.ReviewDecision, ""
+	}
+	state := func() string {
+		t.Helper()
+		var read Pull
+		status, raw := request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
+		require.Equal(t, 200, status)
+		require.NoError(t, json.Unmarshal(raw, &read))
+		return read.MergeableState
+	}
+	merge := func() (int, string) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"sha": pull.Head.SHA, "merge_method": "squash"})
+		status, raw := request(t, server, "PUT", "/repos/acme/app/pulls/1/merge", access.Token, body)
+		var answer struct{ Message string }
+		require.NoError(t, json.Unmarshal(raw, &answer))
+		return status, answer.Message
+	}
+	var protection map[string]any
+
+	got, refused := decision("acme/app", 1)
+	require.Equal(t, []any{nil, ""}, []any{got, refused}, "no review rule: GitHub answers null")
+	require.Equal(t, "clean", state())
+	_, raw := request(t, server, "GET", "/repos/acme/app/branches/main/protection", access.Token, nil)
+	require.NoError(t, json.Unmarshal(raw, &protection))
+	require.NotContains(t, protection, "required_pull_request_reviews")
+
+	server.RequireReviews(2)
+	_, raw = request(t, server, "GET", "/repos/acme/app/branches/main/protection", access.Token, nil)
+	require.NoError(t, json.Unmarshal(raw, &protection))
+	require.Equal(t, map[string]any{"required_approving_review_count": float64(2)}, protection["required_pull_request_reviews"])
+	got, _ = decision("acme/app", 1)
+	require.Equal(t, "REVIEW_REQUIRED", got)
+	require.Equal(t, "blocked", state())
+	status, message := merge()
+	require.Equal(t, []any{405, "At least 2 approving reviews are required by reviewers with write access."}, []any{status, message})
+
+	server.Review("acme/app", 1, "bea", "APPROVED")
+	got, _ = decision("acme/app", 1)
+	require.Equal(t, "REVIEW_REQUIRED", got, "one of two approvals")
+	server.Review("acme/app", 1, "cy", "CHANGES_REQUESTED")
+	got, _ = decision("acme/app", 1)
+	require.Equal(t, "CHANGES_REQUESTED", got)
+	require.Equal(t, "blocked", state())
+	server.Review("acme/app", 1, "cy", "APPROVED")
+	got, _ = decision("acme/app", 1)
+	require.Equal(t, "APPROVED", got, "a reviewer's latest review counts")
+	require.Equal(t, "clean", state())
+
+	server.UpdatePull("acme/app", 1, func(p *Pull) { p.Draft = true })
+	server.Review("acme/app", 1, "cy", "DISMISSED")
+	require.Equal(t, "draft", state(), "a draft is draft before blocked")
+	server.UpdatePull("acme/app", 1, func(p *Pull) { p.Draft = false })
+	require.Equal(t, "blocked", state())
+	server.RequireReviews(1)
+	status, message = merge()
+	require.Equal(t, 200, status, message)
+
+	_, refused = decision("acme/app", 9)
+	require.Equal(t, "Could not resolve to a PullRequest with the number of 9.", refused)
+	_, refused = decision("acme/other", 1)
+	require.Equal(t, "Could not resolve to a PullRequest with the number of 1.", refused, "outside the installation")
 }
