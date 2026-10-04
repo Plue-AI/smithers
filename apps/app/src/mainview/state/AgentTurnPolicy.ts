@@ -5,6 +5,7 @@
  * compaction-slice API was removed; requests drop older messages with a notice
  * instead of using a stored compaction summary.
  */
+import { utf8Bytes } from "@smthrs/rpc/AgentToolResult"
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
 /**
@@ -12,57 +13,7 @@ import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
  * 1 MiB), less framing headroom.
  */
 export const MAX_TURN_REQUEST_BYTES = 1024 * 1024 - 4 * 1024
-/** A single tool result must not consume most of the next request. */
-export const MAX_TOOL_RESULT_BYTES = 16 * 1024
-export const MAX_TOOL_RESULT_LINES = 1_000
-
-const encoder = new TextEncoder()
-
-export const utf8Bytes = (text: string): number => encoder.encode(text).byteLength
-
 export const turnRequestBytes = (request: StartAgentTurnRequest): number => utf8Bytes(JSON.stringify(request))
-
-const byteSafePrefix = (text: string, maxBytes: number): string => {
-  if (maxBytes <= 0) return ""
-  const bytes = encoder.encode(text)
-  if (bytes.byteLength <= maxBytes) return text
-  return new TextDecoder().decode(bytes.slice(0, maxBytes))
-}
-
-export interface BoundedToolResult {
-  readonly modelOutput: string
-  readonly truncated: boolean
-  readonly totalBytes: number
-  readonly totalLines: number
-}
-
-/**
- * Bound opaque tool output by both lines and UTF-8 bytes. Keep the head because
- * command results put their status/discriminator first, and append an explicit
- * marker so the model can never mistake partial evidence for the full result.
- */
-export const boundToolResult = (
-  result: string,
-  maxBytes = MAX_TOOL_RESULT_BYTES,
-  maxLines = MAX_TOOL_RESULT_LINES
-): BoundedToolResult => {
-  const totalBytes = utf8Bytes(result)
-  const lines = result.split("\n")
-  const totalLines = lines.length
-  if (totalBytes <= maxBytes && totalLines <= maxLines) {
-    return { modelOutput: result, truncated: false, totalBytes, totalLines }
-  }
-  const marker = `\n\n[Tool result truncated: ${totalBytes} bytes, ${totalLines} lines total.]`
-  const contentBudget = Math.max(0, maxBytes - utf8Bytes(marker))
-  const lineLimited = lines.slice(0, maxLines).join("\n")
-  const prefix = byteSafePrefix(lineLimited, contentBudget).replace(/\uFFFD$/u, "")
-  return {
-    modelOutput: `${prefix}${marker}`,
-    truncated: true,
-    totalBytes,
-    totalLines
-  }
-}
 
 /**
  * The line that stands where dropped history was.

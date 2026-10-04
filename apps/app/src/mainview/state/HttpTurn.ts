@@ -7,7 +7,7 @@ import type { AgentChatMessage, AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AppTransition, Card } from "./AppState"
 import { CardPatchSchema, CardSchema } from "./AppState"
 import { isRuntimeOwnedCard } from "./isRuntimeOwnedCard"
-import { boundToolResult } from "./AgentTurnPolicy"
+import { boundToolResult } from "@smthrs/rpc/AgentToolResult"
 import { renderedAskTurnText, renderedRunTurnText, RUN_LAUNCH_COMMANDS } from "./RunClaims"
 
 export const HTTP_MAX_TOOL_LEGS = 8

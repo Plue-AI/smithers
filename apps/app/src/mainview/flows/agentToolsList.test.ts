@@ -13,7 +13,7 @@ import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabiliti
 import { agentVisibleCatalog, executeAgentToolCall } from "./agentTools"
 import type { AgentToolCall } from "./agentTools"
 import type { CommandState } from "./registry"
-import { boundToolResult, MAX_TOOL_RESULT_BYTES, utf8Bytes } from "../state/AgentTurnPolicy"
+import { boundToolResult, MAX_TOOL_RESULT_BYTES, utf8Bytes } from "@smthrs/rpc/AgentToolResult"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"

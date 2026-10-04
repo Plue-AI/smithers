@@ -58,7 +58,8 @@ import type {
   WorkspaceRecovery
 } from "../AppState"
 import { canonicalStoredJsonValue } from "../EventValue"
-import { CARD_CONTENT_CAP, fileValue, listingValue } from "./FilesSeam"
+import { CARD_CONTENT_CAP, fileValue } from "@smthrs/rpc/FileRead"
+import { listingValue } from "./FilesSeam"
 import { resolveTargetRepo } from "../RepoContext"
 import { loadEgressPage, workspaceEgressPath } from "./EgressSeam"
 import { workspaceCardFacts } from "../WorkspaceViews"

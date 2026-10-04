@@ -1,4 +1,5 @@
-import { CARD_CONTENT_CAP,encodeRepoPath,unsafePath } from "./FilesSeam"
+import { CARD_CONTENT_CAP } from "@smthrs/rpc/FileRead"
+import { encodeRepoPath,unsafePath } from "./FilesSeam"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage,readResult } from "./SeamContext"
 

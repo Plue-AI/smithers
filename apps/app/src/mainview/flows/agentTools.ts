@@ -11,7 +11,7 @@
  */
 import type { AgentToolSpec } from "@smthrs/rpc/NativeAgent"
 import { agentFaultNote } from "@smthrs/rpc/RefusalCopy"
-import { MAX_TOOL_RESULT_BYTES, utf8Bytes } from "../state/AgentTurnPolicy"
+import { MAX_TOOL_RESULT_BYTES, utf8Bytes } from "@smthrs/rpc/AgentToolResult"
 import { selectFailureToolResult } from "../state/CommandSelection"
 import { canonicalCommandName } from "@smthrs/ui/command-line"
 import type { CommandRegistry } from "./Commands"

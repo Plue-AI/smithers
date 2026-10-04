@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { AgentChatMessage, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import { utf8Bytes } from "@smthrs/rpc/AgentToolResult"
 import {
-  boundToolResult,
   boundTurnRequest,
   droppedHistoryNotice,
   MAX_TURN_REQUEST_BYTES,
-  turnRequestBytes,
-  utf8Bytes
+  turnRequestBytes
 } from "./AgentTurnPolicy"
 
 /** `AgentChatMessage` is a union: a chat turn, or a tool call/result item. */
@@ -18,37 +17,6 @@ describe("agent turn production policy", () => {
     const request = { runId: "r", messages: [{ role: "user" as const, content: "🙂" }], instructions: "" }
     expect(turnRequestBytes(request)).toBe(utf8Bytes(JSON.stringify(request)))
     expect(utf8Bytes("🙂")).toBe(4)
-  })
-
-  test("tool outputs pass through losslessly under both limits", () => {
-    expect(boundToolResult("ok\nvalue", 100, 10)).toEqual({
-      modelOutput: "ok\nvalue",
-      truncated: false,
-      totalBytes: 8,
-      totalLines: 2
-    })
-  })
-
-  test("tool outputs truncate by line count with an explicit evidence marker", () => {
-    const bounded = boundToolResult("one\ntwo\nthree", 200, 2)
-    expect(bounded.truncated).toBe(true)
-    expect(bounded.modelOutput).toStartWith("one\ntwo")
-    expect(bounded.modelOutput).not.toContain("three")
-    expect(bounded.modelOutput).toContain("13 bytes, 3 lines total")
-  })
-
-  test("tool outputs truncate on UTF-8 byte boundaries without replacement characters", () => {
-    const bounded = boundToolResult("🙂".repeat(100), 100, 1_000)
-    expect(bounded.truncated).toBe(true)
-    expect(utf8Bytes(bounded.modelOutput)).toBeLessThanOrEqual(100)
-    expect(bounded.modelOutput).not.toContain("�")
-    expect(bounded.modelOutput).toContain("400 bytes")
-  })
-
-  test("zero and marker-only budgets remain deterministic", () => {
-    const bounded = boundToolResult("large", 0, 0)
-    expect(bounded.truncated).toBe(true)
-    expect(bounded.modelOutput).toContain("Tool result truncated")
   })
 })
 
