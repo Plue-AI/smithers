@@ -121,57 +121,84 @@ pull requests.
 
 `POST /api/todos/{n}/merge` (install) and
 `POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge` take
-`{reviewed_head_sha}` and share one service path. A TODO filed through
-`POST /api/todos` merges like an issue TODO.
+`{reviewed_head_sha}` and an `Idempotency-Key`, and share one service path in
+one order. A TODO filed through `POST /api/todos` merges like an issue TODO.
 
 1. Credential, before any read: no credential is `401 unauthenticated`; a
    token, a run's or machine's credential and an agent account are
    `403 permission`. Only a person's browser session continues.
-2. A malformed SHA is `400 invalid_reviewed_head_sha`; hexadecimal is
-   lowercased.
-3. One authority rule, applied here and again at dispatch: the browser
-   session is live under its stored key (`401 unauthenticated` otherwise,
-   including a session filed before keys were hashed at rest), its person is
-   the install owner, and their GitHub account is one the policy names and
-   GitHub counts a maintainer (`403 permission`). A press dispatch would
-   refuse is never accepted.
-4. `MergeReady`'s PostgreSQL rows refuse with `409`: `state` (not a TODO in
+2. The person's standing, before the request's fields or the TODO are read:
+   the session is live under its stored key (`401 unauthenticated`
+   otherwise, including a session filed before keys were hashed at rest and a
+   suspended, inactive or deleted person) and its person is the install owner
+   (`403 permission`).
+3. A malformed SHA is `400 invalid_reviewed_head_sha` (hexadecimal is
+   lowercased); a missing key is `400 idempotency_key_required`. Then the TODO,
+   or `404 todo_not_found`.
+4. The whole authority rule, applied here and again at dispatch: the standing
+   above, their GitHub account one the policy names and GitHub counts a
+   maintainer, read from GitHub now and never remembered (`403 permission`),
+   then the standing again. A press dispatch would refuse is never accepted.
+5. The same key from the same session for the same TODO and head answers its
+   receipt, `202`, whatever became of its approval, and records nothing. The
+   key used for another head, another TODO or a filed TODO is
+   `409 idempotency_mismatch`. A renewed approval needs a new key. The
+   identities are kept on the TODO (`checks.mergeRequests`), the one record
+   `POST /api/todos` uses too.
+6. `MergeReady`'s PostgreSQL rows refuse with `409`: `state` (not a TODO in
    review, PR closed, open wait, paused, foreign push), `order` (`Merges after
    Tn`), `merging` (a merge fence is set), `rechecking` (another GitHub write
    such as the PR push is pending, or no accepted head) and `stale_head` with
    `current_head_sha`, which never replaces the reviewed head.
-5. Missing outbound guards or merge providers refuse `409 rechecking` before
-   any approval is recorded.
-6. One transaction locks the stack row, rechecks the rows and records
-   `checks.Land {by, account, generation, session, head}` with the merge fence:
-   `pending_op {kind: merge, target: <PR>, desired: <head>, precondition: open,
-   state: intended}`. The answer is `202 {state: accepted}`. The same session
-   pressing the same head again gets the same answer and no second fence.
+7. GitHub's pull request, read now: unreadable is `409 rechecking` ("Waiting
+   for fresh GitHub merge facts"); closed, or based on anything but `main`,
+   is `409 state`; a head GitHub moved is `409 stale_head` with GitHub's head.
+8. One transaction takes the repository's request lock and the stack row,
+   decides the repeat and the rows again, requires every outbound guard and
+   the merge decision and transport (`409 rechecking` without them), and
+   records `checks.Land {by, account, generation, session, head, at}` with the
+   merge fence: `pending_op {kind: merge, target: <PR>, desired: <head>,
+   precondition: open, state: intended}`. The answer is
+   `202 {state: accepted}`.
 
 The claimed stack worker settles the fence through the outbound providers.
 `MergeDecision` rechecks the approval (a new generation voids it), the
-approver under the press's authority rule, the PostgreSQL rows, then GitHub's
-live head, required checks (first failing by name), required reviews
-(GitHub's `reviewDecision`; unmet is `409 review_required`), draft state and
+PostgreSQL rows, then GitHub's live pull request (open, based on `main`, at
+the reviewed head), required checks (first failing by name; a `main` without
+classic protection, GitHub's `404 Branch not protected`, has none, and an
+unreadable protection is never taken for none), required reviews (GitHub's
+`reviewDecision`; unmet is `409 review_required`), draft state and
 mergeability. While GitHub is still computing mergeability it reads the PR
-once more after 2 s and evaluates every live row again. The App's send
-sends the one squash merge with `sha` = the reviewed head. Its lookup settles
-a lost answer without a second send. Its settlement lands the TODO only when
-GitHub reports the merge and `main` contains the merge commit; until then the
-fence stays.
+once more after 2 s and evaluates every live row again. Then, after those
+reads and immediately before the merge is claimed, it applies the authority
+rule again, so a demotion on GitHub or a sign-out while GitHub was read sends
+nothing. The App's send sends the one squash merge with `sha` = the reviewed
+head, a token holding only `contents:write`, and a commit title and message
+rendered from the TODO Smithers holds (`<title> (#<PR>)`, `TODO T<n>,
+reviewed at <head>.`), never the pull request's title or body as edited on
+GitHub. Its lookup settles a lost answer without a second send. Its
+settlement lands the TODO only when GitHub reports the merge and `main`
+contains the merge commit; until then the fence stays.
 
-A definitive refusal, from the recheck or GitHub's `405`, `409` or `422`,
-clears the fence and stays on `checks.Land.refused` with GitHub's text
-verbatim. The card's merge block shows it, and nothing retries it until the
-person presses Merge again. The TODO card's `merge` is `done`, `merging`,
-`blocked` with a refusal, `waiting` with the first failing row, or `ready`.
-A refusal of the approving person (session ended, no longer a maintainer)
-blocks no one else's press: the block stays `ready` with that refusal as its
-`detail`.
+A definitive refusal clears the fence and stays on `checks.Land.refused`: a
+recheck's, or GitHub refusing the merge (`401`, `403`, `404`, `405`, `409`,
+`422`, its text verbatim) once GitHub reports the PR not merged. A guard or
+GitHub failure that settles nothing clears the fence at once when the
+approver's standing is gone; otherwise it waits for the next pass, and a merge
+GitHub has not received is never sent once 10 minutes have passed since its
+approval: the fence clears with "The merge did not complete within 10
+minutes; press Merge again". The card's merge block shows each refusal, and
+nothing retries it until the person presses Merge again. The TODO card's
+`merge` is `done`, `merging`, `blocked` with a refusal, `waiting` with the
+first failing row, or `ready`. A refusal of the approving person (session
+ended, no longer a maintainer) blocks no one else's press: the block stays
+`ready` with that refusal as its `detail`.
 
-Known gap: until T-GH-03 syncs GitHub's check and review facts, `ready` rests
+Known gaps: until T-GH-03 syncs GitHub's check and review facts, `ready` rests
 on the PostgreSQL rows; a red required check or an unmet review shows only
-after dispatch refuses it.
+after dispatch refuses it. GitHub's merge endpoint takes no base: a pull
+request retargeted between the last read and the merge request merges into
+its new base, and its TODO is never Merged because `main` never contains it.
 
 The install composition (`EnableTodoPublication`) installs the outbound
 guards, `MergeDecision` and the merge kind of the App's lookup, send and

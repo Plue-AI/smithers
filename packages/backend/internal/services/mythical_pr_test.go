@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"net/http"
 	"os"
@@ -104,16 +105,33 @@ func TestTODOPrAdapterDraftBodyAndRefusal(t *testing.T) {
 	before := len(gh.calls)
 	require.Error(t, api.ConvertToDraft(ctx, stackRepo, ""))
 	require.Len(t, gh.calls, before)
-	for _, status := range []int{405, 409, 422} {
+	commit := mythicalMergeCommitText{Title: "Wave (#7)", Message: "TODO T3, reviewed at head."}
+	for _, status := range []int{401, 403, 404, 405, 409, 422} {
 		gh.mu.Lock()
 		gh.routes["PUT /repos/o/r/pulls/7/merge"] = answer(status, map[string]any{"message": "1 approving review required on GitHub", "errors": []map[string]string{{"message": "protected branch"}, {"message": "head changed"}}})
 		gh.mu.Unlock()
-		_, err = api.Merge(ctx, stackRepo, 7, "head")
+		_, err = api.Merge(ctx, stackRepo, 7, "head", commit)
 		var refusal *GitHubRefusal
-		require.ErrorAs(t, err, &refusal)
+		require.ErrorAs(t, err, &refusal, "HTTP %d is GitHub refusing the merge", status)
 		require.Equal(t, status, refusal.Status)
 		raw, _ := json.Marshal(refusal)
 		require.JSONEq(t, `{"code":"github_refused","class":"github","message":"1 approving review required on GitHub","errors":[{"message":"protected branch"},{"message":"head changed"}]}`, string(raw))
+		require.Contains(t, gh.calls[len(gh.calls)-1], `{"commit_message":"TODO T3, reviewed at head.","commit_title":"Wave (#7)","merge_method":"squash","sha":"head"}`)
+	}
+	gh.mu.Lock()
+	gh.routes["PUT /repos/o/r/pulls/7/merge"] = answer(403, map[string]any{})
+	gh.mu.Unlock()
+	_, err = api.Merge(ctx, stackRepo, 7, "head", commit)
+	var bare *GitHubRefusal
+	require.ErrorAs(t, err, &bare)
+	require.Equal(t, "GitHub refused the merge (HTTP 403)", bare.Message, "a refusal without words still says what happened")
+	for _, status := range []int{500, 502} {
+		gh.mu.Lock()
+		gh.routes["PUT /repos/o/r/pulls/7/merge"] = answer(status, map[string]any{"message": "Server Error"})
+		gh.mu.Unlock()
+		_, err = api.Merge(ctx, stackRepo, 7, "head", commit)
+		require.Error(t, err)
+		require.False(t, errors.As(err, &bare), "HTTP %d leaves the merge unknown", status)
 	}
 }
 
@@ -132,11 +150,24 @@ func TestTODOPrNamedChecksUseProtectionAndRules(t *testing.T) {
 	verdict, err := api.HeadChecks(context.Background(), stackRepo, "abc")
 	require.NoError(t, err)
 	require.Equal(t, mythicalCIPending, verdict)
+	// No classic protection is GitHub's 404 "Branch not protected": rulesets
+	// still decide. Any other refusal leaves protection unknown.
 	gh.mu.Lock()
-	gh.routes["GET /repos/o/r/branches/main/protection"] = answer(403, map[string]any{})
+	gh.routes["GET /repos/o/r/branches/main/protection"] = answer(404, map[string]any{"message": "Branch not protected"})
 	gh.mu.Unlock()
-	_, err = api.HeadCheckFacts(context.Background(), stackRepo, "abc")
-	require.Error(t, err)
+	facts, err = api.HeadCheckFacts(context.Background(), stackRepo, "abc")
+	require.NoError(t, err)
+	require.Equal(t, []mythicalHeadCheck{{Name: "unit", State: "green"}, {Name: "lint", State: "green"}, {Name: "integration", State: "pending", Required: true}}, facts)
+	for _, refused := range []struct {
+		status  int
+		message string
+	}{{403, "Resource not accessible by integration"}, {404, "Not Found"}, {502, "Bad Gateway"}} {
+		gh.mu.Lock()
+		gh.routes["GET /repos/o/r/branches/main/protection"] = answer(refused.status, map[string]any{"message": refused.message})
+		gh.mu.Unlock()
+		_, err = api.HeadCheckFacts(context.Background(), stackRepo, "abc")
+		require.Error(t, err, "HTTP %d %s is not an unprotected main", refused.status, refused.message)
+	}
 }
 
 func TestTODOPrHostPublicationDisablesRepositoryPrograms(t *testing.T) {

@@ -11796,7 +11796,7 @@ paths:
   /api/repos/{owner}/{repo}/mythical/items/{id}/merge:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge
-      description: A maintainer browser session asks the stack to merge a proposed TODO's pull request. The stack applies the automerge label for them and merges as for a maintainer's own label, at the reviewed head once GitHub CI is green; nothing merges here. Answers the item.
+      description: The same Review & merge as POST /api/todos/{n}/merge, naming the TODO by item id, with the same checks in the same order. The install owner's browser session records the approval and merge fence at the reviewed head; the stack worker sends the squash merge. Answers the item.
       operationId: post_api_repos_owner_repo_mythical_items_id_merge
       tags:
         - Repositories
@@ -11816,6 +11816,14 @@ paths:
           required: true
           schema:
             type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Names the press; the same key again answers its receipt and records no new approval.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
       requestBody:
         required: true
         content:
@@ -11834,7 +11842,7 @@ paths:
         - sessionCookie: []
       responses:
         '202':
-          description: The item, automerge on
+          description: The item, its approval and merge fence recorded
           content:
             application/json:
               schema:

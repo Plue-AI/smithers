@@ -3161,10 +3161,12 @@ type mythicalChecks struct {
 	AutoTodo  string `json:"autoTodo,omitempty"`
 	OptedOut  bool   `json:"optedOut,omitempty"`
 	Automerge bool   `json:"automerge,omitempty"`
-	// Land is a maintainer's Land through Smithers: the head their automerge,
-	// applied by the App for them, covers (LandTodo).
-	Land   *mythicalLand   `json:"land,omitempty"`
-	Review *mythicalReview `json:"review,omitempty"`
+	// Land is the current Review & merge approval (§10.6.2c);
+	// MergeRequests are the identities of every press that recorded one,
+	// so a repeated request answers its receipt (§6.2.1).
+	Land          *mythicalLand          `json:"land,omitempty"`
+	MergeRequests []mythicalMergeRequest `json:"mergeRequests,omitempty"`
+	Review        *mythicalReview        `json:"review,omitempty"`
 	// ForeignHead is the pull request head someone other than Smithers
 	// pushed; the stack neither reviews nor merges it.
 	ForeignHead string `json:"foreignHead,omitempty"`

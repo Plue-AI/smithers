@@ -52,6 +52,8 @@ type mythicalPull struct {
 	MergeCommit string
 	HeadRef     string
 	HeadSHA     string
+	// BaseRef is the branch GitHub would merge the pull request into.
+	BaseRef string
 	// MergeableState is GitHub's word: clean, dirty (conflicts), behind
 	// (the base moved and the branch must be updated), blocked, unknown.
 	MergeableState string
@@ -66,8 +68,12 @@ type mythicalGitHub interface {
 	// IssueTextByMaintainer reads whether an open issue's author and the
 	// last writers of its title and body, still as listed, are maintainers.
 	IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error)
-	// Maintainer reads whether an account is a maintainer person.
+	// Maintainer reads whether an account is a maintainer person; the
+	// answer may be up to gitHubMaintainerTTL old.
 	Maintainer(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error)
+	// MaintainerNow is Maintainer read from GitHub now, never remembered:
+	// a merge acts on it, so it cannot trail a demotion.
+	MaintainerNow(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error)
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string, draft bool) (mythicalPull, error)
@@ -81,9 +87,10 @@ type mythicalGitHub interface {
 	// pull request: APPROVED, REVIEW_REQUIRED or CHANGES_REQUESTED, and ""
 	// when main requires no review.
 	ReviewDecision(ctx context.Context, gh mythicalGitHubRepo, number int64) (string, error)
-	// Merge squash-merges a pull request only while its head is head, and
-	// answers the merge commit.
-	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)
+	// Merge squash-merges a pull request only while its head is head, with
+	// commit as the squash commit's title and message, and answers the merge
+	// commit.
+	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string, commit mythicalMergeCommitText) (string, error)
 	// LabelApplier answers who last applied label to an issue, or removed
 	// it (Removed), as the issue's labels stand now: nil when none ever
 	// applied it. It errs while GitHub's history trails the labels.
@@ -223,6 +230,13 @@ func (g *mythicalGitHubAPI) Maintainer(ctx context.Context, gh mythicalGitHubRep
 	return g.text.personIsMaintainer(ctx, gh.Token, gh.Owner, gh.Name, &account)
 }
 
+func (g *mythicalGitHubAPI) MaintainerNow(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error) {
+	if !gitHubPerson(&account) {
+		return false, nil
+	}
+	return g.text.MaintainerNow(ctx, gh.Token, gh.Owner, gh.Name, account.Login)
+}
+
 // OpenIssues lists open issues only when the bounded listing is complete.
 func (g *mythicalGitHubAPI) OpenIssues(ctx context.Context, gh mythicalGitHubRepo) ([]mythicalIssue, error) {
 	var out []mythicalIssue
@@ -255,7 +269,7 @@ type mythicalGitHubPull struct {
 
 func (p mythicalGitHubPull) pull() mythicalPull {
 	out := mythicalPull{Draft: p.Draft, NodeID: p.NodeID, Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
-		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, MergeableState: p.MergeableState}
+		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, MergeableState: p.MergeableState}
 	if out.Merged && p.MergeCommitSHA != nil {
 		out.MergeCommit = *p.MergeCommitSHA
 	}
@@ -335,10 +349,17 @@ func (g *mythicalGitHubAPI) installationToken(ctx context.Context, gh mythicalGi
 	return "", pkgerrors.BadRequest("github app is not installed for this repository")
 }
 
-// Merge is the stack's one write to GitHub main. The sha pins the merge to
-// the reviewed head: GitHub refuses it (409) once the branch moved.
-func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error) {
-	token, err := g.installationToken(ctx, gh, map[string]string{"contents": "write", "pull_requests": "write"})
+// mythicalMergeCommitText is a squash merge's commit title and message.
+type mythicalMergeCommitText struct{ Title, Message string }
+
+// Merge is the stack's one write to GitHub main, with a token holding only
+// contents:write, the one permission GitHub's merge endpoint needs. The sha
+// pins the merge to the reviewed head: GitHub refuses it (409) once the
+// branch moved. The squash commit's title and message are the caller's, so
+// none comes from the pull request as edited on GitHub. GitHub refusing it
+// (401, 403, 404, 405, 409, 422) is a *GitHubRefusal with GitHub's words.
+func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string, commit mythicalMergeCommitText) (string, error) {
+	token, err := g.installationToken(ctx, gh, map[string]string{"contents": "write"})
 	if err != nil {
 		return "", err
 	}
@@ -348,12 +369,18 @@ func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, nu
 	}
 	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/pulls/" + strconv.FormatInt(number, 10) + "/merge"
 	var refusal GitHubRefusal
-	status, err := g.api.request(ctx, token, http.MethodPut, path, map[string]string{"sha": head, "merge_method": "squash"}, &merged, &refusal)
+	status, err := g.api.request(ctx, token, http.MethodPut, path, map[string]string{"sha": head, "merge_method": "squash",
+		"commit_title": commit.Title, "commit_message": commit.Message}, &merged, &refusal)
 	if err != nil {
 		return "", err
 	}
 	if status != http.StatusOK || !merged.Merged {
-		if (status == 405 || status == 409 || status == 422) && refusal.Message != "" {
+		switch status {
+		case 401, 403, 404, 405, 409, 422:
+			refusal.Status = status
+			if refusal.Message == "" {
+				refusal.Message = "GitHub refused the merge (HTTP " + strconv.Itoa(status) + ")"
+			}
 			return "", &refusal
 		}
 		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "merge pull requests")

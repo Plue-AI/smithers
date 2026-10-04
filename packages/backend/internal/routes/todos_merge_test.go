@@ -32,6 +32,8 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'merge-repo','merge-repo') RETURNING id`, owner).Scan(&repo))
 	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES (true,$1)`, owner)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES ('browser-session',$1,'merge-owner',NOW() + interval '1 hour')`, owner)
+	require.NoError(t, err)
 	q := db.New(pool)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"merge-owner","repository_name":"merge-repo"}`)}))
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo, IssueNumber: pgtype.Int8{Int64: 81, Valid: true}, State: "proposed", Checks: []byte(`{"todo":true}`)})
@@ -47,9 +49,12 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 	// No queries or service at all: a refusal it still answers read nothing.
 	unread := chi.NewRouter()
 	unread.Post("/api/todos/{n}/merge", (&TodoHandler{}).Merge)
-	post := func(router http.Handler, path, body string, info *middleware.AuthInfo) (int, map[string]any) {
+	post := func(router http.Handler, path, body string, info *middleware.AuthInfo, key string) (int, map[string]any) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/api/todos/"+path+"/merge", strings.NewReader(body))
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
 		req = req.WithContext(middleware.ContextWithAuthInfo(ctx, info))
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, req)
@@ -75,7 +80,7 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, router := range []http.Handler{router, unread} {
-				status, envelope := post(router, "7", body, tc.info)
+				status, envelope := post(router, "7", body, tc.info, "press-1")
 				require.Equal(t, tc.status, status)
 				require.Equal(t, tc.envelope, envelope)
 			}
@@ -83,20 +88,22 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 	}
 	ownerSession := &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "browser-session"}
 	for _, tc := range []struct {
-		name, path, body, code string
-		status                 int
-		info                   *middleware.AuthInfo
+		name, path, body, key, code string
+		status                      int
+		info                        *middleware.AuthInfo
 	}{
-		{"member session", "7", body, "permission", 403, &middleware.AuthInfo{User: &db.User{ID: member}, SessionHash: "member-session"}},
-		{"issue number is not TODO number", "81", body, "todo_not_found", 404, ownerSession},
-		{"malformed", "7", `{"reviewed_head_sha":42}`, "invalid_reviewed_head_sha", 400, ownerSession},
-		{"missing", "7", `{}`, "invalid_reviewed_head_sha", 400, ownerSession},
-		{"trailing body", "7", `{} {}`, "invalid_reviewed_head_sha", 400, ownerSession},
-		{"short", "7", `{"reviewed_head_sha":"` + head[:39] + `"}`, "invalid_reviewed_head_sha", 400, ownerSession},
-		{"GitHub not configured", "7", body, "github_unavailable", 503, ownerSession},
+		{"member session", "7", body, "press-1", "permission", 403, &middleware.AuthInfo{User: &db.User{ID: member}, SessionHash: "member-session"}},
+		{"ended session", "7", body, "press-1", "unauthenticated", 401, &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "ended-session"}},
+		{"issue number is not TODO number", "81", body, "press-1", "todo_not_found", 404, ownerSession},
+		{"malformed", "7", `{"reviewed_head_sha":42}`, "press-1", "invalid_reviewed_head_sha", 400, ownerSession},
+		{"missing", "7", `{}`, "press-1", "invalid_reviewed_head_sha", 400, ownerSession},
+		{"trailing body", "7", `{} {}`, "press-1", "invalid_reviewed_head_sha", 400, ownerSession},
+		{"short", "7", `{"reviewed_head_sha":"` + head[:39] + `"}`, "press-1", "invalid_reviewed_head_sha", 400, ownerSession},
+		{"no Idempotency-Key", "7", body, "", "idempotency_key_required", 400, ownerSession},
+		{"GitHub not configured", "7", body, "press-1", "github_unavailable", 503, ownerSession},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			status, envelope := post(router, tc.path, tc.body, tc.info)
+			status, envelope := post(router, tc.path, tc.body, tc.info, tc.key)
 			require.Equal(t, tc.status, status, envelope)
 			require.Equal(t, tc.code, envelope["code"])
 		})

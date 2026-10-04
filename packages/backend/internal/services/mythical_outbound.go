@@ -127,6 +127,10 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	}
 	observed, appliedClose, err := p.Lookup(st, ctx, item, op)
 	if err != nil {
+		if op.Kind == "merge" && op.State == "intended" && mythicalMergeExpired(item, st.now) {
+			// Never sent: GitHub cannot have it, so the bound ends the fence.
+			return st.refuseMerge(ctx, item, op, mythicalMergeUnfinished(), true)
+		}
 		return nil, err
 	}
 	op.State = outboundResult(op, observed, appliedClose)
@@ -143,7 +147,15 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
 			return nil, errors.New("dropped proposal cannot be repeated")
 		}
+		if op.Kind == "merge" && mythicalMergeExpired(item, st.now) {
+			// Lookup proved GitHub has not merged it; an expired approval
+			// is never sent (mythicalMergeExpiry).
+			return st.refuseMerge(ctx, item, op, mythicalMergeUnfinished(), true)
+		}
 		if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
+			if op.Kind == "merge" {
+				return st.refuseMerge(ctx, item, op, err, true)
+			}
 			return nil, err
 		}
 		if op.Kind == "merge" {
@@ -151,7 +163,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 				return nil, errors.New("Waiting for merge readiness integration")
 			}
 			if err := p.MergeDecision(ctx, item, op); err != nil {
-				return st.refuseMerge(ctx, item, op, err)
+				return st.refuseMerge(ctx, item, op, err, true)
 			}
 		}
 		if p.Send == nil {
@@ -168,7 +180,9 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
 			if op.Kind == "merge" {
-				return st.refuseMerge(ctx, item, op, err)
+				// Sent: only GitHub's definitive refusal ends the fence;
+				// anything else is settled by lookup.
+				return st.refuseMerge(ctx, item, op, err, false)
 			}
 			return nil, err
 		}

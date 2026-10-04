@@ -228,6 +228,7 @@ func (h *MythicalHandler) Merge(w http.ResponseWriter, r *http.Request) {
 	if !decodeMythicalBody(w, r, 4<<10, &body) {
 		return
 	}
+	body.Request = r.Header.Get("Idempotency-Key")
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	item, err := h.Service.Merge(ctx, repoCtx.Repository.ID, user.ID, chi.URLParam(r, "id"), body)
