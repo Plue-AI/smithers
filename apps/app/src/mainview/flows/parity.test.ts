@@ -805,6 +805,20 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     expect(container).not.toMatch(/\b(fetch|WebSocket|useTopic)\s*\(/)
   })
 
+  test("Proposal and receipt Views stay props-only and unmounted until T-FLW-06", () => {
+    for (const file of ["ProposalView.tsx", "TodoView.tsx", "HomeView.tsx"]) {
+      const source = read(`../cards/views/${file}`)
+      expect(viewSeamViolations(source, new URL(`../cards/views/${file}`, import.meta.url))).toEqual([])
+      expect(source).not.toMatch(/\b(fetch|WebSocket|EventSource|useEffect)\s*\(/)
+      const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+      for (const node of tree.statements) {
+        if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier) || node.importClause?.isTypeOnly) continue
+        expect(node.moduleSpecifier.text).not.toMatch(/@smthrs\/rpc|\/flows|\/state/)
+      }
+    }
+    expect(read("../cards/CardRenderers.tsx")).not.toContain("ProposalView")
+  })
+
   test("every design-owned View handler uses the action or presentation seam", () => {
     const root = fileURLToPath(new URL("../cards/", import.meta.url))
     const files = readdirSync(root, { recursive: true, encoding: "utf8" })

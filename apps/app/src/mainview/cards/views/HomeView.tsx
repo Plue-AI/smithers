@@ -5,6 +5,7 @@ import type { Action } from "@smthrs/rpc/CardAction"
 import type { HomeItem, HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { TodoState } from "@smthrs/rpc/CardPrimitives"
 import { ActorChip, actorName } from "./ActorChip"
+import { LessonsCount } from "./ProposalView"
 import { StateWord } from "./StateWord"
 
 /** Supplied actions preserve their order, arguments and disabled reason. */
@@ -50,7 +51,7 @@ function HomeRow({ item, onAction, now }: { item: HomeItem; now: number } & Pick
         {item.rebase_pending ? <span className="mvp-warn-text">Rebase pending onto {item.rebase_pending.onto}</span> : null}
         {item.state === "in_review" && item.merge.state !== "ready" && item.merge.reason ? <span>{mergeWords[item.merge.reason]}{item.merge.detail ? ` ${item.merge.detail}` : ""}</span> : null}
         {item.approval_cleared ? <span className="mvp-warn-text">approval cleared by rebase</span> : null}
-        {item.lessons !== undefined ? <span>{item.lessons} {item.lessons === 1 ? "lesson" : "lessons"}</span> : null}
+        <LessonsCount count={item.lessons} />
         {item.elapsed_s !== undefined ? <span className="mvp-elapsed">{Math.floor(elapsed)} s</span> : null}
       </div></div>
     <span className="mvp-row-end" onKeyDown={event => { if (event.key === "Escape") { setOpen(false); trigger.current?.focus() } }}>{actionControls}

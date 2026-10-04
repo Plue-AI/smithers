@@ -2314,3 +2314,86 @@ test("Diff patch reload retains its mounted surface and scroll", async () => {
     expect(host.querySelector(".code-diff-base")?.textContent).toBe("fork-23")
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+// T-UI-20: literal DOM oracles for Proposal, the lessons receipt and the shared count.
+import { fixtures as homeReceiptFixtures } from "@smthrs/rpc/fixtures/Home"
+
+test("Proposal supplied actions preserve order and callback arguments; absent actions stay dark", async () => {
+  const host = document.createElement("div"), root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
+  try {
+    await act(async () => root.render(<ProposalView {...proposalFixtures.open} onAction={onAction} onView={() => {}} />))
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")]
+    expect(buttons.map(button => button.textContent)).toEqual(["Make TODO", "Dismiss"])
+    expect(buttons.map(button => button.dataset.flow)).toEqual(["learning.accept", "learning.dismiss"])
+    for (const button of buttons) await act(async () => button.click())
+    expect(onAction.mock.calls).toEqual([["learning.accept", { id: "proposal-12" }], ["learning.dismiss", { id: "proposal-12" }]])
+    await act(async () => root.render(<ProposalView {...proposalFixtures.open} actions={[]} onAction={onAction} onView={() => {}} />))
+    expect(host.querySelectorAll("button")).toHaveLength(0)
+    expect(onAction).toHaveBeenCalledTimes(2)
+  } finally { await act(async () => root.unmount()) }
+})
+
+test("Proposal hostile evidence and refs remain inert text", async () => {
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    for (const url of ["javascript:alert(1)", "java\nscript:alert(1)", "https://example.com/\u0000bad", "data:text/html,unsafe", "file:///etc/passwd", "https://", "//example.com", "https://example.com/\\bad"]) {
+      await act(async () => root.render(<ProposalView {...proposalFixtures.open} model={{ ...proposalFixtures.open.model,
+        evidence: ['<script>alert("evidence")</script>'], refs: [{ label: "<img src=x onerror=alert(1)>", url }],
+      }} onAction={() => {}} onView={() => {}} />))
+      expect(host.querySelector("script,img,a")).toBeNull()
+      expect(host.textContent).toContain('<script>alert("evidence")</script>')
+      expect(host.textContent).toContain("<img src=x onerror=alert(1)>")
+    }
+    await act(async () => root.render(<ProposalView {...proposalFixtures.open} model={{ ...proposalFixtures.open.model,
+      refs: [{ label: "Checks", url: "http://example.com/checks" }],
+    }} onAction={() => {}} onView={() => {}} />))
+    expect(host.querySelector("a")?.getAttribute("href")).toBe("http://example.com/checks")
+  } finally { await act(async () => root.unmount()) }
+})
+
+test("Accepted TODO and lessons navigate only through supplied gestures", async () => {
+  const host = document.createElement("div"), root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
+  try {
+    await act(async () => root.render(<ProposalView {...proposalFixtures.accepted} gestures={{ todo: { tag: "todo", label: "TODO", args: { n: "14" } } }} onAction={onAction} onView={() => {}} />))
+    expect(host.querySelector("button")?.textContent).toBe("T14 · Keep completion receipts in toasts")
+    await act(async () => (host.querySelector("button") as HTMLButtonElement).click())
+    await act(async () => root.render(<LessonsReceiptView {...lessonFixtures.lessons} model={{ todo: 12, lessons: [{ title: '<script>alert("lesson")</script>', ref: "wiki:Retry policy" }] }}
+      gestures={{ "wiki:Retry policy": { tag: "wiki.page", label: "Wiki", args: { name: "Retry policy" } } }} onAction={onAction} onView={() => {}} />))
+    expect(host.textContent).toBe('1 lesson<script>alert("lesson")</script>')
+    expect(host.querySelector("script")).toBeNull()
+    await act(async () => (host.querySelector("button") as HTMLButtonElement).click())
+    expect(onAction.mock.calls).toEqual([["todo", { n: "14" }], ["wiki.page", { name: "Retry policy" }]])
+  } finally { await act(async () => root.unmount()) }
+})
+
+test("TODO and Home share absent, zero, one and multiple lesson counts without changing Merged", async () => {
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    for (const [lessons, label] of [[undefined, null], [0, "0 lessons"], [1, "1 lesson"], [3, "3 lessons"]] as const) {
+      await act(async () => root.render(<TodoView {...todoStories.merged} model={{ ...todoStories.merged.model, lessons }} onAction={() => {}} onView={() => {}} />))
+      expect(host.querySelector(".mvp-state")?.textContent).toBe("Merged")
+      if (label) expect(host.textContent).toContain(label)
+      else expect(host.textContent).not.toContain("lesson")
+      const item = homeReceiptFixtures.active.model.items[0]!
+      await act(async () => root.render(<HomeView {...homeReceiptFixtures.active} model={{ ...homeReceiptFixtures.active.model, items: [{ ...item, state: "merged", lessons }] }} onAction={() => {}} onView={() => {}} />))
+      expect(host.querySelector('.mvp-stack-row [data-state="merged"]')?.textContent).toBe("Merged")
+      if (label) expect(host.querySelector(".mvp-stack-row")?.textContent).toContain(label)
+      else expect(host.querySelector(".mvp-stack-row")?.textContent).not.toContain("lesson")
+    }
+  } finally { await act(async () => root.unmount()) }
+})
+
+test("Proposal copy blocks use product words and stay brief", async () => {
+  for (const state of ["open", "accepted", "dismissed"] as const) {
+    const story = proposalFixtures[state]
+    const { host, close } = await mounted({ name: story.name, expect: [], render: callbacks => <ProposalView {...story} {...callbacks} /> })
+    try {
+      expect(host.textContent).not.toMatch(/\b(thread|task|workflow|fork|rewind)\b/i)
+      for (const block of host.querySelectorAll("h2,summary,p,button,.proposal-status")) {
+        expect(block.textContent!.length).toBeLessThanOrEqual(80)
+      }
+    } finally { await close() }
+  }
+})

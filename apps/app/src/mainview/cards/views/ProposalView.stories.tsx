@@ -5,6 +5,9 @@ import { fixtureStories } from "./stories"
 export const proposalStories = {
   ...fixtures,
   disabled: { ...fixtures.open, name: "Disabled proposal", actions: fixtures.open.actions.map(action => ({ ...action, disabled: { reason: "Member removed" } })) },
+  hostile: { ...fixtures.open, name: "Hostile proposal", expect: ['<script>alert("evidence")</script>', "Unsafe ref"], model: { ...fixtures.open.model,
+    evidence: ['<script>alert("evidence")</script>'], refs: [{ label: "Unsafe ref", url: "java\nscript:alert(1)" }],
+  } },
   no_actions: { ...fixtures.open, name: "Read-only proposal", actions: [] },
   accepted_link: { ...fixtures.accepted, name: "Accepted TODO link", gestures: { todo: { tag: "todo" as const, label: "TODO", args: { n: "14" } } } },
 }

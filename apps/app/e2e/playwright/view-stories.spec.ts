@@ -778,3 +778,32 @@ test("File and burst Diff supplied actions have keyboard doors", async ({ page }
     await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeDisabled()
   }
 })
+
+test("Proposal keyboard actions and receipt navigation use supplied callbacks", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: unknown[] = []
+    Object.assign(window, { proposalCalls: calls })
+    window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ProposalView/Open%20proposal&theme=${theme}`)
+    const accept = page.getByRole("button", { name: "Make TODO", exact: true })
+    await accept.focus()
+    await expect(accept).toBeFocused()
+    await page.keyboard.press("Enter")
+    await page.keyboard.press("Tab")
+    await expect(page.getByRole("button", { name: "Dismiss", exact: true })).toBeFocused()
+    await page.keyboard.press("Space")
+    expect(await page.evaluate(() => (window as unknown as { proposalCalls: unknown[] }).proposalCalls)).toEqual([
+      { kind: "action", value: { tag: "learning.accept", args: { id: "proposal-12" } } },
+      { kind: "action", value: { tag: "learning.dismiss", args: { id: "proposal-12" } } },
+    ])
+    await page.goto(`/view-stories.html?story=ProposalView/Lesson%20links&theme=${theme}`)
+    await page.getByRole("button", { name: "Retry policy", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { proposalCalls: unknown[] }).proposalCalls)).toEqual([
+      { kind: "action", value: { tag: "wiki.page", args: { name: "Retry policy" } } },
+    ])
+  }
+})
