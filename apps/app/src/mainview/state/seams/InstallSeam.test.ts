@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import type { StorageApi } from "@tanstack/db"
 import type { SeamContext } from "./SeamContext"
-import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
-import { createInstallSeam, type InstallSeamOptions, type InstallTopic } from "./InstallSeam"
+import { type FailureController } from "../controller/failures"
+import { createInstallSeam, type InstallTopic } from "./InstallSeam"
 import { InstallModelSchema, setupCardModel, settingsCardModel, type InstallError } from "./InstallModel"
 import { credentialReceipt, installFixture } from "./InstallFixtures.test-support"
 import { installRequestId } from "./InstallRequestId"
@@ -16,7 +16,7 @@ const memoryStorage = (): StorageApi => {
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) }, removeItem: key => { values.delete(key) } }
 }
 const failure = (fault: InstallError["class"] = "user"): InstallError => ({ code: "refused", class: fault, message: "Address refused", fix: "Use another origin", retry_at: "2026-10-02T12:00:00Z" })
-const harness = async (answer: (path: string, init?: RequestInit) => Promise<Response> | Response, options: Pick<InstallSeamOptions, "quietWithoutInstall"> = {}) => {
+const harness = async (answer: (path: string, init?: RequestInit) => Promise<Response> | Response) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ path: string; init?: RequestInit }> = []
   const toasts: Array<{ outcome?: unknown }> = []
@@ -32,7 +32,7 @@ const harness = async (answer: (path: string, init?: RequestInit) => Promise<Res
   }
   const ctx: SeamContext = { http: async (path, init) => { requests.push({ path, init }); return answer(path, init) }, baseUrl: "", store,
     dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
-  const seam = createInstallSeam(ctx, withToast, { topic, present: kind => { presentations.push(kind) }, ...options })
+  const seam = createInstallSeam(ctx, withToast, { topic, present: kind => { presentations.push(kind) } })
   return { seam, store, requests, toasts, presentations, receive: (data: unknown) => receive?.(data), refuse: (data: InstallError) => refuse?.(data),
     subscribed: () => subscribed, stopped: () => stopped, idle: async () => { await tick(); await Promise.all(jobs); await tick() } }
 }
@@ -72,19 +72,19 @@ describe("T-APP-03 install seam", () => {
     expect(setupCardModel(model).steps).toEqual(fixture.steps)
     expect(model).not.toHaveProperty("source"); expect(model).not.toHaveProperty("machine")
   })
-  test("with the design seed standing in, no install answering opens Setup quietly; install errors and a real install still answer", async () => {
-    const open = async (answer: Parameters<typeof harness>[0], quietWithoutInstall?: boolean) => {
-      const h = await harness(answer, quietWithoutInstall === undefined ? {} : { quietWithoutInstall })
+  test("missing install and network failures stay visible; only a real install presents Setup", async () => {
+    const open = async (answer: Parameters<typeof harness>[0]) => {
+      const h = await harness(answer)
       h.seam.showSetup(); await h.idle()
       return h
     }
-    const missing = await open(() => new Response("<!doctype html>", { status: 404 }), true)
-    expect(missing.toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED]); expect(missing.presentations).toEqual([])
-    const offline = await open(() => { throw new Error("offline") }, true)
-    expect(offline.toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED])
+    const missing = await open(() => new Response("<!doctype html>", { status: 404 }))
+    expect(missing.toasts.map(toast => toast.outcome)).toEqual(["Install request failed"]); expect(missing.presentations).toEqual([])
+    const offline = await open(() => { throw new Error("offline") })
+    expect(offline.toasts.map(toast => toast.outcome)).toEqual(["Could not reach this install"])
     expect((await open(() => new Response("<!doctype html>", { status: 404 }))).toasts[0]?.outcome).toBe("Install request failed")
-    expect((await open(() => Response.json(failure("permission"), { status: 403 }), true)).toasts[0]?.outcome).toBe("Address refused")
-    const real = await open(() => Response.json(installFixture()), true)
+    expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("Address refused")
+    const real = await open(() => Response.json(installFixture()))
     expect(real.presentations).toEqual(["setup"]); expect(real.toasts[0]?.outcome).toBe(true)
   })
   test("permission envelopes present no settings card", async () => {
@@ -258,6 +258,13 @@ describe("T-APP-03 install seam", () => {
     const settings = settingsCardModel(parsed, "http://mini.local:4000")
     expect(settings.health).toEqual(model.health!)
     expect(settings.laptop_lines).toEqual(model.address.origins.map(origin => `smthrs login ${origin}`))
+  })
+  test("install projections refuse missing, duplicate and reordered setup steps", () => {
+    const model = installFixture()
+    expect(InstallModelSchema.safeParse({ ...model, steps: model.steps.slice(1) }).success).toBe(false)
+    expect(InstallModelSchema.safeParse({ ...model, steps: [...model.steps].reverse() }).success).toBe(false)
+    expect(InstallModelSchema.safeParse({ ...model, steps: model.steps.map((step, index) => index === 1 ? model.steps[0] : step) }).success).toBe(false)
+    expect(InstallModelSchema.parse(model).steps.map(step => step.id)).toEqual(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
   })
   test("idempotency IDs work without randomUUID", () => {
     expect(installRequestId()).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)

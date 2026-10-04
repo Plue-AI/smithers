@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { SetupCardSchema, SetupStepIdSchema, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
+import { SetupCardSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
 import { ActionSchema } from "@smthrs/rpc/CardAction"
@@ -32,8 +32,8 @@ export const InstallModelSchema = z.object({
       cause: z.string().optional(), retry_at: z.string().optional(), rate_remaining: z.number().nonnegative(),
       rate_limit: z.number().nonnegative() }) }).optional()
 }).superRefine((model, ctx) => {
-  if (new Set(model.steps.map(step => step.id)).size !== model.steps.length)
-    ctx.addIssue({ code: "custom", message: "Duplicate setup step" })
+  if (model.steps.length !== SETUP_STEP_IDS.length || model.steps.some((step, index) => step.id !== SETUP_STEP_IDS[index]))
+    ctx.addIssue({ code: "custom", message: "Setup steps must follow install order" })
   if (model.models.length !== 3 || new Set(model.models.map(model => model.role)).size !== 3)
     ctx.addIssue({ code: "custom", message: "Three model roles required" })
   if (model.capacity > model.this_mac.capacity || (model.parallel !== undefined && model.parallel > model.capacity))
@@ -46,7 +46,11 @@ export const setupCardModel = (model: InstallModel): SetupCard => SetupCardSchem
 })
 export const settingsCardModel = (model: InstallModel, origin: string): SettingsCard => {
   const url = new URL(origin)
-  return SettingsCardSchema.parse({ ...setupCardModel(model),
+  const setup = setupCardModel(model)
+  const refused = model.address.change_failed
+  return SettingsCardSchema.parse({ ...setup,
+    address: { ...setup.address, ...(refused ? { failed: { from: refused.from, to: refused.to,
+      reason: { class: "user", message: refused.reason } } } : {}) },
     capacity: model.capacity, parallel: model.parallel, health: model.health,
     laptop_lines: model.address.origins.map(origin => `smthrs login ${origin}`),
     notifications_need_https: url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)

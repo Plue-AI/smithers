@@ -42,11 +42,9 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 | All `todo.*` / `draft.*` handlers | DesignWorld/todo.ts `withDesignTodos`; state/AppController.ts ~842 | createTodoSeam, `/api/todos` | T-APP-02, T-STK-01/02/05/06 |
 | Draft audience `design:<member>` | DesignWorld/todo.ts `designAudience`; cards/DraftContainer.tsx | identity login | T-APP-02, T-ACC-01 |
 | Scheduler (advances TODOs on timers) | DesignWorld/index.ts | factory on the install, observed through `home`, `todo:<n>` | T-STK-03, T-MCH-06 |
-| Setup and Settings install model | DesignWorld/settings.ts `designInstall`; cards/SettingsContainer.tsx | `install` + InstallSeam snapshots | T-APP-03 |
-| `settings.capacity`, `settings.parallel` | DesignWorld/settings.ts `designSettings`; flows/entries/settings.ts | `settings.*` against `/api/install` | T-APP-03, T-STK-03 |
 | Members roster | DesignWorld/settings.ts `designMembersRoster`; cards/MembersCard.tsx | createMembersSeam, `/api/members`, topic `members` | T-APP-06, T-ACC-02 |
 | `members.add` / `role` / `remove` | DesignWorld/settings.ts `designMembers`; flows/entries/members.ts | MembersSeam | T-APP-06, T-ACC-02 |
-| Viewer role | DesignWorld/settings.ts `designViewerRole`; SettingsContainer, MembersCard, members.ts | identity seam, one authorizer | T-ACC-03 |
+| Viewer role | DesignWorld/settings.ts `designViewerRole`; MembersCard, members.ts | identity seam, one authorizer | T-ACC-03 |
 | Secrets rows (no card consumes yet) | DesignWorld/settings.ts `designSecrets` | topic `secrets`, `/api/secrets` | T-APP-13 |
 | Branch model (presence, activity, machine state) | DesignWorld/branch.ts `designBranchModel`; cards/BranchCard.tsx | topics `branch:<id>`, `:activity`, `:files` over runtime/LiveChannel.ts | T-APP-10, T-COL-02 |
 | SSH line | DesignWorld/branch.ts `designSshLine`; flows/entries/branch.ts | SSH gateway | T-TRM-03 |
@@ -80,10 +78,12 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 | A✓ acts and Review & merge | DesignWorld/chat.ts `designActCard`, `designMergeCard`, `useDesignAct`; cards/ActCard.tsx | topic `confirmations:<member>`, ConfirmView | T-APP-04 |
 | Act cancel, merge card close | AppController.ts `cancelConfirmation` | topic `confirmations:<member>` | T-APP-04 |
 
+Setup and Settings now read only InstallSeam. Settings writes have no design fallback; missing install providers refuse visibly. Settings stays dark without its health projection. Legacy Settings replacement and image.add wait for the later T-APP-03 providers.
+
 ## 3. Follow-ups
 
 - Rename the TodoContainer/HomeContainer prop to `presentation` so the "actions from cardActions" parity rule passes. T-APP-01, T-APP-02
-- `onView` is a no-op in the Settings, Members and Commands bodies. T-APP-03, T-APP-06
+- `onView` is a no-op in the Settings, Members and Commands bodies. Settings shared view state waits for T-APP-09; Members waits for T-APP-06
 - CommandsBody rebuilds the catalog every render. T-CAT-01
 - `secrets.*` flows still target Cloud routes. T-APP-13
 - `box.suspend` / `box.resume` are legacy Cloud flows; Sleep and Wake are not offered. T-MCH-07, T-APP-10

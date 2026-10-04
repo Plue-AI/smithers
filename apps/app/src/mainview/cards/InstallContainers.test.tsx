@@ -56,6 +56,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     const h = harness({ model }); h.renderSettings(); const props = h.settings()!
     expect(props.model.address.origins).toEqual(model.address.origins)
     expect(props.model.address.bind).toBe(model.address.bind)
+    expect(props.model.address.failed).toEqual({ from: "http://mini.local:4000", to: "http://refused.test", reason: { class: "user", message: "Address in use" } })
     expect(props.model.address.origins).not.toContain("http://refused.test")
     props.onAction("settings.address", { listen: "network", bind: "0.0.0.0:4000", origins: "http://one.test\nhttps://two.test" })
     expect(h.commands).toEqual([{ tag: "settings.address", input: { listen: "network", bind: "0.0.0.0:4000", origins: ["http://one.test", "https://two.test"] } }])
@@ -72,6 +73,13 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(h.settings()).toBeUndefined(); expect(h.setup()).toBeUndefined()
     const empty = harness({}); empty.renderSettings(); empty.renderSetup()
     expect(empty.settings()).toBeUndefined(); expect(empty.setup()).toBeUndefined()
+  })
+  test("Setup stays mounted while Settings waits for its health provider", () => {
+    const model = installFixture(); delete model.health
+    const h = harness({ model })
+    expect(h.renderSettings()).toBe("")
+    expect(h.settings()).toBeUndefined()
+    h.renderSetup(); expect(h.setup()!.model.steps).toEqual(model.steps)
   })
   test.each(["pending", "running", "blocked", "failed"] as const)("Setup exposes only the first incomplete %s control", state => {
     const model = installFixture(); model.steps[0]!.state = state; model.steps[1]!.state = "pending"

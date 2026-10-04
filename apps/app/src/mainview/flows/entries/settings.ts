@@ -27,17 +27,17 @@ const key: Grammar = args => {
 /* The inputs each setup step needs (InstallSeam.setupStep's bodies); THE FORM LAW asks for the missing ones. */
 const SETUP_REQUIRES: Readonly<Record<string, ReadonlyArray<string>>> = { address: ["bind", "origins"], app_manifest: ["owner"], repository: ["repository"] }
 export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "settings", summary: "Settings", input: NoPayload, handler: async () => { await actions.presentCard("settings", "Settings") } }),
-  flow({ name: "settings.address", summary: "Change Address", hidden: true, discloseToAgent: true,
+  flow({ name: "settings", summary: "Settings", userOnly: true, userOnlyReason: "Install status requires the owner’s person session", input: NoPayload, handler: () => actions.showSettings() }),
+  flow({ name: "settings.address", summary: "Change Address", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: object, args: "<address>", input: Schema.Struct({ listen: Schema.Literals(["mac", "network"]), bind: Schema.String, origins: Schema.Array(Schema.String) }),
     handler: input => actions.setInstallAddress(input) }),
-  flow({ name: "settings.capacity", summary: "Change Machines", hidden: true, discloseToAgent: true,
+  flow({ name: "settings.capacity", summary: "Change Machines", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: count("capacity"), args: "<capacity>", input: Schema.Struct({ capacity: Schema.Number }),
     handler: ({ capacity }) => actions.setInstallCapacity(capacity) }),
-  flow({ name: "settings.parallel", summary: "Change At once", hidden: true, discloseToAgent: true,
+  flow({ name: "settings.parallel", summary: "Change At once", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: count("parallel"), args: "<parallel>", input: Schema.Struct({ parallel: Schema.Number }),
     handler: ({ parallel }) => actions.setInstallParallel(parallel) }),
-  flow({ name: "settings.model-key", summary: "Change model key", hidden: true, discloseToAgent: true,
+  flow({ name: "settings.model-key", summary: "Change model key", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: key, args: "<role> <provider>",
     input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, value: Schema.optional(Schema.String) }),
     form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider }), fields: {
@@ -45,7 +45,7 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
       value: { label: "Key", kind: "write-only", required: true }
     } },
     handler: ({ role, provider }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider }, gesture) }),
-  flow({ name: "settings.setup", summary: "Continue setup", hidden: true, discloseToAgent: true,
+  flow({ name: "settings.setup", summary: "Continue setup", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),
     form: { submitLabel: "Continue", args: input => JSON.stringify(input),
