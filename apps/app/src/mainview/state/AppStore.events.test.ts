@@ -21,7 +21,7 @@ import { memoryStorage } from "./TestFixtures"
 import { MAX_TRANSITION_PAYLOAD_BYTES } from "./TransitionDiagnostics"
 import { runtimeApprovalKey } from "./RuntimeProjection"
 import { ENTITY_RECOVERY_STORAGE_KEY, readEntityRecoveries, writeEntityRecovery } from "./EntityRecovery"
-import type { Signup } from "./Signup"
+import type { Signup } from "./LegacySignup"
 
 const opened: AppStore[] = []
 const directories: string[] = []

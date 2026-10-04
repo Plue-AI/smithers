@@ -10,7 +10,7 @@
  *   action names its flow — the engine records a child's flow as its
  *   parent node's action, so that is the join, not a guess;
  * - the execution above the drawn one, once a reader has opened a child;
- * - the detached runs `agent/spawn` recorded (`Subagents.childRuns`);
+ * - the detached runs `agent/spawn` recorded (`WorkerRuns.childRuns`);
  * - the run this one was spawned by, when its card is open (`parentRunOf`);
  * - the push or schedule that started the run (`RunTrigger`).
  *
@@ -19,7 +19,7 @@
  */
 import { flowArgs } from "../flows/FlowArgs"
 import type { Card } from "../state/AppState"
-import { childRuns, runStatus, type ChildRun } from "../state/Subagents"
+import { childRuns, runStatus, type ChildRun } from "../state/WorkerRuns"
 import { engineRunEvidence, type EngineExecutionEvidence } from "./EngineTrace"
 import { foldRunGraph, runGraphOf, type RunExecutionGraph, type RunGraphEdge, type RunGraphNode } from "./FlowGraphStatus"
 import { runTriggersOf } from "./RunTrigger"

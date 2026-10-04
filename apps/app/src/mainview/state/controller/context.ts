@@ -115,7 +115,7 @@ export interface ControllerContext {
   resumeDeferredCommand: () => void
   /**
    * Late-bound by AppController: make the first-run target choice for the
-   * identity answer this read just wrote (state/FirstRunRepository.ts), and
+   * identity answer this read just wrote (state/BootRepositoryTarget.ts), and
    * settle it. Only the read that writes the row announces it.
    */
   settleFirstRunTarget: () => void

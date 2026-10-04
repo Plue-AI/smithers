@@ -13,8 +13,8 @@ import { FLOW_NAMES } from "./FlowName"
  * declared flow counts without building the registry. A declaration names
  * itself in one of three places: most are `flow({ name: "x.y" })` rows inside an
  * entries module or `operation({ name: "x.y" })` rows in a shared operation
- * module (`@smthrs/ui/app-operations`), and a few — the storage-recovery pair — are `Flow.make({
- * name: CONSTANT })` declarations in their own flows module that an entries
+ * module (`@smthrs/ui/app-operations`), and a few — the storage-recovery pair — are descriptor object
+ * declarations with `name: CONSTANT` in their own flows module that an entries
  * module registers. Both are read, and a constant is resolved against the
  * `export const NAME = "x.y"` declarations in the mainview tree.
  */
@@ -59,7 +59,7 @@ const declaredNames = (): ReadonlyArray<string> => {
   for (const file of readdirSync(flows).sort()) {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue
     const source = readFileSync(`${flows}${file}`, "utf8")
-    for (const match of source.matchAll(/\bFlow\.make\(\{\s*name:\s*(?:"([^"]+)"|(\w+))\s*,/g)) {
+    for (const match of source.matchAll(/(?:\bFlow\.make\(\{\s*|\bconst\s+\w+\s*=\s*\(\{\s*capabilities:[^\n]*\n\s*)name:\s*(?:"([^"]+)"|(\w+))\s*,/g)) {
       const name = match[1] ?? constants.get(match[2]!)
       if (name !== undefined) names.push(name)
     }

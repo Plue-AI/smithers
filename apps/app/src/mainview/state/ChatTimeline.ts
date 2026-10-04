@@ -1,5 +1,5 @@
 import type { Card, Message } from "./AppState"
-import type { InitMessage } from "../Onboarding"
+import type { InitMessage } from "../HostOpening"
 
 /** Decode-only: persisted sessions still carry the retired chat filter's kinds (AppState `chatFilter`). */
 export const CHAT_KINDS = ["messages", "cards"] as const

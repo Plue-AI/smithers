@@ -7,7 +7,7 @@ import type { ApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import type { AgentPort } from "../runtime/AgentPort"
 import { createApplicationClient } from "../runtime/ApplicationClient"
 import type { AppStore } from "./AppStore"
-import { SIGNUP_PROFILE_PATH, SignupProfileSchema, type SignupProfile } from "./Signup"
+import { SIGNUP_PROFILE_PATH, SignupProfileSchema, type SignupProfile } from "./LegacySignup"
 
 /**
  * Fixtures shared by the state tests. A test that needs a different double

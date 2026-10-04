@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import { CARD_RENDERERS } from "../cards/CardRenderers"
@@ -90,6 +91,13 @@ const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifica
 const base = { id: "old-card", title: "Saved surface", status: "active", createdAt: 1, ordinal: 1 }
 
 describe("Cut app surfaces", () => {
+  test("the shared cut manifest records every pinned retired door", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../../../../../packages/rpc/src/catalog/cuts.json", import.meta.url), "utf8")) as {
+      rows: Array<{ flowNames: string[] }>
+    }
+    expect(manifest.rows.flatMap(row => row.flowNames).sort()).toEqual([...CUT_NAMES].sort())
+  })
+
   test("the union, slash menu and agent catalog exclude every Cut door on both hosts", async () => {
     for (const host of ["local", "cloud"] as const) {
       const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -126,7 +134,9 @@ describe("Cut app surfaces", () => {
         capabilities: [...RuntimeCapabilitySchema.options], authFlow: "both",
         sandbox: { platform: "darwin", mode: "enforced" } },
       fetchImpl: async input => {
-        requests.push(new URL(String(input), "http://local.test").pathname)
+        const path = new URL(String(input), "http://local.test").pathname
+        if (path === "/api/install") return new Response(null, { status: 404 })
+        requests.push(path)
         return Response.json(health)
       }
     })

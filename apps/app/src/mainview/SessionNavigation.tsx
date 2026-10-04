@@ -5,7 +5,7 @@ import { KeyboardNavigation } from "./KeyboardNavigation"
 import { LocalAuthPanel } from "./LocalAuthPanel"
 import { WORDMARK } from "./Wordmark"
 import { flowSelector } from "./flows/FlowAction"
-import { GUIDE_KEYS } from "./onboarding/GuideButton"
+import { SHORTCUT_KEYS } from "./ShortcutButton"
 import { bindPressActions } from "./runtime/PressActions"
 import { BranchCrumbs } from "./BranchTree"
 import { catalogRepositoryOf } from "./state/RepoContext"
@@ -16,7 +16,7 @@ const Mark = () => <pre aria-hidden="true">{WORDMARK.map((line, i) => <span key=
 export const SessionNavigationFallback = () => <header className="session-navigation" aria-label="Smithers"><h1 className="guide-wordmark" aria-label="Smithers" style={{ margin: 0 }}><Mark /></h1></header>
 
 /** Mode selection is a preference; it never starts microphone capture. */
-export const modeShortcut = (event: KeyboardEvent): boolean => !event.repeat && !event.isComposing && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === GUIDE_KEYS.mode && !(event.target as Element | null)?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])')
+export const modeShortcut = (event: KeyboardEvent): boolean => !event.repeat && !event.isComposing && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === SHORTCUT_KEYS.mode && !(event.target as Element | null)?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])')
 
 /** `owner/repo / main / <branch> ▾`: parent crumbs go up, the last opens the branch tree. */
 function Crumbs() {
@@ -67,7 +67,7 @@ export function SessionNavigation() {
           return action(toggleChat, event.metaKey ? 'meta+k' : 'control+k')
         }
         if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-        if (key === GUIDE_KEYS.mode) return action(() => root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"][aria-keyshortcuts="m"]')?.click())
+        if (key === SHORTCUT_KEYS.mode) return action(() => root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"][aria-keyshortcuts="m"]')?.click())
       },
     })
     return () => { pressActions() }

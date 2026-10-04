@@ -10,7 +10,7 @@ import { openRequestedRepo,requestedRepo } from "../RepoLink"
 import type { AppController as AppControllerType } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { selectFirstRunRepository } from "./FirstRunRepository"
+import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import { backend, json, memoryStorage, settled, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()

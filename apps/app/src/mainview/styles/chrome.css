@@ -64,7 +64,6 @@
 }
 
 .app-chat-controls { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); min-height: 52px; padding: var(--sp-2) var(--sp-5); }
-/* The home alone, and the first-run card before the first job, carry no strip; a chosen Vim mode keeps only its indicator (App.tsx chatAway). */
 .app-chat-controls[hidden] { display: none; }
 /* Withheld Chat arrives once, rising and fading in (App.tsx chatArrives). */
 .app-chat-controls[data-arriving] { animation: chat-controls-arrive 420ms ease-out; }
@@ -75,17 +74,14 @@
 @media (prefers-reduced-motion: reduce) {
 	.app-chat-controls[data-arriving] { animation: none; }
 }
-/* Signup buttons stay uncovered by Chat guidance on a phone. */
 @media (max-width: 600px) {
-	.app-shell:has(.signup) .app-chat-controls .help-bubble { display: none; }
 	/* Beside the rail a phone leaves ~330px: tighten the bar so each control keeps one line. */
 	.app-chat-controls { flex-wrap: wrap; gap: var(--sp-2); padding-inline: var(--sp-3); }
 }
 /*
- * The bottom bar is GuideButton chrome OUTSIDE the guide shell, where the
- * --g-* tokens do not exist: keep the polish session's quiet text-button
- * look, but make it deliberate — app tokens, a real hover, and the same
- * keycap recipe as the guide (bordered chip, keycap lip, 20px geometry).
+ * The shared keyboard controls keep the quiet text-button
+ * look — app tokens, a real hover, and the same
+ * bordered keycap recipe.
  */
 .app-chat-controls .guide-button {
 	min-height: var(--ctl-h-sm);

@@ -22,9 +22,9 @@ import { DevtoolsPanel } from "./DevtoolsPanel"
 import { ChatHint,FirstSightHint } from "./FirstSightHint"
 import { dynamicFlowAction, flowProps } from "./flows/FlowAction"
 import { InputModeMenu } from "./InputModeMenu"
-import type { InitMessage } from "./Onboarding"
-import { cloudWebHost, initMessage } from "./Onboarding"
-import { GUIDE_KEYS,GuideButton } from "./onboarding/GuideButton"
+import type { InitMessage } from "./HostOpening"
+import { cloudWebHost, initMessage } from "./HostOpening"
+import { SHORTCUT_KEYS,ShortcutButton } from "./ShortcutButton"
 import { pathRepo } from "./RepoLink"
 import type { Card,Message } from "./state/AppState"
 import { conversationTabIdOf,inConversation } from "./state/AppState"
@@ -509,11 +509,11 @@ function AppContent() {
       </div>
       {/* The login screen owns the page: Chat's controls arrive once there is something to ask it (⌘K still opens the composer). */}
       {loginScreen ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls">
-        <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
+        <FirstSightHint id="chat" placement="above" content={<ChatHint />}><ShortcutButton ref={chatTriggerRef} shortcut={SHORTCUT_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
           // Focus an already-open input now; Composer owns focus on opening.
           composerWrapRef.current?.querySelector("textarea")?.focus()
-        }}>Chat</GuideButton></FirstSightHint>
+        }}>Chat</ShortcutButton></FirstSightHint>
         <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />
       </footer>}
       </div>

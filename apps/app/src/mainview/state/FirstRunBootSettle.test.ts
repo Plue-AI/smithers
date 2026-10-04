@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { selectFirstRunRepository } from "./FirstRunRepository"
+import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import { json, memoryStorage, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
@@ -113,7 +113,7 @@ test("a first-run park settles at its deadline when identity never answers", asy
 })
 
 test("the boot's non-blocking identity read settles on both sides of the promise", async () => {
-  // FirstRunRepository.ts:20 settles a rejected persist the same way; a read
+  // BootRepositoryTarget.ts:20 settles a rejected persist the same way; a read
   // that rejects with only an onFulfilled handler parks the command forever.
   const source = await readFile(`${import.meta.dir}/../ControllerBoot.client.ts`, "utf8")
   expect(source).toContain("void controller.loadSession().then(settle, settle)")

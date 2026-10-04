@@ -168,7 +168,7 @@ export const pillStatus = (card: Card): string => {
   return cardRenderer(card.kind).pill(card)
 }
 
-/* The repository list reads GitHub only for a signed-in identity (tutorialRepository.ts); without a store, assume it did. */
+/* The repository list reads GitHub only for a signed-in identity (repositoryChoice.ts); without a store, assume it did. */
 const signedInFor = (actions: CardActions): boolean => {
   const identities = actions.projectionStore?.collections.identitySessions
   return identities === undefined || identities.get("identity")?.state === "signed-in"

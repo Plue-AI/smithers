@@ -781,17 +781,11 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "palette.open": (args) => optional("prefix", args),
   "palette.actions": (args) => required("ref", args, "palette.actions needs an item ref"),
   "history.show": (args) => repoOnly("history.show", args),
-  "history.backfill": (args) => repoOnly("history.backfill", args),
   "history.parallel": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
     const value = Number(rest)
     if (!/^[1-8]$/.test(rest) || !Number.isInteger(value)) return no("history.parallel takes a lane count from 1 to 8")
     return ok(repo === undefined ? { value } : { value, repo })
-  },
-  "history.retry": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    if (!/^[\w-]{1,64}$/.test(rest)) return no("history.retry takes an item id")
-    return ok(repo === undefined ? { id: rest } : { id: rest, repo })
   },
   "history.land": (args) => {
     const { rest, repo } = splitTrailingRepo(args)

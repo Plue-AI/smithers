@@ -64,7 +64,7 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
 ]
 
 /** Root composes these after wiring the repository lane controller. */
-export const tutorialRepositoryFlows = (actions: import("../../state/controller/tutorialRepository").TutorialRepositoryActions): ReadonlyArray<FlowEntry> => [
+export const tutorialRepositoryFlows = (actions: import("../../state/controller/repositoryChoice").TutorialRepositoryActions): ReadonlyArray<FlowEntry> => [
   flow({
     name: "repo.choose",
     summary: "Choose a recently pushed GitHub repository",

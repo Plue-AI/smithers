@@ -89,7 +89,7 @@ import { canonicalEventValue } from "./EventValue"
 import { expireStatus } from "./HealthStatus"
 import { HttpTurnLegSchema,HttpTurnSchema,httpToolLegCount,projectHttpFrame,settleHttpClaims,verifyHttpBatch } from "./HttpTurn"
 import { pendingRecoveryScope,sameRecoveryScope } from "./PendingRecovery"
-import { initialSignup, signupAfterIdentity } from "./Signup"
+import { initialSignup, legacySignupForOwner } from "./LegacySignup"
 import { RepositoryContextSchema } from "./RepositoryContext"
 import { NotificationReadReceiptSchema,RepositoryNotificationSchema,notificationReadVersion,notificationReceiptKey,type RepositoryNotification } from "./RepositoryNotifications"
 import { impossibleAskOf,runLaunchCommandOf,toolResultLaunchedRun } from "./RunClaims"
@@ -811,7 +811,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
   }
   collections.sessions.update(SESSION_ID, (draft) => {
     const branchId = draft.activeBranchId ?? DEFAULT_BRANCH_ID
-    // A completed signup stays `done` as a content-free receipt (state/Signup.ts): the name, slug, answers and drafts leave with the account, the completion does not.
+    // A completed signup stays `done` as a content-free receipt (state/LegacySignup.ts): the name, slug, answers and drafts leave with the account, the completion does not.
     if (draft.signup !== undefined) draft.signup = draft.signup.stage === "done" ? { ...initialSignup(), stage: "done" } : initialSignup()
     draft.draft = ""
     delete draft.queuedPrompts
@@ -950,7 +950,7 @@ export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppP
       const completed = session.signup.stage === "done"
       collections.sessions.update(session.id, row => {
         row.signup = completed ? { ...initialSignup(), stage: "done" }
-          : login === null ? initialSignup() : signupAfterIdentity(initialSignup(), "signed-in", login, null) ?? initialSignup()
+          : login === null ? initialSignup() : legacySignupForOwner(login)
       })
     }
   }

@@ -3,7 +3,7 @@ import { PERSISTED_KEY_PREFIX } from "../chain/SchemaVersion"
 import { CardHistorySchema,CardSchema,StarredTargetSchema,type Card,type CardHistory,type StarredTarget } from "./AppState"
 import { canonicalStoredJsonValue } from "./EventValue"
 import { PendingRecoveryAuthoritySchema,type PendingRecoveryAuthority } from "./PendingRecovery"
-import { SignupSchema,type Signup } from "./Signup"
+import { SignupSchema,type Signup } from "./LegacySignup"
 
 export const ENTITY_RECOVERY_STORAGE_KEY = `${PERSISTED_KEY_PREFIX}entity-recovery`
 

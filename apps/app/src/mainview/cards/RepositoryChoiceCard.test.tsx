@@ -2,7 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import type { RepositoryChoicePayload } from "../state/controller/tutorialRepository"
+import type { RepositoryChoicePayload } from "../state/controller/repositoryChoice"
 import { RepositoryChoiceCard, SEARCH_LIMIT } from "./RepositoryChoiceCard"
 
 GlobalRegistrator.register()

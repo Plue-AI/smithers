@@ -14,7 +14,8 @@ decided one at a time.
 - Everything is a flow. A button, slash command, agent action, CLI command and
   API call run the same typed flow, and the factory's process is a flow in the
   repository.
-- TODOs replace the five maintenance jobs. Each TODO is one item on the
+- The five-job setup UI and CI, Feature and Chores jobs are cut (mvp.md §8;
+  M-12). TODOs replace the five maintenance jobs. Each TODO is one item on the
   repository's stack, worked on its own branch by the customizable TODO flow,
   and reaches `main` as one squash-merged GitHub pull request. People merge,
   by hand or by pre-approving a TODO so its PR merges when ready (M-39);
@@ -168,7 +169,7 @@ merges or pre-approved (mvp.md M-05, M-39). Never rewrite `main`; never write `m
 
 Chat responses acknowledge an action immediately. Repository setup, research,
 planning, implementation, tests, and other slow work run in the background.
-This applies equally to normal use and every tutorial/onboarding lesson.
+This applies to every MVP action (mvp.md §8; M-12).
 
 - Persist the request and return an honest acknowledgment without awaiting the
   network request or the job. “Requested” is not “started” or “completed.”
@@ -176,12 +177,10 @@ This applies equally to normal use and every tutorial/onboarding lesson.
   300 ms debounce; keep the toast running through launch AND execution, then
   resolve it from the real completion or failure. A launch acknowledgment is
   not job completion. Keep detailed output in the durable embedded run card.
-- Keep Chat, navigation, and unrelated actions usable throughout. Tutorial
-  actions must not strand the user behind a disabled “Researching…” button;
-  offer Chat while a prerequisite runs. Advance dependent lessons only after
-  their real completion receipts exist.
+- Keep Chat, navigation, and unrelated actions usable throughout. Advance
+  dependent work only after its real completion receipts exist.
 - Deduplicate repeated launches, reconnect persisted requests after reload,
-  and ignore stale responses from an earlier tutorial playthrough. Failures
+  and ignore stale responses from an earlier request. Failures
   must remain visible and retryable without claiming successful completion.
 - Test with a deliberately unresolved launch and a running remote job: the
   command must return before either finishes, chat must remain usable, and

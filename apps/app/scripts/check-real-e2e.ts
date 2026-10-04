@@ -64,7 +64,7 @@ function joinDefault(root: string, child: string): string {
       "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.signal", "search.changes", "search.files", "search.history",
       "search.issues", "search.runs", "search.secrets", "secrets.connect.codex",
       "secrets.move", "search.wiki", "secrets.scope",
-      "history.backfill", "history.parallel", "history.retry", "history.show", "triggers.approve",
+      "history.parallel", "history.show", "triggers.approve",
       "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "box.session.destroy", // Added without a scenario since the review, or left without one by the MVP cut (#3385).
       "egress.allow", "form.submit", "history.land", "runs.continue", "secrets.bind",
     ],

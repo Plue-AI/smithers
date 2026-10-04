@@ -1,7 +1,7 @@
 import { httpCommandSelector } from "./state/CommandSelection"
 import type { ClientErrorReporter } from "./state/ClientErrors"
 import { isWriterOwnershipError } from "./state/StorageRecoveryContract"
-import { selectFirstRunRepository } from "./state/FirstRunRepository"
+import { selectFirstRunRepository } from "./state/BootRepositoryTarget"
 import { Effect } from "effect"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import { loadRuntimeApplicationClient } from "./runtime/ApplicationTransport"
@@ -136,7 +136,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
        * cloud identity barrier.
        */
       yield* Effect.sync(() => {
-        // A failed read is an answer too (FirstRunRepository.ts): both sides
+        // A failed read is an answer too (BootRepositoryTarget.ts): both sides
         // settle, or a rejected identity promise parks a command forever.
         const settle = () => { if (requested === null) selectFirstRunRepository(store, controller.settleFirstRunTarget) }
         void controller.loadSession().then(settle, settle)

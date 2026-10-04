@@ -26,7 +26,7 @@ import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { RepositoryJobSchema, SetupRecoveryResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import { z } from "zod"
-import { SignupSchema, type Signup } from "./Signup"
+import { SignupSchema, type Signup } from "./LegacySignup"
 import { currentFlowName, FLOW_NAMES } from "../flows/FlowName"
 import { CloudWikiState } from "../wiki/CloudWikiState"
 import type { CommandIntent } from "./CommandIntent"
@@ -811,7 +811,7 @@ export const SessionSchema = z.object({
   /** Optional so previously saved sessions still parse. */
   firstRunDismissed: z.boolean().optional(),
   hintsSeen: z.array(z.string()).optional(),
-  /** The signup onboarding's stage and answers (state/Signup.ts); absent on sessions saved before it existed. */
+  /** The signup onboarding's stage and answers (state/LegacySignup.ts); absent on sessions saved before it existed. */
   signup: SignupSchema.optional(),
   id: z.literal("main"),
   draft: z.string(),

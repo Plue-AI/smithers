@@ -1,4 +1,4 @@
-import { selectFirstRunRepository } from "./FirstRunRepository"
+import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import { expect,test } from "bun:test"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"

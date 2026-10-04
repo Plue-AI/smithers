@@ -1,6 +1,6 @@
 import { useCallback, useId, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
-import { GuideButton, GUIDE_KEYS } from './onboarding/GuideButton'
+import { ShortcutButton, SHORTCUT_KEYS } from './ShortcutButton'
 import { INPUT_MODES, inputModeLabel, type InputMode } from './state/InputMode'
 import { bindPressActions, type PressAction } from './runtime/PressActions'
 import { dictationAvailable, DICTATION_UNAVAILABLE } from './state/controller/dictation'
@@ -27,7 +27,7 @@ export function InputModeMenu({ mode, onChange, placement = 'above' }: {
     const stop = bindPressActions({ root, resolveShortcut: event => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
       const key = event.key.toLowerCase()
-      if (key === 'escape' || key === GUIDE_KEYS.mode) return { element: trigger.current ?? undefined, activate: () => close() }
+      if (key === 'escape' || key === SHORTCUT_KEYS.mode) return { element: trigger.current ?? undefined, activate: () => close() }
       const options = [...node.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
       const index = options.indexOf(doc.activeElement as HTMLButtonElement)
       const delta = key === 'arrowdown' || (latest.current.mode === 'vim' && key === 'j') ? 1
@@ -43,8 +43,8 @@ export function InputModeMenu({ mode, onChange, placement = 'above' }: {
     return () => { stop(); doc.removeEventListener('pointerdown', outside, true); doc.removeEventListener('keydown', tab, true) }
   }, [close])
   return <div className="input-mode-control" data-keyboard-pane="Input mode" data-placement={placement}>
-    <GuideButton ref={trigger} shortcut={GUIDE_KEYS.mode} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
-      onClick={() => open ? close() : setOpen(true)}>Mode: {inputModeLabel(mode)}</GuideButton>
+    <ShortcutButton ref={trigger} shortcut={SHORTCUT_KEYS.mode} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
+      onClick={() => open ? close() : setOpen(true)}>Mode: {inputModeLabel(mode)}</ShortcutButton>
     {open && <div id={id} ref={mount} className="input-mode-menu" role="menu" aria-label="Input mode">
       {INPUT_MODES.map(value => <button key={value} type="button" role="menuitemradio" aria-checked={mode === value}
         aria-disabled={value === 'dictation' && !speechSupported || undefined}
