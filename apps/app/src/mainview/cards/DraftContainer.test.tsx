@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { DraftCard } from "@smthrs/rpc/DraftCard"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Draft"
-import { DraftContainer, type DraftViewProps } from "./DraftContainer"
+import { DraftContainer, type DraftViewProps } from "./DraftCard"
 import type { DraftEntry } from "../state/seams/TodoSeam"
 
 const mount = (model: DraftCard, request?: DraftEntry["payload"]["request"], memberId = "ben") => {

@@ -709,7 +709,7 @@ const IssueLastCommentSchema = z.object({
 const TodoRequestSchema = z.object({
   key: z.string(),
   owner: z.string(),
-  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop"]),
+  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge"]),
   body: z.record(z.string(), z.unknown()),
   n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]),

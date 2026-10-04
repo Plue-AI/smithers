@@ -173,8 +173,6 @@ export const FLOW_NAMES = [
   "history.parallel",
   "history.land",
   "history.show",
-  "history.todo",
-  "history.view",
   "input.mode",
   "issue.add-flow",
   "issue.flows",

@@ -1,7 +1,7 @@
 /*
  * The `history` flows: the repository's mythical stack (epic #1745), which
  * IS its history of logical changes (D-09a, D-20), served by
- * `@smthrs/rpc/Mythical`. `history.show` and `history.view` are dark: the
+ * `@smthrs/rpc/Mythical`. `history.show` is dark: the
  * Home card replaced the History card (T-APP-01; `/stack`), and they stay
  * only as the seam's readers until StackSeam.ts goes with it. Bootstrap, lane count, retry and land are the writes the API
  * has, each acknowledged at once and finished in the shared toast stack.
@@ -33,16 +33,6 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ repo }) => actions.showStack(repo)
   }),
   flow({
-    name: "history.view",
-    summary: "Show the history as its issue list or its metrics",
-    hidden: true,
-    runtime: ["cloud"],
-    args: "<issues|metrics> [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ view: Schema.Literals(["issues", "metrics"]), repo: RepoOptional }),
-    handler: ({ view, repo }) => actions.setStackView(view, repo)
-  }),
-  flow({
     name: "history.bootstrap",
     summary: "Create the history from main's commits",
     runtime: ["cloud"],
@@ -64,28 +54,6 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     confirm: "change how many lanes work at once",
     input: Schema.Struct({ value: Schema.Number, repo: RepoOptional }),
     handler: ({ value, repo }) => actions.setStackParallel(value, repo)
-  }),
-  /*
-   * A TODO for the coding factory: the stack files it on the repository's
-   * GitHub issues as the maintainer's own and queues it (POST
-   * …/mythical/todos), acknowledged at once; its notice follows the factory
-   * until its pull request opens, it lands, or it stops. Filing starts
-   * credentialed work, so the agent's door confirms.
-   */
-  flow({
-    name: "history.todo",
-    summary: "File a TODO for the coding factory and follow it to its pull request",
-    runtime: ["cloud"],
-    args: "<title> [owner/repo]",
-    requires: ["signed-in"],
-    confirm: "file this TODO for the coding factory",
-    input: Schema.Struct({ title: Schema.NonEmptyString, body: Schema.optional(Schema.String), repo: RepoOptional }),
-    form: {
-      args: (payload) => JSON.stringify(payload),
-      submitLabel: "File",
-      fields: { title: { label: "TODO" }, body: { label: "Details", kind: "textarea" }, repo: { hidden: true } }
-    },
-    handler: ({ title, body, repo }) => actions.fileTodo(title, body, repo)
   }),
   /*
    * Land: the stack merges a proposed TODO's pull request as for a

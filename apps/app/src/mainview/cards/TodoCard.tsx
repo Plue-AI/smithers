@@ -1,4 +1,7 @@
-import type { ComponentType } from "react"
+import { useSyncExternalStore, type ComponentType } from "react"
+import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
+import { useTopic } from "../state/useTopic"
+import { useLiveQuery } from "@tanstack/react-db"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
@@ -69,7 +72,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   if (model.pr && model.state === "in_review") {
     const checks = requiredChecks(model)
     const ready = model.merge.state === "ready" && model.place === 1 && role !== "member"
-      && checks.length > 0 && checks.every(item => item.state === "passed") && !model.pr.draft
+      && model.evidence.at(-1)?.revision === model.pr.head && checks.every(item => item.state === "passed") && !model.pr.draft
     // The head is bound to the command, even though the provisional catalog types only name n.
     const mergeInput = { n, reviewed_head_sha: model.pr.head }
     definitions.push({ tag: "merge", label: ready ? "Merge" : mergeLabel(model), command_input: mergeInput,
@@ -90,7 +93,13 @@ export const TodoContainer = ({ card, role, dispatch, View, view, onView }: Todo
 /** The `todo` kind: the seeded design world's Tn while the seed is mounted (mock seam), else the server projection. */
 const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly maximized: boolean }) => {
   const controller = useController()
-  const seeded = useDesignTodoCard(card.payload.n)
+  const seed = useDesignTodoCard(card.payload.n)
+  const seeded = card.payload.model || card.payload.requests.length > 0 ? undefined : seed
+  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
+  const members = useTopic(controller.bootstrap ? "members" : undefined)
+  const roster = MembersCardSchema.safeParse(members?.data)
+  const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
+  const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined
   const dispatch: CardCommandDispatch = (tag, input) => {
     const payload = (input ?? {}) as Record<string, unknown>
     if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
@@ -100,7 +109,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
     return controller.commands.submit({ name: tag, payload, actor: "user", originCardId: card.id })
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
-  return <TodoContainer card={entry} role={seeded?.role ?? "member"} dispatch={dispatch} View={TodoView}
+  return <TodoContainer card={entry} role={seeded?.role ?? (role ?? (install.model?.github.signed_in && install.model.github.owner === identity?.login ? "owner" : "member"))} dispatch={dispatch} View={TodoView}
     view={{ maximized }} onView={() => {}} />
 }
 export const todoCardFamily: CardFamily<"todo"> = {

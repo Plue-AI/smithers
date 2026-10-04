@@ -1,10 +1,12 @@
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage } from "../state/TestFixtures"
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
-import { TodoContainer, todoCardFamily, type TodoViewProps } from "./TodoContainer"
+import { TodoContainer, todoCardFamily, type TodoViewProps } from "./TodoCard"
 import type { TodoEntry } from "../state/seams/TodoSeam"
 import { TodoView } from "./views/TodoView"
 import { ControllerTestProvider } from "../ControllerContext"
@@ -134,7 +136,9 @@ test("one actions row: Open branch, Inspect, Steer and Amend as plain buttons, D
 test("on a mounted TODO card, Steer and Amend open Chat on the flow's line instead of running it", async () => {
   const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: BEN })
   const calls: string[] = []
-  const stub = { design,
+  const emptyInstall = {}
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const stub = { design, store, installSnapshots: { get: () => emptyInstall, subscribe: () => () => {} },
     changeDraft: (draft: string) => { calls.push(`draft ${draft}`) },
     runCommand: (name: string) => { calls.push(`run ${name}`); return true },
     commands: { submit: (submission: { name: string }) => { calls.push(`submit ${submission.name}`); return Promise.resolve({ status: "executed" }) } } }
@@ -153,4 +157,22 @@ test("passing checks from an earlier head cannot enable Merge", () => {
   expect(h.props.actions.find(action => action.tag === "merge")?.disabled).toBeDefined()
   h.props.onAction("merge")
   expect(h.dispatches).toEqual([])
+})
+
+test("a real TODO projection takes precedence over the seeded TODO with the same number", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: BEN })
+  const snapshot = {}
+  const controller = { store, design, installSnapshots: { get: () => snapshot, subscribe: () => () => {} }, commands: { submit: () => {} } } as unknown as AppController
+  const card: TodoEntry = { id: "todo:9", kind: "todo", title: "Actual source prompt", status: "active", createdAt: 1, ordinal: 1,
+    payload: { n: 9, requests: [], model: { ...fixtures.queued.model, n: 9, title: "Actual source prompt" } } }
+  const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>)
+  expect(markup).toContain("Actual source prompt")
+  expect(markup).not.toContain(design.world().todos.find(todo => todo.ref === "T9")!.title)
+})
+
+test("no required checks and failed optional checks still permit a server-ready Merge at the evidenced head", () => {
+  const model = fixtures.in_review.model
+  const h = mount({ ...model, evidence: [{ ...model.evidence.at(-1)!, items: [{ kind: "github_check", name: "Optional", state: "failed", required: false, url: "https://github.com/smithersai/smithers/actions/runs/1" }] }] })
+  expect(h.props.actions.find(action => action.tag === "merge")?.disabled).toBeUndefined()
 })

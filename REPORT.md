@@ -262,3 +262,61 @@ Definitions.ts add the two requested CLI doors and local health; CLI tests
 cover new dispatch, exits and intentional token output; source docs and their
 generated projection describe the new operator commands; this report is the
 requested operator/evidence handoff. apps/app/scripts/README.md is docs only.
+
+# T-APP-02 (#3466), crit-t-app-02
+
+Ready: sha256:47e1d03944fe. Lead smithers-df holds the claim. This lane did not run gh, issue-claim, jj, root commands, or Playwright. This is a tested app increment; C-J1-04 is NOT a passing journey receipt.
+
+Implemented: the existing TODO/Draft Views mount through TodoCard.tsx and DraftCard.tsx. Configured hosts use TodoSeam; design-only builds retain seeded mutations. A real model wins over a seed with the same number; an existing seed card stays mounted until real data arrives. Draft audience uses the signed-in login. Commit persists one key, rejects malformed fields, and repeated presses after admission do not resubmit. Session Merge sends the reviewed SHA to the numbered merge route and waits for the server's Merged state. Required checks must belong to that head; failed optional checks do not block. The install owner and live member roster supply merge visibility. Shared live topics are connected, with REST refresh until the first topic publishes. Admission alone never clears a Draft or finishes a toast; an observed persisted TODO confirms creation, and review/failure or merged projections settle progress.
+
+Deleted: TodoContainer.tsx and DraftContainer.tsx are renamed to their card files; there are no compatibility wrapper files. StackSeam's GitHub-issue TODO producer, its filing/following machinery and History view writer are deleted. history.todo and history.view are removed from the registry, typed names, encoders and grammars; their old tests are removed. history.retry was already absent. Existing persisted history schemas remain readable.
+
+## Operator: this part of C-J1-04
+
+Use a fresh acceptance-test macOS user and the assembled bundle, never sudo or pnpm dev. From this checkout, after the parallel backend providers land:
+
+```sh
+source ~/lanes/env.sh
+export PATH="$HOME/.local/node/bin:$HOME/.bun/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+smthrs build //apps/app:serverBundle
+smthrs host start --bundle "$PWD/apps/app/.native"
+curl --fail http://127.0.0.1:4000/readyz
+smthrs host status
+```
+
+These operator commands were NOT executed by this lane. The assembler and launcher are T-INS-01/T-INS-02/T-INS-08's commands. An installed smthrs CLI is required; this lane's shell does not currently find it. Expected: manifest-verified bundle, per-user LaunchAgent, readyz HTTP 200, and the backend's setup URL on first start. Open that URL, finish Setup, then use the repository's transcript at port 4000. This UI increment introduces no listener; the bundle's relay is port 4001 and later SSH is port 2222.
+
+In Chat enter `/todo.new`, fill Title, Prompt from JOURNEY.md, Acceptance, and Append. Press Commit twice: one TODO with one Idempotency-Key, private Draft until the server's persisted TODO appears, then a Tn link. Chat remains usable while launch/execution are unresolved. Open `/todo Tn`: Queued → Starting → Working → In review comes from the real TODO model. Open Evidence and its supplied PR link. Only the first item, at its evidenced head, for the install owner or a roster-confirmed maintainer, offers enabled Merge. Press Merge. Expected network request: POST /api/todos/N/merge, credentials included, Idempotency-Key, body {reviewed_head_sha: the displayed PR head}; show Merged only after a subsequent server projection. Stop with `smthrs host stop` after collecting the journey evidence.
+
+## Assumed provider contracts
+
+- T-STK-01: GET /api/todos returns TodoCard[]; GET /api/todos/N returns TodoCard. POST /api/todos takes {title,prompt,acceptance,place,issue?,fixes?}, returns 202 {state:accepted,n}. Returned N identifies this admitted request. The read projection freezes revision 1's prompt, which is used with the title and admitted N to confirm the browser Draft's creation.
+- T-STK-04: POST /api/todos/N/merge takes {reviewed_head_sha}, uses the session cookie plus Idempotency-Key, and returns accepted only for durable admission; the authoritative TODO projection reports merged only after GitHub confirms it.
+- Numbered controls use POST /api/todos/N {op,...}; amend uses PATCH. Errors use spec §6.2.3's {code,class,message,...}; no URL, PR head, or evidence is invented on a real projection.
+- LiveChannel todo:N snapshots contain TodoCard. Existing injected TodoTopics may additionally deliver explicit keyed transaction/completion receipts. Until the topic publishes, REST is refreshed once per second, without overlapping reads, and sign-out/disposal fences replies.
+- GET /api/install's signed-in github.owner identifies the install owner; the members topic supplies the current roster and roles. Maintainer visibility without that topic remains unavailable. Shared Draft persistence and Settings replacement are later phases.
+
+## Executed validation
+
+All commands used Node v26.5.0 and Bun v1.4.2 with the environment prefix above. The requested PATH order places Homebrew's Node 24 ahead of the pinned Node and initially refused the test run; putting ~/.local/node/bin first fixed the toolchain selection.
+
+From apps/app:
+
+```sh
+bun test --isolate src/mainview/cards/TodoContainer.test.tsx src/mainview/cards/DraftContainer.test.tsx src/mainview/cards/CardRenderers.test.tsx src/mainview/state/seams/TodoSeam.test.ts src/mainview/state/seams/DesignWorld/todo.test.ts src/mainview/flows/entries/todo.test.ts src/mainview/flows/entries/home.test.ts src/mainview/state/StackController.test.ts src/mainview/flows/FlowArgs.test.ts src/mainview/flows/FlowName.test.ts src/mainview/flows/SlashPayload.test.ts
+pnpm typecheck
+```
+
+181 passed, 0 failed, 1770 assertions; typecheck passed. Local app test log: .artifacts/T-APP-02/app-tests.log. Mock HTTP/topic inputs are unit-test boundary fixtures, not production/GitHub evidence. No measured coverage claim.
+
+From packages/rpc: `pnpm typecheck` passed; `pnpm exec vitest run test/Cards.test.ts`: 515 passed, 0 failed. `git diff --check` passed.
+
+Additional main-versus-tip audit: `cd apps/app && bun test --isolate src/mainview/flows/agent-parity.test.ts` has the same two failures on main 354ce345f2 and this tip (7 passed, 2 failed): Settings owner-session rows are missing from its allowlist; its flow.create/cloud.prompt/agent.list disclosure expectation is stale. This test file was not changed. Main 354ce345f2 typecheck also missed notification_refused; upstream bdd9ec5672 supplied that mapping, retained unchanged here. A rebase autostash conflict briefly invalidated a test attempt; conflict-free reruns above supersede it.
+
+## Lines and reasons
+
+Code/test increment before this report: 18 files, 239 insertions, 534 deletions, net -295. Final diff and landed SHA are recorded in ~/lanes/crit-t-app-02.REPORT.md. Positive per-file changes: DraftCard (+2) binds real audience; TodoCard (+9) binds real viewer/model/checks; TodoContainer.test (+22) proves real-model priority and optional-check behavior; home.ts (+2) connects real Merge; todo.test (+37) tests real dispatcher routing; AppController (+1) shares live transport and exposes Merge; DesignWorld/todo (+2) preserves the design fallback while enabling real hosts; TodoSeam.test (+81) covers validation, duplicate admission, source completion, reviewed Merge and stale refresh; TodoSeam (+44) replaces absent refresh/merge behavior with durable requests and projections. REPORT.md adds operator/proof documentation required by this lane. No root step was introduced; there are no root-consumed inputs.
+
+## Not done
+
+C-J1-04 is unrun, not passed: no fresh-user install/GitHub journey or screen recording, and this checkout's backend composition still lacks /api/todos routes when inspected. The operator must use the parallel providers' landed implementation before trying the journey. No production PostgreSQL/dispatcher integration was run; duplicate creation, transaction audience clearing, GitHub checks.Land and merge authorization still need provider/integration receipts. C-UI-13's mounting/deletion changes are present, but its full acceptance runner was not run. C-APP-01/02/03, C-J2-01, C-J4-02, C-J9-01 and the remaining S1 integrations are not claimed: Take over, image.add, queued Edit, shared-card persistence, wiki page-save, expanded PR projections and provider-backed answer/control completion remain later work. No issue was closed.

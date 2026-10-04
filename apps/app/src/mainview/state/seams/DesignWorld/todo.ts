@@ -177,12 +177,14 @@ export const useDesignTodoCard = (n: number): { readonly model: TodoCard; readon
 const result = (outcome: DesignResult): string | { readonly value: string } => outcome.ok ? { value: outcome.ack } : outcome.refusal
 
 /**
- * The TodoSeam the controller exposes while the seed is mounted. Every todo.* and draft.* flow lands on
- * the design world, signed in or not; the real seam's lifecycle members pass through untouched.
+ * The design-only TodoSeam. Configured hosts use the real seam; design builds keep
+ * their seeded mutations and projection fallback until a server model arrives.
  * `todo:<n>` rows carry only `n` (TodoBody reads the model live from the seed); draft rows carry the
  * DraftCard the seed projects, rewritten after each edit.
  */
-export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: DesignWorld): TodoSeam => {
+export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: DesignWorld, live = false): TodoSeam => {
+  // A configured host owns TODOs; the seeded world remains the design-only fallback.
+  if (live) return real
   const acceptance = new Map<string, ReadonlyArray<string>>()
   const me = (): ActorId => design.viewer()
   /* The app agent acts with the member's authority; what it does reads "<member> via Smithers" (ctx.actor is the binding's principal). */

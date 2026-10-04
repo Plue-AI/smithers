@@ -64,6 +64,8 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     confirmArgs: payload => `T${String(payload.n)}`,
     /* Merge bound to a reviewed head merges; a bare Merge (Home row, /merge Tn, the agent) only opens Review & merge (J4.4). */
     handler: async ({ n, reviewed_head_sha }) => {
+      if (actions.bootstrap !== undefined) return reviewed_head_sha === undefined
+        ? actions.showTodo(n) : actions.mergeTodo(n, reviewed_head_sha)
       const design = actions.design
       const viewer = design.viewer()
       if (reviewed_head_sha !== undefined) return onTodo(design, n, id => design.merge(id, viewer, reviewed_head_sha))

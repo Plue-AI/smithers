@@ -1,4 +1,5 @@
 import type { ComponentType } from "react"
+import { useLiveQuery } from "@tanstack/react-db"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
@@ -53,9 +54,10 @@ export const DraftContainer = ({ card, memberId, dispatch, View, view, onView }:
 const DraftBody = ({ card, maximized }: { readonly card: CardOf<"draft">; readonly maximized: boolean }) => {
   const controller = useController()
   const viewer = useDesignViewer()
+  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  return <DraftContainer card={card} memberId={designAudience(viewer)} dispatch={dispatch} View={DraftView}
+  return <DraftContainer card={card} memberId={card.audience_member_id?.startsWith("design:") ? designAudience(viewer) : identity?.login ?? ""} dispatch={dispatch} View={DraftView}
     view={{ maximized }} onView={() => {}} />
 }
 export const draftCardFamily: CardFamily<"draft"> = {

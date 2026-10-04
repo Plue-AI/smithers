@@ -45,8 +45,6 @@ export interface FlowInput {
   readonly "secrets.bind": { readonly name: string; readonly repo: string }
   readonly "history.parallel": { readonly value: number; readonly repo: string }
   readonly "history.land": { readonly id: string; readonly head: string; readonly repo: string }
-  readonly "history.todo": { readonly title?: string; readonly body?: string; readonly repo: string }
-  readonly "history.view": { readonly view: "issues" | "metrics"; readonly repo: string }
   readonly "issues.close": { readonly number: number; readonly repo: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
   readonly "findings.please-fix": { readonly changeId: string; readonly findingId: number }
@@ -200,8 +198,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "history.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
   "history.land": payload => line(token(payload, "id"), token(payload, "head"), token(payload, "repo")),
-  "history.todo": payload => JSON.stringify(payload),
-  "history.view": payload => line(token(payload, "view"), token(payload, "repo")),
   "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),

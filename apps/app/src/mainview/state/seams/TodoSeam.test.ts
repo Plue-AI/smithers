@@ -12,7 +12,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
-const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"]) => {
+const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const observed = new Map<string, (model: unknown, receipts?: readonly TodoReceipt[]) => void>()
@@ -26,7 +26,7 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
   }
-  const seam = createTodoSeam(context, { actors, topics, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
+  const seam = createTodoSeam(context, { actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
   return { store, seam, observed, outcomes, context, storage,
     draft: () => [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry,
     todo: () => store.collections.cards.get("todo:12") as TodoEntry,
@@ -74,7 +74,7 @@ describe("TodoSeam — admission and live completion", () => {
     const requests: { url: string; body: unknown }[] = []
     const h = await harness(async (url, init) => {
       requests.push({ url, body: JSON.parse(String(init?.body)) })
-      return url.endsWith("/answer") ? json({ code: "answered", class: "never", message: "Already answered", answered_by: "maya" }, 409) : json({ state: "requested", n: 12 })
+      return JSON.parse(String(init?.body)).op === "answer" ? json({ code: "answered", class: "never", message: "Already answered", answered_by: "maya" }, 409) : json({ state: "requested", n: 12 })
     })
     try {
       await h.seam.applyTodoProjection(12, fixtures.needs_you.model)
@@ -84,7 +84,7 @@ describe("TodoSeam — admission and live completion", () => {
       expect(h.outcomes).toHaveLength(1)
       expect(await h.seam.steerTodo(12, h.todo().payload.answerDraft!)).toEqual({ value: "Requested" })
       await waitFor(() => requests.length === 2)
-      expect(requests[1]).toEqual({ url: "https://install.test/api/todos/12/steer", body: { text: "Keep my late text\nverbatim" } })
+      expect(requests[1]).toEqual({ url: "https://install.test/api/todos/12", body: { op: "steer", text: "Keep my late text\nverbatim" } })
       const key = h.todo().payload.requests.find(request => request.operation === "steer")!.key
       await h.seam.applyTodoProjection(12, fixtures.working.model, [{ key, outcome: { status: "ok", detail: "Sent" } }])
       expect(h.todo().payload.answerDraft).toBeUndefined()
@@ -186,7 +186,7 @@ describe("TodoSeam — admission and live completion", () => {
       const id = h.draft().id
       await waitFor(() => h.draft().payload.place.options.length > 0)
       expect(h.draft().payload.place.options.map(row => row.n)).toEqual([12])
-      expect(await h.seam.setTodoFormField(id, "place", '{"mode":"before","n":999,"options":[{"n":999,"title":"Forged","state":"working"}]}')).toBe("Choose an unmerged TODO.")
+      expect(await h.seam.setTodoFormField(id, "place", '{"mode":"before","n":999,"options":[{"n":999,"title":"Forged","state":"working"}]}')).toBe("Invalid draft value.")
       expect(await h.seam.setTodoFormField(id, "place", "invalid JSON")).toBe("Invalid draft value.")
       expect(await h.seam.setTodoFormField(id, "unknown", "x")).toBe("Unknown draft field.")
       expect(h.seam.dismissTodoDraft(id)).toBeUndefined()
@@ -224,7 +224,7 @@ test("multiple waits require a target and persist the exact answer wait in HTTP"
     expect(calls).toEqual([])
     expect(await h.seam.answerTodo(12, "Approve", approval.id)).toEqual({ value: "Requested" })
     await waitFor(() => calls.length === 1)
-    expect(calls).toEqual([{ answer: "Approve", wait: approval.id }])
+    expect(calls).toEqual([{ op: "answer", answer: "Approve", wait: approval.id }])
   } finally { h.close() }
 })
 
@@ -278,3 +278,84 @@ for (const operation of ["stop", "resume", "retry", "retry-current-flow", "drop"
     } finally { h.close() }
   })
 }
+
+test("malformed Draft edits never persist or admit a Commit", async () => {
+  let writes = 0
+  const h = await harness(async () => { writes++; return json({ state: "accepted", n: 12 }) })
+  try {
+    await h.seam.newTodo({ text: "Prompt" })
+    const id = h.draft().id
+    for (const [field, value] of [["place", "{"], ["place", '{"mode":"append","n":12}'],
+      ["place", '{"mode":"before"}'], ["place", '{"mode":"before","n":"12"}'],
+      ["acceptance", '["yes",12]'], ["fixes", "yes"]]) {
+      expect(await h.seam.setTodoFormField(id, field!, value!)).toBe("Invalid draft value.")
+    }
+    expect(h.draft().payload.place.mode).toBe("append")
+    expect(h.draft().payload.acceptance).toEqual([])
+    expect(writes).toBe(0)
+    expect(await h.seam.setTodoFormField(id, "acceptance", '["one","two"]')).toBeUndefined()
+    expect(h.draft().payload.acceptance).toEqual(["one", "two"])
+  } finally { h.close() }
+})
+
+test("session Merge persists one reviewed head request and waits for the merged projection", async () => {
+  const admission = deferred<Response>()
+  const calls: { url: string; init?: RequestInit }[] = []
+  const h = await harness((url, init) => { calls.push({ url, init }); return admission.promise })
+  try {
+    await h.seam.applyTodoProjection(12, fixtures.in_review.model)
+    const head = fixtures.in_review.model.pr!.head
+    expect(await h.seam.mergeTodo(12, head)).toEqual({ value: "Requested" })
+    expect(await h.seam.mergeTodo(12, head)).toEqual({ value: "Requested" })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe("https://install.test/api/todos/12/merge")
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ reviewed_head_sha: head })
+    expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBeTruthy()
+    admission.resolve(json({ state: "accepted" }))
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(h.todo().payload.model?.state).toBe("in_review")
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, fixtures.merged.model)
+    expect(h.todo().payload.requests).toEqual([])
+    expect(h.outcomes).toHaveLength(1)
+  } finally { h.close() }
+})
+
+test("a persisted TODO snapshot commits its admitted Draft; completion waits for review", async () => {
+  const h = await harness(async () => json({ state: "accepted", n: 12 }))
+  try {
+    await h.seam.newTodo({ text: "Snapshot prompt", title: "Snapshot title" })
+    const id = h.draft().id
+    await h.seam.newTodo({ cardId: id })
+    await waitFor(() => h.draft().payload.request?.state === "accepted")
+    expect(h.draft().payload.private).toBe(true)
+    await h.seam.applyTodoProjection(12, fixtures.queued.model)
+    expect(h.draft().payload.private).toBe(true)
+    const model = { ...fixtures.queued.model, title: "Snapshot title", prompt_revisions: [{ ...fixtures.queued.model.prompt_revisions[0]!, text: "Snapshot prompt" }] }
+    await h.seam.applyTodoProjection(12, model)
+    expect(h.draft().payload.committed).toEqual({ n: 12, rev: 1 })
+    expect(h.draft().audience_member_id).toBeNull()
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...model, state: "in_review" })
+    expect(h.outcomes).toHaveLength(1)
+  } finally { h.close() }
+})
+
+test("REST refresh follows a real TODO without a topic and fences a read after sign-out", async () => {
+  const refreshed = deferred<Response>()
+  let reads = 0
+  const h = await harness(async () => ++reads === 1 ? json(fixtures.queued.model, 200) : refreshed.promise,
+    memoryStorage(), undefined, false)
+  try {
+    await h.seam.showTodo(12)
+    expect(h.todo().payload.model?.state).toBe("queued")
+    await waitFor(() => reads === 2)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(reads).toBe(2)
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    refreshed.resolve(json(fixtures.merged.model, 200))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(h.todo()).toBeUndefined()
+    expect(h.outcomes).toEqual([])
+  } finally { h.close() }
+})

@@ -74,12 +74,29 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const signedIn = (): string | undefined => identity()?.state === "signed-in" && owner() ? undefined : "Sign in to work on TODOs."
   const watch = (n: number) => {
-    if (!options.topics || shared.watches.has(n)) return
+    if (shared.watches.has(n)) return
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
-    shared.watches.set(n, options.topics.subscribe(`todo:${n}`, (model, receipts = []) => {
-      if (!current(login, revision)) return
-      void applyProjection(n, model, receipts, () => current(login, revision)).catch(error => ctx.report?.("todo.projection", error))
-    }))
+    let active = true, published = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const unsubscribe = options.topics?.subscribe(`todo:${n}`, (model, receipts = []) => {
+      if (!active || !current(login, revision)) return
+      published = true
+      if (timer) clearTimeout(timer)
+      void applyProjection(n, model, receipts, () => active && current(login, revision)).catch(error => ctx.report?.("todo.projection", error))
+    })
+    // Until this host publishes the topic, refresh persisted source facts through its read route.
+    const refresh = async () => {
+      if (!active || published || !current(login, revision)) return
+      try {
+        const response = await ctx.http(`${ctx.baseUrl}/api/todos/${n}`, { credentials: "include" })
+        if (response.ok && active && !published && current(login, revision)) {
+          await applyProjection(n, await response.json(), [], () => active && !published && current(login, revision))
+        }
+      } catch (error) { ctx.report?.("todo.refresh", error) }
+      if (active && !published && current(login, revision)) timer = setTimeout(() => { void refresh() }, 1000)
+    }
+    timer = setTimeout(() => { void refresh() }, 1000)
+    shared.watches.set(n, () => { active = false; if (timer) clearTimeout(timer); unsubscribe?.() })
   }
   const applyProjection = async (n: number, value: unknown, receipts: readonly TodoReceipt[] = [], stillCurrent?: () => boolean) => {
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
@@ -88,6 +105,20 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const model = TodoCardSchema.parse(todoActors(value, options.actors?.()))
     if (model.n !== n) throw new TodoTopicMismatch()
     const card = entry(n) ?? blank(n)
+    // REST snapshots are durable source facts too: admission alone never clears a Draft or a toast.
+    const observed: TodoReceipt[] = card.payload.requests.flatMap<TodoReceipt>(request => {
+      if (request.state !== "accepted" || receipts.some(receipt => receipt.key === request.key)) return []
+      if (request.operation === "merge") return model.state === "merged"
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
+      if (request.operation !== "create" || model.title !== request.body.title || model.prompt_revisions[0]?.text !== request.body.prompt) return []
+      const terminal = ["in_review", "merged", "failed", "dropped"].includes(model.state)
+      return [{ key: request.key, committed: { n, rev: 1 }, ...(terminal ? {
+        outcome: model.state === "failed" || model.state === "dropped"
+          ? { status: "failed" as const, detail: model.failure?.message ?? "Dropped" }
+          : { status: "ok" as const, detail: model.state === "merged" ? "Merged" : "In review" }
+      } : {}) }]
+    })
+    receipts = [...receipts, ...observed]
     await write({ ...card, title: model.title, payload: { ...card.payload, model,
       requests: card.payload.requests.filter(request => !receipts.some(receipt => receipt.key === request.key && receipt.outcome)),
       ...(receipts.some(receipt => receipt.outcome?.status === "ok" && card.payload.requests.some(request => request.key === receipt.key && request.operation === "steer"))
@@ -125,7 +156,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const row = ctx.store.collections.cards.get(cardId)
     const title = row?.title ?? "TODO"
     showNotice(request, title)
-    const control = ["stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
+    const control = ["answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
     const route = request.operation === "create" ? "/api/todos"
       : `/api/todos/${request.n}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
@@ -243,7 +274,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() && !row.payload.committed) return "This draft belongs to its author."
     if (row.payload.committed) return { value: `Committed T${row.payload.committed.n}` }
-    const model = row.payload
+    if (row.payload.request?.state === "accepted") return { value: "Requested" }
+    const parsed = DraftCardSchema.safeParse(row.payload)
+    if (!parsed.success) return "Invalid draft value."
+    const model = { ...row.payload, ...parsed.data }
     const place = model.place
     if (!model.title.trim() || !model.prompt.trim()) return "A TODO needs a title and prompt."
     if (place.mode !== "append" && !place.options.some(option => option.n === place.n && !["merged", "dropped"].includes(option.state))) return "Choose an unmerged TODO."
@@ -266,9 +300,19 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     try {
       switch (field) {
         case "title": case "prompt": patch = { [field]: value }; break
-        case "acceptance": patch = { acceptance: value.split("\n").filter(Boolean) }; break
-        case "place": patch = { place: { ...row.payload.place, ...JSON.parse(value), options: row.payload.place.options } }; break
-        case "fixes": patch = { issue: row.payload.issue ? { ...row.payload.issue, fixes: value === "true" } : undefined }; break
+        case "acceptance": {
+          const lines: unknown = value.trim().startsWith("[") ? JSON.parse(value) : value.split("\n").filter(Boolean)
+          if (!Array.isArray(lines) || lines.some(line => typeof line !== "string")) return "Invalid draft value."
+          patch = { acceptance: lines }; break
+        }
+        case "place": {
+          const place: unknown = JSON.parse(value)
+          if (!place || typeof place !== "object" || Array.isArray(place)) return "Invalid draft value."
+          const input = place as Record<string, unknown>
+          if (Object.keys(input).some(key => key !== "mode" && key !== "n") || input.mode === "append" && "n" in input) return "Invalid draft value."
+          patch = { place: { ...input, options: row.payload.place.options } as DraftCard["place"] }; break
+        }
+        case "fixes": if (value !== "true" && value !== "false") return "Invalid draft value."; patch = { issue: row.payload.issue ? { ...row.payload.issue, fixes: value === "true" } : undefined }; break
         default: return "Unknown draft field."
       }
       const model = DraftCardSchema.parse({ ...row.payload, ...patch })
@@ -313,7 +357,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); stop() })
-  return { showTodo, newTodo, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+  return { mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), showTodo, newTodo, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)

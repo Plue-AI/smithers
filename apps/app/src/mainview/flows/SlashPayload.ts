@@ -793,18 +793,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (!/^[\w-]{1,64}$/.test(id) || !/^[\w-]{1,64}$/.test(head) || extra.length > 0) return no("history.land takes an item id and its pull request head")
     return ok(repo === undefined ? { id, head } : { id, head, repo })
   },
-  /* `<title> [owner/repo]`, or the form's `{ title, body, repo }`. */
-  "history.todo": (args, known) => {
-    const structured = structuredFields("history.todo", args, ["title", "body", "repo"])
-    if (structured !== undefined) return structured
-    const { rest, repo } = splitTrailingRepo(args, known)
-    return ok({ ...(rest === "" ? {} : { title: rest }), ...(repo === undefined ? {} : { repo }) })
-  },
-  "history.view": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    if (rest !== "issues" && rest !== "metrics") return no("history.view takes issues or metrics")
-    return ok(repo === undefined ? { view: rest } : { view: rest, repo })
-  },
   /*
    * Both generators need a repository. Commands.ts renders a form only for a
    * grammar failure, so a blank line must fail here rather than reach schema

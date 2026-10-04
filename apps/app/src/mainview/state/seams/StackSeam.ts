@@ -42,7 +42,6 @@ import { readResult } from "./SeamContext"
 type StackCard = Extract<Card, { kind: "stack" }>
 type Failure = NonNullable<StackCard["payload"]["failure"]>
 type Result = { readonly value: string } | string
-type StackView = NonNullable<StackCard["payload"]["view"]>
 
 export const stackCardId = (repo: string): string => `stack:${repo}`
 
@@ -63,8 +62,6 @@ class HistoryAccessRevoked extends Data.TaggedError("HistoryAccessRevoked")<Reco
 
 export interface StackSeam {
   readonly showStack: (repo?: string) => Promise<Result>
-  /** The History card's view: its issue list or its metrics; surfaces the card when absent. */
-  readonly setStackView: (view: StackView, repo?: string) => Promise<Result>
   /** One snapshot without a card: the watched one, else a single read. */
   readonly readStack: (repo?: string) => Promise<MythicalStack | string>
   readonly heldStack: (repo: string) => MythicalStack | undefined
@@ -73,8 +70,6 @@ export interface StackSeam {
   readonly retryStackItem: (id: string, repo?: string) => Promise<Result>
   /** A maintainer's Land on a proposed TODO: ask the stack to merge it at `head` and follow it until it lands or stops. */
   readonly landStackItem: (id: string, head: string, repo?: string) => Promise<Result>
-  /** File a TODO for the factory and follow it until the factory settles it. */
-  readonly fileTodo: (title: string, body?: string, repo?: string) => Promise<Result>
   /** Refresh the repository Wiki now, or retry a failed refresh. */
   readonly refreshWiki: (repo?: string) => Promise<Result>
   /** The repository homepage declares a stack block: keep its snapshot live. */
@@ -120,8 +115,6 @@ const itemDetail = (item: MythicalItem): string => {
   const reason = itemReason(item)
   return reason === undefined ? itemStateLabel(item) : `${itemStateLabel(item)} · ${reason}`
 }
-/** Fresh snapshots a followed TODO may be missing from before its notice says so. */
-const TODO_ABSENT_READS = 3
 /** A refusal that no reconnect will change: stop watching and say so. */
 const final = (failure: CloudFailure): boolean => failure.status === 401 || failure.status === 403 || failure.status === 404
 
@@ -152,11 +145,7 @@ export const createStackSeam = (
     values: new Map<string, StackSnapshot>(),
     listeners: new Set<() => void>(),
     owner: login(),
-    subscribed: false,
-    /* Items a filed TODO's notice follows: the lane notices leave them to it. */
-    followed: new Set<string>(),
-    /* The filings whose notices run now, by request key. */
-    filings: new Set<string>()
+    subscribed: false
   }))
   const publish = (repo: string, value: StackSnapshot): void => {
     shared.values.set(repo, value)
@@ -230,7 +219,6 @@ export const createStackSeam = (
     const listed = new Set<string>()
     for (const item of next.items) {
       listed.add(item.id)
-      if (shared.followed.has(item.id)) continue
       const key = itemToastKey(repo, item.id)
       const toast = ctx.store.collections.toasts.get(`toast-${key}`)
       const prior = before.get(item.id)
@@ -447,18 +435,6 @@ export const createStackSeam = (
     if (value?.stack == null) return value?.error ?? "The history could not be read."
     return readResult(summary(value.stack))
   }
-  const setStackView: StackSeam["setStackView"] = async (view, repoArg) => {
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    if (card(repo) === undefined) {
-      await write(repo, { view }, true)
-      return showStack(repo)
-    }
-    await write(repo, { view })
-    return { value: `The History card shows its ${view}.` }
-  }
-
   /**
    * Admit one act: acknowledged as soon as the card records it, then run in
    * the shared toast stack. A second request for the same act joins the first.
@@ -609,171 +585,6 @@ export const createStackSeam = (
   }
 
   /*
-   * A filed TODO (POST …/mythical/todos) is durable on the History card
-   * before it is acknowledged. Its notice runs through the filing and the
-   * factory's work: it follows the item the stack answered through its lane
-   * states, and settles when its pull request opens or it lands (done), or
-   * it stops (its words, with Retry where a person may retry it). A filing
-   * GitHub refused states its failure on the card, and Retry files it again.
-   * After a reload the request reconnects without being sent again: a filing
-   * whose answer was lost is found by its title among the items filed since.
-   */
-  type TodoRequest = NonNullable<StackCard["payload"]["todos"]>[number]
-  type TodoOutcome = { readonly ok: true; readonly detail: string } | { readonly ok: false; readonly detail: string; readonly action?: NonNullable<Toast["action"]> } | typeof TOAST_SUPERSEDED
-  const todoToastKey = (repo: string, key: string): string => `stack.todo.${encodeURIComponent(repo)}#${key}`
-  /** A TODO's request key is its text (FNV-1a): the same TODO is one request and one notice. */
-  const todoRequestKey = (title: string, body: string): string => {
-    let hash = 0x811c9dc5
-    for (const unit of `${title}\u0000${body}`) {
-      hash ^= unit.codePointAt(0) ?? 0
-      hash = Math.imul(hash, 0x01000193) >>> 0
-    }
-    return hash.toString(16).padStart(8, "0")
-  }
-  const todoArgs = (repo: string, request: Pick<TodoRequest, "title" | "body">): string =>
-    JSON.stringify({ title: request.title, ...(request.body === "" ? {} : { body: request.body }), repo })
-  const todos = (repo: string): ReadonlyArray<TodoRequest> => card(repo)?.payload.todos ?? []
-  const writeTodo = (repo: string, key: string, change: (request: TodoRequest) => TodoRequest | undefined): Promise<void> =>
-    write(repo, { todos: todos(repo).flatMap((row) => {
-      if (row.key !== key) return [row]
-      const next = change(row)
-      return next === undefined ? [] : [next]
-    }) })
-  /** Follows one item until it settles; the notice's detail is its state as the snapshots show it. */
-  const untilTodoSettled = (repo: string, id: string, progress: (detail: string) => void): Promise<TodoOutcome | string> => new Promise((resolve) => {
-    const handle = watch(repo)
-    // The snapshot lists a bounded number of items: one absent from several fresh reads is out of sight, not settled.
-    let absent = 0
-    const check = (stack: MythicalStack | string | typeof TOAST_SUPERSEDED, fresh = true): void => {
-      const done = (outcome: TodoOutcome | string): void => { handle.waiters.delete(check); resolve(outcome) }
-      if (stack === TOAST_SUPERSEDED || typeof stack === "string") { done(stack); return }
-      const item = stack.items.find((row) => row.id === id)
-      if (item === undefined) {
-        if (fresh && ++absent >= TODO_ABSENT_READS) done("The history no longer lists this TODO. Open History to see it.")
-        return
-      }
-      absent = 0
-      const reason = itemReason(item)
-      switch (item.state) {
-        case "proposed":
-          done({ ok: true, detail: item.pullRequest === undefined ? itemStateLabel(item) : `PR #${item.pullRequest.number}` }); return
-        case "landed":
-          done({ ok: true, detail: itemStateLabel(item) }); return
-        case "blocked": case "rejected": case "declined": case "skipped": case "cancelled":
-          done({ ok: false, detail: reason === undefined ? itemStateLabel(item) : `${itemStateLabel(item)} · ${reason}` })
-          return
-        default:
-          progress(itemDetail(item))
-      }
-    }
-    handle.waiters.add(check)
-    if (handle.stack !== null) check(handle.stack, false)
-    void refresh(handle)
-  })
-  /** The filing's request id: the server answers the same id with the TODO it already filed. */
-  const todoRequestId = (request: TodoRequest): string => `${request.key}-${request.requestedAt.toString(36)}`
-  /**
-   * The filing's own answer: the item id, or why it was not filed; `settled`
-   * when the server refused it (nothing was filed), else the outcome is
-   * unknown and the request stays to be sent again under its id.
-   */
-  const sendTodo = async (repo: string, request: TodoRequest): Promise<{ readonly id: string } | { readonly error: string; readonly settled: boolean }> => {
-    const answer = await send("POST", route("todos", repo),
-      { title: request.title, ...(request.body === "" ? {} : { body: request.body }), request: todoRequestId(request) }, "the TODO")
-    if ("error" in answer) return { error: answer.error, settled: answer.status !== null && answer.status >= 400 && answer.status < 500 }
-    const id = typeof answer.body === "object" && answer.body !== null ? (answer.body as { id?: unknown }).id : undefined
-    return typeof id === "string" && id !== "" ? { id } : { error: "Smithers Cloud did not answer with the filed TODO.", settled: false }
-  }
-  const followTodo = (repo: string, request: TodoRequest): void => {
-    const claim = `${repo}#${request.key}`
-    if (shared.filings.has(claim)) return
-    shared.filings.add(claim)
-    const owner = login()
-    const current = (): boolean => !disposed() && login() === owner
-    const key = todoToastKey(repo, request.key)
-    let detail = ""
-    let shown = false
-    const timer = setTimeout(() => {
-      if (!current()) return
-      shown = true
-      ctx.dispatch({ type: "toast.shown", actor: "system", key, title: request.title })
-      if (detail !== "") ctx.dispatch({ type: "toast.progressed", actor: "system", key, detail })
-    }, debounceMs)
-    ;(timer as { unref?: () => void }).unref?.()
-    const progress = (next: string): void => {
-      if (next === detail) return
-      detail = next
-      if (shown) ctx.dispatch({ type: "toast.progressed", actor: "system", key, detail })
-    }
-    void (async (): Promise<TodoOutcome | string> => {
-      let id = request.item
-      if (id === undefined) {
-        // Sent again after a reload or a lost answer: the id makes it one filing.
-        const filed = await sendTodo(repo, request)
-        if (!current()) return TOAST_SUPERSEDED
-        if ("error" in filed) {
-          // A refusal filed nothing; an unknown outcome keeps the request, whose Retry sends the same id.
-          if (filed.settled) await writeTodo(repo, request.key, () => undefined)
-          await write(repo, { failure: { act: "todo", message: filed.error, args: todoArgs(repo, request) } })
-          return { ok: false, detail: filed.error, action: { flow: "history.todo", args: todoArgs(repo, request), label: "Retry" } }
-        }
-        id = filed.id
-        await writeTodo(repo, request.key, (row) => ({ ...row, item: filed.id }))
-      }
-      shared.followed.add(id)
-      // The TODO's notice owns its item: a lane notice already pending or shown for it leaves.
-      const lane = shared.watches.get(repo)
-      const pending = lane?.timers.get(id)
-      if (pending !== undefined) { clearTimeout(pending); lane?.timers.delete(id) }
-      const laneToast = ctx.store.collections.toasts.get(`toast-${itemToastKey(repo, id)}`)
-      if (laneToast?.status === "running") ctx.dispatch({ type: "toast.dismissed", actor: "system", id: laneToast.id })
-      try {
-        return await untilTodoSettled(repo, id, progress)
-      } finally { shared.followed.delete(id) }
-    })().catch((error: unknown) => {
-      try { ctx.report?.(`stack.todo.follow ${repo}`, error) } catch { /* Diagnostics must not strand the filing. */ }
-      return { ok: false as const, detail: "Smithers lost track of this TODO. Open History to see its state." }
-    })
-      .then(async (outcome) => {
-        clearTimeout(timer)
-        shared.filings.delete(claim)
-        if (outcome === TOAST_SUPERSEDED || !current()) {
-          if (!disposed() && ctx.store.collections.toasts.get(`toast-${key}`)?.status === "running") ctx.dispatch({ type: "toast.dismissed", actor: "system", id: `toast-${key}` })
-          return
-        }
-        const settled: Exclude<TodoOutcome, typeof TOAST_SUPERSEDED> = typeof outcome === "string" ? { ok: false, detail: outcome } : outcome
-        if (settled.ok || todos(repo).find((row) => row.key === request.key)?.item !== undefined) await writeTodo(repo, request.key, () => undefined)
-        if (ctx.store.collections.toasts.get(`toast-${key}`) === undefined) ctx.dispatch({ type: "toast.shown", actor: "system", key, title: request.title })
-        ctx.resolveToast?.(key, settled.ok ? { status: "ok", detail: settled.detail }
-          : { status: "failed", detail: settled.detail, ...(settled.action === undefined ? {} : { action: settled.action }) })
-      }).catch(() => {})
-  }
-  const fileTodo: StackSeam["fileTodo"] = async (title, body = "", repoArg) => {
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    const request = { title: title.trim(), body: body.trim() }
-    if (request.title === "") return "A TODO needs a title."
-    // The same TODO asked for again joins the one still followed; a retried
-    // filing takes over its failed notice and sends its request id again.
-    const key = todoRequestKey(request.title, request.body)
-    const clear = card(repo)?.payload.failure?.act === "todo" ? { failure: null } : {}
-    const existing = todos(repo).find((row) => row.key === key)
-    if (existing !== undefined) {
-      if (!shared.filings.has(`${repo}#${key}`)) {
-        await write(repo, clear)
-        followTodo(repo, existing)
-      }
-      return { value: "Requested" }
-    }
-    const row: TodoRequest = { key, ...request, requestedAt: Date.now() }
-    // The request is durable before it is acknowledged.
-    await write(repo, { todos: [...todos(repo), row], ...clear }, card(repo) === undefined)
-    followTodo(repo, row)
-    return { value: "Requested" }
-  }
-
-  /*
    * The Wiki's answer to a request: `current` is done, `failed` is its error.
    * `baseline` is the Wiki the request's acknowledgement showed: the failure
    * a retry was asked for is not the retry's answer, so an unchanged failed
@@ -878,7 +689,6 @@ export const createStackSeam = (
       const handle = watch(repo)
       void refresh(handle)
       resumeWiki(repo)
-      for (const request of todos(repo)) followTodo(repo, request)
       if (card(repo)?.payload.bootstrap !== undefined && !shared.acts.has(actKey(repo, "bootstrap", repo))) {
         // Re-send only when the server has no record of the request.
         void (async () => {
@@ -930,5 +740,5 @@ export const createStackSeam = (
     return parsed.success ? parsed.data : "The history could not be read."
   }
 
-  return { showStack, setStackView, readStack, heldStack, bootstrapStack, setStackParallel, retryStackItem, landStackItem, fileTodo, refreshWiki, watchHomeStack, resumeStacks, snapshots }
+  return { showStack, readStack, heldStack, bootstrapStack, setStackParallel, retryStackItem, landStackItem, refreshWiki, watchHomeStack, resumeStacks, snapshots }
 }

@@ -158,3 +158,40 @@ test("Retry with the current flow is an agent-invocable card control with its st
     expect(h.mutations).toEqual([])
   } finally { h.controller.dispose() }
 })
+
+test("a configured host dispatches Draft, TODO and reviewed Merge to real routes without seed mutations", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const calls: { path: string; body?: unknown; key?: string | null }[] = []
+  const topics = new Map<string, (model: unknown) => void>()
+  const controller = createAppController(store, unavailable, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: [], authFlow: "none", sandbox: null },
+    todoTopics: { subscribe: (topic, receive) => { topics.set(topic, receive); return () => { topics.delete(topic) } } },
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "https://install.test").pathname
+      if (!path.startsWith("/api/todos")) return new Response("{}", { status: 404 })
+      calls.push({ path, ...(init?.body ? { body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") } : {}) })
+      return new Response(JSON.stringify(init?.method === "POST" ? { state: "accepted", n: 12 }
+        : path === "/api/todos" ? [fixtures.queued.model] : fixtures.in_review.model), { status: init?.method === "POST" ? 202 : 200 })
+    }
+  })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    const seedBefore = JSON.stringify(controller.design.world().todos)
+    await controller.runCommandForResult("todo.new", "Real prompt")
+    const draft = [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
+    expect(draft.audience_member_id).toBe("ben")
+    await controller.submitCommand({ name: "form.set", actor: "user", payload: { cardId: draft.id, field: "acceptance", value: '["Real acceptance"]' } })
+    const commit = { name: "todo.new", actor: "user" as const, payload: { cardId: draft.id } }
+    expect(await controller.submitCommand(commit)).toMatchObject({ status: "executed", value: "Requested" })
+    expect(await controller.submitCommand(commit)).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => calls.filter(call => call.body).length === 1)
+    expect(calls.find(call => call.body)).toEqual({ path: "/api/todos", key: draft.payload.idempotencyKey,
+      body: { title: "Real prompt", prompt: "Real prompt", acceptance: ["Real acceptance"], place: { mode: "append" } } })
+    await controller.runCommandForResult("todo", "T12")
+    expect(store.collections.cards.get("todo:12")).toMatchObject({ kind: "todo", payload: { model: { title: fixtures.in_review.model.title } } })
+    await controller.submitCommand({ name: "merge", actor: "user", payload: { n: 12, reviewed_head_sha: fixtures.in_review.model.pr!.head } })
+    await waitFor(() => calls.some(call => call.path === "/api/todos/12/merge"))
+    expect(calls.find(call => call.path.endsWith("/merge"))?.body).toEqual({ reviewed_head_sha: fixtures.in_review.model.pr!.head })
+    expect(JSON.stringify(controller.design.world().todos)).toBe(seedBefore)
+  } finally { await controller.dispose() }
+})

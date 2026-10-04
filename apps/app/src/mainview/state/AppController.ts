@@ -468,19 +468,18 @@ export interface AppController extends IssueFlowsController {
   readonly deleteSecret: SecretsSeam["deleteSecret"]
   /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
   readonly showStack: StackSeam["showStack"]
-  readonly setStackView: StackSeam["setStackView"]
   readonly bootstrapStack: StackSeam["bootstrapStack"]
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly landStackItem: StackSeam["landStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
+  readonly mergeTodo: TodoSeam["mergeTodo"]
   readonly showTodo: TodoSeam["showTodo"]
   readonly dismissTodoDraft: TodoSeam["dismissTodoDraft"]
   readonly answerTodo: TodoSeam["answerTodo"]
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
   readonly controlTodo: TodoSeam["controlTodo"]
-  readonly fileTodo: StackSeam["fileTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
@@ -855,7 +854,10 @@ export const createAppController = (
     } }).isPersisted.promise
     return `Opened ${title}`
   }
-  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics, debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design))
+  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
+    const snapshot = services.live!.getSnapshot(topic)
+    if (snapshot?.data !== undefined) receive(snapshot.data)
+  }) } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, services.bootstrap !== undefined))
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1740,19 +1742,18 @@ export const createAppController = (
     setSecret: secretsSeam.setSecret,
     deleteSecret: secretsSeam.deleteSecret,
     showStack: stackSeam.showStack,
-    setStackView: stackSeam.setStackView,
     bootstrapStack: stackSeam.bootstrapStack,
     setStackParallel: stackSeam.setStackParallel,
     retryStackItem: stackSeam.retryStackItem,
     landStackItem: stackSeam.landStackItem,
     newTodo: todoSeam.newTodo,
     showTodo: todoSeam.showTodo,
+    mergeTodo: todoSeam.mergeTodo,
     dismissTodoDraft: todoSeam.dismissTodoDraft,
     answerTodo: todoSeam.answerTodo,
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
     controlTodo: todoSeam.controlTodo,
-    fileTodo: stackSeam.fileTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
     importRepository: repoImportSeam.importRepository,
