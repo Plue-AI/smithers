@@ -49,6 +49,13 @@ func TestSourceGitUsesLauncherPathAndProxy(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:9\n"+directory+"\n", output)
 }
 
+func TestGitHubGitOriginOverride(t *testing.T) {
+	t.Setenv(envGitHubAppAPIBaseURL, "https://enterprise.example/api/v3")
+	t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", "https://git.enterprise.example/")
+	require.Equal(t, "https://git.enterprise.example/", githubGitBaseURL())
+	require.Contains(t, gitGitHubAuthEnv("token"), "GIT_CONFIG_KEY_0=http.https://git.enterprise.example/.extraHeader")
+}
+
 func TestGitHubCloneUsesConfiguredHost(t *testing.T) {
 	for _, tc := range []struct{ api, want string }{
 		{"https://api.github.com", "https://github.com/"},
@@ -57,6 +64,7 @@ func TestGitHubCloneUsesConfiguredHost(t *testing.T) {
 	} {
 		t.Run(tc.api, func(t *testing.T) {
 			t.Setenv(envGitHubAppAPIBaseURL, tc.api)
+			t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", "")
 			s := NewGitHubImportService(nil, nil, nil, nil, nil, "")
 			s.runGit = func(_ context.Context, env []string, args ...string) (string, error) {
 				require.Contains(t, args, tc.want+"acme/app.git")

@@ -14,7 +14,7 @@ func loopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	return err == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
 }
-func run(addr string) error {
+func run(addr, gitRoot string) error {
 	if !loopback(addr) {
 		return fmt.Errorf("--addr must be a literal loopback address")
 	}
@@ -22,6 +22,7 @@ func run(addr string) error {
 	if err != nil {
 		return err
 	}
+	cfg.GitRoot = gitRoot
 	fake, err := githubfake.Handler(cfg)
 	if err != nil {
 		return err
@@ -38,8 +39,9 @@ func run(addr string) error {
 }
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0", "loopback listener")
+	gitRoot := flag.String("git-root", "", "directory containing fixture bare repositories")
 	flag.Parse()
-	if err := run(*addr); err != nil {
+	if err := run(*addr, *gitRoot); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -86,6 +86,9 @@ func retentionTestFixture(t *testing.T) (*RepositorySourceRetentionService, *ret
 		calls = append(calls, append([]string(nil), args...))
 		require.NotContains(t, strings.Join(args, " "), "credential")
 		joined := strings.Join(args, " ")
+		if strings.Contains(joined, " fetch ") {
+			require.Contains(t, strings.Join(env, "\n"), "http."+os.Getenv(envGitHubAppAPIBaseURL)+"/original/source.git.extraHeader")
+		}
 		if strings.Contains(joined, "rev-parse") {
 			if strings.Contains(joined, "/head") {
 				return input.Head + "\n", nil
@@ -122,7 +125,7 @@ func TestSourceRetentionCanonicalForkAndImmutableTransport(t *testing.T) {
 		require.NotContains(t, joined, "--prune")
 		require.NotContains(t, joined, "--mirror")
 		if strings.Contains(joined, " fetch ") {
-			require.Contains(t, joined, "https://github.com/original/source.git refs/pull/17/head:refs/smithers-fetch/head")
+			require.Contains(t, joined, os.Getenv(envGitHubAppAPIBaseURL)+"/original/source.git refs/pull/17/head:refs/smithers-fetch/head")
 		}
 		if strings.Contains(joined, "push") {
 			require.Contains(t, joined, "--atomic")

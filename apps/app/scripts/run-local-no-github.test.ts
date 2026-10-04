@@ -8,7 +8,7 @@ describe("local no-GitHub orchestration", () => {
   test("only the three existing bases and refusing proxy pair are injected", () => {
     expect({ ...githubBases("http://127.0.0.1:9"), ...proxyGuard }).toEqual({
       SMITHERS_GITHUB_APP_API_BASE_URL: "http://127.0.0.1:9", SMITHERS_AUTH_GITHUB_API_BASE_URL: "http://127.0.0.1:9", SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL: "http://127.0.0.1:9",
-      HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1"
+      HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1"
     })
   })
   test("handoff parser refuses malformed or broadened receipts", () => {

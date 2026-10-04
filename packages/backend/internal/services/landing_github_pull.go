@@ -192,10 +192,7 @@ func NewLandingGitHubPullService(landings *LandingService, q GitMirrorCredential
 			cleanup()
 			return landingGitHubRemotes{}, pkgerrors.Internal("build landing source URL").WithCause(err)
 		}
-		targetBase := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_GIT_BASE_URL"))
-		if targetBase == "" {
-			targetBase = defaultGitHubGitBaseURL
-		}
+		targetBase := githubGitBaseURL()
 		target, err := gitMirrorURL(targetBase, installation.Token, githubOwner, githubRepo)
 		if err != nil {
 			cleanup()

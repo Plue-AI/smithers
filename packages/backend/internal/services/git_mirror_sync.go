@@ -882,10 +882,7 @@ func mirrorRemoteURLs(owner, repo string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	targetBaseURL := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_GIT_BASE_URL"))
-	if targetBaseURL == "" {
-		targetBaseURL = defaultGitHubGitBaseURL
-	}
+	targetBaseURL := githubGitBaseURL()
 	targetURL, err := gitMirrorURL(targetBaseURL, os.Getenv("SMITHERS_GITHUB_TOKEN"), owner, repo)
 	if err != nil {
 		return "", "", err

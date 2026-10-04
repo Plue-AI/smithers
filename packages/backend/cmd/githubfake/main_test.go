@@ -7,7 +7,7 @@ func TestLoopbackOnly(t *testing.T) {
 		if loopback(addr) {
 			t.Fatalf("accepted %s", addr)
 		}
-		if run(addr) == nil {
+		if run(addr, "") == nil {
 			t.Fatalf("ran %s", addr)
 		}
 	}

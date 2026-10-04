@@ -158,12 +158,7 @@ func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepo
 	client := gitHubProviderClient(tokens, 30*time.Second)
 	return &GitHubMainPullService{
 		store: store, host: host, tokens: tokens, connections: connections, logger: slog.Default(),
-		gitHubGitBaseURL: func() string {
-			if base := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_GIT_BASE_URL")); base != "" {
-				return base
-			}
-			return defaultGitHubGitBaseURL
-		},
+		gitHubGitBaseURL: githubGitBaseURL,
 		readFactory: func(ctx context.Context, token, owner, repo, commit string) ([]byte, error) {
 			return readGitHubFactory(ctx, client, githubAPIBaseURL(), defaultGitHubRawBaseURL, token, owner, repo, commit)
 		},

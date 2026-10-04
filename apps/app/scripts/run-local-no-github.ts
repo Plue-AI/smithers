@@ -1,4 +1,6 @@
 // Test orchestration only: reuse the bundle launcher instead of a second env builder.
+import { randomBytes } from "node:crypto"
+import { launchModelProvider, type ModelProvider } from "../e2e/real/support/model-provider-process"
 import { execFileSync } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
@@ -11,7 +13,7 @@ export const githubBases = (url: string) => ({
   SMITHERS_AUTH_GITHUB_API_BASE_URL: url,
   SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL: url
 })
-export const proxyGuard = { HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1" }
+export const proxyGuard = { HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1" }
 export const setupLine = (line: string): string | undefined => {
   if (!line.startsWith('{"setup_urls"')) return undefined
   if (/[\r\n]/.test(line)) throw new Error("Invalid setup handoff")
@@ -46,6 +48,7 @@ export async function main() {
   const receipt = join(out, "run.json")
   let backend: NativeBackend | undefined, fake: ReturnType<typeof Bun.spawn> | undefined, browser: ReturnType<typeof Bun.spawn> | undefined
   let backendChild: ReturnType<typeof Bun.spawn> | undefined, buildChild: ReturnType<typeof Bun.spawn> | undefined
+  let modelProvider: ModelProvider | undefined
   let stopping: Promise<void> | undefined
   const stop = () => stopping ??= (async () => {
     for (const child of [browser, fake, buildChild, ...(backend ? [] : [backendChild])]) {
@@ -54,17 +57,29 @@ export async function main() {
       if (!await Promise.race([child.exited.then(() => true), Bun.sleep(5000).then(() => false)])) child.kill("SIGKILL")
       await child.exited
     }
-    await backend?.stop()
+    try { await backend?.stop() } finally { await modelProvider?.close() }
     rmSync(receipt, { force: true })
     rmSync(home, { recursive: true, force: true })
   })()
   const signal = () => { void stop().then(() => process.exit(0)) }
   process.on("SIGINT", signal); process.on("SIGTERM", signal)
   try {
+    const modelKey = randomBytes(24).toString("hex")
+    modelProvider = await launchModelProvider({ key: modelKey })
     const executable = join(home, "githubfake")
     const build = buildChild = Bun.spawn(["go", "build", "-o", executable, "./packages/backend/cmd/githubfake"], { cwd: root, stdout: "inherit", stderr: "inherit" })
     if (await build.exited !== 0) throw new Error("githubfake build failed")
-    fake = Bun.spawn([executable, "--addr", "127.0.0.1:0"], { stdout: "pipe", stderr: "inherit" })
+    // Seed real Git objects for the fake's existing smart-HTTP transport.
+    // These are provider fixture data, never product setup state.
+    const gitRoot = join(home, "git"), seed = join(gitRoot, "seed")
+    mkdirSync(join(gitRoot, "local-owner"), { recursive: true })
+    const git = (args: string[]) => execFileSync(join(bundle, "bin/git"), args, { env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_EXEC_PATH: join(bundle, "libexec/git-core"), GIT_TEMPLATE_DIR: join(bundle, "share/git-core/templates") }, stdio: "pipe" })
+    git(["init", "-b", "main", seed])
+    writeFileSync(join(seed, "JOURNEY.md"), "Add a greeting to JOURNEY.md\n", { mode: 0o600 })
+    git(["-C", seed, "add", "JOURNEY.md"])
+    git(["-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary"])
+    git(["clone", "--bare", seed, join(gitRoot, "local-owner/demo.git")])
+    fake = Bun.spawn([executable, "--addr", "127.0.0.1:0", "--git-root", gitRoot], { stdout: "pipe", stderr: "inherit" })
     let ready!: (url: string) => void
     const fakeReady = new Promise<string>(resolve => { ready = resolve })
     void (async () => {
@@ -110,7 +125,7 @@ export async function main() {
       }
     })
     const setupURL = await Promise.race([setup, Bun.sleep(30_000).then(() => { throw new Error("No setup_urls handoff") })])
-    const run = { setupURL, fakeURL, revision, home }
+    const run = { setupURL, fakeURL, revision, home, modelOrigin: modelProvider.origin, modelKey }
     writeFileSync(join(home, "run.json"), JSON.stringify(run), { mode: 0o600 })
     writeFileSync(receipt, JSON.stringify(run), { mode: 0o600 })
     chmodSync(receipt, 0o600)

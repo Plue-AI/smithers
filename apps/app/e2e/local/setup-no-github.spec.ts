@@ -1,11 +1,12 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test"
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
+import { PROVIDER_MODEL } from "../real/support/model-provider-behaviors"
 import { githubRoute } from "./github-route"
 
 // Shared browser history, never seeded product state: later rows expose the
 // first real missing control or predecessor receipt instead of faking progress.
 let context: BrowserContext, page: Page
-let run: { setupURL: string; fakeURL: string }
+let run: { setupURL: string; fakeURL: string; modelOrigin: string; modelKey: string }
 let traffic: Awaited<ReturnType<typeof githubRoute>>
 const output = "test-results/local-no-github"
 const card = () => page.locator('[aria-label="Set up Smithers"]').first()
@@ -26,6 +27,13 @@ test.beforeAll(async ({ browser }) => {
   await expect.poll(() => { try { run = JSON.parse(readFileSync(`${output}/run.json`, "utf8")); return true } catch { return false } }).toBe(true)
   context = await browser.newContext()
   traffic = await githubRoute(context, run.fakeURL)
+  await context.route(/^https?:\/\//, async route => {
+    const origin = new URL(route.request().url()).origin
+    if (["http://localhost:4000", "http://127.0.0.1:4000", run.fakeURL, run.modelOrigin].includes(origin)) return route.continue()
+    if (/^https?:\/\/([a-z0-9-]+\.)*(github\.com|githubusercontent\.com)([:/]|$)/i.test(route.request().url())) return route.fallback()
+    traffic.aborted.push(`${route.request().method()} ${origin}${new URL(route.request().url()).pathname}`)
+    await route.abort()
+  })
   page = await context.newPage()
   await page.goto(run.setupURL)
   await expect(card()).toBeVisible()
@@ -74,26 +82,42 @@ test("5 models", async ({}, info) => {
   const decisions = models.locator(".setup-model").filter({ has: page.getByText("Decisions", { exact: true }) })
   await coding.getByLabel("Provider", { exact: true }).selectOption({ label: "OpenAI" })
   await coding.getByLabel("Model", { exact: true }).fill("gpt-4.1-mini")
-  expect(process.env.OPENAI_API_KEY, "real OPENAI_API_KEY is required; no model stand-in").toBeTruthy()
-  expect(process.env.AI_GATEWAY_API_KEY, "real AI_GATEWAY_API_KEY is required; no model stand-in").toBeTruthy()
   await expect(coding.getByLabel("API key", { exact: true })).toBeVisible()
-  await coding.getByLabel("API key", { exact: true }).fill(process.env.OPENAI_API_KEY!)
+  await coding.getByLabel("API key", { exact: true }).fill(run.modelKey)
   await coding.getByRole("button", { name: "Save", exact: true }).click()
   await expect(coding).toHaveAttribute("data-state", "saved")
   await expect(decisions.getByLabel("AI Gateway key", { exact: true })).toBeVisible()
-  await decisions.getByLabel("AI Gateway key", { exact: true }).fill(process.env.AI_GATEWAY_API_KEY!)
+  await decisions.getByLabel("AI Gateway key", { exact: true }).fill(run.modelKey)
   await decisions.getByRole("button", { name: "Save", exact: true }).click()
   await expect(decisions).toHaveAttribute("data-state", "saved")
+  // Reuse the owner-model API's existing user-supplied endpoint, like the
+  // real-journey harness; setup has no provider-base field of its own.
+  const headers = { Origin: "http://localhost:4000", "X-CSRF-Token": (await context.cookies()).find(cookie => cookie.name === "__csrf")!.value }
+  const enrolled = await context.request.post("http://localhost:4000/api/model/credential", { headers, data: { action: "enroll", requestId: "local-model-enroll", name: "LOCAL_MODEL_API_KEY", value: run.modelKey, origin: run.modelOrigin } })
+  expect(enrolled.status(), await enrolled.text()).toBe(200)
+  expect(await enrolled.json()).toMatchObject({ ok: true })
+  const model = { id: "local-coding", protocol: "openai-chat", modelId: PROVIDER_MODEL.answers, credential: "LOCAL_MODEL_API_KEY", baseUrl: run.modelOrigin }
+  const configured = await context.request.put("http://localhost:4000/api/model/default", { headers, data: { model } })
+  expect(configured.status()).toBe(200)
+  const probe = await context.request.post("http://localhost:4000/api/model/test", { headers, data: { model } })
+  expect(probe.status(), await probe.text()).toBe(200)
+  expect(await probe.json()).toMatchObject({ ok: true })
+  const journal = await (await context.request.get(`${run.modelOrigin}/__journal`)).json()
+  expect(journal).toEqual(expect.arrayContaining([expect.objectContaining({ authorized: true, status: 200, modelId: PROVIDER_MODEL.answers })]))
+  writeFileSync(`${output}/model-requests.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
   await click("Model access")
   await done("models")
 })
 for (const [id, label, owner] of [
-  ["source", "Mirror", "w-source-machine (T-GH-02; hard-coded GitHub clone and retention URLs)"],
+  ["source", "Mirror", "crit4-local-source-model (T-INS-06)"],
   ["machine", "Build image", "w-source-machine (T-MCH-10)"]
 ]) test(`${id === "source" ? 6 : 7} ${id}`, async ({}, info) => {
-  info.annotations.push({ type: "owner", description: owner }); test.fail()
+  info.annotations.push({ type: "owner", description: owner }); if (id === "machine") test.fail()
   await click(label)
   await done(id)
+  if (id === "source") {
+    expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/local-owner/demo.git/git-upload-pack", status: 200 })]))
+  }
 })
 test("agent question with file cards", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "crit4-agent-file-cards (T-APP-03 #3497; T-APP-16 host catalog dispatch)" }); test.fail()

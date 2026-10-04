@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -135,12 +134,7 @@ func NewMythicalGitHub(store MythicalGitHubStore, tokens LandingGitHubPullTokens
 	return &mythicalGitHubAPI{
 		credentials: credentials, api: api, text: &gitHubIssueTextAPI{api: api},
 		store: store, tokens: tokens, prover: prover, connections: connections,
-		gitBase: func() string {
-			if base := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_GIT_BASE_URL")); base != "" {
-				return base
-			}
-			return defaultGitHubGitBaseURL
-		},
+		gitBase: githubGitBaseURL,
 	}
 }
 
