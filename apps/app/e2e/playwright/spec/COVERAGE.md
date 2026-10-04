@@ -298,3 +298,18 @@ Cycle 30: issue reads, creation and comments await live GitHub qualification; wi
 | A-RUNS | [A-RUNS.spec.ts](A-RUNS.spec.ts) | fixme-before-implementation | T-FLW-07, T-COL-02 |
 
 Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execution, creation and durable attention retain full pending scenarios. Five mounted tests cover seeded lists, version selection, slash edit drafts, missing-input run forms and active run cards. `/flow.new` is absent. The Edit button loses its flow-name prefill; its regression remains a fixme under T-FLW-05 and T-APP-05. Seeded projections do not qualify live activation or durable providers.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-RUN | [A-RUN.spec.ts](A-RUN.spec.ts) | fixme-before-implementation | T-FLW-07, T-COL-02 |
+| A-GITHUB | [A-GITHUB.spec.ts](A-GITHUB.spec.ts) | fixme-before-implementation | T-GH-07 |
+| A-MONITOR | [A-MONITOR.spec.ts](A-MONITOR.spec.ts) | fixme-before-implementation | T-FLW-07 |
+| A-DEBUG-API | [A-DEBUG-API.spec.ts](A-DEBUG-API.spec.ts) | fixme-before-implementation | T-APP-21 |
+| A-RUN-INSPECT | [A-RUN-INSPECT.spec.ts](A-RUN-INSPECT.spec.ts) | fixme-before-implementation | T-FLW-07 |
+| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05 |
+
+Cycle 32: live run recovery, GitHub stale/refused sync, the full monitor,
+API playground and collaborative flow-source editing retain complete pending
+scenarios. Mounted projections cover run opening and reload, Inspect with the
+composer available, seeded sync health and source reads. `/monitor` and
+`/debug-api` are absent; seeded projections do not qualify live providers.
