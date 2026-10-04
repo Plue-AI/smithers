@@ -1477,7 +1477,7 @@ paths:
           $ref: '#/components/responses/InternalError'
     patch:
       summary: PATCH /api/repos/{owner}/{repo}/secrets/{name}
-      description: 'Marks a repository secret main-only (`{"main_only": true}`) or clears the mark, and sets its host binding (`{"hosts": ["api.example.com"], "match_headers": ["authorization"]}`; empty lists unbind it), without its value. A main-only secret reaches only a trusted run on the default bookmark: a person''s push to it, a schedule, or a person''s dispatch. A bound secret reaches a CI job only as a placeholder its egress proxy replaces in those headers on requests to those hosts, and never an agent''s environment; CI refuses a job with an unbound secret. Admin only.'
+      description: 'Marks a repository secret main-only (`{"main_only": true}`) or clears the mark, and sets its host binding (`{"hosts": ["api.example.com"], "match_headers": ["authorization"]}`; empty lists unbind it), without its value. Main-only secrets are restricted to a maintainer''s manual trusted-main run in an ephemeral background machine; missing stored authority refuses delivery. Host-bound values stay on the relay. Unbound all-branches delivery refuses boot until the authenticated machine env channel and assigned session identities are available. Responses contain metadata only, never values. Admin only.'
       operationId: patch_api_repos_owner_repo_secrets_name
       tags:
         - Repositories

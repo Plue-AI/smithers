@@ -600,7 +600,8 @@ type WorkspaceService struct {
 	goldenSnapshots *GoldenSnapshotService
 	// agentEnvironment supplies setup-only secrets and persistent nonsecret
 	// variables for new repository workspace VMs.
-	agentEnvironment AgentEnvironmentProvisioningProvider
+	agentEnvironment  AgentEnvironmentProvisioningProvider
+	repositorySecrets *SecretInjector
 	// egressAllowDomains is the repository allowlist every workspace VM's
 	// egress proxy is created and resumed with (#2653).
 	egressAllowDomains EgressAllowDomainsSource
@@ -664,6 +665,12 @@ func WithWorkspaceSandboxClient(client SandboxVMClient) WorkspaceServiceOption {
 // base image.
 func WithWorkspaceGoldenSnapshots(golden *GoldenSnapshotService) WorkspaceServiceOption {
 	return func(s *WorkspaceService) { s.goldenSnapshots = golden }
+}
+
+// WithWorkspaceRepositorySecrets reuses the workflow snapshot splitter for
+// branch boot/wake. Unbound delivery stays dark until the machine contracts land.
+func WithWorkspaceRepositorySecrets(injector *SecretInjector) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.repositorySecrets = injector }
 }
 
 // WithWorkspaceAgentEnvironment wires the repository environment provider into

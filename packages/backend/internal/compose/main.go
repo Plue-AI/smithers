@@ -801,6 +801,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// repository workspace VMs; secrets exist only during the setup phase
 		// and are stripped before the agent runs.
 		services.WithWorkspaceAgentEnvironment(agentEnvironmentService),
+		services.WithWorkspaceRepositorySecrets(secretInjector),
 		services.WithWorkspaceProviderConnections(subscriptionPool),
 		services.WithWorkspaceProviderBootstrap(modelSeats, cfg.Sandbox.WorkspaceCodingDefaultModel),
 	)

@@ -472,8 +472,24 @@ func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryI
 		}
 		policy.ExtraAllowDomains = domains
 	}
+	if s.repositorySecrets != nil && repositoryID > 0 {
+		snapshot, err := s.repositorySecrets.RepositorySecrets(ctx, repositoryID, false)
+		if err != nil {
+			return nil, pkgerrors.Internal("load branch machine secrets").WithCause(err)
+		}
+		// Never place values in CreateRequest.Env, files, or retained metadata.
+		// The legacy provider has no authenticated per-boot atomic env channel,
+		// assigned team identity, or unprivileged daemon-session contract.
+		if len(snapshot.Secrets) != 0 {
+			return nil, pkgerrors.Conflict("machine secret environment is unavailable")
+		}
+		policy.Secrets = snapshot.Bound
+	}
 	loader, ok := s.agentEnvironment.(workspaceProxyBoundSecretsLoader)
 	if !ok || repositoryID <= 0 {
+		if err := policy.Validate(); err != nil {
+			return nil, pkgerrors.Internal("invalid repository secret binding").WithCause(err)
+		}
 		return policy, nil
 	}
 	bound, err := loader.LoadProxyBoundSecrets(ctx, repositoryID)
@@ -483,7 +499,7 @@ func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryI
 		// proxy never swaps.
 		return nil, pkgerrors.Internal("load repository secrets for workspace egress proxy").WithCause(err)
 	}
-	policy.Secrets = bound
+	policy.Secrets = mergeEgressSecrets(policy.Secrets, bound)
 	if err := policy.Validate(); err != nil {
 		return nil, pkgerrors.Internal("invalid repository secret binding: " + err.Error())
 	}

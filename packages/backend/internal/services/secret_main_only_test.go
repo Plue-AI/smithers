@@ -14,11 +14,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
-// A main-only repository secret (D-24) reaches only a trusted run on the
-// default bookmark: a person's push to it, a schedule, or a person's
-// dispatch of it. Agent runs, invocations, landing and pull request runs,
-// and runs of any other ref never receive it. A replaced value keeps its
-// scope; an administrator (never a run credential) marks it.
+// Legacy runs carry no current person/role or ephemeral machine authority.
+// Their trigger strings never authorize main-only secrets, even on main.
 func TestMainOnlySecretsReachOnlyTrustedMainRunsPostgres(t *testing.T) {
 	pool := getAgentTestPool(t)
 	ctx := context.Background()
@@ -62,11 +59,11 @@ func TestMainOnlySecretsReachOnlyTrustedMainRunsPostgres(t *testing.T) {
 		event, ref string
 		trusted    bool
 	}{
-		{"push", "refs/heads/main", true},
-		{"push", "main", true},
-		{"schedule", "main", true},
-		{"schedule", "", true},
-		{"workflow_dispatch", "refs/heads/main", true},
+		{"push", "refs/heads/main", false},
+		{"push", "main", false},
+		{"schedule", "main", false},
+		{"schedule", "", false},
+		{"workflow_dispatch", "refs/heads/main", false},
 		{"push", "refs/heads/feature", false},
 		{"push", "refs/tags/main", false},
 		{"workflow_dispatch", "feature", false},

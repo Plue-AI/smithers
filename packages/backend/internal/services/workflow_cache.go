@@ -1072,23 +1072,13 @@ func workflowCachePublisher(triggerEvent string) bool {
 	return false
 }
 
-// workflowRunOnTrustedMain reports whether a run may receive main-only
-// secrets (D-24): a trusted trigger (workflowCachePublisher: a person's push,
-// a schedule, a person's dispatch) of exactly the default bookmark. A tag,
-// another ref, or a branch is not; an empty ref is the default bookmark the
-// scheduler clones.
+// workflowRunOnTrustedMain refuses main-only delivery until the stored run
+// supplies current person/role, trusted revision and ephemeral background-machine
+// authority. Trigger/ref strings alone prove none of these (spec §8.8.2).
+// The legacy scheduler has no such binding; keep its delivery dark rather than
+// treating a push, schedule or empty ref as a maintainer's manual run.
 func workflowRunOnTrustedMain(run db.WorkflowRun, repository db.Repository) bool {
-	if !workflowCachePublisher(run.TriggerEvent) || repository.DefaultBookmark == "" {
-		return false
-	}
-	ref := strings.TrimSpace(run.TriggerRef)
-	for _, prefix := range []string{"refs/heads/", "refs/bookmarks/", "bookmarks/"} {
-		if strings.HasPrefix(ref, prefix) {
-			ref = strings.TrimPrefix(ref, prefix)
-			break
-		}
-	}
-	return ref == "" || ref == repository.DefaultBookmark
+	return false
 }
 
 func normalizeWorkflowCacheBookmark(rawRef, defaultBookmark string) string {

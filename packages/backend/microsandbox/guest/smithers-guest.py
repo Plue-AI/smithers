@@ -15,11 +15,14 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
   bridge PORT HOST
                   listen on guest 127.0.0.1:PORT and forward to HOST:PORT
   setup USER UID  create the workspace user and adapter directories
+  put-env         atomically replace the literal tmpfs team environment
   coding-binding  atomically install the fixed root-owned source binding
   coding-helper   atomically install the packaged Linux arm64 helper
   coding-helper-check verify the fixed helper's digest and root ownership
 """
 
+import ctypes
+import grp
 import hashlib
 import json
 import os
@@ -37,6 +40,8 @@ import time
 CGROUP_ROOT = "/sys/fs/cgroup/smithers"
 EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
+SECRET_ENV_DIR = "/run/smithers"
+SECRET_ENV_LIMIT = 1 << 20
 REQUEST_DIR = "/run/smithers/requests"
 TOOL_HOME = "/var/cache/smithers/home"
 ROOT_UID = 0
@@ -73,6 +78,112 @@ def base_environment():
         return loaded
     except FileNotFoundError:
         return {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+
+
+def secret_environment(body):
+    """Bounded literal JSON, never shell input; also used by the session loader."""
+    def unique(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                fail(3, "duplicate secret environment key")
+            result[name] = value
+        return result
+    if len(body) > SECRET_ENV_LIMIT:
+        fail(3, "secret environment exceeds limit")
+    try:
+        loaded = json.loads(body, object_pairs_hook=unique)
+    except (ValueError, UnicodeError):
+        fail(3, "invalid secret environment JSON")
+    if not isinstance(loaded, dict) or len(loaded) > 1000:
+        fail(3, "invalid secret environment")
+    for name, value in loaded.items():
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or not isinstance(value, str) or "\x00" in value:
+            fail(3, "invalid secret environment entry")
+    return loaded
+
+
+def require_secret_tmpfs(fd):
+    # Linux fstatfs writes struct statfs; a generously sized aligned buffer
+    # avoids depending on libc's remaining layout. Its first long is f_type.
+    if sys.platform != "linux":
+        fail(3, "secret environment requires Linux tmpfs")
+    buffer = (ctypes.c_long * 32)()
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.fstatfs(fd, ctypes.byref(buffer)) != 0 or buffer[0] != 0x01021994:
+        fail(3, "secret environment requires tmpfs")
+
+
+def secret_team():
+    team = grp.getgrnam("team")
+    if team.gr_gid != 20000:
+        fail(3, "assigned team group is unavailable")
+    return team.gr_gid
+
+
+def put_secret_environment(body):
+    """The only env writer, dormant until an authenticated installed caller exists."""
+    if os.geteuid() != 0:
+        fail(3, "secret environment writer requires broker")
+    secret_environment(body)  # validate all data before privileged filesystem work
+    gid = secret_team()
+    run = safe_directory("/run", trusted=True, create=False)
+    try:
+        require_secret_tmpfs(run)
+    finally:
+        os.close(run)
+    parent = safe_directory(SECRET_ENV_DIR, trusted=True)
+    temporary = ".env-" + secrets.token_hex(16)
+    created = False
+    try:
+        require_secret_tmpfs(parent)
+        try:
+            info = os.stat("env", dir_fd=parent, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != gid or stat.S_IMODE(info.st_mode) != 0o640 or info.st_nlink != 1:
+                fail(3, "untrusted secret environment destination")
+        except FileNotFoundError:
+            pass
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        created = True
+        with os.fdopen(fd, "wb") as handle:
+            os.fchown(handle.fileno(), 0, gid)
+            os.fchmod(handle.fileno(), 0o640)
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, "env", src_dir_fd=parent, dst_dir_fd=parent)
+        created = False
+        os.fsync(parent)
+    finally:
+        if created:
+            os.unlink(temporary, dir_fd=parent)
+        os.close(parent)
+
+
+def load_secret_environment():
+    # This function must never contribute secrets to a root helper environment.
+    if os.geteuid() == 0:
+        fail(3, "secret environment requires identity drop")
+    try:
+        parent = safe_directory(SECRET_ENV_DIR, trusted=True, create=False)
+    except FileNotFoundError:
+        return {}
+    try:
+        try:
+            fd = os.open("env", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        except FileNotFoundError:
+            return {}
+        with os.fdopen(fd, "rb") as handle:
+            gid = secret_team()
+            if os.geteuid() < 19999 or gid not in [os.getegid()] + os.getgroups():
+                fail(3, "assigned session identity is unavailable")
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != gid or stat.S_IMODE(info.st_mode) != 0o640 or info.st_nlink != 1:
+                fail(3, "untrusted secret environment")
+            require_secret_tmpfs(handle.fileno())
+            return secret_environment(handle.read(SECRET_ENV_LIMIT + 1))
+    finally:
+        os.close(parent)
 
 
 def cgroup_kill(path):
@@ -167,6 +278,7 @@ def run_exec(request):
             if not argv or not all(isinstance(a, str) for a in argv):
                 fail(125, "invalid exec request")
             env = base_environment()
+            env.update(load_secret_environment())
             for key, value in (request.get("env") or {}).items():
                 if not key or "=" in key or "\x00" in key or "\x00" in str(value):
                     fail(125, "invalid environment variable %r" % key)
@@ -784,6 +896,9 @@ def main(args):
     if not args:
         fail(125, "missing subcommand")
     command = args[0]
+    if command == "put-env" and len(args) == 1:
+        put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
+        return
     if command == "coding-helper-check" and len(args) == 1:
         digest = sys.stdin.buffer.read(65).decode("ascii")
         print("current" if coding_helper_current(digest) else "replace")
