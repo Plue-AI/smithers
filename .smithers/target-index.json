@@ -1472,9 +1472,9 @@
     }
   },
   {
-    "label": "//apps/app:journeyJ1Activation",
+    "label": "//apps/app:journeyTodoEvidence",
     "package": "apps/app",
-    "name": "journeyJ1Activation",
+    "name": "journeyTodoEvidence",
     "rule": "NodeTest",
     "kinds": [
       "test"
@@ -1484,16 +1484,16 @@
     "inputs": [
       {
         "kind": "file",
-        "path": "apps/app/scripts/run-real-e2e.ts"
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/app/scripts/**/*",
-        "exclude": []
+        "path": "apps/app/scripts/run-journey-j2.ts"
       },
       {
         "kind": "glob",
         "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
         "exclude": []
       },
       {
@@ -1502,11 +1502,115 @@
       },
       {
         "kind": "file",
-        "path": "apps/app/package.json"
+        "path": "scripts/check-evidence.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyTodoFromIssue",
+    "package": "apps/app",
+    "name": "journeyTodoFromIssue",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-journey-j2.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
       },
       {
         "kind": "file",
-        "path": "pnpm-lock.yaml"
+        "path": "apps/app/playwright.real.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyTodoMerge",
+    "package": "apps/app",
+    "name": "journeyTodoMerge",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-journey-j2.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyTodoNeedsYou",
+    "package": "apps/app",
+    "name": "journeyTodoNeedsYou",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-journey-j2.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
       }
     ],
     "outputs": [],
@@ -23756,6 +23860,46 @@
       {
         "kind": "file",
         "path": "docs/api/openapi/install.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/backend/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/backend:journeyTodoLabel",
+    "package": "packages/backend",
+    "name": "journeyTodoLabel",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "packages/backend/run-journey-todo-label.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/db/product/migrations/*.sql",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
       }
     ],
     "outputs": [],

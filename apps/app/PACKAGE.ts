@@ -193,6 +193,33 @@ const journeyJ1Activation = Smithers.NodeTest({
   cwd
 })
 
+/** Dark reference-host journeys; wildcard selections omit these gates. */
+const journeyTodoFromIssue = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["todo-from-issue"]),
+  srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts")],
+  deps: [], exclusive: true, cache: false, timeout: "7m", cwd
+})
+const journeyTodoNeedsYou = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["todo-needs-you"]),
+  srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts")],
+  deps: [], exclusive: true, cache: false, timeout: "17m", cwd
+})
+const journeyTodoEvidence = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["todo-evidence"]),
+  srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts"), Smithers.file("//scripts/check-evidence.mjs")],
+  deps: [], exclusive: true, cache: false, timeout: "16m", cwd
+})
+
+const journeyTodoMerge = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["todo-merge"]),
+  srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts")],
+  deps: [], exclusive: true, cache: false, timeout: "17m", cwd
+})
+
 /**
  * Everything a web host needs to bundle the app as a React island: the
  * mainview tree (AppIsland.tsx and the CSS it imports), the Tailwind config
@@ -348,5 +375,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, journeyJ1Activation, webSources, ...securityReview }
+  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, webSources, ...securityReview }
 })

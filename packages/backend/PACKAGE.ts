@@ -20,8 +20,16 @@ const docs = Smithers.Docs.Check({
   ]
 })
 
+/** Dark PostgreSQL label-snapshot regression, enabled when selected explicitly. */
+const journeyTodoLabel = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("run-journey-todo-label.mjs")),
+  srcs: [Smithers.glob("**/*.go"), Smithers.glob("db/product/migrations/*.sql"),
+    Smithers.file("//go.mod"), Smithers.file("//go.sum")],
+  deps: [], exclusive: true, cache: false, timeout: "15m", cwd: "packages/backend"
+})
+
 /** The backend documentation freshness gate.
  * @since 1.0.0
  * @category packages
  */
-export const Package = Smithers.Package({ targets: { docs } })
+export const Package = Smithers.Package({ targets: { docs, journeyTodoLabel } })

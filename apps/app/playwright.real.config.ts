@@ -4,6 +4,7 @@ import type { RealHost } from "./e2e/real/coverage/types"
 import { DEPLOYMENT_MODES } from "./e2e/real/coverage/types"
 import { MATRIX_SCENARIO_IDS, MODE_DESCRIPTORS } from "./e2e/real/coverage/matrix"
 import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
+import { ignoredJourneys } from "./e2e/real/journeys"
 
 const PORT = Number(process.env.SMITHERS_REAL_PORT ?? "47321")
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error(`Invalid SMITHERS_REAL_PORT: ${process.env.SMITHERS_REAL_PORT}`)
@@ -28,7 +29,7 @@ if (!/^https?:$/.test(parsed.protocol)) throw new Error(`SMITHERS_REAL_BASE_URL 
 export default defineConfig({
   testDir: "e2e/real",
   testMatch: "**/*.spec.ts",
-  testIgnore: process.env.SMITHERS_J1_ACTIVATION === "1" ? [] : ["**/j1-activation.spec.ts"],
+  testIgnore: ignoredJourneys(process.env).map((spec) => `**/${spec}`),
   grep: deploymentMode === undefined
     ? hostGrep(expectedHost as RealHost, process.env.SMITHERS_REAL_TEST_GREP)
     : scenarioGrep(matrixScenarioIds, process.env.SMITHERS_REAL_TEST_GREP),

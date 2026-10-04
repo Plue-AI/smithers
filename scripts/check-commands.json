@@ -378,28 +378,43 @@
     },
     "C-J2-01": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/todo-from-issue.spec.ts",
-      "ticket": "T-STK-09"
+      "reason": "Automation present; awaiting T-STK-09, T-APP-02, T-REL-02 and smithers-22 approval",
+      "ticket": "T-STK-09",
+      "pendingBinding": {
+        "target": "//apps/app:journeyTodoFromIssue"
+      }
     },
     "C-J2-02": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_label_db_test.go",
-      "ticket": "T-STK-09"
+      "reason": "Automation present; awaiting T-STK-09 and smithers-22 approval",
+      "ticket": "T-STK-09",
+      "pendingBinding": {
+        "target": "//packages/backend:journeyTodoLabel"
+      }
     },
     "C-J2-03": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/todo-needs-you.spec.ts",
-      "ticket": "T-STK-07"
+      "reason": "Automation present; awaiting T-STK-01 and smithers-22 approval",
+      "ticket": "T-STK-07",
+      "pendingBinding": {
+        "target": "//apps/app:journeyTodoNeedsYou"
+      }
     },
     "C-J2-04": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/todo-evidence.spec.ts",
-      "ticket": "T-STK-10"
+      "reason": "Automation present; awaiting T-STK-01, T-GH-03 and smithers-22 approval",
+      "ticket": "T-STK-10",
+      "pendingBinding": {
+        "target": "//apps/app:journeyTodoEvidence"
+      }
     },
     "C-J2-05": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/todo-merge.spec.ts",
-      "ticket": "T-STK-04"
+      "reason": "Automation present; awaiting T-STK-04, T-FLW-06, T-REL-02 and smithers-22 approval",
+      "ticket": "T-STK-04",
+      "pendingBinding": {
+        "target": "//apps/app:journeyTodoMerge"
+      }
     },
     "C-J3-01": {
       "status": "pending-owner",
