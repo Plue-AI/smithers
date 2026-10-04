@@ -279,10 +279,11 @@ func TestPullDraftLifecycleRequiresScopedInstallation(t *testing.T) {
 	require.Len(t, pulls, 1)
 	status, _ = request(t, server, "POST", "/repos/acme/app/pulls", token.Token, []byte(`{"head":"smithers/retry","base":"main"}`))
 	require.Equal(t, 422, status)
-	for _, path := range []string{"/repos/acme/app/branches/main/protection", "/repos/acme/app/rules/branches/main"} {
-		status, _ = request(t, server, "GET", path, token.Token, nil)
-		require.Equal(t, 200, status)
-	}
+	status, raw = request(t, server, "GET", "/repos/acme/app/branches/main/protection", token.Token, nil)
+	require.Equal(t, 404, status, "a main without classic protection")
+	require.JSONEq(t, `{"message":"Branch not protected"}`, string(raw))
+	status, _ = request(t, server, "GET", "/repos/acme/app/rules/branches/main", token.Token, nil)
+	require.Equal(t, 200, status)
 	status, _ = request(t, server, "GET", "/repos/acme/foreign/pulls", token.Token, nil)
 	require.Equal(t, 404, status)
 	status, _ = request(t, server, "GET", "/repos/acme/app/pulls", jwt(t, key, config.AppID, time.Now().Add(time.Minute)), nil)
@@ -525,7 +526,7 @@ func TestGitPushNeedsInstallationTokenAndPullHeadsFollowTheBranch(t *testing.T) 
 	require.Len(t, pulls, 1)
 	require.Equal(t, second, pulls[0].Head.SHA)
 
-	server.LoseNextPushResponses(1)
+	server.LoseNextResponses("/acme/app.git/git-receive-pack", 1)
 	third := commit("third\n")
 	require.Error(t, push(access.Token), "the answer is lost")
 	require.Equal(t, third, branchHead(), "GitHub took the write")
@@ -851,12 +852,11 @@ func TestRequiredReviewsDecideMergeability(t *testing.T) {
 	got, refused := decision("acme/app", 1)
 	require.Equal(t, []any{nil, ""}, []any{got, refused}, "no review rule: GitHub answers null")
 	require.Equal(t, "clean", state())
-	_, raw := request(t, server, "GET", "/repos/acme/app/branches/main/protection", access.Token, nil)
-	require.NoError(t, json.Unmarshal(raw, &protection))
-	require.NotContains(t, protection, "required_pull_request_reviews")
+	status, _ = request(t, server, "GET", "/repos/acme/app/branches/main/protection", access.Token, nil)
+	require.Equal(t, 404, status, "no review rule and no classic protection")
 
 	server.RequireReviews(2)
-	_, raw = request(t, server, "GET", "/repos/acme/app/branches/main/protection", access.Token, nil)
+	_, raw := request(t, server, "GET", "/repos/acme/app/branches/main/protection", access.Token, nil)
 	require.NoError(t, json.Unmarshal(raw, &protection))
 	require.Equal(t, map[string]any{"required_approving_review_count": float64(2)}, protection["required_pull_request_reviews"])
 	got, _ = decision("acme/app", 1)
@@ -890,4 +890,123 @@ func TestRequiredReviewsDecideMergeability(t *testing.T) {
 	require.Equal(t, "Could not resolve to a PullRequest with the number of 9.", refused)
 	_, refused = decision("acme/other", 1)
 	require.Equal(t, "Could not resolve to a PullRequest with the number of 1.", refused, "outside the installation")
+}
+
+// GitHub's answers the merge path depends on, each modeled apart: a main
+// without classic protection is 404; an installation token answers only
+// what it was granted (403 otherwise) and is never minted wider than the
+// installation (422); protection is enforced again when the merge is asked
+// (405); a merge goes to the pull request's base, whatever it is.
+func TestProtectionPermissionsAndMergeTimeEnforcement(t *testing.T) {
+	server, cfg, key := fixture(t)
+	mint := func(permissions map[string]string) (int, string) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"repositories": []string{"app"}, "permissions": permissions})
+		status, raw := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), body)
+		var access struct {
+			Token       string            `json:"token"`
+			Permissions map[string]string `json:"permissions"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &access))
+		if status == 201 {
+			require.Equal(t, permissions, access.Permissions, "the token holds what was asked")
+		}
+		return status, access.Token
+	}
+	_, admin := mint(map[string]string{"administration": "read", "pull_requests": "write"})
+	_, contents := mint(map[string]string{"contents": "write"})
+	_, reader := mint(map[string]string{"contents": "read"})
+	message := func(raw []byte) string {
+		var answer struct{ Message string }
+		require.NoError(t, json.Unmarshal(raw, &answer))
+		return answer.Message
+	}
+	answer := func(method, path, token string, body []byte) (int, string) {
+		t.Helper()
+		status, raw := request(t, server, method, path, token, body)
+		return status, message(raw)
+	}
+
+	status, text := answer("GET", "/repos/acme/app/branches/main/protection", admin, nil)
+	require.Equal(t, []any{404, "Branch not protected"}, []any{status, text})
+	status, text = answer("GET", "/repos/acme/app/branches/main/protection", reader, nil)
+	require.Equal(t, []any{403, "Resource not accessible by integration"}, []any{status, text}, "unreadable protection is not absent protection")
+	server.RequireCheck("unit")
+	status, _ = answer("GET", "/repos/acme/app/branches/main/protection", admin, nil)
+	require.Equal(t, 200, status)
+
+	open := func(head, base string) Pull {
+		t.Helper()
+		status, raw := request(t, server, "POST", "/repos/acme/app/pulls", admin, []byte(`{"title":"T","head":"`+head+`","base":"`+base+`"}`))
+		require.Equal(t, 201, status)
+		var pull Pull
+		require.NoError(t, json.Unmarshal(raw, &pull))
+		return pull
+	}
+	merge := func(pull Pull, token string) (int, string) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"sha": pull.Head.SHA, "merge_method": "squash", "commit_title": "T (#1)", "commit_message": "T1"})
+		return answer("PUT", fmt.Sprintf("/repos/acme/app/pulls/%d/merge", pull.Number), token, body)
+	}
+	first := open("smithers/first", "main")
+	var read Pull
+	_, raw := request(t, server, "GET", "/repos/acme/app/pulls/1", admin, nil)
+	require.NoError(t, json.Unmarshal(raw, &read))
+	require.Equal(t, "blocked", read.MergeableState, "a required check with no run blocks")
+	require.Equal(t, []any{403, "Resource not accessible by integration"}, func() []any { s, m := merge(first, reader); return []any{s, m} }())
+	require.Equal(t, []any{405, `Required status check "unit" is expected.`}, func() []any { s, m := merge(first, contents); return []any{s, m} }())
+	server.SetCheck("acme/app", first.Head.SHA, "unit", "completed", "failure")
+	require.Equal(t, []any{405, `Required status check "unit" is failing.`}, func() []any { s, m := merge(first, contents); return []any{s, m} }())
+	server.SetCheck("acme/app", first.Head.SHA, "unit", "completed", "success")
+	server.UpdatePull("acme/app", first.Number, func(p *Pull) { p.MergeableState = "dirty" })
+	require.Equal(t, []any{405, "Pull Request is not mergeable"}, func() []any { s, m := merge(first, contents); return []any{s, m} }())
+	server.UpdatePull("acme/app", first.Number, func(p *Pull) { p.MergeableState = "" })
+
+	// A hook runs once, before the answer; a lost answer still merged.
+	hooked := 0
+	server.OnNextRequest("PUT", "/repos/acme/app/pulls/1/merge", func() {
+		hooked++
+		server.SetCheck("acme/app", first.Head.SHA, "lint", "completed", "success")
+	})
+	server.LoseNextResponses("/repos/acme/app/pulls/1/merge", 1)
+	status, _ = merge(first, contents)
+	require.Equal(t, 502, status)
+	require.Equal(t, 1, hooked)
+	_, raw = request(t, server, "GET", "/repos/acme/app/pulls/1", admin, nil)
+	require.NoError(t, json.Unmarshal(raw, &read))
+	require.True(t, read.Merged, "GitHub took the merge its answer lost")
+	status, _ = answer("GET", "/repos/acme/app/compare/main..."+read.MergeCommitSHA, admin, nil)
+	require.Equal(t, 200, status)
+	status, _ = merge(first, contents)
+	require.Equal(t, 200, status)
+	require.Equal(t, 1, hooked, "a hook runs once")
+
+	release := open("smithers/release", "release")
+	server.SetCheck("acme/app", release.Head.SHA, "unit", "completed", "success")
+	status, _ = merge(release, contents)
+	require.Equal(t, 200, status)
+	_, raw = request(t, server, "GET", "/repos/acme/app/pulls/2", admin, nil)
+	require.NoError(t, json.Unmarshal(raw, &read))
+	require.True(t, read.Merged)
+	status, _ = answer("GET", "/repos/acme/app/compare/main..."+read.MergeCommitSHA, admin, nil)
+	require.Equal(t, 404, status, "merged into its base, not main")
+
+	writes := server.Writes()
+	var merges []Write
+	for _, write := range writes {
+		if write.Method == "PUT" {
+			merges = append(merges, write)
+		}
+	}
+	require.Equal(t, map[string]string{"contents": "read"}, merges[0].Permissions, "each write records its token's permissions")
+	require.Equal(t, map[string]string{"contents": "write"}, merges[1].Permissions)
+
+	server.SetInstallationPermission("administration", "")
+	status, _ = mint(map[string]string{"administration": "read"})
+	require.Equal(t, 422, status, "never wider than the installation")
+	status, _ = mint(map[string]string{"contents": "write"})
+	require.Equal(t, 201, status)
+	server.SetInstallationPermission("administration", "read")
+	status, _ = mint(map[string]string{"administration": "read"})
+	require.Equal(t, 201, status)
 }
