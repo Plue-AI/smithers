@@ -656,4 +656,6 @@ Operations are grouped in supplied order; selection emits `onView({ selected })`
 Send renders its supplied `input` through the shared action form, including multiline
 JSON bodies. The detail pane names the selected operation. Pending mutations place
 supplied confirmation actions inside an attention inset. The exchange shows request, response status, headers, body and duration;
-typed failures use ember. The View makes no request and decides no authorization.
+typed failures use ember. Absent actions render no control; disabled forms cannot
+submit. Inline cases in `DebugApiView.stories.tsx` replace the RPC fixture layer.
+The View stays unmounted until T-APP-21, makes no request and decides no authorization.

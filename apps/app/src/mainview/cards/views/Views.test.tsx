@@ -1701,17 +1701,51 @@ describe("DocsView", () => {
   })
 })
 
-import { fixtures as debugFixtures } from "@smthrs/rpc/fixtures/DebugApi"
 import { stories as debugStories } from "./DebugApiView.stories"
+import { DebugApiView } from "./DebugApiView"
 describe("DebugApiView", () => {
+  test("selection projects persisted view state and action removal on the same mount", async () => {
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    const onAction = mock(() => {})
+    const onView = mock((_patch: Record<string, unknown>) => {})
+    const props = {
+      model: { operations: [
+        { id: "health", method: "GET" as const, path: "/api/health", summary: "Health", group: "Install" },
+        { id: "settings", method: "PATCH" as const, path: "/api/settings", summary: "Settings", group: "Install" }
+      ], selected: "health" },
+      view: { maximized: false, selected: "settings" }, gestures: {},
+      actions: [{ tag: "debug-api" as const, label: "Send", args: { operation: "settings" } }], onAction, onView
+    }
+    try {
+      await act(async () => root.render(<DebugApiView {...props} />))
+      expect(host.querySelector('nav button[aria-pressed="true"]')!.textContent).toBe("PATCH /api/settingsSettings")
+      const health = host.querySelector<HTMLButtonElement>("nav button")!
+      health.focus()
+      expect(document.activeElement).toBe(health)
+      expect(health.type).toBe("button")
+      await act(async () => health.click())
+      expect(onView.mock.calls).toEqual([[{ selected: "health" }]])
+      expect(onAction).toHaveBeenCalledTimes(0)
+      await act(async () => root.render(<DebugApiView {...props} actions={[]} view={{ maximized: false, selected: "health" }} />))
+      expect(host.querySelector('nav button[aria-pressed="true"]')!.textContent).toBe("GET /api/healthHealth")
+      expect(host.querySelector("button[data-flow]")).toBeNull()
+      expect(onAction).toHaveBeenCalledTimes(0)
+    } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
   for (const story of debugStories) test(story.name, async () => {
-    const { host, onView, onAction, close } = await mounted(story)
+    const { host, root, onView, onAction, close } = await mounted(story)
     try {
       if (story.name === "empty") {
         expect(host.textContent).toContain("No operations")
         expect(host.querySelectorAll("nav button")).toHaveLength(0)
         expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
       }
+      expect(onAction).toHaveBeenCalledTimes(0)
+      await act(async () => root.render(story.render({ onAction, onView })))
+      expect(onAction).toHaveBeenCalledTimes(0)
       if (story.name === "unauthorized") expect(host.textContent).toContain("unauthorized · 401")
       if (story.name === "forbidden") {
         expect(host.textContent).toContain("forbidden · 403")
@@ -1723,8 +1757,7 @@ describe("DebugApiView", () => {
         expect(host.querySelector("img, script")).toBeNull()
         expect(Reflect.get(window, "__pwned")).toBeUndefined()
       }
-      const operations = debugFixtures.operations.model.operations
-      const operationIds = [...new Set(operations.map(operation => operation.group))].flatMap(group => operations.filter(operation => operation.group === group).map(operation => operation.id))
+      const operationIds = ["getHealth", "getTodo", "dropTodo", "headTodo", "putSecret", "deleteSecret", "patchSettings"]
       for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("nav button")].entries()) {
         onView.mockClear()
         await act(async () => button.click())
@@ -1739,6 +1772,7 @@ describe("DebugApiView", () => {
           expect(fresh.host.querySelector<HTMLButtonElement>("button[data-flow]")!.disabled).toBe(true)
           expect(fresh.host.querySelector<HTMLInputElement>("input")!.disabled).toBe(true)
           await act(async () => fresh.host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
+          await act(async () => fresh.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
           expect(fresh.onAction).toHaveBeenCalledTimes(0)
         }
         for (const form of story.name === "disabled" ? [] : fresh.host.querySelectorAll<HTMLFormElement>("form")) {
@@ -1755,8 +1789,13 @@ describe("DebugApiView", () => {
           const expected: Record<string, string> = story.name.startsWith("pending_") ? { operation: ({ pending_mutation: "dropTodo", pending_put: "putSecret", pending_patch: "patchSettings", pending_delete: "deleteSecret" } as Record<string, string>)[story.name]!, confirm: "true" } : story.name === "patch_body" ? { operation: "patchSettings", body: '{"capacity":2}' } : { operation: "getTodo", n: "12" }
           expect(fresh.onAction.mock.calls[0]).toEqual(["debug-api", expected])
         }
-        if (story.name === "get_200") expect(fresh.host.textContent).toContain("200 · 18 ms")
-        if (story.name === "patch_body") expect(fresh.host.querySelector("textarea")).not.toBeNull()
+        if (story.name === "get_200") {
+          expect(fresh.host.textContent).toContain("200 · 18 ms")
+          expect(fresh.host.textContent).toContain("content-typeapplication/json")
+          expect(fresh.host.querySelector("pre")!.textContent).toBe('{"n":12,"state":"working"}')
+          expect(fresh.host.querySelector("input")!.required).toBe(true)
+        }
+        if (story.name === "patch_body") expect(fresh.host.querySelector("textarea")!.required).toBe(true)
         if (story.name.startsWith("pending_")) {
           expect(fresh.host.querySelectorAll("button[data-flow]")).toHaveLength(1)
           const labels: Record<string, string> = { pending_mutation: "Confirm POST /api/todos/12/drop", pending_put: "Confirm PUT /api/secrets/key", pending_patch: "Confirm PATCH /api/settings", pending_delete: "Confirm DELETE /api/secrets/key" }
