@@ -1073,6 +1073,16 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
+	pending, err := q.ListMythicalPendingOperations(ctx, r.row.RepositoryID)
+	if err != nil {
+		s.logger.Warn("mythical.outbound_list_failed", "repository_id", r.row.RepositoryID, "error", err)
+		return
+	}
+	for _, obligation := range pending {
+		if !slices.ContainsFunc(items, func(item db.MythicalItem) bool { return item.ID == obligation.ID }) {
+			items = append(items, obligation)
+		}
+	}
 	// Runs in flight are read apart from the capped listing, so a long
 	// backlog never hides one from the daily budget's reservations.
 	active, err := q.ListMythicalItemsInStates(ctx, r.row.RepositoryID, []string{"running", "delivering", "verifying", "proposed"})
@@ -1121,6 +1131,13 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return
+		}
+		if len(item.PendingOp) > 0 {
+			if _, err := step.recoverOutbound(ctx, item); err != nil {
+				s.logger.Warn("mythical.outbound_pending", "item", uuidString(item.ID), "error", err)
+			}
+			// Never advance or retire a dropped item's obligation before lookup.
+			continue
 		}
 		item = s.deliverNotice(ctx, r, item)
 		if mythicalSettledStates[item.State] || item.State == "proposed" && item.PRState != "" {
@@ -1924,6 +1941,9 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	}
 	s, r := st.s, st.r
 	next := item
+	if err := s.outboundReady(ctx, item, "push"); err != nil {
+		return mythicalLater(item, err.Error(), st.now), nil
+	}
 	if !item.CandidateVerified {
 		return mythicalRetry(item, "the candidate was never verified", nil, st.now), nil
 	}
@@ -1952,29 +1972,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	gh := *st.gh
 	branch := mythicalBranch(item)
 	if len(item.PendingOp) > 0 {
-		var op mythicalProposalOp
-		if json.Unmarshal(item.PendingOp, &op) != nil {
-			next.PendingOp = nil
-			return &next, nil
-		}
-		remote, err := r.g.lsRemote(ctx, gh.GitURL)
-		if err != nil {
-			return mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", st.now), nil
-		}
-		switch remote["refs/heads/"+op.Branch] {
-		case op.Head:
-			next.PRHead, next.PendingOp = op.Head, nil
-			return st.openPull(ctx, next, gh, op.Branch)
-		case op.Expected:
-			if err := st.pushProposal(ctx, gh, op); err != nil {
-				return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
-			}
-			next.PRHead, next.PendingOp = op.Head, nil
-			return st.openPull(ctx, next, gh, op.Branch)
-		default:
-			next.State, next.Reason = "blocked", "the pull request branch "+op.Branch+" moved outside Smithers"
-			return &next, nil
-		}
+		return st.recoverOutbound(ctx, item)
 	}
 	if r.mainTip != r.row.LandedMain {
 		if item.State == "waiting" {
@@ -2012,13 +2010,19 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
 	}
 	op := mythicalProposalOp{Branch: branch, Expected: item.PRHead, Head: commit}
-	pending, _ := json.Marshal(op)
+	pending, _ := json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "intended"})
 	next.PendingOp = pending
-	saved, err := st.q.SaveMythicalItem(ctx, next)
+	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
 	if err != nil {
 		return nil, err
 	}
 	next = saved
+	pending, _ = json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "unknown"})
+	next.PendingOp = pending
+	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+	if err != nil {
+		return nil, err
+	}
 	if err := st.pushProposal(ctx, gh, op); err != nil {
 		remote, lsErr := r.g.lsRemote(ctx, gh.GitURL)
 		current := remote["refs/heads/"+branch]
@@ -2031,6 +2035,10 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		}
 	}
 	next.PRHead, next.PendingOp = commit, nil
+	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+	if err != nil {
+		return nil, err
+	}
 	return st.openPull(ctx, next, gh, branch)
 }
 
@@ -2052,6 +2060,12 @@ func mythicalPublicationAuthority() error {
 func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string) (*db.MythicalItem, error) {
 	s, r := st.s, st.r
 	next := item
+	if len(item.PendingOp) > 0 {
+		return nil, errors.New("pending GitHub operation must settle before opening PR")
+	}
+	if err := s.outboundReady(ctx, item, "open"); err != nil {
+		return nil, err
+	}
 	pull, err := s.github.FindPull(ctx, gh, branch)
 	if err != nil {
 		return mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", st.now), nil
@@ -2066,12 +2080,25 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 			base = "main"
 		}
 		title, body := st.proposal(item)
+		op := MythicalOutboundOp{Kind: "open", Target: branch, Desired: item.PRHead, State: "intended"}
+		next.PendingOp, _ = json.Marshal(op)
+		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+		if err != nil {
+			return nil, err
+		}
+		op.State = "unknown"
+		next.PendingOp, _ = json.Marshal(op)
+		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+		if err != nil {
+			return nil, err
+		}
 		created, err := s.github.CreatePull(ctx, gh, title, branch, base, body)
 		if err != nil {
-			return mythicalInfraOutage(item, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
+			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
 		pull = &created
 	}
+	next.PendingOp = nil
 	next.PRNumber = pgtype.Int8{Int64: pull.Number, Valid: true}
 	next.PRURL, next.PRState = pull.URL, pull.State
 	next.State, next.Reason = "proposed", ""
@@ -2410,107 +2437,20 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 // waits while CI runs and never merges on red. A refusal (the branch moved)
 // is retried later; the pull request stays open for a person meanwhile.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	s, gh := st.s, *st.gh
-	switch ci, err := s.github.HeadChecks(ctx, gh, item.PRHead); {
-	case err != nil:
-		return mythicalLater(item, "GitHub did not answer for CI on the approved head; retrying", st.now)
-	case ci == mythicalCIPending:
-		// CI that never finishes (a check suite no App ever runs) holds the
-		// item visibly once no GitHub Actions job could still be running.
-		checks := mythicalChecksOf(item)
-		if checks.CIWait == nil || checks.CIWait.Head != item.PRHead {
-			checks.CIWait = &mythicalCIWait{Head: item.PRHead, Since: st.now}
-		}
-		waiting := item
-		waiting.Checks = checks.encode()
-		if st.now.Sub(checks.CIWait.Since) >= mythicalCIWaitBound {
-			return mythicalHold(waiting, "ci-wait:"+item.PRHead, "CI on the approved head has not finished in "+mythicalCIWaitBound.String(),
-				&mythicalFault{Class: "wait", Tag: "ci_wait", Kind: mythicalFailChecks}, st.now)
-		}
-		return mythicalLater(waiting, "waiting for CI on the approved head", st.now)
-	case ci != mythicalCIGreen:
-		return mythicalHold(item, "ci:"+item.PRHead, "CI failed on the approved head", &mythicalFault{Class: "factory", Tag: "ci", Kind: mythicalFailChecks}, st.now)
+	// Until T-STK-04 supplies the shared decision and matching fence, only
+	// reads may settle an already-applied merge. Old labels cannot authorize it.
+	if st.s.github == nil || st.gh == nil {
+		return mythicalLater(item, "merge recovery is unavailable", st.now)
 	}
-	// Everything the merge rests on is read again, live, right before it: a
-	// label removed or a head pushed during this pass stops it.
-	pull, err := s.github.Pull(ctx, gh, item.PRNumber.Int64)
+	pull, err := st.s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
 	if err != nil {
-		return mythicalLater(item, "GitHub did not answer for the pull request; retrying", st.now)
+		return mythicalLater(item, "GitHub did not answer for merge recovery", st.now)
 	}
-	if pull.State != "open" || pull.Merged || pull.HeadSHA != item.PRHead {
-		return mythicalHold(item, "moved:"+pull.HeadSHA, "the pull request changed since its review", nil, st.now)
+	if pull.Merged {
+		next := mythicalLanded(item, pull.MergeCommit, st.now)
+		return &next
 	}
-	applier, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, automergeLabel)
-	if err != nil {
-		s.logger.Warn("mythical.labels_unread", "item", uuidString(item.ID), "error", err)
-		return mythicalLater(item, "the issue's labels could not be read as they stand; retrying", st.now)
-	}
-	policy, err := s.stackPolicy(ctx, st.r.row.RepositoryID)
-	if err != nil {
-		return mythicalLater(item, "the repository policy could not be read; retrying", st.now)
-	}
-	authorized := applier.present() && !applier.ViaApp && policy.maintains(applier.Actor.Login)
-	if authorized && !policy.namesMaintainers() {
-		// With no list, the applier must still be a person with write access.
-		if authorized, err = s.github.Maintainer(ctx, gh, applier.Actor); err != nil {
-			return mythicalLater(item, "GitHub did not answer for the label's applier; retrying", st.now)
-		}
-	}
-	if !authorized {
-		// The App's label is a maintainer's Land through Smithers (LandTodo)
-		// only for the head it names, by a person who still maintains.
-		if authorized, err = st.landedByMaintainer(ctx, item, applier, policy); err != nil {
-			return mythicalLater(item, "GitHub did not answer for the maintainer who landed it; retrying", st.now)
-		}
-	}
-	if !authorized {
-		next := item
-		checks := mythicalChecksOf(next)
-		checks.Automerge, checks.Land = false, nil
-		next.Checks = checks.encode()
-		return mythicalHold(next, "automerge:"+item.PRHead, "a maintainer's automerge label is no longer on the issue", nil, st.now)
-	}
-	// The issue must still be a TODO as it stands now: a maintainer's todo
-	// label, or, for a TODO the factory made, the todo label by anyone (its
-	// removal may never have reached the stack as an event).
-	{
-		checks := mythicalChecksOf(item)
-		todo, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, todoLabel)
-		if err != nil {
-			s.logger.Warn("mythical.labels_unread", "item", uuidString(item.ID), "error", err)
-			return mythicalLater(item, "the issue's labels could not be read as they stand; retrying", st.now)
-		}
-		isTodo := todo.present()
-		if isTodo && checks.AutoTodo == "" {
-			isTodo = !todo.ViaApp && policy.maintains(todo.Actor.Login)
-			if isTodo && !policy.namesMaintainers() {
-				// With no list, the applier must be a person with write
-				// access, as for automerge.
-				if isTodo, err = s.github.Maintainer(ctx, gh, todo.Actor); err != nil {
-					return mythicalLater(item, "GitHub did not answer for the label's applier; retrying", st.now)
-				}
-			}
-		}
-		if !isTodo {
-			next := item
-			checks.Todo = false
-			next.Checks = checks.encode()
-			return mythicalHold(next, "todo:"+item.PRHead, "the issue is no longer a TODO", nil, st.now)
-		}
-	}
-	// Last, the item as persisted: a revocation recorded meanwhile (a
-	// removal event, a person's action) stops the merge.
-	if current, err := s.queries().GetMythicalItem(ctx, item.ID); err != nil || current.Version != item.Version {
-		return nil
-	}
-	commit, err := s.github.Merge(ctx, gh, item.PRNumber.Int64, item.PRHead)
-	if err != nil {
-		s.logger.Warn("mythical.merge_refused", "item", uuidString(item.ID), "error", err)
-		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge", &mythicalFault{Class: "infra", Tag: "merge", Kind: mythicalFailLanding}, st.now)
-	}
-	next := item
-	next = mythicalLanded(next, commit, st.now)
-	return &next
+	return mythicalLater(item, "Waiting for merge readiness integration", st.now)
 }
 
 // pin keeps a commit reachable from the control plane's own namespace.
@@ -2745,7 +2685,9 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 			next.ProposalRound++
 			next.PRNumber, next.PRURL, next.PRState, next.PRHead, next.PRMergeCommit = pgtype.Int8{}, "", "", "", ""
 		}
-		next.PendingOp = nil
+		if len(item.PendingOp) > 0 {
+			return MythicalItemView{}, pkgerrors.Conflict("pending GitHub operation must settle before retry")
+		}
 		saved, err := q.SaveMythicalItem(ctx, next)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue

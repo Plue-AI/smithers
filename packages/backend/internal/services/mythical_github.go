@@ -112,6 +112,7 @@ type MythicalGitHubStore interface {
 var mythicalGitHubAPIPermissions = map[string]string{"contents": "read", "issues": "read", "pull_requests": "write"}
 
 type mythicalGitHubAPI struct {
+	credentials GitHubAppCredentialReader
 	api         *landingGitHubAPI
 	text        *gitHubIssueTextAPI
 	store       MythicalGitHubStore
@@ -126,8 +127,12 @@ type mythicalGitHubAPI struct {
 // credential policy of landing pull requests.
 func NewMythicalGitHub(store MythicalGitHubStore, tokens LandingGitHubPullTokens, prover GitHubRepoPushProver, connections RepoSyncConnectionChecker) *mythicalGitHubAPI {
 	api := &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL}
+	var credentials GitHubAppCredentialReader
+	if connections, ok := tokens.(*RepoConnectionService); ok {
+		credentials = connections.githubAppCredentials
+	}
 	return &mythicalGitHubAPI{
-		api: api, text: &gitHubIssueTextAPI{api: api},
+		credentials: credentials, api: api, text: &gitHubIssueTextAPI{api: api},
 		store: store, tokens: tokens, prover: prover, connections: connections,
 		gitBase: func() string {
 			if base := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_GIT_BASE_URL")); base != "" {
@@ -450,6 +455,14 @@ const mythicalCommentPages = 10
 // the stack's, and past mythicalCommentPages pages the thread is taken to
 // hold none, so a very long thread gets a new comment rather than none.
 func (g *mythicalGitHubAPI) findComment(ctx context.Context, gh mythicalGitHubRepo, number int64, marker string) (int64, error) {
+	credentials, err := loadGitHubAppCredentials(ctx, g.credentials)
+	if err != nil {
+		return 0, err
+	}
+	if credentials.ID <= 0 {
+		return 0, ErrGitHubAppNotConfigured
+	}
+
 	for page := 1; page <= mythicalCommentPages; page++ {
 		var comments []struct {
 			ID   int64  `json:"id"`
@@ -470,7 +483,7 @@ func (g *mythicalGitHubAPI) findComment(ctx context.Context, gh mythicalGitHubRe
 			return 0, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue comments")
 		}
 		for _, comment := range comments {
-			if comment.App != nil && comment.User.Type == "Bot" && strings.Contains(comment.Body, marker) {
+			if comment.App != nil && comment.App.ID == credentials.ID && comment.User.Type == "Bot" && strings.Contains(comment.Body, marker) {
 				return comment.ID, nil
 			}
 		}

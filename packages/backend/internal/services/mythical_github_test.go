@@ -62,7 +62,7 @@ func (g *recordedGitHub) api(t *testing.T) *mythicalGitHubAPI {
 	}))
 	t.Cleanup(server.Close)
 	api := &landingGitHubAPI{client: server.Client(), baseURL: func() string { return server.URL }}
-	return &mythicalGitHubAPI{api: api, text: &gitHubIssueTextAPI{api: api}, tokens: stackTokens{}}
+	return &mythicalGitHubAPI{credentials: outboundTestCredentials{}, api: api, text: &gitHubIssueTextAPI{api: api}, tokens: stackTokens{}}
 }
 
 func answer(status int, body any) func(http.ResponseWriter) {
@@ -322,7 +322,7 @@ func TestMythicalGitHubCommentSaysEachKeyOnce(t *testing.T) {
 	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 		"GET /repos/o/r/issues/5/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
 			{"id": 40, "body": "quoting <!-- smithers:landed:abc -->", "user": map[string]any{"type": "User"}},
-			{"id": 41, "body": "another App <!-- smithers:landed:abc -->", "user": map[string]any{"type": "User"}, "performed_via_github_app": map[string]any{"id": 9}},
+			{"id": 41, "body": "another App <!-- smithers:landed:abc -->", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 9}},
 			{"id": 42, "body": "Landed on main: old\n\n<!-- smithers:landed:abc -->", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 7}},
 		}),
 		"PATCH /repos/o/r/issues/comments/42":                  answer(http.StatusOK, map[string]any{}),

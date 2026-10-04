@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -59,6 +60,15 @@ func (h *GitHubProxyHandler) PostRepoGitHubProxy(w http.ResponseWriter, r *http.
 	var req postGitHubProxyRequest
 	if !decodeJSONBody(w, r, &req) {
 		return
+	}
+
+	if middleware.AuthInfoFromContext(r.Context()).IsAgent() {
+		switch strings.ToUpper(strings.TrimSpace(req.Method)) {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			pkgerrors.WriteError(w, &pkgerrors.APIError{Status: http.StatusForbidden,
+				Code: services.GitHubProxyForbiddenActionCode, Message: "machine GitHub mutations are forbidden"})
+			return
+		}
 	}
 
 	proxyResp, svcErr := h.Service.ProxyRepoRequest(r.Context(), user, owner, repo, services.GitHubProxyRequest{

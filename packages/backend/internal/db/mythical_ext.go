@@ -327,6 +327,14 @@ func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID in
 	return scanMythicalItems(rows, err)
 }
 
+// ListMythicalPendingOperations includes dropped and old items beyond the
+// display limit, so restart cannot lose an outbound reconciliation obligation.
+func (q *Queries) ListMythicalPendingOperations(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+ WHERE repository_id = $1 AND pending_op IS NOT NULL ORDER BY created_at`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
 // ListMythicalPendingCompletions lists the landed items whose issue is
 // still owed its completion evidence: one the stack saw land (a completion
 // recorded) and not yet settled (closed, or never on main).
@@ -565,4 +573,35 @@ func (q *Queries) ListRetirableMythicalLanes(ctx context.Context, repositoryID i
 func (q *Queries) RetireMythicalLane(ctx context.Context, workspaceID string) error {
 	_, err := q.db.Exec(ctx, `UPDATE mythical_lanes SET retired_at = NOW() WHERE workspace_id = $1 AND retired_at IS NULL`, workspaceID)
 	return err
+}
+
+// SaveMythicalItemUnderLease couples item CAS with the worker's live stack
+// claim. It replaces unfenced persistence at the outbound send boundary.
+func (q *Queries) SaveMythicalItemUnderLease(ctx context.Context, item MythicalItem, claim int64) (MythicalItem, error) {
+	beginner, ok := q.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return MythicalItem{}, errors.New("outbound persistence requires transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return MythicalItem{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var repositoryID int64
+	err = tx.QueryRow(ctx, `SELECT repository_id FROM mythical_stacks
+ WHERE repository_id = $1 AND claim = $2 AND running AND lease_expires_at > NOW()
+ FOR UPDATE`, item.RepositoryID, claim).Scan(&repositoryID)
+	if err != nil {
+		return MythicalItem{}, err
+	}
+	saved, err := New(tx).SaveMythicalItem(ctx, item)
+	if err != nil {
+		return MythicalItem{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return MythicalItem{}, err
+	}
+	return saved, nil
 }

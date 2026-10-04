@@ -67,6 +67,7 @@ type MythicalService struct {
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
+	outbound         MythicalOutboundProviders
 	github           mythicalGitHub
 	launcher         mythicalLauncher
 	lanes            mythicalLanes

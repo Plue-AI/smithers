@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 )
 
 // The mythical stack's git engine: plain git plumbing over one bare scratch
@@ -66,7 +68,12 @@ type mythicalGit struct {
 }
 
 func (g mythicalGit) command(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
-	cmd := gitHubMainPullCommand(ctx, append([]string{"--git-dir", g.dir}, args...)...)
+	// Object transport never consumes hooks or credential helpers from the
+	// repository config. It replaces inherited executable configuration.
+	cmd := gitHubMainPullCommand(ctx, append([]string{"-c", "core.hooksPath=" + os.DevNull,
+		"-c", "credential.helper=", "-c", "core.sshCommand=/usr/bin/ssh",
+		"-c", "protocol.ext.allow=never", "-c", "diff.external=",
+		"--git-dir", g.dir}, args...)...)
 	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "LC_ALL=C")
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
