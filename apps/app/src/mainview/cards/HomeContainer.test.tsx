@@ -70,7 +70,7 @@ test("the mounted Home admission holds Answer, order OK and Reset, so those rows
 
 test("sync Retry is offered only while main's sync is stale", () => {
   const base = Object.values(fixtures)[0]!.model
-  const tags = (health: string) => mount({ ...base, main: { ...base.main, health } }).props.actions.map(action => action.tag)
+  const tags = (health: string) => mount({ ...base, main: { ...base.main, health, last_success_at: new Date(Date.now() - (health === "stale" ? 121_000 : 0)).toISOString() } }).props.actions.map(action => action.tag)
   expect(tags("fresh")).toEqual(["todo.new"])
   expect(tags("stale")).toEqual(["todo.new", "github"])
   expect(tags("limited")).toEqual(["todo.new"])
@@ -269,7 +269,75 @@ test("production props alone keep the seed until the home topic serves data; the
     await b.answer({ t: "snap", cursor: 1, data: live })
     expect(host.textContent).not.toContain("Upgrade the Stripe SDK to v17")
     expect(host.textContent).toContain(live.items[0]!.title)
+    await b.answer({ t: "gap" })
+    expect(host.textContent).toContain(live.items[0]!.title)
+    await b.answer({ t: "delta", cursor: 2, data: {} })
+    expect(host.textContent).toContain(live.items[0]!.title)
+    await b.answer({ t: "snap", cursor: 3, data: { ...live, repository: "Fresh after gap" } })
+    expect(host.textContent).toContain("Fresh after gap")
   } finally { await b.close() }
+})
+
+test("sync health ages at 120 seconds and preserves refused and limited facts", () => {
+  const base = Object.values(fixtures)[0]!.model
+  const original = Date.now
+  const synced = Date.parse("2026-10-04T00:00:00Z")
+  try {
+    for (const [age, expected] of [[0, "fresh"], [120_000, "fresh"], [121_000, "stale"]] as const) {
+      Date.now = () => synced + age
+      const h = mount({ ...base, main: { ...base.main, last_success_at: "2026-10-04T00:00:00Z", health: "fresh" } })
+      expect(h.props.model.main.health).toBe(expected)
+      expect(h.props.actions.map(action => action.tag)).toEqual(expected === "fresh" ? ["todo.new"] : ["todo.new", "github"])
+    }
+    for (const health of ["refused", "limited"] as const) {
+      const main = { ...base.main, health, cause: "GitHub denied", retry_at: "2026-10-04T01:00:00Z" }
+      expect(mount({ ...base, main }).props.model.main).toEqual(main)
+    }
+  } finally { Date.now = original }
+})
+
+test("order attention is private to maintainers and binds its TODO number", () => {
+  const base = Object.values(fixtures)[0]!.model
+  const model = { ...base, attention: [{ kind: "order", text: "Order changed", todo: 42, actions: [{ tag: "order.ok", label: "OK" }] }] }
+  for (const role of ["owner", "maintainer", "member"] as const) {
+    const h = mount(model, role)
+    expect(h.props.model.attention).toHaveLength(role === "member" ? 0 : 1)
+    h.props.onAction("order.ok")
+    expect(h.calls).toEqual(role === "member" ? [] : [{ tag: "order.ok", input: { n: 42 } }])
+  }
+})
+
+test("a mounted Home turns stale on its local clock without another snapshot", async () => {
+  GlobalRegistrator.register()
+  const originalNow = Date.now
+  const originalInterval = globalThis.setInterval
+  const originalClear = globalThis.clearInterval
+  const ticks: Array<() => void> = []
+  let now = Date.parse("2026-10-04T00:02:00Z")
+  Date.now = () => now
+  globalThis.setInterval = ((tick: () => void) => { ticks.push(tick); return ticks.length }) as unknown as typeof setInterval
+  globalThis.clearInterval = (() => {}) as typeof clearInterval
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const base = Object.values(fixtures)[0]!.model
+  let props!: HomeViewProps
+  try {
+    await act(async () => root.render(<HomeContainer model={{ ...base, main: { ...base.main, health: "fresh", last_success_at: "2026-10-04T00:00:00Z" } }}
+      role="owner" allowed={allowed} dispatch={() => {}} view={{ maximized: false }} onView={() => {}}
+      View={value => { props = value; return null }} />))
+    expect(props.model.main.health).toBe("fresh")
+    expect(props.actions.map(action => action.tag)).toEqual(["todo.new"])
+    now += 1000
+    await act(async () => { for (const tick of ticks) tick() })
+    expect(props.model.main.health).toBe("stale")
+    expect(props.actions.map(action => action.tag)).toEqual(["todo.new", "github"])
+  } finally {
+    await act(async () => root.unmount())
+    Date.now = originalNow
+    globalThis.setInterval = originalInterval
+    globalThis.clearInterval = originalClear
+    await GlobalRegistrator.unregister()
+  }
 })
 
 test("only the first unmerged row can offer one Merge, even with duplicate supplied controls", () => {

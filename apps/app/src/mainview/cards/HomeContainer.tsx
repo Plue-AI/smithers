@@ -5,6 +5,7 @@ import { cardActions, type CardActionDefinition, type CardCommandDispatch } from
 import { useController } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { HomeView } from "./views/HomeView"
+import { useClock } from "@smthrs/ui/clock"
 import { useTopic } from "../state/useTopic"
 import { useDesignHome, useDesignHomeView } from "../state/seams/DesignWorld/home"
 
@@ -19,8 +20,13 @@ export interface HomeContainerProps {
   readonly onView: HomeViewProps["onView"]
 }
 export const HomeContainer = ({ model: source, role, allowed, dispatch, View = HomeView, view, onView }: HomeContainerProps) => {
+  const now = useClock(true, 1000)
   if (source === undefined || source === null) return null
   const parsed = HomeCardSchema.parse(source)
+  // The existing View clock ages the caption; the Container must age health and its controls too.
+  const health = parsed.main.health === "fresh" || parsed.main.health === "stale"
+    ? now - Date.parse(parsed.main.last_success_at) > 120_000 ? "stale" : "fresh"
+    : parsed.main.health
   const definitions: CardActionDefinition[] = []
   const admitted = (definition: CardActionDefinition) => {
     if (!allowed.has(definition.tag) || definition.tag === "main.reset-to-github" && role !== "owner"
@@ -29,7 +35,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   }
   admitted({ tag: "todo.new", label: "New TODO", command_input: { text: "" } })
   /* Sync Retry shows only once main's sync is stale; limited retries on its own, refused needs a fix. */
-  if (parsed.main.health === "stale") admitted({ tag: "github", label: "Retry", command_input: undefined })
+  if (health === "stale") admitted({ tag: "github", label: "Retry", command_input: undefined })
   const topCount = definitions.length
   const attention = parsed.attention.filter(row => row.kind === "force_push" ? role === "owner" : role !== "member").map(row => {
     const start = definitions.length
@@ -78,7 +84,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
     const rowBindings = cardActions(dispatch, definitions.slice(row.start, row.end))
     return { ...row, actions: rowBindings.actions }
   })
-  const model = HomeCardSchema.parse({ ...parsed, attention: bindRows(attention), items: bindRows(items), background_runs: bindRows(runs) })
+  const model = HomeCardSchema.parse({ ...parsed, main: { ...parsed.main, health }, attention: bindRows(attention), items: bindRows(items), background_runs: bindRows(runs) })
   const top = cardActions(dispatch, definitions.slice(0, topCount))
   return <View model={model} actions={top.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
