@@ -452,3 +452,96 @@ func TestSquashMergeIsHeadBoundAndProjectsOnlyAfterTheWrite(t *testing.T) {
 	status, _ = request(t, server, "PUT", "/repos/acme/foreign/pulls/1/merge", access.Token, []byte(`{}`))
 	require.Equal(t, 404, status)
 }
+
+func TestGitPushNeedsInstallationTokenAndPullHeadsFollowTheBranch(t *testing.T) {
+	server, cfg, key := fixture(t)
+	root := t.TempDir()
+	run := func(args ...string) (string, error) {
+		out, err := exec.Command("/usr/bin/git", args...).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := run(args...)
+		require.NoError(t, err, out)
+		return out
+	}
+	seed := filepath.Join(root, "seed")
+	git("init", "-b", "main", seed)
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "JOURNEY.md"), []byte("canary\n"), 0600))
+	git("-C", seed, "add", "JOURNEY.md")
+	git("-C", seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Seed")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "acme"), 0700))
+	bare := filepath.Join(root, "acme/app.git")
+	git("clone", "--bare", seed, bare)
+	server.config.GitRoot = root
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	basic := func(token string) string {
+		return "http.extraHeader=Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+	}
+	remote := server.URL + "/acme/app.git"
+	work := filepath.Join(root, "work")
+	git("-c", basic(access.Token), "clone", remote, work)
+	commit := func(content string) string {
+		require.NoError(t, os.WriteFile(filepath.Join(work, "JOURNEY.md"), []byte(content), 0600))
+		git("-C", work, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qam", content)
+		return git("-C", work, "rev-parse", "HEAD")
+	}
+	branchHead := func() string {
+		out, _ := run("--git-dir", bare, "rev-parse", "--verify", "--quiet", "refs/heads/smithers/retry")
+		return out
+	}
+	push := func(token string) error {
+		_, err := run("-C", work, "-c", basic(token), "push", remote, "HEAD:refs/heads/smithers/retry")
+		return err
+	}
+	first := commit("first\n")
+	require.NoError(t, push(access.Token))
+	require.Equal(t, first, branchHead(), "an installation token pushes")
+
+	status, _ = request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"Absent","head":"smithers/absent","base":"main"}`))
+	require.Equal(t, 422, status, "no pull request without its head branch")
+	status, body = request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"Retry","head":"smithers/retry","base":"main"}`))
+	require.Equal(t, 201, status)
+	var pull Pull
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.Equal(t, first, pull.Head.SHA, "the head is the branch's commit")
+	second := commit("second\n")
+	require.NoError(t, push(access.Token))
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.Equal(t, second, pull.Head.SHA, "an open pull request follows its branch")
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls?head=acme:smithers/retry&state=all", access.Token, nil)
+	require.Equal(t, 200, status)
+	var pulls []Pull
+	require.NoError(t, json.Unmarshal(body, &pulls))
+	require.Len(t, pulls, 1)
+	require.Equal(t, second, pulls[0].Head.SHA)
+
+	server.LoseNextPushResponses(1)
+	third := commit("third\n")
+	require.Error(t, push(access.Token), "the answer is lost")
+	require.Equal(t, third, branchHead(), "GitHub took the write")
+	receipts := server.Writes()
+	require.Equal(t, "/acme/app.git/git-receive-pack", receipts[len(receipts)-1].Path)
+	require.Equal(t, http.StatusBadGateway, receipts[len(receipts)-1].Status)
+	require.NoError(t, push(access.Token), "the next push answers again")
+
+	// A person's OAuth token reads the repository but never pushes.
+	status, _ = request(t, server, "POST", "/app-manifests/one-use-code/conversions", "", nil)
+	require.Equal(t, 201, status)
+	form := url.Values{"code": {"owner-code"}, "client_id": {cfg.ClientID}, "client_secret": {cfg.ClientSecret}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}}
+	status, _ = request(t, server, "POST", "/login/oauth/access_token", "", []byte(form.Encode()))
+	require.Equal(t, 200, status)
+	refs := git("-c", basic("ghu_githubfake_owner"), "ls-remote", remote)
+	require.Contains(t, refs, third+"\trefs/heads/smithers/retry")
+	commit("person\n")
+	require.Error(t, push("ghu_githubfake_owner"))
+	require.Equal(t, third, branchHead())
+}

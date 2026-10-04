@@ -17,6 +17,9 @@ import (
 	"net/http/cgi"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,6 +77,17 @@ type Server struct {
 	writes    []Write
 	tokens    map[string]int64
 	pulls     map[string]Pull
+	// lostPushes is how many applied pushes still answer 502: a response
+	// lost after GitHub took the write.
+	lostPushes int
+}
+
+// LoseNextPushResponses makes the next n pushes apply and then answer 502,
+// as a connection lost after GitHub accepted the write would.
+func (s *Server) LoseNextPushResponses(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lostPushes = n
 }
 
 // Handler creates the same fake without opening an httptest listener.
@@ -241,9 +255,13 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			return failure(http.StatusUnauthorized, "installation token required")
 		}
 		installation, _ := s.installation(installationID)
-		repos := append([]Repository{}, installation.Repositories...)
-		start, end := pageBounds(r, len(repos))
-		return http.StatusOK, map[string]any{"total_count": len(repos), "repositories": repos[start:end]}
+		// GitHub lists full repository objects, owner and name included.
+		repos := []any{}
+		start, end := pageBounds(r, len(installation.Repositories))
+		for _, repo := range installation.Repositories[start:end] {
+			repos = append(repos, s.repository(repo))
+		}
+		return http.StatusOK, map[string]any{"total_count": len(installation.Repositories), "repositories": repos}
 	}
 	if installationID, ok := s.tokens[token]; ok {
 		if r.Method == http.MethodGet && r.URL.Path == "/user/7" {
@@ -448,6 +466,13 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		p.Head.Ref = input.Head
 		digest := sha256.Sum256([]byte(repo + "/" + input.Head))
 		p.Head.SHA = fmt.Sprintf("%x", digest)[:40]
+		if head, hosted, exists := s.branchHead(repo, input.Head); hosted {
+			// GitHub opens a pull request only from an existing head branch.
+			if !exists {
+				return 422, map[string]any{"message": "Validation Failed", "errors": []map[string]string{{"resource": "PullRequest", "field": "head", "code": "invalid"}}}
+			}
+			p.Head.SHA = head
+		}
 		p.Head.Repo.FullName = repo
 		p.Base.Ref = input.Base
 		s.pulls[repo+"/"+strconv.FormatInt(number, 10)] = p
@@ -456,9 +481,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	if len(path) == 1 && r.Method == http.MethodGet {
 		result := []Pull{}
 		head := strings.TrimPrefix(r.URL.Query().Get("head"), strings.Split(repo, "/")[0]+":")
-		for _, p := range s.pulls {
+		for key, p := range s.pulls {
 			if p.Repository == repo && (head == "" || head == p.Head.Ref) {
-				result = append(result, p)
+				result = append(result, s.current(key))
 			}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
@@ -467,10 +492,10 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	}
 	if len(path) == 3 && path[2] == "merge" {
 		key := repo + "/" + path[1]
-		p, ok := s.pulls[key]
-		if !ok {
+		if _, ok := s.pulls[key]; !ok {
 			return failure(404, "pull request not found")
 		}
+		p := s.current(key)
 		if r.Method == http.MethodGet {
 			if p.Merged {
 				return 204, nil
@@ -505,10 +530,10 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	}
 	if len(path) == 2 {
 		key := repo + "/" + path[1]
-		p, ok := s.pulls[key]
-		if !ok {
+		if _, ok := s.pulls[key]; !ok {
 			return failure(404, "pull request not found")
 		}
+		p := s.current(key)
 		if r.Method == http.MethodGet {
 			return 200, p
 		}
@@ -539,6 +564,37 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	}
 	return failure(404, "endpoint not found")
 }
+
+// branchHead reads a branch of a repository the Git fixture hosts. hosted
+// is false without a fixture repository, where pull heads stay synthetic.
+func (s *Server) branchHead(repo, branch string) (head string, hosted, exists bool) {
+	if s.config.GitRoot == "" {
+		return "", false, false
+	}
+	dir := filepath.Join(s.config.GitRoot, filepath.FromSlash(repo)+".git")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", false, false
+	}
+	out, err := exec.Command("/usr/bin/git", "--git-dir", dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Output()
+	if err != nil {
+		return "", true, false
+	}
+	return strings.TrimSpace(string(out)), true, true
+}
+
+// current is an open pull request as GitHub serves it: its head follows the
+// head branch until the pull request closes.
+func (s *Server) current(key string) Pull {
+	p := s.pulls[key]
+	if p.State == "open" {
+		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists && head != p.Head.SHA {
+			p.Head.SHA = head
+			s.pulls[key] = p
+		}
+	}
+	return p
+}
+
 func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {
 	var input struct {
 		Query     string
@@ -602,8 +658,11 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fullName, suffix, valid := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), ".git/")
+	// Pushes need the App's installation token; a person's OAuth token reads.
+	_, installationToken := s.tokens[token]
+	push := suffix == "git-receive-pack" || suffix == "info/refs" && r.URL.Query().Get("service") == "git-receive-pack"
 	allowed := false
-	if basic && authenticated && valid && (suffix == "info/refs" || suffix == "git-upload-pack") {
+	if basic && authenticated && valid && (suffix == "info/refs" || suffix == "git-upload-pack" || suffix == "git-receive-pack") && (!push || installationToken) {
 		installation, _ := s.installation(id)
 		for _, repo := range installation.Repositories {
 			allowed = allowed || repo.FullName == fullName
@@ -619,11 +678,17 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git fixture unavailable", 503)
 		return
 	}
-	handler := cgi.Handler{Path: "/usr/bin/git", Args: []string{"http-backend"}, Root: "/", Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}}
+	// http-backend serves receive-pack only to an authenticated REMOTE_USER.
+	handler := cgi.Handler{Path: "/usr/bin/git", Args: []string{"http-backend"}, Root: "/", Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "REMOTE_USER=x-access-token"}}
 	receipt := httptest.NewRecorder()
 	handler.ServeHTTP(receipt, r)
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		s.mu.Lock()
+		if suffix == "git-receive-pack" && s.lostPushes > 0 {
+			s.lostPushes--
+			receipt = httptest.NewRecorder()
+			receipt.WriteHeader(http.StatusBadGateway)
+		}
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Status: receipt.Code})
 		s.mu.Unlock()
 	}
