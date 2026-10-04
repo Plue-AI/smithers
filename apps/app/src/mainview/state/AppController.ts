@@ -130,6 +130,7 @@ import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
+import { designSettings } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
 import { withDesignTodos } from "./seams/DesignWorld/todo"
@@ -795,7 +796,9 @@ export const createAppController = (
   const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: async kind => {
       if (kind === "settings") await presentCard("settings", "Settings")
       services.presentInstallCard?.(kind)
-    } }))
+    },
+    // MOCK SEAM: the design seed below stands in for an absent install, so its missing /api/install is quiet.
+    quietWithoutInstall: true }))
   ctx.onDispose(installSeam.dispose)
   if (services.bootstrap?.host === "local") void installSeam.showSetup()
   const design = createDesignWorld()
@@ -1540,8 +1543,9 @@ export const createAppController = (
     presentBranchCard,
     showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,
     setInstallAddress: installSeam.setInstallAddress,
-    setInstallCapacity: installSeam.setInstallCapacity,
-    setInstallParallel: installSeam.setInstallParallel,
+    /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
+    setInstallCapacity: capacity => installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
+    setInstallParallel: parallel => installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
     promptStorageRecovery,
     exportStorageRecovery,

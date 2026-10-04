@@ -1,9 +1,11 @@
-import { type ComponentType } from "react"
+import { useState, type ComponentType } from "react"
 import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
+import { useController } from "../ControllerContext"
 import { HomeView } from "./views/HomeView"
 import { useTopic } from "../state/useTopic"
+import { useDesignHome } from "../state/seams/DesignWorld/home"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -78,14 +80,33 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   return <View model={model} actions={top.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 
-/** The complete projection, member view state and command authority must be supplied together.
- * T-COL-02/T-APP-16/T-CAT-01 have not enabled that composition; no mock fallback.
+const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
+  "todo", "todo.new", "todo.retry", "todo.resume", "todo.drop", "branch", "merge", "stack.move", "background.retry", "background.dismiss"
+])
+/** Sync Retry shows only once main's sync is not fresh. */
+const HOME_TAGS_SYNC: ReadonlySet<CatalogTag> = new Set<CatalogTag>([...HOME_TAGS, "github"])
+
+/** MOCK SEAM: the seeded design world projected to the `home` topic's shape, with the viewer's seeded role. */
+const SeededHomeCard = () => {
+  const controller = useController()
+  const { model, role } = useDesignHome()
+  const [view, setView] = useState<HomeViewProps["view"]>({ maximized: false })
+  const dispatch: CardCommandDispatch = (tag, input) =>
+    controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })
+  return <HomeContainer model={model} role={role} allowed={model.main.health === "fresh" ? HOME_TAGS : HOME_TAGS_SYNC} dispatch={dispatch}
+    View={HomeView} view={view} onView={patch => setView(current => ({ ...current, ...patch }))} />
+}
+
+/**
+ * The Home card of `main`'s conversation and `/stack` (T-APP-01). It reads the `home` topic only when the
+ * production composition (role, admission, dispatch, view state) is supplied AND the topic serves data;
+ * until then the seeded design world stays the fallback, so the mounted card never goes dark.
  */
 export const HomeCard = ({ production }: {
   readonly production?: Omit<HomeContainerProps, "model" | "View">
 } = {}) => {
-  const snapshot = useTopic("home")
-  if (!production || snapshot?.error || snapshot?.data === undefined) return null
+  const snapshot = useTopic(production === undefined ? undefined : "home")
+  if (!production || snapshot?.error || snapshot?.data === undefined) return <SeededHomeCard />
   const { role, allowed, dispatch, view, onView } = production
   return <HomeContainer model={snapshot.data} role={role} allowed={allowed} dispatch={dispatch} view={view} onView={onView} />
 }

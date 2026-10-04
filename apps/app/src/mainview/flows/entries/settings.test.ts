@@ -54,20 +54,21 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.controller.slashItems("settings").some(row => row.flow.name.startsWith("settings."))).toBe(false)
     } finally { await h.controller.dispose() }
   })
-  test("an unavailable install never presents Settings or mutates the design seed", async () => {
+  test("an install that serves no model keeps the seeded Settings and its writes; nothing reaches /api/install", async () => {
     const h = await harness(undefined, () => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))
     try {
-      const capacity = h.controller.design.world().repo.capacity
+      expect(h.controller.design.world().repo.capacity).not.toBe(2)
       expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
-      expect([...h.store.collections.cards.keys()]).toEqual([])
+      // MOCK SEAM (DesignWorld/settings.ts designInstall): the card stays mounted on the seed until the install serves a model.
+      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
       expect(h.cards).toEqual([])
-      expect(h.controller.installSnapshots.get().error?.message).toBe("Install unavailable")
-      await h.controller.commands.run("settings.capacity", "1"); await tick()
+      expect(h.controller.installSnapshots.get()).toEqual({ error: { code: "unavailable", class: "infra", message: "Install unavailable" } })
+      expect((await h.controller.commands.run("settings.capacity", "2")).status).toBe("executed"); await tick()
       expect(h.requests.filter(request => request.method === "PUT")).toEqual([])
-      expect(h.controller.design.world().repo.capacity).toBe(capacity)
+      expect(h.controller.design.world().repo.capacity).toBe(2)
     } finally { await h.controller.dispose() }
   })
-  test("Settings returns before an unresolved install read and coalesces repeated opens", async () => {
+  test("Settings shows the seed before an unresolved install read, coalesces repeated opens, then reads the live install", async () => {
     let resolve!: (response: Response) => void
     const read = new Promise<Response>(done => { resolve = done })
     const h = await harness(undefined, () => read)
@@ -75,9 +76,12 @@ describe("T-APP-03 settings command doors", () => {
       expect((await h.controller.commands.run("settings")).status).toBe("executed")
       expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect(h.requests.filter(request => request.path === "/api/install")).toHaveLength(1)
-      expect([...h.store.collections.cards.keys()]).toEqual([])
+      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+      expect(h.controller.installSnapshots.get().model).toBeUndefined()
       resolve(Response.json(installFixture())); await tick()
       expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+      expect(h.controller.installSnapshots.get().model).toEqual(installFixture())
+      expect(h.cards).toEqual(["settings"])
     } finally { resolve(Response.json(installFixture())); await h.controller.dispose() }
   })
   test.each(["slash", "button"] as const)("capacity writes share the same flow from %s", async door => {

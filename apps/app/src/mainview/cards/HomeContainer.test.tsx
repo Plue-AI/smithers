@@ -3,7 +3,15 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Home"
+import { GlobalRegistrator } from "@happy-dom/global-registrator"
+import { act } from "react"
+import { createRoot } from "react-dom/client"
 import { HomeCard, HomeContainer } from "./HomeContainer"
+import { ControllerTestProvider } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
+import { createDesignWorld } from "../state/seams/DesignWorld"
+import { BEN, MAYA } from "../state/seams/DesignWorld/world"
+import { liveChannel } from "../runtime/LiveChannel"
 const allowed = new Set<CatalogTag>(["todo.new", "github", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
@@ -90,8 +98,50 @@ test("Merge is absent for members and for blocked, later or draft rows", () => {
   }
 })
 
-test("Home stays unmounted without the complete production composition", () => {
-  expect(renderToStaticMarkup(<HomeCard />)).toBe("")
+const seeded = (viewer: string) => {
+  const submitted: unknown[] = []
+  const controller = { design: createDesignWorld({ viewer, timers: { set: () => 0, clear: () => {} } }),
+    commands: { submit: async (command: unknown) => { submitted.push(command); return { status: "executed" } } } } as unknown as AppController
+  return { controller, submitted }
+}
+
+test("without the production composition Home renders the seeded stack, never nothing", () => {
+  const h = seeded(MAYA)
+  const markup = renderToStaticMarkup(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>)
+  for (const title of ["Upgrade the Stripe SDK to v17", "Retry failed webhooks with backoff", "Fix the flaky checkout test", "Log every webhook retry attempt"]) expect(markup).toContain(title)
+  expect(markup).toContain('data-flow="merge"')
+  expect(markup).toContain('data-flow="todo.new"')
+  // A maintainer sees Merge too; the seeded viewer's role, not a default, decides.
+  expect(renderToStaticMarkup(<ControllerTestProvider controller={seeded(BEN).controller}><HomeCard /></ControllerTestProvider>)).toContain('data-flow="merge"')
+})
+
+test("production props alone keep the seed until the home topic serves data; then the topic replaces it", async () => {
+  GlobalRegistrator.register()
+  const frames: Array<{ t: string; id?: number; topic?: string }> = []
+  let socket!: { readyState: number; onopen: (() => void) | null; onclose: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null }
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, WebSocket: class {
+    readyState = 0; onopen: (() => void) | null = null; onclose: (() => void) | null = null; onmessage: ((event: { data: unknown }) => void) | null = null
+    constructor() { socket = this }
+    send(frame: string) { frames.push(JSON.parse(frame)) }
+    close() {}
+  } })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const calls: unknown[] = []
+  const production = { role: "owner" as const, allowed, dispatch: (tag: string, input: unknown) => { calls.push({ tag, input }) }, view: { maximized: false }, onView: () => {} }
+  const live = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={seeded(MAYA).controller}><HomeCard production={production} /></ControllerTestProvider>))
+    expect(host.textContent).toContain("Upgrade the Stripe SDK to v17")
+    socket.readyState = 1; socket.onopen?.()
+    const sub = frames.find(frame => frame.t === "sub" && frame.topic === "home")!
+    expect(sub).toBeDefined()
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: sub.id, cursor: 1, data: live }) }))
+    expect(host.textContent).not.toContain("Upgrade the Stripe SDK to v17")
+    expect(host.textContent).toContain(live.items[0]!.title)
+  } finally {
+    await act(async () => root.unmount()); host.remove(); liveChannel().dispose(); await GlobalRegistrator.unregister()
+  }
 })
 
 test("only the first unmerged row can offer one Merge, even with duplicate supplied controls", () => {

@@ -27,7 +27,9 @@ const key: Grammar = args => {
 /* The inputs each setup step needs (InstallSeam.setupStep's bodies); THE FORM LAW asks for the missing ones. */
 const SETUP_REQUIRES: Readonly<Record<string, ReadonlyArray<string>>> = { address: ["bind", "origins"], app_manifest: ["owner"], repository: ["repository"] }
 export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "settings", summary: "Settings", userOnly: true, userOnlyReason: "Install status requires the owner’s person session", input: NoPayload, handler: () => actions.showSettings() }),
+  flow({ name: "settings", summary: "Settings", userOnly: true, userOnlyReason: "Install status requires the owner’s person session", input: NoPayload,
+    /* MOCK SEAM (DesignWorld/settings.ts designInstall): the card shows the seeded install now; the live read replaces it once /api/install serves a model. */
+    handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() } }),
   flow({ name: "settings.address", summary: "Change Address", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: object, args: "<address>", input: Schema.Struct({ listen: Schema.Literals(["mac", "network"]), bind: Schema.String, origins: Schema.Array(Schema.String) }),
     handler: input => actions.setInstallAddress(input) }),

@@ -32,19 +32,22 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 
 | What | File | Replaced by | Ticket |
 | --- | --- | --- | --- |
-| Home model (stack rows, main sync row, background runs) | HomeContainer reads `home`; seeded Home module deleted. Mount remains dark without complete production composition. | topic `home`, `GET /api/stack` | T-APP-01 |
-| `/stack` open | Mock removed; production dispatcher refuses unavailable Home provider. | per-member view topic | T-APP-01, T-APP-16 |
-| Move | flows/entries/home.ts: mock removed; unavailable provider refused | `POST /api/todos/{n}/move` | T-STK-02 |
-| Merge (person only) | flows/entries/home.ts: mock removed; unavailable provider refused | `POST /api/todos/{n}/merge` | T-STK-04 |
-| Background Retry / Dismiss | Mock removed; production dispatcher refuses unavailable Home provider. | `POST /api/runs/{id}` retry, dismiss | T-APP-01, T-STK-05 |
-| Main sync Retry | flows/entries/home.ts: mock removed; unavailable provider refused | `POST /api/github/sync` | T-GH-07 |
+| Home model (stack rows, main sync row, background runs) | DesignWorld/home.ts `designHomeModel`, `useDesignHome`; cards/HomeContainer.tsx `SeededHomeCard` (the `home` topic replaces it only with production props and served data) | topic `home`, `GET /api/stack` | T-APP-01 |
+| `/stack` open | DesignWorld/home.ts `openDesignHome`; flows/entries/home.ts | per-member view topic | T-APP-01, T-APP-16 |
+| Move | flows/entries/home.ts `actions.design.move` | `POST /api/todos/{n}/move` | T-STK-02 |
+| Merge (person only) | flows/entries/home.ts `actions.design.merge` | `POST /api/todos/{n}/merge` | T-STK-04 |
+| Background Retry / Dismiss | flows/entries/home.ts `retryRun`, `dismissRun` | `POST /api/runs/{id}` retry, dismiss | T-APP-01, T-STK-05 |
+| Main sync Retry | flows/entries/home.ts `syncRetry` | `POST /api/github/sync` | T-GH-07 |
 | TODO card rows (`todo:<n>` carries only n) | DesignWorld/todo.ts `useDesignTodoCard`; cards/TodoContainer.tsx | topic `todo:<n>`, `/api/todos` via TodoSeam | T-APP-02 |
 | All `todo.*` / `draft.*` handlers | DesignWorld/todo.ts `withDesignTodos`; state/AppController.ts ~842 | createTodoSeam, `/api/todos` | T-APP-02, T-STK-01/02/05/06 |
 | Draft audience `design:<member>` | DesignWorld/todo.ts `designAudience`; cards/DraftContainer.tsx | identity login | T-APP-02, T-ACC-01 |
 | Scheduler (advances TODOs on timers) | DesignWorld/index.ts | factory on the install, observed through `home`, `todo:<n>` | T-STK-03, T-MCH-06 |
+| Settings install model | DesignWorld/settings.ts `designInstall`; cards/SettingsContainer.tsx (the live model replaces it once `/api/install` serves one) | `install` + InstallSeam snapshots | T-APP-03 |
+| `settings.capacity`, `settings.parallel` | DesignWorld/settings.ts `designSettings`; state/AppController.ts | `settings.*` against `/api/install` | T-APP-03, T-STK-03 |
+| Quiet missing install | InstallSeam.ts `quietWithoutInstall`; state/AppController.ts | a real install answering | T-APP-03 |
 | Members roster | DesignWorld/settings.ts `designMembersRoster`; cards/MembersCard.tsx | createMembersSeam, `/api/members`, topic `members` | T-APP-06, T-ACC-02 |
 | `members.add` / `role` / `remove` | DesignWorld/settings.ts `designMembers`; flows/entries/members.ts | MembersSeam | T-APP-06, T-ACC-02 |
-| Viewer role | DesignWorld/settings.ts `designViewerRole`; MembersCard, members.ts | identity seam, one authorizer | T-ACC-03 |
+| Viewer role | DesignWorld/settings.ts `designViewerRole`; SettingsContainer (until a live install), MembersCard, members.ts | identity seam, one authorizer | T-ACC-03 |
 | Secrets rows (no card consumes yet) | DesignWorld/settings.ts `designSecrets` | topic `secrets`, `/api/secrets` | T-APP-13 |
 | Branch model (presence, activity, machine state) | DesignWorld/branch.ts `designBranchModel`; cards/BranchCard.tsx | topics `branch:<id>`, `:activity`, `:files` over runtime/LiveChannel.ts | T-APP-10, T-COL-02 |
 | SSH line | DesignWorld/branch.ts `designSshLine`; flows/entries/branch.ts | SSH gateway | T-TRM-03 |
@@ -78,7 +81,7 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 | A✓ acts and Review & merge | DesignWorld/chat.ts `designActCard`, `designMergeCard`, `useDesignAct`; cards/ActCard.tsx | topic `confirmations:<member>`, ConfirmView | T-APP-04 |
 | Act cancel, merge card close | AppController.ts `cancelConfirmation` | topic `confirmations:<member>` | T-APP-04 |
 
-Setup and Settings now read only InstallSeam. Settings writes have no design fallback; missing install providers refuse visibly. Settings stays dark without its health projection. Legacy Settings replacement and image.add wait for the later T-APP-03 providers.
+A real seam may be added beside a seed, but the seed stays the fallback until the real seam serves data; no mounted card goes dark (#3496). Setup reads only InstallSeam. Settings controls are person-only. Legacy Settings replacement and image.add wait for the later T-APP-03 providers.
 
 ## 3. Follow-ups
 

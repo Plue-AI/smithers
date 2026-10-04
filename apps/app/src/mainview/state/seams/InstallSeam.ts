@@ -18,6 +18,8 @@ export interface InstallSnapshots {
 export interface InstallSeamOptions {
   readonly topic?: InstallTopic
   readonly present?: (kind: "setup" | "settings") => void | Promise<void>
+  /** MOCK SEAM (state/seams/DesignWorld): while the seed stands in, a host where no install answers is a quiet state, not a failed notice. */
+  readonly quietWithoutInstall?: boolean
 }
 export interface InstallAddress { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
 export interface SetupInput { readonly step: InstallStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
@@ -104,6 +106,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   const open = (kind: "setup" | "settings") => background(`open:${kind}`, kind === "setup" ? "Setup" : "Settings", async () => {
     const failure = await readInstall()
+    // No install answered at all (no install error body, or no answer): with the seed standing in, nothing failed that the person can act on.
+    if (failure && options.quietWithoutInstall && (failure.code === "invalid_error" || failure.code === "unreachable")) return TOAST_SUPERSEDED
     if (failure) return failure.message
     if (!current() || !shared.snapshot.model) return false
     if (kind === "settings" && !shared.snapshot.model.github.signed_in) {
