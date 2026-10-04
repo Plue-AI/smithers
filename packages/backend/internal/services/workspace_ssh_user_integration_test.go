@@ -37,13 +37,13 @@ func TestWorkspaceSSHUserGrantUsesOwnedProductWorkspace(t *testing.T) {
 		},
 	}
 	svc := NewWorkspaceService(q, WithWorkspaceSandboxClient(provider), WithWorkspaceSSHHost("ssh.example.test"))
-	for _, tc := range []struct{ requested, want string }{{"root", "root"}, {"", "developer"}, {"developer", "developer"}} {
+	for _, tc := range []struct{ requested, want string }{{"", "agent"}, {"agent", "agent"}} {
 		info, err := svc.GetWorkspaceSSHConnectionInfoAs(ctx, workspaceID, repo.ID, owner.ID, tc.requested)
 		require.NoError(t, err)
 		require.Equal(t, tc.want, info.Username)
 		require.Equal(t, []string{tc.want}, grants[len(grants)-1], "every grant must name exactly the returned SSH user")
 	}
-	for _, requested := range []string{"postgres", "root,developer", "root\npostgres"} {
+	for _, requested := range []string{"root", "developer", "postgres", "root,agent", "root\npostgres"} {
 		_, err := svc.GetWorkspaceSSHConnectionInfoAs(ctx, workspaceID, repo.ID, owner.ID, requested)
 		var apiErr *pkgerrors.APIError
 		require.ErrorAs(t, err, &apiErr)
@@ -51,10 +51,9 @@ func TestWorkspaceSSHUserGrantUsesOwnedProductWorkspace(t *testing.T) {
 	}
 	_, err = svc.GetWorkspaceSSHConnectionInfoAs(ctx, workspaceID, repo.ID, other.ID, "root")
 	require.Error(t, err)
-	require.Len(t, grants, 3, "invalid user or caller must never mint a provider grant")
+	require.Len(t, grants, 2, "invalid user or caller must never mint a provider grant")
 	svc.workspaceSSHUsername = "root"
-	info, err := svc.GetWorkspaceSSHConnectionInfo(ctx, workspaceID, repo.ID, owner.ID)
-	require.NoError(t, err)
-	require.Equal(t, "root", info.Username)
-	require.Equal(t, []string{"root"}, grants[3], "configured root must not request an unrestricted provider grant")
+	_, err = svc.GetWorkspaceSSHConnectionInfo(ctx, workspaceID, repo.ID, owner.ID)
+	require.Error(t, err)
+	require.Len(t, grants, 2, "configured root must never mint a provider grant")
 }

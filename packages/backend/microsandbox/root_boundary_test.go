@@ -15,6 +15,7 @@ import (
 // bundle and fresh/retained real machines; these tests never execute as root.
 func boundaryPython(t *testing.T, body string) {
 	t.Helper()
+	require.NotZero(t, os.Geteuid(), "branch tests must never execute as host root")
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
 	script := `import importlib.util, os, pwd, sys, tempfile, types
@@ -145,15 +146,17 @@ for body in (b'{', b'x'*1048577):
  except (SystemExit,ValueError): pass
  else: raise AssertionError('malformed/oversized request accepted')
 calls=[]
-g.pwd.getpwnam=lambda user: types.SimpleNamespace(pw_uid=1500,pw_gid=1500)
+g.pwd.getpwnam=lambda user: types.SimpleNamespace(pw_uid=19999,pw_gid=19999,pw_dir='/home/agent',pw_shell='/bin/bash')
+g.grp=types.SimpleNamespace(getgrnam=lambda name: types.SimpleNamespace(gr_gid=20000,gr_mem=['agent']),getgrall=lambda:[])
 g.os.geteuid=lambda: 0
 g.os.setgroups=lambda groups: calls.append(('groups',groups))
 g.os.setgid=lambda gid: calls.append(('gid',gid))
 g.os.setuid=lambda uid: calls.append(('uid',uid))
 # Restore the production drop function after the preflight observation.
 original=importlib.util.module_from_spec(spec); spec.loader.exec_module(original)
+original.grp=g.grp
 original.drop_to('agent')
-assert calls==[('groups',[]),('gid',1500),('uid',1500)], calls
+assert calls==[('groups',[20000]),('gid',19999),('uid',19999)], calls
 `)
 }
 
@@ -170,7 +173,7 @@ func rootBoundaryLifecycle(t *testing.T, hostileHome bool) {
 	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
 	require.NoError(t, err)
 	check := func() {
-		result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-c", `import os; assert os.getuid()==1500; assert os.getgid()==1500; assert os.getgroups()==[]; print('identity-ok')`}})
+		result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-c", `import os; assert os.getuid()==19999; assert os.getgid()==19999; assert os.getgroups()==[20000]; print('identity-ok')`}})
 		require.NoError(t, err)
 		require.Equal(t, 0, result.ExitCode)
 		require.Equal(t, "identity-ok\n", result.Stdout)
@@ -195,14 +198,22 @@ func rootBoundaryLifecycle(t *testing.T, hostileHome bool) {
 // must never run privileged code on the host. All branch disk reads are trapped.
 func TestWarmSetupDoesNotReadBranchOutputAsRoot(t *testing.T) {
 	boundaryPython(t, `
-entry=types.SimpleNamespace(pw_dir='/home/agent',pw_uid=1500,pw_gid=1500)
+entry=types.SimpleNamespace(pw_dir='/home/agent',pw_uid=19999,pw_gid=19999,pw_shell='/bin/bash')
 g.pwd.getpwnam=lambda user: entry
-g.safe_directory=lambda *args,**kwargs: os.open('/',os.O_RDONLY)
+g.grp=types.SimpleNamespace(getgrnam=lambda name: types.SimpleNamespace(gr_gid=20000,gr_mem=['agent']),getgrall=lambda:[])
+g.safe_directory=lambda *args,**kwargs: 10
+g.os.mkdir=lambda *args,**kwargs: (_ for _ in ()).throw(FileExistsError())
+g.os.open=lambda *args,**kwargs: 10
+g.os.close=lambda *args: None
+g.os.fstat=lambda fd: types.SimpleNamespace(st_uid=19999,st_gid=19999)
 g.os.fchown=lambda *args: None
 g.os.fchmod=lambda *args: None
 g.os.listdir=lambda *args: (_ for _ in ()).throw(AssertionError('root enumerated branch output'))
 g.home_defaults=lambda *args: (_ for _ in ()).throw(AssertionError('root consumed home output'))
-g.setup('agent',1500,['/var/cache/smithers'])
+g.sanitize_system_image=lambda: None
+g.configure_shared_git=lambda: None
+g.prepare_system_identity=lambda: None
+g.setup('agent',19999,['/var/cache/smithers'])
 `)
 }
 
@@ -212,21 +223,21 @@ with tempfile.TemporaryDirectory() as directory:
  home=os.path.realpath(directory)+'/home'; tools=os.path.realpath(directory)+'/tools'
  os.mkdir(home); os.mkdir(tools); open(tools+'/branch-created','w').close()
  g.TOOL_HOME=tools; g.ENV_FILE=directory+'/absent-env'
- entry=types.SimpleNamespace(pw_dir=home,pw_uid=1500,pw_gid=1500)
+ entry=types.SimpleNamespace(pw_dir=home,pw_uid=19999,pw_gid=19999,pw_shell='/bin/bash')
  state=[0]; calls=[]
  g.os.geteuid=lambda: state[0]
  def setup(*args):
   assert state[0]==0; calls.append('root-fixed-setup')
  g.setup=setup
  def drop(user):
-  assert user=='agent'; state[0]=1500; calls.append('drop'); return entry
+  assert user=='agent'; state[0]=19999; calls.append('drop'); return entry
  g.drop_to=drop
  listdir=os.listdir
  def read(fd):
-  assert state[0]==1500, 'branch output read as root'
+  assert state[0]==19999, 'branch output read as root'
   calls.append('branch-read'); return listdir(fd)
  g.os.listdir=read
- g.main(['setup','agent','1500'])
+ g.main(['setup','agent','19999'])
  assert calls==['root-fixed-setup','drop','branch-read'],calls
  assert os.readlink(home+'/branch-created')==tools+'/branch-created'
 `)
@@ -260,11 +271,11 @@ with tempfile.TemporaryDirectory() as directory:
  g.protected_requests=lambda: os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
  identity=[0]
  def drop(user):
-  assert user=='agent'; identity[0]=1500
+  assert user=='agent'; identity[0]=19999
  g.drop_to=drop
  class Branch(io.BytesIO):
   def read(self,*args):
-   assert identity[0]==1500, 'root read branch IPC bytes'
+   assert identity[0]==19999, 'root read branch IPC bytes'
    return super().read(*args)
  g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'branch payload'))
  g.main(['put-request','host-id'])
@@ -276,5 +287,222 @@ with tempfile.TemporaryDirectory() as directory:
  except SystemExit as error: assert error.code==125
  else: raise AssertionError('oversized input accepted')
  assert not os.path.exists(directory+'/oversized.json')
+`)
+}
+
+func TestMemberImageRootInputs(t *testing.T) {
+	// Real descriptor operations in an unprivileged temporary image; only owner
+	// observations are substituted. No branch-built script executes as root.
+	boundaryPython(t, `
+with tempfile.TemporaryDirectory() as directory:
+ root=os.path.realpath(directory)
+ usr=root+'/usr'; os.mkdir(usr); os.mkdir(usr+'/bin'); os.mkdir(usr+'/shared',0o2775)
+ os.chmod(usr+'/shared',0o2775)
+ for name in ('sudo','su','sshd','tool'):
+  with open(usr+'/bin/'+name,'wb') as f: f.write(b'image fixture')
+  os.chmod(usr+'/bin/'+name,0o6755)
+ outside=root+'/outside'; os.mkdir(outside)
+ sentinel=outside+'/sentinel'; open(sentinel,'w').write('outside bytes'); os.chmod(sentinel,0o6755)
+ os.symlink(outside,usr+'/symlink')
+ original=g.safe_directory; real_fstat=os.fstat
+ g.safe_directory=lambda path,**kwargs: os.open(usr,os.O_RDONLY|os.O_DIRECTORY)
+ # An image-owned setgid directory is preserved, but writable ancestors fail
+ # closed. Use a non-writable setgid directory for successful sanitation.
+ os.chmod(usr+'/shared',0o2755)
+ def owned(fd):
+  info=real_fstat(fd)
+  return types.SimpleNamespace(st_uid=0,st_mode=info.st_mode)
+ g.os.fstat=owned
+ g.os.listxattr=lambda fd:['security.capability']
+ removed=[];g.os.removexattr=lambda fd,name: removed.append(name)
+ g.sanitize_system_image()
+ assert not any(os.path.exists(usr+'/bin/'+name) for name in ('sudo','su','sshd'))
+ assert os.stat(usr+'/bin/tool').st_mode & 0o7777 == 0o755
+ assert os.stat(usr+'/shared').st_mode & 0o7777 == 0o2755
+ assert removed==['security.capability']
+ assert open(sentinel).read()=='outside bytes'
+ assert os.stat(sentinel).st_mode & 0o7777 == 0o6755
+ os.chmod(usr+'/bin',0o777)
+ try:g.sanitize_system_image()
+ except SystemExit:pass
+ else:raise AssertionError('writable image ancestor accepted')
+ g.os.fstat=real_fstat;g.safe_directory=original
+`)
+}
+
+func TestMemberSetupAndIdentityRefusals(t *testing.T) {
+	boundaryPython(t, `
+team=types.SimpleNamespace(gr_gid=20000,gr_mem=['ben','alice','agent'])
+g.grp=types.SimpleNamespace(getgrnam=lambda name:team,getgrall=lambda:[])
+accounts={name:types.SimpleNamespace(pw_uid=uid,pw_gid=uid,pw_dir='/home/'+name,pw_shell='/bin/bash') for name,uid in (('ben',20001),('alice',20002),('agent',19999))}
+g.pwd.getpwnam=lambda name:accounts[name]
+for name,uid in (('ben',20001),('alice',20002),('agent',19999)):
+ calls=[]
+ g.os.geteuid=lambda:0
+ g.os.setgroups=lambda groups:calls.append(('groups',groups))
+ g.os.setgid=lambda gid:calls.append(('gid',gid))
+ g.os.setuid=lambda uid:calls.append(('uid',uid))
+ g.drop_to(name,uid)
+ assert calls==[('groups',[20000]),('gid',uid),('uid',uid)],calls
+for name,uid in (('root',20001),('machined',20001),('agent',20001),('ben',19999),('Ben',20001),('../ben',20001)):
+ try:g.setup(name,uid,[])
+ except SystemExit:pass
+ else:raise AssertionError('invalid setup identity accepted')
+for name,uid in (('ben',20002),('ben',0),('alice',None)):
+ try:g.drop_to(name,uid)
+ except SystemExit:pass
+ else:raise AssertionError('account mismatch accepted')
+# No member command is exposed through the root transport before activation.
+for name in ('ben','root','machined'):
+ try:g.main(['setup',name,'20001'])
+ except SystemExit:pass
+ else:raise AssertionError('dark provisioning command accepted')
+team.gr_mem=[]
+try:g.drop_to('ben',20001)
+except SystemExit:pass
+else:raise AssertionError('missing team binding accepted')
+team.gr_mem=['ben']
+g.grp.getgrall=lambda:[types.SimpleNamespace(gr_gid=27,gr_mem=['ben'])]
+try:g.drop_to('ben',20001)
+except SystemExit:pass
+else:raise AssertionError('privileged supplementary group accepted')
+`)
+}
+
+func TestMemberHomesRemainPrivateAndRetained(t *testing.T) {
+	boundaryPython(t, `
+with tempfile.TemporaryDirectory() as directory:
+ root=os.path.realpath(directory)
+ home=root+'/homes';outside=root+'/outside';os.mkdir(home);os.mkdir(outside)
+ sentinel=outside+'/sentinel';open(sentinel,'wb').write(b'outside sentinel')
+ entry=types.SimpleNamespace(pw_uid=20001,pw_gid=20001,pw_dir='/home/ben',pw_shell='/bin/bash')
+ g.pwd.getpwnam=lambda name:entry
+ g.grp=types.SimpleNamespace(getgrnam=lambda name:types.SimpleNamespace(gr_gid=20000,gr_mem=['ben']),getgrall=lambda:[])
+ g.safe_directory=lambda path,**kwargs:os.open(home,os.O_RDONLY|os.O_DIRECTORY) if path=='/home' else (_ for _ in ()).throw(AssertionError('unexpected setup path '+path))
+ real_fstat=os.fstat
+ def owned(fd):
+  info=real_fstat(fd)
+  return types.SimpleNamespace(st_uid=20001,st_gid=20001,st_mode=info.st_mode)
+ g.os.fstat=owned
+ ownership=[];g.os.fchown=lambda fd,uid,gid:ownership.append((uid,gid))
+ g.setup('ben',20001,[])
+ assert ownership==[(20001,20001)]
+ assert os.stat(home+'/ben').st_mode & 0o7777 == 0o700
+ marker=home+'/ben/.marker';open(marker,'wb').write(b'machine A only');os.chmod(marker,0o664)
+ ownership.clear()
+ g.setup('ben',20001,[])
+ assert ownership==[], 'retained home was rechowned'
+ assert open(marker,'rb').read()==b'machine A only'
+ assert os.stat(marker).st_mode & 0o777 == 0o664
+ # Another machine has an independent empty home, without copying a marker.
+ other=root+'/machine-b';os.mkdir(other)
+ g.safe_directory=lambda path,**kwargs:os.open(other,os.O_RDONLY|os.O_DIRECTORY)
+ g.setup('ben',20001,[])
+ assert not os.path.exists(other+'/ben/.marker')
+ g.safe_directory=lambda path,**kwargs:os.open(home,os.O_RDONLY|os.O_DIRECTORY)
+ # A retained home owned by a different allocation is refused before chown.
+ g.os.fstat=lambda fd:types.SimpleNamespace(st_uid=20002,st_gid=20002)
+ ownership.clear()
+ try:g.setup('ben',20001,[])
+ except SystemExit:pass
+ else:raise AssertionError('retained home ownership mismatch accepted')
+ assert ownership==[]
+ g.os.fstat=owned
+ os.rename(home+'/ben',home+'/old-ben');os.symlink(outside,home+'/ben')
+ try:g.setup('ben',20001,[])
+ except OSError:pass
+ else:raise AssertionError('retained home symlink accepted')
+ assert ownership==[]
+ assert open(sentinel,'rb').read()==b'outside sentinel'
+ g.os.fstat=real_fstat
+`)
+}
+
+func TestMemberSharedGitConfigRejectsSymlink(t *testing.T) {
+	boundaryPython(t, `
+with tempfile.TemporaryDirectory() as directory:
+ directory=os.path.realpath(directory)
+ g.safe_directory=lambda path,**kwargs:os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+ real_fstat=os.fstat
+ def owned(fd):
+  info=real_fstat(fd)
+  return types.SimpleNamespace(st_uid=0,st_mode=info.st_mode,st_nlink=info.st_nlink)
+ g.os.fstat=owned
+ g.configure_shared_git()
+ assert open(directory+'/gitconfig','rb').read()==b'[safe]\n\tdirectory = /workspace\n'
+ g.configure_shared_git()
+ assert os.stat(directory+'/gitconfig').st_mode & 0o777 == 0o644
+ sentinel=directory+'/sentinel';open(sentinel,'wb').write(b'outside bytes')
+ os.unlink(directory+'/gitconfig');os.symlink(sentinel,directory+'/gitconfig')
+ try:g.configure_shared_git()
+ except OSError:pass
+ else:raise AssertionError('gitconfig symlink followed')
+ assert open(sentinel,'rb').read()==b'outside bytes'
+ os.unlink(directory+'/gitconfig');os.link(sentinel,directory+'/gitconfig')
+ try:g.configure_shared_git()
+ except SystemExit:pass
+ else:raise AssertionError('gitconfig hardlink followed')
+ assert open(sentinel,'rb').read()==b'outside bytes'
+ g.os.fstat=real_fstat
+`)
+}
+
+func TestMemberDaemonImageAccount(t *testing.T) {
+	boundaryPython(t, `
+import subprocess
+accounts={}
+def lookup(name):
+ if name not in accounts:raise KeyError(name)
+ return accounts[name]
+g.pwd.getpwnam=lookup
+g.pwd.getpwuid=lambda uid:(_ for _ in ()).throw(KeyError(uid))
+g.grp=types.SimpleNamespace(getgrall=lambda:[])
+calls=[]
+def run(argv,**kwargs):
+ assert argv==['/usr/sbin/useradd','--uid','19998','--gid','team','--no-user-group','--no-create-home','--home-dir','/nonexistent','--shell','/usr/sbin/nologin','--','machined'],argv
+ assert kwargs=={'check':True,'env':{'PATH':'/usr/bin:/bin'}}
+ calls.append(argv)
+ accounts['machined']=types.SimpleNamespace(pw_uid=19998,pw_gid=20000,pw_dir='/nonexistent',pw_shell='/usr/sbin/nologin')
+subprocess.run=run
+g.prepare_system_identity();g.prepare_system_identity()
+assert len(calls)==1
+accounts['machined'].pw_uid=0
+try:g.prepare_system_identity()
+except SystemExit:pass
+else:raise AssertionError('root daemon accepted')
+accounts.clear()
+g.pwd.getpwuid=lambda uid:types.SimpleNamespace(pw_uid=19998)
+try:g.prepare_system_identity()
+except SystemExit:pass
+else:raise AssertionError('reserved uid collision accepted')
+assert len(calls)==1
+`)
+}
+
+func TestMemberUmaskPrecedesRepositoryPayload(t *testing.T) {
+	boundaryPython(t, `
+class Observed(BaseException):pass
+calls=[]
+g.safe_directory=lambda *args,**kwargs:10
+g.os.fork=lambda:0
+g.os.open=lambda *args,**kwargs:11
+g.os.close=lambda *args:None
+class Handle:
+ def __enter__(self):return self
+ def __exit__(self,*args):pass
+ def write(self,data):pass
+g.os.fdopen=lambda *args,**kwargs:Handle()
+g.drop_to=lambda user:calls.append(('drop',user))
+g.os.umask=lambda mask:calls.append(('umask',mask))
+def payload(handle):
+ assert calls==[('drop','agent'),('umask',0o002)],calls
+ calls.append(('payload',))
+ raise Observed()
+g.read_request=payload
+g.os._exit=lambda code:(_ for _ in ()).throw(Observed())
+try:g.run_exec({'id':'fixture-session','user':'agent','payload':object()})
+except Observed:pass
+else:raise AssertionError('payload observation missing')
+assert calls==[('drop','agent'),('umask',0o002),('payload',)],calls
 `)
 }

@@ -57,11 +57,11 @@ print(hashlib.sha256(open("/opt/smithers/guest/smithers-guest.py","rb").read()).
 		})
 		require.NoError(t, err)
 		require.Equal(t, 0, result.ExitCode, result.Stderr)
-		require.Equal(t, "1500 1500 []\n"+digest+"\n", result.Stdout)
+		require.Equal(t, "19999 19999 [20000]\n"+digest+"\n", result.Stdout)
 		marker, err := r.ReadFile(ctx, "sec01-helper", "import-observed")
 		require.NoError(t, err)
 		observations++
-		require.Equal(t, strings.Repeat("1500\n", observations), string(marker), "every member import observation must be preserved")
+		require.Equal(t, strings.Repeat("19999\n", observations), string(marker), "every member import observation must be preserved")
 	}
 	probe()
 	require.NoError(t, r.StopWorkspace(ctx, "sec01-helper"))
@@ -69,7 +69,7 @@ print(hashlib.sha256(open("/opt/smithers/guest/smithers-guest.py","rb").read()).
 	require.NoError(t, err)
 	marker, err := r.ReadFile(ctx, "sec01-helper", "import-observed")
 	require.NoError(t, err)
-	require.Equal(t, "1500\n", string(marker), "retained wake must not import member code")
+	require.Equal(t, "19999\n", string(marker), "retained wake must not import member code")
 	probe()
 }
 
@@ -99,7 +99,7 @@ func TestRootBoundaryApprovedBundleDispatch(t *testing.T) {
 	result, err := r.ExecuteCommand(ctx, "sec01-envelope", workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-c", `import os; print(os.getuid(),os.getgid(),os.getgroups())`}})
 	require.NoError(t, err)
 	require.Equal(t, 0, result.ExitCode, result.Stderr)
-	require.Equal(t, "1500 1500 []\n", result.Stdout)
+	require.Equal(t, "19999 19999 [20000]\n", result.Stdout)
 	terminal, err := r.OpenWorkspaceTerminal(ctx, "sec01-envelope", workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-c", `import os; print(os.getuid(),os.getgid(),os.getgroups())`}})
 	require.NoError(t, err)
 	defer terminal.Close()
@@ -107,7 +107,7 @@ func TestRootBoundaryApprovedBundleDispatch(t *testing.T) {
 	if err != nil {
 		require.ErrorIs(t, err, syscall.EIO)
 	}
-	require.Contains(t, string(output), "1500 1500 []")
+	require.Contains(t, string(output), "19999 19999 [20000]")
 	// Production relay dispatch and file entry receive real guest processes.
 	_, err = r.StartService(ctx, "sec01-envelope", workspaceapi.ServiceSpec{Name: "sec01-http", Command: workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-m", "http.server", "18080", "--bind", "127.0.0.1"}}, ReadyAddress: "127.0.0.1:18080", ReadyTimeout: 30 * time.Second})
 	require.NoError(t, err)

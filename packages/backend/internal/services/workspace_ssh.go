@@ -19,22 +19,16 @@ func (s *WorkspaceService) GetWorkspaceSSHConnectionInfo(ctx context.Context, wo
 	return s.GetWorkspaceSSHConnectionInfoAs(ctx, workspaceID, repositoryID, userID, "")
 }
 
-// workspaceRootSSHUser is the second guest user every workspace offers over
-// SSH, so a user can install packages or write outside the home directory
-// without a sudo binary in the image.
-const workspaceRootSSHUser = "root"
-
-// resolveWorkspaceSSHUser maps the requested guest user onto the two users a
-// workspace offers: the configured workspace user (the default) and root.
+// Stage-1 SSH can name only its unprivileged configured account. Member SSH
+// remains unavailable until the roster and production daemon consume the S2
+// identity contract; the legacy provider never grants root or developer.
 func (s *WorkspaceService) resolveWorkspaceSSHUser(requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
-	switch requested {
-	case "", s.workspaceSSHUsername:
-		return s.workspaceSSHUsername, nil
-	case workspaceRootSSHUser:
-		return workspaceRootSSHUser, nil
+	user := strings.TrimSpace(s.workspaceSSHUsername)
+	if user == "agent" && (requested == "" || requested == user) {
+		return user, nil
 	}
-	return "", pkgerrors.New(pkgerrors.CodeWorkspaceSSHUserInvalid, fmt.Sprintf("workspace ssh user %q is not offered; use %q or %q", requested, s.workspaceSSHUsername, workspaceRootSSHUser))
+	return "", pkgerrors.New(pkgerrors.CodeWorkspaceSSHUserInvalid, fmt.Sprintf("workspace ssh user %q is unavailable", requested))
 }
 
 // GetWorkspaceSSHConnectionInfoAs is GetWorkspaceSSHConnectionInfo for a
@@ -231,6 +225,11 @@ func (s *WorkspaceService) buildWorkspaceSSHConnectionInfo(ctx context.Context, 
 // buildWorkspaceSSHConnectionInfoAs mints a grant bound to guestUser and
 // returns the connection details for it.
 func (s *WorkspaceService) buildWorkspaceSSHConnectionInfoAs(ctx context.Context, workspace db.Workspace, guestUser string) (WorkspaceSSHConnectionInfo, error) {
+	resolved, resolveErr := s.resolveWorkspaceSSHUser(guestUser)
+	if resolveErr != nil {
+		return WorkspaceSSHConnectionInfo{}, resolveErr
+	}
+	guestUser = resolved
 	var (
 		identity sandbox.Identity
 		err      error
@@ -243,10 +242,7 @@ func (s *WorkspaceService) buildWorkspaceSSHConnectionInfoAs(ctx context.Context
 	if err != nil {
 		return WorkspaceSSHConnectionInfo{}, pkgerrors.Internal("create sandbox access identity: " + err.Error())
 	}
-	grantReq := sandbox.GrantAccessRequest{}
-	if guestUser != "" {
-		grantReq.AllowedUsers = []string{guestUser}
-	}
+	grantReq := sandbox.GrantAccessRequest{AllowedUsers: []string{guestUser}}
 	if _, err := s.sandbox.GrantAccess(ctx, identity.ID, workspace.VmID, grantReq); err != nil {
 		return WorkspaceSSHConnectionInfo{}, pkgerrors.Internal("grant sandbox ssh permission: " + err.Error())
 	}

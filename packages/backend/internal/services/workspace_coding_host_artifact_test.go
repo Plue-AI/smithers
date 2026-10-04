@@ -81,7 +81,7 @@ func TestWorkspaceCodingHostStagingExecutesAndRefusesBrokenPayload(t *testing.T)
 					"the smoke run keeps the inherited environment; env -i drops the NIX_LD vars nix-ld needs")
 				// Exercise decoding and execution as the current test user on every
 				// platform; assert the guest UID selection before invoking env.
-				script = `runuser() { [ "$1" = -u ] && [ "$2" = developer ] && [ "$3" = -- ] || return 1; shift 3; "$@"; }` + "\n" + script
+				script = `runuser() { [ "$1" = -u ] && [ "$2" = agent ] && [ "$3" = -- ] || return 1; shift 3; "$@"; }` + "\n" + script
 
 				script = strings.ReplaceAll(script, workspaceCodingHostB64Path, payload)
 				script = strings.ReplaceAll(script, workspaceCodingHostPath, path)
@@ -182,7 +182,7 @@ func TestWorkspaceJJExportStagingExecutesAndRefusesBrokenPayload(t *testing.T) {
 				script = "set -euo pipefail\n" + script[start:end]
 				require.Contains(t, script, "runuser -u "+defaultWorkspaceUser+" -- env HOME=",
 					"the smoke run keeps the inherited environment; env -i drops the NIX_LD vars nix-ld needs")
-				script = `runuser() { [ "$1" = -u ] && [ "$2" = developer ] && [ "$3" = -- ] || return 1; shift 3; "$@"; }` + "\n" + script
+				script = `runuser() { [ "$1" = -u ] && [ "$2" = agent ] && [ "$3" = -- ] || return 1; shift 3; "$@"; }` + "\n" + script
 
 				script = strings.ReplaceAll(script, workspaceJJExportB64Path, payload)
 				script = strings.ReplaceAll(script, workspaceJJExportPath, path)

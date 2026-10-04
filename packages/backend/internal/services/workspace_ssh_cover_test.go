@@ -41,16 +41,14 @@ func TestWorkspaceSSH_Cov_BuildConnectionInfoRootRestrictsAllowedUsers(t *testin
 	)
 	svc.workspaceSSHUsername = "root"
 
-	info, err := svc.buildWorkspaceSSHConnectionInfo(context.Background(), sampleDBWorkspace("ws-root"))
-	if err != nil {
-		t.Fatalf("buildWorkspaceSSHConnectionInfo returned error: %v", err)
+	_, err := svc.buildWorkspaceSSHConnectionInfo(context.Background(), sampleDBWorkspace("ws"))
+	if err == nil {
+		t.Fatal("configured root was accepted")
 	}
-	if len(grantReq.AllowedUsers) != 1 || grantReq.AllowedUsers[0] != "root" {
-		t.Fatalf("root grant must restrict users: %+v", grantReq)
+	if len(grantReq.AllowedUsers) != 0 {
+		t.Fatalf("refused root minted a grant: %+v", grantReq)
 	}
-	if info.Username != "root" || !strings.Contains(info.Command, "+root:") || len(info.HostKeys) != 1 {
-		t.Fatalf("info = %+v", info)
-	}
+
 }
 
 func TestWorkspaceSSH_Cov_GetConnectionInfoUnavailableServices(t *testing.T) {

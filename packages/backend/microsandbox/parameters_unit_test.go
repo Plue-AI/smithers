@@ -334,3 +334,22 @@ func TestMicrosandboxUnitExitEvidenceRequiresCompleteFinalTrailer(t *testing.T) 
 		require.False(t, truncated)
 	}
 }
+
+func TestMemberPolicyParameters(t *testing.T) {
+	require.Equal(t, 19999, guestUID)
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 4096}, owner: "smithers-backend-12345678", holder: "fixture"}
+	require.NotContains(t, runtime.machineFlags("branch-a"), "--mount-dir")
+	require.NotContains(t, strings.Join(runtime.machineFlags("branch-a"), " "), "/home")
+	key, body, err := recipeKey("", toolchainLayer{})
+	require.NoError(t, err)
+	require.NotEmpty(t, key)
+	require.Contains(t, string(body), "uid19999-team20000")
+}
+
+func TestMemberUnapprovedImageRefusesBeforeVMEffects(t *testing.T) {
+	runtime := &Runtime{config: Config{Image: "branch-selected:latest"}}
+	require.ErrorIs(t, runtime.createMachine(t.Context(), &workspace{}), ErrUnavailable)
+	layers := &environments{config: EnvironmentConfig{Image: "branch-selected:latest"}}
+	_, err := layers.buildLayer(t.Context(), layerRecord{}, toolchainLayer{}, "", map[string][]byte{"branch.sh": []byte("exit 99")})
+	require.ErrorIs(t, err, ErrUnavailable)
+}

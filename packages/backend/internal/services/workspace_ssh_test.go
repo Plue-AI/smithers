@@ -46,7 +46,7 @@ func TestWorkspaceService_GetWorkspaceSSHConnectionInfo_MintsScopedIdentityToken
 	require.Equal(t, granted, minted, "token must belong to the identity granted this workspace")
 	require.Equal(t, "scoped-token", info.AccessToken)
 	require.Equal(t, wsID, info.WorkspaceID)
-	require.Contains(t, info.Command, "vm-ssh-123+developer:scoped-token@")
+	require.Contains(t, info.Command, "vm-ssh-123+agent:scoped-token@")
 }
 
 func TestWorkspaceService_GetSSHConnectionInfo_PersistsSessionSSHInfo(t *testing.T) {
@@ -117,11 +117,11 @@ func TestWorkspaceService_GetSSHConnectionInfo_PersistsSessionSSHInfo(t *testing
 	assert.Equal(t, info.Username, stored.Username)
 	assert.Equal(t, info.Port, stored.Port)
 	assert.Equal(t, info.Workdir, stored.Workdir)
-	assert.Equal(t, "developer", info.Username)
-	assert.Equal(t, "/home/developer/workspace", info.Workdir)
-	assert.Equal(t, []string{"developer"}, grantedUsers)
-	assert.Contains(t, info.SSHHost, "+developer@")
-	assert.Contains(t, info.Command, "+developer:")
+	assert.Equal(t, "agent", info.Username)
+	assert.Equal(t, "/workspace", info.Workdir)
+	assert.Equal(t, []string{"agent"}, grantedUsers)
+	assert.Contains(t, info.SSHHost, "+agent@")
+	assert.Contains(t, info.Command, "+agent:")
 	// HostKeys (0130) must be preserved — public keys, not credentials,
 	// and the client needs them to verify host identity on reconnect.
 	assert.Equal(t, len(info.HostKeys), len(stored.HostKeys))
@@ -194,7 +194,7 @@ func TestWorkspaceService_GetWorkspaceSSHConnectionInfo_SeparatesPublicAndDialHo
 	require.NoError(t, err)
 	assert.Equal(t, "ssh.jjhub.tech", info.Host)
 	assert.Equal(t, "smithers-ssh.smithers.svc.cluster.local", info.DialHost)
-	assert.Equal(t, "vm-public-dial+developer@ssh.jjhub.tech", info.SSHHost)
+	assert.Equal(t, "vm-public-dial+agent@ssh.jjhub.tech", info.SSHHost)
 	assert.Contains(t, info.Command, "@ssh.jjhub.tech")
 
 	bytes, err := json.Marshal(info)
@@ -301,12 +301,12 @@ func TestWorkspaceService_GetSSHConnectionInfo_RedactForPersistence_Unit(t *test
 		VMID:        "vm-1",
 		Kind:        "vm",
 		Host:        "vm-ssh.smithers.sh",
-		SSHHost:     "vm-1+developer@vm-ssh.smithers.sh",
-		Username:    "developer",
+		SSHHost:     "vm-1+agent@vm-ssh.smithers.sh",
+		Username:    "agent",
 		Port:        22,
-		Workdir:     "/home/developer/workspace",
+		Workdir:     "/workspace",
 		AccessToken: "SECRET_TOKEN_DO_NOT_LEAK",
-		Command:     "ssh vm-1+developer:SECRET_TOKEN_DO_NOT_LEAK@vm-ssh.smithers.sh",
+		Command:     "ssh vm-1+agent:SECRET_TOKEN_DO_NOT_LEAK@vm-ssh.smithers.sh",
 		HostKeys: []WorkspaceSSHHostKey{
 			{Algorithm: "ssh-ed25519", PublicKey: "AAAA", FingerprintSHA256: "SHA256:abc"},
 		},
@@ -326,7 +326,7 @@ func TestWorkspaceService_GetSSHConnectionInfo_RedactForPersistence_Unit(t *test
 	assert.Contains(t, raw, `"workspace_id":"ws-1"`)
 	assert.Contains(t, raw, `"session_id":"sess-1"`)
 	assert.Contains(t, raw, `"kind":"vm"`)
-	assert.Contains(t, raw, `"workdir":"/home/developer/workspace"`)
+	assert.Contains(t, raw, `"workdir":"/workspace"`)
 	assert.Contains(t, raw, `"host_keys"`)
 	assert.Contains(t, raw, "SHA256:abc")
 }

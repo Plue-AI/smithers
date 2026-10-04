@@ -640,12 +640,12 @@ func (s *WorkspaceService) ensureWorkspaceHeadReporter(ctx context.Context, work
 	if !ok {
 		return workspace, pkgerrors.Conflict("workspace source publisher execution is unavailable")
 	}
-	probe := `owner_uid=$(id -u developer) || exit 2
+	probe := `owner_uid=$(id -u agent) || exit 2
 for proc in /proc/[0-9]*; do
   [ -r "$proc/cmdline" ] || continue
   [ "$(stat -c %u "$proc" 2>/dev/null)" = "$owner_uid" ] || continue
   if tr '\000' '\n' < "$proc/cmdline" | grep -Fxq '/usr/local/bin/smithers-workspace-head'; then
-    test -S '/home/developer/.cache/smithers/git-credential/socket'
+    test -S '/home/agent/.cache/smithers/git-credential/socket'
     exit $?
   fi
 done

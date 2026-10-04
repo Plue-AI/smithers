@@ -236,7 +236,7 @@ func renderWorkspaceAgentEnvironmentSetupWrapper(config AgentEnvironmentProvisio
 	// setup in its own process group and terminate any descendants it leaves
 	// behind before unsetting the secret-bearing wrapper environment.
 	b.WriteString("set +e\n")
-	b.WriteString("setsid runuser -u " + shellQuote(defaultWorkspaceUser) + " --preserve-environment -- /bin/bash -c 'export PATH=/home/developer/.local/bin:/usr/local/bin:$PATH; cd \"$1\" && exec /bin/bash \"$2\"' smithers \"$workdir\" " + shellQuote(workspaceAgentEnvironmentSetupPath) + " >/dev/null 2>&1 &\n")
+	b.WriteString("setsid runuser -u " + shellQuote(defaultWorkspaceUser) + " --preserve-environment -- /bin/bash -c 'export PATH=/home/agent/.local/bin:/usr/local/bin:$PATH; cd \"$1\" && exec /bin/bash \"$2\"' smithers \"$workdir\" " + shellQuote(workspaceAgentEnvironmentSetupPath) + " >/dev/null 2>&1 &\n")
 	b.WriteString("setup_pid=$!\nwait \"$setup_pid\"\nsetup_status=$?\nset -e\n")
 	b.WriteString("kill -TERM -- \"-$setup_pid\" >/dev/null 2>&1 || true\n")
 	b.WriteString("sleep 0.1\nkill -KILL -- \"-$setup_pid\" >/dev/null 2>&1 || true\n")

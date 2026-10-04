@@ -48,7 +48,7 @@ const (
 	guestStateDir = "/var/lib/smithers/state"
 	guestTempDir  = "/var/tmp/smithers"
 	guestUser     = "agent"
-	guestUID      = 1500
+	guestUID      = 19999
 )
 
 // DefaultImage is the L0 image: node:26.5.0-trixie (Debian 13, glibc 2.41,
@@ -577,6 +577,9 @@ func (r *Runtime) machineFlags(workspaceID string) []string {
 }
 
 func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
+	if ws.Snapshot == "" && r.config.Image != DefaultImage {
+		return fmt.Errorf("%w: unapproved workspace base image", ErrUnavailable)
+	}
 	ws.RelayPort = relayPort(r.config.EgressRelay)
 	var args []string
 	if ws.Snapshot != "" {

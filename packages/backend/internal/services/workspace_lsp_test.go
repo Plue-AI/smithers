@@ -244,7 +244,7 @@ func TestResolveLanguageServer_AnswersLaunchForLSPSession(t *testing.T) {
 	assert.True(t, strings.HasPrefix(launch.Command, "bash -c '"), launch.Command)
 	script := launch.Spec.LaunchScript(defaultWorkspaceClonePath)
 	assert.Equal(t, "bash -c "+shellQuote(script), launch.Command)
-	assert.Contains(t, script, "cd '/home/developer/workspace'")
+	assert.Contains(t, script, "cd '/workspace'")
 	assert.Contains(t, script, "node_modules/.bin:$HOME/.local/bin:/run/current-system/sw/bin")
 	assert.Contains(t, script, "printf 'missing %s\\n' 'typescript-language-server'; exit 127")
 	assert.Contains(t, script, "printf 'ready\\n'; exec 'typescript-language-server' '--stdio'")

@@ -76,7 +76,7 @@ func TestWorkspaceProvisioning_Cov_CLIStagingBakeRequestAndCommands(t *testing.T
 	assert.Contains(t, cloneCommand, "git clone --depth 200 --branch 'main' -- ")
 	assert.NotContains(t, cloneCommand, "-c http.extraHeader=")
 	assert.Contains(t, cloneCommand, "jj git init --colocate")
-	assert.Contains(t, cloneCommand, "jj -R '/home/developer/workspace' new 'main'")
+	assert.Contains(t, cloneCommand, "jj -R '/workspace' new 'main'")
 }
 
 func TestWorkspaceProvisioning_Cov_SnapshotListAndDeleteBranches(t *testing.T) {

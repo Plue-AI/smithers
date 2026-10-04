@@ -117,7 +117,7 @@ func TestWorkspaceLoginScrubScriptFailsWhenALoginRemains(t *testing.T) {
 func TestWorkspaceSandboxLoginScrubCommandNamesBothHomes(t *testing.T) {
 	command := workspaceSandboxLoginScrubCommand()
 	require.True(t, strings.HasPrefix(command, "/bin/sh -c "))
-	require.True(t, strings.HasSuffix(command, " '/home/developer' '/root'"), command)
+	require.True(t, strings.HasSuffix(command, " '/home/agent' '/root'"), command)
 }
 
 // Record every exec, including artifact commands the shared mock handles itself.

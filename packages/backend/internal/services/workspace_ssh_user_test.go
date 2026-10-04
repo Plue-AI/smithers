@@ -12,8 +12,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
-// A workspace offers two SSH users: the workspace user (default) and root.
-// The grant is bound to exactly the requested one.
+// Root is refused before effects; stage-1 grants are scoped to agent.
 func TestWorkspaceService_GetWorkspaceSSHConnectionInfoAs_BindsGrantToRequestedUser(t *testing.T) {
 	t.Parallel()
 
@@ -38,22 +37,20 @@ func TestWorkspaceService_GetWorkspaceSSHConnectionInfoAs_BindsGrantToRequestedU
 		WithWorkspaceSSHHost("ssh.jjhub.tech"),
 	)
 
-	info, err := svc.GetWorkspaceSSHConnectionInfoAs(context.Background(), wsID, 101, 1, "root")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"root"}, granted)
-	assert.Equal(t, "root", info.Username)
-	assert.Equal(t, "vm-root+root@ssh.jjhub.tech", info.SSHHost)
-	assert.Contains(t, info.Command, "ssh vm-root+root:")
+	_, err := svc.GetWorkspaceSSHConnectionInfoAs(context.Background(), wsID, 101, 1, "root")
+	require.Error(t, err)
+	assert.Empty(t, granted)
+	assert.Zero(t, grants)
 
-	info, err = svc.GetWorkspaceSSHConnectionInfoAs(context.Background(), wsID, 101, 1, "")
+	info, err := svc.GetWorkspaceSSHConnectionInfoAs(context.Background(), wsID, 101, 1, "")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"developer"}, granted, "empty means the workspace user")
-	assert.Equal(t, "developer", info.Username)
+	assert.Equal(t, []string{"agent"}, granted, "empty means the workspace user")
+	assert.Equal(t, "agent", info.Username)
 
 	_, err = svc.GetWorkspaceSSHConnectionInfoAs(context.Background(), wsID, 101, 1, "postgres")
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, pkgerrors.CodeWorkspaceSSHUserInvalid, apiErr.Code)
-	assert.Equal(t, 2, grants, "no grant is minted for a refused user")
+	assert.Equal(t, 1, grants, "no grant is minted for a refused user")
 }

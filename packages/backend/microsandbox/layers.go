@@ -41,7 +41,7 @@ import (
 // and verified in a fresh offline VM.
 
 const (
-	layerSchema     = "smithers.microvm.layer/v1"
+	layerSchema     = "smithers.microvm.layer/v2-uid19999-team20000"
 	layerToolchain  = "toolchain"
 	layerDependency = "dependencies"
 	layerMarkerDir  = "/var/cache/smithers/layers"
@@ -514,6 +514,9 @@ func (e *environments) newestSibling(kind, repository, parentKey string) string 
 // layer's network allowlist, runs dependency code as agent, records the inventory,
 // flushes, stops, and captures the disk as the layer snapshot.
 func (e *environments) buildLayer(ctx context.Context, record layerRecord, value recipe, parent string, inputs map[string][]byte) (inventory map[string]string, runErr error) {
+	if parent == "" && e.config.Image != DefaultImage {
+		return nil, fmt.Errorf("%w: unapproved layer base image", ErrUnavailable)
+	}
 	buildCtx, cancel := context.WithTimeout(ctx, e.config.PrepareTimeout)
 	defer cancel()
 	machine := "smthrs-prep-" + strings.TrimPrefix(e.runtime.owner, "smithers-backend-")[:8] + "-" + newExecID()[1:13]
@@ -574,6 +577,10 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		// Only shipped apt argv has root authority. Browser installers and
 		// repository-selected JavaScript execute below as agent.
 		if _, err := e.runToolchainRecipe(buildCtx, machine, toolchain); err != nil {
+			return nil, err
+		}
+		// apt may restore privilege helpers; strip them before agent installers.
+		if _, err := e.runtime.guest(buildCtx, machine, nil, "sanitize-system"); err != nil {
 			return nil, err
 		}
 	}
@@ -1034,7 +1041,7 @@ if [ -n "$postgres" ]; then
  rm -rf /var/lib/apt/lists/*
 fi
 mkdir -p /opt/smithers/toolchain /opt/smithers/rust
-chown -R 1500:1500 /opt/smithers/toolchain /opt/smithers/rust
+chown -R 19999:19999 /opt/smithers/toolchain /opt/smithers/rust
 printf '%s' "$environment" > /opt/smithers/env.json
 chmod 0644 /opt/smithers/env.json
 `

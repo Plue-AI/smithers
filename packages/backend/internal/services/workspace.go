@@ -30,10 +30,10 @@ const (
 	defaultWorkspaceMemoryMB  = 4096
 	defaultWorkspaceVCPUCount = 2
 	defaultWorkspaceSSHHost   = "vm-ssh.smithers.sh"
-	defaultWorkspaceUser      = "developer"
+	defaultWorkspaceUser      = "agent"
 	defaultWorkspaceSSHUser   = defaultWorkspaceUser
-	defaultWorkspaceHome      = "/home/developer"
-	defaultWorkspaceClonePath = "/home/developer/workspace"
+	defaultWorkspaceHome      = "/home/agent"
+	defaultWorkspaceClonePath = "/workspace"
 	// A resume no longer waits for the (non-re-firing) ready signal, so StartSandbox
 	// returns as soon as sandbox provider accepts the resume (~2s live). 30s is pure
 	// headroom for a slow accept under load; blowing it now means a genuine

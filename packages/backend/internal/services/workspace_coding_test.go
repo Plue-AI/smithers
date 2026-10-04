@@ -78,7 +78,7 @@ func TestWorkspaceCoding_FilePatchValidation(t *testing.T) {
 func TestWorkspaceCoding_FileRecoveryReceiptSurvivesCloudBoundary(t *testing.T) {
 	failed := int32(1)
 	vm := &mockWorkspaceSandboxVMClient{execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
-		return sandbox.ExecResult{StatusCode: &failed, Stdout: `{"error":{"code":"file_conflict","message":"Inspect retained files","recovery":{"requestId":"stable-request","path":"/home/developer/.smithers-coding-recovery/repo/request","files":[{"path":"value","preimage":"/private/0.before","proposed":"/private/0.after"}]}}}`}, nil
+		return sandbox.ExecResult{StatusCode: &failed, Stdout: `{"error":{"code":"file_conflict","message":"Inspect retained files","recovery":{"requestId":"stable-request","path":"/home/agent/.smithers-coding-recovery/repo/request","files":[{"path":"value","preimage":"/private/0.before","proposed":"/private/0.after"}]}}}`}, nil
 	}}
 	_, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).ApplyCodingOperation(context.Background(), "ws-1", 101, 1, codingFixture())
 	assertAPIErrorStatus(t, err, http.StatusConflict)
@@ -201,8 +201,8 @@ func TestWorkspaceCoding_ProvenanceRetryKeepsNativeReceiptAndFreshTransportKey(t
 		require.NoError(t, keyErr)
 		keys = append(keys, key)
 		require.Contains(t, req.Command, shellQuote(workspaceJJExportPath)+" --local")
-		require.True(t, strings.HasPrefix(req.Command, "runuser -u 'developer' -- env -u JJ_CONFIG HOME='/home/developer'"))
-		require.Contains(t, req.Command, "XDG_CONFIG_HOME='/home/developer/.config' USER='developer' LOGNAME='developer'")
+		require.True(t, strings.HasPrefix(req.Command, "runuser -u 'agent' -- env -u JJ_CONFIG HOME='/home/agent'"))
+		require.Contains(t, req.Command, "XDG_CONFIG_HOME='/home/agent/.config' USER='agent' LOGNAME='agent'")
 		return sandbox.ExecResult{StatusCode: &zero, Stdout: string(raw)}, nil
 	}}
 	calls := 0

@@ -19,7 +19,7 @@ func TestWorkspaceService_ListWorkspaceFiles(t *testing.T) {
 	zero := int32(0)
 	vm := &mockWorkspaceSandboxVMClient{execAwaitFn: func(_ context.Context, vmID string, request sandbox.ExecRequest) (sandbox.ExecResult, error) {
 		assert.Equal(t, "vm-source-1", vmID)
-		assert.Contains(t, request.Command, "/home/developer/workspace/src")
+		assert.Contains(t, request.Command, "/workspace/src")
 		return sandbox.ExecResult{StatusCode: &zero, Stdout: strings.Join([]string{
 			"main.go", "f", "42",
 			"pkg", "d", "4096",
@@ -98,7 +98,7 @@ func TestWorkspaceService_WriteWorkspaceFile(t *testing.T) {
 	result, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).
 		WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "src/app.go", "package main\n")
 	require.NoError(t, err)
-	assert.Equal(t, "/home/developer/workspace/src/app.go", writtenPath)
+	assert.Equal(t, "/workspace/src/app.go", writtenPath)
 	assert.Equal(t, "package main\n", writtenContent)
 	assert.Equal(t, "src/app.go", result.Path)
 	assert.Equal(t, int64(13), result.Size)

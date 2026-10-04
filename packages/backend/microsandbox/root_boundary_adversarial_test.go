@@ -152,10 +152,11 @@ func TestRootIdentityDropOrderingSupplemental(t *testing.T) {
 	script := `import importlib.util,pwd,sys,types
 spec=importlib.util.spec_from_file_location("guest",sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 calls=[]
-g.pwd=types.SimpleNamespace(getpwnam=lambda user: pwd.struct_passwd(("agent","x",1500,1500,"","/home/agent","/bin/bash")))
-g.os=types.SimpleNamespace(geteuid=lambda:0,setgroups=lambda v:calls.append(("groups",v)),setgid=lambda v:calls.append(("gid",v)),setuid=lambda v:calls.append(("uid",v)),getuid=lambda:1500,getgid=lambda:1500,getgroups=lambda:[])
+g.pwd=types.SimpleNamespace(getpwnam=lambda user: pwd.struct_passwd(("agent","x",19999,19999,"","/home/agent","/bin/bash")))
+g.grp=types.SimpleNamespace(getgrnam=lambda name: types.SimpleNamespace(gr_gid=20000,gr_mem=['agent']),getgrall=lambda:[])
+g.os=types.SimpleNamespace(geteuid=lambda:0,setgroups=lambda v:calls.append(("groups",v)),setgid=lambda v:calls.append(("gid",v)),setuid=lambda v:calls.append(("uid",v)),getuid=lambda:19999,getgid=lambda:19999,getgroups=lambda:[])
 g.drop_to("agent")
-assert calls==[("groups",[]),("gid",1500),("uid",1500)]
+assert calls==[("groups",[20000]),("gid",19999),("uid",19999)]
 for user in ("","root","other"):
     calls.clear()
     try:g.drop_to(user)

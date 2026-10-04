@@ -9,7 +9,7 @@ import (
 )
 
 // runWorkspaceCloneScript runs the VM clone script against a local remote
-// with real git and jj, the developer user and clone path redirected to temp.
+// with real git and jj, the agent user and clone path redirected to temp.
 func runWorkspaceCloneScript(t *testing.T, remote, bookmark string, rewrite ...func(string) string) (string, string, error) {
 	t.Helper()
 	for _, tool := range []string{"bash", "git", "jj"} {

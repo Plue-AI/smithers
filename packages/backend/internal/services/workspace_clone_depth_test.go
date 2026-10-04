@@ -42,7 +42,7 @@ func TestBuildWorkspaceCloneCommandHonoursTheRepositoryDepth(t *testing.T) {
 func TestBuildAgentMemberCloneCommandDeepensForAPinnedRevision(t *testing.T) {
 	command := buildAgentMemberCloneCommand([]sandbox.GitRepositorySpec{{
 		Repo: "https://api.smithers.sh/acme/lib.git",
-		Path: "/home/developer/workspace/acme/lib",
+		Path: "/workspace/acme/lib",
 		Rev:  "0123456789abcdef0123456789abcdef01234567",
 	}})
 	assert.Contains(t, command, "git clone --quiet --depth 200 ")
@@ -54,7 +54,7 @@ func TestBuildAgentMemberCloneCommandDeepensForAPinnedRevision(t *testing.T) {
 func TestBuildAgentMemberCloneCommandHonoursAFullHistoryMember(t *testing.T) {
 	command := buildAgentMemberCloneCommand([]sandbox.GitRepositorySpec{{
 		Repo:  "https://api.smithers.sh/acme/lib.git",
-		Path:  "/home/developer/workspace/acme/lib",
+		Path:  "/workspace/acme/lib",
 		Depth: sandbox.FullCloneDepth,
 	}})
 	assert.Contains(t, command, "git clone --quiet '")

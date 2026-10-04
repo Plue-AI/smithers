@@ -22,12 +22,12 @@ import (
 // Child workspaces (#2802) run against real PostgreSQL; only the sandbox
 // provider is the in-memory fake.
 
-const childTestRepoFile = "/home/developer/workspace/README.md"
+const childTestRepoFile = "/workspace/README.md"
 
 // childTestLogins are vendor sign-ins inside the parent that no child may inherit.
 var childTestLogins = []string{
-	"/home/developer/.claude/.credentials.json",
-	"/home/developer/.codex/auth.json",
+	"/home/agent/.claude/.credentials.json",
+	"/home/agent/.codex/auth.json",
 	"/root/.config/anthropic/key",
 }
 

@@ -24,6 +24,7 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
 import ctypes
 import grp
 import hashlib
+import grp
 import json
 import os
 import pwd
@@ -232,17 +233,34 @@ def cgroup_kill(path):
         os.close(parent)
 
 
-def drop_to(user):
-    if user != "agent":
+def assigned_identity(user, uid=None):
+    if not isinstance(user, str) or not re.fullmatch(r"[a-z0-9_-]{1,32}", user):
         fail(125, "invalid guest identity")
+    if user in ("root", "machined"):
+        fail(125, "reserved guest identity")
     entry = pwd.getpwnam(user)
-    if entry.pw_uid != 1500 or entry.pw_gid != 1500:
+    if user == "agent" and uid is not None and uid != 19999:
+        fail(125, "invalid agent binding")
+    expected = 19999 if user == "agent" else uid
+    if (type(expected) is not int or (user != "agent" and not 20000 <= expected <= 2147483647)
+            or entry.pw_uid != expected or entry.pw_gid != expected
+            or entry.pw_dir != "/home/" + user or entry.pw_shell != "/bin/bash"):
         fail(125, "invalid guest account")
+    team = grp.getgrnam("team")
+    if team.gr_gid != 20000 or user not in team.gr_mem:
+        fail(125, "invalid team binding")
+    if any(group.gr_gid != 20000 and user in group.gr_mem for group in grp.getgrall()):
+        fail(125, "unexpected supplementary group")
+    return entry
+
+
+def drop_to(user, uid=None):
+    entry = assigned_identity(user, uid)
     if os.geteuid() == entry.pw_uid:
-        if os.getegid() != entry.pw_gid or os.getgroups():
+        if os.getegid() != entry.pw_gid or os.getgroups() != [20000]:
             fail(125, "invalid guest groups")
         return entry
-    os.setgroups([])
+    os.setgroups([20000])
     os.setgid(entry.pw_gid)
     os.setuid(entry.pw_uid)
     return entry
@@ -266,6 +284,7 @@ def run_exec(request):
                 handle.write(str(os.getpid()))
             os.close(group_fd)
             drop_to(user)
+            os.umask(0o002)
             if "payload" in request:
                 request = read_request(request["payload"])
                 if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin"} or request.get("id") != exec_id or request.get("user") != user:
@@ -584,34 +603,163 @@ def bridge(port, host):
         threading.Thread(target=serve, args=(client,), daemon=True).start()
 
 
-def setup(user, uid, directories):
-    if user != "agent" or uid != 1500:
-        fail(3, "invalid setup identity")
-    if any(path not in ("/workspace", "/home/agent", "/var/lib/smithers/state", "/var/tmp/smithers", "/var/cache/smithers") for path in directories):
-        fail(3, "invalid setup destination")
+def sanitize_system_image():
+    # Only immutable image directories are inspected, never /home, /workspace
+    # or member-written caches. Debian's /bin, /sbin and /lib point into /usr.
+    def strip(parent):
+        for name in os.listdir(parent):
+            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode):
+                if name in ("sudo", "su", "sshd"):
+                    os.unlink(name, dir_fd=parent)
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                try:
+                    current = os.fstat(child)
+                    if current.st_uid != ROOT_UID or current.st_mode & 0o022:
+                        fail(3, "untrusted system image directory")
+                    strip(child)
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(info.st_mode):
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                try:
+                    current = os.fstat(fd)
+                    if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
+                        fail(3, "untrusted system image file")
+                    if name in ("sudo", "su", "sshd"):
+                        os.unlink(name, dir_fd=parent)
+                    else:
+                        os.fchmod(fd, stat.S_IMODE(current.st_mode) & ~0o6000)
+                        if "security.capability" in os.listxattr(fd):
+                            os.removexattr(fd, "security.capability")
+                finally:
+                    os.close(fd)
+    parent = safe_directory("/usr", trusted=True, create=False)
     try:
-        pwd.getpwnam(user)
+        strip(parent)
+    finally:
+        os.close(parent)
+
+
+def configure_shared_git():
+    parent = safe_directory("/etc", trusted=True, create=False)
+    try:
+        fd = os.open("gitconfig", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     0o644, dir_fd=parent)
+        with os.fdopen(fd, "wb") as handle:
+            info = os.fstat(handle.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID
+                    or info.st_nlink != 1 or info.st_mode & 0o022):
+                fail(3, "untrusted system git config")
+            handle.truncate(0)
+            handle.write(b"[safe]\n\tdirectory = /workspace\n")
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o644)
+    finally:
+        os.close(parent)
+
+
+def prepare_system_identity():
+    # Fixed image-owned records only; no roster or repository input is consumed.
+    import subprocess
+    try:
+        entry = pwd.getpwnam("machined")
     except KeyError:
-        import subprocess
-        fd = safe_directory("/home/agent")
-        os.close(fd)
-        subprocess.run(["/usr/sbin/useradd", "--uid", "1500", "--shell", "/bin/bash", "agent"], check=True, env={"PATH": "/usr/bin:/bin"})
-    entry = pwd.getpwnam(user)
+        try:
+            pwd.getpwuid(19998)
+        except KeyError:
+            pass
+        else:
+            fail(3, "reserved daemon uid already exists")
+        subprocess.run(["/usr/sbin/useradd", "--uid", "19998", "--gid", "team",
+                        "--no-user-group", "--no-create-home", "--home-dir", "/nonexistent",
+                        "--shell", "/usr/sbin/nologin", "--", "machined"], check=True,
+                       env={"PATH": "/usr/bin:/bin"})
+        entry = pwd.getpwnam("machined")
+    if (entry.pw_uid != 19998 or entry.pw_gid != 20000 or entry.pw_dir != "/nonexistent"
+            or entry.pw_shell != "/usr/sbin/nologin"
+            or any(group.gr_gid != 20000 and "machined" in group.gr_mem for group in grp.getgrall())):
+        fail(3, "invalid daemon account")
+
+
+def setup(user, uid, directories):
+    # Only the host's allocated identity may reach this function. The public
+    # setup command remains agent-only until roster and broker receipts exist.
+    if (not isinstance(user, str) or not re.fullmatch(r"[a-z0-9_-]{1,32}", user)
+            or user in ("root", "machined") or type(uid) is not int
+            or (uid != 19999 if user == "agent" else not 20000 <= uid <= 2147483647)):
+        fail(3, "invalid setup identity")
+    home = "/home/" + user
+    allowed = ("/workspace", home, "/var/lib/smithers/state", "/var/tmp/smithers", "/var/cache/smithers") if user == "agent" else (home,)
+    if any(path not in allowed for path in directories):
+        fail(3, "invalid setup destination")
+    import subprocess
+    environment = {"PATH": "/usr/bin:/bin"}
+    try:
+        team = grp.getgrnam("team")
+    except KeyError:
+        subprocess.run(["/usr/sbin/groupadd", "--gid", "20000", "team"], check=True, env=environment)
+        team = grp.getgrnam("team")
+    if team.gr_gid != 20000:
+        fail(3, "invalid team group")
+    if user == "agent":
+        sanitize_system_image()
+        configure_shared_git()
+        prepare_system_identity()
+    try:
+        entry = pwd.getpwnam(user)
+    except KeyError:
+        try:
+            pwd.getpwuid(uid)
+        except KeyError:
+            pass
+        else:
+            fail(3, "allocated uid already exists")
+        # Parent ownership is checked before useradd can address the home.
+        parent = safe_directory("/home", trusted=True)
+        os.close(parent)
+        subprocess.run(["/usr/sbin/useradd", "--uid", str(uid), "--user-group",
+                        "--groups", "team", "--no-create-home", "--home-dir", home,
+                        "--shell", "/bin/bash", "--", user], check=True, env=environment)
+        entry = pwd.getpwnam(user)
+    entry = assigned_identity(user, uid)
+    parent = safe_directory("/home", trusted=True)
+    try:
+        created = False
+        try:
+            os.mkdir(user, 0o700, dir_fd=parent)
+            created = True
+        except FileExistsError:
+            pass
+        home_fd = os.open(user, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            info = os.fstat(home_fd)
+            if not created and (info.st_uid != uid or info.st_gid != uid):
+                fail(3, "retained home account mismatch")
+            if created:
+                os.fchown(home_fd, uid, uid)
+            os.fchmod(home_fd, 0o700)
+        finally:
+            os.close(home_fd)
+    finally:
+        os.close(parent)
+    if user != "agent":
+        return
     cgroup_fd = safe_directory(CGROUP_ROOT, trusted=True)
     os.close(cgroup_fd)
-    if user != "agent" or uid != 1500 or entry.pw_uid != uid or entry.pw_gid != uid or entry.pw_dir != "/home/agent":
-        fail(3, "invalid setup identity")
-    home_fd = safe_directory(entry.pw_dir)
-    try:
-        os.fchown(home_fd, entry.pw_uid, entry.pw_gid)
-        os.fchmod(home_fd, 0o700)
-    finally:
-        os.close(home_fd)
     for directory in directories:
+        if directory == home:
+            continue
         fd = safe_directory(directory)
         try:
-            os.fchown(fd, entry.pw_uid, entry.pw_gid)
-            os.fchmod(fd, 0o700 if directory == entry.pw_dir else 0o755)
+            if directory == "/workspace":
+                os.fchown(fd, 0, 20000)
+                os.fchmod(fd, 0o2775)
+            else:
+                os.fchown(fd, uid, uid)
+                os.fchmod(fd, 0o755)
         finally:
             os.close(fd)
 
@@ -1018,9 +1166,15 @@ def main(args):
     if command == "bridge" and len(args) == 3:
         bridge(int(args[1]), args[2])
         return
+    if command == "sanitize-system" and len(args) == 1:
+        sanitize_system_image()
+        return
     if command == "setup" and len(args) >= 3:
+        if args[1] != "agent":
+            fail(3, "member provisioning requires approved roster and broker")
         setup(args[1], int(args[2]), args[3:])
         entry = drop_to(args[1])
+        os.umask(0o002)
         home_defaults(entry)
         return
     fail(125, "unknown subcommand %r" % command)
