@@ -44,6 +44,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  server-bundle:
+    name: darwin-arm64 server bundle
+    needs: native-helper
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-linux-arm64
+          path: ${{ runner.temp }}/linux-arm64-helper
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: 1.26.8
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.5.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.1
+      - run: pnpm install --frozen-lockfile
+      - run: rustup toolchain install
+      - run: brew install postgresql@18 skopeo
+      - name: Assemble server bundle
+        env:
+          SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY: ${{ runner.temp }}/linux-arm64-helper/smithers-jj-export
+        run: |
+          SMITHERS_NODE_BINARY="$(command -v node)" SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" SMITHERS_POSTGRES_BUNDLE_DIR="$(brew --prefix postgresql@18)" bun apps/app/scripts/build-native.ts
+      - name: Verify relocated bundle
+        run: |
+          mv apps/app/.native "$RUNNER_TEMP/smithers-server"
+          bun apps/app/scripts/server-bundle-manifest.ts "$RUNNER_TEMP/smithers-server"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: server-bundle-darwin-arm64
+          path: ${{ runner.temp }}/smithers-server
+          if-no-files-found: error
   native-helper:
     name: native helper (${{ matrix.platform }})
     strategy:

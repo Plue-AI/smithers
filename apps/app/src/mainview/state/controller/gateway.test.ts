@@ -152,7 +152,7 @@ describe("the run lifecycle operations", () => {
     const tagged = relay({ Signal: { ok: false, error: { message: "flow x", detail: [{ _tag: "Fail", error: { _tag: "/control/FlowNotFound" } }] } } })
     const answer = await tagged.seam.signal("o/r", "run-1", "deploy-done", {})
     expect(answer.status === "error" && answer.message).toBe("That flow isn't in this workspace.")
-    for (const [code, tag] of [["persistence_failed", "/control/PersistenceError"], ["notification_full", "/notifications/NotificationError"]] as const) {
+    for (const [code, tag] of [["persistence_failed", "/control/PersistenceError"], ["notification_full", "/notifications/NotificationError"], ["notification_refused", "/notifications/NotificationError"]] as const) {
       expect(gatewayRefusalSentence(code)).toBe(gatewayRefusalSentence(tag))
       expect(gatewayRefusalSentence(code)).not.toBe(GATEWAY_REFUSED)
     }

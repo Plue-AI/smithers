@@ -15,6 +15,18 @@ import { Package as componentPackage } from "../../packages/smithers/ui/PACKAGE.
 
 const cwd = "apps/app"
 
+/** Uncached release assembly: external toolchains and registry inputs are validated by the assembler. */
+const serverBundle = Smithers.Shell.Build({
+  shell: 'SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" bun apps/app/scripts/build-native.ts',
+  data: [Smithers.glob("//apps/app/scripts/**/*"), Smithers.glob("//apps/app/src/**/*"),
+    Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),
+    Smithers.glob("//packages/backend/microsandbox/**/*"), Smithers.file("//scripts/build-backend.sh"),
+    Smithers.file("//package.json"), Smithers.file("//pnpm-lock.yaml"), Smithers.file("//rust-toolchain.toml")],
+  outDirs: ["//apps/app/.native"],
+  sandbox: "none",
+  timeout: "120m"
+})
+
 /** The application sources every suite drives. */
 const sources = Smithers.glob("//apps/app/src/**/*.ts")
 
@@ -376,5 +388,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, webSources, ...securityReview }
+  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, webSources, ...securityReview }
 })

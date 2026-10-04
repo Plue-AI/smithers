@@ -1694,6 +1694,64 @@
     }
   },
   {
+    "label": "//apps/app:serverBundle",
+    "package": "apps/app",
+    "name": "serverBundle",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "distribution/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "crates/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/microsandbox/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "scripts/build-backend.sh"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "rust-toolchain.toml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:solidCodegenInputs",
     "package": "apps/app",
     "name": "solidCodegenInputs",
@@ -47196,6 +47254,42 @@
       {
         "kind": "file",
         "path": ".specs/product/mvp.md"
+      },
+      {
+        "kind": "glob",
+        "pattern": "docs/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-release-evidence-tags.mjs"
+      },
+      {
+        "kind": "file",
+        "path": ".specs/engineering/README.md"
+      },
+      {
+        "kind": "file",
+        "path": ".specs/design/README.md"
+      },
+      {
+        "kind": "file",
+        "path": ".specs/engineering/spec.md"
       }
     ],
     "outputs": [],

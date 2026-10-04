@@ -94,7 +94,7 @@ runs only on the user's own logged-in Claude Code.
 
 ## Mac install
 
-The native macOS package (`build:native`, `Smithers.app`) was deleted with Electrobun distribution. The MVP's Mac install is being rebuilt as a launchd service, from the assembler half of the deleted `apps/app/scripts/build-native.ts` (at `5b77095672`), without Electrobun ([MVP spec](../.specs/product/mvp.md) §6.1 and §11, stage 1). Until it ships, there is no supported Mac package.
+The macOS server assembler is restored without desktop distribution. Its output is an unprivileged, relocatable server bundle; installation and launcher readiness belong to T-INS-08 and T-INS-02.
 
 ## MicroVM isolation
 
@@ -193,3 +193,12 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
 It writes a new key beside the old one, reseals every stored value under the new key, then deletes the old key. It prints counts per table and never a key. If it stops partway, run it again: it finishes with the key it already wrote, and the app starts in between because the file holds both keys. A value no key opens stops it and names the table and row. A backup keeps the key it was made with.
 
 When the key comes from the environment, `keys rotate` refuses. Set the new key in `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY` and the old one in `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS` (comma separated, newest first), restart, and run `smithers-backend keys reseal` with the same variables while the app runs. It repeats until a pass finds every value under the new key, then resets each Flow journal database role to the password the new key derives; a Flow host started under the old key reconnects only after it restarts. Then remove `SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS` and restart.
+
+## macOS server bundle
+
+`smthrs build //apps/app:serverBundle` restores the non-desktop native assembly
+stages. See [build prerequisites and verification](../apps/app/scripts/README.md#server-bundle).
+The unprivileged assembler emits `apps/app/.native`, including PostgreSQL 18,
+MicroSandbox 0.6.16 and the digest-pinned Linux arm64 base image as an OCI
+archive. It never installs a service or boots a guest. Preserve the complete
+directory and its `manifest.json` when relocating it.

@@ -135,3 +135,22 @@ script's header states its required environment and evidence directory.
 
 Install the browser with `pnpm exec playwright install chromium`.
 `lint/conformance/LiteralPin.test.ts` checks suite literals against the product.
+
+## Server bundle
+
+On darwin-arm64, with Node 26.4+ (official binary and license), the root's
+pinned pnpm, Rust, Go, Xcode Git, PostgreSQL 18 and skopeo installed:
+
+```sh
+export SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY=/absolute/path/to/linux-arm64/smithers-jj-export
+smthrs build //apps/app:serverBundle
+bun apps/app/scripts/server-bundle-manifest.ts apps/app/.native
+```
+
+The helper comes from the release's Linux arm64 helper job. Assembly runs as
+the build user. The resulting `.native` directory contains `bin/smithers-server`,
+the backend, packaged hosts and tools, `postgres`, `views/mainview`, `lib/libkrunfw.5.dylib`,
+and `share/microsandbox/{smithers-guest.py,base-image.oci.tar,base-image.json}`.
+`manifest.json` records each file's SHA-256, mode and producing stage; symlinks
+must stay inside the bundle. Copy the entire directory to relocate it and
+verify the manifest again. Launcher environment/readiness is T-INS-02.

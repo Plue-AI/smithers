@@ -1,3 +1,111 @@
+# T-INS-01 (#3432) — crit-t-ins-01
+
+Ready: sha256:bc6bed23a1c7. Lead smithers-df holds the claim.
+
+Restored the non-desktop assembler and tests from 5b77095672. Added the
+compiled server launcher, integrity-pinned msb 0.6.16/libkrunfw, digest-pinned
+OCI image packaging, embedded guest-helper copy and complete bundle manifest.
+The serverBundle target is uncached (Shell.Build defaults to cacheable=false).
+The restored macOS release job assembles and checks a relocated copy without
+Electrobun, CEF, browser tests, installation or guest startup.
+
+## Operator commands on this Mac mini
+
+Run as the ordinary build user, from this worktree:
+
+```sh
+source ~/lanes/env.sh
+export PATH="$HOME/.local/node/bin:$HOME/.bun/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+# Prerequisites: PostgreSQL 18, skopeo, pinned pnpm/Rust/Go, Xcode Git,
+# official Node 26.4+ and its sibling ../LICENSE.
+# Obtain the release job's native-helper-linux-arm64 artifact first.
+export SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY=/absolute/path/to/linux-arm64/smithers-jj-export
+pnpm exec smthrs build //apps/app:serverBundle
+bun apps/app/scripts/server-bundle-manifest.ts apps/app/.native
+SMITHERS_SERVER_BUNDLE_INTEGRATION=1 bun test apps/app/scripts/server-bundle.integration.test.ts
+```
+
+Successful assembly prints `[build-native] server bundle ready: <worktree>/apps/app/.native`.
+Manifest verification exits 0 without output. The integration test invokes the
+production target, copies the output with relative symlinks preserved, checks
+literal layout and independent hashes, observes Node linkage and msb's version,
+and checks the relocated manifest. It never starts the server or a guest.
+Assembly opens no listener. T-INS-02 owns startup and localhost:4000 readiness;
+T-INS-08 owns host start/setup handoff. Their paths, setup, TODO execution and
+merge still need the combined C-J1-04 run.
+
+## Executed evidence
+
+Logs are in /tmp/crit-ins-*.log on this host (not acceptance receipts).
+
+- `cd apps/app && bun test --isolate scripts/build-native.test.ts scripts/server-bundle-manifest.test.ts scripts/server-bundle.integration.test.ts scripts/validate-git-bundle.test.ts`: 22 pass, 0 fail, 2 skipped (real assembly lacks the release helper/skopeo). Compiler-built fixtures are confined to version/linkage refusal tests; integration mocks no build tools.
+- Post-rebase `cd apps/app && bun test --isolate src/mainview/state/controller/gateway.test.ts scripts/build-native.test.ts scripts/server-bundle-manifest.test.ts scripts/server-bundle.integration.test.ts scripts/validate-git-bundle.test.ts`: 69 pass, 0 fail, 2 skipped (real assembly and upstream installed-bundle boundary).
+- `cd apps/app && pnpm typecheck`: original base pass; first rebase failed on upstream missing notification_refused mapping. Added the existing notification error mapping and regression assertion; final rebase pass, exit 0.
+- `cd apps/app && bun build --compile --target=bun-darwin-arm64 src/bun/serve.ts --outfile .native/validation-smithers-server`: pass, 378 modules; validation output removed afterward. No launcher executed. Recompiled successfully after T-INS-02 landed (3 modules).
+- `pnpm exec smthrs build //apps/app:serverBundle`: fail, missing SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY, before destructive assembly/compilation. skopeo is also absent on this host. No complete bundle was produced.
+- `node --test scripts/release-rehearsal.test.mjs scripts/pack-release.test.mjs`: tip 75 pass/4 fail; origin/main workflow 75 pass/4 fail. Same existing CI/release mirroring failures: gate roster, server gate, executable examples, wasm build-script argv.
+- `pnpm run target-index`: blocked by unchanged //flows:testCoverage. Direct `cd flows && node --test test/target-coverage.test.ts`: 1 pass/1 fail; unregistered flows/test/coding-recovery-policy.test.ts. Both files are identical to origin/main.
+- Generated .smithers/target-index.json via `pnpm exec smthrs index '//...' --json` and the TargetIndex renderer's exact JSON formatting. No gate was disabled; the normal generation gate remains red.
+- Initial app test attempt used Homebrew Node 24 and was refused by the existing toolchain preflight; corrected PATH places ~/.local/node/bin first.
+
+## Contracts and security
+
+No root step, sudo, privileged install, signing, service installation or guest
+startup was introduced or executed. Root input inventory: empty. No branch
+artifact was loaded or executed by root. Build tools and compiler fixtures run
+as the invoking user.
+
+The Linux arm64 helper is a release input, checked for ELF64 little-endian
+AArch64 before assembly; its version/provenance comes from the release helper
+job, and the existing flow-host manifest records its digest. The assembler
+uses the backend's existing msb 0.6.16 and DefaultImage pins and refuses drift.
+base-image.json carries version, image, platform and archive. OCI copy uses
+skopeo --preserve-digests. First-start loading of that archive belongs to the
+launcher/runtime consumer, not this assembler. The guest-helper file is copied
+from the same source the backend embeds, and independently compared in the
+real integration test.
+
+Manifest contract: version 1, platform darwin-arm64, revision, and files entries with
+bundle-relative path with sha256, mode, producing stage, and optional
+relative symlink target. Files and symlink referents hash bytes; symlinks retain their target text,
+and resolve inside the canonical bundle root. Extra/missing/changed files,
+modes and escaping links fail verification. T-INS-08 landed during rebase; array entries and symlink byte hashes now
+match its host-start verifier, with a direct compatibility test. T-INS-02/T-INS-08 consume the
+bundle layout and validation contract. T-INS-02 landed during rebase; its startup and boundary test are retained.
+Launcher environment and readiness were not changed by this lane. The web
+asset output uses T-INS-02's landed views/mainview contract. Ticket/spec PostgreSQL packaging wins over delta.md's stale
+"bundled-PostgreSQL stage stays out" row.
+
+## Files and positive-net reasons
+
+No deleted files: the assembler and tests were already deleted on main.
+Restoration replaces their absence; desktop stages stay deleted.
+
+- apps/app/scripts/build-native.ts: restored host/tool/PG/web stages plus launcher/microVM/manifest wiring; no existing server assembler remains.
+- apps/app/scripts/build-native.test.ts: restored linkage tests plus requested version/refusal coverage.
+- apps/app/scripts/bundle-microsandbox.ts: no historical stage packages msb/libkrunfw or the offline pinned image.
+- apps/app/scripts/server-bundle-manifest.ts: existing flow-host manifest covers only hosts, not the installation inventory.
+- apps/app/scripts/server-bundle-manifest.test.ts: independent relocation, digest, mode and containment assertions.
+- apps/app/scripts/server-bundle.integration.test.ts: requested production-target/layout/relocation integration, requires real release inputs.
+- apps/app/src/mainview/state/controller/GatewayFailureCopy.ts and gateway.test.ts: one existing notification-code mapping and regression assertion repair the upstream exhaustive-map typecheck blocker; no new copy.
+- apps/app/PACKAGE.ts: one serverBundle entry replaces the missing native target.
+- .smithers/target-index.json: generated serverBundle declaration row.
+- .github/workflows/release.yml: restored darwin-arm64 release assembly/provider artifact steps; no desktop matrix.
+- apps/app/scripts/README.md and distribution/README.md: operator prerequisites/layout, replace stale build:native distribution wording.
+- REPORT.md: requested operator/evidence/handoff record.
+
+## Not done
+
+C-INS-05 real assembly/relocation and C-J1-04 have no passing receipts. The
+integration test was skipped, not passed. No coverage completion is claimed.
+Release job has not run remotely. No full build, PostgreSQL startup, guest
+startup, root safety acceptance, signing, install or release acceptance was
+performed. Missing helper/skopeo and pre-existing flow inventory/release gate
+failures remain for the lead to reconcile; do not close #3432 from this report.
+Landed SHA and net lines are recorded in ~/lanes/crit-t-ins-01.REPORT.md after push.
+
+---
+
 # T-INS-02 (#3521) lane receipt
 
 Ready stamp: sha256:290af6548bad. Lead smithers-df holds the issue claim; this lane did not run gh or issue-claim.

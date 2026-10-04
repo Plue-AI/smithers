@@ -60,6 +60,7 @@ const TAG_BY_CODE = {
   notification_closed: "/notifications/NotificationError",
   notification_full: "/notifications/NotificationError",
   notification_id_reused: "/notifications/NotificationError",
+  notification_refused: "/notifications/NotificationError",
   notification_invalid: "/notifications/NotificationError"
 } as const satisfies Record<ControlError["code"], ControlError["_tag"]>
 
