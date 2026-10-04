@@ -265,3 +265,14 @@ Full durable journey scenarios retain fixmes.
 | A-TERMINAL | [A-TERMINAL.spec.ts](A-TERMINAL.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
 
 Cycle 28: six branch and terminal command scenarios await live providers and durable recovery. Mounted tests cover the branch tree (the `/branches` handler is absent), ref opening, fork, scratch placement, rebase activity, and owned versus watched terminal controls. Seeded projections do not replace reference-host receipts.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-FILE | [A-FILE.spec.ts](A-FILE.spec.ts) | fixme-before-implementation | T-COL-08, T-APP-14 |
+| A-FILES | [A-FILES.spec.ts](A-FILES.spec.ts) | fixme-before-implementation | T-APP-10, T-COL-04 |
+| A-DIFF | [A-DIFF.spec.ts](A-DIFF.spec.ts) | fixme-before-implementation | T-STK-01, T-COL-04 |
+| A-REVIEW | [A-REVIEW.spec.ts](A-REVIEW.spec.ts) | fixme-before-implementation | T-FLW-13, T-APP-16 |
+| A-PR | [A-PR.spec.ts](A-PR.spec.ts) | fixme-before-implementation | T-STK-01, T-GH-03 |
+| A-ISSUES | [A-ISSUES.spec.ts](A-ISSUES.spec.ts) | fixme-before-implementation | T-STK-09, T-GH-02 |
+
+Cycle 29: file co-editing, live file lists and diffs, teammate PR review, PR evidence and issue sync retain full pending scenarios. Six mounted command projections exercise reads, keyboard navigation and review confirmation cancellation; these do not qualify live providers.
