@@ -74,6 +74,13 @@ type mythicalGitHub interface {
 	// HeadChecks answers GitHub CI's verdict on one commit (mythicalCIGreen,
 	// mythicalCIPending or mythicalCIRed).
 	HeadChecks(ctx context.Context, gh mythicalGitHubRepo, sha string) (string, error)
+	// HeadCheckFacts names each check on one commit and whether main's
+	// protection requires it; a required check with no run yet is pending.
+	HeadCheckFacts(ctx context.Context, gh mythicalGitHubRepo, sha string) ([]mythicalHeadCheck, error)
+	// ReviewDecision is GitHub's verdict on main's required reviews for a
+	// pull request: APPROVED, REVIEW_REQUIRED or CHANGES_REQUESTED, and ""
+	// when main requires no review.
+	ReviewDecision(ctx context.Context, gh mythicalGitHubRepo, number int64) (string, error)
 	// Merge squash-merges a pull request only while its head is head, and
 	// answers the merge commit.
 	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)

@@ -52,9 +52,16 @@ func TestTodoControlGuardsReadFacts(t *testing.T) {
 			})
 		}
 	}
+	// The merge fence the press persists refuses every control (§10.6.2b);
+	// another pending GitHub write is not a merge.
+	fenced := db.MythicalItem{State: "blocked", PendingOp: []byte(`{"kind":"merge","target":"3","desired":"` + strings.Repeat("a", 40) + `","state":"intended"}`)}
+	pushing := db.MythicalItem{State: "blocked", PendingOp: []byte(`{"kind":"push","target":"smithers/x","state":"intended"}`)}
 	for _, op := range []string{"stop", "resume", "retry", "retry-current-flow", "drop"} {
-		err := todoControlGuard(db.MythicalItem{State: "blocked"}, TodoControlInput{Op: op}, todoControlFacts{Executing: true, Paused: true, Merging: true})
-		require.Equal(t, "merging", err.(*TodoControlError).Code)
+		err := todoControlGuard(fenced, TodoControlInput{Op: op}, todoControlFacts{Executing: true, Paused: true})
+		require.Equal(t, &TodoControlError{http.StatusConflict, "merging", "conflict", "TODO is merging"}, err)
+		if err := todoControlGuard(pushing, TodoControlInput{Op: op}, todoControlFacts{Executing: true, Paused: true}); err != nil {
+			require.NotEqual(t, "merging", err.(*TodoControlError).Code)
+		}
 	}
 }
 

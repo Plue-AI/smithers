@@ -131,11 +131,13 @@ paths:
                 reviewed_head_sha: {type: string, pattern: '^[0-9a-fA-F]{40}$'}
       responses:
         '202':
-          description: Merge request accepted; completion requires GitHub and main containment
+          description: Approval and merge fence recorded; Merged requires GitHub's merge and main containment
         '400':
           description: Invalid TODO number or reviewed head
+        '401':
+          description: No credential, or the browser session has ended
         '403':
-          description: Install owner browser session required
+          description: Install owner browser session or GitHub maintainer required
         '404':
           description: TODO not found
         '409':

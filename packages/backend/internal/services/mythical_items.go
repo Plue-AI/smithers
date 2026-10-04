@@ -2531,8 +2531,10 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 // waits while CI runs and never merges on red. A refusal (the branch moved)
 // is retried later; the pull request stays open for a person meanwhile.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	// Until T-STK-04 supplies the shared decision and matching fence, only
-	// reads may settle an already-applied merge. Old labels cannot authorize it.
+	// Review & merge dispatches through the outbound merge (MergeDecision).
+	// Pre-approval does not reach this shared decision through gate() yet
+	// (§10.6.2d), so only reads may settle an already-applied merge here.
+	// Old labels cannot authorize one.
 	if st.s.github == nil || st.gh == nil {
 		return mythicalLater(item, "merge recovery is unavailable", st.now)
 	}

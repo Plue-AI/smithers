@@ -27,10 +27,9 @@ type MythicalOutboundOp struct {
 // Send must use budgeted App transport and trusted bare-object tools only.
 // Lookup, Send and Settle run within the claimed pass they are given, which
 // holds its GitHub destination and bare-object transport; this is their one
-// binding (EnableTodoPublication composes them for push and open).
-// MergeDecision is T-STK-04's fresh DecideMerge under the matching TODO fence;
-// its owner composes it together with the merge kind of Lookup, Send and
-// Settle, and the merge route's gate opens only when both are composed.
+// binding (EnableTodoPublication composes them for push, open and merge).
+// MergeDecision is T-STK-04's fresh DecideMerge under the matching TODO fence,
+// composed with them; the merge route's gate opens only when all are.
 type MythicalOutboundProviders struct {
 	CanonicalApp, StackLease, Budget, Membership, Authorization, AcceptedGeneration func(context.Context, db.MythicalItem, string) error
 	MergeDecision                                                                   func(context.Context, db.MythicalItem, MythicalOutboundOp) error
@@ -152,7 +151,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 				return nil, errors.New("Waiting for merge readiness integration")
 			}
 			if err := p.MergeDecision(ctx, item, op); err != nil {
-				return nil, err
+				return st.refuseMerge(ctx, item, op, err)
 			}
 		}
 		if p.Send == nil {
@@ -168,10 +167,20 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 			return nil, err
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
+			if op.Kind == "merge" {
+				return st.refuseMerge(ctx, item, op, err)
+			}
 			return nil, err
 		}
 		// A successful response still needs lookup before settlement. This retains
-		// the obligation if the process dies after the remote effect.
+		// the obligation if the process dies after the remote effect. A merge
+		// is looked up once right away and settles if GitHub confirms it; it
+		// is never sent twice in one pass.
+		if op.Kind == "merge" {
+			if observed, _, err := p.Lookup(st, ctx, item, op); err == nil && outboundResult(op, observed, false) == "done" {
+				return st.settleOutbound(ctx, item, op)
+			}
+		}
 		return &item, nil
 	}
 	if op.State == "done" {

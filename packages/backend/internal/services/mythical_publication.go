@@ -20,8 +20,9 @@ import (
 // the TODO's smithers/<slug> branch and opens its pull request (§12.5.1).
 // Every guard reads facts the install already holds and mints no token;
 // lookup, send and settlement use the claimed pass's own GitHub destination
-// and controlled bare-object transport. Merge stays a person's command: its
-// readiness decision (MergeDecision) is composed by the merge route's owner.
+// and controlled bare-object transport. Merge stays a person's command: the
+// worker sends one only for a session's recorded approval that MergeDecision
+// finds current (§10.6.2b).
 
 // MythicalPublicationConnections resolves a repository's GitHub destination
 // and the App installation that serves it.
@@ -36,16 +37,17 @@ type mythicalPublication struct {
 	budget      *BudgetTracker
 }
 
-// EnableTodoPublication composes TODO pull-request publication for the
-// install. Without it every TODO-branch write is held (publicationAuthority).
-// It binds the guards and the push and open transport field by field, so the
-// merge route owner's MergeDecision is kept whichever is composed first.
+// EnableTodoPublication composes the install App's TODO writes: publication
+// of a TODO's branch and pull request, and the squash merge a person's
+// Review & merge approves (§10.6.2). Without it every TODO-branch write is
+// held (publicationAuthority) and the merge route refuses before approval.
 func (s *MythicalService) EnableTodoPublication(app GitHubAppCredentialReader, connections MythicalPublicationConnections, budget *BudgetTracker) {
 	s.publication = &mythicalPublication{app: app, connections: connections, budget: budget}
 	s.prFacts = s.todoPRFacts
 	o := &s.outbound
 	o.CanonicalApp, o.StackLease, o.Budget, o.Membership = s.canonicalApp, s.stackLease, s.githubBudget, s.currentMembership
 	o.Authorization, o.AcceptedGeneration = mythicalCommandAuthorization, s.acceptedGeneration
+	o.MergeDecision = s.MergeDecision
 	o.Lookup, o.Send, o.Settle = (*mythicalItemStep).appLookup, (*mythicalItemStep).appSend, (*mythicalItemStep).appSettle
 }
 
@@ -457,8 +459,8 @@ func (st *mythicalItemStep) publicationGitHub(ctx context.Context) (mythicalGitH
 }
 
 // appLookup observes an operation's target on GitHub: the branch head for a
-// push, the open pull request's head for an open.
-func (st *mythicalItemStep) appLookup(ctx context.Context, _ db.MythicalItem, op MythicalOutboundOp) (string, bool, error) {
+// push, the open pull request's head for an open, the merge for a merge.
+func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (string, bool, error) {
 	gh, err := st.publicationGitHub(ctx)
 	if err != nil {
 		return "", false, err
@@ -479,6 +481,8 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, _ db.MythicalItem, op
 			return "", false, nil
 		}
 		return pull.HeadSHA, false, nil
+	case "merge":
+		return st.s.mergeLookup(ctx, gh, item, op)
 	}
 	return "", false, fmt.Errorf("GitHub %s reconciliation is not composed", op.Kind)
 }
@@ -494,19 +498,25 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		return st.pushProposal(ctx, item, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
 	case "open":
 		return st.createPull(ctx, item, gh, op.Target)
+	case "merge":
+		return st.s.mergeSend(ctx, gh, item, op)
 	}
 	return fmt.Errorf("GitHub %s dispatch is not composed", op.Kind)
 }
 
 // appSettle binds an opened pull request from GitHub's own answer at the
-// proposed head; a push settles from lookup alone.
+// proposed head, and lands a merge once main contains it; a push settles
+// from lookup alone.
 func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
-	if op.Kind != "open" {
+	if op.Kind != "open" && op.Kind != "merge" {
 		return item, fmt.Errorf("GitHub %s settlement is not composed", op.Kind)
 	}
 	gh, err := st.publicationGitHub(ctx)
 	if err != nil {
 		return item, err
+	}
+	if op.Kind == "merge" {
+		return st.s.mergeSettle(ctx, gh, item, op)
 	}
 	pull, err := st.s.github.FindPull(ctx, gh, op.Target)
 	if err != nil {

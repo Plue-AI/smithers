@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -152,19 +151,16 @@ func TestTodoPublicationHeldByForeignHead(t *testing.T) {
 	}
 }
 
-// Publication composes the guards and transport field by field: a merge
-// readiness decision composed by the merge route's owner survives it.
-func TestEnableTodoPublicationKeepsTheMergeDecision(t *testing.T) {
-	decided := errors.New("decided by the merge owner")
+// Publication composes every guard, the merge decision and the push, open
+// and merge transport: the merge route's gate opens with it, never apart.
+func TestEnableTodoPublicationComposesTheMerge(t *testing.T) {
 	s := &MythicalService{}
-	s.outbound.MergeDecision = func(context.Context, db.MythicalItem, MythicalOutboundOp) error { return decided }
+	require.Error(t, s.mergeDispatchReady(context.Background(), db.MythicalItem{}), "nothing composed: the route refuses")
 	s.EnableTodoPublication(nil, nil, nil)
-	require.NotNil(t, s.outbound.MergeDecision)
-	require.ErrorIs(t, s.outbound.MergeDecision(context.Background(), db.MythicalItem{}, MythicalOutboundOp{}), decided)
 	for name, bound := range map[string]bool{
 		"canonical App": s.outbound.CanonicalApp != nil, "stack lease": s.outbound.StackLease != nil, "budget": s.outbound.Budget != nil,
 		"membership": s.outbound.Membership != nil, "authorization": s.outbound.Authorization != nil, "accepted generation": s.outbound.AcceptedGeneration != nil,
-		"lookup": s.outbound.Lookup != nil, "send": s.outbound.Send != nil, "settle": s.outbound.Settle != nil,
+		"merge decision": s.outbound.MergeDecision != nil, "lookup": s.outbound.Lookup != nil, "send": s.outbound.Send != nil, "settle": s.outbound.Settle != nil,
 	} {
 		assert.True(t, bound, name)
 	}

@@ -101,9 +101,9 @@ type MythicalItemView struct {
 	ReviewHeld bool `json:"reviewHeld,omitempty"`
 	// Request is the request id of the Smithers filing that made this TODO.
 	Request string `json:"request,omitempty"`
-	// Automerge is whether a maintainer asked the stack to merge this TODO's
-	// pull request (their automerge label, or Land through Smithers): it
-	// merges at the reviewed head once CI is green.
+	// Automerge is whether a maintainer pre-approved this TODO's merge
+	// (their automerge label or Pre-approve, §10.6.2d). Review & merge is
+	// checks.Land, not this.
 	Automerge bool `json:"automerge,omitempty"`
 	// Failure is why the item stopped or retries, typed; Reason is then its
 	// sentence (mythicalFailureOf), never an error's text.

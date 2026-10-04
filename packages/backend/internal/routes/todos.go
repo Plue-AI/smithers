@@ -140,8 +140,14 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Merge resolves the repository number through the same persisted install
-// binding as the card. Approval remains a request, never a merge receipt.
+// binding as the card. Any credential but a browser session is refused
+// before a read. 202 records the approval and the merge fence; the TODO is
+// Merged only once GitHub reports the merge and main contains it.
 func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
+	if err := services.MergeCredential(r.Context()); err != nil {
+		todoRouteError(w, err)
+		return
+	}
 	repo, user, ok := h.authorize(w, r)
 	if !ok {
 		return
