@@ -26,7 +26,7 @@ export const InstallModelSchema = z.object({
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),
   repositories: z.array(z.string()).optional(), models: z.array(role), chatgpt: z.boolean(),
-  capacity: z.number().int().nonnegative(), parallel: z.number().int().nonnegative().optional(),
+  capacity: z.number().int().nonnegative(), parallel: z.number().int().min(1).max(8).optional(),
   wiki_sync: z.object({ obsidian: SettingsCardSchema.shape.obsidian }).optional(),
   health: z.object({ process: z.enum(["ok", "degraded"]), postgres_bytes: z.number().nonnegative(),
     disk_free_gb: z.number().nonnegative(), github: z.object({ health: z.enum(["fresh", "stale", "limited", "refused"]),
@@ -37,7 +37,7 @@ export const InstallModelSchema = z.object({
     ctx.addIssue({ code: "custom", message: "Setup steps must follow install order" })
   if (model.models.length !== 3 || new Set(model.models.map(model => model.role)).size !== 3)
     ctx.addIssue({ code: "custom", message: "Three model roles required" })
-  if (model.capacity > model.this_mac.capacity || (model.parallel !== undefined && model.parallel > model.capacity))
+  if (model.capacity > model.this_mac.capacity)
     ctx.addIssue({ code: "custom", message: "Install limits exceeded" })
 })
 export type InstallModel = z.infer<typeof InstallModelSchema>

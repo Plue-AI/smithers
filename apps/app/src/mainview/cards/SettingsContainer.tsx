@@ -53,7 +53,7 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
     { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "0", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
-    ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel", min: "0", max: String(model.capacity) }, command_input: { parallel: model.parallel },
+    ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel", min: "1", max: "8" }, command_input: { parallel: model.parallel },
       input: [{ name: "value", label: "TODOs at once", kind: "text" as const, required: true, value: String(model.parallel) }],
       resolve_input: (input: Record<string, string>) => ({ parallel: Number(input.value ?? input.parallel ?? model.parallel) }) }]),
     ...(model.wiki_sync === undefined ? [] : [{ tag: "settings.obsidian" as const, label: "Change", args: { field: "obsidian" },

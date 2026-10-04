@@ -781,12 +781,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "palette.open": (args) => optional("prefix", args),
   "palette.actions": (args) => required("ref", args, "palette.actions needs an item ref"),
   "history.show": (args) => repoOnly("history.show", args),
-  "history.parallel": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    const value = Number(rest)
-    if (!/^[1-8]$/.test(rest) || !Number.isInteger(value)) return no("history.parallel takes a lane count from 1 to 8")
-    return ok(repo === undefined ? { value } : { value, repo })
-  },
 
   /*
    * Both generators need a repository. Commands.ts renders a form only for a

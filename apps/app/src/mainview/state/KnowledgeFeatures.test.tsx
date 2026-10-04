@@ -14,7 +14,7 @@ import { memoryStorage, silentAgent } from "./TestFixtures"
 const createAppController = scopedControllers()
 /* The Wiki (D-09b) and the mythical history (D-09 superseded) are core: no flag and no build variable hides them. */
 const wiki = ["wiki", "wiki.create", "wiki.open", "wiki.graph", "wiki.new-note", "search.wiki"]
-const core = ["history.show", "history.bootstrap", "history.backfill", "history.parallel", "search.history"]
+const core = ["history.show", "history.bootstrap", "history.backfill", "search.history"]
 
 describe("the Wiki is core", () => {
   test("every Wiki door registers with no feature and no environment flag", async () => {

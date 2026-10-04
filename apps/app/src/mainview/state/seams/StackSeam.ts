@@ -487,21 +487,6 @@ export const createStackSeam = (
     } finally { admitted() }
     return { value: "Requested" }
   }
-  /** A write that answers with the snapshot: the watch takes it at once. */
-  const writeAndApply = async (repo: string, method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<true | string> => {
-    const answer = await send(method, path, body, "the stack")
-    const handle = watch(repo)
-    if ("error" in answer) {
-      // A timeout may still have done the work: the card reads what the server holds either way.
-      void refresh(handle)
-      return answer.error
-    }
-    const parsed = MythicalStackSchema.safeParse(answer.body)
-    if (parsed.success) apply(handle, parsed.data)
-    else void refresh(handle)
-    return true
-  }
-
   /** Resolves when the stack reads active (true), frozen or failing (its reason), or the watch ends. */
   const untilActive = (repo: string): Promise<true | string | typeof TOAST_SUPERSEDED> => new Promise((resolve) => {
     const handle = watch(repo)
@@ -538,14 +523,8 @@ export const createStackSeam = (
     // The request is durable before it is acknowledged.
     return runBootstrap(repo, true, () => write(repo, { bootstrap: { requestedAt: Date.now() }, failure: null }, true))
   }
-  const setStackParallel: StackSeam["setStackParallel"] = async (value, repoArg) => {
-    if (!Number.isInteger(value) || value < 1 || value > 8) return "Choose a lane count from 1 to 8."
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    return act(repo, "parallel", `${value} ${repo}`, { running: `Setting ${value} lanes…`, done: `${value} lanes` },
-      () => writeAndApply(repo, "PUT", route("config", repo), { maxParallel: value }))
-  }
+  // Persisted cards may retain this action; the install owner setting is its only write door.
+  const setStackParallel: StackSeam["setStackParallel"] = async () => "Use At once in Settings."
   // Old recorded cards may still name this controller action. Refuse without
   // a network write; new TODO retries use the numbered, durable TodoSeam.
   const retryStackItem: StackSeam["retryStackItem"] = async () => "Use Retry on the TODO."

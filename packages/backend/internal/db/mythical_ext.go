@@ -513,16 +513,6 @@ func jsonArg(value json.RawMessage) any {
 	return []byte(value)
 }
 
-// SetMythicalMaxParallel sets a stack's lane count and wakes its worker.
-func (q *Queries) SetMythicalMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) (int64, error) {
-	tag, err := q.db.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = $2, requested_generation = requested_generation + 1,
-		generation = generation + 1, updated_at = NOW() WHERE repository_id = $1`, repositoryID, maxParallel)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
-}
-
 const mythicalLaneColumns = `workspace_id, repository_id, item_id, name, created_at, retired_at`
 
 func scanMythicalLane(row pgx.Row) (MythicalLane, error) {

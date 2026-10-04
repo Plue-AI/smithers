@@ -821,10 +821,9 @@ func mythicalRunInFlight(item db.MythicalItem) bool {
 	return false
 }
 
-// slot reports whether item may launch a run on a new lane now, trading in
-// any lane it already holds: within the
-// stack's lane cap, with one lane kept for chat work (mythicalLaunchSlot),
-// and within this pass's launch budget.
+// slot bounds retained-history drains and this pass's launch budget.
+// Fresh TODO admission stays refused until ordered runtime admission is composed.
+// freeLane supplies identity only; people use runtime admission, not a lane reserve.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
 	busy := st.busy
 	if mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != "" {
@@ -832,7 +831,7 @@ func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
 		// counted while it was proposed) for the new one.
 		busy--
 	}
-	return mythicalLaunchSlot(item.Source, busy, st.maxParallel) && st.launches < mythicalLaunchesPerRun
+	return busy < st.maxParallel && st.launches < mythicalLaunchesPerRun
 }
 
 // freeLane answers the lowest lane index no other unsettled item holds, so
@@ -2283,21 +2282,6 @@ func (l *workspaceMythicalLanes) Delete(ctx context.Context, repositoryID, actor
 
 var errTodoWorkspaceRetained = errors.New("TODO workspace retained until verified final capture and settlement")
 
-// SetMaxParallel sets how many lanes work at once (1..8).
-func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error {
-	if maxParallel < 1 || maxParallel > 8 {
-		return pkgerrors.BadRequest("maxParallel must be between 1 and 8")
-	}
-	updated, err := s.queries().SetMythicalMaxParallel(ctx, repositoryID, maxParallel)
-	if err != nil {
-		return err
-	}
-	if updated == 0 {
-		return pkgerrors.NotFound("this repository has no mythical stack")
-	}
-	return nil
-}
-
 // retryItem retains the legacy CAS for the hidden maintainer machinery. It
 // has no production caller; ControlTodo is the install boundary and refuses
 // until durable attempts and validated machine dispatch are composed.
@@ -2916,13 +2900,4 @@ func sameMythicalChecks(a, b db.MythicalItem) bool {
 // reviewing reports whether the review of the item's pull request head runs.
 func (c mythicalChecks) reviewing(item db.MythicalItem) bool {
 	return c.Review != nil && c.Review.Head == item.PRHead && c.Review.Verdict == ""
-}
-
-// One lane stays available to direct work when the stack has multiple lanes.
-// A single-lane stack still makes progress, with chat sorted ahead of issues.
-func mythicalLaunchSlot(source string, busy, maximum int) bool {
-	if source != "chat" && maximum > 1 {
-		maximum--
-	}
-	return busy < maximum
 }

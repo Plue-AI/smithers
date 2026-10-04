@@ -1,19 +1,24 @@
 package services
 
-import "testing"
+import (
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/stretchr/testify/require"
+	"testing"
+)
 
 func TestMythicalDirectSlot(t *testing.T) {
-	for _, tc := range []struct {
-		source    string
-		busy, max int
-		want      bool
-	}{
-		{"issue", 0, 1, true}, {"chat", 0, 1, true}, {"chat", 1, 1, false},
-		{"issue", 0, 2, true}, {"issue", 1, 2, false}, {"chat", 1, 2, true}, {"chat", 2, 2, false},
-		{"issue", 6, 8, true}, {"issue", 7, 8, false}, {"chat", 7, 8, true},
-	} {
-		if got := mythicalLaunchSlot(tc.source, tc.busy, tc.max); got != tc.want {
-			t.Fatalf("%+v: got %v", tc, got)
+	for _, source := range []string{"issue", "chat"} {
+		for _, tc := range []struct {
+			busy, max int
+			want      bool
+		}{
+			{0, 0, false}, {0, 1, true}, {1, 1, false},
+			{1, 2, true}, {2, 2, false}, {3, 2, false}, {7, 8, true},
+		} {
+			st := mythicalItemStep{busy: tc.busy, maxParallel: tc.max}
+			require.Equal(t, tc.want, st.slot(db.MythicalItem{Source: source}))
+			st.launches = mythicalLaunchesPerRun
+			require.False(t, st.slot(db.MythicalItem{Source: source}))
 		}
 	}
 }

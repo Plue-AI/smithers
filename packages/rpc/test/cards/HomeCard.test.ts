@@ -135,10 +135,10 @@ describe("Home numeric boundaries", () => {
       expect(HomeCardSchema.safeParse(changed).success, String(value)).toBe(value === 0 || value === 0.25)
     }
   })
-  test("parallel is a positive integer when present", () => {
+  test("parallel permits zero effective capacity when present", () => {
     for (const value of [1, 4, 0, -1, 1.5]) {
       expect(HomeCardSchema.safeParse({ ...active(), parallel: value }).success, String(value)).toBe(
-        value >= 1 && value % 1 === 0
+        value >= 0 && value % 1 === 0
       )
     }
   })

@@ -147,6 +147,7 @@ var migrationRegistry = []migrationSpec{
 	{109, "migrations/0109_install_app_before_repository.sql"},
 	{110, "migrations/0110_github_owner_identity.sql"},
 	{111, "migrations/0111_mythical_todos.sql"},
+	{112, "migrations/0112_install_parallel.sql"},
 }
 
 type migration struct {

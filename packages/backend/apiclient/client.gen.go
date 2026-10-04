@@ -1105,6 +1105,11 @@ type TODOBranchDiffModelHunksItemLinesItem struct {
 	Text string `json:"text"`
 }
 
+// InstallParallelSetting — Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero.
+type InstallParallelSetting struct {
+	Parallel int64 `json:"parallel"`
+}
+
 // ScorecardWindow is generated from docs/api/openapi.yaml.
 type ScorecardWindow struct {
 	From time.Time `json:"from"`
@@ -4724,13 +4729,6 @@ func (c *Client) PostAPIReposOwnerRepoWorkspacesIDUserSource(ctx context.Context
 func (c *Client) PutAPIReposOwnerRepoLandingsNumberGithubPull(ctx context.Context, owner string, repo string, number string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/landings/"+url.PathEscape(number)+"/github/pull", nil, body, &out)
-	return out, err
-}
-
-// PutAPIReposOwnerRepoMythicalConfig calls PUT /api/repos/{owner}/{repo}/mythical/config.
-func (c *Client) PutAPIReposOwnerRepoMythicalConfig(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/config", nil, body, &out)
 	return out, err
 }
 

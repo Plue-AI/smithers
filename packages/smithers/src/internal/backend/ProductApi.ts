@@ -606,6 +606,11 @@ export type TODOBranchDiffModel = {
   }>
 }
 
+/** Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero. */
+export type InstallParallelSetting = {
+  parallel: number
+}
+
 export type ScorecardWindow = {
   from: string
   to: string
@@ -4818,19 +4823,6 @@ export interface PutApiReposOwnerRepoLandingsNumberGithubPullInput {
 /** PUT /api/repos/{owner}/{repo}/landings/{number}/github/pull */
 export const putApiReposOwnerRepoLandingsNumberGithubPull = (transport: Transport, input: PutApiReposOwnerRepoLandingsNumberGithubPullInput): Promise<PutApiReposOwnerRepoLandingsNumberGithubPullResponse> =>
   transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/landings/${segment(input.path.number)}/github/pull`, input.body) as Promise<PutApiReposOwnerRepoLandingsNumberGithubPullResponse>
-
-export type PutApiReposOwnerRepoMythicalConfigBody = AnyJSON
-
-export type PutApiReposOwnerRepoMythicalConfigResponse = AnyJSON
-
-export interface PutApiReposOwnerRepoMythicalConfigInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body?: PutApiReposOwnerRepoMythicalConfigBody
-}
-
-/** PUT /api/repos/{owner}/{repo}/mythical/config */
-export const putApiReposOwnerRepoMythicalConfig = (transport: Transport, input: PutApiReposOwnerRepoMythicalConfigInput): Promise<PutApiReposOwnerRepoMythicalConfigResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/config`, input.body) as Promise<PutApiReposOwnerRepoMythicalConfigResponse>
 
 export type PutApiReposOwnerRepoMythicalLanesBody = AnyJSON
 

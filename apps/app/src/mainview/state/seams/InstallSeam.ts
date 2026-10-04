@@ -303,8 +303,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     return write("capacity", "/install", { capacity })
   }
   const setInstallParallel = (parallel: number) => {
-    const model = shared.snapshot.model
-    if (!Number.isInteger(parallel) || parallel < 0 || (model && parallel > model.capacity)) return "At once exceeds Machines"
+    if (!Number.isInteger(parallel) || parallel < 1 || parallel > 8) return "Choose 1 to 8 TODOs at once"
     return write("parallel", "/install", { parallel })
   }
   // T-FLW-12: no seed or host-config mutation; an authoritative setting enables this door.

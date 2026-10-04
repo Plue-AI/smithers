@@ -162,7 +162,7 @@ test("an item that leaves its lane inside the debounce never flashes a notice", 
   expect(toast(store, itemKey("i3"))).toBeUndefined()
 })
 
-test("the removed sweep sends no request; lane count still changes", async () => {
+test("removed sweep and repository parallel doors send no request", async () => {
   const { controller, fake } = await setup()
   await controller.commands.run("history.show", REPO)
   const [first, second] = await Promise.all([controller.commands.run("history.backfill", REPO), controller.commands.run("history.backfill", REPO)])
@@ -170,12 +170,9 @@ test("the removed sweep sends no request; lane count still changes", async () =>
   expect(second.status).toBe("unknown-command")
   expect(fake.writes).toHaveLength(0)
 
-  expect(await controller.commands.run("history.parallel", `4 ${REPO}`)).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => fake.writes.some(write => write.method === "PUT"))
-  expect(fake.writes.find(write => write.method === "PUT")).toEqual({ method: "PUT", path: `${BASE}/config`, body: JSON.stringify({ maxParallel: 4 }) })
-  // Nine lanes is outside the API's range: the grammar refuses it, so no request is made.
-  expect(await controller.commands.run("history.parallel", `9 ${REPO}`)).not.toMatchObject({ status: "executed" })
-  expect(fake.writes.filter(write => write.method === "PUT")).toHaveLength(1)
+  expect(await controller.commands.run("history.parallel", `4 ${REPO}`)).toMatchObject({ status: "unknown-command" })
+  expect(await controller.setStackParallel(4, REPO)).toBe("Use At once in Settings.")
+  expect(fake.writes).toHaveLength(0)
 })
 
 test("the historical retry door refuses without writing", async () => {

@@ -75,7 +75,7 @@ export const HomeCardSchema = z.object({
     capacity: z.number().int().nonnegative(),
     slots: z.array(z.object({ branch: z.string(), actor: ActorSchema, awake: z.boolean() }))
   }),
-  parallel: z.number().int().positive().optional(),
+  parallel: z.number().int().nonnegative().optional(),
   background_runs: z.array(
     z.object({
       id: z.string(),

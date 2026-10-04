@@ -22,7 +22,6 @@ type fakeMythicalRoute struct {
 	bootstraps []string
 	main       string
 	lanes      []services.MythicalLaneSubmission
-	parallel   int32
 	wikis      int
 	wikiErr    error
 	viewers    []services.MythicalViewer
@@ -51,11 +50,6 @@ func (f *fakeMythicalRoute) RequestWiki(context.Context, int64) error {
 func (f *fakeMythicalRoute) SubmitLane(_ context.Context, _, _ int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error) {
 	f.lanes = append(f.lanes, input)
 	return services.MythicalLaneReceipt{ItemID: "item", State: "integrating", Source: input.Source}, nil
-}
-
-func (f *fakeMythicalRoute) SetMaxParallel(_ context.Context, _ int64, n int32) error {
-	f.parallel = n
-	return nil
 }
 
 func (f *fakeMythicalRoute) Item(_ context.Context, repositoryID int64, ref string) (services.MythicalItemView, error) {
@@ -182,12 +176,6 @@ func TestMythicalWriteRoutes(t *testing.T) {
 	rec = httptest.NewRecorder()
 	handler.Lanes(rec, withRepo(httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"workspaceId":"x","extra":1}`))))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	rec = httptest.NewRecorder()
-	handler.Config(rec, withRepo(httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"maxParallel":4}`))))
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.EqualValues(t, 4, service.parallel)
-
 }
 
 func TestMythicalWikiRoute(t *testing.T) {

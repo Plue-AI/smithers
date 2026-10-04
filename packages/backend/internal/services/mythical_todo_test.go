@@ -1459,7 +1459,8 @@ func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
 func TestMythicalRetainedVerificationObeysALoweredCap(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.SetMaxParallel(ctx, o.repoID, 3))
+	_, setErr := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 3 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, setErr)
 	for _, number := range []int64{511, 512} {
 		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Cap %d", number), State: "open",
 			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
@@ -1483,7 +1484,8 @@ func TestMythicalRetainedVerificationObeysALoweredCap(t *testing.T) {
 	require.NoError(t, err)
 	o.commit("✨ feat: three", "c.txt", "c\n")
 	o.publish()
-	require.NoError(t, o.service.SetMaxParallel(ctx, o.repoID, 1))
+	_, setErr = o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, setErr)
 	o.wake()
 	assert.Equal(t, "running", o.item(511).State)
 	assert.Equal(t, "integrating", o.item(512).State, "the verification waits for a lane under the lowered cap")
