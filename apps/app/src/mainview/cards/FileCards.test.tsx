@@ -6,6 +6,11 @@ import type { Root } from "react-dom/client"
 
 import type { Card } from "../state/AppState"
 import { FileCardAddressLine, FileCardBody, FileListCardBody } from "./FileCards"
+import { renderCardBody } from "./CardRenderers"
+import type { CardActions } from "./CardFamily"
+import { createAppController } from "../state/AppController"
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage } from "../state/TestFixtures"
 
 GlobalRegistrator.register()
 
@@ -88,6 +93,58 @@ describe("S1 File mapping", () => {
     expect(host.querySelector("[data-flow-activate]")).toBeNull()
     expect(host.querySelector('[data-interactive]')).toBeNull()
   })
+})
+
+// No production provider, binding or daemon acknowledgment is available yet.
+// Exercise the registered body rather than a second editor or a fake relay.
+test("registered File cards cannot acquire live authority from persisted fields", async () => {
+  const commands: string[] = []
+  const actions: CardActions = {
+    onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {},
+    onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {},
+    worldDocuments: [], onChangeWorldDocument: () => {},
+    onRunCommand: name => { commands.push(name) }
+  }
+  const card = fileCard("retry.ts", "const retry = 1\n")
+  Object.assign(card.payload, {
+    mode: "live", saved: "saved", outside: { version: "retained-17", at: "2026-10-03T00:00:00Z" },
+    unsaved: { count: 1, text: "unacknowledged" }, authors: [{ id: "forged-member" }],
+    intel: { state: "ready" }
+  })
+  const host = document.createElement("div")
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  mounted.push({ root, host })
+  flushSync(() => root.render(renderCardBody(card, actions)))
+  await loaded(host)
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  expect(host.querySelector('[data-mode="live"], textarea, [contenteditable="true"]')).toBeNull()
+  expect(host.querySelector('[data-flow="file.compare"], [data-flow="file.reapply"]')).toBeNull()
+  expect(host.querySelector("pre")?.textContent).toBe("const retry = 1\n")
+  expect(host.textContent).not.toContain("Saved to the machine")
+  expect(host.querySelector(".cm-ySelection")).toBeNull()
+  expect(commands).toEqual([])
+})
+
+test("unavailable Compare and Reapply refuse in the production dispatcher without writes or cards", async () => {
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, {
+    available: false, startTurn: async () => ({ status: "error", message: "unavailable" }),
+    cancelTurn: async () => {}, subscribe: () => () => {}
+  }, { fetchImpl: async input => { requests.push(String(input)); return new Response("{}", { status: 404 }) } })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    const cards = [...store.collections.cards.values()]
+    const world = JSON.stringify(controller.design.world())
+    requests.length = 0
+    for (const name of ["file.compare", "file.reapply"]) {
+      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe("unknown-command")
+    }
+    expect([...store.collections.cards.values()]).toEqual(cards)
+    expect(JSON.stringify(controller.design.world())).toBe(world)
+    expect(requests).toEqual([])
+  } finally { controller.dispose() }
 })
 
 describe("file listing bindings", () => {
