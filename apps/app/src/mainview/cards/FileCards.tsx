@@ -1,3 +1,6 @@
+import type { LiveDocProvider } from "../runtime/LiveDocProvider"
+import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
+import { LiveFileContext, liveFileModel, type FileDocumentBinding } from "./liveDoc"
 import { CodeSurface } from "../ViewModules"
 import { cardActions } from "../flows/cardActions"
 import { flowAction } from "../flows/FlowAction"
@@ -13,6 +16,7 @@ import { Button } from "@smthrs/ui"
 import { FileText, Folder } from "lucide-react"
 import { Component, Suspense, useContext } from "react"
 import type { ReactNode } from "react"
+import { LiveFileMaxBytes } from "@smthrs/rpc/FileCard"
 import type { FileCard } from "@smthrs/rpc/FileCard"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { Card } from "../state/AppState"
@@ -218,9 +222,12 @@ export const FileListCardBody = ({
 
 /** Legacy journal data maps to S1 props without granting execution authority. */
 export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): FileCard => {
+  const bytes = new TextEncoder().encode(payload.content).length
   return {
     path: payload.path, branch: payload.ref ?? payload.repo, language: "", digest: "",
-    content: { kind: "text", text: payload.content }, mode: "read_only",
+    content: bytes > LiveFileMaxBytes
+      ? { kind: "too_large", bytes, text: payload.content }
+      : { kind: "text", text: payload.content }, mode: "read_only",
     diagnostics: (payload.diagnostics ?? []).flatMap(item => item.severity === "error" || item.severity === "warning"
       ? [{ line: item.line, col: item.character - 1, severity: item.severity, message: item.message }] : []),
     ...(payload.hover == null ? {} : { hover: { line: payload.hover.line, col: payload.hover.character - 1, markdown: payload.hover.contents } }),
@@ -229,17 +236,29 @@ export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): 
   }
 }
 
-export const FileCardBody = ({ card }: { readonly card: Extract<Card, { kind: "file" }> } & FileCardActions) => {
+export const FileCardBody = ({ card, live }: { readonly card: Extract<Card, { kind: "file" }>; readonly live?: { readonly provider: LiveDocProvider; readonly binding: EditorBinding } } & FileCardActions) => {
   const payload = card.payload
-  const bindings = cardActions<"hover" | "definition">(() => {}, [])
+  const documents = useContext(LiveFileContext)
+  const document = live ?? documents?.resolve(payload.ref ?? payload.repo, payload.path)
   // Old binary cards carry no byte count. Do not invent one.
   if (payload.binary) return <p className="code-file-size">Binary file</p>
-  const model = fileModel(payload)
+  if (document) return <LiveFileBody card={card} document={document} />
+  return <FileContent card={card} model={fileModel(payload)} />
+}
 
+const LiveFileBody = ({ card, document }: { card: Extract<Card, { kind: "file" }>; document: FileDocumentBinding }) => {
+  const { data: status } = useLiveQuery(q => q.from({ document: document.provider.collection }))
+  const model = liveFileModel(fileModel(card.payload), document.provider, document.provider.awareness.getStates())
+  return <FileContent card={card} model={model} binding={status[0]?.editable && model.mode === "live" ? document.binding : undefined} />
+}
+
+const FileContent = ({ card, model, binding }: { card: Extract<Card, { kind: "file" }>; model: FileCard; binding?: EditorBinding | undefined }) => {
+  const payload = card.payload
+  const bindings = cardActions<"hover" | "definition">(() => {}, [])
   return <div className="world-card-panel" data-line={payload.line}>
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
-        <CodeSurface model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
+        <CodeSurface binding={binding} model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
       </Suspense>
     </LazyViewerBoundary>
     {payload.truncated ? <p className="world-card-empty">Truncated</p> : null}

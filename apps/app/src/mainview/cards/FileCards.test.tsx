@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 
 import type { Card } from "../state/AppState"
-import { FileCardAddressLine, FileCardBody, FileListCardBody } from "./FileCards"
+import { fileModel, FileCardAddressLine, FileCardBody, FileListCardBody } from "./FileCards"
 import { renderCardBody } from "./CardRenderers"
 import type { CardActions } from "./CardFamily"
 import { createAppController } from "../state/AppController"
@@ -32,8 +32,6 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  const { disposeCodeViewPool } = await import("@smthrs/ui/adapters/code-view")
-  disposeCodeViewPool()
   for (let tick = 0; tick < 3; tick += 1) {
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
@@ -61,8 +59,8 @@ const render = (card: Extract<Card, { kind: "file" }>): HTMLElement => {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const loaded = async (host: HTMLElement) => {
-  for (let i = 0; i < 300 && !host.querySelector('[data-slot="code-view"]'); i++) await wait(10)
-  expect(host.querySelector('[data-slot="code-view"]')).not.toBeNull()
+  for (let i = 0; i < 300 && !host.querySelector('.cm-editor'); i++) await wait(10)
+  expect(host.querySelector('.cm-editor')).not.toBeNull()
 }
 
 describe("S1 File mapping", () => {
@@ -70,7 +68,7 @@ describe("S1 File mapping", () => {
     for (const path of ["src/a.ts", "README.md", "LICENSE"]) {
       const host = render(fileCard(path, "literal file bytes\n"))
       await loaded(host)
-      expect(host.querySelector("pre")?.textContent).toBe("literal file bytes\n")
+      expect(host.querySelector(".cm-content")?.textContent).toBe("literal file bytes")
       expect(host.querySelector("textarea")).toBeNull()
       expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
       expect(host.querySelector("h2")?.textContent).toBe(path)
@@ -120,7 +118,7 @@ test("registered File cards cannot acquire live authority from persisted fields"
   expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
   expect(host.querySelector('[data-mode="live"], textarea, [contenteditable="true"]')).toBeNull()
   expect(host.querySelector('[data-flow="file.compare"], [data-flow="file.reapply"]')).toBeNull()
-  expect(host.querySelector("pre")?.textContent).toBe("const retry = 1\n")
+  expect(host.querySelector(".cm-content")?.textContent).toBe("const retry = 1")
   expect(host.textContent).not.toContain("Saved to the machine")
   expect(host.querySelector(".cm-ySelection")).toBeNull()
   expect(commands).toEqual([])
@@ -138,7 +136,7 @@ test("unavailable Compare and Reapply refuse in the production dispatcher withou
     const cards = [...store.collections.cards.values()]
     const world = JSON.stringify(controller.design.world())
     requests.length = 0
-    for (const name of ["file.compare", "file.reapply"]) {
+    for (const name of ["file.compare", "file.reapply", "file.restore-deleted", "file.follow-rename"]) {
       expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe("unknown-command")
     }
     expect([...store.collections.cards.values()]).toEqual(cards)
@@ -199,4 +197,45 @@ test("a listing refresh uses its host's flow and scope", () => {
   expect(button.dataset.flowArgs).toBe('/ "workspace with spaces"')
   button.click()
   expect(commands).toEqual([{ name: "box.files", args: '/ "workspace with spaces"' }])
+})
+
+test("oversized UTF-8 files stay read-only at the byte boundary", () => {
+  const large = fileModel(fileCard("large.ts", "a".repeat(1_200_000)).payload)
+  expect(large.mode).toBe("read_only")
+  expect(large.content.kind).toBe("too_large")
+  const boundary = fileModel(fileCard("unicode.ts", "é".repeat(524_288)).payload)
+  expect(boundary.content.kind).toBe("text")
+  expect(fileModel(fileCard("unicode.ts", "é".repeat(524_289)).payload).content.kind).toBe("too_large")
+})
+
+test("the served live seam mounts in the File card while an absent seam retains seeded text", async () => {
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { liveBinding } = await import("./liveDoc")
+  const { EditorView } = await import("@codemirror/view")
+  let receive: ((event: import("../runtime/LiveDocProvider").DocumentEvent) => void) | undefined
+  const sent: unknown[] = []
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", {
+    subscribeDocument(_topic, callback) { receive = callback; return { send: (kind, payload) => { sent.push([kind, payload]) }, release() {} } }
+  }, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
+  receive!({ kind: "assigned", epoch: "00000000000000000000000000000001", clientId: 7 })
+  receive!({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  provider.doc.getText("content").insert(0, "served document")
+  const binding = liveBinding(provider.doc)
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { binding.dispose(); provider.dispose() } })
+  const card = fileCard("retry.ts", "seed fallback")
+  flushSync(() => root.render(<FileCardBody card={card} live={{ provider, binding }} onRunCommand={() => {}} />))
+  await loaded(host)
+  expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
+  expect(host.querySelector(".cm-content")?.textContent).toBe("served document")
+  const editor = EditorView.findFromDOM(host.querySelector(".cm-editor")!)!
+  flushSync(() => editor.dispatch({ changes: { from: 15, insert: "!" } }))
+  expect(provider.doc.getText("content").toString()).toBe("served document!")
+  const count = sent.length
+  flushSync(() => root.render(<FileCardBody card={card} onRunCommand={() => {}} />))
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  expect(host.querySelector(".cm-content")?.textContent).toBe("seed fallback")
+  expect(sent.length).toBe(count)
+  expect(provider.doc.getText("content").toString()).toBe("served document!")
 })

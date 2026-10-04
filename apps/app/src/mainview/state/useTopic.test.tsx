@@ -12,7 +12,7 @@ afterAll(() => GlobalRegistrator.unregister())
 test("two Containers project the shared topic to stub Views and release only on last unmount", async () => {
   const frames: unknown[] = []
   let count = 0
-  const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(JSON.parse(frame)), close: () => {} }
+  const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(typeof frame === "string" ? JSON.parse(frame) : frame), close: () => {} }
   const channel = new LiveChannel({ socket: () => { count++; return socket } })
   const models = new Map<string, unknown>()
   const View = ({ name, model }: { name: string; model: unknown }) => { models.set(name, model); return null }
@@ -37,7 +37,7 @@ test("two Containers project the shared topic to stub Views and release only on 
 test("dark branch topics perform no IO; enabled topics isolate each member's view and release old scopes", async () => {
   const frames: unknown[] = []
   let connections = 0
-  const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(JSON.parse(frame)), close: () => {} }
+  const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(typeof frame === "string" ? JSON.parse(frame) : frame), close: () => {} }
   const channel = new LiveChannel({ socket: () => { connections++; return socket } })
   const models = new Map<string, unknown>()
   const Container = ({ member, branch }: { member: string; branch?: string }) => {

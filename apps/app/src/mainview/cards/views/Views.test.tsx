@@ -1550,23 +1550,23 @@ test("Branch place, plain branch presence and unknown terminal use product copy"
 })
 
 // T-UI-16: live updates retain the surface; gone states retain their snapshot.
-import { CodeSurface } from "../CodeSurface"
+import { CodeEditorView as CodeSurface } from "./CodeEditorView"
 import { fixtures as liveFileFixtures } from "@smthrs/rpc/fixtures/File"
 test("File live notices, snapshot and Compare use supplied data", async () => {
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)
-  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock((_patch: unknown) => {})
   const render = async (fixture: typeof liveFileFixtures.text) => act(async () => root.render(<CodeSurface {...fixture} onAction={onAction} onView={onView} />))
   try {
     await render(liveFileFixtures.text)
-    const liveEditor = host.querySelector(".sui-code-view")!
+    const liveEditor = host.querySelector(".cm-editor")!
     await render(liveFileFixtures.deleted)
-    expect(host.querySelector(".sui-code-view")).toBe(liveEditor)
+    expect(host.querySelector(".cm-editor")).toBe(liveEditor)
     expect(host.querySelector(".code-file-editor")!.hasAttribute("data-snapshot")).toBe(true)
     expect(host.querySelector(".code-writer")).toBeNull()
     expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Deleted by Ben")
     expect(host.querySelector(".code-snapshot-cap")!.textContent).toBe("Snapshot")
-    expect(host.querySelector(".sui-code-view-plain")!.textContent).toContain("Complete one TODO")
+    expect(host.querySelector(".cm-content")!.textContent).toContain("Complete one TODO")
     await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
     expect(onAction.mock.calls).toEqual([["file.restore-deleted", { path: "flows/todo/flow.ts" }]])
     await render(liveFileFixtures.renamed)
@@ -1584,15 +1584,15 @@ test("File live notices, snapshot and Compare use supplied data", async () => {
     expect(host.querySelector(".code-compare")).toBeNull()
     expect(host.querySelector("button[data-flow]")).toBeNull()
     expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Deleted by Ben")
-    const editor = host.querySelector(".sui-code-view")!
-    const scroller = host.querySelector(".sui-code-view")!; scroller.scrollTop = 40
+    const editor = host.querySelector(".cm-editor")!
+    const scroller = host.querySelector(".cm-editor")!; scroller.scrollTop = 40
     await render({ ...liveFileFixtures.text, model: { ...liveFileFixtures.text.model, digest: "sha256:next", content: { kind: "text", text: "export const updated = true\n" } } })
-    expect(host.querySelector(".sui-code-view")).toBe(editor)
-    expect(host.querySelector(".sui-code-view")).toBe(scroller)
+    expect(host.querySelector(".cm-editor")).toBe(editor)
+    expect(host.querySelector(".cm-editor")).toBe(scroller)
     expect(scroller.scrollTop).toBe(40)
-    expect(host.querySelector(".sui-code-view-plain")!.textContent).toContain("export const updated = true")
+    expect(host.querySelector(".cm-content")!.textContent).toContain("export const updated = true")
     expect(host.querySelector(".code-compare")).toBeNull()
-    expect(onView).toHaveBeenCalledTimes(0)
+    expect(onView.mock.calls).toEqual([[{ line: 1 }], [{ line: 1 }]])
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 
@@ -1609,9 +1609,9 @@ test("File disabled and unavailable controls cannot dispatch", async () => {
     expect(host.querySelector("button")).toBeNull()
   } finally { await act(async () => root.unmount()); host.remove() }
 })
-// T-UI-19: the production surface stays dark until the restored editor/binding lands.
+// T-APP-14a: the restored editor stays read-only without live authority.
 for (const saved of ["saving", "saved"] as const) test(`File production ignores unwired co-editing fields (${saved})`, async () => {
-  const { CodeSurface } = await import("../CodeSurface")
+  const { CodeEditorView: CodeSurface } = await import("./CodeEditorView")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)
@@ -1621,10 +1621,11 @@ for (const saved of ["saving", "saved"] as const) test(`File production ignores 
       model={{ ...fixtures.live.model, saved, unsaved: { count: 2, text: "retained edit" } }}
       onAction={onAction} onView={() => {}} />))
     expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
-    expect(host.querySelector(".cm-editor, .cm-ySelection, .code-name-flag, .code-avatar-stack, .code-saved")).toBeNull()
+    expect(host.querySelector(".cm-editor")).not.toBeNull()
+    expect(host.querySelector(".cm-ySelection, .code-name-flag, .code-avatar-stack, .code-saved")).toBeNull()
     expect(host.querySelector("button, [contenteditable=true]")).toBeNull()
     expect(host.textContent).not.toMatch(/Saving|Saved to the machine|weren't saved|retained edit/)
-    expect(host.querySelector("diffs-container")).not.toBeNull()
+    expect(host.querySelector("diffs-container")).toBeNull()
     expect(onAction).not.toHaveBeenCalled()
   } finally { await act(async () => root.unmount()); host.remove() }
 })

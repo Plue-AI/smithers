@@ -60,7 +60,12 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "yjs": "13.6.32",
-    "zod": "4.5.4"
+    "zod": "4.5.4",
+    "y-protocols": "1.0.6",
+    "lib0": "0.2.114",
+    "y-codemirror.next": "0.3.6",
+    "@codemirror/state": "6.7.2",
+    "@codemirror/view": "6.43.11"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-rc.115",

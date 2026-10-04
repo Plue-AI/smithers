@@ -155,6 +155,12 @@ importers:
 
   apps/app:
     dependencies:
+      '@codemirror/state':
+        specifier: 6.7.2
+        version: 6.7.2
+      '@codemirror/view':
+        specifier: 6.43.11
+        version: 6.43.11
       '@fontsource/ibm-plex-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -251,6 +257,9 @@ importers:
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
+      lib0:
+        specifier: 0.2.114
+        version: 0.2.114
       lucide-react:
         specifier: 1.40.0
         version: 1.40.0(react@19.2.8)
@@ -260,6 +269,12 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      y-codemirror.next:
+        specifier: 0.3.6
+        version: 0.3.6(@codemirror/state@6.7.2)(@codemirror/view@6.43.11)(yjs@13.6.32)
+      y-protocols:
+        specifier: 1.0.6
+        version: 1.0.6(yjs@13.6.32)
       yjs:
         specifier: 13.6.32
         version: 13.6.32
@@ -6398,6 +6413,39 @@ importers:
 
   packages/smithers/ui:
     dependencies:
+      '@codemirror/autocomplete':
+        specifier: 6.20.3
+        version: 6.20.3
+      '@codemirror/commands':
+        specifier: 6.11.0
+        version: 6.11.0
+      '@codemirror/lang-go':
+        specifier: 6.0.1
+        version: 6.0.1
+      '@codemirror/lang-javascript':
+        specifier: 6.2.5
+        version: 6.2.5
+      '@codemirror/lang-python':
+        specifier: 6.2.1
+        version: 6.2.1
+      '@codemirror/lang-rust':
+        specifier: 6.0.2
+        version: 6.0.2
+      '@codemirror/language':
+        specifier: 6.12.4
+        version: 6.12.4
+      '@codemirror/lint':
+        specifier: 6.9.7
+        version: 6.9.7
+      '@codemirror/state':
+        specifier: 6.7.2
+        version: 6.7.2
+      '@codemirror/view':
+        specifier: 6.43.11
+        version: 6.43.11
+      '@lezer/highlight':
+        specifier: 1.2.3
+        version: 1.2.3
       '@milkdown/crepe':
         specifier: 7.22.1
         version: 7.22.1(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(supports-color@10.2.2)(typescript@5.9.3)
@@ -6437,6 +6485,15 @@ importers:
       recharts:
         specifier: ^3.10.1
         version: 3.10.1(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react-is@17.0.2)(react@19.2.8)(redux@5.0.1)
+      y-codemirror.next:
+        specifier: 0.3.6
+        version: 0.3.6(@codemirror/state@6.7.2)(@codemirror/view@6.43.11)(yjs@13.6.32)
+      y-protocols:
+        specifier: 1.0.6
+        version: 1.0.6(yjs@13.6.32)
+      yjs:
+        specifier: 13.6.32
+        version: 13.6.32
     devDependencies:
       '@happy-dom/global-registrator':
         specifier: ^20.13.2
@@ -13432,6 +13489,11 @@ packages:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
 
+  lib0@0.2.114:
+    resolution: {integrity: sha512-gcxmNFzA4hv8UYi8j43uPlQ7CGcyMJ2KQb5kZASw6SnAKAf10hK12i2fjrS3Cl/ugZa5Ui6WwIu1/6MIXiHttQ==}
+    engines: {node: '>=16'}
+    hasBin: true
+
   lib0@0.2.117:
     resolution: {integrity: sha512-DeXj9X5xDCjgKLU/7RR+/HQEVzuuEUiwldwOGsHK/sfAfELGWEyTcf0x+uOvCvK3O2zPmZePXWL85vtia6GyZw==}
     engines: {node: '>=16'}
@@ -15742,6 +15804,19 @@ packages:
 
   xxhash-wasm@1.1.0:
     resolution: {integrity: sha512-147y/6YNh+tlp6nd/2pWq38i9h6mz/EuQ6njIrmW8D1BS5nCqs0P6DG+m6zTGnNz5I+uhZ0SHxBs9BsPrwcKDA==}
+
+  y-codemirror.next@0.3.6:
+    resolution: {integrity: sha512-GnmVXhTe+UtoFbbaSdwhq6gdAQZdIY9az0Xj6HR2J4PO6Yw4w3xaaSssU+6T72WhXAI0wf9FbuY2s0Ms+WrexA==}
+    peerDependencies:
+      '@codemirror/state': ^6.0.0
+      '@codemirror/view': ^6.0.0
+      yjs: ^13.5.6
+
+  y-protocols@1.0.6:
+    resolution: {integrity: sha512-vHRF2L6iT3rwj1jub/K5tYcTT/mEYDUppgNPXwp8fmLpui9f7Yeq3OEtTLVF012j39QnV+KEQpNqoN7CWU7Y9Q==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
+    peerDependencies:
+      yjs: ^13.0.0
 
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
@@ -23333,6 +23408,10 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
+  lib0@0.2.114:
+    dependencies:
+      isomorphic.js: 0.2.5
+
   lib0@0.2.117:
     dependencies:
       isomorphic.js: 0.2.5
@@ -26289,6 +26368,18 @@ snapshots:
   xml-naming@0.3.0: {}
 
   xxhash-wasm@1.1.0: {}
+
+  y-codemirror.next@0.3.6(@codemirror/state@6.7.2)(@codemirror/view@6.43.11)(yjs@13.6.32):
+    dependencies:
+      '@codemirror/state': 6.7.2
+      '@codemirror/view': 6.43.11
+      lib0: 0.2.117
+      yjs: 13.6.32
+
+  y-protocols@1.0.6(yjs@13.6.32):
+    dependencies:
+      lib0: 0.2.117
+      yjs: 13.6.32
 
   y18n@5.0.8: {}
 

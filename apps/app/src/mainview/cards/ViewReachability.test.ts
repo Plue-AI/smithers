@@ -36,3 +36,9 @@ test("every card and shell view is reachable from its renderer", () => {
   expect(views.filter(view => !reachable.has(join(root, "cards/views", view))).sort())
     .toEqual(Object.keys(PENDING_WIRING).sort())
 })
+
+// T-APP-14a replaces CodeSurface's CodeFileView with the restored CodeMirror View.
+test("the restored file editor is mounted and its replaced renderer is deleted", () => {
+  expect(reachable.has(join(root, "cards/views/CodeEditorView.tsx"))).toBe(true)
+  expect(() => statSync(join(root, "cards/CodeSurface.tsx"))).toThrow()
+})

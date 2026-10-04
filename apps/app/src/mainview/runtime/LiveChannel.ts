@@ -1,3 +1,5 @@
+import { decodeLiveDocBinary, encodeLiveDocBinary, LiveDocReply, parseLiveDocTopic } from "@smthrs/rpc/LiveDoc"
+import type { DocumentEvent } from "./LiveDocProvider"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 
 export interface TopicSnapshot<T = unknown> {
@@ -7,14 +9,17 @@ export interface TopicSnapshot<T = unknown> {
   readonly error?: string
 }
 export interface LiveSocket {
+  binaryType?: string
   readyState: number
   onopen: (() => void) | null
   onclose: (() => void) | null
   onmessage: ((event: { data: unknown }) => void) | null
-  send(data: string): void
+  send(data: string | Uint8Array): void
   close(): void
 }
 export interface LiveChannelOptions {
+  /** Explicit contract seam; production leaves documents disabled until T-APP-14. */
+  documentFrames?: boolean
   socket?: () => LiveSocket
   random?: () => number
   schedule?: (callback: () => void, ms: number) => unknown
@@ -23,7 +28,6 @@ export interface LiveChannelOptions {
   project?: (topic: string, previous: unknown, delta: unknown) => unknown
 }
 
-const isDarkTopic = (topic: string): boolean => topic.startsWith("doc:code:")
 
 /** One transport, reference-counted topics, and committed projection rows. */
 export class LiveChannel {
@@ -44,6 +48,43 @@ export class LiveChannel {
   private attempt = 0
   private disposed = false
   constructor(private readonly options: LiveChannelOptions = {}) {}
+  private readonly documents = new Map<string, Set<(event: DocumentEvent) => void>>()
+  private isDarkTopic(topic: string) { return topic.startsWith("doc:") && !this.options.documentFrames }
+  subscribeDocument(topic: string, receive: (event: DocumentEvent) => void) {
+    if (this.disposed) { receive({ kind: "refused" }); return { send() {}, release() {} } }
+    try { parseLiveDocTopic(topic) } catch {
+      receive({ kind: "refused" }); return { send() {}, release() {} }
+    }
+    const listeners = this.documents.get(topic) ?? new Set<(event: DocumentEvent) => void>()
+    this.documents.set(topic, listeners); listeners.add(receive)
+    const notify = () => {
+      const snapshot = this.getSnapshot(topic)
+      if (snapshot?.error) receive({ kind: "refused" })
+      else if (snapshot?.data) {
+        const result = LiveDocReply.safeParse({ t: "snap", id: this.topics.get(topic)?.id, cursor: snapshot.cursor, data: snapshot.data })
+        if (result.success && result.data.t === "snap") receive({ kind: "assigned", epoch: result.data.data.epoch, clientId: result.data.data.client_id })
+      }
+    }
+    const unsubscribe = this.subscribe(topic, notify)
+    if (this.getSnapshot(topic)?.data) notify()
+    let released = false
+    return {
+      send: (kind: 1 | 2, payload: Uint8Array) => {
+        const entry = this.topics.get(topic)
+        if (this.disposed || released || this.isDarkTopic(topic) || !entry || entry.awaitingSnapshot || entry.snapshot.error || this.socket?.readyState !== 1) return
+        try { this.socket.send(encodeLiveDocBinary({ kind, id: entry.id, payload })) } catch { /* Refused/malformed sends have no effect. */ }
+      },
+      release: () => {
+        if (released) return
+        released = true; listeners.delete(receive)
+        if (!listeners.size) this.documents.delete(topic)
+        unsubscribe()
+      }
+    }
+  }
+  private documentEvent(topic: string, event: DocumentEvent) {
+    for (const receive of this.documents.get(topic) ?? []) receive(event)
+  }
   getSnapshot = (topic: string): TopicSnapshot | undefined => this.topics.get(topic)?.snapshot
   subscribe = (topic: string, listener: () => void): (() => void) => {
     if (this.disposed) throw new Error("Live channel disposed")
@@ -58,7 +99,7 @@ export class LiveChannel {
     entry.listeners.add(notify)
     // T-COL-08: no code-document transport until the real providers and checks
     // are connected. This replaces speculative subscription with a refusal.
-    if (isDarkTopic(topic)) {
+    if (this.isDarkTopic(topic)) {
       if (entry.snapshot.error !== "unsupported") this.publish(topic, entry, { topic, error: "unsupported" })
     } else this.connect()
     let released = false
@@ -67,7 +108,7 @@ export class LiveChannel {
       released = true
       entry.listeners.delete(notify)
       if (entry.listeners.size) return
-      if (!isDarkTopic(topic) && this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
+      if (!this.isDarkTopic(topic) && this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
       this.topics.delete(topic)
       if (this.collection.has(topic)) this.collection.delete(topic)
       if (!this.hasTransportTopics()) this.disconnect()
@@ -75,15 +116,16 @@ export class LiveChannel {
   }
   private send(frame: unknown) { this.socket?.send(JSON.stringify(frame)) }
   private sub(topic: string, entry: { id: number; snapshot: TopicSnapshot; awaitingSnapshot: boolean }) {
-    if (isDarkTopic(topic)) return
+    if (this.isDarkTopic(topic)) return
     this.send({ t: "sub", id: entry.id, topic, ...(entry.awaitingSnapshot || entry.snapshot.cursor === undefined ? {} : { cursor: entry.snapshot.cursor }) })
   }
-  private hasTransportTopics() { return [...this.topics.keys()].some(topic => !isDarkTopic(topic)) }
+  private hasTransportTopics() { return [...this.topics.keys()].some(topic => !this.isDarkTopic(topic)) }
   private connect() {
     if (this.socket || this.timer !== undefined || !this.hasTransportTopics() || this.disposed) return
     try {
       const socket = this.options.socket?.() ?? new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/live`, "smithers.live.v1") as unknown as LiveSocket
       this.socket = socket
+      socket.binaryType = "arraybuffer"
       socket.onopen = () => {
         if (this.socket !== socket) return
         this.attempt = 0
@@ -93,6 +135,7 @@ export class LiveChannel {
       socket.onclose = () => {
         if (this.socket !== socket) return
         this.socket = undefined
+        for (const [topic, entry] of this.topics) if (topic.startsWith("doc:")) entry.awaitingSnapshot = true
         this.retry()
       }
     } catch { this.retry() }
@@ -104,14 +147,38 @@ export class LiveChannel {
     this.timer = (this.options.schedule ?? setTimeout)(() => { this.timer = undefined; this.connect() }, delay)
   }
   private receive(raw: unknown) {
-    if (typeof raw !== "string") return
+    if (typeof raw !== "string") {
+      try {
+        const bytes = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw instanceof Uint8Array ? raw : undefined
+        if (!bytes) return
+        const frame = decodeLiveDocBinary(bytes)
+        const pair = [...this.topics].find(([, entry]) => entry.id === frame.id)
+        if (!pair || !pair[0].startsWith("doc:") || this.isDarkTopic(pair[0]) || pair[1].awaitingSnapshot || pair[1].snapshot.error) return
+        this.documentEvent(pair[0], { kind: frame.kind === 1 ? "sync" : "awareness", payload: frame.payload })
+      } catch { /* Invalid binary frames are inert. */ }
+      return
+    }
     let frame: Record<string, unknown>
     try { frame = JSON.parse(raw) } catch { return }
     if (!frame || typeof frame !== "object") return
     const pair = [...this.topics].find(([, entry]) => entry.id === frame.id)
     if (!pair) return
     const [topic, entry] = pair
-    if (isDarkTopic(topic)) return
+    if (this.isDarkTopic(topic)) return
+    if (topic.startsWith("doc:")) {
+      const result = LiveDocReply.safeParse(frame)
+      if (!result.success) return
+      const reply = result.data
+      if (reply.t === "saved") {
+        if (entry.awaitingSnapshot || entry.snapshot.error) return
+        try { this.documentEvent(topic, { kind: "saved", vector: Uint8Array.from(atob(reply.sv), char => char.charCodeAt(0)) }) } catch { /* Malformed vectors never save. */ }
+        return
+      }
+      if (reply.t === "gap") {
+        if (!entry.awaitingSnapshot && !entry.snapshot.error) this.documentEvent(topic, { kind: "restart" })
+        return
+      }
+    }
     if (frame.t === "gap") {
       entry.awaitingSnapshot = true
       this.send({ t: "sub", id: entry.id, topic })
@@ -154,7 +221,7 @@ export class LiveChannel {
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onmessage = null; socket.close() }
     this.attempt = 0
   }
-  dispose() { this.disposed = true; this.disconnect(); this.topics.clear(); this.collection.cleanup() }
+  dispose() { this.disposed = true; for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.collection.cleanup() }
 }
 
 /** Lazy module singleton: exactly one channel for the browser tab. */

@@ -10,7 +10,7 @@ export const MarkdownEditorSurface = viewModule(() => import("./MarkdownEditorSu
 export const KnowledgeGraphSurface = viewModule(() => import("./KnowledgeGraphSurface").then(m => ({ default: m.KnowledgeGraphSurface })))
 export const FlowGraphSurface = viewModule(() => import("./cards/FlowGraphSurface").then(m => ({ default: m.FlowGraphSurface })))
 export const FlowRunGraphSurface = viewModule(() => import("./cards/FlowRunGraphSurface").then(m => ({ default: m.FlowRunGraphSurface })))
-export const CodeSurface = viewModule(() => import("./cards/CodeSurface").then(m => ({ default: m.CodeSurface })))
+export const CodeSurface = viewModule(() => import("./cards/views/CodeEditorView").then(m => ({ default: m.CodeEditorView })))
 export const DiffSurface = viewModule(() => import("./cards/DiffSurface").then(m => ({ default: m.DiffSurface })).catch(() => ({ default: ({ patch }: { path: string; oldPath?: string; patch: string }) => createElement("pre", { className: "world-card-path" }, patch) })))
 
 /** Load the same chunk that Suspense will consume when this destination opens. */
