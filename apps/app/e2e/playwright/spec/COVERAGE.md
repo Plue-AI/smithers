@@ -178,3 +178,14 @@ Cycle 21: reference-host co-editing, SSH write, wake and rebase performance
 qualification remains pending. C-PRC-01/02 are engineering-only checks folded
 into their implementing tickets; terminal projections require isolated live
 fixtures and do not qualify gate correctness or publication refusal.
+
+| C-PRC-03 | [C-PRC-03.spec.ts](C-PRC-03.spec.ts) | fixme-before-implementation | T-PRC-03 |
+| C-REL-01 | [C-REL-01.spec.ts](C-REL-01.spec.ts) | fixme-before-implementation | T-DOC-01 |
+| C-REL-02 | [C-REL-02.spec.ts](C-REL-02.spec.ts) | fixme-before-implementation | T-INS-05, T-INS-08 |
+| C-REL-03 | [C-REL-03.spec.ts](C-REL-03.spec.ts) | fixme-before-implementation | T-INS-07 |
+| C-REL-04 | [C-REL-04.spec.ts](C-REL-04.spec.ts) | fixme-before-implementation | T-REL-03 |
+| C-REL-05 | [C-REL-05.spec.ts](C-REL-05.spec.ts) | fixme-before-implementation | T-REL-02 |
+
+Cycle 22: release install, upgrade/restore and 24-hour login qualification need
+live reference-host fixtures. Docs are not mounted; receipt and scorecard checks
+are engineering-only terminal projections, not passing qualification evidence.
