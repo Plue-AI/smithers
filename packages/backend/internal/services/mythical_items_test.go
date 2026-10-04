@@ -1269,3 +1269,52 @@ func TestMythicalBackfillSkipsOnlyTheUnansweredIssue(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "skipped", o.item(21).State, "the removed label withdraws the approval")
 }
+
+// Nil infrastructure is deliberate: refusal must precede repository, DB,
+// GitHub and launcher access, even when a verified candidate is ready.
+func TestForeignPushUnavailableProvidersFailClosed(t *testing.T) {
+	for _, state := range []string{"queued", "starting", "running", "proposed", "blocked", "waiting"} {
+		t.Run(state, func(t *testing.T) {
+			checks := mythicalChecks{ForeignHead: "a3", Fault: &mythicalFault{}}
+			item := db.MythicalItem{State: state, PRHead: "h0", CandidateHead: "candidate", CandidateVerified: true,
+				PendingOp: []byte(`{"branch":"smithers/retry-webhooks","expected":"a3","head":"candidate"}`), Checks: checks.encode()}
+			st := &mythicalItemStep{now: time.Unix(100, 0)}
+			next, err := st.propose(context.Background(), item)
+			require.NoError(t, err)
+			require.NotNil(t, next)
+			assert.Equal(t, mythicalPublicationUnavailable, next.Reason)
+			assert.Equal(t, item.State, next.State)
+			assert.Equal(t, item.Checks, next.Checks)
+			assert.Equal(t, item.PendingOp, next.PendingOp)
+			assert.Equal(t, "h0", next.PRHead)
+			assert.Equal(t, "candidate", next.CandidateHead)
+			err = st.pushProposal(context.Background(), mythicalGitHubRepo{}, mythicalProposalOp{Branch: "smithers/retry-webhooks", Expected: "a3", Head: "candidate"})
+			require.EqualError(t, err, mythicalPublicationUnavailable)
+		})
+	}
+}
+
+func TestForeignPushPollCannotSettleHold(t *testing.T) {
+	for _, mergeability := range []string{"clean", "dirty", "behind"} {
+		t.Run(mergeability, func(t *testing.T) {
+			gh := &fakeMythicalGitHub{dir: t.TempDir(), pulls: map[int64]*mythicalPull{
+				4: {State: "open", HeadSHA: "h0", HeadRef: "smithers/retry-webhooks", MergeableState: mergeability},
+			}}
+			st := &mythicalItemStep{s: &MythicalService{github: gh}, r: &mythicalRun{row: db.MythicalStack{
+				ActorUserID: pgtype.Int8{Int64: 1, Valid: true}, TipCommit: "new-tip"}}, gh: &mythicalGitHubRepo{}, now: time.Unix(100, 0)}
+			item := db.MythicalItem{State: "proposed", PRNumber: pgtype.Int8{Int64: 4, Valid: true},
+				PRHead: "h0", Reason: "person decides", Checks: (mythicalChecks{ForeignHead: "a3", Fault: &mythicalFault{}}).encode()}
+			next, err := st.follow(context.Background(), item)
+			require.NoError(t, err)
+			assert.Equal(t, "a3", mythicalChecksOf(*next).ForeignHead)
+			assert.Equal(t, "person decides", next.Reason)
+			assert.Equal(t, "proposed", next.State)
+			gh.pulls[4].HeadSHA = "a4"
+			next, err = st.follow(context.Background(), *next)
+			require.NoError(t, err)
+			assert.Equal(t, "a4", mythicalChecksOf(*next).ForeignHead)
+			assert.NotNil(t, mythicalChecksOf(*next).Fault)
+			assert.Equal(t, "proposed", next.State)
+		})
+	}
+}

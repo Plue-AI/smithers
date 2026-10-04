@@ -1877,6 +1877,12 @@ type mythicalProposalOp struct {
 // folded tip. The intended branch head is recorded and pinned before the
 // push; a recorded push is settled before anything new is computed.
 func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
+	if err := mythicalPublicationAuthority(); err != nil {
+		next := item
+		next.Reason = err.Error()
+		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+		return &next, nil
+	}
 	s, r := st.s, st.r
 	next := item
 	if !item.CandidateVerified {
@@ -1990,20 +1996,19 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	return st.openPull(ctx, next, gh, branch)
 }
 
-// pushProposal pushes the recorded head with a lease on the recorded old head.
+const mythicalPublicationUnavailable = "TODO publication is held until GitHub facts, own-push reconciliation and independent waits are available"
+
+// pushProposal refuses publication until the shared authority is wired and
+// tested at the production boundary (T-GH-02/03/09 and T-STK-01).
 func (st *mythicalItemStep) pushProposal(ctx context.Context, gh mythicalGitHubRepo, op mythicalProposalOp) error {
-	r := st.r
-	if !r.g.has(ctx, op.Head) {
-		keep := repohost.MythicalReservedRefNS + "keep/" + op.Head
-		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, keep); err != nil {
-			return fmt.Errorf("fetch the pinned proposal: %s", sanitizeMirrorError(err, r.bridge.URL()))
-		}
-	}
-	lease := "--force-with-lease=refs/heads/" + op.Branch + ":" + op.Expected
-	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", lease, gh.GitURL, op.Head+":refs/heads/"+op.Branch); err != nil {
-		return fmt.Errorf("push the proposal: %s", sanitizeMirrorError(err, gh.GitURL))
-	}
-	return nil
+	// T-GH-06 lands dark: the legacy transport has no current-fact,
+	// reconciled-own-push or independent-wait authority. A lease alone
+	// cannot authorize overwriting a head a person has not answered.
+	return mythicalPublicationAuthority()
+}
+
+func mythicalPublicationAuthority() error {
+	return errors.New(mythicalPublicationUnavailable)
 }
 
 func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string) (*db.MythicalItem, error) {
@@ -2123,22 +2128,28 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		next = mythicalLanded(next, pull.MergeCommit, st.now)
 	case pull.State == "closed":
 		next.PRState, next.State, next.Reason = "closed", "rejected", "the pull request was closed without merging"
-	case (pull.MergeableState == "dirty" || pull.MergeableState == "behind") && item.CandidateBase != r.row.TipCommit:
-		next.PRState, next.State, next.Reason = pull.State, "integrating", "refreshing the pull request on the current tip"
-		next.NextAttemptAt = pgtype.Timestamptz{}
 	case pull.HeadSHA != "" && pull.HeadSHA != item.PRHead:
 		// Someone pushed to the pull request: its new head is theirs, so the
 		// stack neither reviews nor merges it.
 		next.PRState = pull.State
-		next = *mythicalHold(next, "moved:"+pull.HeadSHA, "the pull request head moved outside Smithers; a person decides", nil, st.now)
+		next.Reason = "the pull request head moved outside Smithers; a person decides"
 		checks := mythicalChecksOf(next)
 		checks.ForeignHead = pull.HeadSHA
+		checks.notice("foreign_push:"+pull.HeadSHA, "Smithers is holding this TODO: "+next.Reason+".")
 		next.Checks = checks.encode()
+	case (pull.MergeableState == "dirty" || pull.MergeableState == "behind") && mythicalChecksOf(item).ForeignHead == "" && item.CandidateBase != r.row.TipCommit:
+		next.PRState, next.State, next.Reason = pull.State, "integrating", "refreshing the pull request on the current tip"
+		next.NextAttemptAt = pgtype.Timestamptz{}
 	default:
 		next.PRState, next.Reason = pull.State, ""
 		checks := mythicalChecksOf(next)
-		// Nothing holds it: the failure its reason stood for is behind it.
-		checks.ForeignHead, checks.Fault = "", nil
+		// A matching poll is not a person's answer. Retain an observed
+		// foreign head (and its failure facts) until bound settlement lands.
+		if checks.ForeignHead != "" {
+			next.Reason = item.Reason
+		} else {
+			checks.Fault = nil
+		}
 		next.Checks = checks.encode()
 	}
 	return &next, nil
