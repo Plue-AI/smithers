@@ -426,11 +426,21 @@ export class Client {
     for (const [key, value] of Object.entries(options.headers ?? {})) {
       if (/authorization|token|secret/i.test(key)) this.protect(value.replace(/^(?:Bearer|token)\s+/i, ""))
     }
+    // Attribution only: the host retains the credential's stored actor and via.
+    // With no agent hint, omit the header so that stored via remains authoritative.
+    const via = this.env.CLAUDECODE === "1"
+      ? "claude-code"
+      : Object.entries(this.env).some(([key, value]) => key.startsWith("CODEX_") && value !== undefined)
+      ? "codex"
+      : undefined
     const headers = {
       "user-agent": `smithers-cli/${packageVersion}`,
       accept: options.stream ? "text/event-stream" : "application/json",
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...(token ? { authorization: `token ${token}` } : {}),
+      ...(token && via && !Object.keys(options.headers ?? {}).some((key) => key.toLowerCase() === "smithers-via")
+        ? { "Smithers-Via": via }
+        : {}),
       ...options.headers
     }
     const signal = options.stream

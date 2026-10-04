@@ -121,6 +121,55 @@ const fixture = async (signal?: AbortSignal) => {
   }
 }
 
+describe("agent attribution (#3537)", () => {
+  it.each([
+    [{}, undefined],
+    [{ CLAUDECODE: "1" }, "claude-code"],
+    [{ CLAUDECODE: "0" }, undefined],
+    [{ CLAUDECODE: "true" }, undefined],
+    [{ CODEX_HOME: "/home/agent" }, "codex"],
+    [{ CODEX_SESSION: "" }, "codex"],
+    [{ CODEX: "1" }, undefined],
+    [{ CLAUDECODE: "1", CODEX_HOME: "/home/agent" }, "claude-code"]
+  ])("sends only the environment attribution hint for %j", async (hint, expected) => {
+    const f = await fixture()
+    const token = "synthetic-attribution"
+    f.allow(token)
+    const client = new Client({ environment: { ...f.environment, SMITHERS_TOKEN: token, ...hint } })
+    f.route("/probe", (request, response) => {
+      expect(request.headers["smithers-via"]).toBe(expected)
+      expect(request.headers.authorization).toBe(`token ${token}`)
+      response.end("{}")
+    })
+    await client.response("POST", "/probe", {})
+    expect(f.received).toEqual([{ method: "POST", path: "/probe", authenticated: true }])
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("keeps explicit attribution and omits inferred attribution on anonymous requests", async () => {
+    const f = await fixture()
+    const client = new Client({ environment: { ...f.environment, CLAUDECODE: "1" } })
+    f.route("/probe", (request, response) => {
+      expect(request.headers["smithers-via"]).toBeUndefined()
+      expect(request.headers.authorization).toBeUndefined()
+      response.end("{}")
+    })
+    await client.response("GET", "/probe", undefined, { anonymous: true })
+    f.route("/probe", (request, response) => {
+      expect(request.headers["smithers-via"]).toBe("codex")
+      expect(request.headers.authorization).toBe("token synthetic-explicit")
+      response.end("{}")
+    })
+    for (const key of ["Smithers-Via", "smithers-via", "SMITHERS-VIA"]) {
+      await client.response("GET", "/probe", undefined, {
+        token: "synthetic-explicit",
+        headers: { [key]: "codex" }
+      })
+    }
+    expect(spawn).not.toHaveBeenCalled()
+  })
+})
+
 describe("per-command authenticated credential reuse (#3396)", () => {
   it("keeps an admitted workspace identity through readiness polls without reopening secure storage", async () => {
     const t = await fixture()
