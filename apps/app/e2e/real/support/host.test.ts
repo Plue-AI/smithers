@@ -9,11 +9,18 @@ describe("real host bootstrap classification", () => {
     }
   })
 
-  test("requires explicit owner credentials to classify a cloud API as self-hosted", () => {
-    expect(realHost({ host: "cloud", authFlow: "credentials" })).toBe("local")
-    for (const authFlow of ["none", undefined, "future-auth-flow"]) {
+  test("classifies self-hosting by install capability independently of sign-in", () => {
+    for (const authFlow of ["credentials", "redirect", "both", undefined]) {
+      expect(realHost({ host: "cloud", authFlow, capabilities: ["install"] })).toBe("local")
+    }
+    for (const authFlow of ["credentials", "none", undefined, "future-auth-flow"]) {
       expect(realHost({ host: "cloud", authFlow })).toBe("production")
     }
+  })
+
+  test("does not accept malformed capabilities", () => {
+    for (const capabilities of [null, "install", {}, ["other"]]) expect(realHost({ host: "cloud", capabilities })).toBe("production")
+    expect(realHost({ host: "local" })).toBe("local")
   })
 
   test("refuses unsupported identities even when credentials are advertised", () => {
