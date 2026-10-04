@@ -536,3 +536,132 @@ Appended per review cycle (~/.config/smithers-review-loop); each line is a falsi
 - [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-DOC-02.md:15 — The ADR ticket assigns one machine per branch without exempting main — It contradicts the product vocabulary’s machine-free main.
 - [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover folds HomeContainer into another file and replaces RunTraceCard while the component contracts retain them — Implementers receive incompatible ownership and deletion instructions.
 - [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without emitting a view patch — The contract contradicts persisted card selection.
+
+## cycle 104 · 20261004T100248 · focus product · main 28f6b69ef424
+- [FIX] /Users/williamcory/smithers/.specs/product/overview.md:44 — Every branch is assigned exactly one machine without exempting main — This contradicts mvp.md’s machine-free main.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:19 — Reference-host execution support is excluded — Required authenticated Mac qualification mappings lack a compatible implementation path.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The ready-stamped ticket retains acceptance cases it acknowledges require removed generation receipts — Its prescribed implementation cannot satisfy the declared qualification contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery depends on accepted-generation receipts excluded by T-STK-12 — The dependency cannot supply the contract required to enable GitHub writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verify/review launches remain prescribed while reconciliation with the product’s one durable run is deferred — J2 has incompatible execution contracts.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-09.md:60 — Outsider-edit coverage requires label reversion without limiting the edit to before admission — It can demand reversion after the TODO’s prompt revision is frozen.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-DOC-02.md:15 — The ADR ticket assigns one machine per branch without exempting main — It propagates the contradiction with the product vocabulary.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover deletes HomeContainer and replaces RunTraceCard while card-kinds.md retains both — Implementers receive incompatible ownership and deletion instructions.
+
+## cycle 105 · 20261004T101011 · focus engineering · main 641a30708f19
+- [FIX] /Users/williamcory/smithers/.specs/engineering/overview.md:12 — Every branch receives exactly one machine without exempting main — This contradicts the product’s machine-free team home.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The ready-stamped ticket retains acceptance cases it acknowledges require removed generation receipts — Its implementation cannot satisfy the declared qualification contract.
+
+## cycle 106 · 20261004T101705 · focus design · main 2b969bdc1348
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:22 — Merge eligibility excludes running checks but does not reject failed checks or absent evidence — The mock enables Merge in states its own revision-bound evidence contract forbids.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/journeys/j2.ts:178 — The TODO Merge press directly marks the item merged without opening Review & merge — J2 contradicts the design’s prescribed personal confirmation card.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:42 — The stale-approval message contains more than twelve words — The reference card violates the design’s card-line limit.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without a view patch — Porting that contract violates persisted card selection.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verify/review launches remain prescribed while reconciliation with one durable run is deferred — J2 retains incompatible execution contracts.
+
+## cycle 107 · 20261004T102324 · focus tickets · main 2b969bdc1348
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains required acceptance cases it acknowledges depend on removed generation receipts — Its implementation cannot satisfy its declared qualification contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts that T-STK-12 explicitly excludes — The declared provider cannot supply the contract needed to enable GitHub writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — The ticket retains separate verify/review launches while postponing reconciliation with the product’s one durable run — J2 implementers receive incompatible execution contracts.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-09.md:60 — Outsider-edit coverage requires label reversion without restricting the edit to before admission — The test can require reversing an already frozen TODO admission.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-DOC-02.md:15 — The ADR ticket assigns one machine per branch without exempting main — It contradicts the product’s machine-free main.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:19 — The closure recorder excludes reference-host execution support — Required authenticated Mac qualification evidence has no supported recording path.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover deletes HomeContainer and replaces RunTraceCard while card-kinds.md retains both — Implementers receive contradictory component ownership and deletion instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection uses React local state and emits no view patch — The contract violates persisted card selection.
+
+## cycle 108 · 20261004T103007 · focus product · main 2c6101e04368
+- [FIX] /Users/williamcory/smithers/.specs/product/overview.md:44 — The overview assigns every branch exactly one live machine without exempting main — It contradicts mvp.md’s machine-free main.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without emitting a view patch — The implementation contract violates persisted card selection.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verify/review launches remain prescribed while reconciliation with one durable TODO run is deferred — J2 and Appendix B.5 specify an incompatible execution contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:16 — MANUAL checks require approved CI evidence and reject an owner signature alone — The ticket contradicts AGENTS.md’s owner-signed manual receipt contract.
+
+## cycle 109 · 20261004T103648 · focus engineering · main 8acb6d421011
+- [FIX] /Users/williamcory/smithers/.specs/engineering/overview.md:12 — Every branch receives exactly one machine without exempting main — The architecture contradicts the product’s machine-free team home.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover folds HomeContainer away and replaces RunTraceCard while card-kinds.md retains both — Implementers receive incompatible component ownership and deletion instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verify/review launches remain prescribed while reconciliation with one durable TODO run is deferred — J2 retains incompatible execution contracts.
+
+## cycle 110 · 20261004T104327 · focus design · main e0069362e54e
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:22 — Merge eligibility excludes running checks but does not reject failed checks or absent evidence — The reference enables Merge without its required passing revision-bound evidence.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/journeys/j2.ts:156 — The TODO Merge press directly marks the item merged without opening Review & merge — J2 contradicts the design’s required personal confirmation card.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/AppFrame.tsx:179 — Event entries are excluded from the transcript while timeline jumps search it for their `data-entry` targets — Event rows and event edge pills cannot navigate to their advertised destination.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/Rail.tsx:2 — Rail’s contract says there are no toast notifications while the design README prescribes bottom-left notifications — Implementers receive contradictory notification instructions.
+
+## cycle 111 · 20261004T105029 · focus tickets · main 1ba34fb5c57c
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 prescribes extracting `mythical_items.yaml` while T-STK-06 explicitly forbids creating that OpenAPI source — Parallel implementations receive incompatible ownership instructions for the same TODO API.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:37 — TODO controls require a single run and deletion of verify-run overwrites while T-FLW-11 retains separate verify and review launches — Stop, Resume and Retry lack a consistent execution contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains acceptance cases it acknowledges depend on removed generation receipts — Its prescribed implementation cannot satisfy its declared qualification contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts explicitly excluded by T-STK-12 — Its declared provider cannot supply the contract needed to enable GitHub writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-09.md:60 — Outsider-edit coverage requires label reversion without restricting the edit to before admission — The test can demand reversal after revision 1 has frozen.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:19 — The closure recorder excludes reference-host execution support — Required authenticated Mac qualification evidence lacks a compatible recording path.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verify and review launches remain prescribed while reconciliation with one durable TODO run is deferred — J2 retains incompatible execution contracts.
+
+## cycle 112 · 20261004T105740 · focus product · main 24e794f2d323
+- [FIX] /Users/williamcory/smithers/.specs/product/overview.md:44 — Every branch receives exactly one machine without exempting main — This contradicts mvp.md’s machine-free main.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 prescribes extracting `mythical_items.yaml` while T-STK-06 forbids creating that OpenAPI source — Parallel implementations receive incompatible ownership instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:24 — Separate engine verify and review launches remain prescribed alongside the single TODO composition — J2 and Appendix B.5 require verification and review inside the same durable TODO run.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts excluded by T-STK-12 — The declared provider cannot supply the contract needed to enable GitHub writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains acceptance cases it acknowledges depend on removed generation receipts — Its implementation cannot satisfy its declared qualification contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover folds HomeContainer away and replaces RunTraceCard while card-kinds.md retains both — Implementers receive incompatible ownership and deletion instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without emitting a view patch — The contract violates persisted card selection.
+
+## cycle 113 · 20261004T110452 · focus engineering · main bdd9ec567239
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:46 — The assembler row excludes bundled PostgreSQL while T-INS-01 and spec.md require it — J1 implementers receive incompatible bundle layouts.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 prescribes extracting `mythical_items.yaml` while T-STK-06 forbids creating that source — Parallel implementations receive incompatible API ownership instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts excluded by T-STK-12 — Its declared provider cannot supply the contract required to enable GitHub writes.
+
+## cycle 114 · 20261004T111230 · focus design · main 3815000bb5c2
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:22 — Merge eligibility checks running states but permits failed checks or absent evidence — The reference enables merging without passing revision-bound evidence.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/journeys/j2.ts:156 — The TODO Merge press directly marks the item merged without opening Review & merge — J2 bypasses the prescribed personal confirmation.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:42 — The stale-approval message contains sixteen words — The reference violates its twelve-word card-line limit.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/AppFrame.tsx:153 — Event entries are omitted from transcript elements carrying timeline jump targets — Event timeline rows cannot navigate to their advertised destinations.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/Rail.tsx:2 — Rail forbids toast notifications while the design README requires bottom-left notifications — Implementers receive contradictory notification contracts.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/card-kinds.md:11 — T-APP-19 deletes Proposal schemas that T-FLW-06 explicitly retains and the learning landing imports — Parallel migrations can break the newly landed container.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without a view patch — The contract prevents durable per-person selection.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover deletes HomeContainer and replaces RunTraceCard while card-kinds.md retains both — The mounting instructions disagree about component ownership and deletion.
+
+## cycle 115 · 20261004T111906 · focus tickets · main 6451c97b21fd
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 requires extracting `mythical_items.yaml` while T-STK-06 forbids creating it — Parallel API migrations receive incompatible ownership instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:37 — T-STK-05 requires one TODO run and removal of verify-run overwrites while T-FLW-11 retains separate engine launches — Control implementers lack a consistent attempt execution contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts explicitly excluded by T-STK-12 — Its named provider cannot supply the contract required to enable writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains qualification cases it acknowledges require removed generation receipts — Its implementation cannot satisfy its declared completion contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-09.md:60 — Outsider-edit coverage requires label reversion without restricting the edit to before admission — The test can demand reversal after the admitted prompt revision freezes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:19 — The recorder excludes reference-host execution support — Required authenticated Mac qualification evidence lacks a supported recording path.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-DOC-02.md:15 — E-03 assigns one machine per branch without exempting main — It contradicts the product’s machine-free main.
+
+## cycle 116 · 20261004T112628 · focus product · main b77f8a22bf37
+- [FIX] /Users/williamcory/smithers/.specs/product/overview.md:44 — The overview gives every branch exactly one live machine without exempting main — It contradicts mvp.md’s machine-free team home.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 requires extracting `mythical_items.yaml` while T-STK-06 forbids creating it — Parallel TODO API migrations receive incompatible source ownership instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:24 — Verification and review remain separate engine launches despite mvp.md Appendix B.5 requiring steps inside one durable TODO run — J2 and lifecycle controls lack a consistent execution contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts explicitly excluded by T-STK-12 — Its named provider cannot supply the contract required to enable GitHub writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains required qualification cases it acknowledges depend on removed generation receipts — Completion requires an unresolved change to its acceptance contract.
+
+## cycle 117 · 20261004T113413 · focus engineering · main bbd50216ee49
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:46 — The assembler excludes bundled PostgreSQL while overview.md E-01 requires copying PostgreSQL into the bundle — J1 implementers receive incompatible installation layouts.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover removes HomeContainer and replaces RunTraceCard while card-kinds.md retains both — Mounting instructions disagree about component ownership and deletion.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection uses React local state and emits no view patch — The contract violates durable card selection.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 requires extracting mythical_items.yaml while T-STK-06 forbids creating it — Parallel TODO API migrations receive incompatible ownership instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:24 — Verification and review remain separate engine launches alongside the single TODO composition — J2 lifecycle controls lack the product’s consistent durable-run contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains qualification cases it acknowledges require removed generation receipts — Completion depends on an unresolved acceptance-contract change.
+
+## cycle 118 · 20261004T114059 · focus design · main 9e9493943c19
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:22 — Merge eligibility permits absent evidence and failed local checks when GitHub totals match — The reference enables merging without its required passing revision-bound evidence.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/AppFrame.tsx:153 — Event entries are excluded from transcript elements carrying timeline jump targets — Event timeline navigation cannot reach its advertised destination.
+- [FIX] /Users/williamcory/smithers/.specs/design/mock/src/cards/Confirm.tsx:42 — The stale-approval message exceeds twelve words — The reference violates its own card-line limit.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without emitting a view patch — The contract violates durable card selection.
+
+## cycle 119 · 20261004T114738 · focus tickets · main e37325545f11
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-05.md:40 — T-STK-05 requires extracting mythical_items.yaml while T-STK-06 explicitly forbids creating it — Concurrent implementers receive incompatible API ownership instructions.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-GH-09.md:14 — Outbound recovery requires accepted-generation receipts that T-STK-12 excludes — Its declared dependency cannot supply the authority needed to enable GitHub writes.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-12.md:60 — The Ready ticket retains required qualification cases it acknowledges depend on removed generation receipts — Its implementation cannot satisfy its declared completion contract.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verification and review launches remain prescribed while reconciliation with the product’s one durable run is postponed — J2 retains incompatible execution contracts.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-STK-09.md:60 — Outsider-edit coverage requires label reversion without restricting the edit to before admission — The test can demand reversal after revision 1 is frozen.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:19 — The closure recorder excludes reference-host execution support — Required authenticated Mac qualification evidence lacks a supported recording path.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-DOC-02.md:15 — The ADR ticket assigns one machine per branch without exempting main — It contradicts the product’s machine-free team home.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:437 — Flow version selection explicitly uses React local state without emitting a view patch — The contract violates durable card selection.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover deletes HomeContainer and replaces RunTraceCard while card-kinds.md retains both — Implementers receive incompatible component ownership instructions.
+
+## cycle 120 · 20261004T115448 · focus product · main 3ef6808f1b2e
+- [FIX] /Users/williamcory/smithers/.specs/product/overview.md:44 — The overview assigns every branch exactly one live machine without exempting main — It contradicts mvp.md’s machine-free team home.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-FLW-11.md:59 — Separate verify and review launches remain prescribed while product reconciliation is deferred — J2 and Appendix B.5 require verification and review inside one durable TODO run.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/tickets/T-PRC-03.md:19 — Reference-host execution support remains excluded — Required authenticated Mac qualification evidence lacks a supported recording path.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/ui-components.md:438 — Flow version selection explicitly uses React local state without emitting a view patch — The component contract violates durable card selection.
+- [FIX] /Users/williamcory/smithers/.specs/engineering/delta.md:164 — Cutover folds HomeContainer away and replaces RunTraceCard while card-kinds.md retains both — Implementers receive incompatible component ownership instructions.
