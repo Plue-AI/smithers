@@ -104,7 +104,6 @@
 	background: transparent;
 }
 
-
 .smithers-card-body .sui-confirm-accepted,
 .smithers-card-body .sui-confirm-rejected {
 	font-family: var(--font-mono);
@@ -438,7 +437,6 @@
 	.message-actions {
 		transition: none;
 	}}
-
 
 .sui-approval-error {
 	margin: 8px 0 0;
@@ -1134,7 +1132,6 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
-
 
 /* The secrets card (Secrets L1): the scope line and the metadata table; values never exist on the wire. */
 .secrets-scope {
@@ -2093,7 +2090,6 @@
 .repo-update-actions svg { margin-right: 4px; }
 .repo-update-items > li:last-child > .ghc-row-btn { border-radius: 0; }
 
-
 @media (pointer: coarse) {
 	.palette-foot { display: none; }}
 
@@ -2842,7 +2838,6 @@
 .terminal-view .terminal-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .terminal-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 
-
 /* BranchView (T-UI-15): machine, shared presence and branch activity. */
 .branch-view { min-width: 0; }
 .branch-view, .branch-view * { box-sizing: border-box; }
@@ -3050,6 +3045,10 @@
 .mvp-debug-api .debug-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 20px; }
 .mvp-debug-api .debug-detail, .mvp-debug-api nav { min-width: 0; }
 .mvp-debug-api h3 { margin: 12px 0 8px; font-size: var(--fs-body); font-weight: 600; }
+.mvp-debug-api nav h3 { margin: 0 0 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-debug-api nav section + section { margin-top: 12px; }
+.mvp-debug-api .debug-detail > h3:first-child { margin-top: 0; }
+.mvp-debug-api .debug-empty { margin: 0; color: var(--text-muted); }
 .mvp-debug-api nav button { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px; text-align: left; border: 1px solid transparent; border-radius: var(--r-2); background: transparent; color: var(--text); }
 .mvp-debug-api nav button[aria-pressed="true"] { background: var(--surface-2); border-color: var(--border-strong); }
 .mvp-debug-api nav button span, .mvp-debug-api h3 span { color: var(--text-muted); font-weight: 400; }
@@ -3057,21 +3056,17 @@
 .mvp-debug-api .setup-action { flex-direction: column; align-items: stretch; }
 .mvp-debug-api input, .mvp-debug-api textarea, .mvp-debug-api select { box-sizing: border-box; width: 100%; padding: 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-2); font: inherit; }
 .mvp-debug-api textarea { min-height: 120px; resize: vertical; font-family: var(--font-mono); }
-.mvp-debug-api .debug-pending { margin-bottom: 12px; --tone: var(--attention-text); }
-.mvp-debug-api :is(.debug-pending, .debug-failure) { color: var(--tone); background: color-mix(in srgb, var(--tone) 10%, var(--surface)); padding: 10px; border-radius: var(--r-2); }
-.mvp-debug-api .debug-failure { margin-top: 12px; }
+.mvp-debug-api .debug-pending { margin-bottom: 12px; --tone: var(--attention-text); background: var(--attention-wash); }
+.mvp-debug-api .debug-pending .setup-actions { margin-top: 0; }
+.mvp-debug-api :is(.debug-pending, .debug-failure) { color: var(--tone); padding: 10px; border-radius: var(--r-2); }
+.mvp-debug-api .debug-failure { margin-top: 12px; background: color-mix(in srgb, var(--tone) 10%, var(--surface)); }
 .mvp-debug-api .debug-failure p { margin: 4px 0; }
 .mvp-debug-api .debug-headers { font-family: var(--font-mono); font-size: var(--fs-small); }
 .mvp-debug-api .debug-headers div { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 16px; }
 .mvp-debug-api dd { margin: 0; }
 .mvp-debug-api pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--surface-2); border-radius: var(--r-2); }
 .mvp-debug-api :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-@media (max-width: 600px) { .mvp-debug-api .debug-layout { grid-template-columns: minmax(0, 1fr); } }
 
-.mvp-debug-api nav h3 { margin: 0 0 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
 .mvp-debug-api :is(code, pre) { font-family: var(--font-mono); font-size: var(--fs-small); }
 
-.mvp-debug-api .debug-pending { background: var(--attention-wash); }
-.mvp-debug-api .debug-pending .setup-actions { margin-top: 0; }
-.mvp-debug-api nav section + section { margin-top: 12px; }
-.mvp-debug-api .debug-detail > h3:first-child { margin-top: 0; }
+@media (max-width: 600px) { .mvp-debug-api .debug-layout { grid-template-columns: minmax(0, 1fr); } }

@@ -8,7 +8,7 @@ export function DebugApiView({ model, view, actions, onAction, onView }: DebugAp
   return <article className="smithers-card mvp-debug-api" aria-label="Debug API" data-keyboard-pane="Debug API">
     <header className="smithers-card-header"><h2 className="smithers-card-title">Debug API</h2></header>
     <div className="debug-layout">
-      <nav aria-label="Operations">{[...new Set(model.operations.map(operation => operation.group))].map(group => <section key={group}>
+      <nav aria-label="Operations">{model.operations.length === 0 && <p className="debug-empty">No operations</p>}{[...new Set(model.operations.map(operation => operation.group))].map(group => <section key={group}>
         <h3>{group}</h3>{model.operations.filter(operation => operation.group === group).map(operation => <button key={operation.id} type="button" aria-pressed={selected === operation.id} onClick={() => onView({ selected: operation.id })}>
           <code>{operation.method} {operation.path}</code><span>{operation.summary}</span>
         </button>)}

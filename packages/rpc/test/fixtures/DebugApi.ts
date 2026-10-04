@@ -26,8 +26,8 @@ const request = {
 }
 type DebugApiStory = Story<DebugApiCard, DebugApiView>
 export const fixtures = {
-  empty: story<DebugApiCard, DebugApiView>("No operations", { operations: [], selected: "" }, {
-    expect: [""]
+  empty: story<DebugApiCard, DebugApiView>("No operations", { operations: [] }, {
+    expect: []
   }),
   pending_put: story<DebugApiCard, DebugApiView>("Confirm PUT", {
     operations, selected: "putSecret", pending: { method: "PUT", path: "/api/secrets/key" }

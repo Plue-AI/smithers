@@ -7,6 +7,10 @@ import { describe, expect, test } from "vitest"
 import type { DebugApiCard } from "../../src/DebugApiCard.ts"
 import { fixtures } from "../fixtures/DebugApi.ts"
 
+import { storyContract } from "../cardContract.ts"
+
+storyContract("DebugApi", fixtures)
+
 const fixtureModels: DebugApiCard[] = Object.values(fixtures).map(story => story.model)
 void fixtureModels
 

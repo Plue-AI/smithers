@@ -109,15 +109,9 @@ const strings = (value: unknown): string[] => {
   return Object.values(value).flatMap(strings)
 }
 
-/** Exercises fixture stories and model mutations using the public JSON Schema inventory. */
-export const cardContract = (
-  name: string,
-  schema: z.ZodType,
-  stories: Readonly<Record<string, Story<unknown, object, string>>>
-): void => {
-  const json = inventory(schema)
-  const contract = z.fromJSONSchema(closeObjects(json))
-  describe(`${name} card projection`, () => {
+/** Schema-free story checks, also used by plain TypeScript card props. */
+export const storyContract = (name: string, stories: Readonly<Record<string, Story<unknown, object, string>>>): void => {
+  describe(`${name} stories`, () => {
     test("publishes one named story per state", () => {
       const names = Object.values(stories).map((story) => story.name)
       expect(names.length).toBeGreaterThan(0)
@@ -126,7 +120,6 @@ export const cardContract = (
     })
     for (const [state, story] of Object.entries(stories)) {
       const fixture = story.model
-      const { objects, enums } = locations(json, fixture)
       test(`gives the ${state} story catalog actions, gestures and a view`, () => {
         for (const action of story.actions) expect(ActionSchema.parse(action)).toEqual(action)
         for (const action of Object.values(story.gestures)) expect(ActionSchema.parse(action)).toEqual(action)
@@ -135,13 +128,31 @@ export const cardContract = (
       test(`expects only strings the ${state} story carries`, () => {
         // The model, plus the labels, disabled reasons and form fields of the actions the story passes.
         const carried = [...strings(fixture), ...strings(story.actions), ...strings(story.gestures)]
-        expect(story.expect.length).toBeGreaterThan(0)
+        if (strings(fixture).some(text => text.length > 0)) expect(story.expect.length).toBeGreaterThan(0)
         // The third model role shows as "Decisions"; UI copy never shows its internal id (mvp.md §6.5).
         expect(story.expect.filter((text) => /jev/i.test(text)), `${name}.${state}`).toEqual([])
         for (const text of story.expect) {
+          expect(text.trim().length, `${name}.${state}`).toBeGreaterThan(0)
           expect(carried.some((value) => value.includes(text.toLowerCase())), `${name}.${state}: ${text}`).toBe(true)
         }
       })
+    }
+  })
+}
+
+/** Exercises fixture stories and model mutations using the public JSON Schema inventory. */
+export const cardContract = (
+  name: string,
+  schema: z.ZodType,
+  stories: Readonly<Record<string, Story<unknown, object, string>>>
+): void => {
+  storyContract(name, stories)
+  const json = inventory(schema)
+  const contract = z.fromJSONSchema(closeObjects(json))
+  describe(`${name} card projection`, () => {
+    for (const [state, story] of Object.entries(stories)) {
+      const fixture = story.model
+      const { objects, enums } = locations(json, fixture)
       test(`parses the ${state} fixture without losing fields`, () => {
         expect(schema.parse(fixture)).toEqual(fixture)
         expect(contract.parse(fixture)).toEqual(fixture)

@@ -669,6 +669,9 @@ for (const key of ["Enter", "Space"]) test(`DebugApiView keyboard selection and 
     { kind: "view", value: { selected: "getHealth" } },
     { kind: "action", value: { tag: "debug-api", args: { operation: "getTodo", n: "12" } } }
   ])
+})
+
+test("DebugApiView hostile body and failure render as text", async ({ page }) => {
   await page.goto('/view-stories.html?story=DebugApiView/hostile')
   await expect(page.locator('[data-story]')).toContainText('<img src=x onerror="window.__pwned=1">')
   await expect(page.locator('[data-story]')).toContainText('<script>window.__pwned=1</script>')
