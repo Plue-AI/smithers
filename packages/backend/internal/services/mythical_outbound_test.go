@@ -110,3 +110,100 @@ func TestMythicalOutboundProposalRefusesBeforeResolve(t *testing.T) {
 	require.Equal(t, slot, []byte(next.PendingOp))
 	require.Equal(t, "TODO publication is held until GitHub facts, own-push reconciliation and independent waits are available", next.Reason)
 }
+
+func TestMythicalOutboundDroppedProposalOnlyReconciles(t *testing.T) {
+	for _, state := range []string{"cancelled", "dropped"} {
+		for _, kind := range []string{"push", "open", "body"} {
+			t.Run(state+"/"+kind, func(t *testing.T) {
+				slot := []byte(`{"kind":"` + kind + `","target":"x","desired":"new","precondition":"old","state":"unknown"}`)
+				reads, sends := 0, 0
+				s := &MythicalService{outbound: MythicalOutboundProviders{
+					Lookup: func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+						reads++
+						return "old", false, nil
+					},
+					Send: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { sends++; return nil },
+				}}
+				st := mythicalItemStep{s: s}
+				item := db.MythicalItem{State: state, PendingOp: slot}
+				_, err := st.recoverOutbound(context.Background(), item)
+				require.ErrorContains(t, err, "dropped proposal cannot be repeated")
+				require.Equal(t, 1, reads)
+				require.Zero(t, sends)
+				require.Equal(t, slot, []byte(item.PendingOp))
+			})
+		}
+	}
+}
+
+func TestMythicalOutboundSettlementRequiredBeforeRepeat(t *testing.T) {
+	allow := func(context.Context, db.MythicalItem, string) error { return nil }
+	for _, kind := range []string{"open", "body", "merge", "close"} {
+		t.Run(kind, func(t *testing.T) {
+			sends := 0
+			s := &MythicalService{outbound: MythicalOutboundProviders{
+				CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow,
+				MergeDecision: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { return nil },
+				Lookup: func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+					return "old", false, nil
+				},
+				Send: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { sends++; return nil },
+			}}
+			st := mythicalItemStep{s: s}
+			slot := []byte(`{"kind":"` + kind + `","target":"1","desired":"new","precondition":"old","state":"unknown"}`)
+			item := db.MythicalItem{PendingOp: slot}
+			_, err := st.recoverOutbound(context.Background(), item)
+			require.ErrorContains(t, err, "settlement integration")
+			require.Zero(t, sends)
+			require.Equal(t, slot, []byte(item.PendingOp))
+		})
+	}
+}
+
+func TestMythicalOutboundSettlementCannotResurrectDrop(t *testing.T) {
+	for _, state := range []string{"cancelled", "dropped"} {
+		t.Run(state, func(t *testing.T) {
+			s := &MythicalService{outbound: MythicalOutboundProviders{
+				Settle: func(_ context.Context, item db.MythicalItem, _ MythicalOutboundOp) (db.MythicalItem, error) {
+					item.State = "proposed"
+					return item, nil
+				},
+			}}
+			st := mythicalItemStep{s: s}
+			item := db.MythicalItem{State: state, PendingOp: []byte(`{"kind":"open","target":"x","desired":"head","state":"done"}`)}
+			_, err := st.recoverOutbound(context.Background(), item)
+			require.ErrorContains(t, err, "changed dropped item state")
+			require.Equal(t, state, item.State)
+			require.NotEmpty(t, item.PendingOp)
+		})
+	}
+}
+
+func TestMythicalOutboundOpenRequiresRecoveryBeforeGitHub(t *testing.T) {
+	allow := func(context.Context, db.MythicalItem, string) error { return nil }
+	shape := mythicalPRShape{Branch: "smithers/test", Title: "Test", Prompt: "Prompt", Acceptance: "Acceptance", Evidence: "Evidence", DiffStat: "1 file", Review: "Reviewed", URL: "http://localhost/todos/1", Owner: "ben", First: true}
+	for _, missing := range []string{"lookup", "settlement"} {
+		t.Run(missing, func(t *testing.T) {
+			s := &MythicalService{outbound: MythicalOutboundProviders{
+				CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow,
+				Lookup: func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+					t.Fatal("unexpected lookup")
+					return "", false, nil
+				},
+				Settle: func(context.Context, db.MythicalItem, MythicalOutboundOp) (db.MythicalItem, error) {
+					t.Fatal("unexpected settlement")
+					return db.MythicalItem{}, nil
+				},
+			}}
+			if missing == "lookup" {
+				s.outbound.Lookup = nil
+			} else {
+				s.outbound.Settle = nil
+			}
+			// No GitHub client or database: refusal must precede both boundaries.
+			st := mythicalItemStep{s: s, prShape: &shape}
+			_, err := st.openPull(context.Background(), db.MythicalItem{}, mythicalGitHubRepo{}, "smithers/test")
+			require.ErrorContains(t, err, "reconciliation and settlement integration")
+		})
+	}
+}

@@ -26,7 +26,7 @@ func TestMythicalOutboundLeaseAndLostResponse(t *testing.T) {
 	claims, err := q.ClaimMythicalStacks(ctx, 1, 600)
 	require.NoError(t, err)
 	require.Len(t, claims, 1)
-	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repoID, IssueNumber: pgtype.Int8{Int64: 1, Valid: true}, State: "cancelled"})
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repoID, IssueNumber: pgtype.Int8{Int64: 1, Valid: true}, State: "proposing"})
 	require.NoError(t, err)
 	item.PendingOp = json.RawMessage(`{"kind":"push","target":"smithers/issue-1","desired":"new","precondition":"old","state":"intended"}`)
 	_, err = q.SaveMythicalItemUnderLease(ctx, item, claims[0].Claim+1)
@@ -56,6 +56,9 @@ func TestMythicalOutboundLeaseAndLostResponse(t *testing.T) {
 	_, err = st.recoverOutbound(ctx, item)
 	require.ErrorContains(t, err, "response lost")
 	reloaded, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	reloaded.State = "cancelled"
+	reloaded, err = q.SaveMythicalItemUnderLease(ctx, reloaded, claims[0].Claim)
 	require.NoError(t, err)
 	// A new worker on the same durable rows looks up before attempting a repeat.
 	restarted := mythicalItemStep{s: &MythicalService{outbound: s.outbound}, q: db.New(pool), r: &mythicalRun{row: claims[0]}}

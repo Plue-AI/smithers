@@ -122,6 +122,11 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	}
 	op.State = outboundResult(op, observed, appliedClose)
 	if op.State == "intended" {
+		// Drop retains uncertain effects for lookup, but never authorizes another
+		// proposal. Its owner must settle the terminal close obligation first.
+		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
+			return nil, errors.New("dropped proposal cannot be repeated")
+		}
 		if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
 			return nil, err
 		}
@@ -135,6 +140,9 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		}
 		if p.Send == nil {
 			return nil, errors.New("Waiting for GitHub dispatch integration")
+		}
+		if op.Kind != "push" && p.Settle == nil {
+			return nil, errors.New("Waiting for GitHub settlement integration")
 		}
 		op.State = "unknown"
 		item.PendingOp, _ = json.Marshal(op)
@@ -175,6 +183,9 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		}
 		if next.ID != item.ID || next.RepositoryID != item.RepositoryID || next.Version != item.Version {
 			return nil, errors.New("GitHub settlement changed item identity or version")
+		}
+		if (item.State == "cancelled" || item.State == "dropped") && next.State != item.State {
+			return nil, errors.New("GitHub settlement changed dropped item state")
 		}
 	}
 	next.PendingOp = nil

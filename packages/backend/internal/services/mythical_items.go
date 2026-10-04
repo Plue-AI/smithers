@@ -1725,6 +1725,9 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	if err := s.outboundReady(ctx, item, "open"); err != nil {
 		return nil, err
 	}
+	if s.outbound.Lookup == nil || s.outbound.Settle == nil {
+		return nil, errors.New("Waiting for GitHub reconciliation and settlement integration")
+	}
 	pull, err := s.github.FindPull(ctx, gh, branch)
 	if err != nil {
 		return mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", st.now), nil
@@ -1759,11 +1762,13 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 			return nil, err
 		}
 
-		created, err := s.github.CreatePull(ctx, gh, title, branch, base, body, draft)
+		_, err = s.github.CreatePull(ctx, gh, title, branch, base, body, draft)
 		if err != nil {
 			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
-		pull = &created
+		// Even a successful response reconciles the durable slot. Projection
+		// must retain any Drop that committed while CreatePull was in flight.
+		return st.recoverOutbound(ctx, next)
 	}
 	if !st.prShape.First && !st.prShape.DraftsAvailable {
 		if err := s.github.AddLabel(ctx, gh, pull.Number, "smithers:waiting"); err != nil {
