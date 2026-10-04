@@ -105,10 +105,9 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * them and provisions on ITS guess. Hidden keeps it out of the catalog;
      * user-only keeps it un-executable even by a model that guesses the name.
      */
-    name: "flow.repo.choose",
+    name: "flow.repo.choose", hidden: true, discloseToAgent: false,
     summary: "Choose which loaded repository a flow belongs to",
     runtime: ["cloud"],
-    hidden: true,
     userOnly: true,
     userOnlyReason: "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
     args: "<owner/repo>",

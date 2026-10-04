@@ -412,6 +412,12 @@ describe("Local CI gate runner", () => {
     const run = (...args: string[]) =>
       spawnSync("bash", ["scripts/ci/cloud.group-probe.tmp.sh", ...args], { cwd: root, encoding: "utf8" })
 
+    test("the real docs lane contains only the package docs target", () => {
+      const result = run("docs")
+      const targets = Array.from(result.stdout.matchAll(/^RAN exec smthrs ci (\S+)/gm), ([, target]) => target)
+      expect(targets).toEqual(["//apps/docs/..."])
+    })
+
     test("bootstraps the union of the group's toolchains exactly once", () => {
       const result = run("group", "workspace", "script-lint", "rust-test", "server")
       expect(result.error).toBeUndefined()

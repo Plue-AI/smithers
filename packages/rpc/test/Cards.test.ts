@@ -3194,3 +3194,19 @@ test("saved provider sync settings disappear while native conversation history a
  expect(migrated.payload).toMatchObject({ comments:[{ origin:"slack",commentBody:"historical" }],pendingComments:[{ id:"native-send",status:"requested" }] })
  expect(CardSchema.parse(migrated)).toEqual(migrated)
 })
+
+test("deferred billing, repository and trigger cards retain live decoding", () => {
+  const base = { id: "retained", title: "Saved", status: "active", createdAt: 1, ordinal: 1 }
+  for (const card of [
+    { kind: "repository-choice", payload: { cutoff: "2026-10-03T00:00:00Z", partial: false,
+      error: null, selected: null, created: null, repositories: [] } },
+    { kind: "trigger-list", payload: { repo: "will/app", triggers: [] } },
+    { kind: "workflow-repo", payload: { intent: "create", description: "A flow", repos: [], chosen: null } },
+    { kind: "anonymous-ceiling", payload: { message: "Saved", retryAt: null } },
+    { kind: "billing-plans", payload: { planKey: null, sandbox: null, plans: [], checkout: false } },
+    { kind: "balance", payload: { totalUsd: "0.00", state: "empty", allowedToStartWork: false,
+      lifetimeChargedUsd: "0.00", chargeCount: 0, introUsd: null } }
+  ]) {
+    expect(CardSchema.parse({ ...base, ...card }).kind).toBe(card.kind)
+  }
+})

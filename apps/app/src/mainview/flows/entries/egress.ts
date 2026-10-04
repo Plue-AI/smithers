@@ -23,7 +23,7 @@ export const egressFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
      * reloads it. It widens what the repository's sandboxes may reach, so the
      * model may ask for it and the person confirms.
      */
-    name: "egress.allow",
+    name: "egress.allow", hidden: true, discloseToAgent: false,
     summary: "Let a repository's sandboxes reach a host",
     runtime: ["cloud"],
     confirm: (payload) => `let ${targetRepo(actions, payload) ?? "the selected repository"}'s sandboxes reach ${String(payload["host"])}`,
@@ -39,7 +39,7 @@ export const egressFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     /* The same audit for an agent session's sandbox; the app has no agent-session card to face it. */
-    name: "egress.session",
+    name: "egress.session", hidden: true, discloseToAgent: false,
     summary: "List what an agent session called out to, and which secret names were swapped in",
     runtime: ["cloud"],
     args: "<sessionId> [owner/repo] [cursor]",

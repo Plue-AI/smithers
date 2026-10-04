@@ -144,7 +144,8 @@ describe("Cut app surfaces", () => {
       login: "will", admin: true, scopesPlain: null }).isPersisted.promise
     const result = await controller.commands.run("debug.seams", "")
     expect(result).toMatchObject({ status: "executed", value: JSON.stringify(health) })
-    expect(requests).toEqual(["/api/admin/system/health"])
+    // Signing in refreshes install status independently of the explicit probe.
+    expect(requests.filter(path => path !== "/api/install")).toEqual(["/api/admin/system/health"])
     expect([...store.collections.cards.values()].some(card => String(card.kind) === "admin-health")).toBe(false)
     expect([...store.collections.messages.values()].some(message => message.text.includes("Seam health"))).toBe(true)
     await controller.dispose()
@@ -178,7 +179,7 @@ describe("Cut app surfaces", () => {
       "environment-images", "trigger-list", "world"]) expect(Object.keys(CARD_RENDERERS)).toContain(kind)
     for (const kind of ["grant-confirm", "balance", "billing-plans"] as const) {
       expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)
-      expect(cardAvailable(kind)).toBe(false)
+      expect(cardAvailable(kind)).toBe(kind !== "grant-confirm")
       expect(CardSchema.options.map(option => option.shape.kind.value)).toContain(kind)
     }
   })

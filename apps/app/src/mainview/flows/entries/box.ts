@@ -131,7 +131,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   }),
   flow({
     /* The card's body tab: showing a facet is how the agent answers "show me the files" too (.specs/engineering/spec.md §6.1). */
-    name: "box.facet",
+    name: "box.facet", hidden: true, discloseToAgent: false,
     form: { fields: { workspaceId: { optionsFrom: "workspaces" } } },
     summary: "Switch a box card's facet",
     runtime: ["cloud"],
@@ -172,7 +172,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ path, workspaceId }) => actions.readWorkspaceFile(path, workspaceId)
   }),
   flow({
-    name: "box.services",
+    name: "box.services", hidden: true, discloseToAgent: false,
     summary: "List a box's services",
     runtime: ["cloud"],
     args: "[workspaceId]",
@@ -181,7 +181,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ workspaceId }) => actions.listWorkspaceServices(workspaceId)
   }),
   flow({
-    name: "box.egress",
+    name: "box.egress", hidden: true, discloseToAgent: false,
     summary: "List what a box called out to, and which secret names were swapped in",
     runtime: ["cloud"],
     args: "[workspaceId] [cursor]",
@@ -190,7 +190,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ workspaceId, cursor }) => actions.listWorkspaceEgress(workspaceId, cursor)
   }),
   flow({
-    name: "box.images",
+    name: "box.images", hidden: true, discloseToAgent: false,
     summary: "List the environment images a repository has built for its boxes",
     runtime: ["cloud"],
     args: "[owner/repo]",

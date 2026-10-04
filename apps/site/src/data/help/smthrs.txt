@@ -47,7 +47,6 @@ Commands:
   migrate       Inventory, plan, or apply the 0.x-to-1.x source migration
   notification  Read your notifications
   open          Open this checkout's repository in the Smithers app; `smthrs .` is the same
-  org           Manage organizations
   owners        Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches
   query         List labels or evaluate deps(label), rdeps(label), or owners(label)
   repo          Manage repositories and their GitHub connection
@@ -65,8 +64,6 @@ Commands:
   targets       List available targets with their kinds and summaries
   test          Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set
   token         Mint scoped, expiring gateway tokens from SMITHERS_TOKEN
-  triggers      Manage durable schedules and manually queued occurrences
-  tui           Open the terminal coding agent
   update        Check the registry for newer CLI versions; does not install them
   variable      Manage repository variables
   watch         Replan and rerun a target graph when workspace files change

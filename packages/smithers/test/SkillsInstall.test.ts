@@ -31,6 +31,9 @@ it("skills add installs and refreshes the packaged authoring skill from an unrel
     const first = install()
     expect(first.status, first.stdout + first.stderr).toBe(0)
     expect(readFileSync(installed, "utf8")).toBe(readFileSync(source, "utf8"))
+    for (const group of ["tui", "triggers", "org"]) {
+      expect(readFileSync(installed, "utf8")).not.toContain(`smthrs ${group}`)
+    }
     writeFileSync(installed, "stale installed content")
     const refreshed = install()
     expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0)

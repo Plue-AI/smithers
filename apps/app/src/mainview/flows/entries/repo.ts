@@ -27,18 +27,17 @@ export const requirements: ReadonlyArray<FlowRequirement> = [
 
 /** The sidebar repository flows: select, unpin, tree. */
 export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "repo.overview", summary: "Show the repository update overview", args: "[owner/repo]", input: RepoTarget,
+  flow({ name: "repo.overview", hidden: true, discloseToAgent: false, summary: "Show the repository update overview", args: "[owner/repo]", input: RepoTarget,
     requires: ["first-run-target", "repo-source"],
     handler: ({ repo }) => actions.showRepoOverview(repo) }),
-  flow({ name: "repo.update", summary: "Read repository activity into context without displaying an overview", args: "[owner/repo]", input: RepoTarget,
+  flow({ name: "repo.update", hidden: true, discloseToAgent: false, summary: "Read repository activity into context without displaying an overview", args: "[owner/repo]", input: RepoTarget,
     requires: ["first-run-target", "repo-source"],
     handler: ({ repo }) => actions.updateRepo(repo) }),
   /* The sidebar's pinned repositories (docs/LOCAL-APP.md "Tabs"). */
   flow({
-    name: "repo.select",
+    name: "repo.select", hidden: true, discloseToAgent: false,
     summary: "Make a pinned repository the active one",
     runtime: ["cloud"],
-    hidden: true,
     userOnly: true,
     userOnlyReason: "which pinned repository is active is the human's selection",
     args: "<repoKey>",
@@ -52,7 +51,7 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    * agent reads contents with files.list and files.read, the same route.
    */
   flow({
-    name: "repo.tree",
+    name: "repo.tree", hidden: true, discloseToAgent: false,
     form: { args: (payload) => text(payload, "path") === undefined ? text(payload, "copy") ?? "" : `${text(payload, "copy")}#${text(payload, "path")}` },
     summary: "Expand or collapse a directory of a working copy (a local checkout or a cloud workspace)",
     /* A workspace copy lists through Smithers Cloud (RepoTreeSeam). */
@@ -66,13 +65,13 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
 /** Root composes these after wiring the repository lane controller. */
 export const tutorialRepositoryFlows = (actions: import("../../state/controller/repositoryChoice").TutorialRepositoryActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "repo.choose",
+    name: "repo.choose", hidden: true, discloseToAgent: false,
     summary: "Choose a recently pushed GitHub repository",
     args: "[owner/repo]", input: Schema.Struct({ repo: Schema.optional(Schema.String) }),
     handler: ({ repo }) => actions.chooseTutorialRepository(repo)
   }),
   flow({
-    name: "repo.create",
+    name: "repo.create", hidden: true, discloseToAgent: false,
     summary: "Create repository",
     args: "<name>", input: Schema.Struct({ name: Schema.String }),
     form: { fields: { name: { kind: "text" } } },

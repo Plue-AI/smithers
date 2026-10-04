@@ -143,7 +143,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		routerExtras{
 			HostStatus:          host,
 			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},
-			BillingCapabilities: services.BillingCapabilities{Overview: true, Plans: true, Checkout: true, Portal: true, Webhook: true},
+			BillingCapabilities: conformanceBillingCapabilities(cfg),
 			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{},
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
@@ -579,5 +579,85 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Install conformance models the normal composition with no commerce option.
+func conformanceBillingCapabilities(cfg *config.Config) services.BillingCapabilities {
+	if config.IsSingleOwner(cfg.Auth) {
+		return services.BillingCapabilities{}
+	}
+	return services.BillingCapabilities{Overview: true, Plans: true, Checkout: true, Portal: true, Webhook: true}
+}
+
+func TestDeferredRoutesComposition(t *testing.T) {
+	operations := []string{
+		"get /api/repos/{owner}/{repo}/repository-jobs",
+		"get /api/repos/{owner}/{repo}/repository-jobs/{job}/dispatches",
+		"post /api/repos/{owner}/{repo}/repository-jobs/{job}/pause",
+		"get /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals",
+		"post /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals",
+		"put /api/gateways/{hostID}/repository-jobs/{job}",
+		"put /api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}",
+		"get /api/billing", "get /api/billing/plans", "get /api/billing/balance",
+		"post /api/billing/checkout", "post /api/billing/portal", "post /api/billing/refresh", "post /api/billing/webhook",
+		"get /api/orgs/{org}/billing", "post /api/orgs/{org}/billing/checkout",
+		"post /api/orgs/{org}/billing/portal", "post /api/orgs/{org}/billing/refresh",
+	}
+	paths := loadOpenAPIPaths(t)
+	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = mode
+			router := openAPIConformanceRouter(cfg)
+			served := map[string]servedRoute{}
+			walkServedRoutes(t, router, served)
+			for _, operation := range operations {
+				parts := strings.SplitN(operation, " ", 2)
+				require.Equal(t, mode == config.AuthModeMultitenant, served[operation].path != "", operation)
+				require.Equal(t, "plue", mappingValue(mappingValue(mappingValue(paths, parts[1]), parts[0]), "x-composition").Value, operation)
+				if mode == config.AuthModeSelfHosted {
+					path := strings.NewReplacer("{owner}", "will", "{repo}", "app", "{job}", "ci", "{hostID}", "host", "{requestID}", "request", "{org}", "team").Replace(parts[1])
+					for _, credential := range []string{"", "owner", "maintainer", "member", "delegated", "worker"} {
+						req := httptest.NewRequest(strings.ToUpper(parts[0]), path, nil)
+						if credential != "" {
+							req.Header.Set("Authorization", "Bearer "+credential)
+						}
+						rec := httptest.NewRecorder()
+						router.ServeHTTP(rec, req)
+						require.Equal(t, http.StatusNotFound, rec.Code, operation+" "+credential)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = config.AuthModeSelfHosted
+	router := openAPIConformanceRouter(cfg)
+	for _, request := range []struct{ method, path string }{
+		{"GET", "/api/repos/will/app/repository-jobs/list"},
+		{"POST", "/api/repos/will/app/repository-jobs/ci/register"},
+		{"POST", "/api/repos/will/app/repository-jobs/ci/approve"},
+		{"POST", "/api/repos/will/app/repository-jobs/ci/resume"},
+		{"POST", "/api/repos/will/app/repository-jobs/ci/run"},
+		{"PUT", "/api/gateways/host/repository-jobs/ci/manual/request"},
+	} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(request.method, request.path, nil))
+		require.Equal(t, http.StatusNotFound, rec.Code, request.path)
+	}
+	// Non-nil production handlers have no services: crossing the dark guard would
+	// panic or perform IO. Missing membership/system authority must stop first.
+	for _, path := range []string{
+		"/api/gateways/host/repository-jobs/ci/trials/request",
+		"/api/gateways/host/repository-jobs/ci/comments/step",
+		"/api/gateways/host/repository-jobs/ci/check-receipts/request",
+	} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest("PUT", path, nil))
+		require.Equal(t, http.StatusForbidden, rec.Code, path)
 	}
 }

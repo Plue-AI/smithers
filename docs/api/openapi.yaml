@@ -2236,6 +2236,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing:
     get:
+      x-composition: plue
       summary: GET /api/billing
       operationId: get_api_billing
       tags:
@@ -2269,6 +2270,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/plans:
     get:
+      x-composition: plue
       summary: GET /api/billing/plans
       operationId: get_api_billing_plans
       tags:
@@ -2302,6 +2304,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/checkout:
     post:
+      x-composition: plue
       summary: POST /api/billing/checkout
       operationId: post_api_billing_checkout
       tags:
@@ -2356,6 +2359,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/portal:
     post:
+      x-composition: plue
       summary: POST /api/billing/portal
       operationId: post_api_billing_portal
       tags:
@@ -2389,6 +2393,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/refresh:
     post:
+      x-composition: plue
       summary: POST /api/billing/refresh
       operationId: post_api_billing_refresh
       tags:
@@ -2422,6 +2427,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/webhook:
     post:
+      x-composition: plue
       summary: POST /api/billing/webhook
       operationId: post_api_billing_webhook
       tags:
@@ -2455,6 +2461,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/balance:
     get:
+      x-composition: plue
       summary: GET /api/billing/balance
       operationId: get_api_billing_balance
       tags:
@@ -2685,6 +2692,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/gateways/{hostID}/repository-jobs/{job}:
     put:
+      x-composition: plue
       summary: PUT /api/gateways/{hostID}/repository-jobs/{job}
       operationId: put_api_gateways_host_repository_jobs_job
       tags:
@@ -2778,6 +2786,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}:
     put:
+      x-composition: plue
       summary: PUT /api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}
       operationId: put_api_gateways_host_repository_jobs_job_manual_request
       tags:
@@ -5031,6 +5040,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/orgs/{org}/billing:
     get:
+      x-composition: plue
       summary: GET /api/orgs/{org}/billing
       operationId: get_api_orgs_org_billing
       tags:
@@ -5623,6 +5633,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/orgs/{org}/billing/checkout:
     post:
+      x-composition: plue
       summary: POST /api/orgs/{org}/billing/checkout
       operationId: post_api_orgs_org_billing_checkout
       tags:
@@ -5660,6 +5671,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/orgs/{org}/billing/portal:
     post:
+      x-composition: plue
       summary: POST /api/orgs/{org}/billing/portal
       operationId: post_api_orgs_org_billing_portal
       tags:
@@ -5697,6 +5709,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/orgs/{org}/billing/refresh:
     post:
+      x-composition: plue
       summary: POST /api/orgs/{org}/billing/refresh
       operationId: post_api_orgs_org_billing_refresh
       tags:
@@ -16717,6 +16730,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/repository-jobs
       operationId: get_api_repos_owner_repo_repository_jobs
       tags:
@@ -16759,6 +16773,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals
       operationId: get_api_repos_owner_repo_repository_jobs_job_approvals
       tags:
@@ -16805,6 +16820,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
+      x-composition: plue
       summary: POST /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals
       operationId: post_api_repos_owner_repo_repository_jobs_job_approvals
       tags:
@@ -16858,6 +16874,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs/{job}/dispatches:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/repository-jobs/{job}/dispatches
       operationId: get_api_repos_owner_repo_repository_jobs_job_dispatches
       tags:
@@ -17790,6 +17807,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs/{job}/pause:
     post:
+      x-composition: plue
       summary: POST /api/repos/{owner}/{repo}/repository-jobs/{job}/pause
       operationId: post_api_repos_owner_repo_repository_jobs_job_pause
       tags:

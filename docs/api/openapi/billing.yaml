@@ -1,6 +1,7 @@
 paths:
   /api/billing:
     get:
+      x-composition: plue
       summary: GET /api/billing
       operationId: get_api_billing
       tags:
@@ -34,6 +35,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/plans:
     get:
+      x-composition: plue
       summary: GET /api/billing/plans
       operationId: get_api_billing_plans
       tags:
@@ -67,6 +69,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/checkout:
     post:
+      x-composition: plue
       summary: POST /api/billing/checkout
       operationId: post_api_billing_checkout
       tags:
@@ -121,6 +124,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/portal:
     post:
+      x-composition: plue
       summary: POST /api/billing/portal
       operationId: post_api_billing_portal
       tags:
@@ -154,6 +158,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/refresh:
     post:
+      x-composition: plue
       summary: POST /api/billing/refresh
       operationId: post_api_billing_refresh
       tags:
@@ -187,6 +192,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/webhook:
     post:
+      x-composition: plue
       summary: POST /api/billing/webhook
       operationId: post_api_billing_webhook
       tags:
@@ -220,6 +226,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/billing/balance:
     get:
+      x-composition: plue
       summary: GET /api/billing/balance
       operationId: get_api_billing_balance
       tags:

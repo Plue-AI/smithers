@@ -1274,6 +1274,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 1, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
+      "../cards/BillingCards.tsx": 2, // Retained plan checkout and retry, hidden on the install.
       // THE FORM LAW (.specs/engineering/spec.md §6.1): Cancel (card.dismiss), Submit (form.submit), and the retained PR Review (form.submit); fields commit on blur/change.
       "../cards/FlowFormCards.tsx": 3,
       // The plan card's one door, in its two states: Run once a plan exists, Plan again once one was refused.
@@ -1570,3 +1571,38 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(wrapper).toContain("controller.runCommand")
   })
 })
+
+// Deferred runtime stays published; none of its discovery doors is a member door.
+test("deferred surfaces are absent from slash, palette/help and agent discovery", async () => {
+  const { createAppStore } = await import("../state/AppStore")
+  const { createAppController } = await import("../state/AppController")
+  const { memoryStorage, silentAgent } = await import("../state/TestFixtures")
+  const { RuntimeCapabilitySchema } = await import("@smthrs/rpc/AppBootstrap")
+  const { visible } = await import("./registry")
+  const { executeAgentToolCall } = await import("./agentTools")
+  const forbidden = ["billing.balance", "billing.plans", "billing.upgrade", "billing.portal",
+    "cloud.prompt", "cloud.sign-in", "cloud.sign-out", "repo.choose", "repo.create", "repo.select",
+    "repo.overview", "repo.update", "repos.import", "repos.import.retry", "flow.repo.choose",
+    "triggers.list", "triggers.register", "triggers.pause", "triggers.run", "sync.ops.show-more",
+    "box.egress", "box.services", "box.images", "egress.allow", "egress.session", "runs.signal",
+    "prs.review", "review.request", "review.unrequest", "review.since-mine", "review.done", "review.ack",
+    "review.reopen", "issue.repro", "issue.poc", "issue.add-flow", "issue.flows"]
+  for (const bootstrap of [undefined, { apiVersion: 1 as const, host: "cloud" as const, version: "test", buildSha: "test",
+    capabilities: [...RuntimeCapabilitySchema.options], authFlow: "both" as const, sandbox: null }]) {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, silentAgent, bootstrap === undefined ? {} : { bootstrap })
+    try {
+      const listed = JSON.parse(await executeAgentToolCall(controller.commands, {
+        name: "commands", arguments: JSON.stringify({ action: "list" })
+      })) as { commands: Array<{ name: string }> }
+      const shown = visible(controller.commands.all()).map(command => command.name)
+      for (const name of forbidden) {
+        expect(shown).not.toContain(name)
+        expect(controller.slashItems(name).map(row => row.flow.name)).not.toContain(name)
+        expect(listed.commands.map(command => command.name)).not.toContain(name)
+      }
+      expect(shown).toContain("issue")
+      expect(shown).toContain("flow")
+    } finally { await controller.dispose() }
+  }
+}, 30_000)

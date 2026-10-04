@@ -19,7 +19,7 @@ export const cloudFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
    * mechanics the human clicks, so user-only, like auth.sign-in.
    */
   flow({
-    name: "cloud.sign-in",
+    name: "cloud.sign-in", hidden: true, discloseToAgent: false,
     summary: "Sign in to Smithers Cloud",
     runtime: ["cloud", "cloud.pat"],
     userOnly: true,
@@ -35,14 +35,14 @@ export const cloudFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
      * the sign-in button. Registered wherever Smithers Cloud is: on the web the GitHub
      * sign-in is the Cloud sign-in, and the controller offers that step.
      */
-    name: "cloud.prompt",
+    name: "cloud.prompt", hidden: true, discloseToAgent: false,
     summary: "Offer the Smithers Cloud sign-in step in the chat",
     runtime: ["cloud"],
     input: NoPayload,
     handler: () => actions.promptCloudSignIn()
   }),
   flow({
-    name: "cloud.sign-out",
+    name: "cloud.sign-out", hidden: true, discloseToAgent: false,
     summary: "Sign out of Smithers Cloud",
     runtime: ["cloud", "cloud.pat"],
     userOnly: true,

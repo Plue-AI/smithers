@@ -68,10 +68,12 @@ import { RETIRED_CARD_KINDS } from "../state/CardAvailability"
 /* MOCK SEAM (state/seams/DesignWorld): `design:` cards read the seeded world through their own bodies. */
 import { isDesignCard } from "../state/seams/DesignWorld/subjects"
 import { DesignSubjectBody } from "./SubjectCards"
-type RetiredCardKind = (typeof RETIRED_CARD_KINDS)[number]
+// Deferred billing schemas remain live, but the install never renders a paywall.
+const HIDDEN_CARD_KINDS = [...RETIRED_CARD_KINDS, "balance", "billing-plans"] as const
+type RetiredCardKind = (typeof HIDDEN_CARD_KINDS)[number]
 type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind>
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: RetiredCardKind }> =>
-  (RETIRED_CARD_KINDS as readonly string[]).includes(card.kind)
+  (HIDDEN_CARD_KINDS as readonly string[]).includes(card.kind)
 
 /** The families in registration order; the test reads this list to prove the slices are disjoint. */
 export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [

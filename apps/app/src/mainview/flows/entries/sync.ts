@@ -15,9 +15,8 @@ export const namespace: Namespace = { id: "sync", label: "Sync", summary: "Sync 
 export const syncFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     /* The sync-ops card's Show more — browser mechanics the human clicks. */
-    name: "sync.ops.show-more",
+    name: "sync.ops.show-more", hidden: true, discloseToAgent: false,
     summary: "Widen a sync card's ops window",
-    hidden: true,
     runtime: ["cloud"],
     args: "<cardId>",
     requires: ["signed-in"],

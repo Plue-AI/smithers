@@ -10888,6 +10888,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/repository-jobs
       operationId: get_api_repos_owner_repo_repository_jobs
       tags:
@@ -10930,6 +10931,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals
       operationId: get_api_repos_owner_repo_repository_jobs_job_approvals
       tags:
@@ -10976,6 +10978,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
     post:
+      x-composition: plue
       summary: POST /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals
       operationId: post_api_repos_owner_repo_repository_jobs_job_approvals
       tags:
@@ -11029,6 +11032,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs/{job}/dispatches:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/repository-jobs/{job}/dispatches
       operationId: get_api_repos_owner_repo_repository_jobs_job_dispatches
       tags:
@@ -11961,6 +11965,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/repository-jobs/{job}/pause:
     post:
+      x-composition: plue
       summary: POST /api/repos/{owner}/{repo}/repository-jobs/{job}/pause
       operationId: post_api_repos_owner_repo_repository_jobs_job_pause
       tags:

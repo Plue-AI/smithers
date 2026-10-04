@@ -39,11 +39,10 @@ export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
   "secrets.list", "secrets.revoke"
 ]
 
-export type Deferral = "browser" | "diagnostics" | "owed"
+export type Deferral = "browser" | "diagnostics" | "owed" | "deferred: mvp.md §8/§16"
 
 export const OWED_ACTIONS_BY_FAMILY = {
   approvals,
-  billing,
   box,
   branches,
   change,
@@ -60,16 +59,14 @@ export const OWED_ACTIONS_BY_FAMILY = {
   issues,
   plugins,
   prs,
-  repo,
-  repos,
   runs,
   search,
   secrets,
-  triggers,
   wiki,
 } as const
 
 export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>> = {
+  "deferred: mvp.md §8/§16": [...billing, ...repo, ...repos, ...triggers],
   /** Acts only on this browser's UI or storage; no host contract to break. */
   browser: [
     "app.hint.dismiss", "card.history.back", "card.history.forward",

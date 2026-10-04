@@ -139,6 +139,12 @@ func buildRouter(
 		extras.Catalog = routes.NewPublicRepositoryCatalog(queries)
 	}
 	r := chi.NewRouter()
+	if config.IsSingleOwner(cfg.Auth) {
+		r.Use(middleware.RejectTenantProvisioning, middleware.RejectDeferredTriggerManagement)
+		if extras.BillingCapabilities == (services.BillingCapabilities{}) {
+			r.Use(middleware.RejectDeferredCommerce)
+		}
+	}
 	var ownerBoundary identity.OwnerAuthorizer
 	if config.IsSingleOwner(cfg.Auth) {
 		ownerBoundary = identity.NewSingleOwnerBoundary(queries)
@@ -573,10 +579,14 @@ func buildRouter(
 		// outside repository auth: the binding ID and credential are the auth.
 		r.Group(func(r chi.Router) {
 			r.Use(cors.Handler(apiCORS))
-			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}", repositoryJobHandler.PutRepositoryJob)
+			if !config.IsSingleOwner(cfg.Auth) {
+				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}", repositoryJobHandler.PutRepositoryJob)
+			}
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", repositoryJobHandler.PutRepositoryJobTrial)
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}", repositoryJobHandler.PutRepositoryJobComment)
-			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}", repositoryJobHandler.PutRepositoryJobManual)
+			if !config.IsSingleOwner(cfg.Auth) {
+				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}", repositoryJobHandler.PutRepositoryJobManual)
+			}
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}", repositoryJobHandler.PutRepositoryCheckReceipt)
 		})
 	}
@@ -873,9 +883,6 @@ func buildRouter(
 		// WITHOUT the valid worker bearer, so no protection is lost by the skip.
 		r.Use(lfsauth.HTTPMiddleware(lfsAuthManager))
 		r.Use(authLoader(queries, cfg.Auth))
-		if config.IsSingleOwner(cfg.Auth) {
-			r.Use(middleware.RejectTenantProvisioning)
-		}
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		mountHostStatus(r, extras.HostStatus)
@@ -1296,15 +1303,17 @@ func buildRouter(
 
 				// Workflow dispatch (manual trigger) — requires write access.
 				if repositoryJobHandler != nil {
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs", repositoryJobHandler.GetRepositoryJobs)
 					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-source", repositoryJobHandler.GetRepositorySource)
 					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-source/retain", repositoryJobHandler.RetainRepositorySource)
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs/{job}/dispatches", repositoryJobHandler.GetRepositoryJobDispatches)
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RefuseRunCredentials, gateWorkflows)...).Post("/repository-jobs/{job}/pause", repositoryJobHandler.PauseRepositoryJob)
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), middleware.RequireMatchingRepositoryRestriction, gateWorkflows)...).Get("/repository-jobs/{job}/approvals", repositoryJobHandler.GetRepositoryJobApprovals)
-					// No workspace, agent or other system-issued credential may
-					// stamp the human approval whose authority it later consumes.
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RejectRepositoryRestrictedToken, middleware.RefuseRunCredentials, gateWorkflows)...).Post("/repository-jobs/{job}/approvals", repositoryJobHandler.PostRepositoryJobApproval)
+					if !config.IsSingleOwner(cfg.Auth) {
+						r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs", repositoryJobHandler.GetRepositoryJobs)
+						r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs/{job}/dispatches", repositoryJobHandler.GetRepositoryJobDispatches)
+						r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RefuseRunCredentials, gateWorkflows)...).Post("/repository-jobs/{job}/pause", repositoryJobHandler.PauseRepositoryJob)
+						r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), middleware.RequireMatchingRepositoryRestriction, gateWorkflows)...).Get("/repository-jobs/{job}/approvals", repositoryJobHandler.GetRepositoryJobApprovals)
+						// No workspace, agent or other system-issued credential may
+						// stamp the human approval whose authority it later consumes.
+						r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RejectRepositoryRestrictedToken, middleware.RefuseRunCredentials, gateWorkflows)...).Post("/repository-jobs/{job}/approvals", repositoryJobHandler.PostRepositoryJobApproval)
+					}
 				}
 				workflowWriteRepo := append([]func(http.Handler) http.Handler{}, writeRepo...)
 				workflowWriteRepo = append(workflowWriteRepo, gateWorkflows)

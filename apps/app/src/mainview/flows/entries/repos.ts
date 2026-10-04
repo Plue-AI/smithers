@@ -23,7 +23,7 @@ export const reposImportFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
    * watched-repos chooser.
    */
   flow({
-    name: "repos.import",
+    name: "repos.import", hidden: true, discloseToAgent: false,
     summary: "Import a GitHub repository into Smithers Cloud",
     runtime: ["cloud"],
     args: "[owner/repo]",
@@ -36,7 +36,7 @@ export const reposImportFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
 /** `repos.import.retry`, registered beside the GitHub mirror flows it retries. */
 export const reposImportRetryFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "repos.import.retry",
+    name: "repos.import.retry", hidden: true, discloseToAgent: false,
     summary: "Retry a failed GitHub import job",
     runtime: ["cloud"],
     args: "<jobId>",

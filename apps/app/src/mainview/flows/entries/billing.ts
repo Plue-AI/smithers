@@ -25,7 +25,7 @@ const hostCapabilities = (actions: CommandActions): ReadonlyArray<string> => {
 /** The balance read remains available beside plan and sandbox usage. */
 export const billingBalanceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => hostCapabilities(actions).includes("billing.balance") ? [
   flow({
-    name: "billing.balance",
+    name: "billing.balance", hidden: true, discloseToAgent: false,
     summary: "Show your balance",
     runtime: ["identity", "billing.balance"],
     requires: ["signed-in"],
@@ -37,11 +37,11 @@ export const billingBalanceFlows = (actions: CommandActions): ReadonlyArray<Flow
 /** Plan reads and human billing doors only where their routes exist. */
 export const billingPlanFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => hostCapabilities(actions).some(capability => ["billing.plans", "billing.checkout", "billing.portal"].includes(capability)) ? [
   flow({
-    name: "billing.plans", summary: "Show plans and sandbox usage", runtime: ["identity", "billing.plans"],
+    name: "billing.plans", hidden: true, discloseToAgent: false, summary: "Show plans and sandbox usage", runtime: ["identity", "billing.plans"],
     requires: ["signed-in"], input: NoPayload, handler: () => actions.showBillingPlans()
   }),
   flow({
-    name: "billing.upgrade",
+    name: "billing.upgrade", hidden: true, discloseToAgent: false,
     summary: "Upgrade your plan (opens Stripe checkout)",
     runtime: ["identity", "billing.checkout"],
     userOnly: true,
@@ -52,7 +52,7 @@ export const billingPlanFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
     handler: ({ plan }) => actions.startCheckout(plan)
   }),
   flow({
-    name: "billing.portal",
+    name: "billing.portal", hidden: true, discloseToAgent: false,
     summary: "Manage billing (opens the Stripe portal)",
     runtime: ["identity", "billing.portal"],
     userOnly: true,

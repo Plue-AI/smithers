@@ -27,3 +27,48 @@ func TestRejectTenantProvisioningPassesTheUsersOwnOrgList(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, rec.Code, path)
 	}
 }
+
+func TestRejectDeferredBoundariesBeforeEffects(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		gate             func(http.Handler) http.Handler
+		absent, retained []string
+	}{
+		{"triggers", RejectDeferredTriggerManagement,
+			[]string{"/api/repos/will/app/repository-jobs", "/api/repos/will/app/repository-jobs/ci/resume", "/api/gateways/host/repository-jobs/ci", "/api/gateways/host/repository-jobs/ci/manual/request"},
+			[]string{"/api/repos/will/app/repository-source", "/healthz"}},
+		{"commerce", RejectDeferredCommerce, []string{"/api/billing", "/api/billing/", "/api/billing/webhook", "/api/billing/plans"}, []string{"/api/billing-other", "/api/install", "/healthz"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			effects := 0
+			handler := test.gate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { effects++; w.WriteHeader(http.StatusNoContent) }))
+			for _, path := range test.absent {
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+				assert.Equal(t, http.StatusNotFound, rec.Code, path)
+			}
+			assert.Zero(t, effects)
+			for _, path := range test.retained {
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, path, nil))
+				assert.Equal(t, http.StatusNoContent, rec.Code, path)
+			}
+			assert.Equal(t, len(test.retained), effects)
+		})
+	}
+}
+
+func TestRejectUnboundRepositoryJobCallbacks(t *testing.T) {
+	effects := 0
+	handler := RejectDeferredTriggerManagement(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { effects++ }))
+	for _, path := range []string{
+		"/api/gateways/host/repository-jobs/ci/trials/request",
+		"/api/gateways/host/repository-jobs/ci/comments/step",
+		"/api/gateways/host/repository-jobs/ci/check-receipts/request",
+	} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, path, nil))
+		assert.Equal(t, http.StatusForbidden, rec.Code, path)
+	}
+	assert.Zero(t, effects)
+}

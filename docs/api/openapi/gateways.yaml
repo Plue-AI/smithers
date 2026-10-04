@@ -45,6 +45,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/gateways/{hostID}/repository-jobs/{job}:
     put:
+      x-composition: plue
       summary: PUT /api/gateways/{hostID}/repository-jobs/{job}
       operationId: put_api_gateways_host_repository_jobs_job
       tags:
@@ -138,6 +139,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}:
     put:
+      x-composition: plue
       summary: PUT /api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}
       operationId: put_api_gateways_host_repository_jobs_job_manual_request
       tags:

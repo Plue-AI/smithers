@@ -81,7 +81,7 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ number, repo }) => actions.triagePullRequest(number, repo, true)
   }),
   flow({
-    name: "review",
+    name: "review", hidden: true, discloseToAgent: false,
     summary: "Review a pull request",
     confirm: "review the pull request",
     args: "<number> [owner/repo]",
@@ -90,7 +90,7 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ number, repo }) => actions.triagePullRequest(number, repo, true)
   }),
   flow({
-    name: "prs.review",
+    name: "prs.review", hidden: true, discloseToAgent: false,
     form: {
       fields: { text: { required: false }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
       args: (payload) =>

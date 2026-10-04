@@ -410,7 +410,27 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
   verbose(Cli.toCommands.get(cli as never)!)
   // Incur 0.5 intercepts `mcp` before looking up registered commands. Dispatch
   // the mounted subtree directly so registration uses Agents.addMcp as documented.
-  const serve = cli.serve.bind(cli)
+  // Incur has no hidden-group flag. A separate discovery tree removes deferred
+  // groups from help, schemas, skills and MCP without mutating the invocation tree.
+  const discovery = makeBuildCli({
+    ...config, cliName: "smthrs", cliVersion: packageVersion,
+    cliDescription: "Build workspace targets and operate durable agent flows",
+    sync: { cwd: dirname(createRequire(import.meta.url).resolve("@smthrs/cli/package.json")), include: ["skills/*"] },
+    cacheSteps: createStepCacheCli(), approvals: config.approvals ?? TargetApprovals.store
+  })
+  discovery.use((context, next) => Presentation.scope(context, config, next))
+  const discoveryTree = Cli.toCommands.get(discovery as never)!
+  discoveryTree.clear()
+  for (const [name, entry] of Cli.toCommands.get(cli as never)!) {
+    if (!["tui", "triggers", "org"].includes(name)) discoveryTree.set(name, entry)
+  }
+  const invoke = cli.serve.bind(cli)
+  const serve: typeof cli.serve = (argv = [], serveOptions) => {
+    const parsed = Argv.parse(argv, cli)
+    const rootDiscovery = parsed.rest[0] === undefined || parsed.rest[0]?.startsWith("-") ||
+      parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--llms") || argv.includes("--llms-full")
+    return rootDiscovery ? discovery.serve(argv, serveOptions) : invoke(argv, serveOptions)
+  }
   cli.serve = async (argv = process.argv.slice(2), serveOptions) => {
     // Read the selected command's actual option arities before Incur extracts
     // built-ins. A message named --mcp is one value, never a transport switch.

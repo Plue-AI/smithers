@@ -14,7 +14,7 @@ export const namespace: Namespace = { id: "review", label: "Review", summary: "R
 /** The `review` flows registered as one aggregator block. */
 export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "review.since-mine",
+    name: "review.since-mine", hidden: true, discloseToAgent: false,
     summary: "Open a change's diff since my last review",
     runtime: ["cloud"],
     args: "<changeId>",
@@ -23,7 +23,7 @@ export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId }) => actions.diffSinceMyReview(changeId)
   }),
   flow({
-    name: "review.done",
+    name: "review.done", hidden: true, discloseToAgent: false,
     summary: "Mark a review comment done: the author addressed it at the current revision",
     runtime: ["cloud"],
     args: "<changeId> <commentId>",
@@ -33,7 +33,7 @@ export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId, threadId }) => actions.reviewThreadDone(changeId, threadId)
   }),
   flow({
-    name: "review.ack",
+    name: "review.ack", hidden: true, discloseToAgent: false,
     summary: "Acknowledge a done review comment: the reviewer accepts the author's work",
     runtime: ["cloud"],
     args: "<changeId> <commentId>",
@@ -43,7 +43,7 @@ export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId, threadId }) => actions.reviewThreadAck(changeId, threadId)
   }),
   flow({
-    name: "review.reopen",
+    name: "review.reopen", hidden: true, discloseToAgent: false,
     summary: "Reopen a done or resolved review comment",
     runtime: ["cloud"],
     args: "<changeId> <commentId>",
@@ -60,7 +60,7 @@ export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
      * landing's turn — so the model may ask for it and only the human
      * performs it.
      */
-    name: "review.request",
+    name: "review.request", hidden: true, discloseToAgent: false,
     form: { fields: { reviewer: { label: "Login or agent:name" } } },
     summary: "Ask someone to review a change",
     runtime: ["cloud"],
@@ -71,7 +71,7 @@ export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId, reviewer }) => actions.requestChangeReview(changeId, reviewer)
   }),
   flow({
-    name: "review.unrequest",
+    name: "review.unrequest", hidden: true, discloseToAgent: false,
     summary: "Dismiss a review request on a change",
     runtime: ["cloud"],
     confirm: "dismiss the review request",

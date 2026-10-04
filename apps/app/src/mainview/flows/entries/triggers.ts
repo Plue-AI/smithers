@@ -73,7 +73,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
      * signed-in session's box answers. A read, so it needs no sign-in and the
      * agent lists it freely (Factory design session 2026-09-07, mock 2).
      */
-    name: "triggers.list",
+    name: "triggers.list", hidden: true, discloseToAgent: false,
     summary: "Show the dispatcher: the events the repository's rules wait for and the flows they start",
     runtime: ["cloud"],
     args: "[owner/repo]",
@@ -91,7 +91,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
      * (and name, input, limits) named on the line: it prepares, previews the
      * plan, and registers only after the human approves it (triggers.approve).
      */
-    name: "triggers.register",
+    name: "triggers.register", hidden: true, discloseToAgent: false,
     summary: "Register a repository flow to run on a schedule",
     runtime: ["cloud"],
     args: "[owner/repo] --flow <id> [--slug <name>] [--schedule <cron>] [--input <json>] [--tokens <n>] [--minutes <n>]",
@@ -125,9 +125,8 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
      * three-door law), so the agent may prepare a registration and may never
      * approve one — the same rule approval.approve states.
      */
-    name: "triggers.approve",
+    name: "triggers.approve", hidden: true, discloseToAgent: false,
     summary: "Approve the previewed plan and register the schedule",
-    hidden: true,
     runtime: ["cloud"],
     requires: ["signed-in"],
     userOnly: true,
@@ -143,7 +142,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
      * agent asks and the human confirms; their own press dispatches, and two
      * presses dispatch twice.
      */
-    name: "triggers.run",
+    name: "triggers.run", hidden: true, discloseToAgent: false,
     summary: "Run a registered schedule now",
     runtime: ["cloud"],
     args: "<name> [owner/repo]",
@@ -161,7 +160,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     handler: ({ repo, slug }) => actions.registerTrigger({ operation: "run", repo, slug })
   }),
   flow({
-    name: "triggers.resume",
+    name: "triggers.resume", hidden: true, discloseToAgent: false,
     summary: "Resume a paused schedule with its reviewed configuration",
     runtime: ["cloud"],
     args: "<name> [owner/repo]",
@@ -177,9 +176,8 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
   }),
   flow({
     /* Stopping a schedule is consequential, so the agent asks and the human confirms. */
-    name: "triggers.pause",
+    name: "triggers.pause", hidden: true, discloseToAgent: false,
     summary: "Pause a schedule",
-    hidden: true,
     runtime: ["cloud"],
     requires: ["signed-in"],
     confirm: (payload) => `pause ${String(payload["slug"])}`,

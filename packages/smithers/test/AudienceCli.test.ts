@@ -47,6 +47,19 @@ const invoke = async (args: Array<string>, env: Record<string, string>, terminal
 }
 
 describe("audience-aware public CLI", { timeout: 90_000 }, () => {
+  it("omits deferred groups from discovery while explicit help still resolves", async () => {
+    const help = await invoke(["--help"], {})
+    const manifest = await invoke(["--llms-full", "--format", "json"], {})
+    const commands = JSON.parse(manifest.stdout).commands as Array<{ name: string }>
+    for (const group of ["tui", "triggers", "org"]) {
+      expect(help.stdout).not.toMatch(new RegExp(`^\\s+${group}\\s`, "m"))
+      expect(commands.some(command => command.name === group || command.name.startsWith(group + " "))).toBe(false)
+      const explicit = await invoke([group, "--help"], {})
+      expect(explicit.code, explicit.stdout + explicit.stderr).toBe(0)
+      expect(explicit.stdout).toContain(group)
+    }
+  })
+
   it("returns compact Incur data and next actions to a harness with a PTY", async () => {
     const root = await fixture()
     const result = await invoke(["flow", "list", "--root", root], { CLAUDECODE: "1" })
