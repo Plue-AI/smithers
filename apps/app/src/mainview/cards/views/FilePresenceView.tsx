@@ -3,14 +3,14 @@ import { useState } from "react"
 import type { CSSProperties } from "react"
 import { CodeFileView } from "@smthrs/ui/adapters/code-view"
 import { formatBytes } from "./formatBytes"
-import { CardActionButton } from "./CardActionButton"
+import { DiffAction } from "./DiffAction"
 import { copyText } from "@smthrs/ui/copy"
 import type { CodeEditorViewProps } from "@smthrs/rpc/FileCard"
 import { ActorChip, actorName, actorColour } from "./ActorChip"
 
 export function FilePresenceView({ model, actions, onAction }: CodeEditorViewProps) {
   const [copyFailed, setCopyFailed] = useState(false)
-  const controls = actions.map((action, i) => <CardActionButton key={i} action={action} onAction={onAction} />)
+  const controls = actions.map((action, i) => <DiffAction key={i} action={action} onAction={onAction} />)
   const annotations = model.mode === "live" ? [...new Set(model.editors.map(editor => editor.line))].map(line => {
     const actors = model.editors.filter(editor => editor.line === line).map(editor => editor.actor)
     return { key: `presence-${line}`, line, node: <span className="code-name-flag" title={actors.map(actorName).join(", ")} data-kind={actors[0]!.kind} style={{ "--who": actorColour(actors[0]!) } as CSSProperties}><span>{actorName(actors[0]!)}</span>{actors.length > 1 ? <b>+{actors.length - 1}</b> : null}</span> }
