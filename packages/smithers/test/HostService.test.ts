@@ -2,13 +2,13 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import * as Host from "../src/internal/backend/HostService.ts"
 
 const roots: string[] = []
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
+afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 const fixture = () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-host-")); roots.push(root)
   const bundle = join(root, "bundle & <dir>")
@@ -16,9 +16,9 @@ const fixture = () => {
   const files = ["bin/smithers-server", "bin/smithers-backend", "bin/msb"].map((path) => {
     // Unit-only bytes, never used as a launcher or a repository process.
     writeFileSync(join(bundle, path), path, { mode: 0o755 })
-    return { path, sha256: createHash("sha256").update(path).digest("hex"), stage: "fixture" }
+    return { path, sha256: createHash("sha256").update(path).digest("hex"), stage: "fixture", mode: 0o755 }
   })
-  writeFileSync(join(bundle, "manifest.json"), JSON.stringify({ version: "1.0.0", files }))
+  writeFileSync(join(bundle, "manifest.json"), JSON.stringify({ version: 1, platform: "darwin-arm64", revision: "a".repeat(40), files }))
   let running = false
   const calls: string[][] = []
   const system = {
@@ -35,6 +35,10 @@ const fixture = () => {
 }
 
 describe("restored launchd service", () => {
+  it("refuses root before any launchctl invocation", () => {
+    vi.spyOn(process, "getuid").mockReturnValue(0)
+    expect(() => Host.launchd()).toThrow("unprivileged macOS login session")
+  })
   it("escapes every plist value type and parses with macOS plutil", () => {
     const text = Host.plist({ A: 'x<&>"', B: 3, C: true, D: false, E: ["1", "2"], F: { G: "h" } })
     expect(text).toContain("<string>x&lt;&amp;&gt;&quot;</string>")
@@ -88,10 +92,20 @@ describe("restored launchd service", () => {
     }
     if (kind === "not executable") chmodSync(join(f.bundle, "bin/msb"), 0o644)
     if (kind === "empty") f.files.splice(0)
-    writeFileSync(join(f.bundle, "manifest.json"), JSON.stringify({ files: f.files }))
+    writeFileSync(join(f.bundle, "manifest.json"), JSON.stringify({ version: 1, platform: "darwin-arm64", revision: "a".repeat(40), files: f.files }))
     expect(() => Host.install(f.options, f.system)).toThrow()
     expect(f.calls).toEqual([])
     expect(existsSync(f.system.agentsDir)).toBe(false)
+  })
+  it.each(["version", "platform", "revision", "mode", "stage", "symlink"])("verifies landed manifest %s metadata before touching launchd", (kind) => {
+    const f = fixture(), path = join(f.bundle, "manifest.json"), manifest = JSON.parse(readFileSync(path, "utf8"))
+    if (["version", "platform", "revision"].includes(kind)) manifest[kind] = "invalid"
+    else if (kind === "mode") manifest.files[0].mode = 0o644
+    else if (kind === "stage") delete manifest.files[0].stage
+    else manifest.files[0].symlink = "other"
+    writeFileSync(path, JSON.stringify(manifest))
+    expect(() => Host.install(f.options, f.system)).toThrow()
+    expect(f.calls).toEqual([])
   })
   it("does not replace the plist when bootout fails", () => {
     const f = fixture(); Host.install(f.options, f.system)
@@ -108,6 +122,16 @@ describe("restored launchd service", () => {
     expect(() => Host.install(f.options, f.system)).toThrow("bootstrap failed")
     f.system.launchctl = launch
     expect(Host.install(f.options, f.system)).toBe("installed")
+  })
+  it("runs bundled doctor with the required state root and no shell credentials", () => {
+    const run = vi.fn(() => ({ status: 0, stdout: "", stderr: "" })) as unknown as typeof spawnSync
+    Host.doctor("/bundle", "/state", run)
+    expect(run).toHaveBeenCalledWith("/bundle/bin/smithers-backend", ["microvm", "doctor"], {
+      encoding: "utf8", timeout: 30000,
+      env: { HOME: homedir(), PATH: "/bundle/bin:/usr/bin:/bin", SMITHERS_DATA_ROOT: "/state", SMITHERS_MICROSANDBOX_BIN: "/bundle/bin/msb" }
+    })
+    const failed = vi.fn(() => ({ status: 1, stdout: "", stderr: "private diagnostic" })) as unknown as typeof spawnSync
+    expect(() => Host.doctor("/bundle", "/state", failed)).toThrow("Bundled microVM doctor failed: /bundle")
   })
   it("resolves explicit bundle paths and refuses a missing default naming both choices", () => {
     expect(Host.resolveBundle(".")).toBe(process.cwd())

@@ -1,7 +1,7 @@
 /** Per-user launchd adapter restored from organization/setup/service.ts. */
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { request } from "node:http"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
@@ -80,6 +80,7 @@ export const plistFile = (system: Launchd) => join(system.agentsDir, `${label}.p
 export const verifyBundle = (input: string): { bundle: string; version: string } => {
   const bundle = realpathSync(resolve(input))
   const manifest = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"))
+  if (manifest.version !== 1 || manifest.platform !== "darwin-arm64" || !/^[a-f0-9]{40,64}$/.test(manifest.revision)) throw new Error("Invalid bundle manifest")
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) throw new Error("Invalid bundle manifest files")
   const declared = new Set<string>()
   for (const entry of manifest.files) {
@@ -92,6 +93,10 @@ export const verifyBundle = (input: string): { bundle: string; version: string }
     if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256) || !realpathSync(file).startsWith(bundle + "/")) {
       throw new Error(`Invalid bundle manifest entry: ${path}`)
     }
+    const info = lstatSync(file)
+    if (typeof entry.stage !== "string" || !entry.stage || entry.mode !== (info.mode & 0o777) ||
+      (info.isSymbolicLink() ? entry.symlink !== readlinkSync(file) || isAbsolute(entry.symlink) : entry.symlink !== undefined) ||
+      (!info.isFile() && !info.isSymbolicLink())) throw new Error(`Bundle metadata differs: ${path}`)
     if (createHash("sha256").update(readFileSync(file)).digest("hex") !== entry.sha256) {
       throw new Error(`Bundle hash differs: ${path}`)
     }
@@ -107,7 +112,7 @@ export const verifyBundle = (input: string): { bundle: string; version: string }
   for (const path of ["bin/smithers-server", "bin/smithers-backend", "bin/msb"]) {
     if (!declared.has(path) || !(lstatSync(join(bundle, path)).mode & 0o111)) throw new Error(`Bundle executable missing: ${path}`)
   }
-  return { bundle, version: String(manifest.version ?? manifest.buildSha ?? "unknown") }
+  return { bundle, version: manifest.revision }
 }
 export const resolveBundle = (input?: string): string => {
   if (input) return resolve(input)
@@ -211,10 +216,16 @@ export const status = async () => {
   const system = launchd(), bundle = installedBundle(system)
   const verified = verifyBundle(bundle)
   if (!loaded(system) || !await ready()) throw new Error(`Host unhealthy: ${bundle}`)
-  const doctor = spawnSync(join(bundle, "bin/smithers-backend"), ["microvm", "doctor"], {
-    encoding: "utf8", timeout: 30_000,
-    env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_MICROSANDBOX_BIN: join(bundle, "bin/msb") }
-  })
-  if (doctor.status !== 0) throw new Error(`Bundled microVM doctor failed: ${bundle}`)
+  doctor(bundle, stateDirectory())
   return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready" }
+}
+
+/** Read-only bundled diagnostics need the same state root as the running service. */
+export const doctor = (bundle: string, stateDir: string, run = spawnSync): void => {
+  const result = run(join(bundle, "bin/smithers-backend"), ["microvm", "doctor"], {
+    encoding: "utf8", timeout: 30_000,
+    env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_DATA_ROOT: stateDir,
+      SMITHERS_MICROSANDBOX_BIN: join(bundle, "bin/msb") }
+  })
+  if (result.status !== 0) throw new Error(`Bundled microVM doctor failed: ${bundle}`)
 }

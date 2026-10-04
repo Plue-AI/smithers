@@ -186,7 +186,7 @@ Build the bundle using `node packages/smithers/bin/smithers.mjs build //apps/app
 when T-INS-01 lands, then:
 
 ```
-node packages/smithers/bin/smithers.mjs host start --bundle <bundle-directory>
+node packages/smithers/bin/smithers.mjs host start --bundle "$PWD/apps/app/.native"
 node packages/smithers/bin/smithers.mjs host status
 node packages/smithers/bin/smithers.mjs host stop
 ```
@@ -204,7 +204,7 @@ Real qualification, after dependencies land and the existing host is stopped:
 
 ```
 cd packages/smithers
-SMITHERS_HOST_TEST_BUNDLE=<absolute-real-bundle> pnpm exec vitest run test/host-service.integration.test.ts --coverage.enabled=false
+SMITHERS_HOST_TEST_BUNDLE="$PWD/../../apps/app/.native" pnpm exec vitest run test/host-service.integration.test.ts --coverage.enabled=false
 ```
 
 This harness uses real launchd and the production source CLI, refuses an
@@ -214,9 +214,10 @@ reboot, owner claim, all child UIDs and disabled-msb qualification remain.
 
 ## Assumed provider contracts
 
-- T-INS-01 manifest.json has files[{path,sha256,stage}], covering every file
-  except manifest.json; bin/smithers-server, bin/smithers-backend and bin/msb
-  are executable. Version display uses version or buildSha until confirmed.
+- Confirmed T-INS-01: apps/app/.native/manifest.json has version 1,
+  platform darwin-arm64, revision and files[{path,sha256,stage,mode,symlink?}],
+  covering every file except manifest.json; bin/smithers-server,
+  bin/smithers-backend and bin/msb are executable. Status displays revision.
 - T-INS-02's newer adopted socket contract supersedes this ticket's older
   file handoff: ProgramArguments includes --setup-handoff=socket. No
   setup-urls.json is created. Launcher derives state from the installing user’s HOME.
@@ -320,3 +321,59 @@ Code/test increment before this report: 18 files, 239 insertions, 534 deletions,
 ## Not done
 
 C-J1-04 is unrun, not passed: no fresh-user install/GitHub journey or screen recording, and this checkout's backend composition still lacks /api/todos routes when inspected. The operator must use the parallel providers' landed implementation before trying the journey. No production PostgreSQL/dispatcher integration was run; duplicate creation, transaction audience clearing, GitHub checks.Land and merge authorization still need provider/integration receipts. C-UI-13's mounting/deletion changes are present, but its full acceptance runner was not run. C-APP-01/02/03, C-J2-01, C-J4-02, C-J9-01 and the remaining S1 integrations are not claimed: Take over, image.add, queued Edit, shared-card persistence, wiki page-save, expanded PR projections and provider-backed answer/control completion remain later work. No issue was closed.
+## T-INS-08 second increment and current dependency state
+
+First increment landed: 354ce345f21b8623ce942dbc278d8768e9bc3d8b.
+T-INS-01 and T-INS-02 subsequently landed and were integrated. The CLI now
+verifies manifest schema version 1, darwin-arm64, revision, modes, symlink
+metadata and all file digests; status displays the bundle revision. Doctor
+now gets SMITHERS_DATA_ROOT, required by the real bundled subcommand.
+
+The private backend transport is
+`services.StartInstallSetupHandoff(ctx, stateDir, emit)`. Its production
+callback is `func(context.Context, io.Writer) error`: it must replay the
+owner authority's committed in-memory URLs without rotating, hold
+installSetupOwnerLockID through Write (including transport flush), and return
+CodeSetupClosed after claim. Terminal and socket output are mutually exclusive.
+The transport has no cache/minter/token file and sanitizes all failures. It
+refuses root, unsafe paths and an active existing socket; only ECONNREFUSED
+permits stale-socket recovery. Cancellation removes the socket.
+
+**Still required from T-ACC-01:** provide that authority callback and mount
+this transport from the argv-selected service path before /readyz. Its mint,
+owner claim, lock and session changes have not landed at this report's update.
+Do not bind this callback to a minter or to the old persistent bootstrap secret.
+No reader may print a consumed token. Backend service mode currently refuses
+its unsupported argv; no unsafe fallback was enabled.
+
+Executed checks for the second increment:
+
+- `cd packages/backend && go test ./internal/services -run '^TestInstallSetupHandoff' -count=1 -v`:
+  5 top-level tests and 8 subtests passed, zero skips. Real Unix sockets/HTTP;
+  the owner-emission unit seam is explicit and does not prove PostgreSQL races.
+- `cd packages/backend && go build ./...`: exit 0.
+- `cd packages/backend && go vet ./internal/...`: exit 0.
+- `cd packages/smithers && pnpm exec vitest run test/HostService.test.ts test/host-service.integration.test.ts test/OneCli.test.ts test/BackendCommands.test.ts --coverage.enabled=false`:
+  233 passed, one real-bundle skip.
+- `cd packages/smithers && pnpm build`: exit 0.
+- `cd apps/app && bun test --isolate scripts/server-bundle-manifest.test.ts`:
+  11 passed, zero failed; tests the actual landed assembler/CLI compatibility.
+- `node packages/smithers/bin/smithers.mjs build //apps/app:serverBundle --verbose`:
+  failed, 0 successful/1 failed target. Preflight requires
+  SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY from the Linux arm64 release helper.
+  No complete bundle was produced and no real host start was qualified.
+
+No new root step or root-input consumption exists. Positive second-increment
+files: install_setup_handoff.go adds the missing private socket transport,
+using the owner producer rather than a new minter; its test verifies real
+socket permissions, HTTP refusal/bytes, stale recovery, cancellation and flush
+ordering. HostService and its test tighten the landed provider schema and
+fix doctor state propagation. The integration harness preserves symlinks
+on real bundle relocation and tests status after a bundle disappears.
+This report supplies the required operator and evidence handoff.
+
+The new socket transport replaces no surviving service implementation:
+inherited stdout cannot serve a LaunchAgent without leaking URLs into logs,
+and guest Unix transports use a different protocol and execution authority.
+Second increment net: +450/-22 (net +428). The final diff against origin/main
+will be zero after landing; cumulative issue changes remain in the two commits.
