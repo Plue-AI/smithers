@@ -30,6 +30,10 @@ func SetupSessionBoundary(validate func(context.Context, string) error) func(htt
 				next.ServeHTTP(w, r)
 				return
 			}
+			if r.Method == http.MethodGet && r.URL.Path == "/api/user" {
+				pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeUnauthenticated, "Sign in required"))
+				return
+			}
 			pkgerrors.WriteJSON(w, 403, map[string]string{"code": "permission", "class": "permission", "message": "setup only"})
 		})
 	}

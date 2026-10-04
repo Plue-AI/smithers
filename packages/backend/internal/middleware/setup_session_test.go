@@ -39,3 +39,14 @@ func TestSetupSessionBoundary(t *testing.T) {
 		require.Contains(t, rec.Body.String(), `"class":"permission"`)
 	}
 }
+
+func TestSetupIdentityIsSignedOut(t *testing.T) {
+	handler := SetupSessionBoundary(func(context.Context, string) error { return nil })(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("setup reached person identity") }))
+	req := httptest.NewRequest("GET", "/api/user", nil)
+	req.AddCookie(&http.Cookie{Name: "smithers_setup_session", Value: "live"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, 401, rec.Code)
+	require.Contains(t, rec.Body.String(), `"code":"unauthenticated"`)
+	require.Contains(t, rec.Body.String(), `"class":"permission"`)
+}

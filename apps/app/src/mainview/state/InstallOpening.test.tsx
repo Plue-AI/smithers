@@ -70,3 +70,27 @@ test("a reload while the GitHub App step runs shows Setup and stays on the page;
     expect(posts.filter(path => path.endsWith("/api/install/setup/app"))).toEqual([])
   } finally { HTMLFormElement.prototype.submit = submit; flushSync(() => root.unmount()); host.remove() }
 })
+
+test("Setup Sign in follows the GitHub door after the setup-only identity answers unauthenticated (#3455)", async () => {
+  const { installFixture } = await import("./seams/InstallFixtures.test-support")
+  const model = installFixture()
+  model.github = { signed_in: false, app_installed: false }
+  model.steps = model.steps.map((step, index) => ({ id: step.id, state: index < 2 ? "done" : "pending" }))
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["identity", "install"] },
+    fetchImpl: async input => String(input).endsWith("/api/install") ? Response.json(model) : Response.json({ code: "unauthenticated", class: "permission", message: "Sign in required" }, { status: 401 }) })
+  await settled()
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await settled()
+    await controller.loadSession()
+    expect(store.collections.identitySessions.get("identity")?.state).toBe("signed-out")
+    const button = host.querySelector<HTMLButtonElement>('[data-step="sign_in"] button')!
+    expect(button.textContent).toBe("Sign in")
+    button.click(); await settled()
+    expect(window.location.pathname).toBe("/api/auth/github")
+    expect(host.textContent).not.toContain("Sign-in isn't available")
+  } finally { window.history.replaceState({}, "", "/"); flushSync(() => root.unmount()); host.remove() }
+})
