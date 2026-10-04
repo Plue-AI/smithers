@@ -1,6 +1,6 @@
 // Test orchestration only: reuse the bundle launcher instead of a second env builder.
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { resolve, join } from "node:path"
 import { verifyBundle } from "../../../packages/smithers/src/internal/backend/HostService"
@@ -42,6 +42,7 @@ export async function main() {
   const home = mkdtempSync("/tmp/sng-")
   const out = join(app, "test-results/local-no-github")
   mkdirSync(out, { recursive: true })
+  writeFileSync(join(out, "steps.tsv"), "step\tactual\texpected\towner\n", { mode: 0o600 })
   const receipt = join(out, "run.json")
   let backend: NativeBackend | undefined, fake: ReturnType<typeof Bun.spawn> | undefined, browser: ReturnType<typeof Bun.spawn> | undefined
   let backendChild: ReturnType<typeof Bun.spawn> | undefined, buildChild: ReturnType<typeof Bun.spawn> | undefined
@@ -112,12 +113,13 @@ export async function main() {
     const run = { setupURL, fakeURL, revision, home }
     writeFileSync(join(home, "run.json"), JSON.stringify(run), { mode: 0o600 })
     writeFileSync(receipt, JSON.stringify(run), { mode: 0o600 })
+    chmodSync(receipt, 0o600)
     console.log(`SETUP_URL=${setupURL}\nType owner: local-owner. Ctrl-C stops everything and deletes this run's data.`)
     if (!process.argv.includes("--no-browser")) {
       browser = Bun.spawn(["node", "--experimental-strip-types", join(app, "e2e/local/open.ts"), receipt], { cwd: app, stdout: "inherit", stderr: "inherit" })
       void browser.exited.then(() => signal())
     }
-    const failure = await Promise.race([backend.failure, fake.exited.then(code => new Error(`githubfake exited unexpectedly ${code}`))])
+    const failure = await Promise.race([backend.failure, fake.exited.then(code => stopping ? undefined : new Error(`githubfake exited unexpectedly ${code}`))])
     if (failure) throw failure
   } finally { await stop() }
 }

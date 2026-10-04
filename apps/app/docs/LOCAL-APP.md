@@ -485,7 +485,7 @@ your logged-in user, prints the setup URL, and opens Chromium. Enter
 2222 must be free. Ctrl-C stops all three processes and deletes the install's
 state, including PostgreSQL. `--no-browser` starts just the two servers.
 
-Address and Create GitHub App work through the Setup card. Sign-in, repository
+Address, Create GitHub App and sign-in work through the Setup card. Repository
 selection and model access currently have browser blockers owned by
 `crit3-setup-steps`. Source ready and Machine ready belong to `w-source-machine`;
 TODO start, PR and merge remain with their owning lanes. Source import and

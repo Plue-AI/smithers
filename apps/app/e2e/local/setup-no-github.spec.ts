@@ -24,7 +24,6 @@ const click = (name: string) => card().getByRole("button", { name, exact: true }
 
 test.beforeAll(async ({ browser }) => {
   await expect.poll(() => { try { run = JSON.parse(readFileSync(`${output}/run.json`, "utf8")); return true } catch { return false } }).toBe(true)
-  writeFileSync(`${output}/steps.tsv`, "step\tactual\texpected\towner\n", { mode: 0o600 })
   context = await browser.newContext()
   traffic = await githubRoute(context, run.fakeURL)
   page = await context.newPage()
@@ -56,8 +55,7 @@ test("2 app_manifest", async () => {
   expect(traffic.routed).toEqual(["POST /settings/apps/new"])
 })
 test("3 sign_in", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "crit3-setup-steps (T-ACC-01)" })
-  test.fail()
+  info.annotations.push({ type: "owner", description: "crit3-setup-steps (T-ACC-01; now passing)" })
   await click("Sign in")
   await page.getByRole("link", { name: "Authorize", exact: true }).click()
   await done("sign_in")

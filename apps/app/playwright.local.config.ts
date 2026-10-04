@@ -3,6 +3,6 @@ export default defineConfig({
   testDir: "e2e/local", testMatch: "**/setup-no-github.spec.ts", workers: 1,
   fullyParallel: false, retries: 0, timeout: 20_000,
   outputDir: "test-results/local-no-github/artifacts", reporter: "list",
-  use: { headless: true, trace: "retain-on-failure" },
+  use: { headless: true, actionTimeout: 5000, trace: "retain-on-failure" },
   webServer: { command: "bun scripts/run-local-no-github.ts --no-browser", url: "http://127.0.0.1:4000/readyz", timeout: 120_000, reuseExistingServer: false, gracefulShutdown: { signal: "SIGTERM", timeout: 20_000 } }
 })
