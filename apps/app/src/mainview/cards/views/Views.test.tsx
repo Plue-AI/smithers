@@ -1,4 +1,7 @@
 import type { Action } from "@smthrs/rpc/CardAction"
+import { stories as secretsStories } from "./SecretsView.stories"
+import { SecretsView } from "./SecretsView"
+import type { SecretsViewProps } from "@smthrs/rpc/SecretsCard"
 import { BranchView } from "./BranchView"
 import { fixtures as branchFixtures } from "@smthrs/rpc/fixtures/Branch"
 import { TerminalView } from "./TerminalView"
@@ -160,7 +163,7 @@ for (const path of paths) {
           }
           return
         }
-        if (path === "SecretsView.stories.tsx") return // Dedicated fixture interaction suite.
+        if (path === "SecretsView.stories.tsx") return // Literal write-only interaction cases below.
         const interactions = story.interactions ?? []
         const gestureControls = new Set(interactions.filter(item => item.gesture).map(item => host.querySelector(item.selector)))
         const controls = [...host.querySelectorAll<HTMLButtonElement>("button[data-flow]")].filter(control => !gestureControls.has(control))
@@ -1944,3 +1947,116 @@ for (const key of ["awake", "asleep", "waking", "waiting", "closed", "failed", "
       }
     } finally { await item.close() }
   })
+
+// Literal oracles for T-UI-18; no fixture expectations or schemas supply these cases.
+describe("SecretsView write-only controls", () => {
+  const add: Action = { tag: "secrets.set", label: "Add", input: [
+    { name: "name", label: "Name", kind: "text", required: true },
+    { name: "value", label: "Value", kind: "secret", required: true, value: "never-prefill" },
+    { name: "scope", label: "Scope", kind: "choice", required: true, choices: ["all_branches", "main_only"] },
+    { name: "hosts", label: "Hosts", kind: "text", required: false }
+  ] }
+  async function mount(model: SecretsViewProps["model"], actions: Action[] = []) {
+    return mounted({ name: "literal", expect: [], render: callbacks => <SecretsView model={model} actions={actions} gestures={{}} view={{ maximized: false }} {...callbacks} /> })
+  }
+  async function fill(host: HTMLElement, label: string, value: string) {
+    const input = host.querySelector<HTMLInputElement | HTMLSelectElement>(`[aria-label="${label}"]`)!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(input instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      input.dispatchEvent(new Event(input instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }))
+    })
+  }
+  test("empty list and member with no actions render no controls", async () => {
+    for (const secrets of [[], [{ name: "NPM_TOKEN", scope: "all_branches" as const, actions: [] }]]) {
+      const m = await mount({ secrets })
+      try { expect(m.host.querySelectorAll("button,input,select,summary")).toHaveLength(0); expect(m.host.textContent).toContain("Secrets") }
+      finally { await m.close() }
+    }
+  })
+  test("both scope words and hostile names render as text", async () => {
+    const m = await mount({ secrets: [
+      { name: '<img src=x onerror="alert(1)">', scope: "all_branches", hosts: ["<script>evil</script>"], actions: [] },
+      { name: "RELEASE_TOKEN", scope: "main_only", actions: [] }
+    ] })
+    try {
+      expect(m.host.textContent).toContain('<img src=x onerror="alert(1)">')
+      expect(m.host.textContent).toContain("all branches")
+      expect(m.host.textContent).toContain("main only")
+      expect(m.host.querySelector("img,script")).toBeNull()
+    } finally { await m.close() }
+  })
+  for (const replace of [false, true]) test(`${replace ? "Replace" : "Add"} inputs, optional Hosts, submit and cancel clear Value`, async () => {
+    const action: Action = replace ? { ...add, label: "Replace", args: { name: "STRIPE_KEY" }, input: add.input!.slice(1) } : add
+    const m = await mount({ secrets: replace ? [{ name: "STRIPE_KEY", scope: "main_only", actions: [action] }] : [] }, replace ? [] : [action])
+    try {
+      const password = m.host.querySelector<HTMLInputElement>('input[type="password"]')!
+      expect(password.value).toBe("")
+      expect(m.host.querySelector("form")!.dataset.flow).toBe("secrets.set")
+      if (!replace) await fill(m.host, "Name", "NEW_TOKEN")
+      await fill(m.host, "Value", "literal-write")
+      await fill(m.host, "Scope", "main_only")
+      await fill(m.host, "Hosts", "<script>evil</script>")
+      expect(m.host.querySelector("script")).toBeNull()
+      await act(async () => m.host.querySelector<HTMLButtonElement>('button[type="button"]')!.click())
+      expect(password.value).toBe("")
+      expect(m.onAction).toHaveBeenCalledTimes(0)
+      if (!replace) await fill(m.host, "Name", "NEW_TOKEN")
+      await fill(m.host, "Value", "literal-write")
+      await fill(m.host, "Scope", "main_only")
+      await fill(m.host, "Hosts", "api.example.com")
+      await act(async () => m.host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
+      expect(m.onAction).toHaveBeenCalledTimes(1)
+      const [tag, args] = m.onAction.mock.calls[0]!
+      expect(tag).toBe("secrets.set")
+      // Compare the secret in memory without recording it in assertion output.
+      expect(args?.value === "literal-write").toBe(true)
+      expect<Record<string, string>>({ ...args, value: "[redacted]" }).toEqual({ name: replace ? "STRIPE_KEY" : "NEW_TOKEN", value: "[redacted]", scope: "main_only", hosts: "api.example.com" })
+      m.onAction.mockClear()
+      expect(password.value).toBe("")
+      expect(m.onView).toHaveBeenCalledTimes(0)
+    } finally { m.onAction.mockClear(); await m.close() }
+  })
+  test("disabled Add and Delete refuse clicks and form submission", async () => {
+    const m = await mount({ secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, [{ ...add, disabled: { reason: "Change pending" } }])
+    try {
+      for (const form of m.host.querySelectorAll("form")) await act(async () => {
+        form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      })
+      expect(m.host.querySelectorAll("input:disabled,select:disabled")).toHaveLength(4)
+      expect(m.onAction).toHaveBeenCalledTimes(0)
+    } finally { await m.close() }
+  })
+  test("Delete forwards supplied name exactly once", async () => {
+    const m = await mount({ secrets: [{ name: "TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "TOKEN" } }] }] })
+    try {
+      await act(async () => m.host.querySelector<HTMLButtonElement>("button")!.click())
+      expect(m.onAction.mock.calls).toEqual([["secrets.delete", { name: "TOKEN" }]])
+    } finally { await m.close() }
+  })
+})
+
+test("Secrets stories keep minimal product copy and redact submitted values", async () => {
+  for (const story of secretsStories) {
+    const m = await mounted(story)
+    try {
+      const forbidden = /\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythical|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i
+      expect(m.host.textContent).not.toMatch(forbidden)
+      for (const block of m.host.querySelectorAll("p,li,h2,label,button,td")) {
+        expect(block.textContent!.trim().split(/\s+/).length).toBeLessThanOrEqual(12)
+      }
+      if (story.name === "no_hosts_field") expect(m.host.querySelector('[aria-label="Hosts"]')).toBeNull()
+      if (story.name === "empty") {
+        for (const [label, value] of [["Name", "NEW_TOKEN"], ["Value", "write-only"]]) {
+          const input = m.host.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!
+          await act(async () => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+            input.dispatchEvent(new Event("input", { bubbles: true }))
+          })
+        }
+        await act(async () => m.host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
+        expect(m.onAction.mock.calls).toEqual([["secrets.set", { name: "NEW_TOKEN", value: "[redacted]", scope: "all_branches", hosts: "" }]])
+      }
+    } finally { await m.close() }
+  }
+})

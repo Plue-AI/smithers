@@ -544,6 +544,40 @@ test("File light syntax resolves to Paper ink", async ({ page }) => {
   })).toBe(true)
 })
 
+test("Secrets Add, Cancel and absent actions use real controls", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
+    await page.goto(`/view-stories.html?story=SecretsView/empty&theme=${theme}`)
+    await page.evaluate(() => {
+      Object.assign(window, { secretCalls: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
+    })
+    const form = page.locator('.secret-add form')
+    await form.getByRole("textbox", { name: "Name", exact: true }).fill("NEW_TOKEN")
+    await form.locator('input[type="password"]').fill("cancelled-write")
+    await form.getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(form.locator('input[type="password"]')).toHaveValue("")
+    expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([])
+    await form.getByRole("textbox", { name: "Name", exact: true }).fill("NEW_TOKEN")
+    await form.locator('input[type="password"]').fill("submitted-write")
+    await form.locator('select').selectOption("main_only")
+    await form.getByRole("textbox", { name: "Hosts", exact: true }).fill("api.example.com")
+    await form.getByRole("button", { name: "Add", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([
+      { kind: "action", value: { tag: "secrets.set", args: { name: "NEW_TOKEN", value: "[redacted]", scope: "main_only", hosts: "api.example.com" } } }
+    ])
+    await expect(form.locator('input[type="password"]')).toHaveValue("")
+    await page.goto(`/view-stories.html?story=SecretsView/member_view&theme=${theme}`)
+    await expect(page.locator('.secrets-view')).toContainText("NPM_TOKEN")
+    await expect(page.locator('.secrets-view button')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=SecretsView/empty&removeFirst&theme=${theme}`)
+    await expect(page.locator('.secrets-view button')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=SecretsView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeDisabled()
+  }
+})
+
 test("Secrets Replace keyboard form keeps values write-only", async ({ page }) => {
   for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
@@ -562,7 +596,7 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
     await form.locator('input[aria-label="Hosts"]').fill("")
     await form.getByRole("button", { name: "Replace" }).focus(); await page.keyboard.press("Enter")
     expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([
-      { kind: "action", value: { tag: "secrets.set", args: { name: "STRIPE_KEY", value: "replacement-value", scope: "all_branches", hosts: "" } } },
+      { kind: "action", value: { tag: "secrets.set", args: { name: "STRIPE_KEY", value: "[redacted]", scope: "all_branches", hosts: "" } } },
     ])
     await expect(form.locator('input[type="password"]')).toHaveValue("")
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

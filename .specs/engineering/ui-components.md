@@ -630,6 +630,8 @@ type SecretsViewProps = CardProps<SecretsCard>
 
 Values never enter the model. Add and Replace supply Value, Scope and optional
 Hosts through `Action.input`; Add also supplies Name. Replace expands locally.
+Value starts empty even if supplied a default and clears on Submit or Cancel.
+Disabled actions refuse form submission; story callbacks redact Value.
 Rows show names and scope, without a Hosts count or Bind control.
 
 ### T-UI-20 Proposal and lessons receipt
