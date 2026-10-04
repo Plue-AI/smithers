@@ -261,20 +261,25 @@ func TestMythicalMergeRoute(t *testing.T) {
 }
 
 func TestMythicalMergeRejectsTokensBeforeRepositoryReads(t *testing.T) {
-	for _, info := range []*middleware.AuthInfo{
-		nil,
-		{User: &db.User{ID: 7}, IsTokenAuth: true},
-		{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true},
-		{User: &db.User{ID: 7, UserType: "bot"}, SessionHash: "session"},
+	permission := `{"code":"permission","class":"permission","message":"Merge requires an owner or maintainer browser session"}`
+	for _, tc := range []struct {
+		info   *middleware.AuthInfo
+		status int
+		body   string
+	}{
+		{nil, http.StatusUnauthorized, `{"code":"unauthenticated","class":"permission","message":"Sign in to merge"}`},
+		{&middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true}, http.StatusForbidden, permission},
+		{&middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true}, http.StatusForbidden, permission},
+		{&middleware.AuthInfo{User: &db.User{ID: 7, UserType: "bot"}, SessionHash: "session"}, http.StatusForbidden, permission},
 	} {
 		service := &fakeMythicalRoute{}
 		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 		ctx := context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 7})
-		ctx = middleware.ContextWithAuthInfo(ctx, info)
+		ctx = middleware.ContextWithAuthInfo(ctx, tc.info)
 		rec := httptest.NewRecorder()
 		(&MythicalHandler{Service: service}).Merge(rec, request.WithContext(ctx))
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-		assert.JSONEq(t, `{"code":"permission","class":"permission","message":"Merge requires an owner or maintainer browser session"}`, rec.Body.String())
+		assert.Equal(t, tc.status, rec.Code)
+		assert.JSONEq(t, tc.body, rec.Body.String())
 		assert.Empty(t, service.lands)
 	}
 }

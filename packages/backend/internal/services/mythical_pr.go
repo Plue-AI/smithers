@@ -334,6 +334,43 @@ func (g *mythicalGitHubAPI) HeadCheckFacts(ctx context.Context, gh mythicalGitHu
 	return facts, nil
 }
 
+// ReviewDecision reads GitHub's own reviewDecision for the pull request, so
+// branch protection, rulesets and code owners decide it as they decide the
+// merge; GitHub answers null when main requires no review.
+func (g *mythicalGitHubAPI) ReviewDecision(ctx context.Context, gh mythicalGitHubRepo, number int64) (string, error) {
+	var result struct {
+		Data struct {
+			Repository *struct {
+				PullRequest *struct {
+					ReviewDecision *string `json:"reviewDecision"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	query := "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewDecision } } }"
+	status, err := g.api.request(ctx, gh.Token, http.MethodPost, "/graphql", map[string]any{"query": query,
+		"variables": map[string]any{"owner": gh.Owner, "name": gh.Name, "number": number}}, &result)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read pull request reviews")
+	}
+	if len(result.Errors) > 0 {
+		return "", fmt.Errorf("GitHub did not answer pull request %d's review decision: %s", number, result.Errors[0].Message)
+	}
+	if result.Data.Repository == nil || result.Data.Repository.PullRequest == nil {
+		return "", fmt.Errorf("GitHub did not answer pull request %d's review decision", number)
+	}
+	if decision := result.Data.Repository.PullRequest.ReviewDecision; decision != nil {
+		return *decision, nil
+	}
+	return "", nil
+}
+
 // The production path refuses before token issuance, git transfer or writes
 // until the accepted identity/manifest and publication authority are available.
 type mythicalPRUnavailable struct{}

@@ -17,56 +17,94 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These HTTP tests use the production numbered handler and service. They prove
-// refusal while install dispatch is unavailable, not successful GitHub merging.
-func TestTodoMergeHTTPRefusesWithoutDispatch(t *testing.T) {
+// The production numbered handler and service with real PostgreSQL: every
+// credential but the owner's browser session is refused in the §6.2.3
+// envelope before any read, and no refusal records an approval or a fence.
+// Successful dispatch against the GitHub fake is proved in services
+// (TestMythicalMergeTodoSquashesAtTheReviewedHead).
+func TestTodoMergeHTTPRefusals(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
-	var user, repo int64
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('merge-owner','merge-owner') RETURNING id`).Scan(&user))
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'merge-repo','merge-repo') RETURNING id`, user).Scan(&repo))
-	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES (true,$1)`, user)
+	var owner, member, bot, repo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('merge-owner','merge-owner') RETURNING id`).Scan(&owner))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('merge-member','merge-member') RETURNING id`).Scan(&member))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,user_type) VALUES ('merge-bot','merge-bot','bot') RETURNING id`).Scan(&bot))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'merge-repo','merge-repo') RETURNING id`, owner).Scan(&repo))
+	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES (true,$1)`, owner)
 	require.NoError(t, err)
 	q := db.New(pool)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"merge-owner","repository_name":"merge-repo"}`)}))
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo, IssueNumber: pgtype.Int8{Int64: 81, Valid: true}, State: "proposed", Checks: []byte(`{"todo":true}`)})
 	require.NoError(t, err)
 	head := strings.Repeat("a", 40)
-	_, err = pool.Exec(ctx, `UPDATE mythical_items SET number=7,pr_number=19,pr_head=$2,pr_state='open' WHERE id=$1`, item.ID, head)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET number=7,pr_number=19,pr_head=$2,pr_state='open',candidate_verified=true WHERE id=$1`, item.ID, head)
+	require.NoError(t, err)
+	before, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	handler := &TodoHandler{Queries: q, Service: services.NewMythicalService(pool, nil)}
 	router := chi.NewRouter()
 	router.Post("/api/todos/{n}/merge", handler.Merge)
+	// No queries or service at all: a refusal it still answers read nothing.
+	unread := chi.NewRouter()
+	unread.Post("/api/todos/{n}/merge", (&TodoHandler{}).Merge)
+	post := func(router http.Handler, path, body string, info *middleware.AuthInfo) (int, map[string]any) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/todos/"+path+"/merge", strings.NewReader(body))
+		req = req.WithContext(middleware.ContextWithAuthInfo(ctx, info))
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		var envelope map[string]any
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope), response.Body.String())
+		return response.Code, envelope
+	}
+	body := `{"reviewed_head_sha":"` + head + `"}`
+	sessionRefusal := map[string]any{"code": "permission", "class": "permission", "message": "Merge requires an owner or maintainer browser session"}
+	for _, tc := range []struct {
+		name     string
+		info     *middleware.AuthInfo
+		status   int
+		envelope map[string]any
+	}{
+		{"no credential", nil, 401, map[string]any{"code": "unauthenticated", "class": "permission", "message": "Sign in to merge"}},
+		{"delegated token", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSource: middleware.TokenSourcePersonalAccessToken}, 403, sessionRefusal},
+		{"run credential", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: middleware.RepositoryRestrictionScope(repo) + "," + middleware.AgentSessionRestrictionScope("run-1")}, 403, sessionRefusal},
+		{"machine credential", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: middleware.WorkspaceChildrenCredentialScope()}, 403, sessionRefusal},
+		{"OAuth application token", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, TokenSource: middleware.TokenSourceOAuth2AccessToken}, 403, sessionRefusal},
+		{"token carrying a session hash", &middleware.AuthInfo{User: &db.User{ID: owner}, IsTokenAuth: true, SessionHash: "browser-session"}, 403, sessionRefusal},
+		{"agent account session", &middleware.AuthInfo{User: &db.User{ID: bot, UserType: "bot"}, SessionHash: "browser-session"}, 403, sessionRefusal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, router := range []http.Handler{router, unread} {
+				status, envelope := post(router, "7", body, tc.info)
+				require.Equal(t, tc.status, status)
+				require.Equal(t, tc.envelope, envelope)
+			}
+		})
+	}
+	ownerSession := &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "browser-session"}
 	for _, tc := range []struct {
 		name, path, body, code string
 		status                 int
-		token                  bool
+		info                   *middleware.AuthInfo
 	}{
-		{"dispatch unavailable", "7", `{"reviewed_head_sha":"` + head + `"}`, "rechecking", 409, false},
-		{"stale", "7", `{"reviewed_head_sha":"` + strings.Repeat("b", 40) + `"}`, "stale_head", 409, false},
-		{"issue number is not TODO number", "81", `{"reviewed_head_sha":"` + head + `"}`, "todo_not_found", 404, false},
-		{"malformed", "7", `{"reviewed_head_sha":42}`, "invalid_reviewed_head_sha", 400, false},
-		{"missing", "7", `{}`, "invalid_reviewed_head_sha", 400, false},
-		{"trailing body", "7", `{} {}`, "invalid_reviewed_head_sha", 400, false},
-		{"token", "7", `{"reviewed_head_sha":"` + head + `"}`, "permission", 403, true},
+		{"member session", "7", body, "permission", 403, &middleware.AuthInfo{User: &db.User{ID: member}, SessionHash: "member-session"}},
+		{"issue number is not TODO number", "81", body, "todo_not_found", 404, ownerSession},
+		{"malformed", "7", `{"reviewed_head_sha":42}`, "invalid_reviewed_head_sha", 400, ownerSession},
+		{"missing", "7", `{}`, "invalid_reviewed_head_sha", 400, ownerSession},
+		{"trailing body", "7", `{} {}`, "invalid_reviewed_head_sha", 400, ownerSession},
+		{"short", "7", `{"reviewed_head_sha":"` + head[:39] + `"}`, "invalid_reviewed_head_sha", 400, ownerSession},
+		{"GitHub not configured", "7", body, "github_unavailable", 503, ownerSession},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/api/todos/"+tc.path+"/merge", strings.NewReader(tc.body))
-			req = req.WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: user}, SessionHash: "browser-session", IsTokenAuth: tc.token}))
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, req)
-			require.Equal(t, tc.status, response.Code, response.Body.String())
-			var body map[string]any
-			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-			require.Equal(t, tc.code, body["code"])
-			if tc.code == "stale_head" {
-				require.Equal(t, head, body["current_head_sha"])
-			}
-			stored, err := q.GetMythicalItem(ctx, item.ID)
-			require.NoError(t, err)
-			require.JSONEq(t, `{"todo":true}`, string(stored.Checks))
-			require.Empty(t, stored.PendingOp)
-			require.Equal(t, "proposed", stored.State)
+			status, envelope := post(router, tc.path, tc.body, tc.info)
+			require.Equal(t, tc.status, status, envelope)
+			require.Equal(t, tc.code, envelope["code"])
 		})
 	}
+	stored, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, before.Version, stored.Version, "no refusal writes the TODO")
+	require.JSONEq(t, `{"todo":true}`, string(stored.Checks))
+	require.Empty(t, stored.PendingOp)
+	require.Equal(t, "proposed", stored.State)
 }

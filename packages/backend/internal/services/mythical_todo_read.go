@@ -66,7 +66,10 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem) (m
 	card := map[string]any{"n": item.Number.Int64, "title": item.Title.String, "state": todoState(item),
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
 		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": []any{}, "evidence": []any{},
-		"merge": map[string]any{"state": "waiting", "reason": "state", "on_github": item.PRNumber.Valid}, "present": []any{}}
+		"present": []any{}}
+	if card["merge"], err = s.todoMerge(ctx, item); err != nil {
+		return nil, err
+	}
 	if item.WorkspaceID != "" {
 		workspace, err := s.queries().GetWorkspace(ctx, item.WorkspaceID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {

@@ -54,19 +54,19 @@ func (input TodoControlInput) validate() error {
 
 // todoControlFacts are read-only runtime facts supplied with the locked item,
 // never inferred from its product state. They introduce no persisted state or
-// alternate projection. T-STK-01/T-FLW-11 own their committed sources.
+// alternate projection. T-STK-01/T-FLW-11 own their committed sources. The
+// merge fence is the item's own (mythicalMergeFenced).
 type todoControlFacts struct {
 	Executing bool
 	Paused    bool
 	Waits     []string
-	Merging   bool
 }
 
 func todoControlGuard(item db.MythicalItem, input TodoControlInput, facts todoControlFacts) error {
 	if err := input.validate(); err != nil {
 		return err
 	}
-	if facts.Merging {
+	if mythicalMergeFenced(item) {
 		return &TodoControlError{http.StatusConflict, "merging", "conflict", "TODO is merging"}
 	}
 	if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" {
