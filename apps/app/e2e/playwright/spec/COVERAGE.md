@@ -105,3 +105,14 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 
 C-UI-13 also has a passing UI projection for the mounted Setup
 View; full reachability and remaining fixtures await their wiring tickets.
+
+| C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | fixme-before-implementation | T-AGT-02, T-AGT-03 |
+| C-COL-01 | [C-COL-01.spec.ts](C-COL-01.spec.ts) | fixme-before-implementation | T-COL-10, T-COL-03r, T-COL-08a, T-COL-08b, T-APP-14a |
+| C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | fixme-before-implementation | T-COL-02 |
+| C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | fixme-before-implementation | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |
+| C-COL-04 | [C-COL-04.spec.ts](C-COL-04.spec.ts) | fixme-before-implementation | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
+| C-COL-05 | [C-COL-05.spec.ts](C-COL-05.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-04a, T-APP-10, T-APP-11 |
+
+C-COL-05 also has a passing projection for the mounted Branch Files panel:
+no changed rows before a write, and Alice's presence opens readable file content
+by keyboard and retains it across reload. Watcher faults remain fixme.
