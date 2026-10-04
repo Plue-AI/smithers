@@ -32,12 +32,12 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 
 | What | File | Replaced by | Ticket |
 | --- | --- | --- | --- |
-| Home model (stack rows, main sync row, background runs) | DesignWorld/home.ts `designHomeModel`, `useDesignHome`; cards/HomeContainer.tsx | topic `home`, `GET /api/stack` | T-APP-01 |
-| `/stack` open | DesignWorld/home.ts `openDesignHome`; flows/entries/home.ts | per-member view topic | T-APP-01, T-APP-16 |
-| Move | flows/entries/home.ts `actions.design.move` | `POST /api/todos/{n}/move` | T-STK-02 |
-| Merge (person only) | flows/entries/home.ts `actions.design.merge` | `POST /api/todos/{n}/merge` | T-STK-04 |
-| Background Retry / Dismiss | flows/entries/home.ts `retryRun`, `dismissRun` | `POST /api/runs/{id}` retry, dismiss | T-APP-01, T-STK-05 |
-| Main sync Retry | flows/entries/home.ts `syncRetry` | `POST /api/github/sync` | T-GH-07 |
+| Home model (stack rows, main sync row, background runs) | HomeContainer reads `home`; seeded Home module deleted. Mount remains dark without complete production composition. | topic `home`, `GET /api/stack` | T-APP-01 |
+| `/stack` open | Mock removed; production dispatcher refuses unavailable Home provider. | per-member view topic | T-APP-01, T-APP-16 |
+| Move | flows/entries/home.ts: mock removed; unavailable provider refused | `POST /api/todos/{n}/move` | T-STK-02 |
+| Merge (person only) | flows/entries/home.ts: mock removed; unavailable provider refused | `POST /api/todos/{n}/merge` | T-STK-04 |
+| Background Retry / Dismiss | Mock removed; production dispatcher refuses unavailable Home provider. | `POST /api/runs/{id}` retry, dismiss | T-APP-01, T-STK-05 |
+| Main sync Retry | flows/entries/home.ts: mock removed; unavailable provider refused | `POST /api/github/sync` | T-GH-07 |
 | TODO card rows (`todo:<n>` carries only n) | DesignWorld/todo.ts `useDesignTodoCard`; cards/TodoContainer.tsx | topic `todo:<n>`, `/api/todos` via TodoSeam | T-APP-02 |
 | All `todo.*` / `draft.*` handlers | DesignWorld/todo.ts `withDesignTodos`; state/AppController.ts ~842 | createTodoSeam, `/api/todos` | T-APP-02, T-STK-01/02/05/06 |
 | Draft audience `design:<member>` | DesignWorld/todo.ts `designAudience`; cards/DraftContainer.tsx | identity login | T-APP-02, T-ACC-01 |

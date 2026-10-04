@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Home"
-import { HomeContainer } from "./HomeContainer"
+import { HomeCard, HomeContainer } from "./HomeContainer"
 const allowed = new Set<CatalogTag>(["todo.new", "github", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
@@ -88,4 +88,17 @@ test("Merge is absent for members and for blocked, later or draft rows", () => {
     const h = mount({ ...base, attention: [], items: [{ ...row, ...patch }] })
     expect(h.props.model.items[0]!.actions).toEqual([])
   }
+})
+
+test("Home stays unmounted without the complete production composition", () => {
+  expect(renderToStaticMarkup(<HomeCard />)).toBe("")
+})
+
+test("only the first unmerged row can offer one Merge, even with duplicate supplied controls", () => {
+  const base = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
+  const row = { ...base.items[0]!, state: "in_review", place: 1, merge: { state: "ready", on_github: false }, pr: { number: 123, draft: false }, actions: [{ tag: "merge", label: "Merge" }, { tag: "merge", label: "Merge" }] }
+  const h = mount({ ...base, items: [row, { ...row, n: 99 }] })
+  expect(h.props.model.items.map(item => item.actions.map(action => action.tag))).toEqual([["merge"], []])
+  const waiting = mount({ ...base, items: [{ ...row, state: "working", actions: [] }, { ...row, n: 99 }] })
+  expect(waiting.props.model.items.flatMap(item => item.actions)).toEqual([])
 })
