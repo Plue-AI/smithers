@@ -68,14 +68,15 @@ Settings is the owner's card (mvp.md Appendix A `/settings`). When the flag is o
  Key       ssh-ed25519 AAAA… smithers@maya-mini   [ Copy ]
  Address   will@beaver.local                      [ Connect ]
  ─────────────────────────────────────────────
- ✓ Reached     ✓ Linux arm64     ✓ Runtime     ◐ Machine image 62%
- Capacity  4 machines (16 GB free, 8 cores)
+ ✓ Reached     ✓ Linux x86_64     ✕ Runtime     ○ Machine image
+   Virtualization is off · turn on VT-x in firmware ↗   [ Retry ]
+ Capacity  4 machines (15 GB, 8 threads)
                                          [ Add beaver ]
 ```
 
 - **SSH computer:**
   - It shows the key line first, with Copy (copyText), because the key goes into `beaver`'s `authorized_keys` before Connect can work.
-  - **Connect** runs **Reached**, then the OS and architecture, then **Runtime**: what `beaver` needs to run isolated machines. A missing runtime fails with its name and a docs link, as toolchain detection does. Then comes **Machine image**, the same progress as Setup step 6.
+  - **Connect** runs **Reached**, then the OS and architecture, then **Runtime**: what `beaver` needs to run isolated machines. A missing runtime fails with its name and a docs link, as toolchain detection does. On `beaver` today that line is "Virtualization is off · turn on VT-x in firmware ↗" (no `/dev/kvm`, #3706 13:20 facts); Retry reruns the probe after a person fixes it at the keyboard. Then comes **Machine image**, the same progress as Setup step 6.
 - **Smithers Cloud:** shows Sign in, then a Machines limit stepper.
 - Other providers stay engineering-only until a person needs one.
 - Each step fails in place, with its reason and Retry.
