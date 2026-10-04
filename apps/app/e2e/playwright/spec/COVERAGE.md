@@ -213,3 +213,17 @@ transactions, setup-token races or terminal credential boundaries.
 Cycle 24: spike terminal projections await disposable reference-host fixtures.
 C-SPK-02 retains the accepted NO decision; shared homes are not a pending feature.
 Transport, memory, signing, co-editing and remote-session qualification require raw live evidence.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-CMD-K | [A-CMD-K.spec.ts](A-CMD-K.spec.ts) | passing | T-APP-02 |
+| A-HELP | [A-HELP.spec.ts](A-HELP.spec.ts) | passing | T-CAT-01 |
+| A-DOCS | [A-DOCS.spec.ts](A-DOCS.spec.ts) | fixme-before-implementation | T-APP-20 |
+| A-STOP | [A-STOP.spec.ts](A-STOP.spec.ts) | passing | T-APP-02 |
+| A-SEARCH | [A-SEARCH.spec.ts](A-SEARCH.spec.ts) | passing | T-APP-02 |
+| A-STACK | [A-STACK.spec.ts](A-STACK.spec.ts) | fixme-before-implementation | T-APP-01 |
+
+Cycle 25: Appendix A starts with ⌘K, /help, /docs, /stop, /search and /stack.
+Docs and the production stack provider remain pending. Passing command tests
+cover plain chat, admitted help rows, an empty search and the idle stop boundary;
+they do not qualify live answer cancellation or repository-grounded answers.
