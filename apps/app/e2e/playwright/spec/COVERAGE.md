@@ -155,3 +155,15 @@ C-MCH-08 also has a passing mounted fork projection: Fork opens a
 scratch branch with Add to stack and keeps the source Awake. Captured revision
 and boot continuity still require reference-host qualification. Scratch metadata
 is lost on reload in the seeded world; persistence remains tracked by T-MCH-08.
+
+| C-MNT-03 | [C-MNT-03.spec.ts](C-MNT-03.spec.ts) | fixme-before-implementation | T-MNT-03 |
+| C-MNT-04 | [C-MNT-04.spec.ts](C-MNT-04.spec.ts) | fixme-before-implementation | T-MNT-04 |
+| C-MNT-05 | [C-MNT-05.spec.ts](C-MNT-05.spec.ts) | fixme-before-implementation | T-MNT-05 |
+| C-MNT-06 | [C-MNT-06.spec.ts](C-MNT-06.spec.ts) | fixme-before-implementation | T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
+| C-PERF-01 | [C-PERF-01.spec.ts](C-PERF-01.spec.ts) | fixme-before-implementation | T-REL-01 |
+| C-PERF-02 | [C-PERF-02.spec.ts](C-PERF-02.spec.ts) | fixme-before-implementation | T-COL-02, T-REL-01 |
+
+
+Cycle 20: maintainer admission/reply surfaces and reference-host performance
+evidence remain pending. Home production doors currently refuse with
+“Home provider unavailable”; no passing mutation projection is claimed.
