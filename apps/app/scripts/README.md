@@ -142,12 +142,16 @@ On darwin-arm64, with Node 26.4+ (official binary and license), the root's
 pinned pnpm, Rust, Go, Xcode Git, PostgreSQL 18 and skopeo installed:
 
 ```sh
-export SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY=/absolute/path/to/linux-arm64/smithers-jj-export
+mkdir -p apps/app/.native-inputs/linux-arm64
+install -m 0755 /path/to/smithers-jj-export apps/app/.native-inputs/linux-arm64/smithers-jj-export
 smthrs build //apps/app:serverBundle
 bun apps/app/scripts/server-bundle-manifest.ts apps/app/.native
 ```
 
-The helper comes from the release's Linux arm64 helper job. Assembly runs as
+The helper is the release job's `native-helper-linux-arm64` artifact. Targets
+inherit no host variables, so the target reads it from that git-ignored path.
+`build-native.ts` run directly, as `release.yml` does, takes the path from
+`SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY`. Assembly runs as
 the build user. The resulting `.native` directory contains `bin/smithers-server`,
 the backend, packaged hosts and tools, `postgres`, `views/mainview`, `lib/libkrunfw.5.dylib`,
 and `share/microsandbox/{smithers-guest.py,base-image.oci.tar,base-image.json}`.

@@ -45,6 +45,8 @@ playwright-report/
 
 # Bundled backend, toolchain, and database payloads
 .native/
+# Release inputs the server bundle target reads (the Linux arm64 guest helper)
+.native-inputs/
 
 # Showcase recordings, page and failure context (pnpm showcase; regenerated on every run)
 showcase-out*/
