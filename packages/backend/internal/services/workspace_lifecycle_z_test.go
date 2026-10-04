@@ -44,7 +44,7 @@ func TestWorkspaceLifecycle_Z_TopLevelAndCleanupBranches(t *testing.T) {
 		},
 	}).SuspendWorkspace(ctx, "ws", 101, 1)
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 503, apiStatus(t, err))
 
 	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
@@ -113,7 +113,7 @@ func TestWorkspaceLifecycle_Z_DestroyAndSuspendInternals(t *testing.T) {
 		},
 	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).suspendWorkspace(ctx, ws)
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 503, apiStatus(t, err))
 }
 
 func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
@@ -131,7 +131,7 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 		},
 	})).ensureExistingWorkspaceRunning(ctx, ws)
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 503, apiStatus(t, err))
 
 	mutatedPrimary := false
 	retained, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
@@ -159,15 +159,16 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 		},
 	})).ensureWorkspaceRunning(ctx, ws, CreateWorkspaceSessionInput{})
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 503, apiStatus(t, err))
 
 	resumed, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
 			return sandbox.Sandbox{ID: "vm-run", State: sandbox.StateStopped}, nil
 		},
 	})).ensureWorkspaceRunning(ctx, ws, CreateWorkspaceSessionInput{})
-	require.NoError(t, err)
-	assert.Equal(t, "running", resumed.Status)
+	require.Error(t, err)
+	assert.Equal(t, 503, apiStatus(t, err))
+	assert.Equal(t, "suspended", resumed.Status)
 
 	var observed, active float64
 	resumed, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}), WithWorkspaceSandboxMetrics(&mockSandboxMetricsRecorder{
@@ -178,10 +179,11 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 			}
 		},
 	})).resumeWorkspaceVM(ctx, ws)
-	require.NoError(t, err)
-	assert.Equal(t, "running", resumed.Status)
-	assert.Equal(t, float64(1), observed)
-	assert.Equal(t, float64(1), active)
+	require.Error(t, err)
+	assert.Equal(t, 503, apiStatus(t, err))
+	assert.Equal(t, "suspended", resumed.Status)
+	assert.Zero(t, observed)
+	assert.Zero(t, active)
 
 	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
@@ -189,7 +191,7 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 		},
 	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).resumeWorkspaceVM(ctx, ws)
 	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	assert.Equal(t, 503, apiStatus(t, err))
 
 	// A derived workspace reprovision resets the row (vm_id='',
 	// status='starting') via UpdateWorkspaceExecutionInfo so

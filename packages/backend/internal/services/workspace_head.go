@@ -22,7 +22,7 @@ import (
 )
 
 // RFD-004: every workspace VM runs a guest head reporter that publishes the
-// working-copy commit to refs/smithers/workspaces/<id>/head on repo-host and
+// working-copy commit to refs/smithers/branches/<id>/head on repo-host and
 // reports {change_id, commit_id, ahead, behind} to the API after every jj
 // snapshot. It authenticates with a workspace-bound token minted on every VM
 // start and revoked on suspend, destroy, and the next start.
@@ -59,7 +59,7 @@ const workspaceHeadReporterScript = `#!/usr/bin/env bash
 set -u
 repo="${SMITHERS_WORKSPACE_PATH:-$HOME/workspace}"
 ws="${SMITHERS_WORKSPACE_ID:?}"
-ref="refs/smithers/workspaces/${ws}/head"
+ref="refs/smithers/branches/${ws}/head"
 api="${SMITHERS_API_BASE_URL%/}"
 slug="${SMITHERS_WORKSPACE_REPO:?}"
 bookmark="${SMITHERS_WORKSPACE_BOOKMARK:-main}"

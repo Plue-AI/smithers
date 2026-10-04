@@ -258,8 +258,8 @@ var workspaceMutationCases = []workspaceMutationCase{
 
 // TestWorkspaceMutationsRequireWriteAuthority runs every mutation against the
 // owner's stopped workspace as the owner, a write grantee, a read grantee and
-// a revoked grantee. Only the first two may start it; a reader is refused (or
-// told it is stopped on a read route) and nothing reaches the runtime (#3212).
+// a revoked grantee. Authorized requests fail closed while capture/admission
+// providers are absent; revoked or read-only mutations remain forbidden.
 func TestWorkspaceMutationsRequireWriteAuthority(t *testing.T) {
 	for _, tc := range workspaceMutationCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -279,16 +279,10 @@ func TestWorkspaceMutationsRequireWriteAuthority(t *testing.T) {
 				before := len(fx.runtime.sideEffects())
 				err := tc.call(ctx, fx, fx.service, actor.userID)
 				effects := fx.runtime.sideEffects()[before:]
-				if actor.allowed {
-					require.ErrorContains(t, err, errAuthoritySideEffect.Error(), actor.name)
-					require.Equal(t, []string{"start"}, effects, "%s must start the stopped workspace", actor.name)
-					continue
-				}
 				require.Error(t, err, actor.name)
 				require.Empty(t, effects, "%s must not reach the runtime", actor.name)
-				if tc.readRoute && actor.name == "read grantee" {
-					require.Equal(t, 409, httpStatus(err), "a reader is told the workspace is stopped: %v", err)
-					require.ErrorContains(t, err, "workspace is stopped")
+				if actor.allowed || (tc.readRoute && actor.name == "read grantee") {
+					require.Equal(t, 503, httpStatus(err), "capture/admission providers stay dark: %v", err)
 				} else {
 					require.Equal(t, 403, httpStatus(err), "%s: %v", actor.name, err)
 				}
@@ -316,11 +310,14 @@ func shareRevocationWaiting(ctx context.Context, pool *pgxpool.Pool) bool {
 // mutation is refused without reaching the runtime.
 func TestWorkspaceMutationsHoldAuthorityAcrossTheirSideEffect(t *testing.T) {
 	for _, tc := range workspaceMutationCases {
+		if tc.readRoute || tc.name == "resume" {
+			continue // Reads no longer hold mutation authority or start stopped runtimes.
+		}
 		for _, change := range []string{"revoke", "demote"} {
 			t.Run(tc.name+"/"+change, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
-				fx := newAuthorityFixture(t, "suspended", workspaceapi.WorkspaceStopped, false)
+				fx := newAuthorityFixture(t, "running", workspaceapi.WorkspaceRunning, false)
 				fx.runtime.park = true
 				released := false
 				defer func() {
@@ -367,11 +364,7 @@ func TestWorkspaceMutationsHoldAuthorityAcrossTheirSideEffect(t *testing.T) {
 				before := len(fx.runtime.sideEffects())
 				err := tc.call(ctx, fx, fx.service, fx.writer)
 				require.Empty(t, fx.runtime.sideEffects()[before:], "a mutation after the %s must not reach the runtime", change)
-				if change == "demote" && tc.readRoute {
-					require.Equal(t, 409, httpStatus(err), "%v", err)
-				} else {
-					require.Equal(t, 403, httpStatus(err), "%v", err)
-				}
+				require.Equal(t, 403, httpStatus(err), "%v", err)
 			})
 		}
 	}
@@ -450,7 +443,7 @@ func TestSandboxWorkspaceReaderNeverResumesOrPublishes(t *testing.T) {
 		require.Equal(t, 403, httpStatus(err), "%v", err)
 	}
 	_, err := svc.ListWorkspaceFiles(ctx, fx.workspaceID, fx.repoID, fx.reader, "")
-	require.Equal(t, 409, httpStatus(err), "%v", err)
+	require.Equal(t, 503, httpStatus(err), "%v", err)
 	require.Zero(t, starts)
 	require.Zero(t, publishes)
 
@@ -472,7 +465,7 @@ func TestSandboxWorkspaceReaderNeverResumesOrPublishes(t *testing.T) {
 		err := mutate()
 		require.Error(t, err, name)
 		require.NotEqual(t, 403, httpStatus(err), "%s: %v", name, err)
-		require.Greater(t, starts, before, "a write grantee's %s resumes the VM", name)
+		require.Equal(t, before, starts, "a write grantee's %s cannot bypass admission", name)
 	}
 }
 

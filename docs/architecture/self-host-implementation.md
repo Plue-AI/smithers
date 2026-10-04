@@ -58,3 +58,16 @@ One dedicated Sol owner per issue, scheduled in dependency waves due to bounded 
 5. Prove Plue conformance before deleting its old authority; no unreviewed destructive production reset.
 6. Bundled PostgreSQL packaging is build-time and version-pinned. Startup never silently downloads binaries, deletes an incompatible data directory, or rewrites a database owned by another process.
 7. Land scoped changes on main; final evidence reports actual tested revisions, unresolved failures, and deployment state.
+
+## Sleeping branch snapshots
+
+Sleep remains disabled until authenticated final capture, object verification,
+outbox drain, branch runtime binding and live state publication are available.
+Snapshot reads never wake a machine. Work-triggered wake requires admission and
+validated privileged entry; billing quota alone does not authorize it.
+
+A captured working copy includes untracked files that are not ignored. Every
+member can read those files from the host snapshot, including an unignored
+`.env`. Snapshot reads use install-shipped store code and never execute captured
+files or hooks. The branch head is `refs/smithers/branches/<id>/head`; immutable
+source retention stays in its existing workspace namespace.

@@ -38,7 +38,7 @@ func TestDeleteWorkspaceDeletesItsRefsBeforeTombstoning(t *testing.T) {
 			if fail {
 				return repohost.DeletedWorkspaceRefs{}, errors.New("repo-host down")
 			}
-			return repohost.DeletedWorkspaceRefs{Refs: []string{repohost.WorkspaceHeadRef(id)}}, nil
+			return repohost.DeletedWorkspaceRefs{Refs: []string{repohost.BranchHeadRef(id)}}, nil
 		})))
 		err := svc.DeleteWorkspace(context.Background(), workspaceID, 200, 7)
 		if fail {

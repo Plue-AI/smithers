@@ -137,20 +137,18 @@ const ReservedRefPrefix = "refs/smithers/"
 // there.
 const JJRefPrefix = "refs/jj/"
 
-// WorkspaceHeadRefPrefix holds one ref per workspace,
-// refs/smithers/workspaces/<workspace id>/head, force-updated by the
-// workspace's guest head reporter on every jj snapshot (RFD-004).
-const WorkspaceHeadRefPrefix = ReservedRefPrefix + "workspaces/"
+// WorkspaceSourceRefPrefix retains immutable workspace source commits.
+const WorkspaceSourceRefPrefix = ReservedRefPrefix + "workspaces/"
 
 var fullSourceCommitID = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // WorkspaceSourceRef is an immutable object-retention root, never a bookmark.
 func WorkspaceSourceRef(workspaceID, commitID string) string {
-	return WorkspaceHeadRefPrefix + workspaceID + "/sources/" + commitID
+	return WorkspaceSourceRefPrefix + workspaceID + "/sources/" + commitID
 }
 
 func WorkspaceSourceFromRef(ref string) (workspaceID, commitID string, ok bool) {
-	rest, ok := strings.CutPrefix(ref, WorkspaceHeadRefPrefix)
+	rest, ok := strings.CutPrefix(ref, WorkspaceSourceRefPrefix)
 	if !ok {
 		return "", "", false
 	}
@@ -162,15 +160,18 @@ func WorkspaceSourceFromRef(ref string) (workspaceID, commitID string, ok bool) 
 	return id, commit, true
 }
 
-// WorkspaceHeadRef returns the head ref of a workspace.
-func WorkspaceHeadRef(workspaceID string) string {
-	return WorkspaceHeadRefPrefix + strings.TrimSpace(workspaceID) + "/head"
+// BranchHeadRefPrefix holds one captured head per branch.
+const BranchHeadRefPrefix = ReservedRefPrefix + "branches/"
+
+// BranchHeadRef returns the reserved captured head of a branch.
+func BranchHeadRef(branchID string) string {
+	return BranchHeadRefPrefix + strings.TrimSpace(branchID) + "/head"
 }
 
-// WorkspaceIDFromHeadRef parses refs/smithers/workspaces/<uuid>/head. The id
+// BranchIDFromHeadRef parses refs/smithers/branches/<uuid>/head. The id
 // is returned in canonical lower-case form.
-func WorkspaceIDFromHeadRef(ref string) (string, bool) {
-	rest, ok := strings.CutPrefix(ref, WorkspaceHeadRefPrefix)
+func BranchIDFromHeadRef(ref string) (string, bool) {
+	rest, ok := strings.CutPrefix(ref, BranchHeadRefPrefix)
 	if !ok {
 		return "", false
 	}
@@ -302,7 +303,7 @@ func ControlPlaneRefViolation(commands []ReceivePackCommand, workspaceID string,
 			}
 			continue
 		}
-		owner, ok := WorkspaceIDFromHeadRef(ref)
+		owner, ok := BranchIDFromHeadRef(ref)
 		if !ok {
 			return "refs/smithers/ is reserved for the control plane"
 		}

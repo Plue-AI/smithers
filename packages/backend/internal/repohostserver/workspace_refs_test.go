@@ -41,18 +41,18 @@ func TestDeleteWorkspaceRefsRemovesOnlyThatWorkspacesRefs(t *testing.T) {
 	for _, workspace := range []string{userRefWorkspace, other} {
 		rec = userRefRequest(t, f, http.MethodPost, "42/retain", repohost.RetainUserRefRequest{Name: "head", WorkspaceID: workspace})
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-		out, err := exec.Command("git", "--git-dir", f.repo.gitDir, "update-ref", repohost.WorkspaceHeadRef(workspace), tip).CombinedOutput()
+		out, err := exec.Command("git", "--git-dir", f.repo.gitDir, "update-ref", repohost.BranchHeadRef(workspace), tip).CombinedOutput()
 		require.NoError(t, err, string(out))
 	}
 
 	code, result := deleteWorkspaceRefsRequest(t, f, "alice:demo", userRefWorkspace)
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, []string{repohost.WorkspaceHeadRef(userRefWorkspace), repohost.WorkspaceSourceRef(userRefWorkspace, tip)}, result.Refs)
+	assert.Equal(t, []string{repohost.BranchHeadRef(userRefWorkspace), repohost.WorkspaceSourceRef(userRefWorkspace, tip)}, result.Refs)
 	refs := f.repo.refs()
 	for ref := range refs {
 		assert.NotContains(t, ref, userRefWorkspace)
 	}
-	assert.Equal(t, tip, refs[repohost.WorkspaceHeadRef(other)])
+	assert.Equal(t, tip, refs[repohost.BranchHeadRef(other)])
 	assert.Equal(t, tip, refs[repohost.WorkspaceSourceRef(other, tip)])
 	assert.Equal(t, tip, refs[repohost.UserRef(42, "head")])
 
@@ -68,5 +68,5 @@ func TestDeleteWorkspaceRefsRemovesOnlyThatWorkspacesRefs(t *testing.T) {
 		code, _ = deleteWorkspaceRefsRequest(t, f, "alice:demo", bad)
 		assert.Equal(t, http.StatusBadRequest, code, bad)
 	}
-	assert.Equal(t, tip, f.repo.refs()[repohost.WorkspaceHeadRef(other)])
+	assert.Equal(t, tip, f.repo.refs()[repohost.BranchHeadRef(other)])
 }

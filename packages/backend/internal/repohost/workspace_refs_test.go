@@ -16,7 +16,7 @@ func TestClientDeleteWorkspaceRefs(t *testing.T) {
 	var method, path string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method, path = r.Method, r.URL.EscapedPath()
-		_, _ = w.Write([]byte(`{"refs":["` + WorkspaceHeadRef(workspaceID) + `"]}`))
+		_, _ = w.Write([]byte(`{"refs":["` + BranchHeadRef(workspaceID) + `"]}`))
 	}))
 	t.Cleanup(server.Close)
 
@@ -25,7 +25,7 @@ func TestClientDeleteWorkspaceRefs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodDelete, method)
 	assert.Equal(t, "/repos/alice:demo/workspace-refs/"+workspaceID, path)
-	assert.Equal(t, []string{WorkspaceHeadRef(workspaceID)}, result.Refs)
+	assert.Equal(t, []string{BranchHeadRef(workspaceID)}, result.Refs)
 
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
 	t.Cleanup(down.Close)

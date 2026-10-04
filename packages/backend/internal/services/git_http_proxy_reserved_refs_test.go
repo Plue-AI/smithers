@@ -57,7 +57,7 @@ func TestGitHTTPProxyService_ReceivePack_ReservedRefs(t *testing.T) {
 	}
 	t.Run("user token cannot write a workspace head ref", func(t *testing.T) {
 		svc, repoHost := newReservedRefProxy(t, "write:repository")
-		err := push(svc, repohost.WorkspaceHeadRef(reservedRefsWorkspace))
+		err := push(svc, repohost.BranchHeadRef(reservedRefsWorkspace))
 		require.Error(t, err)
 		assert.Equal(t, 403, apiStatus(t, err))
 		assert.Equal(t, 0, repoHost.receivePackCall)
@@ -77,13 +77,13 @@ func TestGitHTTPProxyService_ReceivePack_ReservedRefs(t *testing.T) {
 	})
 	t.Run("workspace token pushes its own head ref and repo-host learns the workspace", func(t *testing.T) {
 		svc, repoHost := newReservedRefProxy(t, "write:repository,repo:314,workspace:"+reservedRefsWorkspace)
-		require.NoError(t, push(svc, repohost.WorkspaceHeadRef(reservedRefsWorkspace)))
+		require.NoError(t, push(svc, repohost.BranchHeadRef(reservedRefsWorkspace)))
 		assert.Equal(t, 1, repoHost.receivePackCall)
 		assert.Equal(t, reservedRefsWorkspace, repoHost.lastReceiveMeta.WorkspaceID)
 	})
 	t.Run("workspace token cannot push another workspace's head", func(t *testing.T) {
 		svc, repoHost := newReservedRefProxy(t, "write:repository,repo:314,workspace:"+reservedRefsWorkspace)
-		err := push(svc, repohost.WorkspaceHeadRef("7c9e6679-7425-40de-944b-e07fc1f90ae7"))
+		err := push(svc, repohost.BranchHeadRef("7c9e6679-7425-40de-944b-e07fc1f90ae7"))
 		require.Error(t, err)
 		assert.Equal(t, 403, apiStatus(t, err))
 		assert.Equal(t, 0, repoHost.receivePackCall)

@@ -683,13 +683,10 @@ func isWorkspaceGuestNotReady(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeGuestNotReady
 }
 
-// Both runtime adapters apply the same admission rule. A running product row
-// retains its reservation when execution idle-sleeps; suspended rows need a slot.
+// Retained-machine wake stays dark until S2 admission and root-boundary
+// validation are available. Billing quota alone is not branch admission.
 func (s *WorkspaceService) authorizeWorkspaceResume(ctx context.Context, row db.Workspace) error {
-	if row.Status == "running" {
-		return authorizeCountedSandboxResumeForUser(ctx, s.billing, row.UserID, row.ID, row.VmID)
-	}
-	return authorizeSandboxStartForUser(ctx, s.billing, row.UserID)
+	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch wake requires admission and validated privileged entry")
 }
 
 func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.Workspace) (out db.Workspace, retErr error) {
@@ -994,192 +991,25 @@ func (s *WorkspaceService) withholdRuntimeConversation(ctx context.Context, row 
 	return nil
 }
 
+// Sleep remains dark until the authoritative branch binding, authenticated
+// capture/object verification/outbox drain and state publisher are wired. The
+// legacy stop-first path cannot preserve acknowledged working-copy writes.
 func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Workspace) (retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("suspend", retErr) }()
-	if s.runtime != nil {
-		unlock := s.lockRuntimeWorkspace(workspace.ID)
-		defer unlock()
-		current, err := s.currentRuntimeWorkspaceLocked(ctx, workspace)
-		if err != nil {
-			return err
-		}
-		if current.Status == "suspended" || current.Status == "stopped" {
-			return nil
-		}
-		if current.Status != "running" {
-			return pkgerrors.Conflict("workspace is " + current.Status)
-		}
-		s.revokeWorkspaceHeadToken(ctx, current)
-		s.retireBoxHostCredentials(ctx, current)
-		suspended, err := s.q.SuspendRunningWorkspace(ctx, current.ID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
-			}
-			return pkgerrors.Internal("update workspace status: " + err.Error())
-		}
-		if err := s.stopRuntimeWorkspaceLocked(ctx, suspended, current.UserID, "suspend"); err != nil {
-			rollbackCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
-			defer cancel()
-			running, updateErr := s.q.UpdateWorkspaceStatus(rollbackCtx, db.UpdateWorkspaceStatusParams{ID: current.ID, Status: "running"})
-			if updateErr == nil {
-				_, updateErr = s.ensureRuntimeWorkspaceRunningLocked(rollbackCtx, running, current.UserID)
-			}
-			if updateErr != nil {
-				return pkgerrors.Internal(err.Error() + "; restore workspace after failed suspend: " + updateErr.Error())
-			}
-			return err
-		}
-		s.meterWorkspaceUsage(ctx, suspended, "suspended")
-		s.notifyWorkspace(ctx, suspended.ID, "suspended")
-		return nil
-	}
-	if s.sandbox == nil || strings.TrimSpace(workspace.VmID) == "" {
-		return nil
-	}
 	if workspace.Status == "suspended" || workspace.Status == "stopped" {
 		return nil
 	}
-	s.revokeWorkspaceHeadToken(ctx, workspace)
-	s.retireBoxHostCredentials(ctx, workspace)
-
-	startedAt := time.Now()
-	if _, err := s.sandbox.SuspendSandbox(ctx, workspace.VmID); err != nil {
-		// sandbox provider suspends idle VMs on its own, so by the time the idle
-		// sweeper (or a user) asks, the VM is frequently already off —
-		// "VM is not running" (and a VM that no longer exists) IS the desired
-		// end state, not a failure. Treating it as one left the row 'running'
-		// forever, permanently holding a concurrent-sandbox quota slot; three
-		// leaked slots bricked ALL workspace provisioning for the user.
-		if !vmAlreadyStopped(err) {
-			return pkgerrors.Internal("suspend sandbox: " + err.Error())
-		}
-		slog.Info("sandbox already stopped; reconciling status", "vm_id", workspace.VmID, "type", "workspace")
-	} else {
-		duration := time.Since(startedAt)
-		if s.sandboxMetrics != nil {
-			s.sandboxMetrics.ObserveSandboxVMSuspend(duration.Seconds())
-		}
-		slog.Info("sandbox suspended", "vm_id", workspace.VmID, "type", "workspace", "duration_ms", duration.Milliseconds())
-	}
-	// Gate the -1 on WINNING the running->suspended CAS. The in-memory guard
-	// above is a stale-read fast path only; UpdateWorkspaceStatus was
-	// unconditional (WHERE id=$1), so two concurrent suspends (a user + the idle
-	// sweeper, or a suspend racing a failed workspace whose VM was already
-	// reclaimed) both reached the decrement and drove the gauge negative. The
-	// CAS returns the row to exactly one caller — and only that caller
-	// decrements and notifies — so the -1 pairs one-to-one with the +1 recorded
-	// when the row entered 'running'.
-	if _, err := s.q.SuspendRunningWorkspace(ctx, workspace.ID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			slog.Info("workspace already left 'running'; skipping suspend accounting", "workspace_id", workspace.ID, "vm_id", workspace.VmID)
-			return nil
-		}
-		return pkgerrors.Internal("update workspace status: " + err.Error())
-	}
-	if s.sandboxMetrics != nil {
-		s.sandboxMetrics.AddSandboxActiveVMs("workspace", -1)
-	}
-	s.meterWorkspaceUsage(ctx, workspace, "suspended")
-	s.notifyWorkspace(ctx, workspace.ID, "suspended")
-	return nil
+	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch sleep requires verified capture, runtime binding and state publication")
 }
 
-// suspendWorkspaceIfSessionless suspends a workspace after its last session
-// ended. Unlike suspendWorkspace, the decision is made atomically in the DB:
-// the running->suspended CAS only matches while NO active (pending/starting/
-// running) session exists, so a session created concurrently with the destroy
-// can never be handed a workspace this call just decided to suspend. After the
-// VM suspend it re-checks for sessions that slipped into the tiny CAS->SuspendSandbox
-// window and resumes the VM for them.
+// Automatic release has the same capture prerequisites as explicit sleep, and
+// additionally requires admission. It must not stop or change the runtime row.
 func (s *WorkspaceService) suspendWorkspaceIfSessionless(ctx context.Context, workspace db.Workspace) (retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("suspend", retErr) }()
-	if s.runtime != nil {
-		unlock := s.lockRuntimeWorkspace(workspace.ID)
-		defer unlock()
-		current, err := s.currentRuntimeWorkspaceLocked(ctx, workspace)
-		if err != nil {
-			if apiErr, ok := err.(*pkgerrors.APIError); ok && apiErr.Code == pkgerrors.CodeNotFound {
-				return nil
-			}
-			return err
-		}
-		if current.Status != "running" {
-			return nil
-		}
-		suspended, err := s.q.SuspendRunningWorkspaceIfSessionless(ctx, current.ID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
-			}
-			return pkgerrors.Internal("update workspace status: " + err.Error())
-		}
-		if err := s.stopRuntimeWorkspaceLocked(ctx, suspended, current.UserID, "sessionless-suspend"); err != nil {
-			// Reconcile the product row back to running because the runtime stop
-			// did not reach its required terminal state.
-			rollbackCtx, cancel := detachedRuntimeContext(ctx, workspaceResumeProvisionTimeout)
-			defer cancel()
-			running, updateErr := s.q.UpdateWorkspaceStatus(rollbackCtx, db.UpdateWorkspaceStatusParams{ID: current.ID, Status: "running"})
-			if updateErr == nil {
-				_, updateErr = s.ensureRuntimeWorkspaceRunningLocked(rollbackCtx, running, current.UserID)
-			}
-			if updateErr != nil {
-				return pkgerrors.Internal(err.Error() + "; restore workspace after failed sessionless suspend: " + updateErr.Error())
-			}
-			return err
-		}
-		s.meterWorkspaceUsage(ctx, suspended, "suspended")
-		s.notifyWorkspace(ctx, suspended.ID, "suspended")
-		active, countErr := s.q.CountActiveSessionsForWorkspace(ctx, suspended.ID)
-		if countErr == nil && active > 0 {
-			_, resumeErr := s.ensureRuntimeWorkspaceRunningLocked(ctx, suspended, current.UserID)
-			return resumeErr
-		}
+	if workspace.Status != "running" {
 		return nil
 	}
-	if s.sandbox == nil || strings.TrimSpace(workspace.VmID) == "" {
-		return nil
-	}
-
-	if _, err := s.q.SuspendRunningWorkspaceIfSessionless(ctx, workspace.ID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Not running, or an active session (re)appeared — nothing to suspend.
-			return nil
-		}
-		return pkgerrors.Internal("update workspace status: " + err.Error())
-	}
-	if s.sandboxMetrics != nil {
-		s.sandboxMetrics.AddSandboxActiveVMs("workspace", -1)
-	}
-	s.meterWorkspaceUsage(ctx, workspace, "suspended")
-	s.notifyWorkspace(ctx, workspace.ID, "suspended")
-
-	startedAt := time.Now()
-	if _, err := s.sandbox.SuspendSandbox(ctx, workspace.VmID); err != nil {
-		if !vmAlreadyStopped(err) {
-			return pkgerrors.Internal("suspend sandbox: " + err.Error())
-		}
-		slog.Info("sandbox already stopped; reconciling status", "vm_id", workspace.VmID, "type", "workspace")
-	} else {
-		duration := time.Since(startedAt)
-		if s.sandboxMetrics != nil {
-			s.sandboxMetrics.ObserveSandboxVMSuspend(duration.Seconds())
-		}
-		slog.Info("sandbox suspended", "vm_id", workspace.VmID, "type", "workspace", "duration_ms", duration.Milliseconds())
-	}
-
-	// Close the residual window: a session created between the CAS and the VM
-	// suspend saw a running VM and may have marked itself running. Bring the VM
-	// back up for it (resumeWorkspaceVM re-CASes into 'running' and re-pairs the
-	// gauge), instead of stranding a "running" session on a suspended VM.
-	active, err := s.q.CountActiveSessionsForWorkspace(ctx, workspace.ID)
-	if err == nil && active > 0 {
-		slog.Info("session appeared during last-session suspend; resuming workspace", "workspace_id", workspace.ID, "vm_id", workspace.VmID)
-		if _, resumeErr := s.resumeWorkspaceVM(ctx, workspace); resumeErr != nil {
-			return pkgerrors.Internal("resume workspace for new session: " + resumeErr.Error())
-		}
-	}
-	return nil
+	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "automatic branch release requires admission and verified capture")
 }
 
 // vmAlreadyStopped reports whether a sandbox provider suspend failure means the VM is
@@ -1317,6 +1147,10 @@ func (s *WorkspaceService) observeWorkspaceLifecycle(action string, err error) {
 // controller 5xx or a resume timeout says nothing about the persisted files, so
 // the caller retries later; only a 404 (vmAlreadyGone) justifies replacement.
 func retryableWorkspaceResumeError(cause error) *pkgerrors.APIError {
+	var api *pkgerrors.APIError
+	if errors.As(cause, &api) {
+		return api
+	}
 	if isHardResumeFailure(cause) || errors.Is(cause, context.DeadlineExceeded) {
 		failure := pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace resume temporarily unavailable; retry, or run `smithers workspace create` for a fresh workspace")
 		failure.RetryAfter = 5

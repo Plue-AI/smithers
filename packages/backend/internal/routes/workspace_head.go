@@ -48,7 +48,7 @@ func (request *reportWorkspaceHeadRequest) UnmarshalJSON(raw []byte) error {
 
 // ReportWorkspaceHead handles POST /api/repos/{owner}/{repo}/workspaces/{id}/head.
 // The guest head reporter calls it with the workspace's own token after
-// pushing refs/smithers/workspaces/{id}/head; the owner may call it too.
+// pushing refs/smithers/branches/{id}/head; the owner may call it too.
 func (h *WorkspaceHandler) ReportWorkspaceHead(w http.ResponseWriter, r *http.Request) {
 	service, ok := h.Service.(WorkspaceHeadReportService)
 	if !ok || service == nil {

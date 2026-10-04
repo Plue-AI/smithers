@@ -98,7 +98,7 @@ func TestWorkspaceLifecycle_Cov_CleanupIdleSessionsDestroysAndSuspends(t *testin
 
 	require.NoError(t, svc.CleanupIdleSessions(context.Background()))
 	assert.Equal(t, []string{"sess-1:stopped"}, stopped)
-	assert.Equal(t, []string{"ws-1"}, suspended)
+	assert.Empty(t, suspended, "automatic release must not change status without capture")
 
 	err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		listIdleWorkspaceSessionsFn: func(context.Context) ([]db.WorkspaceSession, error) {
@@ -125,7 +125,7 @@ func TestWorkspaceLifecycle_Cov_CleanupIdleWorkspacesAndStaleErrors(t *testing.T
 		},
 	}))
 	require.NoError(t, svc.CleanupIdleWorkspaces(context.Background()))
-	assert.Equal(t, 1, suspendCalls)
+	assert.Zero(t, suspendCalls, "idle release must not stop without capture")
 
 	err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		listIdleWorkspacesFn: func(context.Context) ([]db.Workspace, error) {

@@ -439,8 +439,8 @@ printf '%%s\0%%s\0%%s\0%%s\0%%s\0' "$unit" "$load" "$active" "$sub" "$port"`, wo
 }
 
 // workspaceRuntimeFacetTarget resolves the workspace a facet runs against. A
-// requester who may write it starts it when stopped; a reader is served only
-// while it already runs (#3212). Write-level callers hold the mutation
+// write action starts it when stopped; reads never start it.
+// Write-level callers hold the mutation
 // authority (withWorkspaceMutation) around this call and their mutation.
 func (s *WorkspaceService) workspaceRuntimeFacetTarget(ctx context.Context, workspaceID string, repositoryID, userID int64, access WorkspaceAccessLevel, operationID string) (db.Workspace, context.Context, error) {
 	if s == nil || s.q == nil {
@@ -450,11 +450,10 @@ func (s *WorkspaceService) workspaceRuntimeFacetTarget(ctx context.Context, work
 	if err != nil {
 		return db.Workspace{}, nil, err
 	}
-	writable, err := s.workspaceWritable(ctx, row, userID)
-	if err != nil {
-		return db.Workspace{}, nil, err
+	if access == WorkspaceAccessRead && (row.Status == "suspended" || row.Status == "stopped") {
+		return db.Workspace{}, nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "snapshot reads require an authoritative branch runtime binding")
 	}
-	if writable {
+	if access == WorkspaceAccessWrite {
 		row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
 	} else {
 		row, err = s.runningRuntimeWorkspace(ctx, row, userID)
@@ -479,11 +478,10 @@ func (s *WorkspaceService) workspaceFacetTarget(ctx context.Context, workspaceID
 	if err != nil {
 		return db.Workspace{}, nil, err
 	}
-	writable, err := s.workspaceWritable(ctx, workspace, userID)
-	if err != nil {
-		return db.Workspace{}, nil, err
+	if access == WorkspaceAccessRead && (workspace.Status == "suspended" || workspace.Status == "stopped") {
+		return db.Workspace{}, nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "snapshot reads require an authoritative branch runtime binding")
 	}
-	if writable {
+	if access == WorkspaceAccessWrite {
 		workspace, err = s.ensureExistingWorkspaceRunningFor(ctx, workspace, userID)
 	} else {
 		workspace, err = s.runningSandboxWorkspace(ctx, workspace, userID)

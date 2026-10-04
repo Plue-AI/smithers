@@ -106,7 +106,7 @@ func TestReceivePackAgentRunWorkspaceHeadIgnoresUnreadableDefault(t *testing.T) 
 	tip := f.commit("workspace work", func(dir string) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "agent.txt"), []byte("agent\n"), 0o644))
 	})
-	ref := repohost.WorkspaceHeadRef(userRefWorkspace)
+	ref := repohost.BranchHeadRef(userRefWorkspace)
 	body := f.pushBody(f.base, tip, ref)
 	copy(body[4:44], laneZeroOID)
 	rec := postReceivePack(t, f, body, repohost.PusherCredentialHeader, string(middleware.CredentialAgentRun), "X-Smithers-Workspace-Id", userRefWorkspace)

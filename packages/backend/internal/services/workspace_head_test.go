@@ -50,7 +50,7 @@ func TestBuildWorkspaceHeadReporterInstallCommand_ReplacesInheritedUnit(t *testi
 	cmd := buildWorkspaceHeadReporterInstallCommand()
 	assert.Contains(t, cmd, "systemctl stop smithers-workspace-head.service")
 	assert.Contains(t, cmd, "cat > '/usr/local/bin/smithers-workspace-head' <<'SMITHERS_HEAD_EOF'")
-	assert.Contains(t, cmd, "refs/smithers/workspaces/${ws}/head")
+	assert.Contains(t, cmd, "refs/smithers/branches/${ws}/head")
 	assert.Contains(t, cmd, "git -C \"$repo\" push --quiet --force --no-verify origin")
 	assert.Contains(t, cmd, "/workspaces/${ws}/head")
 	assert.Contains(t, cmd, "chmod 755 '/usr/local/bin/smithers-workspace-head'")

@@ -39,13 +39,22 @@ func (s *Server) deleteWorkspaceRefs(w http.ResponseWriter, r *http.Request) err
 	} else if err != nil {
 		return internalError("failed to open the repository", err)
 	}
-	prefix := repohost.WorkspaceHeadRefPrefix + workspaceID + "/"
+	prefix := repohost.WorkspaceSourceRefPrefix + workspaceID + "/"
 	refs, err := listGitRefs(r.Context(), gitDir, strings.TrimSuffix(prefix, "/"))
 	if err != nil {
 		return internalError("failed to list workspace refs", err)
 	}
+	heads, err := listGitRefs(r.Context(), gitDir, repohost.BranchHeadRef(workspaceID))
+	if err != nil {
+		return internalError("failed to list branch head", err)
+	}
+	for ref, oid := range heads {
+		if ref == repohost.BranchHeadRef(workspaceID) {
+			refs[ref] = oid
+		}
+	}
 	for ref, oid := range refs {
-		if !strings.HasPrefix(ref, prefix) {
+		if !strings.HasPrefix(ref, prefix) && ref != repohost.BranchHeadRef(workspaceID) {
 			continue
 		}
 		if err := deleteGitRef(r.Context(), gitDir, ref, oid); err != nil {

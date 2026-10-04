@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const reservedWorkspaceRef = "refs/smithers/workspaces/11111111-1111-1111-1111-111111111111/head"
+const reservedWorkspaceRef = "refs/smithers/branches/11111111-1111-1111-1111-111111111111/head"
 
 // reservedPushCommand returns one receive-pack command line creating ref at
 // oid, padded until its pkt-line length contains a hex letter.
@@ -53,7 +53,7 @@ func assertNoReservedRefs(t *testing.T, f *laneHTTPFixture) {
 // must see the command instead of forwarding it unchecked.
 func TestReceivePackRefusesUppercaseLengthReservedRef(t *testing.T) {
 	f := newLaneHTTPFixture(t, nil)
-	line := reservedPushCommand(f.base, "refs/smithers/workspaces/11111111-1111-1111-1111-111111111111/headx")
+	line := reservedPushCommand(f.base, "refs/smithers/branches/11111111-1111-1111-1111-111111111111/headx")
 	body := []byte(fmt.Sprintf("%04X%s0000", len(line)+4, line))
 	body = append(body, emptyPack()...)
 

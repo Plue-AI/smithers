@@ -53,7 +53,7 @@ func TestMirrorCloneAndPushSeeOnlyTheViewersRefs(t *testing.T) {
 	}
 	own := repohost.UserRef(42, "head")
 	other := repohost.UserRef(43, "head")
-	workspace := repohost.WorkspaceHeadRef("0b7e3c9e-4d2f-4a51-9c8e-1f2a3b4c5d6e")
+	workspace := repohost.BranchHeadRef("0b7e3c9e-4d2f-4a51-9c8e-1f2a3b4c5d6e")
 	backup := repohost.RefCaseCollisionBackup("t", 0, "refs/heads/Main")
 	pin := "refs/jj/keep/" + f.base
 	for _, ref := range []string{own, other, workspace, backup, pin, repohost.MythicalBookmarkRef} {

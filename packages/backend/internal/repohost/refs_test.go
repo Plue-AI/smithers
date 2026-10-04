@@ -34,27 +34,28 @@ func TestReservedWorkspaceSourcesAreImmutableAndOwned(t *testing.T) {
 	}
 }
 
-func TestWorkspaceIDFromHeadRef(t *testing.T) {
+func TestBranchIDFromHeadRef(t *testing.T) {
 	id := "0f8fad5b-d9cb-469f-a165-70867728950e"
-	got, ok := WorkspaceIDFromHeadRef(WorkspaceHeadRef(id))
+	got, ok := BranchIDFromHeadRef(BranchHeadRef(id))
 	if !ok || got != id {
 		t.Fatalf("round trip = %q, %v", got, ok)
 	}
 	for _, ref := range []string{
 		"refs/heads/main",
 		"refs/smithers/workspaces/" + id,
-		"refs/smithers/workspaces/" + id + "/head/extra",
-		"refs/smithers/workspaces/not-a-uuid/head",
-		"refs/smithers/workspaces//head",
+		"refs/smithers/workspaces/" + id + "/head",
+		"refs/smithers/branches/" + id + "/head/extra",
+		"refs/smithers/branches/not-a-uuid/head",
+		"refs/smithers/branches//head",
 		"refs/smithers/other/" + id + "/head",
 	} {
-		if _, ok := WorkspaceIDFromHeadRef(ref); ok {
+		if _, ok := BranchIDFromHeadRef(ref); ok {
 			t.Fatalf("%q parsed as a workspace head ref", ref)
 		}
 	}
 }
 
-func TestReservedRefViolation(t *testing.T) {
+func TestBranchHeadRefRejectsMemberPush(t *testing.T) {
 	mine := "0f8fad5b-d9cb-469f-a165-70867728950e"
 	other := "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 	cases := []struct {
@@ -65,13 +66,13 @@ func TestReservedRefViolation(t *testing.T) {
 	}{
 		{"user pushes bookmark", []string{"refs/heads/main"}, "", false},
 		{"user pushes tag", []string{"refs/tags/v1"}, "", false},
-		{"user pushes reserved head", []string{WorkspaceHeadRef(mine)}, "", true},
+		{"user pushes reserved head", []string{BranchHeadRef(mine)}, "", true},
 		{"user pushes arbitrary reserved ref", []string{"refs/smithers/anything"}, "", true},
-		{"workspace pushes own head", []string{WorkspaceHeadRef(mine)}, mine, false},
-		{"workspace pushes own head upper-case token id", []string{WorkspaceHeadRef(mine)}, "0F8FAD5B-D9CB-469F-A165-70867728950E", false},
-		{"workspace pushes other head", []string{WorkspaceHeadRef(other)}, mine, true},
+		{"workspace pushes own head", []string{BranchHeadRef(mine)}, mine, false},
+		{"workspace pushes own head upper-case token id", []string{BranchHeadRef(mine)}, "0F8FAD5B-D9CB-469F-A165-70867728950E", false},
+		{"workspace pushes other head", []string{BranchHeadRef(other)}, mine, true},
 		{"workspace pushes bookmark", []string{"refs/heads/main"}, mine, true},
-		{"workspace pushes head and bookmark", []string{WorkspaceHeadRef(mine), "refs/heads/main"}, mine, true},
+		{"workspace pushes head and bookmark", []string{BranchHeadRef(mine), "refs/heads/main"}, mine, true},
 		{"workspace pushes malformed reserved ref", []string{"refs/smithers/workspaces/" + mine}, mine, true},
 		{"user deletes jj retention pin", []string{"refs/jj/keep/0123456789abcdef0123456789abcdef01234567"}, "", true},
 		{"user plants jj ref", []string{"refs/jj/anything"}, "", true},
@@ -111,7 +112,7 @@ func TestControlPlaneRefViolation(t *testing.T) {
 		{"control plane writes the stack", []string{MythicalBookmarkRef, MythicalNotesRef}, "", true, false},
 		{"control plane writes a pin", []string{MythicalReservedRefNS + "keep/abc"}, "", true, false},
 		{"control plane cannot write main", []string{MythicalBookmarkRef, "refs/heads/main"}, "", true, true},
-		{"control plane cannot write a workspace head", []string{WorkspaceHeadRef(mine)}, "", true, true},
+		{"control plane cannot write a workspace head", []string{BranchHeadRef(mine)}, "", true, true},
 		{"control plane cannot write jj refs", []string{"refs/jj/keep/x"}, "", true, true},
 		{"user pushes other bookmarks as before", []string{"refs/heads/mythical-notes", "refs/heads/myth"}, "", false, false},
 	}
