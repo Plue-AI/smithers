@@ -166,6 +166,8 @@ const hostCss = `
 .sui-markdown-editor .milkdown .ProseMirror { padding:16px 20px; }
 .sui-markdown-editor-fallback { display:block; box-sizing:border-box; width:100%; min-height:180px; height:100%; padding:16px 20px; border:0; outline:none; resize:none; background:transparent; color:inherit; font:inherit; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:13px; line-height:1.6; tab-size:2; }
 .sui-markdown-editor-fallback:read-only { cursor:default; }
+.sui-markdown-editor[data-readonly] .cm-editor, .sui-markdown-editor[data-readonly] .cm-gutters, .sui-markdown-editor[data-readonly] .cm-activeLine { background:transparent; color:inherit; }
+.sui-markdown-editor[data-readonly] .cm-content, .sui-markdown-editor[data-readonly] .cm-content * { color:inherit; }
 `.trim();
 
 /**
@@ -319,8 +321,7 @@ const loadMilkdown = async (): Promise<MarkdownEditorModule> => {
   return {
     Crepe: class extends Crepe {
       constructor({ readOnly, ...options }: { root: HTMLElement; defaultValue: string; readOnly?: boolean }) {
-        // Read-only code is ordinary text, without an editable CodeMirror node view.
-        super({ ...options, features: readOnly ? { [Crepe.Feature.CodeMirror]: false } : undefined });
+        super(options);
         if (readOnly) this.editor.config(ctx => {
           ctx.update(htmlSchema.key, previous => context => {
             const schema = previous(context);
@@ -480,11 +481,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     let released = false;
     let crepe: CrepeInstance | null = null;
     let creating: Promise<unknown> | undefined;
+    let accessibleContent: MutationObserver | undefined;
 
     /** Stop callbacks immediately, then destroy once creation has settled. */
     const release = (): void => {
       if (released) return;
       released = true;
+      accessibleContent?.disconnect();
       readyRef.current = false;
       crepeRef.current = null;
       replaceAllRef.current = null;
@@ -551,9 +554,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           }
         }
         readyRef.current = true;
-        const content = host.querySelector<HTMLElement>(".ProseMirror");
-        if (ariaLabel) content?.setAttribute("aria-label", ariaLabel);
-        content?.setAttribute("aria-readonly", String(readOnly));
+        const labelContent = () => {
+          for (const content of host.querySelectorAll<HTMLElement>('.ProseMirror,[role="textbox"]')) {
+            if (ariaLabel) content.setAttribute("aria-label", ariaLabel);
+            content.setAttribute("aria-readonly", String(readOnly));
+          }
+        };
+        labelContent();
+        accessibleContent = new MutationObserver(labelContent);
+        accessibleContent.observe(host, { childList: true, subtree: true });
         if (initialLine !== undefined) {
           const heading = renderedHeadingFor(host, lastMarkdownRef.current, initialLine);
           heading?.scrollIntoView?.({ block: "start" });
@@ -622,6 +631,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       data-slot="markdown-editor"
       data-testid="markdown-editor"
       data-mode="wysiwyg"
+      data-readonly={readOnly || undefined}
       data-escape-tab-order={escapeTabOrder ? "true" : "false"}
       aria-label={ariaLabel}
       ref={hostRef}

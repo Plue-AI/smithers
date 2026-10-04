@@ -331,7 +331,11 @@ describe("MarkdownEditor scrollToLine (WYSIWYG path)", () => {
       expect(host().querySelector(".ProseMirror")?.getAttribute("aria-label")).toBe("Page");
       expect(host().querySelector(".ProseMirror")?.getAttribute("aria-readonly")).toBe("true");
       await rerender(view("a"));
-      host().append(document.createElement("p"));
+      const lateCode = document.createElement("div");
+      lateCode.setAttribute("role", "textbox");
+      await act(async () => { host().append(lateCode) });
+      expect(lateCode.getAttribute("aria-label")).toBe("Page");
+      expect(lateCode.getAttribute("aria-readonly")).toBe("true");
       expect(seen).toEqual(["Target"]);
       await rerender(view("b"));
       expect(seen).toEqual(["Target", "Target"]);

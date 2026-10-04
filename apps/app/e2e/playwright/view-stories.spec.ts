@@ -47,6 +47,7 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
       const text = diffExpected[story.name.split("/")[1]!]
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
     }
+    if (story.name.startsWith("DocsView/")) await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
     const flagCount = story.name === "FilePresenceView/live_separate" ? 3
@@ -581,7 +582,7 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
   await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
   await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe,.mvp-docs a[href^=\"javascript:\"]")).toHaveCount(0)
   await expect(page.locator(".mvp-docs .ProseMirror")).toContainText("<script>alert(1)</script>")
-  await expect(page.locator(".mvp-docs pre")).toContainText("<div>")
+  await expect(page.locator(".mvp-docs .cm-content")).toContainText("<div>")
   await page.evaluate(() => {
     const receipts: unknown[] = []
     Object.assign(window, { docsReceipts: receipts })
@@ -591,7 +592,7 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
   expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
     { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "todos" } } }
   ])
-  await page.evaluate(() => { (window as unknown as { docsReceipts: unknown[] }).docsReceipts = [] })
+  await page.evaluate(() => { (window as unknown as { docsReceipts: unknown[] }).docsReceipts.length = 0 })
   await page.getByRole("link", { name: "Heading", exact: true }).click()
   expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
     { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "quickstart#put-https-in-front" } } }
