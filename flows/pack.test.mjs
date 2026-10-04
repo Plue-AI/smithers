@@ -608,7 +608,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "learning", "memory/calibrate", "memory/mine", "register-repository", "register-repository/setup", "release", "release-content", "review", "rollout", "wiki", "wrapped"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "learning", "memory/calibrate", "memory/mine", "preview", "register-repository", "register-repository/setup", "release", "release-content", "review", "rollout", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -635,6 +635,14 @@ describe("discovery over the project flows directory", () => {
       "register-repository", "register-repository/setup", "release-content",
       "release", "review", "wiki", "wrapped",
     ];
+    const preview = scan.entries.find((entry) => entry.name === "preview");
+    assert.ok(preview, "preview is discovered");
+    assert.equal(preview.effects.tier, "irreversible");
+    assert.deepEqual(preview.capabilities, ["deploy:preview"]);
+    const previewInput = Descriptor.inputDocument(preview.input);
+    assert.ok(previewInput, "preview's optional fields project statically");
+    assert.ok(JSON.stringify(previewInput).includes('"branch"'));
+    assert.ok(JSON.stringify(previewInput).includes('"revision"'));
     for (const name of unavailablePayloads) {
       const descriptor = scan.entries.find((entry) => entry.name === name);
       assert.ok(descriptor, `${name} is missing`);

@@ -586,9 +586,10 @@ By section, kind and MVP decision. Steps in the `std` section's agent-runtime gr
 | register-repository | 2 | 14 | 0 | 0 | 0 | 0 | 16 | 0 | 16 |
 | issue-sweep | 5 | 8 | 0 | 0 | 0 | 0 | 13 | 0 | 13 |
 | wrapped | 1 | 4 | 0 | 0 | 0 | 0 | 5 | 0 | 5 |
-| **Total** | **154** | **204** | **28** | **188** | **53** | **13** | **87** | **45** | **386** |
+| preview | 1 | 1 | 0 | 2 | 0 | 0 | 0 | 0 | 2 |
+| **Total** | **155** | **205** | **28** | **190** | **53** | **13** | **87** | **45** | **388** |
 
-Per decision: Keep 188, Defer §14 53, Defer §16 13, Cut 87, Internal ops 45. Per kind: flow 154, action 204, agent action 28. Total 386.
+Per decision: Keep 190, Defer §14 53, Defer §16 13, Cut 87, Internal ops 45. Per kind: flow 155, action 205, agent action 28. Total 388.
 
 ## C.23 Gaps
 
@@ -618,3 +619,10 @@ Keep rows with no plausible person-facing rendering (Inspect-only plumbing; hide
 - **Missing tags.** The single `todo` run, the stack operations (`stack.propose`, `todo.amend`, `todo.drop`, `stack.move`, `branch.fork`, `branch.rebase`), learning after merge, timeline summaries, `ask` for the implementing agent, and agent-owned terminal sessions for `bash` are already build gaps in mvp.md §11 and engineering's tickets. This appendix gains their rows when they exist.
 
 - **Placements and entry points (product, 2026-10-02, Astra A-26).** Repository flows and coding agents run on machines (M-30), so `coding/Vibe`, `coding/Wiki`, `smithers/Wiki`, `wiki/review-page` and `memory/mine` run on Machine. The four separately launched entry points (`coding/Request`, `coding/Vibe`, `coding/Verify`, `review/change`) are replaced by the single durable `todo` run (T-FLW-11), whose steps keep their Inspect renderings.
+
+## C.24 preview
+
+| id | kind | source | what | runs in | MVP | renders as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `preview` | flow | flows/preview/flow.ts | Preview a branch's app | CLI or machine | Keep | Run card |
+| `preview/deploy` | action | flows/preview/flow.ts | Run the private preview target | CLI or machine | Keep | Run card |

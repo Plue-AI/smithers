@@ -39,6 +39,13 @@ space, and the kernel refuses everything a real body asks for. `pack.test.mjs`
 parses every declared literal through the real `Capability.parse` and asserts a
 real command line matches.
 
+## Preview
+
+`/preview` and `smthrs flow start preview --wait` run the repository’s single
+`CloudRun.Preview` target and return its private preview opener and expiry.
+An optional revision must equal the checked-out commit. Without a target the
+flow refuses with `no_target`.
+
 ## Shared notes
 
 `notes/note.ts` retains workspace-confined Markdown reads and atomic writes,
