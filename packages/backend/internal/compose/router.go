@@ -139,10 +139,13 @@ func buildRouter(
 	}
 	r := chi.NewRouter()
 	if config.IsSingleOwner(cfg.Auth) {
-		r.Use(middleware.RejectTenantProvisioning, middleware.RejectDeferredTriggerManagement)
+		r.Use(middleware.RejectTenantProvisioning)
 		if extras.BillingCapabilities == (services.BillingCapabilities{}) {
 			r.Use(middleware.RejectDeferredCommerce)
 		}
+	}
+	if !config.IsMultitenant(cfg.Auth) {
+		r.Use(middleware.RejectDeferredTriggerManagement)
 	}
 	var ownerBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg.Auth) {
@@ -584,12 +587,16 @@ func buildRouter(
 			if !config.IsSingleOwner(cfg.Auth) {
 				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}", repositoryJobHandler.PutRepositoryJob)
 			}
-			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", repositoryJobHandler.PutRepositoryJobTrial)
+			if config.IsMultitenant(cfg.Auth) {
+				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", repositoryJobHandler.PutRepositoryJobTrial)
+			}
 			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}", repositoryJobHandler.PutRepositoryJobComment)
 			if !config.IsSingleOwner(cfg.Auth) {
 				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}", repositoryJobHandler.PutRepositoryJobManual)
 			}
-			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}", repositoryJobHandler.PutRepositoryCheckReceipt)
+			if config.IsMultitenant(cfg.Auth) {
+				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}", repositoryJobHandler.PutRepositoryCheckReceipt)
+			}
 		})
 	}
 

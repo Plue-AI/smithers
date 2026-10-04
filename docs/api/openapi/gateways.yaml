@@ -1,6 +1,7 @@
 paths:
   /api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}:
     put:
+      x-composition: plue
       summary: PUT /api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}
       operationId: put_api_gateways_host_repository_jobs_ci_check_receipts_request
       tags:
@@ -189,6 +190,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}:
     put:
+      x-composition: plue
       summary: PUT /api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}
       operationId: put_api_gateways_host_repository_jobs_job_trials_request
       tags:

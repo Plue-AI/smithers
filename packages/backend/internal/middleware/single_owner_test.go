@@ -35,7 +35,7 @@ func TestRejectDeferredBoundariesBeforeEffects(t *testing.T) {
 		absent, retained []string
 	}{
 		{"triggers", RejectDeferredTriggerManagement,
-			[]string{"/api/repos/will/app/repository-jobs", "/api/repos/will/app/repository-jobs/ci/resume", "/api/gateways/host/repository-jobs/ci", "/api/gateways/host/repository-jobs/ci/manual/request"},
+			[]string{"/api/repos/will/app/repository-jobs", "/api/repos/will/app/repository-jobs/ci/resume", "/api/gateways/host/repository-jobs/ci", "/api/gateways/host/repository-jobs/ci/manual/request", "/api/gateways/host/repository-jobs/ci/trials/request", "/api/gateways/host/repository-jobs/ci/check-receipts/request"},
 			[]string{"/api/repos/will/app/repository-source", "/healthz"}},
 		{"commerce", RejectDeferredCommerce, []string{"/api/billing", "/api/billing/", "/api/billing/webhook", "/api/billing/plans"}, []string{"/api/billing-other", "/api/install", "/healthz"}},
 	} {
@@ -62,9 +62,7 @@ func TestRejectUnboundRepositoryJobCallbacks(t *testing.T) {
 	effects := 0
 	handler := RejectDeferredTriggerManagement(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { effects++ }))
 	for _, path := range []string{
-		"/api/gateways/host/repository-jobs/ci/trials/request",
 		"/api/gateways/host/repository-jobs/ci/comments/step",
-		"/api/gateways/host/repository-jobs/ci/check-receipts/request",
 	} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, path, nil))

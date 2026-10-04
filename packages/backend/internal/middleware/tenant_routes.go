@@ -30,7 +30,7 @@ func RejectDeferredTriggerManagement(next http.Handler) http.Handler {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		repoJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "repos" && parts[4] == "repository-jobs"
 		gatewayJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "gateways" && parts[3] == "repository-jobs" &&
-			(len(parts) == 5 || (len(parts) >= 6 && parts[5] == "manual"))
+			(len(parts) == 5 || (len(parts) >= 6 && (parts[5] == "manual" || parts[5] == "trials" || parts[5] == "check-receipts")))
 		if repoJobs || gatewayJobs {
 			pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
 			return

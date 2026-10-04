@@ -474,6 +474,22 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 				require.NotContains(t, documentedOperations(loadOpenAPIPaths(t)), key)
 			}
 			hosted := mode == config.AuthModeMultitenant
+			for _, operation := range []string{
+				"put /api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}",
+				"put /api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}",
+			} {
+				require.Equal(t, hosted, served[operation].path != "", operation)
+				parts := strings.SplitN(operation, " ", 2)
+				require.Equal(t, "plue", mappingValue(mappingValue(mappingValue(loadOpenAPIPaths(t), parts[1]), parts[0]), "x-composition").Value)
+				path := strings.NewReplacer("{hostID}", "host", "{job}", "ci", "{requestID}", "request").Replace(parts[1])
+				response := httptest.NewRecorder()
+				openAPIConformanceRouter(cfg).ServeHTTP(response, httptest.NewRequest("PUT", path, nil))
+				if hosted {
+					require.Equal(t, http.StatusServiceUnavailable, response.Code, path)
+				} else {
+					require.Equal(t, http.StatusNotFound, response.Code, path)
+				}
+			}
 
 			router := hostStatusProductionRouter(cfg, nil, &services.InstallCapacityService{})
 			request := httptest.NewRequest("GET", "/api/admin/users", nil)
@@ -556,6 +572,8 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				{"POST", "/api/repos/cutowner/repo/branch-locks/join-requests/1/decide", 404, 404},
 				{"GET", "/api/repository-setup/old", 404, 404},
 				{"POST", "/api/repository-setup/old", 404, 404},
+				{"PUT", "/api/gateways/host/repository-jobs/ci/trials/request", 404, 503},
+				{"PUT", "/api/gateways/host/repository-jobs/ci/check-receipts/request", 404, 503},
 				{"GET", "/api/admin/users", 404, 403},
 				{"GET", "/api/admin/system/health", 403, 403},
 				{"GET", "/api/health", 200, 200},
@@ -640,6 +658,8 @@ func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
 		{"POST", "/api/repos/will/app/repository-jobs/ci/resume"},
 		{"POST", "/api/repos/will/app/repository-jobs/ci/run"},
 		{"PUT", "/api/gateways/host/repository-jobs/ci/manual/request"},
+		{"PUT", "/api/gateways/host/repository-jobs/ci/trials/request"},
+		{"PUT", "/api/gateways/host/repository-jobs/ci/check-receipts/request"},
 	} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(request.method, request.path, nil))
@@ -648,9 +668,7 @@ func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
 	// Non-nil production handlers have no services: crossing the dark guard would
 	// panic or perform IO. Missing membership/system authority must stop first.
 	for _, path := range []string{
-		"/api/gateways/host/repository-jobs/ci/trials/request",
 		"/api/gateways/host/repository-jobs/ci/comments/step",
-		"/api/gateways/host/repository-jobs/ci/check-receipts/request",
 	} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest("PUT", path, nil))
