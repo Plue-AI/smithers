@@ -387,19 +387,30 @@ func (q *Queries) GetMythicalItem(ctx context.Context, id pgtype.UUID) (Mythical
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE id = $1`, id))
 }
 
-// GetMythicalItemByIssue returns a repository's item for one issue.
+// GetMythicalItemByIssue returns the active claim, or the newest historical
+// item when the issue has no active claim. Historical UUID reads stay stable.
 func (q *Queries) GetMythicalItemByIssue(ctx context.Context, repositoryID, issue int64) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
-		WHERE repository_id = $1 AND issue_number = $2`, repositoryID, issue))
+		WHERE repository_id = $1 AND issue_number = $2
+		ORDER BY (state NOT IN ('landed', 'cancelled', 'rejected', 'declined')) DESC, created_at DESC, id DESC
+		LIMIT 1`, repositoryID, issue))
 }
 
-// InsertMythicalItem creates an issue item; an existing item for the same
-// issue is returned unchanged (inserted false).
+// GetActiveMythicalItemByIssue excludes historical merged and dropped items.
+func (q *Queries) GetActiveMythicalItemByIssue(ctx context.Context, repositoryID, issue int64) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+		WHERE repository_id = $1 AND issue_number = $2
+		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined')`, repositoryID, issue))
+}
+
+// InsertMythicalItem creates an issue item; an existing active claim for the
+// same issue is returned unchanged (inserted false). Settled history remains.
 func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, bool, error) {
 	created, err := scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items
 		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider, checks)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10, $11)
-		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL DO NOTHING
+		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL
+		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') DO NOTHING
 		RETURNING `+mythicalItemColumns,
 		item.RepositoryID, item.IssueNumber, item.IssueTitle, item.IssueURL, item.IssueDigest, item.IssueBody, item.ApprovedDigest,
 		item.State, item.Reason, item.Outsider, jsonArg(item.Checks)))
@@ -409,7 +420,7 @@ func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (My
 	if !errors.Is(err, pgx.ErrNoRows) || !item.IssueNumber.Valid {
 		return MythicalItem{}, false, err
 	}
-	existing, err := q.GetMythicalItemByIssue(ctx, item.RepositoryID, item.IssueNumber.Int64)
+	existing, err := q.GetActiveMythicalItemByIssue(ctx, item.RepositoryID, item.IssueNumber.Int64)
 	return existing, false, err
 }
 
