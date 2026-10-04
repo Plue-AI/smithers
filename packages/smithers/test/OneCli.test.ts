@@ -251,17 +251,19 @@ describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
     // Independent count rejects a command dropped from both handlers and definitions.
-    // The original 211 commands include history land and workspace children
-    // (b80b439db473); the reviewed forge-only removals below account for six.
+    // 212 original commands plus host start/stop, less the eight retired
+    // forge-only and registration commands below.
     const retired = [
       "changeset create",
       "changeset get",
       "changeset land",
       "changeset list",
       "repo fork",
-      "repo transfer"
+      "repo transfer",
+      "repo report",
+      "history backfill"
     ]
-    expect(Object.keys(definitions)).toHaveLength(212 - retired.length)
+    expect(Object.keys(definitions)).toHaveLength(214 - retired.length)
     for (const name of retired) {
       expect(Object.hasOwn(definitions, name)).toBe(false)
       expect(Object.hasOwn(handlers, name)).toBe(false)

@@ -15,6 +15,7 @@ import { Client, list, object, type Values } from "./Client.ts"
 import { copy } from "./Copy.ts"
 import { definitions } from "./Definitions.ts"
 import { egress } from "./Egress.ts"
+import * as HostService from "./HostService.ts"
 import { history, humans } from "./History.ts"
 import { local } from "./Local.ts"
 import { misc } from "./Misc.ts"
@@ -29,7 +30,9 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
-  "host status": (c) => c.request("GET", "/api/host"),
+  "host start": (_c, _a, o) => HostService.start(typeof o.bundle === "string" ? o.bundle : undefined),
+  "host stop": async () => HostService.stop(HostService.launchd()),
+  "host status": () => HostService.status(),
   ...resources,
   ...admin,
   ...auth,
@@ -51,7 +54,7 @@ export const handlers: Record<string, Handler> = {
  * @since 1.0.0
  */
 export const groups: Record<string, string> = {
-  "host": "Inspect this installation’s host",
+  "host": "Operate this installation’s host",
   "admin": "Administer the Smithers installation",
   "admin alerts": "Manage alert channels and policies",
   "admin alerts channels": "Manage where alerts are delivered",
@@ -162,7 +165,17 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     const interactive = name === "api" || name === "config set" || name === "completion" ||
       (name.startsWith("auth ") && !name.endsWith(" status") && name !== "auth token") ||
       ["workspace shell", "workspace ssh"].includes(name)
-    const human = name === "repo home" ? repoHome : humans[name]
+    const human = name === "host start"
+      ? (value: unknown) => {
+        const row = object(value)
+        return Array.isArray(row.setup_urls) ? row.setup_urls.join("\n") : String(row.message ?? "")
+      }
+      : name === "host status"
+      ? (value: unknown) => {
+        const row = object(value)
+        return `launchd ${row.launchd}\nreadyz ${row.readiness}\ndoctor ${row.doctor}\nbundle ${row.bundle} (${row.version})`
+      }
+      : name === "repo home" ? repoHome : humans[name]
     const command = {
       ...previous,
       mcp: interactive ? false as const : previous?.mcp ?? {
@@ -214,7 +227,10 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
             const structured = Presentation.policy(context, runtime).structured
             const client = new Client(runtime, !structured)
             try {
-              const value = client.redact(await handler(client, args, options))
+              const result = await handler(client, args, options)
+              if (name === "host start") runtime.exit?.(Number(object(result).exitCode ?? 0))
+              // The operator-requested setup link is the sole intentional secret output.
+              const value = name === "host start" ? result : client.redact(result)
               // The human renderer cleans its own text and JSON escapes control
               // characters; toon, yaml and md print backend strings as they are.
               return structured && context.format !== "json" && context.format !== "jsonl"

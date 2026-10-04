@@ -3,6 +3,16 @@
 E2E and live-check scripts. Unless a section says otherwise, run them from
 `apps/app`.
 
+## Stage-1 service
+
+After `smthrs build //apps/app:serverBundle`, run
+`smthrs host start --bundle <output-directory>` as the logged-in Mac user.
+It verifies the manifest, registers a per-user LaunchAgent, waits for
+`http://127.0.0.1:4000/readyz`, and prints the backend's setup links through
+`~/Library/Application Support/Smithers/run/host.sock` (0600).
+Repeat start keeps the token. `smthrs host status` checks launchd, readiness
+and the bundled doctor; `smthrs host stop` retains data. No sudo is needed.
+
 ## Declared test runners
 
 | Command (from `apps/app`) | Files executed | Requirement |

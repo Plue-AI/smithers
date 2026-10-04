@@ -31,6 +31,7 @@ run-kind targets; `flow start` starts durable flows.
 | `environment add/list/view/remove/exec/shell/forward` | Save an execution location and run commands there. |
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside a smithers checkout whose remote is on github.com or smithers.sh, or print its smithers.sh page. |
+| `host start [--bundle <dir>]`, `host stop`, `host status` | Run a verified server bundle as an unprivileged macOS LaunchAgent, stop it, or inspect its health. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
 | `token mint` | Mint a scoped, expiring gateway token under `SMITHERS_TOKEN`. |
 
@@ -384,3 +385,24 @@ are removed.
 requests 4 vCPUs, 8192 MiB memory and 40 GiB writable disk. The server persists
 this size for recovery and fork and returns `workspace_resources_exceeded`
 when a requested resource exceeds its configured cap.
+
+## macOS host service
+
+Build the stage-1 server bundle with `smthrs build //apps/app:serverBundle`,
+then run `smthrs host start --bundle <output-directory>` in your macOS login
+session. Start verifies every manifest digest before registering the service.
+Without `--bundle`, it uses `/opt/homebrew/opt/smithers/libexec`.
+
+Start waits up to 60 seconds for `http://127.0.0.1:4000/readyz` and prints the
+setup links. Open one to set up the owner. The links come from backend memory
+through the user-owned, mode-0600 `run/host.sock`; they never enter service logs
+or a token file. Repeating start leaves the running service and token intact.
+Changing bundles restarts once; a restart before owner claim rotates the token.
+
+`host start` exits 0 with `setup_ready`, 3 with `setup_closed` (Already set up.),
+or 4 with `setup_mint_failed`. Readiness and socket failures exit 1.
+`host status` reports launchd, readiness, bundled microVM doctor, bundle and
+version. `host stop` unloads the agent and retains all data under
+`~/Library/Application Support/Smithers`. The agent starts at login and
+restarts after a crash. These commands require an unprivileged macOS user;
+never run them with sudo.

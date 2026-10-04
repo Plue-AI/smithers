@@ -11,6 +11,7 @@ import { type Host, repoFromRemote, resolveRepo } from "../src/commands/Open.ts"
 import { ask } from "../src/internal/backend/AgentDocs.ts"
 import { auth } from "../src/internal/backend/Auth.ts"
 import { APIError, Client, object } from "../src/internal/backend/Client.ts"
+import * as HostService from "../src/internal/backend/HostService.ts"
 import { local } from "../src/internal/backend/Local.ts"
 import { misc } from "../src/internal/backend/Misc.ts"
 import { gitAuth, repositories } from "../src/internal/backend/Repositories.ts"
@@ -1103,28 +1104,50 @@ describe("retired repository registration report", () => {
 })
 
 // T-MCH-01, spec §20.2: the CLI reads the same host model as Settings.
-describe("host status", () => {
-  it("reads the authenticated profile, limits and clamped capacity", async () => {
+describe("local host service commands", () => {
+  it("reports local health without calling the configured remote backend", async () => {
     const seen: string[] = []
-    const f = await homeFixture((req, res) => {
-      seen.push(`${req.method} ${req.url}`)
-      expect(req.headers.authorization).toBe("token home-session-secret")
-      res.writeHead(200, { "content-type": "application/json" })
-      res.end(
-        JSON.stringify({
-          profile: { memory_bytes: 32 * 2 ** 30 },
-          limits: { capacity: 3 },
-          machines: { in_use: 1, capacity: 2 }
-        })
-      )
-    })
+    const health = { state: "ready", bundle: "/bundle", version: "1.0", launchd: "running", readiness: "ready", doctor: "ready" }
+    vi.spyOn(HostService, "status").mockResolvedValue(health)
+    const f = await homeFixture((req, res) => { seen.push(String(req.url)); res.end("{}") })
     try {
       const result = await f.run(["host", "status", "--json"])
       expect(result.code).toBe(0)
-      expect(seen).toEqual(["GET /api/host"])
-      expect(result.output).toContain("\"capacity\": 2")
-    } finally {
-      await f.close()
-    }
+      expect(seen).toEqual([])
+      expect(JSON.parse(result.output)).toMatchObject(health)
+    } finally { await f.close() }
+  })
+  it.each([false, true])("prints the setup URL with its token intact (json=%s)", async (json) => {
+    const url = "http://localhost:4000/setup?token=fixture-setup-secret"
+    vi.spyOn(HostService, "start").mockResolvedValue({ code: "setup_ready", setup_urls: [url], exitCode: 0 })
+    const f = await homeFixture((_req, res) => res.end("{}"))
+    try {
+      const result = await f.run(["host", "start", "--bundle", "/bundle", ...(json ? ["--json"] : [])])
+      expect(result.code).toBe(0)
+      expect(result.output).toContain(url)
+      expect(result.error).not.toContain("fixture-setup-secret")
+      expect(HostService.start).toHaveBeenCalledWith("/bundle")
+    } finally { await f.close() }
+  })
+  it.each([
+    ["setup_closed", "Already set up.", 3],
+    ["setup_mint_failed", "Setup URL mint failed; nothing emitted.", 4]
+  ])("preserves %s exit status through the production CLI", async (code, message, exitCode) => {
+    vi.spyOn(HostService, "start").mockResolvedValue({ code, message, exitCode })
+    const f = await homeFixture((_req, res) => res.end("{}"))
+    try {
+      const result = await f.run(["host", "start"])
+      expect(result.code).toBe(exitCode)
+      expect(result.output).toContain(message)
+    } finally { await f.close() }
+  })
+  it("keeps readiness or transport failure distinct from an owner claim", async () => {
+    vi.spyOn(HostService, "start").mockRejectedValue(new Error("Host setup socket unavailable"))
+    const f = await homeFixture((_req, res) => res.end("{}"))
+    try {
+      const result = await f.run(["host", "start"])
+      expect(result.code).toBe(1)
+      expect(result.output + result.error).not.toContain("Already set up")
+    } finally { await f.close() }
   })
 })

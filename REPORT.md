@@ -60,3 +60,97 @@ Not done: assembled-bundle startup/offline VM boot/persistence, positive guest p
 Deleted file: apps/app/e2e/fixtures/unit-entrypoints/ServeReadiness.preload.ts (obsolete shell-selected Plue fixture). Deleted launcher shell-mode/path/origin overrides, local token producer and inherited PATH append; deleted real-entrypoint Plue-only tests because the bundled launcher can no longer select Plue.
 
 Positive file deltas are behavioral tests and the requested security review predicates: NativeBackendProcess.test.ts (hostility/symlink/output/argv/missing-runtime coverage), main_test.go (early production refusal/exempt doctor coverage), isolation_test.go (wrong-version refusal), server-bundle.integration.test.ts (real assembled-entrypoint refusal), PACKAGE.ts (security review checks), main.go and isolation.go (production startup has no prior early isolation guard, so the new guard and explicit test parameter replace ambient process selection). REPORT.md is the explicitly requested operator/evidence record. No existing production path served those assertions. Other implementation files shrink or preserve size. Final net and landed SHA are recorded in ~/lanes/crit-t-ins-02.REPORT.md after push.
+# T-INS-08 (#3523) — first increment
+
+Ready: sha256:d46fdac6ad4b. Lead smithers-df holds the issue claim.
+
+Restored plist rendering and launchctl installation/removal from
+35ec608f65^:flows/organization/setup/service.ts. Removed the clean agent,
+organization checkout/runtime discovery and organization CLI arguments from
+the restored implementation. Replaced the CLI's /api/host status call with
+local launchd, readiness and bundled doctor diagnostics. No deleted files.
+
+## Operator commands on this Mac mini
+
+From this worktree, `source ~/lanes/env.sh` and
+`export PATH="$HOME/.local/node/bin:$HOME/.bun/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"`.
+Build the bundle using `node packages/smithers/bin/smithers.mjs build //apps/app:serverBundle`
+when T-INS-01 lands, then:
+
+```
+node packages/smithers/bin/smithers.mjs host start --bundle <bundle-directory>
+node packages/smithers/bin/smithers.mjs host status
+node packages/smithers/bin/smithers.mjs host stop
+```
+
+Start waits up to 60 seconds for HTTP 127.0.0.1:4000/readyz. Expected output
+is one or more http://localhost:4000/setup?token=... links (plus configured
+origins). A running repeat retains the token. Start exits 0/setup_ready,
+3/setup_closed (Already set up.), or 4/setup_mint_failed. A missing socket or
+failed readiness exits 1, never 3. Status reports launchd/readiness/doctor,
+bundle path and version. The per-user agent is sh.smithers.host in gui/<uid>;
+state is ~/Library/Application Support/Smithers. Stop retains all data.
+No root step is added or used. No branch code is installed/executed as root.
+
+Real qualification, after dependencies land and the existing host is stopped:
+
+```
+cd packages/smithers
+SMITHERS_HOST_TEST_BUNDLE=<absolute-real-bundle> pnpm exec vitest run test/host-service.integration.test.ts --coverage.enabled=false
+```
+
+This harness uses real launchd and the production source CLI, refuses an
+already-loaded agent, runs a real bundle, and writes redacted observations to
+.artifacts/checks/C-INS-06/. It is not a full acceptance receipt: login after
+reboot, owner claim, all child UIDs and disabled-msb qualification remain.
+
+## Assumed provider contracts
+
+- T-INS-01 manifest.json has files[{path,sha256,stage}], covering every file
+  except manifest.json; bin/smithers-server, bin/smithers-backend and bin/msb
+  are executable. Version display uses version or buildSha until confirmed.
+- T-INS-02's newer adopted socket contract supersedes this ticket's older
+  file handoff: ProgramArguments includes --setup-handoff=socket. No
+  setup-urls.json is created. Launcher derives state from the installing user’s HOME.
+- T-ACC-01 must expose committed URLs in backend memory. T-INS-08 will wire
+  a private 0600 installing-user-owned run/host.sock; GET /setup-urls returns
+  200 {setup_urls:[...]}, 401 {error:setup_closed}, or
+  503 {error:setup_mint_failed}. Reads and claim must share the owner lock.
+- Default Homebrew bundle path is /opt/homebrew/opt/smithers/libexec; T-INS-05
+  may refine it. No shell executable lookup is used.
+- /readyz is fixed at http://127.0.0.1:4000. Before T-INS-06 telemetry is omitted.
+
+## Validation
+
+- pnpm exec vitest run test/HostService.test.ts test/host-service.integration.test.ts test/OneCli.test.ts test/BackendCommands.test.ts --coverage.enabled=false:
+  225 passed, 1 skipped (real bundle unavailable); no coverage claim.
+- pnpm exec tsc -p packages/smithers/tsconfig.json --noEmit: exit 0.
+- pnpm docs:sync and pnpm docs:check: exit 0.
+- cd packages/smithers && pnpm build: exit 0 (Node 26.5.0).
+- node packages/smithers/bin/smithers.mjs docs //packages/smithers:docs --verbose:
+  exit 0, one target ran successfully. Node 24 failed this target; corrected PATH.
+- Test-tree tsc: two pre-existing SkillsPaths.test.ts errors, no touched-file errors.
+- cd apps/app && pnpm typecheck: exit 0 (only app docs changed).
+- Corrected pre-existing OneCli count drift for retired repo report and
+  history backfill; the starting tree defines 204 commands against an
+  expectation of 206. Tip adds two commands and names both prior retirements.
+
+## Not done
+
+Backend memory/socket wiring awaits the concurrent T-ACC-01 mint/claim API;
+no second minter has been added. The first-merge C-J1-04 journey, named
+acceptance checks and receipt-bound issue closure are NOT passed. A real
+bundle and safe bundled microVM startup from T-INS-01/T-INS-02 remain required.
+No issue-claim/gh invocation was made; the lead owns issue writes.
+
+## Net lines
+
+First increment: 11 files, +694/-28 (net +666). Positive files are justified as follows: HostService.ts
+restores the deleted service with new bundle verification/socket consumption
+(no current service implementation exists); HostService.test.ts restores
+its behavioral coverage; host-service.integration.test.ts is the named real
+CLI/launchd automation with no existing equivalent; Commands.ts and
+Definitions.ts add the two requested CLI doors and local health; CLI tests
+cover new dispatch, exits and intentional token output; source docs and their
+generated projection describe the new operator commands; this report is the
+requested operator/evidence handoff. apps/app/scripts/README.md is docs only.

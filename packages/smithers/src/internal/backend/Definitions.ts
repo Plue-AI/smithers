@@ -7,8 +7,18 @@ import { z } from "incur"
  * @since 0.1.0
  */
 export const definitions = {
+  "host start": {
+    description: "Start the bundled host service",
+    args: z.object({}),
+    options: z.object({ bundle: z.string().optional().describe("Built server bundle directory") })
+  },
+  "host stop": {
+    description: "Stop the host service",
+    args: z.object({}),
+    options: z.object({})
+  },
   "host status": {
-    description: "Show host profile and machine limits",
+    description: "Show launchd, bundle and process health",
     args: z.object({}),
     options: z.object({})
   },
