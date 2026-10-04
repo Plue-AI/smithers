@@ -164,7 +164,7 @@ func (w *GitHubWebhookEventWorker) PollOnce(ctx context.Context) error {
 		}
 
 		var permanent *permanentGitHubWebhookJobError
-		var unavailable *issueTodoUnavailableError
+		var unavailable *gitHubTodoUnavailableError
 		if errors.As(err, &permanent) || job.Attempts >= gitHubWebhookJobMaxAttempts && !errors.As(err, &unavailable) {
 			marked, markErr := w.queries.MarkGitHubWebhookJobFailed(ctx, db.MarkGitHubWebhookJobFailedParams{
 				ID:               job.ID,
@@ -244,6 +244,12 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 	payload, err := parseGitHubWorkflowEventPayload(job.Payload)
 	if err != nil {
 		return &permanentGitHubWebhookJobError{err: fmt.Errorf("parse payload: %w", err)}
+	}
+
+	// Reviews cannot be acknowledged without the fetched-fact consumer, even
+	// when no stack observer is configured. No webhook text is admitted here.
+	if w.mythical == nil && (strings.EqualFold(strings.TrimSpace(job.EventType), "pull_request_review") || strings.EqualFold(strings.TrimSpace(job.EventType), "pull_request_review_comment")) {
+		return gitHubReviewUnavailable()
 	}
 
 	// Admission runs before trigger dispatch. An unavailable install provider

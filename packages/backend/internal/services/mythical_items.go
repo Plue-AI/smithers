@@ -160,12 +160,12 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 
 // The worker distinguishes an unavailable admission provider from a failing
 // delivery: deployment waiting cannot consume the finite delivery retry budget.
-type issueTodoUnavailableError struct{ *pkgerrors.APIError }
+type gitHubTodoUnavailableError struct{ *pkgerrors.APIError }
 
-func (e *issueTodoUnavailableError) Unwrap() error { return e.APIError }
+func (e *gitHubTodoUnavailableError) Unwrap() error { return e.APIError }
 
 func issueTodoUnavailable() error {
-	return &issueTodoUnavailableError{pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Issue TODO admission is not configured")}
+	return &gitHubTodoUnavailableError{pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Issue TODO admission is not configured")}
 }
 
 // itemChanged wakes the stack worker and the event stream.
@@ -2504,7 +2504,7 @@ func mythicalRetryReview(item db.MythicalItem) db.MythicalItem {
 	return next
 }
 
-// ObserveGitHubEvent keeps issue hints pending until the install's issue-events
+// ObserveGitHubEvent keeps issue/review hints pending until the install's fetched-fact
 // worker is composed. A successful legacy delivery would lose the event without
 // its durable cursor/consumer receipt. In particular comments cannot steer TODOs.
 func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType string, payload []byte) error {
@@ -2514,6 +2514,8 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	switch strings.ToLower(strings.TrimSpace(eventType)) {
 	case "issues", "issue_comment":
 		return issueTodoUnavailable()
+	case "pull_request_review", "pull_request_review_comment":
+		return gitHubReviewUnavailable()
 	default:
 		return nil
 	}

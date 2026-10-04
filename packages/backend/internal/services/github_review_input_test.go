@@ -41,3 +41,33 @@ func TestNormalizeGitHubReviewTextRefusesIncompleteFetchedData(t *testing.T) {
 		require.Empty(t, text)
 	}
 }
+
+func TestNormalizeGitHubStandaloneCommentText(t *testing.T) {
+	line := int64(4)
+	comment := gitHubReviewLine{ID: 18, User: gitHubActor{ID: 12, Login: "member"}, Body: "Use the helper", Path: "src/retry.ts", OriginalLine: &line, OriginalCommitID: "original"}
+	for _, tc := range []struct {
+		name string
+		line bool
+		app  int64
+		want string
+	}{
+		{"conversation", false, 99, "Use the helper"},
+		{"line", true, 99, "src/retry.ts:4 @ original\nUse the helper"},
+		{"app conversation", false, 12, ""},
+		{"app line", true, 12, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text, err := normalizeGitHubCommentText(comment, tc.line, tc.app)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, text)
+		})
+	}
+	comment.OriginalCommitID = ""
+	text, err := normalizeGitHubCommentText(comment, true, 99)
+	require.Error(t, err)
+	require.Empty(t, text)
+	comment.ID = 0
+	text, err = normalizeGitHubCommentText(comment, false, 99)
+	require.Error(t, err)
+	require.Empty(t, text)
+}

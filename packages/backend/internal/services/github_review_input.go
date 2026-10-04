@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 // gitHubReviewInput is fetched data, never a webhook authority assertion.
@@ -74,4 +76,22 @@ func normalizeGitHubReviewText(review gitHubReviewInput, appUserID int64) (strin
 		parts = append(parts, fmt.Sprintf("%s:%d @ %s\n%s", comment.Path, *line, commit, comment.Body))
 	}
 	return strings.Join(parts, "\n\n"), nil
+}
+
+// The existing webhook receipt/retry path retains hints until fetched facts,
+// current membership and transactional TODO input admission are composed.
+func gitHubReviewUnavailable() error {
+	return &gitHubTodoUnavailableError{pkgerrors.New(pkgerrors.CodeServiceUnavailable, "GitHub review admission is not configured")}
+}
+
+// normalizeGitHubCommentText reuses submission formatting for standalone line
+// comments; conversation comments have no anchor. Neither path admits a steer.
+func normalizeGitHubCommentText(comment gitHubReviewLine, lineComment bool, appUserID int64) (string, error) {
+	review := gitHubReviewInput{ID: comment.ID, User: comment.User}
+	if lineComment {
+		review.Comments = []gitHubReviewLine{comment}
+	} else {
+		review.Body = comment.Body
+	}
+	return normalizeGitHubReviewText(review, appUserID)
 }
