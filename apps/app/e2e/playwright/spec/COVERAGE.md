@@ -227,3 +227,14 @@ Cycle 25: Appendix A starts with ⌘K, /help, /docs, /stop, /search and /stack.
 Docs and the production stack provider remain pending. Passing command tests
 cover plain chat, admitted help rows, an empty search and the idle stop boundary;
 they do not qualify live answer cancellation or repository-grounded answers.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-TODO-NEW | [A-TODO-NEW.spec.ts](A-TODO-NEW.spec.ts) | fixme-before-implementation | T-STK-01 |
+| A-TODO-FROM-ISSUE | [A-TODO-FROM-ISSUE.spec.ts](A-TODO-FROM-ISSUE.spec.ts) | fixme-before-implementation | T-STK-09 |
+| A-TODO | [A-TODO.spec.ts](A-TODO.spec.ts) | fixme-before-implementation | T-APP-02 |
+| A-TODO-ANSWER | [A-TODO-ANSWER.spec.ts](A-TODO-ANSWER.spec.ts) | fixme-before-implementation | T-STK-01 |
+| A-TODO-STEER | [A-TODO-STEER.spec.ts](A-TODO-STEER.spec.ts) | fixme-before-implementation | T-STK-06 |
+| A-TODO-AMEND | [A-TODO-AMEND.spec.ts](A-TODO-AMEND.spec.ts) | fixme-before-implementation | T-STK-02, T-STK-06 |
+
+Cycle 26: production TODO admission, issue drafts, question answers, steers and amendments remain pending. A-TODO-NEW also verifies mounted private draft opening and discard. Draft editing lost fields after blur and values after reload in Chromium; the retained persistence regression awaits T-APP-02.
