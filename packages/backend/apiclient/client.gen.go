@@ -1064,6 +1064,47 @@ type BranchMachine struct {
 	Machine AnyJSON `json:"machine"`
 }
 
+// TODOBranchDiff is generated from docs/api/openapi.yaml.
+type TODOBranchDiff struct {
+	Files []TODOBranchDiffModel `json:"files"`
+}
+
+// TODOBranchDiffModel is generated from docs/api/openapi.yaml.
+type TODOBranchDiffModel struct {
+	Path      string                         `json:"path"`
+	Branch    string                         `json:"branch"`
+	Against   TODOBranchDiffModelAgainst     `json:"against"`
+	Change    string                         `json:"change"`
+	RenamedTo *string                        `json:"renamed_to,omitempty"`
+	Binary    *TODOBranchDiffModelBinary     `json:"binary,omitempty"`
+	Hunks     []TODOBranchDiffModelHunksItem `json:"hunks"`
+}
+
+// TODOBranchDiffModelAgainst is generated from docs/api/openapi.yaml.
+type TODOBranchDiffModelAgainst struct {
+	Kind string `json:"kind"`
+	Rev  string `json:"rev"`
+}
+
+// TODOBranchDiffModelBinary is generated from docs/api/openapi.yaml.
+type TODOBranchDiffModelBinary struct {
+	BeforeBytes int64 `json:"before_bytes"`
+	AfterBytes  int64 `json:"after_bytes"`
+}
+
+// TODOBranchDiffModelHunksItem is generated from docs/api/openapi.yaml.
+type TODOBranchDiffModelHunksItem struct {
+	OldStart int64                                   `json:"old_start"`
+	NewStart int64                                   `json:"new_start"`
+	Lines    []TODOBranchDiffModelHunksItemLinesItem `json:"lines"`
+}
+
+// TODOBranchDiffModelHunksItemLinesItem is generated from docs/api/openapi.yaml.
+type TODOBranchDiffModelHunksItemLinesItem struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
 // ScorecardWindow is generated from docs/api/openapi.yaml.
 type ScorecardWindow struct {
 	From time.Time `json:"from"`
@@ -2199,6 +2240,13 @@ func (c *Client) GetAPIBranches(ctx context.Context) ([]BranchMachine, error) {
 func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (BranchMachine, error) {
 	var out BranchMachine
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b), nil, nil, &out)
+	return out, err
+}
+
+// GetAPIBranchesBDiff calls GET /api/branches/{b}/diff.
+func (c *Client) GetAPIBranchesBDiff(ctx context.Context, b string) (TODOBranchDiff, error) {
+	var out TODOBranchDiff
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/diff", nil, nil, &out)
 	return out, err
 }
 

@@ -579,6 +579,33 @@ export type BranchMachine = {
   machine: AnyJSON
 }
 
+export type TODOBranchDiff = {
+  files: Array<TODOBranchDiffModel>
+}
+
+export type TODOBranchDiffModel = {
+  path: string
+  branch: string
+  against: {
+    kind: "item_base"
+    rev: string
+  }
+  change: "added" | "modified" | "deleted" | "renamed"
+  renamed_to?: string
+  binary?: {
+    before_bytes: number
+    after_bytes: number
+  }
+  hunks: Array<{
+    old_start: number
+    new_start: number
+    lines: Array<{
+      op: " " | "+" | "-"
+      text: string
+    }>
+  }>
+}
+
 export type ScorecardWindow = {
   from: string
   to: string
@@ -1269,6 +1296,16 @@ export interface GetApiBranchesBInput {
 /** GET /api/branches/{b}: Read a branch */
 export const getApiBranchesB = (transport: Transport, input: GetApiBranchesBInput): Promise<GetApiBranchesBResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}`) as Promise<GetApiBranchesBResponse>
+
+export type GetApiBranchesBDiffResponse = TODOBranchDiff
+
+export interface GetApiBranchesBDiffInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/branches/{b}/diff: Read an accepted TODO item diff */
+export const getApiBranchesBDiff = (transport: Transport, input: GetApiBranchesBDiffInput): Promise<GetApiBranchesBDiffResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/diff`) as Promise<GetApiBranchesBDiffResponse>
 
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 

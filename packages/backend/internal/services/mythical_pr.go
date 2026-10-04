@@ -331,6 +331,9 @@ func (g *mythicalGitHubAPI) HeadCheckFacts(ctx context.Context, gh mythicalGitHu
 // until the accepted identity/manifest and publication authority are available.
 type mythicalPRUnavailable struct{}
 
+// TODOPrUnavailable exposes the shared accepted-facts gate to HTTP readers.
+type TODOPrUnavailable = mythicalPRUnavailable
+
 func (*mythicalPRUnavailable) Error() string {
 	return "TODO PR publication dependencies are unavailable"
 }

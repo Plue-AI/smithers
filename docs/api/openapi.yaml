@@ -2407,6 +2407,47 @@ paths:
           description: Branch not found
         '503':
           description: Branch machine providers unavailable
+  /api/branches/{b}/diff:
+    get:
+      x-composition: install
+      summary: Read an accepted TODO item diff
+      description: Compares the accepted item's tree against its accepted prefix candidate. Refuses before reads until identity, accepted-prefix and caller-authorization providers qualify. Never falls back to the current main or a working tree.
+      operationId: get_api_branches_b_diff
+      tags:
+        - Branches
+      parameters:
+        - in: path
+          name: b
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item-only files in DiffCard form
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TODOBranchDiff'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Accepted TODO diff dependencies unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, class, message]
+                properties:
+                  code:
+                    type: string
+                    const: dependency_unavailable
+                  class:
+                    type: string
+                    const: infra
+                  message:
+                    type: string
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz
@@ -23249,6 +23290,69 @@ components:
             - closed
         machine:
           $ref: '#/components/schemas/AnyJSON'
+    TODOBranchDiff:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/TODOBranchDiffModel'
+    TODOBranchDiffModel:
+      type: object
+      required: [path, branch, against, change, hunks]
+      properties:
+        path:
+          type: string
+        branch:
+          type: string
+        against:
+          type: object
+          required: [kind, rev]
+          properties:
+            kind:
+              type: string
+              const: item_base
+            rev:
+              type: string
+        change:
+          type: string
+          enum: [added, modified, deleted, renamed]
+        renamed_to:
+          type: string
+        binary:
+          type: object
+          required: [before_bytes, after_bytes]
+          properties:
+            before_bytes:
+              type: integer
+              minimum: 0
+            after_bytes:
+              type: integer
+              minimum: 0
+        hunks:
+          type: array
+          items:
+            type: object
+            required: [old_start, new_start, lines]
+            properties:
+              old_start:
+                type: integer
+                minimum: 0
+              new_start:
+                type: integer
+                minimum: 0
+              lines:
+                type: array
+                items:
+                  type: object
+                  required: [op, text]
+                  properties:
+                    op:
+                      type: string
+                      enum: [' ', '+', '-']
+                    text:
+                      type: string
     ScorecardWindow:
       type: object
       required: [from, to]

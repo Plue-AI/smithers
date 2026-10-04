@@ -911,6 +911,9 @@ func buildRouter(
 			sync := &routes.GitHubSyncHandler{}
 			r.Get("/github/sync", sync.Status)
 			r.Post("/github/sync", sync.Retry)
+			// Accepted-prefix reads stay dark until T-GH-03 dependency checks qualify.
+			diff := &routes.BranchDiffHandler{}
+			r.Get("/branches/{b}/diff", diff.Diff)
 		}
 		if cfg.Install.QuiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}
