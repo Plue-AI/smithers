@@ -774,6 +774,24 @@ const benchmarkGate = Smithers.NodeTest({
   deps: []
 })
 
+/** Installed-product measurements are opt-in; the library counter gate cannot serve. */
+const perf = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs")),
+  srcs: sources,
+  deps: [],
+  exclusive: true,
+  timeout: "24h"
+})
+
+const perfUnit = Smithers.NodeTest({
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/perf/lib/stats.test.mjs"),
+    Smithers.file("//scripts/perf/lib/artifact.test.mjs")
+  ]),
+  srcs: sources,
+  deps: []
+})
+
 /** Real-runner sentinels and fail-closed campaign-verifier regressions. */
 const tierContracts = Smithers.NodeTest({
   runner: Smithers.testRunner([
@@ -1027,6 +1045,8 @@ export const Package = Smithers.Package({
     mutationGate,
     mvpDocs,
     benchmarkGate,
+    perf,
+    perfUnit,
     tierContracts,
     releaseIntegrity,
     webBundleContract,
