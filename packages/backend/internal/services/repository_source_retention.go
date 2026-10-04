@@ -216,7 +216,7 @@ func (s *RepositorySourceRetentionService) Retain(ctx context.Context, repoID, u
 	if _, err := s.runGit(ctx, baseEnv, "init", "--bare", "--template=", tmp); err != nil {
 		return result, sourceRetentionError("source_retention_unavailable")
 	}
-	sourceURL := "https://github.com/" + source.FullName + ".git"
+	sourceURL := githubGitBaseURL() + source.FullName + ".git"
 	credential := ""
 	if token != "" {
 		credential = "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
@@ -365,7 +365,14 @@ func verifyRetainedRefs(output string, result RepositorySourceRetentionResult) b
 }
 
 func sourceRetentionGitEnv(authURL, credential string) []string {
-	env := []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	env := []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	// Reuse the launcher's bundled PATH and outbound proxy contract while
+	// excluding user Git configuration and trace/credential variables.
+	for _, name := range []string{"PATH", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "all_proxy", "no_proxy"} {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
 	var config [][2]string
 	if authURL != "" && credential != "" {
 		parsed, _ := url.Parse(authURL)
@@ -390,7 +397,7 @@ func (b *retentionOutput) Write(p []byte) (int, error) {
 
 // sourceRetentionGitCommand is shared by host object transfers and their
 // measurements. None of these operations checks out files or runs repository
-// tools; only OS Git and its HTTP transport can execute. Command-line policy
+// tools; only bundled Git and its HTTP transport can execute. Command-line policy
 // overrides repository configuration even when credentials replace env config.
 func sourceRetentionGitCommand(ctx context.Context, env []string, args ...string) *exec.Cmd {
 	policy := []string{
@@ -404,7 +411,7 @@ func sourceRetentionGitCommand(ctx context.Context, env []string, args ...string
 		"-c", "protocol.ext.allow=never", "-c", "protocol.ssh.allow=never",
 		"-c", "protocol.git.allow=never",
 	}
-	cmd := exec.CommandContext(ctx, "/usr/bin/git", append(policy, args...)...)
+	cmd := exec.CommandContext(ctx, "git", append(policy, args...)...)
 	cmd.Env = env
 	return cmd
 }

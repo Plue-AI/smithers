@@ -228,6 +228,7 @@ describe("native backend ownership", () => {
       SMITHERS_GITHUB_APP_PRIVATE_KEY: "canary",
       SMITHERS_GITHUB_APP_INSTALL_URL: "canary",
       SMITHERS_GITHUB_APP_API_BASE_URL: "canary",
+      SMITHERS_GITHUB_APP_GIT_BASE_URL: "canary",
       SMITHERS_GITHUB_APP_PERMISSIONS_URL: "canary",
       SMITHERS_WEBHOOK_GITHUB_APP_SECRET: "canary",
       SMITHERS_AUTH_GITHUB_API_BASE_URL: "canary",

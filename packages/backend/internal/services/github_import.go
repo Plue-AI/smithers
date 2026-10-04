@@ -2558,7 +2558,7 @@ func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, 
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	source := (&url.URL{Scheme: "https", Host: "github.com", Path: "/" + owner + "/" + repo + ".git"}).String()
+	source := githubGitBaseURL() + url.PathEscape(owner) + "/" + url.PathEscape(repo) + ".git"
 	localMirror := filepath.Join(tmp, repo+".git")
 	started := time.Now()
 	cloneEnv := nonInteractiveGitEnv()
@@ -2570,6 +2570,14 @@ func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, 
 		runGit = runGitCombinedOutput
 	}
 	if out, err := runGit(ctx, cloneEnv, "clone", "--mirror", source, localMirror); err != nil {
+		// Authentication/access refusals need a person; use the existing
+		// terminal predicate instead of spending all twenty transient attempts.
+		message := strings.ToLower(out)
+		for _, refusal := range []string{"authentication failed", "could not read username", "repository not found", "requested url returned error: 401", "requested url returned error: 403", "requested url returned error: 404"} {
+			if strings.Contains(message, refusal) {
+				return terminalGitHubImportError{pkgerrors.Forbidden("Repository source access was refused")}
+			}
+		}
 		return fmt.Errorf("clone github repo: %w: %s", err, strings.TrimSpace(out))
 	}
 	if progress, err := gitMirrorProgress(ctx, localMirror); err == nil {
@@ -2733,7 +2741,7 @@ func gitGitHubAuthEnv(token string) []string {
 	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + strings.TrimSpace(token)))
 	return []string{
 		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader",
+		"GIT_CONFIG_KEY_0=http." + githubGitBaseURL() + ".extraHeader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + credential,
 	}
 }

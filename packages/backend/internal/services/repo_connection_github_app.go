@@ -1044,6 +1044,23 @@ func githubAPIBaseURL() string {
 	return defaultGitHubAPIBaseURL
 }
 
+// Git uses the App API's origin on Enterprise and local installations. GitHub's
+// public API is the sole origin whose Git endpoint has a different hostname.
+func githubGitBaseURL() string {
+	if value := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_APP_GIT_BASE_URL")); value != "" {
+		return strings.TrimRight(value, "/") + "/"
+	}
+	base, err := url.Parse(githubAPIBaseURL())
+	if err != nil {
+		return githubAPIBaseURL() + "/"
+	}
+	if base.Host == "api.github.com" {
+		base.Host = "github.com"
+	}
+	base.Path, base.RawPath, base.RawQuery, base.Fragment = "/", "", "", ""
+	return base.String()
+}
+
 func parseGitHubAppPrivateKey(value string) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode([]byte(value))
 	if block == nil {
