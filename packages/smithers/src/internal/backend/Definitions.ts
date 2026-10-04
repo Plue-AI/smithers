@@ -530,11 +530,6 @@ export const definitions = {
     args: z.object({}),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
-  "history backfill": {
-    description: "Admit every open issue to the history now",
-    args: z.object({}),
-    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
-  },
   "history bootstrap": {
     description: "Create the history from main's commits",
     args: z.object({}),

@@ -419,7 +419,6 @@ export const history: Record<string, Handler> = {
     if (!REQUEST.test(request)) throw new UsageError({ message: "A request id is 1 to 64 letters, digits or hyphens" })
     return c.request("POST", stackPath(c, o, "/todos"), { title, body: str(o.body), request })
   },
-  "history backfill": (c, _a, o) => c.request("POST", stackPath(c, o, "/backfill"), {}),
   "history bootstrap": (c, _a, o) => c.request("POST", stackPath(c, o, "/bootstrap"), {}),
   "history parallel": (c, a, o) => {
     const lanes = Number(a.lanes)
@@ -439,7 +438,6 @@ export const humans: Record<string, (value: unknown) => string> = {
   "history retry": (value) => itemLine(object(value)),
   "history land": (value) => itemLine(object(value)),
   "history todo": (value) => itemLine(object(value)),
-  "history backfill": (value) => render(value),
   "history bootstrap": (value) => render(value),
   "history parallel": (value) => render(value)
 }

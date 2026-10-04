@@ -68,7 +68,6 @@ export interface StackSeam {
   readonly readStack: (repo?: string) => Promise<MythicalStack | string>
   readonly heldStack: (repo: string) => MythicalStack | undefined
   readonly bootstrapStack: (repo: string) => Promise<Result>
-  readonly backfillStack: (repo?: string) => Promise<Result>
   readonly setStackParallel: (value: number, repo?: string) => Promise<Result>
   readonly retryStackItem: (id: string, repo?: string) => Promise<Result>
   /** A maintainer's Land on a proposed TODO: ask the stack to merge it at `head` and follow it until it lands or stops. */
@@ -564,13 +563,6 @@ export const createStackSeam = (
     // The request is durable before it is acknowledged.
     return runBootstrap(repo, true, () => write(repo, { bootstrap: { requestedAt: Date.now() }, failure: null }, true))
   }
-  const backfillStack: StackSeam["backfillStack"] = async (repoArg) => {
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    return act(repo, "backfill", repo, { running: "Admitting open issues…", done: "Issues admitted" },
-      () => writeAndApply(repo, "POST", route("backfill", repo), {}))
-  }
   const setStackParallel: StackSeam["setStackParallel"] = async (value, repoArg) => {
     if (!Number.isInteger(value) || value < 1 || value > 8) return "Choose a lane count from 1 to 8."
     const resolved = target(repoArg)
@@ -937,5 +929,5 @@ export const createStackSeam = (
     return parsed.success ? parsed.data : "The history could not be read."
   }
 
-  return { showStack, setStackView, readStack, heldStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, landStackItem, fileTodo, refreshWiki, watchHomeStack, resumeStacks, snapshots }
+  return { showStack, setStackView, readStack, heldStack, bootstrapStack, setStackParallel, retryStackItem, landStackItem, fileTodo, refreshWiki, watchHomeStack, resumeStacks, snapshots }
 }

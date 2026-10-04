@@ -357,7 +357,7 @@ func TestMythicalTodoRunsOnTheDeclaredMachine(t *testing.T) {
 	image := runtimeports.SandboxEnvironmentImage{ID: "img-1", RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
 		SourceRevision: strings.Repeat("b", 40), ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
 	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true, Image: &image}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 70, Title: "Placed", State: "open",
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 70, Title: "Placed", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(70, "placed.md")
 
@@ -381,7 +381,7 @@ func TestMythicalTodoRefusesTheWrongMachine(t *testing.T) {
 	ctx := context.Background()
 	projection := placementPolicy(`{"vcpus":8}`)
 	o.service.SetPolicyReader(&machineHost{bookmarks: []repohost.Bookmark{{Name: "main", TargetCommitID: strings.Repeat("a", 40)}}, projection: &projection})
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 71, Title: "Too big", State: "open",
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 71, Title: "Too big", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 
@@ -458,7 +458,7 @@ func TestMythicalTodoPlacementFailures(t *testing.T) {
 			tc.host.projection = &projection
 			o.service.SetPolicyReader(tc.host)
 			o.lanes.offer, o.lanes.offerErr = tc.offer, tc.offErr
-			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 72, Title: "Placement", State: "open",
+			require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 72, Title: "Placement", State: "open",
 				TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 			o.wake()
 			item := o.item(72)
@@ -531,7 +531,7 @@ func TestMythicalTodoRecoversOnlyALaneOnItsMachine(t *testing.T) {
 	host := &machineHost{bookmarks: main, projection: &projection}
 	o.service.SetPolicyReader(host)
 	o.launcher.fail = 1
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 73, Title: "Recover", State: "open",
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 73, Title: "Recover", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	require.Len(t, o.lanes.created, 1, "the lost launch left its lane bound")
@@ -566,7 +566,7 @@ func TestMythicalTodoStopsOnABoxWithoutItsTools(t *testing.T) {
 	image := runtimeports.SandboxEnvironmentImage{ID: "img-1", RepositoryID: pgtype.Int8{Int64: o.repoID, Valid: true}, Kind: "vm",
 		SourceRevision: declaredAt, ClosureHash: strings.Repeat("c", 32), Image: "registry/env:" + strings.Repeat("c", 32)}
 	o.lanes.offer = &mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096, NixOS: true, Image: &image}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 74, Title: "Tools", State: "open",
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 74, Title: "Tools", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	item := o.item(74)

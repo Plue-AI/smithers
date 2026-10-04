@@ -4445,13 +4445,6 @@ func (c *Client) PutAPIReposOwnerRepoWorkspacesIDServicesPortVisibility(ctx cont
 	return out, err
 }
 
-// PostAPIReposOwnerRepoMythicalBackfill calls POST /api/repos/{owner}/{repo}/mythical/backfill.
-func (c *Client) PostAPIReposOwnerRepoMythicalBackfill(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/backfill", nil, body, &out)
-	return out, err
-}
-
 // PostAPIReposOwnerRepoMythicalBootstrap calls POST /api/repos/{owner}/{repo}/mythical/bootstrap.
 func (c *Client) PostAPIReposOwnerRepoMythicalBootstrap(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
 	var out AnyJSON

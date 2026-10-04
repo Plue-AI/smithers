@@ -22,7 +22,7 @@ func landingTodo(t *testing.T, number int64, file string) (*mythicalOrchestratio
 	t.Helper()
 	o := filingTodos(t)
 	issue := mythicalIssue{Number: number, Title: "Land", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
-	require.NoError(t, o.service.ObserveIssue(context.Background(), o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, context.Background(), o.repoID, issue, maintainerTodo))
 	o.propose(number, file)
 	item := o.item(number)
 	require.Equal(t, "proposed", item.State, item.Reason)
@@ -63,7 +63,7 @@ func TestMythicalLandTodoMergesAtTheReviewedHead(t *testing.T) {
 	// The label's own event names the App: the Land keeps automerge on.
 	o.appLabeled(90)
 	issue := mythicalIssue{Number: 90, Title: "Land", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, By: "smithers[bot]"}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, By: "smithers[bot]"}))
 	assert.True(t, mythicalChecksOf(o.item(90)).Automerge)
 
 	o.answerReviews(`"approve"`)
@@ -172,7 +172,7 @@ func TestMythicalLandTodoRefusals(t *testing.T) {
 	refuse(ctx, o.userID, id, MythicalLandInput{Head: head}, http.StatusForbidden, "connect your GitHub account to land a TODO")
 
 	// A queued TODO has no pull request to land; a landed one is done.
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 94, Title: "Queued", State: "open",
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 94, Title: "Queued", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	queued := o.item(94)
 	refuse(ctx, o.userID, uuidString(queued.ID), MythicalLandInput{Head: head}, http.StatusConflict, "only a TODO whose pull request is open is landed")

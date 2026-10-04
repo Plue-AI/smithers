@@ -334,7 +334,7 @@ func TestMythicalLocalFactoryFailureDoesNotHoldItemsOrWiki(t *testing.T) {
 	main := o.declareWiki()
 	stack := o.wake() // First fold the new main into the stack.
 	require.Equal(t, main, stack.LandedMain)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{
 		Number: 81, Title: "Update docs", URL: "https://github.com/smithersai/smithers/issues/81",
 		State: "open", TextByMaintainer: true, Body: "Update docs", Labels: []string{"todo"},
 	}, maintainerTodo))

@@ -469,7 +469,6 @@ export interface AppController extends IssueFlowsController {
   readonly showStack: StackSeam["showStack"]
   readonly setStackView: StackSeam["setStackView"]
   readonly bootstrapStack: StackSeam["bootstrapStack"]
-  readonly backfillStack: StackSeam["backfillStack"]
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly landStackItem: StackSeam["landStackItem"]
@@ -1608,7 +1607,6 @@ export const createAppController = (
     showStack: stackSeam.showStack,
     setStackView: stackSeam.setStackView,
     bootstrapStack: stackSeam.bootstrapStack,
-    backfillStack: stackSeam.backfillStack,
     setStackParallel: stackSeam.setStackParallel,
     retryStackItem: stackSeam.retryStackItem,
     landStackItem: stackSeam.landStackItem,

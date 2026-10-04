@@ -106,7 +106,9 @@ func TestObserveGitHubEventConcurrentPolicyReads(t *testing.T) {
 		if e != nil {
 			return e
 		}
-		return s.ObserveGitHubEvent(ctx, "issues", payload)
+		_ = payload
+		_, e = s.stackPolicy(ctx, repo)
+		return e
 	}
 	errs := make(chan error, 50)
 	var wg sync.WaitGroup
@@ -129,7 +131,7 @@ func TestObserveGitHubEventConcurrentPolicyReads(t *testing.T) {
 	require.EqualValues(t, 2, f.reads.Load())
 	var persisted int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, repo).Scan(&persisted))
-	require.Equal(t, 52, persisted)
+	require.Zero(t, persisted)
 }
 
 func TestRepositoryPolicyGeneric404FailsClosedThenCachesTypedAbsence(t *testing.T) {

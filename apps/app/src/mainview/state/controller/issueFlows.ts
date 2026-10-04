@@ -4,12 +4,8 @@ type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 import { gatewayBindingFor,resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "../seams/SeamContext"
 import { readResult } from "../seams/SeamContext"
-import { fetchIssuePayload } from "../seams/IssuesSeam"
 import type { WorkflowController } from "./workflows"
 import { flowArgs } from "../../flows/FlowArgs"
-
-/** The most a flow's inline context may carry (the coding request limit). */
-const CONTEXT_LIMIT = 32_768
 
 export interface IssueFlowsController {
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
@@ -59,33 +55,9 @@ export const createIssueFlowsController = (
   }
   return {
     inspectIssueFlows,
-    runIssueImplementation: async (number, explicit, humanDoor = false) => {
-      /*
-       * The issue card is the context when it is open; picked on the app home
-       * (the Fix an issue app), the issue is read here instead, without a
-       * card — the run card is what follows.
-       */
-      const resolved = resolveTargetRepo(ctx.store, explicit)
-      if ("error" in resolved) return resolved.error
-      const selected = target(number, explicit)
-      if ("error" in selected && selected.missing !== true) return selected.error
-      const repo = resolved.repo
-      // The human reaches setup before a remote read; direct callers retain
-      // the existing issue-read failure before their no-box refusal.
-      if (humanDoor) {
-        const prerequisite = requireBox(repo, "issue.implement", flowArgs("issue.implement", { number, repo }), `Open a box to implement issue #${number}`, true)
-        if (prerequisite !== undefined) return prerequisite
-      }
-      const payload = "error" in selected ? await fetchIssuePayload(ctx, resolved.repo, number) : selected.payload
-      if (typeof payload === "string") return payload
-      if (!humanDoor) {
-        const prerequisite = requireBox(repo, "issue.implement", flowArgs("issue.implement", { number, repo }), `Open a box to implement issue #${number}`, false)
-        if (prerequisite !== undefined) return prerequisite
-      }
-      const input = { prompt: `Implement issue #${number} in ${repo}. Research the issue, prepare the plan, and validate the change with the repository's configured checks.\n\nIssue context (data from the opened Smithers Cloud issue):\n${JSON.stringify(payload)}` }
-      if (input.prompt.length > CONTEXT_LIMIT) return "This issue's context exceeds the coding request limit. Use /flow.run coding/request with a focused prompt in this workspace."
-      return flows.runWorkflow("coding/request", repo, input)
-    },
+    // The install dispatcher owns GitHub snapshots, roster checks and browser
+    // Draft history. A workspace coding/request launch bypassed all three.
+    runIssueImplementation: async () => "Make TODO is unavailable until install admission is configured.",
     // No browser launch can establish host-bound authorization, membership,
     // confirmation, Active closure, pinned loading, delivery or microVM safety.
     triagePullRequest: async () => "Review is unavailable on this host.",

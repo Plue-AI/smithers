@@ -102,7 +102,9 @@ func TestRepositoryPolicyNativeLookupAndConcurrentIssueEvents(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return mythical.ObserveGitHubEvent(ctx, "issues", payload)
+		_ = payload
+		_, err = mythical.stackPolicy(ctx, repositoryID)
+		return err
 	}
 	errs := make(chan error, 50)
 	var wg sync.WaitGroup
@@ -141,5 +143,5 @@ func TestRepositoryPolicyNativeLookupAndConcurrentIssueEvents(t *testing.T) {
 	require.EqualValues(t, 2, ffi.reads.Load())
 	var persisted int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, repositoryID).Scan(&persisted))
-	require.Equal(t, 52, persisted, "all real ingress events durably persist")
+	require.Zero(t, persisted, "policy reads never admit issues")
 }

@@ -23,7 +23,6 @@ type fakeMythicalRoute struct {
 	main       string
 	lanes      []services.MythicalLaneSubmission
 	parallel   int32
-	backfills  int
 	wikis      int
 	wikiErr    error
 	viewers    []services.MythicalViewer
@@ -58,11 +57,6 @@ func (f *fakeMythicalRoute) RequestWiki(context.Context, int64) error {
 	}
 	f.wikis++
 	return nil
-}
-
-func (f *fakeMythicalRoute) Backfill(context.Context, int64) (services.MythicalBackfillCounts, error) {
-	f.backfills++
-	return services.MythicalBackfillCounts{}, nil
 }
 
 func (f *fakeMythicalRoute) SubmitLane(_ context.Context, _, _ int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error) {
@@ -204,18 +198,6 @@ func TestMythicalWriteRoutes(t *testing.T) {
 	handler.Config(rec, withRepo(httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"maxParallel":4}`))))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.EqualValues(t, 4, service.parallel)
-
-	rec = httptest.NewRecorder()
-	handler.Backfill(rec, withRepo(httptest.NewRequest(http.MethodPost, "/", nil)))
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, 1, service.backfills)
-	// A run credential cannot ask for a backfill; the stack's own sweep runs in-process.
-	rec = httptest.NewRecorder()
-	req := withRepo(httptest.NewRequest(http.MethodPost, "/", nil))
-	handler.Backfill(rec, req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{
-		User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository"})))
-	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-	assert.Equal(t, 1, service.backfills)
 
 }
 

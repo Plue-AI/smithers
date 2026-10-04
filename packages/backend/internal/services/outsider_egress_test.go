@@ -58,7 +58,7 @@ func TestMythicalOutsiderLaneIsMarkedBeforeItIsProvisioned(t *testing.T) {
 			require.NoError(t, err)
 			marked[id] = outsider
 		}
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, label))
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, label))
 		o.wake()
 		item := o.item(issue.Number)
 		require.NotEmpty(t, item.WorkspaceID, item.Reason)

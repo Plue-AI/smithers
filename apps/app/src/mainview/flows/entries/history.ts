@@ -3,7 +3,7 @@
  * IS its history of logical changes (D-09a, D-20), served by
  * `@smthrs/rpc/Mythical`. `history.show` embeds the live History card (the
  * chrome's History button, the slash and the agent call are its three
- * doors). Bootstrap, backfill, lane count, retry and land are the writes the API
+ * doors). Bootstrap, lane count, retry and land are the writes the API
  * has, each acknowledged at once and finished in the shared toast stack.
  * One module per namespace: Flows.ts registers the block.
  */
@@ -52,16 +52,6 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text", label: "Repository" } } },
     /* The server's stack (#1760): acknowledged at once, its notice runs until the stack reads active. */
     handler: ({ repo }) => actions.bootstrapStack(repo)
-  }),
-  flow({
-    name: "history.backfill",
-    summary: "Admit every open issue to the history now",
-    runtime: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    confirm: "admit every open issue to the history",
-    input: RepoTarget,
-    handler: ({ repo }) => actions.backfillStack(repo)
   }),
   flow({
     name: "history.parallel",

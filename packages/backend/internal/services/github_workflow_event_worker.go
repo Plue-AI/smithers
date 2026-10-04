@@ -164,7 +164,8 @@ func (w *GitHubWebhookEventWorker) PollOnce(ctx context.Context) error {
 		}
 
 		var permanent *permanentGitHubWebhookJobError
-		if errors.As(err, &permanent) || job.Attempts >= gitHubWebhookJobMaxAttempts {
+		var unavailable *issueTodoUnavailableError
+		if errors.As(err, &permanent) || job.Attempts >= gitHubWebhookJobMaxAttempts && !errors.As(err, &unavailable) {
 			marked, markErr := w.queries.MarkGitHubWebhookJobFailed(ctx, db.MarkGitHubWebhookJobFailedParams{
 				ID:               job.ID,
 				ExpectedAttempts: job.Attempts,
@@ -245,9 +246,8 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 		return &permanentGitHubWebhookJobError{err: fmt.Errorf("parse payload: %w", err)}
 	}
 
-	// The stack sees every issue event before the trigger trust gate: it
-	// applies its own trust rule, and an outsider's approved issue must still
-	// be cancelled when it closes.
+	// Admission runs before trigger dispatch. An unavailable install provider
+	// keeps the hint pending rather than consuming it or launching old jobs.
 	if w.mythical != nil {
 		if err := w.mythical.ObserveGitHubEvent(ctx, job.EventType, job.Payload); err != nil {
 			return fmt.Errorf("admit mythical issue: %w", err)

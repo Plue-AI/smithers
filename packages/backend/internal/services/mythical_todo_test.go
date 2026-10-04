@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -129,72 +128,12 @@ func (o *mythicalOrchestration) propose(number int64, file string) {
 // reviewed when it opens, and merged at the reviewed head only when the
 // review approves and a maintainer person labeled it automerge. Anyone
 // else's todo or automerge label counts for nothing and is taken off.
-func TestMythicalTodoIsReviewedAndAutomerged(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	_, err := o.pool.Exec(ctx, `UPDATE repositories SET mirror_destination = 'https://github.com/smithersai/smithers' WHERE id = $1`, o.repoID)
-	require.NoError(t, err)
-
-	// An issue is a proposal: a maintainer's own text waits for the label.
-	o.labeled(60, []string{"bug"}, "bug", "roninjin10", true)
-	assert.Equal(t, "skipped", o.item(60).State)
-	assert.Equal(t, "waiting for a maintainer to add the todo label", o.item(60).Reason)
-
-	// Someone else's todo label is ignored and reverted, even from another
-	// person with write access: only the policy's maintainers count.
-	o.labeled(60, []string{"bug", "todo"}, "todo", "stranger", false)
-	assert.Equal(t, "skipped", o.item(60).State)
-	o.labeled(60, []string{"bug", "todo"}, "todo", "other-writer", true)
-	assert.Equal(t, "skipped", o.item(60).State)
-	assert.Equal(t, []string{"#60 todo", "#60 todo"}, o.github.removed)
-
-	// The maintainer's todo label makes it a TODO.
-	o.labeled(60, []string{"bug", "todo"}, "todo", "roninjin10", true)
-	assert.Equal(t, "queued", o.item(60).State)
-	assert.True(t, mythicalChecksOf(o.item(60)).Todo)
-
-	// Anyone else's automerge counts for nothing and is left alone: reverting
-	// todo is the one label write before landing.
-	o.labeled(60, []string{"bug", "todo", "automerge"}, "automerge", "other-writer", true)
-	assert.False(t, mythicalChecksOf(o.item(60)).Automerge)
-	assert.Equal(t, []string{"#60 todo", "#60 todo"}, o.github.removed)
-	o.labeled(60, []string{"bug", "todo", "automerge"}, "automerge", "roninjin10", true)
-	assert.True(t, mythicalChecksOf(o.item(60)).Automerge)
-	assert.Equal(t, "queued", o.item(60).State)
-
-	// The review requests changes: nothing merges; the pull request waits.
-	o.propose(60, "sixty.md")
-	o.answerReviews(`"request-changes\n- sixty.md:1: say why"`)
-	item := o.item(60)
-	assert.Equal(t, "request-changes", mythicalChecksOf(item).Review.Verdict)
-	assert.Equal(t, "proposed", item.State)
-	assert.Empty(t, o.github.merges)
-	assert.Empty(t, item.WorkspaceID, "the lane is retired once the review answers")
-	o.wake()
-	assert.Len(t, o.launcher.requests, 3, "a head is reviewed once")
-
-	// A second TODO: its review approves and it is merged at the reviewed
-	// head, then lands.
-	o.labeled(61, []string{"todo", "automerge"}, "todo", "roninjin10", true)
-	o.labeled(61, []string{"todo", "automerge"}, "automerge", "roninjin10", true)
-	o.propose(61, "sixty-one.md")
-	o.answerReviews(`"approve\n- Looks right."`)
-	item = o.item(61)
-	require.Equal(t, "landed", item.State, item.Reason)
-	assert.Equal(t, map[int64]string{item.PRNumber.Int64: item.PRHead}, o.github.merges)
-	assert.Equal(t, "merged", item.PRState)
-	assert.Equal(t, "squash-of-"+item.PRHead, item.PRMergeCommit)
-	assert.Equal(t, "proposed", o.item(60).State, "the refused TODO still waits for a person")
-}
-
-// The merge is pinned to the reviewed head: a pull request whose branch
-// moved after the review is not merged, and waits visibly.
 func TestMythicalAutomergeRefusesAMovedHead(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 70, Title: "Move", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 70, Title: "Move", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo", "automerge"}}, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 70, Title: "Move", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 70, Title: "Move", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo", "automerge"}}, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(70, "seventy.md")
 	head := o.item(70).PRHead
@@ -210,28 +149,6 @@ func TestMythicalAutomergeRefusesAMovedHead(t *testing.T) {
 // A sweep recovers label events the stack missed: a todo label a
 // maintainer person applied admits a maintainer's issue; one anyone else
 // applied does not.
-func TestMythicalBackfillReadsWhoAppliedTheTodoLabel(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	o.github.issues = []mythicalIssue{
-		{Number: 80, Title: "Missed", Body: "a", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}},
-		{Number: 81, Title: "Triaged", Body: "b", State: "open", TextByMaintainer: true, Labels: []string{"todo"}},
-	}
-	o.github.issues = append(o.github.issues,
-		mythicalIssue{Number: 82, Title: "Via an App", Body: "c", State: "open", TextByMaintainer: true, Labels: []string{"todo"}})
-	// A write collaborator the policy does not name, and an App acting for
-	// the maintainer, apply nothing.
-	o.github.labelers = map[int64]string{81: "other-writer"}
-	o.github.viaApp = map[int64]bool{82: true}
-	counts, err := o.service.Backfill(ctx, o.repoID)
-	require.NoError(t, err)
-	assert.Equal(t, MythicalBackfillCounts{Open: 3, Queued: 1, Skipped: 2}, counts)
-	assert.Equal(t, "skipped", o.item(82).State)
-	assert.Equal(t, mythicalChecks{Todo: true, Automerge: true}, mythicalChecksOf(o.item(80)))
-	assert.Equal(t, "queued", o.item(80).State)
-	assert.Equal(t, "skipped", o.item(81).State)
-}
-
 func TestMythicalReviewVerdict(t *testing.T) {
 	t.Parallel()
 	notVerdict := "failed: the review's first line was not a verdict"
@@ -311,7 +228,7 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 90, Title: "Bound", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
 	for i := 0; ; i++ {
 		o.wake()
 		item := o.item(90)
@@ -339,7 +256,7 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	// A run cannot lift the bound; a person can, and a maintainer's todo can.
 	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
 	o.wake()
 	assert.Equal(t, "running", o.item(90).State)
 	resumed := mythicalChecksOf(o.item(90))
@@ -354,7 +271,7 @@ func TestMythicalDailyBudgetHoldsNewWork(t *testing.T) {
 	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000}}`})
 	o.spend("", 600)
 	o.spend(uuid.NewString(), 500)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 91, Title: "Budget", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 91, Title: "Budget", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	item := o.item(91)
@@ -376,7 +293,7 @@ func TestMythicalDailyBudgetReservesForRunsInFlight(t *testing.T) {
 	o.service.SetPolicyReader(policyHost{fmt.Sprintf(`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":%d}}`, daily)})
 	o.spend("", mythicalRunTokenReserve/4)
 	for _, number := range []int64{95, 96, 97} {
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Budget %d", number), State: "open",
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Budget %d", number), State: "open",
 			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	}
 	o.wake()
@@ -406,7 +323,7 @@ func TestMythicalDailyBudgetReleasesSettledRuns(t *testing.T) {
 	require.NoError(t, err)
 	o.service.SetPolicyReader(policyHost{fmt.Sprintf(`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":%d}}`, 2*mythicalRunTokenReserve)})
 	for _, number := range []int64{98, 99} {
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Settled %d", number), State: "open",
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Settled %d", number), State: "open",
 			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	}
 	o.wake()
@@ -434,7 +351,7 @@ func TestMythicalDailyBudgetReleasesSettledRuns(t *testing.T) {
 func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 95, Title: "Outage", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 95, Title: "Outage", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := range 3 {
 		o.wake()
@@ -461,7 +378,7 @@ func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 	// Past the bound, an outage parks the TODO loudly. #95's review answers
 	// first: a running review holds a lane.
 	o.answerReviews(`"request-changes"`)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 96, Title: "Down", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 96, Title: "Down", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := 0; i <= mythicalOutageBound; i++ {
 		o.wake()
@@ -493,7 +410,7 @@ func TestMythicalCheckInfraFaultPreservesPlanAttempt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			o := newMythicalOrchestration(t)
 			ctx := context.Background()
-			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 279, Title: "Check", State: "open",
+			require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 279, Title: "Check", State: "open",
 				TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 			o.wake()
 			require.Equal(t, "running", o.item(279).State)
@@ -524,7 +441,7 @@ func TestMythicalCheckInfraFaultPreservesPlanAttempt(t *testing.T) {
 func TestMythicalUnreadableRequestPreservesPlanAttempt(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 280, Title: "Unreadable", State: "open",
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 280, Title: "Unreadable", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	require.Equal(t, "running", o.item(280).State)
@@ -555,7 +472,7 @@ func TestMythicalUnreadableRequestPreservesPlanAttempt(t *testing.T) {
 func TestMythicalCancelledRunStopsTheTodo(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 97, Title: "Cancel", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 97, Title: "Cancel", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	o.project(o.launcher.last("coding/request"), jobs.StateCancelled, "run-97", "")
@@ -572,7 +489,7 @@ func TestMythicalCancelledRunStopsTheTodo(t *testing.T) {
 func TestMythicalVeryHardContinuesOnceThenStops(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 98, Title: "Hard", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 98, Title: "Hard", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := range mythicalAttempts + 1 {
 		o.wake()
@@ -704,63 +621,12 @@ func (o *mythicalOrchestration) opened(number int64, author string, byMaintainer
 // policy names wrote it after the rule took effect. The factory then applies
 // the label, records why, and never reverts its own label; the item stays a
 // TODO when the label write fails. Nothing else, and never the backlog.
-func TestMythicalPolicyMakesTheMaintainersNewIssuesTodos(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	_, err := o.pool.Exec(ctx, `UPDATE repositories SET mirror_destination = 'https://github.com/smithersai/smithers' WHERE id = $1`, o.repoID)
-	require.NoError(t, err)
-	o.service.SetPolicyReader(policyHost{mythicalPolicy("2026-09-28T00:00:00Z")})
-	after, before := "2026-09-29T10:00:00Z", "2026-09-27T10:00:00Z"
-
-	o.opened(1, "roninjin10", true, after, false)
-	item := o.item(1)
-	assert.Equal(t, "queued", item.State, item.Reason)
-	assert.Equal(t, "written by roninjin10, a maintainer", mythicalChecksOf(item).AutoTodo)
-	o.opened(2, "other-writer", true, after, false)
-	assert.Equal(t, "skipped", o.item(2).State, "another writer's issue waits for the label")
-	o.opened(3, "stranger", false, after, false)
-	assert.Equal(t, "skipped", o.item(3).State, "an outsider's issue waits for the label")
-	o.opened(4, "roninjin10", false, after, false)
-	assert.Equal(t, "skipped", o.item(4).State, "the maintainer's issue someone else rewrote waits")
-	o.opened(5, "roninjin10", true, before, false)
-	assert.Equal(t, "skipped", o.item(5).State, "the backlog from before the rule stays proposals")
-	o.opened(6, "roninjin10", true, after, true)
-	assert.Equal(t, "skipped", o.item(6).State, "a pull request is never a TODO")
-	assert.Equal(t, []string{"#1 todo"}, o.github.added, "the factory labels only the TODO it made")
-
-	// The App's own labeled event is not reverted; the item stays a TODO.
-	o.labeled(1, []string{"todo"}, "todo", "smithers-app[bot]", false)
-	assert.Empty(t, o.github.removed)
-	assert.Equal(t, "queued", o.item(1).State)
-
-	// The decision is the item's: an edit that arrives before the label (the
-	// label write failed) keeps it a TODO, and the label is tried again.
-	o.opened(7, "roninjin10", true, after, false)
-	o.opened(7, "roninjin10", true, after, false)
-	assert.Equal(t, "queued", o.item(7).State)
-	assert.Equal(t, []string{"#1 todo", "#7 todo", "#7 todo"}, o.github.added, "each event retries the missing label")
-
-	// A sweep of the backlog makes none of it a TODO.
-	o.github.issues = []mythicalIssue{{Number: 8, Title: "Old", Body: "x", State: "open", TextByMaintainer: true,
-		Author: gitHubActor{Login: "roninjin10"}, CreatedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}}
-	_, err = o.service.Backfill(ctx, o.repoID)
-	require.NoError(t, err)
-	assert.Equal(t, "skipped", o.item(8).State)
-
-	// Without the rule's start, no issue is a TODO on its own.
-	o.service.SetPolicyReader(policyHost{mythicalPolicy("")})
-	o.opened(9, "roninjin10", true, after, false)
-	assert.Equal(t, "skipped", o.item(9).State)
-}
-
-// Automerge also needs GitHub CI green on the exact approved head: it waits
-// while CI runs, never merges on red, and merges pinned once green.
 func TestMythicalAutomergeWaitsForGreenCIOnTheApprovedHead(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 75, Title: "CI", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(75, "seventy-five.md")
 	head := o.item(75).PRHead
 	o.github.mu.Lock()
@@ -799,8 +665,8 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	ctx := context.Background()
 	start := func(number int64, file string) db.MythicalItem {
 		issue := mythicalIssue{Number: number, Title: "Hold", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 		o.propose(number, file)
 		return o.item(number)
 	}
@@ -856,8 +722,8 @@ func TestMythicalUnreadableReviewHoldsTheTodo(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 79, Title: "Unread", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(79, "seventy-nine.md")
 	o.answerReviews("\"Looks right to me.\\n\\napprove\"")
 	item := o.item(79)
@@ -877,10 +743,10 @@ func TestMythicalReviewLanesCountTowardTheLaneCap(t *testing.T) {
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 85, Title: "First", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 85, Title: "First", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(85, "eighty-five.md")
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 86, Title: "Second", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 86, Title: "Second", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	assert.Equal(t, "queued", o.item(86).State, "the review holds the only lane")
@@ -894,7 +760,7 @@ func TestMythicalReviewLanesCountTowardTheLaneCap(t *testing.T) {
 func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 87, Title: "Done", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 87, Title: "Done", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	o.fail(o.launcher.last("coding/request"), "run-87", "user", "coding/Error/declined",
@@ -907,12 +773,12 @@ func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
 	assert.Len(t, o.github.comments, 1)
 
 	deferred := mythicalIssue{Number: 88, Title: "Later", State: "open", TextByMaintainer: true, Labels: []string{"todo", "deferred"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, deferred, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, deferred, maintainerTodo))
 	o.wake()
 	assert.Equal(t, "skipped", o.item(88).State)
 	assert.Equal(t, "labeled deferred", o.item(88).Reason)
 	deferred.Labels = []string{"todo"}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, deferred, gitHubLabelApplication{}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, deferred, gitHubLabelApplication{}))
 	assert.Equal(t, "queued", o.item(88).State, "taking deferred off wakes it")
 }
 
@@ -930,75 +796,10 @@ func (failingPolicy) GetFileAtChange(context.Context, string, string, string, st
 // An unreadable policy changes nothing: the maintainer's todo event is
 // retried rather than reverted, and a merge waits rather than dropping the
 // automerge with a false comment.
-func TestMythicalUnreadablePolicyActsOnNothing(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	adversarialGitHubSource(o)
-	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
-	require.NoError(t, err)
-	o.labeled(92, []string{"todo"}, "todo", "roninjin10", true)
-	require.Equal(t, "queued", o.item(92).State)
-
-	o.service.SetPolicyReader(failingPolicy{})
-	payload := adversarialIssueEvent(t, 93, "labeled", "todo", "roninjin10", []string{"todo"}, true)
-	require.ErrorContains(t, o.service.ObserveGitHubEvent(ctx, "issues", payload), "repo host unavailable",
-		"the delivery fails so the webhook job is retried")
-	_, err = db.New(o.pool).GetMythicalItemByIssue(ctx, o.repoID, 93)
-	require.ErrorIs(t, err, pgx.ErrNoRows, "nothing is recorded")
-	assert.Empty(t, o.github.removed, "the maintainer's label is never taken off")
-
-	// The merge path: an approved automerge TODO waits for the policy.
-	o.service.SetPolicyReader(policyHost{mythicalPolicy("")})
-	issue := mythicalIssue{Number: 94, Title: "Policy", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
-	o.propose(94, "ninety-four.md")
-	o.service.SetPolicyReader(failingPolicy{})
-	o.answerReviews(`"approve"`)
-	item := o.item(94)
-	assert.Equal(t, "the repository policy could not be read; retrying", item.Reason)
-	assert.True(t, mythicalChecksOf(item).Automerge, "the automerge stays")
-	assert.Empty(t, o.github.merges)
-	o.wake()
-	assert.Empty(t, o.github.comments, "no false comment")
-	o.service.SetPolicyReader(policyHost{mythicalPolicy("")})
-	o.wake()
-	assert.Equal(t, "landed", o.item(94).State, "once the policy reads, it merges")
-}
-
-// A maintainer taking todo off an auto-TODO opts it out: the factory never
-// puts the label back, and a maintainer re-applying todo makes it a TODO.
-func TestMythicalMaintainerOptsOutOfAnAutoTodo(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	adversarialGitHubSource(o)
-	o.service.SetPolicyReader(policyHost{mythicalPolicy("2026-09-28T00:00:00Z")})
-	after := "2026-09-29T10:00:00Z"
-	o.opened(70, "roninjin10", true, after, false)
-	require.Equal(t, "queued", o.item(70).State)
-	require.Equal(t, []string{"#70 todo"}, o.github.added)
-
-	unlabeled := adversarialIssueEvent(t, 70, "unlabeled", "todo", "roninjin10", nil, true)
-	require.NoError(t, o.service.ObserveGitHubEvent(ctx, "issues", unlabeled))
-	item := o.item(70)
-	assert.Equal(t, "skipped", item.State)
-	checks := mythicalChecksOf(item)
-	assert.True(t, checks.OptedOut)
-	assert.Empty(t, checks.AutoTodo)
-	o.opened(70, "roninjin10", true, after, false)
-	assert.Equal(t, []string{"#70 todo"}, o.github.added, "the factory never puts it back")
-	assert.Equal(t, "skipped", o.item(70).State)
-
-	o.labeled(70, []string{"todo"}, "todo", "roninjin10", true)
-	assert.Equal(t, "queued", o.item(70).State, "a maintainer re-applying todo makes it a TODO")
-}
-
-// A run cannot relaunch a TODO a person's cancel stopped; the very-hard
-// continuation carries the previous plan and its stop says how to resume.
 func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 71, Title: "Cancel", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 71, Title: "Cancel", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	o.project(o.launcher.last("coding/request"), jobs.StateCancelled, "run-71", "")
@@ -1007,7 +808,7 @@ func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(71).ID))
 	requireRunCredentialRefused(t, err)
 
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 72, Title: "Hard", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 72, Title: "Hard", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := range mythicalAttempts + 1 {
 		o.wake()
@@ -1033,26 +834,12 @@ func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 
 // With no maintainers list committed, a person with write access still
 // makes a TODO (the stamp's rule), and no issue becomes one on its own.
-func TestMythicalNoMaintainerListKeepsTheWriteAccessRule(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	adversarialGitHubSource(o)
-	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","todoSince":"2026-09-28T00:00:00Z"}}`})
-	o.labeled(73, []string{"todo"}, "todo", "other-writer", true)
-	assert.Equal(t, "queued", o.item(73).State)
-	o.labeled(74, []string{"todo"}, "todo", "stranger", false)
-	assert.Equal(t, "skipped", o.item(74).State)
-	o.opened(75, "roninjin10", true, "2026-09-29T10:00:00Z", false)
-	assert.Equal(t, "skipped", o.item(75).State, "only a named maintainer's issue is a TODO on its own")
-}
-
-// The daily budget fails closed: an unreadable policy keeps a spent budget
-// holding, and a repository that declares no budget launches nothing.
 func TestMythicalDailyBudgetFailsClosed(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000}}`})
 	o.spend("", 5000)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 702, Title: "Budget", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 702, Title: "Budget", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	require.Equal(t, "queued", o.item(702).State)
@@ -1146,8 +933,8 @@ func TestMythicalAutomergeRereadsTheTodoLabel(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 69, Title: "Still", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(69, "sixty-nine.md")
 	live := &adversarialTodoRemoved{fakeMythicalGitHub: o.github}
 	o.service.SetOrchestration(live, o.launcher, o.lanes)
@@ -1174,7 +961,7 @@ func (g *adversarialTodoRemoved) LabelApplier(ctx context.Context, repo mythical
 func TestMythicalDeliveryLaunchesCountTowardTheBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 301, Title: "Deliver", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 301, Title: "Deliver", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := 0; ; i++ {
 		require.Less(t, i, 20)
@@ -1216,7 +1003,7 @@ func TestMythicalPreAdmissionOutageParks(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	o.service.SetOrchestration(o.github, o.launcher, failingLanes{o.lanes})
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 321, Title: "Down", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 321, Title: "Down", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	item := o.item(321)
@@ -1246,11 +1033,11 @@ func TestMythicalReviewWaitsForALane(t *testing.T) {
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 311, Title: "First", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 311, Title: "First", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(311, "three-eleven.md")
 	o.fail(o.launcher.last(mythicalReviewFlow), "review-down", "infra", "flows/InfraInterrupt", "")
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 312, Title: "Second", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 312, Title: "Second", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	first := o.item(311)
@@ -1276,73 +1063,12 @@ func TestMythicalReviewWaitsForALane(t *testing.T) {
 // and each application acts once: a replay after the removal re-queues
 // nothing, and a replay onto a bounded stop lifts no bound (Astra r2 1,
 // Opus r3 L3).
-func TestMythicalReplayedTodoLabelActsOnce(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	adversarialGitHubSource(o)
-	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000000}}`})
-	o.labeled(331, []string{"todo"}, "todo", "roninjin10", true)
-	require.Equal(t, "queued", o.item(331).State)
-	delivery := o.labeledPayload(331, []string{"todo"}, "todo", "roninjin10", true)
-
-	// Stopped at its bound, the same delivery replayed lifts nothing.
-	stop := o.item(331)
-	stopped := mythicalChecksOf(stop)
-	stopped.Fault = &mythicalFault{Class: "policy", Tag: "launch_bound"}
-	stop.State, stop.Checks = "blocked", stopped.encode()
-	_, err := o.service.queries().SaveMythicalItem(context.Background(), stop)
-	require.NoError(t, err)
-	require.NoError(t, o.service.ObserveGitHubEvent(context.Background(), "issues", delivery))
-	assert.Equal(t, "blocked", o.item(331).State, "a replay is not a new application")
-	// A maintainer's new application resumes it.
-	o.labeled(331, []string{"todo"}, "todo", "roninjin10", true)
-	assert.Equal(t, "queued", o.item(331).State)
-
-	// Removed since, the delayed event re-queues nothing and is not reverted.
-	o.github.forgetLabel(331, "todo", "roninjin10")
-	require.NoError(t, o.service.ObserveIssue(context.Background(), o.repoID, mythicalIssue{Number: 331, Title: "TODO 331", State: "open", TextByMaintainer: true},
-		gitHubLabelApplication{Label: todoLabel, Removed: true, ByMaintainer: true, By: "roninjin10"}))
-	require.Equal(t, "skipped", o.item(331).State)
-	require.NoError(t, o.service.ObserveGitHubEvent(context.Background(), "issues", delivery))
-	assert.Equal(t, "skipped", o.item(331).State, "a stale labeled event re-queues nothing")
-	assert.Empty(t, o.github.removed, "nor is it reverted")
-}
-
-// An auto-TODO merges only while todo is still on the issue: a removal whose
-// event was lost stops the merge (Opus r3 L2), and the sweep reads it as the
-// maintainer's opt-out instead of labeling the issue again (Fable r3 F4).
-func TestMythicalAutoTodoRereadsItsLabel(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"todoSince":"2026-09-01T00:00:00Z","dailyTokens":1000000}}`})
-	issue := mythicalIssue{Number: 341, Title: "Auto", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"},
-		Author: gitHubActor{Login: "roninjin10"}, CreatedAt: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{AutoTodo: "written by roninjin10, a maintainer"}))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true, By: "roninjin10"}))
-	require.NotEmpty(t, mythicalChecksOf(o.item(341)).AutoTodo)
-	o.propose(341, "three-forty-one.md")
-	o.github.forgetLabel(341, "todo", "roninjin10")
-	o.answerReviews(`"approve"`)
-	item := o.item(341)
-	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "the issue is no longer a TODO", item.Reason)
-	assert.Empty(t, o.github.merges)
-
-	issue.Labels = []string{"automerge"}
-	o.service.labelAutoTodo(ctx, o.repoID, issue)
-	checks := mythicalChecksOf(o.item(341))
-	assert.True(t, checks.OptedOut, "the lost removal is the maintainer's opt-out")
-	assert.Empty(t, checks.AutoTodo)
-	assert.Empty(t, o.github.added, "the factory does not label it again")
-}
-
-// CI that never finishes on an approved head holds the TODO visibly once no
-// Actions job could still run, and merges if it later finishes (L4).
 func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 351, Title: "Wait", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(351, "three-fifty-one.md")
 	head := o.item(351).PRHead
 	o.github.mu.Lock()
@@ -1376,7 +1102,7 @@ func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
 func TestMythicalPersonsRetryLiftsTheBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 361, Title: "Hard", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 361, Title: "Hard", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	item := o.item(361)
 	checks := mythicalChecksOf(item)
@@ -1407,8 +1133,8 @@ func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 371, Title: "Lag", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(371, "three-seventy-one.md")
 	applied := func(label string) map[string]any {
 		return map[string]any{"id": 1, "event": "labeled", "actor": map[string]any{"login": "roninjin10"}, "label": map[string]any{"name": label}}
@@ -1432,7 +1158,7 @@ func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
 func TestMythicalSnapshotShowsATodosProgressOnly(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 381, Title: "Show", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 381, Title: "Show", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	o.fail(o.launcher.last("coding/request"), "run-381", "factory", "coding/Error/stalled", "")
@@ -1491,7 +1217,7 @@ func TestMythicalSnapshotShowsATodosMetrics(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	observe := func(number int64) {
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: "Metrics", State: "open",
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: "Metrics", State: "open",
 			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 		o.wake()
 	}
@@ -1560,7 +1286,7 @@ func (pullsDown) Pull(context.Context, mythicalGitHubRepo, int64) (mythicalPull,
 func TestMythicalFollowOutageHolds(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 391, Title: "Follow", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 391, Title: "Follow", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(391, "three-ninety-one.md")
 	o.answerReviews(`"request-changes"`)
@@ -1587,7 +1313,7 @@ func TestMythicalFollowOutageHolds(t *testing.T) {
 func TestMythicalRetryKeepsAnOpenPullRequest(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 392, Title: "Keep", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 392, Title: "Keep", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(392, "three-ninety-two.md")
 	item := o.item(392)
@@ -1614,7 +1340,7 @@ func TestMythicalRetryKeepsAnOpenPullRequest(t *testing.T) {
 func TestMythicalReviewAdmissionParksAtTheOutageBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 401, Title: "Admit", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 401, Title: "Admit", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(401, "four-oh-one.md")
 	o.fail(o.launcher.last(mythicalReviewFlow), "review-down", "infra", "flows/InfraInterrupt", "")
@@ -1649,7 +1375,7 @@ func TestMythicalRetainedWorkspaceHoldsItsLane(t *testing.T) {
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 412, Title: "Later", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 412, Title: "Later", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	stack := o.wake()
 	item := o.item(412)
@@ -1666,7 +1392,7 @@ func TestMythicalRetainedWorkspaceHoldsItsLane(t *testing.T) {
 	// the lower-numbered #411 is sorted ahead of it in the next pass.
 	o.commit("✨ feat: three", "c.txt", "c\n")
 	o.publish()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 411, Title: "Earlier", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 411, Title: "Earlier", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for range 3 {
 		o.wake()
@@ -1689,7 +1415,7 @@ func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 421, Title: "GitHub", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
 	item := o.item(421)
 	item.State = "proposing"
 	for range mythicalOutageBound + 1 {
@@ -1717,7 +1443,7 @@ func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
 	stopped.State, stopped.Checks = "blocked", checks.encode()
 	_, err = o.service.queries().SaveMythicalItem(ctx, stopped)
 	require.NoError(t, err)
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
 	assert.Equal(t, "queued", o.item(421).State)
 	assert.Zero(t, mythicalChecksOf(o.item(421)).GitHubOutages)
 }
@@ -1729,7 +1455,7 @@ func TestMythicalRetainedVerificationObeysALoweredCap(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, o.service.SetMaxParallel(ctx, o.repoID, 3))
 	for _, number := range []int64{511, 512} {
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Cap %d", number), State: "open",
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Cap %d", number), State: "open",
 			TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	}
 	stack := o.wake()
@@ -1791,7 +1517,7 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 			o := newMythicalOrchestration(t)
 			ctx := context.Background()
 			number := int64(810 + i)
-			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: "Held review", State: "open",
+			require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: "Held review", State: "open",
 				TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 			o.propose(number, fmt.Sprintf("held-%d.md", number))
 			tc.answer(o, o.launcher.last(mythicalReviewFlow))
@@ -1835,7 +1561,7 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 func TestMythicalPersonRetriesAReviewParkedByOutages(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 820, Title: "Parked", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 820, Title: "Parked", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(820, "eight-twenty.md")
 	running := o.item(820)
@@ -1900,7 +1626,7 @@ func TestMythicalOutageRetryReusesTheLane(t *testing.T) {
 			o := newMythicalOrchestration(t)
 			ctx := context.Background()
 			number := int64(830 + i)
-			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: "Lane", State: "open", TextByMaintainer: true,
+			require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: "Lane", State: "open", TextByMaintainer: true,
 				Labels: []string{"todo"}}, maintainerTodo))
 			o.wake()
 			first := o.item(number)
@@ -1936,7 +1662,7 @@ func TestMythicalOutageRetryReusesTheLane(t *testing.T) {
 func TestMythicalOutageRetryProvisionsWhenTheLaneIsGone(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 840, Title: "Gone", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 840, Title: "Gone", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	first := o.item(840)

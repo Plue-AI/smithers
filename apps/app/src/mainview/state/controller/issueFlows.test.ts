@@ -56,7 +56,7 @@ test("a Cloud issue launches its workspace flow without waiting for a background
   await store.dispose?.()
 })
 
-test("the Fix an issue app implements an issue picked on the home, read without a card", async () => {
+test("Make TODO never reads a legacy tracker issue or launches from the home", async () => {
   const { store, ctx } = await setup()
   const calls: unknown[] = []
   const workspaceId = "11111111-1111-4111-8111-111111111111"
@@ -67,17 +67,9 @@ test("the Fix an issue app implements an issue picked on the home, read without 
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
   })
-  // No issue card is open: the issue is read from the tracker and the run card is what follows.
-  expect([...store.collections.cards.values()].some(card => card.kind === "issue")).toBe(false)
-  expect(await flows.runIssueImplementation(3)).toEqual({ value: "launched" })
-  expect([...store.collections.cards.values()].some(card => card.kind === "issue")).toBe(false)
-  const [name, repo, input] = calls[0] as [string, string, { prompt: string }]
-  expect([name, repo]).toEqual(["coding/request", REPO])
-  const sent = JSON.parse(input.prompt.slice(input.prompt.indexOf("\n{") + 1)) as { number: number; title: string }
-  expect([sent.number, sent.title]).toEqual([3, "Issue 3"])
-  // An issue the tracker does not have is that refusal, never a launch.
-  expect(await flows.runIssueImplementation(99)).toContain("Issue #99")
-  expect(calls).toHaveLength(1)
+  expect(await flows.runIssueImplementation(3)).toContain("install admission")
+  expect(await flows.runIssueImplementation(99)).toContain("install admission")
+  expect(calls).toEqual([])
   await store.dispose?.()
 })
 

@@ -177,20 +177,13 @@ test("an item that leaves its lane inside the debounce never flashes a notice", 
   expect(toast(store, itemKey("i3"))).toBeUndefined()
 })
 
-test("backfill and lane count answer before their requests do, deduplicate, and settle with the answer", async () => {
-  const { store, controller, fake } = await setup()
+test("the removed sweep sends no request; lane count still changes", async () => {
+  const { controller, fake } = await setup()
   await controller.commands.run("history.show", REPO)
-  const held = deferred<Response>()
-  fake.handlers.set(`POST ${BASE}/backfill`, () => held.promise)
-  // A double press: both doors answer at once and one request goes out.
   const [first, second] = await Promise.all([controller.commands.run("history.backfill", REPO), controller.commands.run("history.backfill", REPO)])
-  expect(first).toMatchObject({ status: "executed", value: "Requested" })
-  expect(second).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => toast(store, `stack.backfill.${REPO}`)?.status === "running")
-  expect(fake.writes.filter(write => write.path.endsWith("/backfill"))).toHaveLength(1)
-  held.resolve(Response.json(snapshot(4, [item("i9", "queued")]), { status: 202 }))
-  await waitFor(() => toast(store, `stack.backfill.${REPO}`)?.status === "ok")
-  expect(controller.stackSnapshots.get(REPO)?.stack?.items.map(row => row.id)).toEqual(["i9"])
+  expect(first.status).toBe("unknown-command")
+  expect(second.status).toBe("unknown-command")
+  expect(fake.writes).toHaveLength(0)
 
   expect(await controller.commands.run("history.parallel", `4 ${REPO}`)).toMatchObject({ status: "executed", value: "Requested" })
   await waitFor(() => fake.writes.some(write => write.method === "PUT"))

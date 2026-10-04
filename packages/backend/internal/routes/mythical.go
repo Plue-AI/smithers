@@ -21,7 +21,6 @@ import (
 type MythicalRouteService interface {
 	Snapshot(ctx context.Context, repositoryID int64, slug, mainCommit string, viewer services.MythicalViewer) (services.MythicalStackView, error)
 	RequestBootstrap(ctx context.Context, repositoryID, actorUserID int64, depth int32, reset bool) (db.MythicalStack, error)
-	Backfill(ctx context.Context, repositoryID int64) (services.MythicalBackfillCounts, error)
 	SubmitLane(ctx context.Context, repositoryID, userID int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error)
 	SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error
 	Item(ctx context.Context, repositoryID int64, ref string) (services.MythicalItemView, error)
@@ -185,37 +184,6 @@ func decodeMythicalBody(w http.ResponseWriter, r *http.Request, limit int64, out
 		return false
 	}
 	return true
-}
-
-// Backfill admits every open GitHub issue now instead of waiting for the sweep.
-// It answers when the issues are admitted; the lanes start in the background.
-// Only a person asks for it (a run credential cannot); the stack's own sweep
-// runs in-process.
-func (h *MythicalHandler) Backfill(w http.ResponseWriter, r *http.Request) {
-	if _, err := requireRouteUser(r); err != nil {
-		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
-		return
-	}
-	if err := middleware.RequirePerson(r.Context(), "backfill the stack"); err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	repoCtx, ok := h.repository(w, r)
-	if !ok {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-	if _, err := h.Service.Backfill(ctx, repoCtx.Repository.ID); err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	view, err := h.snapshot(r, repoCtx)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	pkgerrors.WriteJSON(w, http.StatusAccepted, view)
 }
 
 // Lanes takes a coding host's validated, cleaned result (coding/vibe).

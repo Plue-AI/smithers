@@ -46,13 +46,12 @@ func (o *mythicalOrchestration) mythicalWorker(launcher mythicalLauncher) *Mythi
 	worker.scratchRoot = filepath.Join(o.t.TempDir(), "scratch")
 	worker.SetOrchestration(o.github, launcher, o.lanes)
 	worker.SetPolicyReader(policyHost{mythicalPolicy("")})
-	worker.markBackfill(o.repoID)
 	return worker
 }
 
 func (o *mythicalOrchestration) admittedTodo(number int64) {
 	o.t.Helper()
-	require.NoError(o.t, o.service.ObserveIssue(context.Background(), o.repoID, mythicalIssue{Number: number, Title: "Add docs",
+	require.NoError(o.t, seedMythicalIssue(o.service, context.Background(), o.repoID, mythicalIssue{Number: number, Title: "Add docs",
 		State: "open", TextByMaintainer: true, Body: "Please add a docs page.", Labels: []string{"todo"}}, maintainerTodo))
 	require.Equal(o.t, "queued", o.item(number).State)
 }

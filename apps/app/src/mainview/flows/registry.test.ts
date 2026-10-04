@@ -218,7 +218,7 @@ describe("command registry pure model", () => {
     // A typed entry that stands in for a repository's flow leaf keeps the leaf's bare name (`issue-sweep`).
     const orphans = visibleItems(controller.commands)
       .map((command) => command.name)
-      .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && name !== "tut" &&
+      .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && name !== "tut" && name !== "review" &&
         controller.commands.find(name)?.metadata.workflow !== name)
     expect(orphans).toEqual([])
   })

@@ -218,7 +218,7 @@ func TestMythicalFailureReasonsReachTheAPI(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	o.service.SetOrchestration(o.github, o.launcher, leakyLanes{o.lanes})
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 331, Title: "Leak", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 331, Title: "Leak", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	item, raw := mythicalSnapshotItem(t, o, 331)
@@ -272,7 +272,7 @@ func (unresolvedGitHub) Resolve(context.Context, db.Repository, string, int64) (
 func TestMythicalUnreachedGitHubIsALandingFailure(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 341, Title: "Land", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 341, Title: "Land", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	stack := o.wake()
 	item := o.item(341)
@@ -327,7 +327,7 @@ func TestMythicalHoldsTypeTheirFailure(t *testing.T) {
 func TestMythicalLaunchClearsTheFailedLaunchsReason(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 351, Title: "Deliver", State: "open", TextByMaintainer: true,
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 351, Title: "Deliver", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	require.Equal(t, "running", o.item(351).State)
@@ -360,8 +360,8 @@ func TestMythicalUnreadPullRequestIsNotGated(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 361, Title: "Unread", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(361, "three-sixty-one.md")
 	o.github.mu.Lock()
 	o.github.ci = map[string]string{o.item(361).PRHead: mythicalCIPending}

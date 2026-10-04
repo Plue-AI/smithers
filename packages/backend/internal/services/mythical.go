@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -75,8 +74,6 @@ type MythicalService struct {
 	launcher         mythicalLauncher
 	lanes            mythicalLanes
 	wikiStore        mythicalWikiStore
-	mu               sync.Mutex
-	backfills        map[int64]time.Time
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.

@@ -50,7 +50,6 @@ export const MYTHICAL_ROUTES = {
   /** `POST`: create the stack from main's history. */
   bootstrap: "/api/repos/{owner}/{repo}/mythical/bootstrap",
   /** `POST`: admit every open GitHub issue now instead of waiting for the sweep. */
-  backfill: "/api/repos/{owner}/{repo}/mythical/backfill",
   /** `PUT`: {@link MythicalConfigSchema}. */
   config: "/api/repos/{owner}/{repo}/mythical/config",
   /** `GET`: one {@link MythicalItemSchema}, named by its id or its issue's number, however many the snapshot lists. */

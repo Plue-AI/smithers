@@ -146,6 +146,7 @@ export const FLOW_NAMES = [
   "issue.add-flow",
   "issue.flows",
   "issue.implement",
+  "todo.from-issue",
   "issue.poc",
   "issue.repro",
   "issues.close",

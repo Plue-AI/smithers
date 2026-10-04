@@ -124,14 +124,13 @@ test("agent planning refuses a missing box without a human form", async () => {
   } finally { await controller.dispose() }
 })
 
-test("Review a PR asks for a box before reading its context, and its agent request only asks for confirmation", async () => {
+test("Review a PR refuses without host providers; the agent only requests confirmation", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     // The form carries the review it continues (#3119), so its card is scoped to that act.
     const boxForms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "box.open")
-    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
-    expect(boxForms()).toEqual([expect.objectContaining({ id: expect.stringMatching(/^form-box\.open-prs\.triage-/), payload: expect.objectContaining({ draft: { repo } }) })])
-    await store.dispatch({ type: "card.removed", actor: "user", id: boxForms()[0]!.id }).isPersisted.promise
+    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("failed")
+    expect(boxForms()).toEqual([])
     const agent = await controller.commands.runForAgent("prs.triage", `4 ${repo}`)
     expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
     expect(boxForms()).toEqual([])
@@ -154,7 +153,7 @@ test("explicit issue flow inspection and launch offer the existing box form", as
   try {
     await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud-issue", kind: "issue", title: "A bug", status: "active", createdAt: 1, ordinal: 1,
       payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
-    for (const name of ["issue.flows", "issue.repro", "issue.poc", "issue.implement"] as const) {
+    for (const name of ["issue.flows", "issue.repro", "issue.poc"] as const) {
       expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("executed")
       expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
       await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
@@ -174,18 +173,19 @@ test("direct issue controller calls keep no-box refusal semantics and create no 
       payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
     for (const result of [
       await controller.inspectIssueFlows(9, repo),
-      await controller.runIssueFlow("repro", 9, repo),
-      await controller.runIssueImplementation(9, repo)
+      await controller.runIssueFlow("repro", 9, repo)
     ]) expect(result).toContain("Open a box")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
   } finally { await controller.dispose() }
 })
 
-test("Fix an issue app asks for a box before fetching an issue when no issue card is open", async () => {
+test("Make TODO stays dark before fetching an issue or opening a box", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
-    expect((await controller.commands.run("issue.implement", `9 ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
+    for (const name of ["issue.implement", "todo.from-issue"]) {
+      expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("failed")
+    }
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })
@@ -197,7 +197,7 @@ test("issue flows refuse an ambiguous branch without rendering a retired picker"
     await loadBox(store, repo, second)
     await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud-issue", kind: "issue", title: "A bug", status: "active", createdAt: 1, ordinal: 1,
       payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
-    for (const name of ["issue.flows", "issue.repro", "issue.poc", "issue.implement"] as const) {
+    for (const name of ["issue.flows", "issue.repro", "issue.poc"] as const) {
       expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("failed")
       expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     }

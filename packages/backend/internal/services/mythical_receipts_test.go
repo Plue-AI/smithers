@@ -187,7 +187,7 @@ func TestMythicalVerifyChecksTheRebasedPathsAndRecordsItsReceipts(t *testing.T) 
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	for _, number := range []int64{21, 22} {
-		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Issue %d", number),
+		require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Issue %d", number),
 			State: "open", TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	}
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 3 WHERE repository_id = $1`, o.repoID)

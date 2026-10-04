@@ -86,6 +86,7 @@ export interface FlowInput {
   readonly "issue.repro": { readonly number: number; readonly repo?: string }
   readonly "issue.poc": { readonly number: number; readonly repo?: string }
   readonly "issue.implement": { readonly number: number; readonly repo?: string }
+  readonly "todo.from-issue": { readonly number: number; readonly repo?: string }
   readonly "prs.triage": { readonly number: number; readonly repo?: string }
   readonly "review": { readonly number: number; readonly repo?: string }
   readonly "issue.add-flow": { readonly number: number; readonly repo?: string; readonly description?: string }
@@ -245,6 +246,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "issue.repro": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.poc": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.implement": (payload) => line(token(payload, "number"), token(payload, "repo")),
+  "todo.from-issue": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "prs.triage": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "review": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.add-flow": (payload) => JSON.stringify(payload),

@@ -48,7 +48,6 @@ import (
 const (
 	mythicalBindingKind    = "mythical-item"
 	mythicalAttempts       = 3
-	mythicalBackfillEvery  = 15 * time.Minute
 	mythicalPullPollEvery  = 5 * time.Minute
 	mythicalLaunchesPerRun = 4
 	mythicalPromptBytes    = 24 << 10
@@ -152,131 +151,21 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ObserveIssue admits or updates one issue's item. The admitted text is
-// pinned: a lane reads the snapshot, never the live issue. Only a TODO is
-// approved: an issue carrying the todo label a maintainer person applied,
-// then approvesIssueText with that label. A label's approval of outsider
-// text holds only for exactly the labeled text and only while the label
-// stays, so an edit after approval needs a new label. Only an item that has
-// not started takes new text; closing cancels an item that has not started.
-// A planner's decline stays until the issue's title or body changes to
-// approved text, or a person retries it (retryItem). applied is the label
-// this event applied (zero for a sweep).
+// ObserveIssue refuses legacy admission until the install's issue-events,
+// membership and transactional revision providers are composed. Webhook stamps
+// and repository policy are not install membership or admission authority.
 func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
-	q := s.queries()
-	stack, err := q.GetMythicalStack(ctx, repositoryID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	digest := mythicalIssueDigest(issue)
-	body := issue.Body
-	if len(body) > mythicalPromptBytes {
-		body = body[:mythicalPromptBytes]
-	}
-	for range 3 {
-		existing, err := q.GetMythicalItemByIssue(ctx, repositoryID, issue.Number)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		// A label a maintainer person applied counts while it stays on the
-		// issue: a TODO needs no new label for its maintainer's own edit.
-		checks := mythicalChecksOf(existing)
-		// The owner's policy makes an issue a TODO once, without the label;
-		// the label then keeps it one like any other.
-		if applied.Removed && applied.ByMaintainer && strings.EqualFold(applied.Label, todoLabel) {
-			// A maintainer took todo off: the factory never puts it back, and
-			// the issue is a TODO again only when a maintainer re-applies it.
-			checks.AutoTodo, checks.Todo, checks.OptedOut = "", false, true
-		}
-		// Each maintainer's application of todo acts once: a replay of the one
-		// already seen neither re-queues the item nor lifts its bounds.
-		freshTodo := appliedByMaintainer(applied, todoLabel) && (applied.EventID == 0 || applied.EventID != checks.TodoEvent)
-		if appliedByMaintainer(applied, todoLabel) && applied.EventID != 0 {
-			checks.TodoEvent = applied.EventID
-		}
-		auto := applied.AutoTodo != "" && checks.AutoTodo == "" && !checks.OptedOut
-		if auto {
-			checks.AutoTodo = applied.AutoTodo
-		}
-		if applied.FiledBy != "" {
-			checks.Filed, checks.FiledRequest = digest, applied.FiledRequest
-		}
-		// Text a maintainer person filed through Smithers (FileTodo) is
-		// theirs while it stands exactly as filed; GitHub names the App.
-		if checks.Filed != "" && checks.Filed == digest {
-			issue.TextByMaintainer = true
-		}
-		outsider := !issue.TextByMaintainer
-		// A TODO the policy made stays one: the label is its projection.
-		checks.Todo = checks.AutoTodo != "" || issueCarriesLabel(issue.Labels, todoLabel) && (appliedByMaintainer(applied, todoLabel) || checks.Todo)
-		checks.Automerge = issueCarriesLabel(issue.Labels, automergeLabel) && (appliedByMaintainer(applied, automergeLabel) || checks.Automerge)
-		approved := ""
-		switch {
-		case !checks.Todo:
-		case checks.AutoTodo != "" && issue.TextByMaintainer:
-			// The policy approves the text of the maintainer it names.
-			approved = digest
-		case approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, todoLabel):
-			approved = digest
-		case existing.ApprovedDigest == digest:
-			approved = digest
-		}
-		state, reason := mythicalAdmission(issue, approved == digest)
-		reason = mythicalProposalReason(reason, checks)
-		if errors.Is(err, pgx.ErrNoRows) {
-			item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repositoryID,
-				IssueNumber: pgtype.Int8{Int64: issue.Number, Valid: true}, IssueTitle: issue.Title, IssueURL: issue.URL,
-				IssueDigest: digest, IssueBody: body, ApprovedDigest: approved, State: state, Reason: reason, Outsider: outsider,
-				Checks: checks.encode()})
-			if err != nil {
-				return err
-			}
-			if inserted {
-				s.itemChanged(ctx, q, stack, item.ID)
-				return nil
-			}
-			continue
-		}
-		next := existing
-		next.Checks = checks.encode()
-		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled" ||
-			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest) ||
-			// A maintainer re-applying todo resumes a TODO stopped at its bound.
-			(existing.State == "blocked" && mythicalChecksOf(existing).bounded() && freshTodo)
-		switch {
-		case existing.State == "declined" && !notStarted:
-		case state == "cancelled" && (existing.State == "queued" || existing.State == "retrying" || existing.State == "skipped"):
-			next.State, next.Reason = "cancelled", reason
-		case notStarted:
-			if existing.State == "blocked" {
-				// A person resumed it: its bounds count from here.
-				resumed := mythicalChecksOf(next)
-				resumed.resume()
-				next.Checks = resumed.encode()
-			}
-			next.State, next.Reason = state, reason
-			next.IssueTitle, next.IssueURL, next.IssueDigest, next.IssueBody, next.ApprovedDigest = issue.Title, issue.URL, digest, body, approved
-			next.Outsider = outsider
-		}
-		if next.State == existing.State && next.Reason == existing.Reason && next.IssueDigest == existing.IssueDigest &&
-			next.IssueTitle == existing.IssueTitle && next.ApprovedDigest == existing.ApprovedDigest && next.Outsider == existing.Outsider &&
-			sameMythicalChecks(next, existing) {
-			return nil
-		}
-		saved, err := q.SaveMythicalItem(ctx, next)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		s.itemChanged(ctx, q, stack, saved.ID)
-		return nil
-	}
-	return errors.New("the item changed concurrently; the next sweep observes the issue again")
+	return issueTodoUnavailable()
+}
+
+// The worker distinguishes an unavailable admission provider from a failing
+// delivery: deployment waiting cannot consume the finite delivery retry budget.
+type issueTodoUnavailableError struct{ *pkgerrors.APIError }
+
+func (e *issueTodoUnavailableError) Unwrap() error { return e.APIError }
+
+func issueTodoUnavailable() error {
+	return &issueTodoUnavailableError{pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Issue TODO admission is not configured")}
 }
 
 // itemChanged wakes the stack worker and the event stream.
@@ -285,128 +174,6 @@ func (s *MythicalService) itemChanged(ctx context.Context, q *db.Queries, stack 
 		s.logger.Warn("mythical.request_failed", "repository_id", stack.RepositoryID, "error", err)
 	}
 	s.notify(ctx, q, stack.RepositoryID, stack.Generation, "item", uuidString(itemID))
-}
-
-// MythicalBackfillCounts is what one backfill found: the open issues, and
-// how many of their items are queued, skipped by admission or declined by
-// the planner, plus the items it cancelled because their issue closed.
-type MythicalBackfillCounts struct {
-	Open, Queued, Skipped, Declined, Cancelled int
-}
-
-// Backfill admits every open issue now and cancels items whose issue is no
-// longer open and that have not started. A declined item stays declined
-// (ObserveIssue) and is counted.
-func (s *MythicalService) Backfill(ctx context.Context, repositoryID int64) (MythicalBackfillCounts, error) {
-	counts, err := s.backfill(ctx, repositoryID)
-	if err == nil {
-		s.logger.Info("mythical.backfill", "repository_id", repositoryID, "open", counts.Open, "queued", counts.Queued,
-			"skipped", counts.Skipped, "declined", counts.Declined, "cancelled", counts.Cancelled)
-	}
-	return counts, err
-}
-
-func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (MythicalBackfillCounts, error) {
-	var counts MythicalBackfillCounts
-	if s.github == nil {
-		return counts, pkgerrors.Internal("GitHub is not configured for the mythical stack")
-	}
-	q := s.queries()
-	stack, err := q.GetMythicalStack(ctx, repositoryID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return counts, pkgerrors.NotFound("this repository has no mythical stack")
-	}
-	if err != nil {
-		return counts, err
-	}
-	repository, owner, err := s.repository(ctx, repositoryID)
-	if err != nil {
-		return counts, err
-	}
-	gh, err := s.github.Resolve(ctx, repository, owner, stack.ActorUserID.Int64)
-	if err != nil {
-		return counts, err
-	}
-	issues, err := s.github.OpenIssues(ctx, gh)
-	if err != nil {
-		return counts, err
-	}
-	items, err := q.ListMythicalItems(ctx, repositoryID, 1000)
-	if err != nil {
-		return counts, err
-	}
-	known := make(map[int64]db.MythicalItem, len(items))
-	for _, item := range items {
-		if item.IssueNumber.Valid {
-			known[item.IssueNumber.Int64] = item
-		}
-	}
-	open := make(map[int64]bool, len(issues))
-	policy, err := s.stackPolicy(ctx, repositoryID)
-	if err != nil {
-		return counts, err
-	}
-	for _, issue := range issues {
-		open[issue.Number] = true
-		// A listing names no writer. Text the item already holds keeps the
-		// verdict on its writers, judged when they wrote it, and its author's
-		// standing is read again; new text is read from GitHub's history.
-		// Text GitHub cannot answer for waits for the next sweep.
-		var err error
-		if item, ok := known[issue.Number]; ok && item.IssueDigest == mythicalIssueDigest(issue) {
-			if !item.Outsider {
-				issue.TextByMaintainer, err = s.github.Maintainer(ctx, gh, issue.Author)
-			}
-		} else {
-			issue.TextByMaintainer, err = s.github.IssueTextByMaintainer(ctx, gh, issue)
-		}
-		var applied []gitHubLabelApplication
-		if err == nil {
-			applied, err = s.labelsAppliedByMaintainers(ctx, gh, policy, issue, known[issue.Number])
-		}
-		if err != nil {
-			s.logger.Warn("mythical.issue_writer_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
-			continue
-		}
-		if len(applied) == 0 {
-			applied = []gitHubLabelApplication{{}}
-		}
-		for _, application := range applied {
-			application.AutoTodo = mythicalAutoTodo(policy, issue)
-			if err := s.ObserveIssue(ctx, repositoryID, issue, application); err != nil {
-				return counts, err
-			}
-		}
-		s.labelAutoTodo(ctx, repositoryID, issue)
-	}
-	if items, err = q.ListMythicalItems(ctx, repositoryID, 1000); err != nil {
-		return counts, err
-	}
-	counts.Open = len(issues)
-	for _, item := range items {
-		if !item.IssueNumber.Valid {
-			continue
-		}
-		if open[item.IssueNumber.Int64] {
-			switch item.State {
-			case "queued":
-				counts.Queued++
-			case "skipped":
-				counts.Skipped++
-			case "declined":
-				counts.Declined++
-			}
-			continue
-		}
-		if item.State == "queued" || item.State == "retrying" {
-			if err := s.ObserveIssue(ctx, repositoryID, mythicalIssue{Number: item.IssueNumber.Int64, Title: item.IssueTitle,
-				URL: item.IssueURL, State: "closed"}, gitHubLabelApplication{}); err != nil {
-				return counts, err
-			}
-			counts.Cancelled++
-		}
-	}
-	return counts, nil
 }
 
 func (s *MythicalService) repository(ctx context.Context, repositoryID int64) (db.Repository, string, error) {
@@ -1062,12 +829,6 @@ func (st *mythicalItemStep) freeLane(item pgtype.UUID) int32 {
 // launch is admitted in the same transaction that records it.
 func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	q := s.queries()
-	if s.github != nil && s.now().Sub(s.lastBackfill(r.row.RepositoryID)) >= mythicalBackfillEvery {
-		s.markBackfill(r.row.RepositoryID)
-		if _, err := s.Backfill(ctx, r.row.RepositoryID); err != nil && ctx.Err() == nil {
-			s.logger.Warn("mythical.backfill_failed", "repository_id", r.row.RepositoryID, "error", err)
-		}
-	}
 	s.completePending(ctx, r, q, s.now())
 	items, err := q.ListMythicalItems(ctx, r.row.RepositoryID, 1000)
 	if err != nil {
@@ -1185,21 +946,6 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			s.releaseLane(ctx, r, result)
 		}
 	}
-}
-
-func (s *MythicalService) lastBackfill(repositoryID int64) time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.backfills[repositoryID]
-}
-
-func (s *MythicalService) markBackfill(repositoryID int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.backfills == nil {
-		s.backfills = map[int64]time.Time{}
-	}
-	s.backfills[repositoryID] = s.now()
 }
 
 // releaseLane retires a finished item's lane workspace; the candidate is
@@ -2772,101 +2518,19 @@ func mythicalRetryReview(item db.MythicalItem) db.MythicalItem {
 	return next
 }
 
-// ObserveGitHubEvent admits an issue event for every stack whose repository's
-// GitHub source it is, and records an issue comment's proposal
-// (observeMention). Other events are ignored.
+// ObserveGitHubEvent keeps issue hints pending until the install's issue-events
+// worker is composed. A successful legacy delivery would lose the event without
+// its durable cursor/consumer receipt. In particular comments cannot steer TODOs.
 func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType string, payload []byte) error {
-	if s != nil && strings.EqualFold(strings.TrimSpace(eventType), "issue_comment") {
-		return s.observeMention(ctx, payload)
-	}
-	if s == nil || !strings.EqualFold(strings.TrimSpace(eventType), "issues") {
+	if s == nil {
 		return nil
 	}
-	var event struct {
-		Action     string               `json:"action"`
-		Issue      *mythicalGitHubIssue `json:"issue"`
-		Sender     gitHubActor          `json:"sender"`
-		Label      *gitHubLabel         `json:"label"`
-		Repository *struct {
-			Name  string `json:"name"`
-			Owner struct {
-				Login string `json:"login"`
-			} `json:"owner"`
-		} `json:"repository"`
-	}
-	if json.Unmarshal(payload, &event) != nil || event.Issue == nil || event.Repository == nil {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "issues", "issue_comment":
+		return issueTodoUnavailable()
+	default:
 		return nil
 	}
-	applied := gitHubLabelApplied(event.Action, payload)
-	applied.By = event.Sender.Login
-	if strings.EqualFold(strings.TrimSpace(event.Action), "unlabeled") && event.Label != nil {
-		applied.Label, applied.Removed = event.Label.Name, true
-	}
-	ids, err := s.queries().ListRepositoryIDsForGitHubSource(ctx, event.Repository.Owner.Login, event.Repository.Name)
-	if err != nil {
-		return err
-	}
-	issue := event.Issue.issue()
-	for _, id := range ids {
-		// Only a repository with a stack reads its policy: another
-		// repository's outage never holds this delivery.
-		if _, err := s.queries().GetMythicalStack(ctx, id); errors.Is(err, pgx.ErrNoRows) {
-			continue
-		} else if err != nil {
-			return err
-		}
-		policy, err := s.stackPolicy(ctx, id)
-		if err != nil {
-			// The webhook job is retried later; nothing is changed meanwhile.
-			return err
-		}
-		applied := mythicalAuthorize(policy, applied, issue)
-		stale := false
-		if !applied.Removed && applied.ByMaintainer && strings.EqualFold(applied.Label, todoLabel) {
-			// A delayed or replayed labeled event counts only as the label
-			// stands now: the same application by the same person.
-			if applied, stale, err = s.liveTodo(ctx, id, event.Issue.Number, applied); err != nil {
-				return err
-			}
-		}
-		if err := s.ObserveIssue(ctx, id, issue, applied); err != nil {
-			return err
-		}
-		if err := s.observeAssignment(ctx, id, policy, event.Action, event.Sender, payload, issue); err != nil {
-			return err
-		}
-		// Only todo is reverted: it is the one GitHub write before landing
-		// the rules allow. Anyone else's automerge is ignored, never merged.
-		if !stale && !applied.Removed && !applied.ByMaintainer && strings.EqualFold(applied.Label, todoLabel) {
-			s.revertLabel(ctx, id, event.Issue.Number, applied.Label)
-		}
-		s.labelAutoTodo(ctx, id, issue)
-	}
-	return nil
-}
-
-// liveTodo checks a maintainer's todo application against the label as it
-// stands on GitHub: when it was since removed or re-applied by someone else,
-// the event is stale and counts as no application. A current one carries its
-// event id, so ObserveIssue acts on each application once.
-func (s *MythicalService) liveTodo(ctx context.Context, repositoryID, number int64, applied gitHubLabelApplication) (gitHubLabelApplication, bool, error) {
-	if s.github == nil {
-		return applied, false, nil
-	}
-	gh, err := s.stackGitHub(ctx, repositoryID)
-	if err != nil {
-		return applied, false, err
-	}
-	live, err := s.github.LabelApplier(ctx, gh, number, todoLabel)
-	if err != nil {
-		return applied, false, err
-	}
-	if !live.present() || live.ViaApp || !strings.EqualFold(live.Actor.Login, applied.By) {
-		applied.ByMaintainer = false
-		return applied, true, nil
-	}
-	applied.EventID = live.EventID
-	return applied, false, nil
 }
 
 // stackGitHub resolves the repository's GitHub as the stack's actor.
@@ -2883,22 +2547,6 @@ func (s *MythicalService) stackGitHub(ctx context.Context, repositoryID int64) (
 		return mythicalGitHubRepo{}, err
 	}
 	return s.github.Resolve(ctx, repository, owner, stack.ActorUserID.Int64)
-}
-
-// mythicalAuthorize narrows an event's label application to the stack's
-// rule: a label counts only when a person the owner's policy names as a
-// maintainer applied it (the ingress stamp already refused Apps and anyone
-// without write access), and the event says why the policy makes the issue a
-// TODO without one.
-func mythicalAuthorize(policy factoryGitHubPolicy, applied gitHubLabelApplication, issue mythicalIssue) gitHubLabelApplication {
-	if applied.Removed {
-		// A removal is never stamped: a named maintainer's counts.
-		applied.ByMaintainer = policy.namesMaintainers() && policy.maintains(applied.By)
-	} else {
-		applied.ByMaintainer = applied.ByMaintainer && policy.maintains(applied.By)
-	}
-	applied.AutoTodo = mythicalAutoTodo(policy, issue)
-	return applied
 }
 
 // stackPolicy reads the owner's committed policy on the default bookmark.
@@ -2918,115 +2566,6 @@ func (s *MythicalService) stackPolicy(ctx context.Context, repositoryID int64) (
 		return factoryGitHubPolicy{}, fmt.Errorf("read the repository policy: %w", err)
 	}
 	return policy, nil
-}
-
-// mythicalAutoTodo is why the policy makes an issue a TODO without the
-// label, or "": a maintainer it names wrote the issue (and nobody else
-// rewrote it) after the rule took effect. Pull requests and the backlog from
-// before never qualify.
-func mythicalAutoTodo(policy factoryGitHubPolicy, issue mythicalIssue) string {
-	since, err := time.Parse(time.RFC3339, policy.TodoSince)
-	if err != nil || !policy.namesMaintainers() || issue.PullRequest || !issue.TextByMaintainer || issue.CreatedAt.Before(since) || !policy.maintains(issue.Author.Login) {
-		return ""
-	}
-	return "written by " + issue.Author.Login + ", a maintainer"
-}
-
-// labelAutoTodo applies todo to an issue the factory made a TODO without
-// it, so the issue shows what it is. The item records the decision, so the
-// label is only its projection: a failure leaves it missing until the next
-// event or sweep adds it, and the item stays a TODO meanwhile.
-func (s *MythicalService) labelAutoTodo(ctx context.Context, repositoryID int64, issue mythicalIssue) {
-	if s.github == nil || issueCarriesLabel(issue.Labels, todoLabel) {
-		return
-	}
-	item, err := s.queries().GetMythicalItemByIssue(ctx, repositoryID, issue.Number)
-	if err != nil || mythicalChecksOf(item).AutoTodo == "" {
-		return
-	}
-	if err := s.projectAutoTodo(ctx, repositoryID, issue); err != nil {
-		s.logger.Warn("mythical.auto_todo_label_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
-	}
-}
-
-// projectAutoTodo puts the missing todo label on an auto-TODO, unless the
-// label's history says a named maintainer took it off: then that removal,
-// whose event never reached the stack, opts the issue out as the event
-// would have.
-func (s *MythicalService) projectAutoTodo(ctx context.Context, repositoryID int64, issue mythicalIssue) error {
-	gh, err := s.stackGitHub(ctx, repositoryID)
-	if err != nil {
-		return err
-	}
-	live, err := s.github.LabelApplier(ctx, gh, issue.Number, todoLabel)
-	if err != nil {
-		return err
-	}
-	if live != nil && live.Removed {
-		policy, err := s.stackPolicy(ctx, repositoryID)
-		if err != nil {
-			return err
-		}
-		if policy.namesMaintainers() && policy.maintains(live.Actor.Login) {
-			return s.ObserveIssue(ctx, repositoryID, issue,
-				gitHubLabelApplication{Label: todoLabel, Removed: true, ByMaintainer: true, By: live.Actor.Login})
-		}
-	}
-	return s.github.AddLabel(ctx, gh, issue.Number, todoLabel)
-}
-
-// labelsAppliedByMaintainers reads, for a listed issue whose label events
-// the stack may have missed, the todo and automerge labels a maintainer
-// person applied. A todo label approves only a maintainer's text here: an
-// outsider's text is approved by the label event itself, never a listing.
-func (s *MythicalService) labelsAppliedByMaintainers(ctx context.Context, gh mythicalGitHubRepo, policy factoryGitHubPolicy, issue mythicalIssue, item db.MythicalItem) ([]gitHubLabelApplication, error) {
-	var applied []gitHubLabelApplication
-	for _, label := range []string{todoLabel, automergeLabel} {
-		checks := mythicalChecksOf(item)
-		known := label == todoLabel && (checks.Todo || !issue.TextByMaintainer) || label == automergeLabel && checks.Automerge
-		if known || !issueCarriesLabel(issue.Labels, label) {
-			continue
-		}
-		applier, err := s.github.LabelApplier(ctx, gh, issue.Number, label)
-		if err != nil {
-			return nil, err
-		}
-		// The same rule as a label event: a person the policy names, never
-		// an App acting for them.
-		if !applier.present() || applier.ViaApp || !policy.maintains(applier.Actor.Login) {
-			continue
-		}
-		maintainer, err := s.github.Maintainer(ctx, gh, applier.Actor)
-		if err != nil {
-			return nil, err
-		}
-		if maintainer {
-			applied = append(applied, gitHubLabelApplication{Label: label, ByMaintainer: true, By: applier.Actor.Login, EventID: applier.EventID})
-		}
-	}
-	return applied, nil
-}
-
-// revertLabel takes a todo label someone other than a maintainer person
-// applied off the issue again. ObserveIssue already ignored
-// it, so a failure only leaves the label showing: it is logged, and never
-// fails the webhook delivery.
-func (s *MythicalService) revertLabel(ctx context.Context, repositoryID, number int64, label string) {
-	// The factory's own todo on an issue it made a TODO stays.
-	if item, err := s.queries().GetMythicalItemByIssue(ctx, repositoryID, number); err == nil &&
-		strings.EqualFold(label, todoLabel) && mythicalChecksOf(item).AutoTodo != "" {
-		return
-	}
-	if s.github == nil {
-		return
-	}
-	gh, err := s.stackGitHub(ctx, repositoryID)
-	if err == nil {
-		err = s.github.RemoveLabel(ctx, gh, number, label)
-	}
-	if err != nil {
-		s.logger.Warn("mythical.label_revert_failed", "repository_id", repositoryID, "issue", number, "label", label, "error", err)
-	}
 }
 
 // deliverNotice posts the comment an item owes its issue and records it

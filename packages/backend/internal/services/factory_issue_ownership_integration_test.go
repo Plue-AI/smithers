@@ -67,7 +67,7 @@ func newFactoryOwnershipFixture(t *testing.T) *factoryOwnershipFixture {
 	projection.On[0].Flow = json.RawMessage(`"engineering"`)
 	require.NoError(t, role.ReconcileFactoryRules(ctx, o.repoID, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", projection))
 	issue := mythicalIssue{Number: 2081, Title: "One approved issue", Body: "Exactly one owner", State: "open", Labels: []string{"todo"}, TextByMaintainer: true}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
 	payload := json.RawMessage(`{"action":"labeled","issue":{"number":2081,"title":"One approved issue","body":"Exactly one owner","state":"open","labels":[{"name":"todo"}],"smithers_text_by_maintainer":true},"label":{"name":"todo"},"smithers_label_by_maintainer":true}`)
 	require.NoError(t, role.AdmitGitHubEvent(ctx, o.repoID, db.GithubWebhookJob{DeliveryID: "barrier", Payload: payload}, TriggerEvent{Type: "issues", Action: "labeled"}))
 	return &factoryOwnershipFixture{o: o, pool: pool, store: store, dispatcher: dispatcher, role: role, workspace: workspace, issue: issue, payload: payload}
@@ -217,7 +217,7 @@ func TestFactoryIssueOwnershipMythicalPhaseGapAndRevisedGeneration(t *testing.T)
 	phase := uuidString(f.claim(t).OperationID)
 	edited := f.issue
 	edited.Title = "New explicitly approved text"
-	require.NoError(t, f.o.service.ObserveIssue(ctx, f.o.repoID, edited, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(f.o.service, ctx, f.o.repoID, edited, maintainerTodo))
 	require.Equal(t, f.issue.Title, f.o.item(f.issue.Number).IssueTitle, "running generation keeps its approved source")
 	// Canonical cancellation/item settlement is distinct from merely asking to
 	// cancel. Model the domain's cancelled checkpoint and reapproval here; the
@@ -226,7 +226,7 @@ func TestFactoryIssueOwnershipMythicalPhaseGapAndRevisedGeneration(t *testing.T)
 	item.State = "cancelled"
 	_, err = db.New(f.pool).SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
-	require.NoError(t, f.o.service.ObserveIssue(ctx, f.o.repoID, edited, maintainerTodo))
+	require.NoError(t, seedMythicalIssue(f.o.service, ctx, f.o.repoID, edited, maintainerTodo))
 	require.Equal(t, "queued", f.o.item(f.issue.Number).State)
 	_, err = f.commit(t, "request")
 	_, owned := factoryIssueOwned(err)

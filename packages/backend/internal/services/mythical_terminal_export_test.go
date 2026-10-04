@@ -103,7 +103,7 @@ func (f *TerminalFactory) Automerge(number int64) {
 	require.Equal(o.t, number, issue.Number, "#%d was not filed", number)
 	o.github.recordLabel(number, todoLabel, "roninjin10")
 	o.github.recordLabel(number, automergeLabel, "roninjin10")
-	require.NoError(o.t, o.service.ObserveIssue(context.Background(), o.repoID, issue,
+	require.NoError(o.t, seedMythicalIssue(o.service, context.Background(), o.repoID, issue,
 		gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 }
 

@@ -736,17 +736,16 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("admits open issues, creates the history, and sets the lane count", async () => {
+  it("creates the history and sets the lane count", async () => {
     const f = await serve((_req, res) => json(res, stack([]), 202))
     try {
-      for (const args of [["history", "backfill"], ["history", "bootstrap"], ["history", "parallel", "3"]]) {
+      for (const args of [["history", "bootstrap"], ["history", "parallel", "3"]]) {
         const result = await f.run(args)
         expect(result.code, result.error).toBe(0)
         expect(result.output).toContain("active · 1/2 lanes")
       }
       for (const lanes of ["0", "9", "2.5"]) expect((await f.run(["history", "parallel", lanes])).code).toBe(2)
       expect(f.requests.map((r) => `${r.method} ${r.url} ${r.body}`)).toEqual([
-        "POST /api/repos/owner/repo/mythical/backfill {}",
         "POST /api/repos/owner/repo/mythical/bootstrap {}",
         `PUT /api/repos/owner/repo/mythical/config {"maxParallel":3}`
       ])

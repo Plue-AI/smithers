@@ -4559,19 +4559,6 @@ export interface PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityInput {
 export const putApiReposOwnerRepoWorkspacesIdServicesPortVisibility = (transport: Transport, input: PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityInput): Promise<PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityResponse> =>
   transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/services/${segment(input.path.port)}/visibility`, input.body) as Promise<PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityResponse>
 
-export type PostApiReposOwnerRepoMythicalBackfillBody = AnyJSON
-
-export type PostApiReposOwnerRepoMythicalBackfillResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoMythicalBackfillInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body?: PostApiReposOwnerRepoMythicalBackfillBody
-}
-
-/** POST /api/repos/{owner}/{repo}/mythical/backfill */
-export const postApiReposOwnerRepoMythicalBackfill = (transport: Transport, input: PostApiReposOwnerRepoMythicalBackfillInput): Promise<PostApiReposOwnerRepoMythicalBackfillResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/backfill`, input.body) as Promise<PostApiReposOwnerRepoMythicalBackfillResponse>
-
 export type PostApiReposOwnerRepoMythicalBootstrapBody = AnyJSON
 
 export type PostApiReposOwnerRepoMythicalBootstrapResponse = AnyJSON
