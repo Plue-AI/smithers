@@ -55,7 +55,7 @@ describe("CI concurrency", () => {
     // group holds one running and one pending run; each push replaces the
     // pending one, and only PR runs cancel the one in progress.
     expect(workflow).toContain(
-      "concurrency:\n  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
+      "concurrency:\n  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
     )
     expect(workflow).not.toContain("github.sha)")
     expect(render({ ...goldenAttrs, cancelInProgress: false })).toContain("cancel-in-progress: false")
@@ -255,7 +255,7 @@ on:
   pull_request:
   workflow_dispatch:
 concurrency:
-  group: ci-\${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  group: \${{ github.workflow }}-\${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: \${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
@@ -418,16 +418,19 @@ describe("the declaration surface", () => {
     expect(suspects.map(([name, type]) => [name, type._tag])).toEqual([["install", "Boolean"]])
     expect(suspects.filter(([, type]) => holdsString(type)).map(([name]) => name)).toEqual([])
     // The two things a step CAN say, and nothing else.
-    expect(Object.keys(TargetStep.fields).sort()).toEqual(["name", "parallelism", "pattern", "verb"])
+    expect(Object.keys(TargetStep.fields).sort()).toEqual(["name", "parallelism", "pattern", "secrets", "verb"])
     // A gate is a target invocation too, not a command to match in the text.
     expect(Object.keys(Gate.fields).sort()).toEqual(["job", "name", "pattern", "verb"])
     // A job says what it requires and what it runs.
     expect(Object.keys(Job.fields).sort())
       .toEqual([
         "continueOnError",
+        "environment",
         "id",
         "matrix",
         "name",
+        "needs",
+        "permissions",
         "publishesToCache",
         "runsOn",
         "steps",
@@ -464,13 +467,11 @@ describe("the declaration surface", () => {
     expect(Verb.all).not.toContain(Verb.Review)
   })
 
-  it("has no value for the manual run verb at all", () => {
-    // `run` targets include watchers, development servers, and source-tree
-    // scaffolds. The CLI exposes them for explicit use, not for generated CI,
-    // so the module exports no value a PACKAGE.ts file could name.
-    expect(Object.keys(Verb).filter((name) => name.toLowerCase() === "run")).toEqual([])
+  it("keeps explicit Run separate from the aggregate verbs", () => {
+    expect(Verb.Run).toEqual({ name: "run" })
     expect(Verb.all.map(Verb.kind)).toEqual(["build", "test", "lint", "docs"])
-    expect(Verb.isPipelineVerb({ name: "run" })).toBe(false)
+    expect(Verb.isPipelineVerb(Verb.Run)).toBe(true)
+    expect(Verb.isVerb(Verb.Run)).toBe(false)
     expect(Verb.isPipelineVerb(Verb.Ci)).toBe(true)
     expect(Verb.isVerb(Verb.Ci)).toBe(false)
   })
@@ -1731,9 +1732,12 @@ describe("a platform matrix", () => {
     expect(Object.keys(Job.fields).sort())
       .toEqual([
         "continueOnError",
+        "environment",
         "id",
         "matrix",
         "name",
+        "needs",
+        "permissions",
         "publishesToCache",
         "runsOn",
         "steps",
@@ -1882,4 +1886,92 @@ describe("affected gates", () => {
       }
     }
   })
+})
+
+describe("deploy workflows", () => {
+  const deploy = (overrides: Record<string, unknown> = {}, stepOverrides: Record<string, unknown> = {}) => ({
+    ...goldenAttrs,
+    pullRequest: false,
+    gates: [],
+    jobs: [
+      { ...goldenAttrs.jobs[0]!, id: "gate", steps: [{ verb: Verb.Test, pattern: "//packages/..." }] },
+      {
+        id: "deploy",
+        runsOn: "ubuntu-latest",
+        toolchain: CiToolchain.Needs({ runtimes: [node] }),
+        environment: "production",
+        needs: ["gate"],
+        permissions: { actions: "read" },
+        steps: [{
+          verb: Verb.Run,
+          pattern: "//apps/server:deploy",
+          secrets: [Secret("CLOUDFLARE_API_TOKEN")],
+          ...stepOverrides
+        }],
+        ...overrides
+      }
+    ]
+  })
+  it.each([
+    [{ environment: undefined }, {}, "job \"deploy\": a Run step needs environment"],
+    [{}, { verb: Verb.Test }, "environment job holds a non-Run step"],
+    [{ needs: undefined }, {}, "environment job needs needs"],
+    [{}, { pattern: "//apps/..." }, "Run needs one explicit target"],
+    [{}, { pattern: "//apps:all" }, "Run needs one explicit target"],
+    [{ needs: ["missing"] }, {}, "deploy needs successful required jobs"],
+    [{ continueOnError: true }, {}, "deploy jobs cannot be matrix, advisory or cache publishers"],
+    [{}, { secrets: [{ _tag: "Secret", env: "bad'name" }] }, "invalid step secret"]
+  ])("refuses unsafe deployment declarations %j", (job, step, message) => {
+    expect(() => render(deploy(job, step) as unknown as typeof goldenAttrs)).toThrow(message)
+  })
+  it("refuses write permissions on the workflow and advisory gate dependencies", () => {
+    expect(() => render({ ...deploy(), permissions: { contents: "write" } } as unknown as typeof goldenAttrs)).toThrow("unsafe permission")
+    const value = deploy()
+    expect(() => render({ ...value, jobs: [{ ...value.jobs[0]!, continueOnError: true }, value.jobs[1]!] } as unknown as typeof goldenAttrs)).toThrow("deploy needs successful required jobs")
+    expect(() => render({ ...value, pushBranches: ["main*"] } as unknown as typeof goldenAttrs)).toThrow("Run needs literal push branches")
+  })
+  it("refuses deployment workflows triggered by pull requests", () => {
+    expect(() => render({ ...deploy(), pullRequest: true } as unknown as typeof goldenAttrs)).toThrow(
+      "Run cannot use a pull-request trigger"
+    )
+  })
+  it("keeps deploys behind successful gates and scopes each secret to its Run step", () => {
+    const source = render(deploy({ steps: [
+      { verb: Verb.Run, pattern: "//apps/server:deploy", secrets: [Secret("CLOUDFLARE_API_TOKEN")] },
+      { verb: Verb.Run, pattern: "//apps/server:verify" }
+    ] }) as unknown as typeof goldenAttrs)
+    const workflow = Yaml.parse(source)
+    expect(workflow.jobs.deploy.needs).toEqual(["gate"])
+    expect(workflow.jobs.deploy.environment).toBe("production")
+    expect(workflow.jobs.deploy.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
+    expect(workflow.jobs.deploy.permissions).toEqual({ actions: "read" })
+    const run = workflow.jobs.deploy.steps.find((step: any) => step.run?.includes("smthrs run"))
+    expect(run.run).toBe("pnpm exec smthrs run '//apps/server:deploy' --outward-only --verbose")
+    expect(run.if).toBeUndefined()
+    expect(run.env).toEqual({ CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}" })
+    expect(workflow.jobs.gate.steps.every((step: any) => step.env?.CLOUDFLARE_API_TOKEN === undefined)).toBe(true)
+    expect(workflow.jobs.deploy.steps.filter((step: any) => step.env?.CLOUDFLARE_API_TOKEN)).toHaveLength(1)
+    expect(workflow.jobs.deploy.steps.find((step: any) => step.run?.includes("server:verify")).env).toBeUndefined()
+    expect(workflow.concurrency.group).toMatch(/^\$\{\{ github.workflow \}\}/)
+    expect(Verb.all.map((verb) => verb.name)).not.toContain("run")
+  })
+})
+
+it("refuses secrets on ordinary gates", () => {
+  expect(() =>
+    render(
+      {
+        ...goldenAttrs,
+        gates: [],
+        jobs: [{
+          ...goldenAttrs.jobs[0]!,
+          steps: [{
+            verb: Verb.Test,
+            pattern: "//packages/...",
+            secrets: [Secret("DEPLOY_TOKEN")]
+          }]
+        }]
+      } as unknown as typeof goldenAttrs
+    )
+  ).toThrow("secrets need a Run step")
 })

@@ -30,6 +30,7 @@ import * as Executor from "./Executor.ts"
 import * as GitHooks from "./GitHooks.ts"
 import * as GraphOutput from "./GraphOutput.ts"
 import * as ApprovalBridge from "./internal/ApprovalBridge.ts"
+import * as RulePolicy from "./internal/RulePolicy.ts"
 import * as KnownRed from "./KnownRed.ts"
 import * as Label from "./Label.ts"
 import * as Owners from "./Owners.ts"
@@ -1302,7 +1303,9 @@ const makeCommands = (config: RuntimeConfig) =>
       args: selectionArgs,
       options: executionOptions.extend({
         base: z.string().default("HEAD").describe("Git base revision"),
-        baseGreen: z.boolean().default(false).describe("Use this job’s last successful ancestor, otherwise run the full gate"),
+        baseGreen: z.boolean().default(false).describe(
+          "Use this job’s last successful ancestor, otherwise run the full gate"
+        ),
         head: z.string().optional().describe(
           "Git head revision; defaults to the working tree including untracked files"
         ),
@@ -1318,20 +1321,30 @@ const makeCommands = (config: RuntimeConfig) =>
           const green = context.options.baseGreen
             ? await AffectedBase.resolve(index.root, environmentOf(config), config.signal)
             : undefined
-          const files = context.options.baseGreen && green === undefined ? [] : await Affected.changedPaths(index.root, {
-            ...context.options,
-            base: green ?? context.options.base,
-            signal: config.signal,
-            environment: environmentOf(executionConfig)
-          })
+          const files = context.options.baseGreen && green === undefined ?
+            [] :
+            await Affected.changedPaths(index.root, {
+              ...context.options,
+              base: green ?? context.options.base,
+              signal: config.signal,
+              environment: environmentOf(executionConfig)
+            })
           const partial = Affected.select(index, context.args.patterns, files, { explain: context.options.list })
           const vouched = environmentOf(config).GITHUB_EVENT_NAME !== "pull_request"
-          const full = context.options.baseGreen && Affected.needsFullGate(green, files, partial.targets.length, vouched)
-          const changed = full ? {
-            pattern: context.args.patterns.join(" "), files, conservative: true, globalInputs: [],
-            targets: [...new Map(context.args.patterns.flatMap((pattern) => index.resolve(pattern))
-              .map((row) => [row.label, { label: row.label, reasons: [] as Array<string> }])).values()]
-          } : partial
+          const full = context.options.baseGreen &&
+            Affected.needsFullGate(green, files, partial.targets.length, vouched)
+          const changed = full ?
+            {
+              pattern: context.args.patterns.join(" "),
+              files,
+              conservative: true,
+              globalInputs: [],
+              targets: [...new Map(
+                context.args.patterns.flatMap((pattern) => index.resolve(pattern))
+                  .map((row) => [row.label, { label: row.label, reasons: [] as Array<string> }])
+              ).values()]
+            } :
+            partial
           const kinds = context.args.verb === "ci" ? ciKinds : [context.args.verb]
           const resolver = RepoResolution.resolver(index, environmentOf(executionConfig))
           // A target only bare wildcards select is left out where the wildcard
@@ -1381,16 +1394,31 @@ const makeCommands = (config: RuntimeConfig) =>
           const selection = { ...changed, targets: eligible.filter((target) => !omits(target.label)) }
           const omitted = eligible.filter((target) => omits(target.label)).map((target) => target.label)
           if (context.options.baseGreen) {
-            const total = [...new Set(context.args.patterns.flatMap((pattern) => index.resolve(pattern)).map((row) => row.label))].length
+            const total = [
+              ...new Set(
+                context.args.patterns.flatMap((pattern) => index.resolve(pattern)).map((row) => row.label)
+              )
+            ].length
             const output = terminalsOf(config).stderr
             if (!full) output.write(`${files.length} files changed since ${green!.slice(0, 7)}\n`)
-            output.write(`${selection.targets.length} of ${total} targets${selection.targets.length === 0 && !full ? ` · unchanged since ${green!.slice(0, 7)}` : ""}\n`)
+            output.write(
+              `${selection.targets.length} of ${total} targets${
+                selection.targets.length === 0 && !full ? ` · unchanged since ${green!.slice(0, 7)}` : ""
+              }\n`
+            )
             for (const path of changed.globalInputs) output.write(`${path} is an input of every target\n`)
-            if (total > selection.targets.length) output.write(`${total - selection.targets.length} unaffected, not run\n`)
+            if (total > selection.targets.length) {
+              output.write(
+                `${total - selection.targets.length} unaffected, not run\n`
+              )
+            }
           }
           if (context.options.list) return { ...selection, omitted }
           const resolved = context.args.patterns.map((pattern) => index.resolve(pattern).length)
-          if (!context.options.plan && (Affected.silent(files, resolved) || (full && selection.targets.length === 0))) {
+          if (
+            !context.options.plan && (Affected.silent(files, resolved) ||
+              (context.options.baseGreen && selection.targets.length === 0 && (full || !vouched)))
+          ) {
             return context.error({
               code: "affected_failed",
               message: `${files.length} changed files met patterns that name no target, so no gate ran`
@@ -1681,15 +1709,35 @@ const makeCommands = (config: RuntimeConfig) =>
       description: "Execute run targets selected by a pattern",
       mcp: { annotations: { readOnlyHint: false } },
       args: patternsArgument,
-      options: runOptions,
+      options: runOptions.extend({
+        outwardOnly: z.boolean().default(false).describe("Require one explicit outward target")
+      }),
       alias: { ...executionAlias, ...invocationAlias, name: "n" },
-      run: (context) =>
-        executeCommand(
-          context,
-          config,
-          "run_failed",
-          (reporter) => runVerb("run", context.args.patterns, context.options, config, reporter)
-        )
+      async run(context) {
+        try {
+          if (context.options.outwardOnly) {
+            const explicit = context.args.patterns.length === 1 &&
+              /^\/\/[^:]*:[A-Za-z0-9_.-]+$/.test(context.args.patterns[0]!) &&
+              !context.args.patterns[0]!.includes("...") && !context.args.patterns[0]!.endsWith(":all")
+            if (!explicit) {
+              return context.error({ code: "run_failed", message: "--outward-only needs one explicit target" })
+            }
+            const index = await openPackageIndex(context.options, config)
+            const rows = index.resolve(context.args.patterns[0]!)
+            if (rows.length !== 1) {
+              return context.error({ code: "run_failed", message: "--outward-only needs one explicit target" })
+            }
+            const row = rows[0]!
+            if (RulePolicy.of(Target.metadata(row.target).target).outward !== true) {
+              return context.error({ code: "run_failed", message: `${row.label} is not an outward target` })
+            }
+          }
+        } catch (cause) {
+          return context.error({ code: "run_failed", message: failureText(context, cause) })
+        }
+        return executeCommand(context, config, "run_failed", (reporter) =>
+          runVerb("run", context.args.patterns, context.options, config, reporter))
+      }
     })
     .command("target", {
       description: "Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)",
