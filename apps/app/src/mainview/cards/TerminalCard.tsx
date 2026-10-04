@@ -1,6 +1,6 @@
 /*
  * The Terminal card (T-APP-12): maps one terminal to TerminalView's props and
- * mounts the shared emulator in the View's app-only slot. The owner types;
+ * supplies the shared emulator's app-only stream and input callbacks. The owner types;
  * everyone else watches an inert emulator and sends nothing. MOCK: metadata
  * and output come from the seeded design world (state/seams/DesignWorld/
  * branch.ts) until topic `branch:<id>` and CloudTerminalClient's byte stream
@@ -8,7 +8,7 @@
  * `terminal.send`.
  */
 import { useMemo, useRef } from "react"
-import { Terminal, type TerminalStream, type TerminalWriter } from "@smthrs/ui/adapters/terminal"
+import type { TerminalStream, TerminalWriter } from "@smthrs/ui/adapters/terminal"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -89,12 +89,9 @@ export const TerminalCardBody = ({ card, actions }: { readonly card: CardOf<"ter
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
   const model = designTerminalModel(world, terminal, design.viewer())
-  const readOnly = !model.viewer_is_owner || model.frozen
-  const onData = readOnly ? undefined : typed
   return <TerminalView model={model} actions={[]} gestures={{}} onAction={cardActions(dispatch, []).onAction}
     view={{ maximized: actions.presentation === "maximized" }} onView={() => {}}
-    terminal={<Terminal key={id} stream={stream} onData={onData} readOnly={readOnly} fontSize={12.5}
-      cursorBlink={!readOnly} aria-label={`${model.title} terminal`} />} />
+    terminal={{ stream, onData: typed }} />
 }
 
 /** The `terminal` kind: a subject-only card (card-kinds.md), one per member session. */

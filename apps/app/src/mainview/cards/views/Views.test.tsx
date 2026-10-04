@@ -1,6 +1,8 @@
 import type { Action } from "@smthrs/rpc/CardAction"
 import { BranchView } from "./BranchView"
 import { fixtures as branchFixtures } from "@smthrs/rpc/fixtures/Branch"
+import { TerminalView } from "./TerminalView"
+import { fixtures as terminalFixtures } from "@smthrs/rpc/fixtures/Terminal"
 import { stories as terminalStories } from "./TerminalView.stories"
 import { createRoot } from "./testDom"
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
@@ -1290,6 +1292,27 @@ for (const [name, watching, frozen] of [
     expect(item.host.textContent).not.toContain("Ask to type")
     expect(item.host.textContent).not.toContain("Add to machine image")
   } finally { await item.close() }
+})
+test("Terminal forwards owner bytes and suppresses watcher/frozen bytes through the real adapter", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const bytes = mock((_data: string) => {})
+  try {
+    for (const [viewer_is_owner, frozen] of [[true, false], [false, false], [true, true], [false, true], [true, false]]) {
+      await act(async () => root.render(<TerminalView {...terminalFixtures.idle}
+        model={{ ...terminalFixtures.idle.model, viewer_is_owner: viewer_is_owner!, frozen: frozen! }}
+        onAction={() => {}} onView={() => {}} terminal={{ onData: bytes }} />))
+      const deadline = Date.now() + 4000
+      while (!host.querySelector(".xterm-helper-textarea") && Date.now() < deadline) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+      const input = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")!
+      expect(input).not.toBeNull()
+      expect(document.activeElement).not.toBe(input)
+      bytes.mockClear()
+      // Force a key at the emulator boundary even when the browser's inert gate would block it.
+      await act(async () => input.dispatchEvent(new KeyboardEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })))
+      expect(bytes.mock.calls).toEqual(viewer_is_owner && !frozen ? [["a"]] : [])
+      if (viewer_is_owner && !frozen) { input.focus(); expect(document.activeElement).toBe(input) }
+    }
+  } finally { await act(async () => root.unmount()); host.remove() }
 })
 test("Terminal gives the working agent its own avatar and acting-for label", async () => {
   const item = await mountedTerminal(terminalStories.find(story => story.name === "Claude Code working in Ben's terminal")!)

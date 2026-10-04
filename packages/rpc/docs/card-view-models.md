@@ -36,7 +36,7 @@ recorded cards; view models do not replace that history decoder.
 | MonitorCard        | MonitorCardSchema, MonitorCard               | Attempts, step instances, phases, cells, waits, journal and replay        |
 | AgentCard          | AgentCardSchema, AgentCard                   | Instructions, model role and choices, and runs it took part in            |
 | BranchCard         | BranchCardSchema, BranchCard                 | Machine, item or scratch, rebase, presence, terminals and activity        |
-| TerminalCard       | TerminalCardSchema, TerminalCard             | Owner, agents, watchers, command and frozen state                         |
+| TerminalCard       | TerminalCard (TypeScript metadata)             | Owner, agents, watchers, command and frozen state                         |
 | SecretsCard        | SecretsCardSchema, SecretsCard               | Secret names, scopes, bound hosts and row actions; no values              |
 | DocsCard           | DocsCardSchema, DocsCard                     | Bundled table of contents, page, anchor and not-found state               |
 | DebugApiCard       | DebugApiCard (TypeScript props)             | API operations, the selection, a pending mutation and the exchange        |

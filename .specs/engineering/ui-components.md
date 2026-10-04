@@ -580,7 +580,7 @@ type TodoRepairSlots = { conflictTerminal?: React.ReactNode } // rendered by the
 
 ### T-UI-17 Terminal
 
-`TerminalCardSchema` is retained for metadata crossing the live socket. The app View takes a `terminal: ReactNode` slot outside the serialized model, as with the S1 conflict terminal (§14.2.2b). T-APP-12 binds the existing `@smthrs/ui/adapters/terminal` to the transport.
+`TerminalCard` is TypeScript metadata. T-APP-12 owns validation at the live socket boundary. The app View composes the existing `@smthrs/ui/adapters/terminal`; its stream and callbacks stay outside the serialized model.
 
 ```ts
 type TerminalModel = {
@@ -588,8 +588,9 @@ type TerminalModel = {
   agents: Actor[]; watchers: Actor[]; command?: string
   viewer_is_owner: boolean; frozen: boolean
 }
-type TerminalViewProps = CardProps<TerminalModel>
-// App-only: TerminalViewProps & { terminal: ReactNode }
+type TerminalViewProps = CardProps<TerminalModel> & {
+  terminal: Pick<TerminalProps, "lines" | "stream" | "onData" | "onResize" | "onError" | "theme">
+}
 ```
 
 Watchers and frozen terminals have an inert, read-only emulator. They never receive input focus or forward keys. Watching and Rebasing… are neutral; each working agent has its own ActorChip and acting-for name. T-APP-12 binds the stream, replay, geometry and palette shortcut through the shared runtime.
