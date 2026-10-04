@@ -336,6 +336,7 @@ type mythicalProjection struct {
 	Kind       string `json:"kind"`
 	ItemID     string `json:"itemId"`
 	Generation int64  `json:"generation"`
+	Attempt    int32  `json:"attempt,omitempty"`
 	Phase      string `json:"phase"` // request | vibe | verify | review
 }
 
@@ -360,100 +361,120 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 	if err != nil {
 		return nil
 	}
-	q := s.queries()
-	for range 3 {
-		item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if item.Generation != projection.Generation {
-			return nil
-		}
-		next := item
-		runID := strings.TrimSpace(update.Checkpoint.RunID)
-		outcome := mythicalRunOutcome(projection.Phase, update)
-		switch projection.Phase {
-		case "request":
-			if runID != "" {
-				next.RequestRunID = runID
-			}
-			if outcome != "" && item.RequestOutcome == "" {
-				next.RequestOutcome = outcome
-				if plan := mythicalPlanSummary(update); plan != nil {
-					next.Plan = plan
-				}
-				// A request that failed before Jev routed it carries none.
-				checks := mythicalChecksOf(item)
-				checks.Route = mythicalRoute(update)
-				checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update))
-				next.Checks = checks.encode()
-			}
-		case "vibe":
-			if runID != "" {
-				next.VibeRunID = runID
-			}
-			if outcome != "" && item.VibeOutcome == "" {
-				next.VibeOutcome = outcome
-			}
-			// The delivery hands its result to the stack before it ends, so
-			// its outcome is often already "submitted"; its cleanup's
-			// rechecks are still the evidence for the cleaned candidate.
-			if outcome != "" {
-				checks := mythicalChecksOf(item)
-				checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update))
-				next.Checks = checks.encode()
-			}
-		case "verify":
-			if runID != "" {
-				next.VerifyRunID = runID
-			}
-			if outcome != "" && item.VerifyOutcome == "" {
-				next.VerifyOutcome = outcome
-				checks := mythicalChecksOf(item)
-				checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update))
-				next.Checks = checks.encode()
-			}
-		case "review":
-			checks := mythicalChecksOf(item)
-			if !checks.reviewing(item) {
+	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		for range 3 {
+			item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
+			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
 			}
-			if runID != "" {
-				checks.Review.RunID = runID
+			if err != nil {
+				return err
 			}
-			if outcome != "" {
-				checks.Review.Verdict = outcome
-				if !strings.HasPrefix(outcome, mythicalOutage) {
-					// The verdict is due now: an approved automerge TODO merges.
-					// A review that did not run waits for the pull request poll.
-					next.NextAttemptAt = pgtype.Timestamptz{}
+			if item.Generation != projection.Generation || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
+				return nil
+			}
+			next := item
+			runID := strings.TrimSpace(update.Checkpoint.RunID)
+			if item.Source == "todo" && (runID == "" || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
+				return nil
+			}
+			// A later checkpoint cannot replace the run already bound to this phase.
+			bound := map[string]string{"request": item.RequestRunID, "vibe": item.VibeRunID, "verify": item.VerifyRunID}
+			if review := mythicalChecksOf(item).Review; review != nil {
+				bound["review"] = review.RunID
+			}
+			if runID != "" && bound[projection.Phase] != "" && bound[projection.Phase] != runID {
+				return nil
+			}
+			outcome := mythicalRunOutcome(projection.Phase, update)
+			switch projection.Phase {
+			case "request":
+				if runID != "" {
+					next.RequestRunID = runID
+				}
+				if outcome != "" && item.RequestOutcome == "" {
+					next.RequestOutcome = outcome
+					if plan := mythicalPlanSummary(update); plan != nil {
+						next.Plan = plan
+					}
+					// A request that failed before Jev routed it carries none.
+					checks := mythicalChecksOf(item)
+					checks.Route = mythicalRoute(update)
+					checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update))
+					next.Checks = checks.encode()
+				}
+			case "vibe":
+				if runID != "" {
+					next.VibeRunID = runID
+				}
+				if outcome != "" && item.VibeOutcome == "" {
+					next.VibeOutcome = outcome
+				}
+				// The delivery hands its result to the stack before it ends, so
+				// its outcome is often already "submitted"; its cleanup's
+				// rechecks are still the evidence for the cleaned candidate.
+				if outcome != "" {
+					checks := mythicalChecksOf(item)
+					checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update))
+					next.Checks = checks.encode()
+				}
+			case "verify":
+				if runID != "" {
+					next.VerifyRunID = runID
+				}
+				if outcome != "" && item.VerifyOutcome == "" {
+					next.VerifyOutcome = outcome
+					checks := mythicalChecksOf(item)
+					checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update))
+					next.Checks = checks.encode()
+				}
+			case "review":
+				checks := mythicalChecksOf(item)
+				if !checks.reviewing(item) {
+					return nil
+				}
+				if runID != "" {
+					checks.Review.RunID = runID
+				}
+				if outcome != "" {
+					checks.Review.Verdict = outcome
+					if !strings.HasPrefix(outcome, mythicalOutage) {
+						// The verdict is due now: an approved automerge TODO merges.
+						// A review that did not run waits for the pull request poll.
+						next.NextAttemptAt = pgtype.Timestamptz{}
+					}
+				}
+				next.Checks = checks.encode()
+			default:
+				return nil
+			}
+			next = retainTodoAttemptEvidence(next)
+			if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
+				next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
+				sameMythicalChecks(next, item) {
+				return nil
+			}
+			saved, err := q.SaveMythicalItem(ctx, next)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if saved.Source == "todo" && saved.Number.Valid {
+				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "generation": saved.Generation, "phase": projection.Phase, "run": runID, "actor": map[string]string{"kind": "run", "id": runID}, "from": todoState(item), "to": todoState(saved)})
+				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
+					return err
 				}
 			}
-			next.Checks = checks.encode()
-		default:
+			if stack, err := q.GetMythicalStack(ctx, saved.RepositoryID); err == nil {
+				s.itemChanged(ctx, q, stack, saved.ID)
+			}
 			return nil
 		}
-		if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
-			next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
-			sameMythicalChecks(next, item) {
-			return nil
-		}
-		saved, err := q.SaveMythicalItem(ctx, next)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if stack, err := q.GetMythicalStack(ctx, saved.RepositoryID); err == nil {
-			s.itemChanged(ctx, q, stack, saved.ID)
-		}
-		return nil
-	}
-	return errors.New("mythical item is busy; retry the projection")
+		return errors.New("mythical item is busy; retry the projection")
+	})
 }
 
 // mythicalRunOutcome reads a terminal run: ” while it is not terminal.
@@ -1212,7 +1233,7 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 	}
 	id := uuidString(saved.ID)
 	tenant, principal := "repository:"+strconv.FormatInt(r.row.RepositoryID, 10), "user:"+strconv.FormatInt(r.row.ActorUserID.Int64, 10)
-	projection, _ := json.Marshal(mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Phase: phase})
+	projection, _ := json.Marshal(mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Attempt: saved.Attempt, Phase: phase})
 	authorization, _ := json.Marshal(map[string]any{"repositoryId": r.row.RepositoryID, "userId": r.row.ActorUserID.Int64,
 		"workspaceId": saved.WorkspaceID, "itemId": id, "generation": saved.Generation})
 	if _, err := s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{
@@ -2330,7 +2351,7 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 				return MythicalItemView{}, err
 			}
 		}
-		next := item
+		next := retainTodoAttemptEvidence(item)
 		next.State, next.Reason, next.Attempt, next.NextAttemptAt = "queued", "", 0, pgtype.Timestamptz{}
 		retried := mythicalChecksOf(next)
 		retried.Replans = 0
@@ -2721,12 +2742,13 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	CreationSession string     `json:"creation_session,omitempty"`
-	CreationPayload string     `json:"creation_payload,omitempty"`
-	Waits           []TodoWait `json:"waits,omitempty"`
-	RunLaunched     bool       `json:"run_launched,omitempty"`
-	RunAttached     bool       `json:"run_attached,omitempty"`
-	Todo            bool       `json:"todo,omitempty"`
+	Attempts        []todoAttemptEvidence `json:"attempts,omitempty"`
+	CreationSession string                `json:"creation_session,omitempty"`
+	CreationPayload string                `json:"creation_payload,omitempty"`
+	Waits           []TodoWait            `json:"waits,omitempty"`
+	RunLaunched     bool                  `json:"run_launched,omitempty"`
+	RunAttached     bool                  `json:"run_attached,omitempty"`
+	Todo            bool                  `json:"todo,omitempty"`
 	// AutoTodo is why the factory made the issue a TODO without the label;
 	// OptedOut records a maintainer taking todo off such an issue, after
 	// which the factory never makes it one again on its own.
