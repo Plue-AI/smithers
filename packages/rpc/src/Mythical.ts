@@ -187,7 +187,7 @@ export type MythicalChange = z.infer<typeof MythicalChangeSchema>
  * - `waiting`: proposal waits for the stack to catch up with main.
  * - `proposed`: its pull request is open. `landed`: main contains it.
  * - `rejected`: its pull request closed unmerged and it was reverted.
- * - `retrying`: a conflict or failed check sent it back to a lane.
+ * - `retrying`: an attempt sent back to a lane; retained legacy conflicts remain decodable.
  * - `blocked`: out of attempts; a person decides (`retry` route).
  *
  * @since 1.0.0

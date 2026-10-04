@@ -174,6 +174,12 @@ describe("stack metrics", () => {
     expect(itemStateLabel(model)).toBe("retrying")
     const conflict = item("conflict", "retrying", { integration: { conflict: { paths: ["a.ts"] } } })
     expect(itemReason(conflict)).toBe("a.ts")
-    expect(itemStateLabel(conflict)).toBe("conflict")
+    expect(itemStateLabel(conflict)).toBe("retrying")
+    // Historical conflict data stays readable without claiming a new conflict wait.
+    expect(issueWord(conflict)).toBe("retrying")
+    expect(itemStateLabel({ ...conflict, state: "blocked" })).toBe("blocked")
+    expect(itemStateLabel({ ...conflict, state: "integrating" })).toBe("rebasing")
+    expect(itemStateLabel({ ...conflict, integration: { conflict: { paths: [] } } })).toBe("retrying")
+    expect(itemReason({ ...conflict, integration: { conflict: { paths: [] } } })).toBeUndefined()
   })
 })

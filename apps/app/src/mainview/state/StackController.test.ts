@@ -133,7 +133,7 @@ test("history.view keeps the view in the card payload: it surfaces the card, sur
   expect(stackCard(store)?.payload.view).toBe("issues")
 })
 
-test("lane notices start after the debounce, follow rebases and conflicts, and settle only on a real outcome", async () => {
+test("lane notices start after the debounce, follow rebases and legacy retry data, and settle only on a real outcome", async () => {
   const { store, controller, fake } = await setup()
   fake.set(snapshot(1, [item("i1", "queued"), item("i2", "queued")]))
   await controller.commands.run("history.show", REPO)
@@ -149,7 +149,7 @@ test("lane notices start after the debounce, follow rebases and conflicts, and s
   fake.set(snapshot(1, [item("i1", "integrating", { lane: 0 }),
     item("i2", "retrying", { lane: 1, integration: { conflict: { paths: ["src/a.ts"] } } })]))
   fake.hint(1)
-  await waitFor(() => toast(store, one)?.detail === "rebasing" && toast(store, two)?.detail === "conflict · src/a.ts")
+  await waitFor(() => toast(store, one)?.detail === "rebasing" && toast(store, two)?.detail === "retrying · src/a.ts")
   expect(toast(store, two)?.status).toBe("running")
 
   fake.set(snapshot(2, [

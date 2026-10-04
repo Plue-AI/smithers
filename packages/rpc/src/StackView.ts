@@ -52,8 +52,6 @@ export const itemStateLabel = (item: MythicalItem): string => {
       return "checking"
     case "waiting":
       return "ready"
-    case "retrying":
-      return item.integration?.conflict === undefined || item.failure !== undefined ? "retrying" : "conflict"
     case "proposed":
       return "PR open"
     default:
