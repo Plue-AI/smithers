@@ -2955,7 +2955,7 @@
 .secrets-view :is(button, input, select, summary):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .secrets-view :disabled { cursor: default; opacity: .5; }
 .secrets-view .secret-actions:has(details[open]) { flex-basis: 100%; }
-.secrets-view summary { list-style: none; }
+.secrets-view summary { list-style: none; width: fit-content; }
 .secrets-view summary::-webkit-details-marker { display: none; }
 .secrets-view .secret-add .setup-field:first-child { flex: 0 0 150px; }
 .secrets-view .setup-field:has(select) { flex: 0 0 auto; }
