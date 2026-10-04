@@ -47,7 +47,7 @@ test("the chrome sign-in door returns to the repository page signed in", async (
     // Committed, not merely requested: the account door below must be the returned page's.
     const returned = page.waitForEvent("framenavigated", frame =>
       frame === page.mainFrame() && new URL(frame.url()).searchParams.get("signed-in") === "github")
-    await page.getByTestId("chrome-sign-in").click()
+    await page.getByTestId("login-github").click()
     const destination = new URL((await returned).url())
     expect(destination.origin).toBe(new URL(baseURL!).origin)
     expect(destination.pathname).toBe("/smithersai/smithers/")
@@ -61,7 +61,7 @@ test("the chrome sign-in door returns to the repository page signed in", async (
     await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
       .toContainText(`@${SCOPED_TEST_USER.login}`)
     // Read once the returned page renders the account: a booting page shows no door either.
-    await expect(page.getByTestId("chrome-sign-in")).toHaveCount(0)
+    await expect(page.getByTestId("login-github")).toHaveCount(0)
     await expect.poll(() => new URL(page.url()).searchParams.has("signed-in")).toBe(false)
     expect(new URL(page.url()).pathname).toBe("/smithersai/smithers/")
   } finally {

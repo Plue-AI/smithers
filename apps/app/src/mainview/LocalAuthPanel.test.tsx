@@ -92,7 +92,7 @@ test("native owner setup does not ask for the handed-off bootstrap token", () =>
 test("Escape closes owner sign-in and restores the sign-in door", () => {
   let closed = 0
   const trigger = document.createElement("button")
-  trigger.dataset.testid = "chrome-sign-in"
+  trigger.dataset.testid = "login-github"
   document.body.append(trigger)
   const snapshot: LocalAuthSnapshot = {
     open: true,

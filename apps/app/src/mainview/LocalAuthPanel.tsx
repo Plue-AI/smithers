@@ -41,7 +41,7 @@ export const LocalAuthPanel = ({ auth }: { readonly auth: LocalAuthController })
 
   const close = (document: Document): void => {
     auth.close()
-    document.querySelector<HTMLElement>('[data-testid="chrome-sign-in"]')?.focus()
+    document.querySelector<HTMLElement>('[data-testid="login-github"]')?.focus()
   }
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {

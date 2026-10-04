@@ -19,7 +19,7 @@ const appHref = "/?tutorial"
 const githubHref = "https://github.com/smithersai/smithers"
 ---
 
-<Base title={title} description={description} header={false} footer="legal">
+<Base title={title} description={description} header={false} footer={false}>
   <main class="wrap hero home">
     <h1 class="wordmark" aria-label="Smithers">
       <pre aria-hidden="true">{WORDMARK.map((line, row) => <span class="wordmark-row" style={`--row: ${row}`}>{line}</span>)}</pre>

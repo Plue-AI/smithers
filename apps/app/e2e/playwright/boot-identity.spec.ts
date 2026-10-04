@@ -22,7 +22,7 @@ const slash = async (page: import("@playwright/test").Page, command: string) => 
 test("repository chrome sign-in is keyboard reachable and carries return_to", async ({ page }) => {
   await signedOutVisitor(page)
   await page.goto("/smithersai/smithers/")
-  const door = page.getByTestId("chrome-sign-in")
+  const door = page.getByTestId("login-github")
   await expect(door).toBeVisible()
   // The header holds the door; it is the first stop of the native tab order, then Enter activates it.
   await page.keyboard.press(controlTabKey(page))
@@ -46,7 +46,7 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
     const redirects: string[] = []
     page.on("request", request => { if (new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH) redirects.push(request.url()) })
     await page.goto("/smithersai/smithers/")
-    await expect(page.getByTestId("chrome-sign-in")).toBeVisible()
+    await expect(page.getByTestId("login-github")).toBeVisible()
     await slash(page, command)
     const prompt = page.getByRole("article").filter({ has: page.getByRole("button", { name: "Sign in with GitHub", exact: true }) }).last()
     await expect(prompt).toContainText(command === "/flow.run review smithersai/smithers" ? "Sign in with GitHub to run review on smithersai/smithers."
@@ -80,7 +80,7 @@ test("unknown repository has one sign-in card and no icon rail", async ({ page }
 test("chrome sign-in paints with the readable primary action token", async ({ page }) => {
   await signedOutVisitor(page)
   await page.goto("/smithersai/smithers/")
-  const door = page.getByTestId("chrome-sign-in")
+  const door = page.getByTestId("login-github")
   await expect(door).toBeVisible()
   expect(await door.evaluate(node => {
     const probe = document.createElement("span")
@@ -157,7 +157,7 @@ test("CONTROL: a repository entry is a target, so the same command never parks o
    * first-run window does not exist for it — which is what this control pins.
    */
   await page.goto("/smithersai/smithers/")
-  await expect(page.getByTestId("chrome-sign-in")).toBeVisible()
+  await expect(page.getByTestId("login-github")).toBeVisible()
   await slash(page, "/issues.list")
   await page.waitForTimeout(HELD_WINDOW_MS)
   // firstRunTargetPending is false whenever an entry or a selection exists, so

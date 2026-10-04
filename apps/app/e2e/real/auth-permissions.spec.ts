@@ -176,7 +176,7 @@ authenticatedTest("GitHub OAuth stays on the original repository and resumes the
   await clearProductSession(context, baseURL)
   await page.goto(new URL(APP_PATH, baseURL).toString(), { waitUntil: "domcontentloaded" })
   await expect.poll(() => readAuthenticatedSession(page)).toBeUndefined()
-  await expect(page.getByTestId("chrome-sign-in")).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByTestId("login-github")).toBeVisible({ timeout: 60_000 })
 
   await appReady(page, 60_000)
   await openComposer(page)
@@ -198,7 +198,7 @@ authenticatedTest("GitHub OAuth stays on the original repository and resumes the
   await expect.poll(() => readAuthenticatedSession(page), { timeout: 30_000 }).not.toBeUndefined()
   await expect.poll(() => new URL(page.url()).pathname).toBe(APP_PATH)
   await expect.poll(() => new URL(page.url()).searchParams.has("signed-in")).toBe(false)
-  await expect(page.getByTestId("chrome-sign-in")).toHaveCount(0)
+  await expect(page.getByTestId("login-github")).toHaveCount(0)
   await expect(page.getByRole("status").filter({ hasText: "Signed in with GitHub as @codeplanesmithers." })).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="balance"]')).toBeVisible({ timeout: 30_000 })
 })
@@ -226,7 +226,7 @@ authenticatedTest("the saved admin identity can open devtools and survives a pag
   expect(await afterNavigation.json()).toEqual(expectedWireSession)
   // A boot skeleton shows no sign-in door either, so boot before reading its absence.
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.locator('[data-testid="chrome-sign-in"], [data-flow="auth.sign-in"]:visible')).toHaveCount(0)
+  await expect(page.locator('[data-flow="auth.sign-in"]:visible')).toHaveCount(0)
 
   await openComposer(page)
   await command(page, "/admin.devtools")

@@ -32,7 +32,7 @@ test("the hosted sign-in button starts its advertised GitHub handoff", scenario(
   }
   context.on("page", observePopup)
   try {
-    await page.getByTestId("chrome-sign-in").press("Enter")
+    await page.getByTestId("login-github").press("Enter")
     await expect.poll(() => startStatus).toBe(200)
     await expect.poll(() => popupPaths.includes("/api/auth/github/start")).toBe(true)
     await expect.poll(() => popups.some(popup => new URL(popup.url()).hostname === "github.com"), { timeout: 30_000 }).toBe(true)

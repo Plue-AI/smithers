@@ -29,7 +29,7 @@ for (const key of ["Enter", "Space"]) test(`a Chat refusal survives account clea
   const notice = page.getByRole("alert").filter({ hasText: "Account cleanup is running. Try again in a moment." })
   try {
     await expect.poll(() => page.evaluate(() => (window as any).privacyCommitProbe.commits)).toBeGreaterThan(0)
-    await expect(page.getByTestId("chrome-sign-in")).toBeVisible()
+    await expect(page.getByTestId("login-github")).toBeVisible()
     await chat.focus()
     await expect(chat).toBeFocused()
     await page.keyboard.press(key)

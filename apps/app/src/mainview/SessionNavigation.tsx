@@ -4,7 +4,7 @@ import { useController } from "./ControllerContext"
 import { KeyboardNavigation } from "./KeyboardNavigation"
 import { LocalAuthPanel } from "./LocalAuthPanel"
 import { WORDMARK } from "./Wordmark"
-import { flowAction, flowSelector } from "./flows/FlowAction"
+import { flowSelector } from "./flows/FlowAction"
 import { GUIDE_KEYS } from "./onboarding/GuideButton"
 import { bindPressActions } from "./runtime/PressActions"
 
@@ -18,8 +18,6 @@ export const modeShortcut = (event: KeyboardEvent): boolean => !event.repeat && 
 export function SessionNavigation() {
   const controller = useController()
   const { data: sessions } = useLiveQuery(controller.store.collections.sessions)
-  const { data: identities } = useLiveQuery(controller.store.collections.identitySessions)
-  const identity = identities[0]
   const mount = useCallback((node: HTMLElement | null) => {
     if (!node) return
     const doc = node.ownerDocument
@@ -57,12 +55,7 @@ export function SessionNavigation() {
     {sessions[0]?.inputMode === "vim" && <KeyboardNavigation />}
     <header className="session-navigation" aria-label="Smithers" data-keyboard-pane="Navigation" ref={mount}>
       <h1 className="guide-wordmark" aria-label="Smithers" style={{ margin: 0 }}><Mark /></h1>
-      {/* Signed in, the header carries no account chrome; Account is /account.show. */}
-      {identity?.state !== "signed-in" && controller.commands.find("auth.sign-in") !== undefined && <div className="session-identity">
-        <button type="button" className="chrome-action" data-testid="chrome-sign-in" {...flowAction(controller.runCommand, "auth.sign-in")}>
-          {controller.localAuth === undefined ? "Sign in with GitHub" : "Sign in"}
-        </button>
-      </div>}
+      {/* The header carries no account chrome: signed out, the login screen holds the one door (Will, 2026-10-03); signed in, Account is /account.show. */}
       {controller.localAuth !== undefined && <LocalAuthPanel auth={controller.localAuth} />}
     </header>
   </>
