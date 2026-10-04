@@ -13,6 +13,7 @@ import {
 import type { AgentTurnCursor, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
+import { hostOwned, runHostTurn, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
@@ -36,6 +37,8 @@ export interface DurableChatGrant {
   readonly expiresAt: string
   readonly request: StartAgentTurnRequest
   readonly producerBaseUrl: string
+  /** The mirrored repository the turn's author may read; absent until Source is ready for them. */
+  readonly source?: { readonly repository: string }
 }
 
 type CommitReply = Extract<AgentTurnJournalReply, { readonly status: "committed" | "duplicate" }>
@@ -163,7 +166,9 @@ export class DurableChatProducer {
 }
 
 /**
- * Streams one model leg and durably commits each projected frame.
+ * Streams a turn and durably commits each projected frame. A renderer that
+ * offers tools gets one model leg and runs its tool calls itself; a host-owned
+ * turn runs its tool calls on the host until the model answers.
  *
  * @category runners
  * @since 1.0.0-rc.0
@@ -173,11 +178,16 @@ export const runDurableChatTurn = (
   grant: DurableChatGrant,
   options: ModelTurnOptions,
   callbackBaseUrl: string = grant.producerBaseUrl,
-  fetchImpl?: FetchLike
+  fetchImpl: FetchLike = fetch.bind(globalThis)
 ): Effect.Effect<void, Model.ModelFailure | ProducerError> => {
   const producer = new DurableChatProducer(callbackBaseUrl, grant, fetchImpl)
+  const write = (frame: AgentTurnFrame) => producer.write(frame)
   return Effect.gen(function*() {
     yield* producer.providerStarted()
-    yield* runModelTurn(model, grant.request, options, (frame) => producer.write(frame))
+    if (hostOwned(grant.request)) {
+      yield* runHostTurn(model, grant, options, write, sourceReader(callbackBaseUrl, grant, fetchImpl))
+      return
+    }
+    yield* runModelTurn(model, grant.request, options, write)
   })
 }

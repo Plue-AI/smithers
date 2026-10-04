@@ -55,7 +55,8 @@ const WireGrantSchema = z.object({
   cursor: AgentTurnCursorSchema,
   expiresAt: z.string().min(1).max(64),
   request: z.unknown(),
-  producerBaseUrl: z.string().url()
+  producerBaseUrl: z.string().url(),
+  source: z.object({ repository: z.string().regex(/^[^/\s]+\/[^/\s]+$/).max(201) }).strict().optional()
 }).strict()
 
 /**
@@ -139,7 +140,8 @@ const decodeGrant = (value: unknown, callbackBaseUrl: string): DurableChatGrant 
     cursor: wire.cursor,
     expiresAt: wire.expiresAt,
     request,
-    producerBaseUrl: callbackBaseUrl
+    producerBaseUrl: callbackBaseUrl,
+    ...(wire.source === undefined ? {} : { source: wire.source })
   }
 }
 

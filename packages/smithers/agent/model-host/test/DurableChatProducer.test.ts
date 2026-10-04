@@ -79,7 +79,7 @@ describe("DurableChatProducer", () => {
     await expect(Effect.runPromise(producer.write(frame))).rejects.toThrow("did not extend")
   })
 
-  test("records provider start then commits deterministic text, tool, and terminal frames", async () => {
+  test("leaves a renderer's own tool calls to the renderer: text, tool, and terminal frames", async () => {
     const order: Array<string> = []
     let expected = cursor
     const fetchImpl: FetchLike = async (input, init) => {
@@ -100,10 +100,17 @@ describe("DurableChatProducer", () => {
       { type: "tool-call-end", id: "call", arguments: "{}" },
       { type: "settle", stopReason: "tool-calls" }
     ]
+    const rendererTools = {
+      ...grant,
+      request: {
+        ...request,
+        tools: [{ type: "function" as const, name: "inspect", description: "inspect", parameters: {} }]
+      }
+    }
     await Effect.runPromise(
       runDurableChatTurn(
         Model.make({ stream: () => Stream.fromIterable(events) }),
-        grant,
+        rendererTools,
         { modelId: "m" },
         "http://host.test",
         fetchImpl

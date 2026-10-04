@@ -120,6 +120,42 @@ interface PendingToolCall {
   name: string
   arguments: string
 }
+
+/**
+ * One tool call a host-owned leg ended with.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export interface HeldToolCall {
+  readonly id: string
+  readonly name: string
+  readonly arguments: string
+}
+
+/**
+ * How a host-owned leg ended: with tool calls the host runs before the next
+ * leg, and the turn's token counts so far. No terminal frame was written.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export interface HeldToolCalls {
+  readonly calls: ReadonlyArray<HeldToolCall>
+  readonly usage: AgentTurnUsage | undefined
+}
+
+/**
+ * A leg of a host-owned turn: its tool calls are held for the host rather
+ * than written as `tool_call` frames for a renderer, and `usage` is what the
+ * turn's earlier legs spent.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export interface HostLeg {
+  readonly usage: AgentTurnUsage | undefined
+}
 const usageCount = (value: number | undefined): number | undefined =>
   value === undefined || !Number.isFinite(value) || value < 0 ? undefined : Math.round(value)
 
@@ -139,6 +175,17 @@ const mergeUsage = (current: AgentTurnUsage | undefined, event: ModelEvent.Usage
   return Object.keys(next).length === 0 ? undefined : next
 }
 
+/** Adds one leg's counts to the turn's: a done frame ending a host-owned turn states all of its calls. */
+const addUsage = (turn: AgentTurnUsage | undefined, leg: AgentTurnUsage | undefined): AgentTurnUsage | undefined => {
+  if (turn === undefined) return leg
+  if (leg === undefined) return turn
+  const total: AgentTurnUsage = {}
+  for (const key of ["inputTokens", "outputTokens", "cachedInputTokens"] as const) {
+    if (turn[key] !== undefined || leg[key] !== undefined) total[key] = (turn[key] ?? 0) + (leg[key] ?? 0)
+  }
+  return total
+}
+
 const doneFrame = (runId: string, event: ModelEvent.Settle, usage: AgentTurnUsage | undefined): AgentTurnFrame => {
   const counted = usage === undefined ? {} : { usage }
   if (event.stopReason === "tool-calls") return { runId, type: "done", reason: "tool_call", ...counted }
@@ -154,6 +201,8 @@ const doneFrame = (runId: string, event: ModelEvent.Settle, usage: AgentTurnUsag
 
 /**
  * Runs one provider stream and emits the established renderer frame contract.
+ * A host-owned leg (`host`) holds its tool calls and, when it ends in them,
+ * returns them instead of writing the terminal frame.
  *
  * @category runners
  * @since 1.0.0-rc.0
@@ -162,11 +211,14 @@ export const runModelTurn = <E>(
   model: Model.Model,
   turn: StartAgentTurnRequest,
   options: ModelTurnOptions,
-  write: FrameWriter<E>
-): Effect.Effect<void, Model.ModelFailure | ModelError | E> => {
+  write: FrameWriter<E>,
+  host?: HostLeg
+): Effect.Effect<HeldToolCalls | undefined, Model.ModelFailure | ModelError | E> => {
   const text = new StreamingCredentialCutter(options.credential)
   const reasoning = new StreamingCredentialCutter(options.credential)
   const tools = new Map<string, PendingToolCall>()
+  const held: Array<HeldToolCall> = []
+  let outcome: HeldToolCalls | undefined
   let settled = false
   let usage: AgentTurnUsage | undefined
   const emit = (frame: AgentTurnFrame): Effect.Effect<void, E> => write(frame)
@@ -199,12 +251,21 @@ export const runModelTurn = <E>(
           )
         }
         tools.delete(event.id)
+        const call = {
+          id: event.id,
+          name: cutModelCredential(pending.name, options.credential ?? ""),
+          arguments: cutModelCredential(event.arguments ?? pending.arguments, options.credential ?? "")
+        }
+        if (host !== undefined) {
+          held.push(call)
+          return Effect.void
+        }
         return emit({
           runId: turn.runId,
           type: "tool_call",
-          call_id: event.id,
-          name: cutModelCredential(pending.name, options.credential ?? ""),
-          arguments: cutModelCredential(event.arguments ?? pending.arguments, options.credential ?? "")
+          call_id: call.id,
+          name: call.name,
+          arguments: call.arguments
         })
       }
       case "settle":
@@ -215,7 +276,12 @@ export const runModelTurn = <E>(
         return Effect.gen(function*() {
           yield* emitDelta("reasoning", reasoning.finish())
           yield* emitDelta("text", text.finish())
-          yield* emit(doneFrame(turn.runId, event, usage))
+          const total = addUsage(host?.usage, usage)
+          if (host !== undefined && event.stopReason === "tool-calls" && held.length > 0) {
+            outcome = { calls: held, usage: total }
+            return
+          }
+          yield* emit(doneFrame(turn.runId, event, total))
         })
       case "usage":
         usage = mergeUsage(usage, event)
@@ -231,7 +297,7 @@ export const runModelTurn = <E>(
   return Stream.runForEach(model.stream(providerRequest(turn, options)), visit).pipe(
     Effect.flatMap(() =>
       settled
-        ? Effect.void
+        ? Effect.succeed(outcome)
         : Effect.fail(
           new ModelError({ code: "invalid_provider_output", message: "model stream ended without settlement" })
         )
