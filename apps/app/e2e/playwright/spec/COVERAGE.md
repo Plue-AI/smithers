@@ -47,6 +47,12 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
 | C-J8-01 | [C-J8-01.spec.ts](C-J8-01.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J8-02 | [C-J8-02.spec.ts](C-J8-02.spec.ts) | fixme-before-implementation | T-COL-09 |
+| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | fixme-before-implementation | T-FLW-12 |
+| C-J8-04 | [C-J8-04.spec.ts](C-J8-04.spec.ts) | fixme-before-implementation | T-FLW-10 |
+| C-J8-05 | [C-J8-05.spec.ts](C-J8-05.spec.ts) | fixme-before-implementation | T-FLW-10, T-COL-09 |
+| C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | fixme-before-implementation | T-FLW-02, T-APP-01, T-REL-02 |
+| C-J11-01 | [C-J11-01.spec.ts](C-J11-01.spec.ts) | fixme-before-implementation | T-FLW-07, T-APP-07, T-REL-02 |
+| C-J11-02 | [C-J11-02.spec.ts](C-J11-02.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
