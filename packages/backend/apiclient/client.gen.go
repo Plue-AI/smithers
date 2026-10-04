@@ -110,6 +110,17 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	return nil
 }
 
+// withHeader is c sending one more header, for a value only the call knows.
+func (c *Client) withHeader(name, value string) *Client {
+	next := *c
+	next.Header = c.Header.Clone()
+	if next.Header == nil {
+		next.Header = http.Header{}
+	}
+	next.Header.Set(name, value)
+	return &next
+}
+
 // splitAdditional stores the members of data not named in declared in *extra.
 func splitAdditional(data []byte, extra *map[string]json.RawMessage, declared ...string) error {
 	var all map[string]json.RawMessage
@@ -1208,6 +1219,88 @@ type InstallSetupStatusModelsItem struct {
 	Error    *string `json:"error,omitempty"`
 }
 
+// TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
+type TodoCard struct {
+	N                    int64                         `json:"n"`
+	Title                string                        `json:"title"`
+	State                string                        `json:"state"`
+	Owner                TodoCardOwner                 `json:"owner"`
+	Place                *int64                        `json:"place,omitempty"`
+	PromptRevisions      []TodoCardPromptRevisionsItem `json:"prompt_revisions"`
+	Branch               *TodoCardBranch               `json:"branch,omitempty"`
+	Run                  *TodoCardRun                  `json:"run,omitempty"`
+	Pr                   *TodoCardPr                   `json:"pr,omitempty"`
+	Steps                []map[string]json.RawMessage  `json:"steps"`
+	Waits                []map[string]json.RawMessage  `json:"waits"`
+	Steers               []map[string]json.RawMessage  `json:"steers"`
+	Evidence             []map[string]json.RawMessage  `json:"evidence"`
+	Merge                TodoCardMerge                 `json:"merge"`
+	Present              []map[string]json.RawMessage  `json:"present"`
+	AdditionalProperties map[string]json.RawMessage    `json:"-"`
+}
+
+// UnmarshalJSON keeps the members TodoCard does not declare in AdditionalProperties.
+func (v *TodoCard) UnmarshalJSON(data []byte) error {
+	type plain TodoCard
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.
+func (v TodoCard) MarshalJSON() ([]byte, error) {
+	type plain TodoCard
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
+// TodoCardOwner is generated from docs/api/openapi.yaml.
+type TodoCardOwner struct {
+	Login     string `json:"login"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+// TodoCardPromptRevisionsItem is generated from docs/api/openapi.yaml.
+type TodoCardPromptRevisionsItem struct {
+	Text       string                     `json:"text"`
+	Acceptance []string                   `json:"acceptance"`
+	By         map[string]json.RawMessage `json:"by"`
+	At         string                     `json:"at"`
+}
+
+// TodoCardBranch is generated from docs/api/openapi.yaml.
+type TodoCardBranch struct {
+	ID      string                     `json:"id"`
+	Name    string                     `json:"name"`
+	Machine map[string]json.RawMessage `json:"machine"`
+}
+
+// TodoCardRun is generated from docs/api/openapi.yaml.
+type TodoCardRun struct {
+	ID         string                       `json:"id"`
+	Attempt    int64                        `json:"attempt"`
+	Indicators []map[string]json.RawMessage `json:"indicators"`
+}
+
+// TodoCardPr is generated from docs/api/openapi.yaml.
+type TodoCardPr struct {
+	Number        int64   `json:"number"`
+	URL           string  `json:"url"`
+	Head          string  `json:"head"`
+	Draft         bool    `json:"draft"`
+	DraftAfter    *int64  `json:"draft_after,omitempty"`
+	IncludedItems []int64 `json:"included_items"`
+}
+
+// TodoCardMerge is generated from docs/api/openapi.yaml.
+type TodoCardMerge struct {
+	State    string  `json:"state"`
+	Reason   *string `json:"reason,omitempty"`
+	Detail   *string `json:"detail,omitempty"`
+	OnGithub bool    `json:"on_github"`
+}
+
 // PostAPIAdminUsersUsernameEraseBody is generated from docs/api/openapi.yaml.
 type PostAPIAdminUsersUsernameEraseBody struct {
 	RequestDate string `json:"request_date"`
@@ -2178,9 +2271,9 @@ func (c *Client) GetAPIGithubSync(ctx context.Context) (GetAPIGithubSyncResponse
 }
 
 // PostAPIGithubSync calls POST /api/github/sync.
-func (c *Client) PostAPIGithubSync(ctx context.Context) (PostAPIGithubSyncResponse, error) {
+func (c *Client) PostAPIGithubSync(ctx context.Context, idempotencyKey string) (PostAPIGithubSyncResponse, error) {
 	var out PostAPIGithubSyncResponse
-	err := c.do(ctx, "POST", "/api/github/sync", nil, nil, &out)
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/github/sync", nil, nil, &out)
 	return out, err
 }
 
@@ -2265,8 +2358,8 @@ func (c *Client) PutAPIInstall(ctx context.Context, body PutAPIInstallBody) (Ins
 }
 
 // PostAPIInstallSetupAddress calls POST /api/install/setup/address.
-func (c *Client) PostAPIInstallSetupAddress(ctx context.Context, body InstallSetupAddress) error {
-	return c.do(ctx, "POST", "/api/install/setup/address", nil, body, nil)
+func (c *Client) PostAPIInstallSetupAddress(ctx context.Context, idempotencyKey string, body InstallSetupAddress) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/install/setup/address", nil, body, nil)
 }
 
 // PostAPIInstallSetupApp calls POST /api/install/setup/app.
@@ -2277,28 +2370,28 @@ func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetup
 }
 
 // PostAPIInstallSetupSignIn calls POST /api/install/setup/sign_in.
-func (c *Client) PostAPIInstallSetupSignIn(ctx context.Context, body InstallSetupEmpty) error {
-	return c.do(ctx, "POST", "/api/install/setup/sign_in", nil, body, nil)
+func (c *Client) PostAPIInstallSetupSignIn(ctx context.Context, idempotencyKey string, body InstallSetupEmpty) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/install/setup/sign_in", nil, body, nil)
 }
 
 // PostAPIInstallSetupRepository calls POST /api/install/setup/repository.
-func (c *Client) PostAPIInstallSetupRepository(ctx context.Context, body InstallSetupRepository) error {
-	return c.do(ctx, "POST", "/api/install/setup/repository", nil, body, nil)
+func (c *Client) PostAPIInstallSetupRepository(ctx context.Context, idempotencyKey string, body InstallSetupRepository) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/install/setup/repository", nil, body, nil)
 }
 
 // PostAPIInstallSetupModels calls POST /api/install/setup/models.
-func (c *Client) PostAPIInstallSetupModels(ctx context.Context, body InstallSetupEmpty) error {
-	return c.do(ctx, "POST", "/api/install/setup/models", nil, body, nil)
+func (c *Client) PostAPIInstallSetupModels(ctx context.Context, idempotencyKey string, body InstallSetupEmpty) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/install/setup/models", nil, body, nil)
 }
 
 // PostAPIInstallSetupSource calls POST /api/install/setup/source.
-func (c *Client) PostAPIInstallSetupSource(ctx context.Context, body InstallSetupEmpty) error {
-	return c.do(ctx, "POST", "/api/install/setup/source", nil, body, nil)
+func (c *Client) PostAPIInstallSetupSource(ctx context.Context, idempotencyKey string, body InstallSetupEmpty) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/install/setup/source", nil, body, nil)
 }
 
 // PostAPIInstallSetupMachine calls POST /api/install/setup/machine.
-func (c *Client) PostAPIInstallSetupMachine(ctx context.Context, body InstallSetupEmpty) error {
-	return c.do(ctx, "POST", "/api/install/setup/machine", nil, body, nil)
+func (c *Client) PostAPIInstallSetupMachine(ctx context.Context, idempotencyKey string, body InstallSetupEmpty) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/install/setup/machine", nil, body, nil)
 }
 
 // PostAPIInstallQuiesce calls POST /api/install/quiesce.
@@ -4697,20 +4790,24 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 }
 
 // GetAPITodos calls GET /api/todos.
-func (c *Client) GetAPITodos(ctx context.Context) error {
-	return c.do(ctx, "GET", "/api/todos", nil, nil, nil)
+func (c *Client) GetAPITodos(ctx context.Context) ([]TodoCard, error) {
+	var out []TodoCard
+	err := c.do(ctx, "GET", "/api/todos", nil, nil, &out)
+	return out, err
 }
 
 // PostAPITodos calls POST /api/todos.
-func (c *Client) PostAPITodos(ctx context.Context, body PostAPITodosBody) (PostAPITodosResponse, error) {
+func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (PostAPITodosResponse, error) {
 	var out PostAPITodosResponse
-	err := c.do(ctx, "POST", "/api/todos", nil, body, &out)
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos", nil, body, &out)
 	return out, err
 }
 
 // GetAPITodosN calls GET /api/todos/{n}.
-func (c *Client) GetAPITodosN(ctx context.Context, n int64) error {
-	return c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, nil)
+func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
+	var out TodoCard
+	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
+	return out, err
 }
 
 // PostAPITodosNMerge calls POST /api/todos/{n}/merge.

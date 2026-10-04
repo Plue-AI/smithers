@@ -190,6 +190,37 @@ test("parameter names that are not identifiers are read by key", () => {
   assert.match(text, /`\/runs\/\$\{segment\(input\.path\["run-id"\]\)\}\$\{search\(\{ "page-size": input\.query\?\.\["page-size"\] \}\)\}`/)
 })
 
+test("a required header is part of the call; an optional one stays the transport's", () => {
+  const spec = document({
+    "/todos/{n}": {
+      post: {
+        operationId: "post_todos_n",
+        parameters: [
+          { name: "n", in: "path", required: true, schema: { type: "integer" } },
+          { name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } },
+          { name: "Last-Event-ID", in: "header", schema: { type: "string" } }
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" } } } } } },
+        responses: { "202": json({ type: "object", properties: { n: { type: "integer" } } }) }
+      }
+    },
+    "/sync": { post: { operationId: "post_sync", parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string" } }], responses: { "202": { description: "accepted" } } } }
+  })
+  assert.deepEqual(operations(spec).map((op) => op.headers.map((parameter) => parameter.name)), [["Idempotency-Key"], ["Idempotency-Key"]])
+  const ts = typescript(spec)
+  assert.match(ts, /request\(method: string, path: string, body\?: unknown, options\?: RequestOptions\): Promise<unknown>/)
+  assert.match(ts, /export interface PostTodosNInput \{\n {2}readonly path: \{ readonly n: number \}\n {2}readonly headers: \{ readonly "Idempotency-Key": string \}\n {2}readonly body: PostTodosNBody\n\}/)
+  assert.match(ts, /transport\.request\("POST", `\/todos\/\$\{segment\(input\.path\.n\)\}`, input\.body, \{ headers: \{ "Idempotency-Key": input\.headers\["Idempotency-Key"\] \} \}\) as Promise<PostTodosNResponse>/)
+  assert.match(ts, /export const postSync = \(transport: Transport, input: PostSyncInput\): Promise<void> =>\n {2}transport\.request\("POST", `\/sync`, undefined, \{ headers: \{ "Idempotency-Key": input\.headers\["Idempotency-Key"\] \} \}\)\.then\(\(\) => undefined\)/)
+  assert.doesNotMatch(ts, /Last-Event-ID/)
+  const goText = go(spec)
+  assert.match(goText, /func \(c \*Client\) PostTodosN\(ctx context\.Context, n int64, idempotencyKey string, body PostTodosNBody\) \(PostTodosNResponse, error\) \{\n\tvar out PostTodosNResponse\n\terr := c\.withHeader\("Idempotency-Key", idempotencyKey\)\.do\(ctx, "POST", "\/todos\/"\+url\.PathEscape\(strconv\.FormatInt\(n, 10\)\), nil, body, &out\)/)
+  assert.match(goText, /func \(c \*Client\) PostSync\(ctx context\.Context, idempotencyKey string\) error \{\n\treturn c\.withHeader\("Idempotency-Key", idempotencyKey\)\.do\(ctx, "POST", "\/sync", nil, nil, nil\)\n\}/)
+  assert.match(goText, /func \(c \*Client\) withHeader\(name, value string\) \*Client \{/)
+  assert.doesNotMatch(goText, /lastEventID|Last-Event-ID/)
+  assert.doesNotMatch(go(document({})), /withHeader/, "the helper appears only when used")
+})
+
 test("operations whose names collide are refused", () => {
   const paths = { "/a": { get: { operationId: "get_a_b", responses: {} } }, "/b": { get: { operationId: "get-a-b", responses: {} } } }
   assert.throws(() => typescript(document(paths)), /operationId get-a-b has the same TypeScript name as another operation/)

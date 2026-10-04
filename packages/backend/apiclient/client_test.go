@@ -18,8 +18,8 @@ import (
 
 // seen is one request as the server received it.
 type seen struct {
-	Method, RawPath, Query, Accept, ContentType, Authorization string
-	Body                                                       []byte
+	Method, RawPath, Query, Accept, ContentType, Authorization, IdempotencyKey string
+	Body                                                                       []byte
 }
 
 func server(t *testing.T, status int, contentType, reply string) (*apiclient.Client, *[]seen) {
@@ -30,7 +30,8 @@ func server(t *testing.T, status int, contentType, reply string) (*apiclient.Cli
 		require.NoError(t, err)
 		*requests = append(*requests, seen{
 			Method: r.Method, RawPath: r.URL.EscapedPath(), Query: r.URL.RawQuery, Accept: r.Header.Get("Accept"),
-			ContentType: r.Header.Get("Content-Type"), Authorization: r.Header.Get("Authorization"), Body: body,
+			ContentType: r.Header.Get("Content-Type"), Authorization: r.Header.Get("Authorization"),
+			IdempotencyKey: r.Header.Get("Idempotency-Key"), Body: body,
 		})
 		if contentType != "" {
 			w.Header().Set("Content-Type", contentType)
@@ -98,6 +99,38 @@ func TestTypedBodyIsSentAsJSON(t *testing.T) {
 	assert.Equal(t, "POST", request.Method)
 	assert.Equal(t, "application/json", request.ContentType)
 	assert.JSONEq(t, `{"title":"laptop","key":"ssh-ed25519 AAAA"}`, string(request.Body))
+}
+
+func TestRequiredHeaderIsSentPerCall(t *testing.T) {
+	client, requests := server(t, http.StatusAccepted, "application/json", `{"state":"accepted","n":4,"rev":1}`)
+	place := apiclient.PostAPITodosBodyPlace{Mode: "append"}
+	accepted, err := client.PostAPITodos(context.Background(), "draft-7", apiclient.PostAPITodosBody{Title: "One", Prompt: "Change README", Place: &place})
+	require.NoError(t, err)
+	assert.Equal(t, apiclient.PostAPITodosResponse{State: "accepted", N: 4, Rev: 1}, accepted)
+	_, err = client.PostAPITodos(context.Background(), "draft-8", apiclient.PostAPITodosBody{Title: "Two", Prompt: "Change README"})
+	require.NoError(t, err)
+	assert.Equal(t, "draft-7", (*requests)[0].IdempotencyKey)
+	assert.Equal(t, "draft-8", (*requests)[1].IdempotencyKey, "the key belongs to its call, not the client")
+	assert.Equal(t, "token smithers_test", (*requests)[0].Authorization, "the client's own headers still go")
+	assert.JSONEq(t, `{"title":"One","prompt":"Change README","place":{"mode":"append"}}`, string((*requests)[0].Body))
+}
+
+func TestTodoReadsDecodeTheCard(t *testing.T) {
+	card := `{"n":1,"title":"One","state":"queued","owner":{"login":"o","name":"","avatar_url":"https://a/o.png"},"place":1,` +
+		`"prompt_revisions":[{"text":"Change README","acceptance":[],"by":{"kind":"person","login":"o"},"at":"2026-10-04T19:00:00Z"}],` +
+		`"steps":[],"waits":[],"steers":[],"evidence":[],"merge":{"state":"waiting","reason":"state","on_github":false},"present":[],"queue":{"position":1}}`
+	client, _ := server(t, http.StatusOK, "application/json", "["+card+"]")
+	cards, err := client.GetAPITodos(context.Background())
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	assert.Equal(t, int64(1), cards[0].N)
+	assert.Equal(t, "Change README", cards[0].PromptRevisions[0].Text)
+	assert.Equal(t, "waiting", cards[0].Merge.State)
+	assert.JSONEq(t, `{"position":1}`, string(cards[0].AdditionalProperties["queue"]), "members the description does not list survive")
+	client, _ = server(t, http.StatusOK, "application/json", card)
+	one, err := client.GetAPITodosN(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, "One", one.Title)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {

@@ -106,10 +106,14 @@ describe("the generated product API client", () => {
       const parameters = operation.parameters ?? []
       const pathValues = Object.fromEntries(parameters.filter((p) => p.in === "path").map((p) => [p.name, sample(p)]))
       const queryValues = Object.fromEntries(parameters.filter((p) => p.in === "query").map((p) => [p.name, sample(p)]))
+      // Only a required header is the caller's; the transport owns the rest.
+      const headers = Object.fromEntries(parameters.filter((p) => p.in === "header" && p.required === true).map((p) => [p.name, `key ${p.name}`]))
+      const sendsHeaders = Object.keys(headers).length > 0
       const body = { operation: operation.operationId }
       const input = {
         ...(Object.keys(pathValues).length > 0 ? { path: pathValues } : {}),
         ...(Object.keys(queryValues).length > 0 ? { query: queryValues } : {}),
+        ...(sendsHeaders ? { headers } : {}),
         ...(jsonBody(operation) ? { body } : {})
       }
       const { calls, transport, answer, raw } = recorder()
@@ -122,7 +126,12 @@ describe("the generated product API client", () => {
       const kind = success(operation)
       expect(calls).toEqual([{
         via: kind === "raw" ? "response" : "request",
-        args: [method.toUpperCase(), expectedPath, ...(jsonBody(operation) ? [body] : [])]
+        args: [
+          method.toUpperCase(),
+          expectedPath,
+          ...(jsonBody(operation) ? [body] : sendsHeaders ? [undefined] : []),
+          ...(sendsHeaders ? [{ headers }] : [])
+        ]
       }])
       expect(result).toBe(kind === "raw" ? raw : kind === "json" ? answer : undefined)
     }

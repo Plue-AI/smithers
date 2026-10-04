@@ -12,8 +12,9 @@
  *
  * Every schema becomes a named type, every operation one function. An
  * operation whose request body is not JSON is left out and listed in each
- * file's header. Header and cookie parameters are the transport's business
- * and never appear in a signature.
+ * file's header. A required header parameter (an Idempotency-Key) is part of
+ * the call, since no transport can know it; optional header and cookie
+ * parameters are the transport's business and never appear in a signature.
  *
  * `//:openapiClients` runs this script; `lint` fails when a committed client
  * differs from what the bundle produces. `--check` does the same comparison
@@ -96,6 +97,7 @@ export const operations = (document) => {
         return parameter
       })
       const query = parameters.filter((parameter) => parameter.in === "query")
+      const headers = parameters.filter((parameter) => parameter.in === "header" && parameter.required === true)
       let success = { kind: "none" }
       let empty = false
       const codes = Object.keys(operation.responses ?? {}).filter((code) => /^2/.test(code)).sort()
@@ -128,7 +130,7 @@ export const operations = (document) => {
           body = { schema: requestBody.content["application/json"].schema ?? {}, required: requestBody.required === true }
         } else skipped = types.join(", ")
       }
-      result.push({ id, method, path, summary: operation.summary, pathParameters, query, success, body, skipped })
+      result.push({ id, method, path, summary: operation.summary, pathParameters, query, headers, success, body, skipped })
     }
   }
   return result
@@ -196,6 +198,9 @@ const tsObject = (schema, indent) => {
   return `{\n${lines.join("\n")}\n${indent}}`
 }
 
+/** A header value is a string on the wire. */
+const tsHeaderValue = (parameter, expression) => (tsType(parameter.schema) === "string" ? expression : `String(${expression})`)
+
 const doc = (text) => `/** ${String(text).replace(/\*\//g, "*\\/").replace(/\s+/g, " ").trim()} */`
 
 const tsHeader = (skipped) => [
@@ -210,12 +215,17 @@ export const typescript = (document) => {
   const all = operations(document)
   const out = tsHeader(all.filter((operation) => operation.skipped !== undefined))
   out.push(
+    doc("What one request adds to the transport's own: the operation's required headers."),
+    "export interface RequestOptions {",
+    "  readonly headers?: Record<string, string>",
+    "}",
+    "",
     doc("Sends one product API request. The CLI's backend `Client` is one; so is anything with these two methods."),
     "export interface Transport {",
     "  /** Sends a JSON request and resolves to the parsed JSON response, or null when it has no body. */",
-    "  request(method: string, path: string, body?: unknown): Promise<unknown>",
+    "  request(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<unknown>",
     "  /** Sends a request and resolves to the raw response, for streams and files. */",
-    "  response(method: string, path: string, body?: unknown): Promise<Response>",
+    "  response(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<Response>",
     "}",
     "",
     "const segment = (value: string | number): string => encodeURIComponent(String(value))",
@@ -252,6 +262,11 @@ export const typescript = (document) => {
       )
       fields.push(`  readonly query${required ? "" : "?"}: { ${members.join("; ")} }`)
     }
+    if (operation.headers.length > 0) {
+      optional = false
+      const members = operation.headers.map((parameter) => `readonly ${tsProperty(parameter.name)}: ${tsType(parameter.schema)}`)
+      fields.push(`  readonly headers: { ${members.join("; ")} }`)
+    }
     if (operation.body !== undefined) {
       if (operation.body.required) optional = false
       out.push(`export type ${base}Body = ${tsType(operation.body.schema)}`, "")
@@ -269,7 +284,11 @@ export const typescript = (document) => {
       ? ""
       : `\${search({ ${operation.query.map((parameter) => `${tsProperty(parameter.name)}: ${tsMember(queryObject, parameter.name, queryOptional)}`).join(", ")} })}`
     const path = `\`${operation.path.replace(/\{([^}]+)\}/g, (_, name) => `\${segment(${tsMember("input.path", name)})}`)}${query}\``
-    const args = `"${operation.method.toUpperCase()}", ${path}${operation.body !== undefined ? `, ${tsMember("input", "body", optional)}` : ""}`
+    const body = operation.body !== undefined ? `, ${tsMember("input", "body", optional)}` : operation.headers.length > 0 ? ", undefined" : ""
+    const headers = operation.headers.length === 0
+      ? ""
+      : `, { headers: { ${operation.headers.map((parameter) => `${tsProperty(parameter.name)}: ${tsHeaderValue(parameter, tsMember("input.headers", parameter.name))}`).join(", ")} } }`
+    const args = `"${operation.method.toUpperCase()}", ${path}${body}${headers}`
     const call = operation.success.kind === "raw"
       ? `transport.response(${args})`
       : operation.success.kind === "json"
@@ -518,6 +537,8 @@ export const go = (document) => {
         } else body.push(`\tquery.Set(${goString(parameter.name)}, ${goParameterValue(types, parameter, `params.${field}`)})`)
       }
     }
+    for (const parameter of operation.headers) params.push(`${goParameterName(parameter.name)} ${types.type(parameter.schema, `${name}${goName(parameter.name)}`)}`)
+    const client = ["c", ...operation.headers.map((parameter) => `withHeader(${goString(parameter.name)}, ${goParameterValue(types, parameter, goParameterName(parameter.name))})`)].join(".")
     const query = operation.query.length > 0 ? "query" : "nil"
     let bodyArgument = "nil"
     if (operation.body !== undefined) {
@@ -540,7 +561,7 @@ export const go = (document) => {
         `func (c *Client) ${name}(${params.join(", ")}) (${type}, error) {`,
         ...body,
         `\tvar out ${type}`,
-        `\terr := c.do(ctx, ${method}, ${path}, ${query}, ${bodyArgument}, &out)`,
+        `\terr := ${client}.do(ctx, ${method}, ${path}, ${query}, ${bodyArgument}, &out)`,
         "\treturn out, err",
         "}"
       ].join("\n"))
@@ -549,7 +570,7 @@ export const go = (document) => {
         `${summary} The caller closes the response body.`,
         `func (c *Client) ${name}(${params.join(", ")}) (*http.Response, error) {`,
         ...body,
-        `\treturn c.raw(ctx, ${method}, ${path}, ${query}, ${bodyArgument}, ${goString(operation.success.accept)})`,
+        `\treturn ${client}.raw(ctx, ${method}, ${path}, ${query}, ${bodyArgument}, ${goString(operation.success.accept)})`,
         "}"
       ].join("\n"))
     } else {
@@ -557,7 +578,7 @@ export const go = (document) => {
         summary,
         `func (c *Client) ${name}(${params.join(", ")}) error {`,
         ...body,
-        `\treturn c.do(ctx, ${method}, ${path}, ${query}, ${bodyArgument}, nil)`,
+        `\treturn ${client}.do(ctx, ${method}, ${path}, ${query}, ${bodyArgument}, nil)`,
         "}"
       ].join("\n"))
     }
@@ -581,6 +602,7 @@ export const go = (document) => {
   ]
   const helpers = [
     ...(/optionalBody\(/.test(text) ? [optionalBody] : []),
+    ...(/\.withHeader\(/.test(text) ? [withHeader] : []),
     ...(/splitAdditional\(/.test(text) ? [additional] : [])
   ]
   return `${[...header, runtime, ...helpers, text].join("\n")}\n`
@@ -591,6 +613,18 @@ const optionalBody = `func optionalBody[T any](body *T) any {
 		return nil
 	}
 	return body
+}
+`
+
+const withHeader = `// withHeader is c sending one more header, for a value only the call knows.
+func (c *Client) withHeader(name, value string) *Client {
+	next := *c
+	next.Header = c.Header.Clone()
+	if next.Header == nil {
+		next.Header = http.Header{}
+	}
+	next.Header.Set(name, value)
+	return &next
 }
 `
 

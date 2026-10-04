@@ -4,12 +4,17 @@
 // Not generated (the request body is not JSON):
 //   post_api_auth_github_cli_consent (application/x-www-form-urlencoded)
 
+/** What one request adds to the transport's own: the operation's required headers. */
+export interface RequestOptions {
+  readonly headers?: Record<string, string>
+}
+
 /** Sends one product API request. The CLI's backend `Client` is one; so is anything with these two methods. */
 export interface Transport {
   /** Sends a JSON request and resolves to the parsed JSON response, or null when it has no body. */
-  request(method: string, path: string, body?: unknown): Promise<unknown>
+  request(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<unknown>
   /** Sends a request and resolves to the raw response, for streams and files. */
-  response(method: string, path: string, body?: unknown): Promise<Response>
+  response(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<Response>
 }
 
 const segment = (value: string | number): string => encodeURIComponent(String(value))
@@ -690,6 +695,55 @@ export type InstallSetupStatus = {
   parallel?: number
 }
 
+/** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
+export type TodoCard = {
+  n: number
+  title: string
+  state: string
+  owner: {
+    login: string
+    name: string
+    avatar_url: string
+  }
+  place?: number
+  prompt_revisions: Array<{
+    text: string
+    acceptance: Array<string>
+    by: Record<string, unknown>
+    at: string
+  }>
+  branch?: {
+    id: string
+    name: string
+    machine: Record<string, unknown>
+  }
+  run?: {
+    id: string
+    attempt: number
+    indicators: Array<Record<string, unknown>>
+  }
+  pr?: {
+    number: number
+    url: string
+    head: string
+    draft: boolean
+    draft_after?: number
+    included_items: Array<number>
+  }
+  steps: Array<Record<string, unknown>>
+  waits: Array<Record<string, unknown>>
+  steers: Array<Record<string, unknown>>
+  evidence: Array<Record<string, unknown>>
+  merge: {
+    state: "ready" | "waiting" | "blocked" | "merging" | "done"
+    reason?: string
+    detail?: string
+    on_github: boolean
+  }
+  present: Array<Record<string, unknown>>
+  [key: string]: unknown
+}
+
 export type PostApiAdminGrantBody = AdminCreditGrantRequest
 
 export type PostApiAdminGrantResponse = AdminCreditGrantReceipt
@@ -1324,9 +1378,13 @@ export type PostApiGithubSyncResponse = {
   state: "accepted"
 }
 
+export interface PostApiGithubSyncInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
 /** POST /api/github/sync: Retry GitHub sync through github.retry */
-export const postApiGithubSync = (transport: Transport): Promise<PostApiGithubSyncResponse> =>
-  transport.request("POST", `/api/github/sync`) as Promise<PostApiGithubSyncResponse>
+export const postApiGithubSync = (transport: Transport, input: PostApiGithubSyncInput): Promise<PostApiGithubSyncResponse> =>
+  transport.request("POST", `/api/github/sync`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiGithubSyncResponse>
 
 export type GetApiGithubImportIdResponse = MultiGitHubImportJob
 
@@ -1430,12 +1488,13 @@ export const putApiInstall = (transport: Transport, input: PutApiInstallInput): 
 export type PostApiInstallSetupAddressBody = InstallSetupAddress
 
 export interface PostApiInstallSetupAddressInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiInstallSetupAddressBody
 }
 
 /** POST /api/install/setup/address: Run setup address */
 export const postApiInstallSetupAddress = (transport: Transport, input: PostApiInstallSetupAddressInput): Promise<void> =>
-  transport.request("POST", `/api/install/setup/address`, input.body).then(() => undefined)
+  transport.request("POST", `/api/install/setup/address`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
 
@@ -1452,52 +1511,57 @@ export const postApiInstallSetupApp = (transport: Transport, input: PostApiInsta
 export type PostApiInstallSetupSignInBody = InstallSetupEmpty
 
 export interface PostApiInstallSetupSignInInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiInstallSetupSignInBody
 }
 
 /** POST /api/install/setup/sign_in: Run setup sign_in */
 export const postApiInstallSetupSignIn = (transport: Transport, input: PostApiInstallSetupSignInInput): Promise<void> =>
-  transport.request("POST", `/api/install/setup/sign_in`, input.body).then(() => undefined)
+  transport.request("POST", `/api/install/setup/sign_in`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiInstallSetupRepositoryBody = InstallSetupRepository
 
 export interface PostApiInstallSetupRepositoryInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiInstallSetupRepositoryBody
 }
 
 /** POST /api/install/setup/repository: Run setup repository */
 export const postApiInstallSetupRepository = (transport: Transport, input: PostApiInstallSetupRepositoryInput): Promise<void> =>
-  transport.request("POST", `/api/install/setup/repository`, input.body).then(() => undefined)
+  transport.request("POST", `/api/install/setup/repository`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiInstallSetupModelsBody = InstallSetupEmpty
 
 export interface PostApiInstallSetupModelsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiInstallSetupModelsBody
 }
 
 /** POST /api/install/setup/models: Run setup models */
 export const postApiInstallSetupModels = (transport: Transport, input: PostApiInstallSetupModelsInput): Promise<void> =>
-  transport.request("POST", `/api/install/setup/models`, input.body).then(() => undefined)
+  transport.request("POST", `/api/install/setup/models`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiInstallSetupSourceBody = InstallSetupEmpty
 
 export interface PostApiInstallSetupSourceInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiInstallSetupSourceBody
 }
 
 /** POST /api/install/setup/source: Run setup source */
 export const postApiInstallSetupSource = (transport: Transport, input: PostApiInstallSetupSourceInput): Promise<void> =>
-  transport.request("POST", `/api/install/setup/source`, input.body).then(() => undefined)
+  transport.request("POST", `/api/install/setup/source`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiInstallSetupMachineBody = InstallSetupEmpty
 
 export interface PostApiInstallSetupMachineInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiInstallSetupMachineBody
 }
 
 /** POST /api/install/setup/machine: Run setup machine */
 export const postApiInstallSetupMachine = (transport: Transport, input: PostApiInstallSetupMachineInput): Promise<void> =>
-  transport.request("POST", `/api/install/setup/machine`, input.body).then(() => undefined)
+  transport.request("POST", `/api/install/setup/machine`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type PostApiInstallQuiesceBody = {
   op: string
@@ -4922,9 +4986,11 @@ export type PostApiTelemetryErrorsResponse = AnyJSON
 export const postApiTelemetryErrors = (transport: Transport): Promise<PostApiTelemetryErrorsResponse> =>
   transport.request("POST", `/api/telemetry/errors`) as Promise<PostApiTelemetryErrorsResponse>
 
+export type GetApiTodosResponse = Array<TodoCard>
+
 /** GET /api/todos: Read the install repository TODOs */
-export const getApiTodos = (transport: Transport): Promise<void> =>
-  transport.request("GET", `/api/todos`).then(() => undefined)
+export const getApiTodos = (transport: Transport): Promise<GetApiTodosResponse> =>
+  transport.request("GET", `/api/todos`) as Promise<GetApiTodosResponse>
 
 export type PostApiTodosBody = {
   title: string
@@ -4943,20 +5009,23 @@ export type PostApiTodosResponse = {
 }
 
 export interface PostApiTodosInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiTodosBody
 }
 
 /** POST /api/todos: Append a TODO to the install repository stack */
 export const postApiTodos = (transport: Transport, input: PostApiTodosInput): Promise<PostApiTodosResponse> =>
-  transport.request("POST", `/api/todos`, input.body) as Promise<PostApiTodosResponse>
+  transport.request("POST", `/api/todos`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosResponse>
+
+export type GetApiTodosNResponse = TodoCard
 
 export interface GetApiTodosNInput {
   readonly path: { readonly n: number }
 }
 
 /** GET /api/todos/{n}: Read a TODO by its repository number */
-export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Promise<void> =>
-  transport.request("GET", `/api/todos/${segment(input.path.n)}`).then(() => undefined)
+export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Promise<GetApiTodosNResponse> =>
+  transport.request("GET", `/api/todos/${segment(input.path.n)}`) as Promise<GetApiTodosNResponse>
 
 export type PostApiTodosNMergeBody = {
   reviewed_head_sha: string

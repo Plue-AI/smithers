@@ -19082,6 +19082,12 @@ paths:
       responses:
         '200':
           description: TODO card projections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TodoCard'
         '403':
           description: Install owner session required
         '503':
@@ -19158,6 +19164,10 @@ paths:
       responses:
         '200':
           description: TODO card projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoCard'
         '400':
           description: Invalid TODO number
         '403':
@@ -23583,6 +23593,86 @@ components:
         parallel:
           type: integer
           minimum: 0
+    TodoCard:
+      description: One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
+      type: object
+      additionalProperties: true
+      required: [n, title, state, owner, prompt_revisions, steps, waits, steers, evidence, merge, present]
+      properties:
+        n: {type: integer, minimum: 1}
+        title: {type: string}
+        state: {type: string}
+        owner:
+          type: object
+          required: [login, name, avatar_url]
+          properties:
+            login: {type: string}
+            name: {type: string}
+            avatar_url: {type: string}
+        place: {type: integer, minimum: 1}
+        prompt_revisions:
+          type: array
+          items:
+            type: object
+            required: [text, acceptance, by, at]
+            properties:
+              text: {type: string}
+              acceptance:
+                type: array
+                items: {type: string}
+              by: {type: object, additionalProperties: true}
+              at: {type: string}
+        branch:
+          type: object
+          required: [id, name, machine]
+          properties:
+            id: {type: string}
+            name: {type: string}
+            machine: {type: object, additionalProperties: true}
+        run:
+          type: object
+          required: [id, attempt, indicators]
+          properties:
+            id: {type: string}
+            attempt: {type: integer, minimum: 1}
+            indicators:
+              type: array
+              items: {type: object, additionalProperties: true}
+        pr:
+          type: object
+          required: [number, url, head, draft, included_items]
+          properties:
+            number: {type: integer, minimum: 1}
+            url: {type: string}
+            head: {type: string}
+            draft: {type: boolean}
+            draft_after: {type: integer, minimum: 1}
+            included_items:
+              type: array
+              items: {type: integer, minimum: 1}
+        steps:
+          type: array
+          items: {type: object, additionalProperties: true}
+        waits:
+          type: array
+          items: {type: object, additionalProperties: true}
+        steers:
+          type: array
+          items: {type: object, additionalProperties: true}
+        evidence:
+          type: array
+          items: {type: object, additionalProperties: true}
+        merge:
+          type: object
+          required: [state, on_github]
+          properties:
+            state: {type: string, enum: [ready, waiting, blocked, merging, done]}
+            reason: {type: string}
+            detail: {type: string}
+            on_github: {type: boolean}
+        present:
+          type: array
+          items: {type: object, additionalProperties: true}
   responses:
     BadRequest:
       description: Bad request
