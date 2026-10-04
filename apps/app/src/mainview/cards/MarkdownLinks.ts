@@ -60,7 +60,7 @@ export const resolveMarkdownLink = (documentPath: string, href: string): Markdow
 }
 
 /** GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens. */
-const headingAnchor = (heading: string): string =>
+const anchorOf = (heading: string): string =>
   heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-")
 
 /**
@@ -86,7 +86,7 @@ export const headingLine = (markdown: string, fragment: string): number | undefi
     }
     const heading = inFence ? null : /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line)
     if (heading === null) continue
-    const base = headingAnchor(heading[1]!)
+    const base = anchorOf(heading[1]!)
     const count = seen.get(base) ?? 0
     seen.set(base, count + 1)
     if ((count === 0 ? base : `${base}-${count}`) === target) return index + 1
