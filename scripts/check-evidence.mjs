@@ -84,6 +84,7 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
   const listed = page(`repos/${repo}/commits/${landed}/check-runs?per_page=100`, 'check_runs')
   if (listed === null) return refuse('truncated')
   const checks = listed.filter(run => run.app?.slug === 'github-actions' && run.head_sha === landed)
+  if (!checks.length && listed.some(run => run.app?.slug === 'github-actions' && run.head_sha !== landed)) return refuse('commit')
   const runIds = [...new Set(checks.map(run => /\/actions\/runs\/(\d+)\//.exec(run.details_url ?? '')?.[1]).filter(Boolean))]
   const runs = runIds.map(id => github.json(`repos/${repo}/actions/runs/${id}`))
     .filter(run => run.head_sha === landed && run.event === 'push' && run.head_branch === 'main' && run.path === '.github/workflows/ci.yml' && run.repository?.full_name === repo)
@@ -230,7 +231,10 @@ export const reverifyCi = ({ root, repo, landed, receipts, github, unpack = unpa
     const mapping = mappings.checks?.[r?.check]
     if (!mapping || !('target' in mapping)) continue
     const verdict = verifyCiRun({ github, unpack, repo, landed, label: mapping.target })
-    if (!verdict.pass) failures.push({ check: r.check, receipt: path, reason: `ci_${verdict.reason}` })
+    if (!verdict.pass) {
+      const reason = verdict.reason === 'commit' ? 'commit' : verdict.reason === 'artifact_digest' ? 'digest' : ['no_run', 'artifact_missing'].includes(verdict.reason) ? 'missing' : verdict.reason === 'label_absent' ? 'coverage' : 'failed'
+      failures.push({ check: r.check, receipt: path, reason })
+    }
   }
   return failures
 }

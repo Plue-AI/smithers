@@ -13,7 +13,8 @@ export const fixture = () => {
   git('init'); git('config', 'user.email', 'fixture@example.test'); git('config', 'user.name', 'Fixture')
   put('seed', 'fixture'); git('add', 'seed'); git('commit', '-m', 'fixture'); let sha = git('rev-parse', 'HEAD')
   git('init', '--bare', 'remote.git'); git('remote', 'add', 'origin', join(root, 'remote.git'))
-  for (const name of ['check-run.mjs', 'check-evidence.mjs']) cpSync(new URL(`../${name}`, import.meta.url), join(root, 'scripts', name), { recursive: false })
+  mkdirSync(join(root, 'scripts'), { recursive: true })
+  for (const name of ['check-run.mjs', 'check-evidence.mjs', 'issue-claim.mjs', 'github-proxy.mjs']) cpSync(new URL(`../${name}`, import.meta.url), join(root, 'scripts', name), { recursive: false })
   put('.specs/engineering/tickets/T-FIX-01.md', 'Issue: [#7](https://github.com/o/r/issues/7)\n## Acceptance\n- [C-FIX-01](../checks/C-FIX-01.md)\n- [C-FIX-02](../checks/C-FIX-02.md)\n## Risks\n')
   for (const id of ['C-FIX-01', 'C-FIX-02']) put(`.specs/engineering/checks/${id}.md`, `Proves: fixture · Layer: integration
 Automation: \`smthrs test //fixture:canary\` · Runs in: CI
@@ -27,8 +28,7 @@ Automation: \`smthrs test //fixture:canary\` · Runs in: CI
   let cachedCi
   const ci = (repo = 'o/r') => {
     if (cachedCi?.sha === sha && cachedCi.repo === repo) return cachedCi
-    const mappings = JSON.parse(git('show', `${sha}:scripts/check-commands.json`))
-    put('ci/results.json', JSON.stringify({ version: 1, results: Object.values(mappings.checks).filter(m => m.target).map(m => ({ label: m.target, status: 'ran', key: 'fixture' })) }))
+    put('ci/results.json', JSON.stringify({ version: 1, results: [{ label: '//fixture:canary', status: 'ran', key: 'fixture' }] }))
     rmSync(join(root, 'ci/artifact.zip'), { force: true })
     execFileSync('/usr/bin/zip', ['-q', 'artifact.zip', 'results.json'], { cwd: join(root, 'ci') })
     const bytes = readFileSync(join(root, 'ci/artifact.zip'))
@@ -53,14 +53,60 @@ Automation: \`smthrs test //fixture:canary\` · Runs in: CI
   const close = (receipts = [], extra = [], landed = sha) => run(['comment', 'o/r#7', '--by', 'fixture', '--body', 'Complete', '--close', ...(landed === null ? [] : ['--landed', landed]), ...receipts.flatMap(p => ['--receipt', p]), ...extra], { cwd: root, env: { SMITHERS_GITHUB_PROXY: 'http://fixture.test' }, ensure: () => {}, gh, ghBytes })
   const ghBytes = args => { const path = args.find(a => a.startsWith('http://fixture.test/')); if (!path.endsWith('/actions/artifacts/10/zip')) throw new Error('unexpected binary read'); return ci().bytes }
   const evidence = id => {
-    const mappings = JSON.parse(git('show', `${sha}:scripts/check-commands.json`))
     const started = new Date().toISOString(); const dir = `.artifacts/checks/${id}/${started.replace(/[:.]/g, '-')}`
-    const log = JSON.stringify({ label: mappings.checks[id].target, pass: true, reason: 'pass' }) + '\n'
+    const log = JSON.stringify({ label: '//fixture:canary', pass: true, reason: 'pass' }) + '\n'
     put(`${dir}/log.txt`, log)
-    put(`${dir}/receipt.json`, JSON.stringify({ version: 1, check: id, commit: sha, layer: 'integration', command: ['smthrs-ci', mappings.checks[id].target], exit: 0, started, ended: new Date().toISOString(), log_digest: hash(log) }))
+    put(`${dir}/receipt.json`, JSON.stringify({ version: 1, check: id, commit: sha, layer: 'integration', command: ['smthrs-ci', '//fixture:canary'], exit: 0, started, ended: new Date().toISOString(), log_digest: hash(log) }))
     return `${dir}/receipt.json`
   }
+  // Replace only GitHub transport in child processes; parsing, zip extraction,
+  // recorder publication and issue write admission remain production code.
+  put('transport.mjs', `import child from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
+import { readFileSync, writeFileSync } from 'node:fs'
+const original = child.execFileSync
+const statePath = process.env.PRC03_TRANSPORT
+child.execFileSync = (file, args, options) => {
+  if (file !== 'gh') return original(file, args, options)
+  const state = JSON.parse(readFileSync(statePath))
+  const url = args.find(a => a.startsWith('http://fixture.test/'))
+  if (!url) throw new Error('unexpected transport')
+  const path = url.slice('http://fixture.test/'.length)
+  let value
+  if (path.endsWith('/actions/artifacts/10/zip')) return readFileSync(state.zip)
+  if (args.includes('-i')) {
+    state.writes.push(args); writeFileSync(statePath, JSON.stringify(state)); value = {}
+  } else if (path.startsWith('_smithers/admission')) value = { principal: 'fixture', deferred: false }
+  else if (path.includes('/comments?') || path.includes('/events?')) value = [[]]
+  else if (path in state.responses) value = state.responses[path]
+  else if (path === 'repos/o/r/issues/7') value = { state: 'open', labels: [] }
+  else throw new Error('unexpected transport path ' + path)
+  return JSON.stringify(value)
+}
+syncBuiltinESMExports()
+globalThis.fetch = async (url) => {
+  if (String(url) !== 'http://fixture.test/_smithers/health') throw new Error('unexpected fetch')
+  return { ok: true, json: async () => ({ ok: true }) }
+}
+`)
+  const recorded = (id = 'C-FIX-01', status = 'ran') => {
+    const data = ci()
+    // A Git URL supplies recorder identity; git itself still uses our bare fixture.
+    git('config', `url.${join(root, 'remote.git')}.insteadOf`, 'https://github.com/o/r.git')
+    git('remote', 'set-url', 'origin', 'https://github.com/o/r.git')
+    put('transport.json', JSON.stringify({ responses: data.responses, zip: join(root, 'ci/artifact.zip'), writes: [] }))
+    if (status !== 'ran') {
+      put('ci/results.json', JSON.stringify({ version: 1, results: [{ label: '//fixture:canary', status, key: 'fixture' }] }))
+      rmSync(join(root, 'ci/artifact.zip'))
+      execFileSync('/usr/bin/zip', ['-q', 'artifact.zip', 'results.json'], { cwd: join(root, 'ci') })
+      data.responses[`repos/o/r/actions/runs/7/artifacts?per_page=100`].artifacts[0].digest = hash(readFileSync(join(root, 'ci/artifact.zip')))
+      put('transport.json', JSON.stringify({ responses: data.responses, zip: join(root, 'ci/artifact.zip'), writes: [] }))
+    }
+    return spawnSync(process.execPath, ['scripts/check-run.mjs', id, '--landed', sha], { cwd: root, encoding: 'utf8', env: transportEnv() })
+  }
+  const transportEnv = () => ({ ...process.env, HOME: join(root, 'home'), NODE_OPTIONS: `--import=${join(root, 'transport.mjs')}`, PRC03_TRANSPORT: join(root, 'transport.json'), SMITHERS_GITHUB_PROXY: 'http://fixture.test' })
+  const cliClose = paths => spawnSync(process.execPath, ['scripts/issue-claim.mjs', 'comment', 'o/r#7', '--by', 'fixture', '--body', 'Complete', '--close', '--landed', sha, ...paths.flatMap(p => ['--receipt', p])], { cwd: root, encoding: 'utf8', env: transportEnv() })
   const invoke = (argv) => run(argv,{cwd:root,env:{SMITHERS_GITHUB_PROXY:'http://fixture.test'},ensure:()=>{},gh,ghBytes})
-  return { root, put, git, get sha() { return sha }, commit, ci, runner, close, writes, evidence, invoke, cleanup: () => { if (process.env.PRC03_EVIDENCE_DIR) cpSync(root, join(process.env.PRC03_EVIDENCE_DIR, 'fixtures', basename(root)), { recursive: true }); rmSync(root, { recursive: true, force: true }) } }
+  return { root, put, git, get sha() { return sha }, commit, ci, runner, recorded, cliClose, close, writes, evidence, invoke, cleanup: () => { if (process.env.PRC03_EVIDENCE_DIR) cpSync(root, join(process.env.PRC03_EVIDENCE_DIR, 'fixtures', basename(root)), { recursive: true }); rmSync(root, { recursive: true, force: true }) } }
 }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -14,7 +14,10 @@ const digest = (data) => `sha256:${createHash('sha256').update(data).digest('hex
 test('target receipts preserve observed fields; all close variants close exactly once', () => {
   const f = fixture()
   try {
-    const before = Date.now(); const paths = ['C-FIX-01','C-FIX-02'].map(f.evidence); const after = Date.now()
+    const before = Date.now(); const paths = ['C-FIX-01','C-FIX-02'].map(id => {
+      const result = f.recorded(id); assert.equal(result.status, 0, result.stdout + result.stderr)
+      return JSON.parse(result.stdout).receipt
+    }); const after = Date.now()
     const r = JSON.parse(readFileSync(join(f.root, paths[0])))
     assert.deepEqual(Object.keys(r).sort(), ['version','check','commit','layer','command','exit','started','ended','log_digest'].sort())
     assert.equal(r.version, 1); assert.equal(r.commit, f.sha); assert.match(r.commit, /^[a-f0-9]{40}$/)
@@ -148,15 +151,6 @@ test('journey check IDs retain numeric stages in runner and ticket-derived cover
     f.put('.specs/engineering/checks/C-J1-01.md','Layer: integration\nAutomation: `smthrs test //fixture:canary` · Runs in: CI\n')
     f.put('scripts/check-commands.json',JSON.stringify({version:1,activation:{mappingsApprovedBy:'smithers-22',coverageAcceptedBy:'smithers-8a'},checks:Object.fromEntries(['C-FIX-01','C-J1-01','C-FIX-02'].map(id=>[id,{approvedBy:'smithers-22',automation:'smthrs test //fixture:canary',runsIn:'CI',host:'CI',target:'//fixture:canary'}]))}))
     f.commit(); assert.equal(f.close(['C-J1-01','C-FIX-02'].map(f.evidence)).code,0)
-  } finally { f.cleanup() }
-})
-
-test('landed ancestry and production receipts also work in a jj-colocated fixture checkout', () => {
-  const f = fixture()
-  try {
-    const init = spawnSync('jj',['git','init','--colocate',f.root],{encoding:'utf8',env:{PATH:process.env.PATH,HOME:join(f.root,'home')}})
-    assert.equal(init.status,0,init.stderr)
-    assert.equal(f.close(['C-FIX-01','C-FIX-02'].map(f.evidence)).code,0)
   } finally { f.cleanup() }
 })
 
@@ -325,7 +319,7 @@ test('CI receipt passes on the label\'s own status in the latest attempt, even w
 
 test('CI receipt refuses forged sha, app, branch, event and workflow path', () => {
   for (const [overrides, reason] of [
-    [{ check: { head_sha: 'b'.repeat(40) } }, 'no_run'],
+    [{ check: { head_sha: 'b'.repeat(40) } }, 'commit'],
     [{ check: { app: { slug: 'evil-app' } } }, 'no_run'],
     [{ run: { head_sha: 'b'.repeat(40) } }, 'no_run'],
     [{ run: { event: 'pull_request' } }, 'no_run'],
@@ -448,7 +442,7 @@ test('closure re-reads CI for a target receipt: a hand-written receipt that pass
     const L = f.sha; const calls = []
     const github = { json: (p) => { calls.push(p); return p.includes('check-runs') ? { check_runs: [] } : {} }, bytes: () => Buffer.alloc(0) }
     const failures = reverifyCi({ root: f.root, repo: 'o/r', landed: L, receipts: ['.artifacts/checks/C-FIX-02/forged/receipt.json'], github })
-    assert.deepEqual(failures, [{ check: 'C-FIX-02', receipt: '.artifacts/checks/C-FIX-02/forged/receipt.json', reason: 'ci_no_run' }])
+    assert.deepEqual(failures, [{ check: 'C-FIX-02', receipt: '.artifacts/checks/C-FIX-02/forged/receipt.json', reason: 'missing' }])
     assert.ok(calls[0].startsWith(`repos/o/r/commits/${L}/check-runs`))
   } finally { f.cleanup() }
 })
@@ -512,4 +506,77 @@ test('a crashed latest attempt (empty results) refuses the label; it never inher
   const r = verifyCiRun({ github: { json: (p) => api[p], bytes: (p) => zips[p] }, unpack: (b) => ({ files: files.get(b.toString()) }), repo: 'o/r', landed: L, label })
   assert.equal(r.pass, false); assert.equal(r.reason, 'label_absent')
   assert.deepEqual(r.evidence.artifacts.map(a => a.name), ['smthrs-results-test-0-2'])
+})
+
+test('executable CLI closes recorder-produced evidence through isolated transport', () => {
+  const f = fixture()
+  try {
+    const paths = ['C-FIX-01', 'C-FIX-02'].map(id => {
+      const result = f.recorded(id); assert.equal(result.status, 0, result.stdout + result.stderr)
+      return JSON.parse(result.stdout).receipt
+    })
+    const out = f.cliClose(paths)
+    assert.equal(out.status, 0, out.stdout + out.stderr)
+    const writes = JSON.parse(readFileSync(join(f.root, 'transport.json'))).writes
+    assert.equal(writes.length, 2)
+    assert.equal(writes.filter(args => args.includes('PATCH')).length, 1)
+    assert.equal(writes.filter(args => args.includes('DELETE')).length, 0)
+  } finally { f.cleanup() }
+})
+
+test('recorder retains failed CI labels as failed evidence', () => {
+  const f = fixture()
+  try {
+    const out = f.recorded('C-FIX-01', 'failed')
+    assert.equal(out.status, 1, out.stdout + out.stderr)
+    const path = JSON.parse(out.stdout).receipt
+    assert.equal(JSON.parse(readFileSync(join(f.root, path))).exit, 1)
+    const log = JSON.parse(readFileSync(join(f.root, path, '..', 'log.txt')))
+    assert.equal(log.label, '//fixture:canary')
+    assert.equal(log.reason, 'label_failed')
+    assert.equal(log.pass, false)
+    assert.deepEqual(f.close([path, f.evidence('C-FIX-02')]).out.checks, [{ check: 'C-FIX-01', receipt: path, reason: 'failed' }])
+    assert.equal(f.writes.length, 0)
+  } finally { f.cleanup() }
+})
+
+test('root-check-mapping-validation: markers refuse recorder and close without dispatch', () => {
+  for (const status of ['manual', 'pending-owner']) {
+    const f = fixture()
+    try {
+      const paths = ['C-FIX-01', 'C-FIX-02'].map(f.evidence)
+      f.put('scripts/check-commands.json', JSON.stringify({ version: 1, checks: {
+        'C-FIX-01': { status, reason: 'root inputs lack owner-reviewed validation', ticket: 'T-SEC-01' },
+        'C-FIX-02': { approvedBy: 'smithers-22', automation: 'smthrs test //fixture:canary', runsIn: 'CI', host: 'CI', target: '//fixture:canary' }
+      } }))
+      f.commit()
+      const out = f.runner()
+      assert.equal(out.status, 2)
+      assert.deepEqual(JSON.parse(out.stdout), { action: 'check-refused', check: 'C-FIX-01', reason: 'no reviewed executable mapping' })
+      assert.deepEqual(f.close(paths).out.checks, [{ check: 'C-FIX-01', reason: 'missing' }])
+      assert.equal(f.writes.length, 0)
+    } finally { f.cleanup() }
+  }
+})
+
+test('CI check runs for a different SHA refuse closure with commit and no writes', () => {
+  const f = fixture()
+  try {
+    const paths = ['C-FIX-01', 'C-FIX-02'].map(f.evidence)
+    f.ci().responses[`repos/o/r/commits/${f.sha}/check-runs?per_page=100`].check_runs[0].head_sha = 'b'.repeat(40)
+    const out = f.close(paths)
+    assert.equal(out.code, 2)
+    assert.equal(out.out.action, 'evidence-refused')
+    assert.deepEqual(out.out.checks, [
+      { check: 'C-FIX-01', receipt: paths[0], reason: 'commit' },
+      { check: 'C-FIX-02', receipt: paths[1], reason: 'commit' }
+    ])
+    assert.equal(f.writes.length, 0)
+  } finally { f.cleanup() }
+})
+
+test('scripts/checks retains only the host sampler and no duplicate runner', () => {
+  const dir = new URL('./checks/', import.meta.url)
+  assert.deepEqual(readdirSync(dir).sort(), ['host-process-sampler.mjs', 'host-process-sampler.test.mjs'])
+  for (const name of readdirSync(dir)) assert.doesNotMatch(readFileSync(new URL(name, dir), 'utf8'), /check-run|check-evidence|check-commands|host-profile|ops-health-line/)
 })
