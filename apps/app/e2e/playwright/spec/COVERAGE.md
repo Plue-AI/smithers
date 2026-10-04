@@ -276,3 +276,14 @@ Cycle 28: six branch and terminal command scenarios await live providers and dur
 | A-ISSUES | [A-ISSUES.spec.ts](A-ISSUES.spec.ts) | fixme-before-implementation | T-STK-09, T-GH-02 |
 
 Cycle 29: file co-editing, live file lists and diffs, teammate PR review, PR evidence and issue sync retain full pending scenarios. Six mounted command projections exercise reads, keyboard navigation and review confirmation cancellation; these do not qualify live providers.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-ISSUE | [A-ISSUE.spec.ts](A-ISSUE.spec.ts) | fixme-before-implementation | T-GH-02 |
+| A-ISSUE-NEW | [A-ISSUE-NEW.spec.ts](A-ISSUE-NEW.spec.ts) | fixme-before-implementation | T-GH-09, T-APP-02 |
+| A-ISSUE-COMMENT | [A-ISSUE-COMMENT.spec.ts](A-ISSUE-COMMENT.spec.ts) | fixme-before-implementation | T-GH-09 |
+| A-WIKI | [A-WIKI.spec.ts](A-WIKI.spec.ts) | fixme-before-implementation | T-COL-09 |
+| A-WIKI-PAGE | [A-WIKI-PAGE.spec.ts](A-WIKI-PAGE.spec.ts) | fixme-before-implementation | T-COL-09 |
+| A-WIKI-SAVE | [A-WIKI-SAVE.spec.ts](A-WIKI-SAVE.spec.ts) | fixme-before-implementation | T-APP-02 |
+
+Cycle 30: issue reads, creation and comments await live GitHub qualification; wiki reads and page creation await durable shared storage. Saving an answer still refuses because its page-write operation is absent. The filled issue form did not create an issue; its full regression remains pending with T-GH-09 and T-APP-02. Six mounted tests cover form cancellation, direct command projections and the honest save refusal.
