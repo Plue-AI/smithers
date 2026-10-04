@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { readFileSync } from "node:fs"
 import { z } from "zod"
 import { AGENT_ROLES } from "../src/AgentRoles.ts"
 import type { Card } from "../src/Cards.ts"
@@ -3061,6 +3062,24 @@ const cloudAgentFixtures: KindFixtures = {
 }
 
 describe("removed presentation compatibility", () => {
+  // Pin the Cut contract independently of the schema and retirement registry.
+  const cutKinds = ["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"] as const
+  test("the cut manifest records exactly the seven removed card kinds", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
+      rows: { disposition: string; cardKinds: string[] }[]
+    }
+    expect(manifest.rows.filter(row => row.disposition === "cut").flatMap(row => row.cardKinds).sort())
+      .toEqual([...cutKinds].sort())
+  })
+  test.each(cutKinds)("Cut %s preserves only its stored identity and title", kind => {
+    expect(CardSchema.options.map(option => option.shape.kind.value)).not.toContain(kind)
+    expect(LEGACY_CARD_KINDS).toContain(kind)
+    const row = legacyCards.find(fixture => fixture.row.kind === kind)!.row
+    expect(CardSchema.parse(row)).toEqual({
+      id: row.id, ordinal: row.ordinal, createdAt: row.createdAt, title: row.title,
+      kind: "retired", status: "acted", loading: false, payload: { was: kind }
+    })
+  })
   const saved = (kind: string, payload: unknown) => ({
     ...base,
     title: `Saved ${kind}`,

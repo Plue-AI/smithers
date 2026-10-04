@@ -134,7 +134,7 @@ test("unknown kinds and invalid live card patches remain rejected while valid li
   expect((await store.verifyState()).valid).toBe(true)
 })
 
-test("an uncompacted version 32 journal preserves its original legacy upsert and update bytes for rotation", async () => {
+test.each([...kinds])("an uncompacted version 32 %s journal preserves its original upsert and update bytes for rotation", async kind => {
   const storage = memoryStorage(), store = await open(storage)
   await store.dispatch({ type: "composer.changed", actor: "user", draft: "Keep the uncompacted conversation" }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "saved-cut-card", kind: "file", title: "Old action",
@@ -149,10 +149,10 @@ test("an uncompacted version 32 journal preserves its original legacy upsert and
     const originalHead = { ...history.head, sequence: record.sequence, revision: record.revision,
       stateHash: record.stateHash, eventHash: record.hash }
     const snapshot = replayAppEvents(history.checkpoint, history.events.slice(0, index + 1), originalHead).snapshot
-    const stateHash = appProjectionHash(historicalSnapshot(snapshot, "admin-health", record.type === "card.updated"))
-    const input = record.type === "card.upsert" ? { type: "card.upsert", actor: "system", card: legacyCard("admin-health") }
+    const stateHash = appProjectionHash(historicalSnapshot(snapshot, kind, record.type === "card.updated"))
+    const input = record.type === "card.upsert" ? { type: "card.upsert", actor: "system", card: legacyCard(kind) }
       : record.type === "card.updated" ? { type: "card.updated", actor: "system", id: "saved-cut-card",
-        patch: { kind: "admin-health", payload: legacyCard("admin-health", true).payload } }
+        patch: { kind, payload: legacyCard(kind, true).payload } }
       : decodeEventValue(record.input)
     const { hash: _recordHash, ...body } = record
     const event = seal("event", { ...body, projectorVersion: 32, input: encodeEventValue(input), stateHash, previousStateHash, previousEventHash })
@@ -160,7 +160,7 @@ test("an uncompacted version 32 journal preserves its original legacy upsert and
     return event
   })
   const head = { ...history.head, projectorVersion: 32, stateHash: previousStateHash, eventHash: previousEventHash }
-  const finalSnapshot = historicalSnapshot(replayAppEvents(history.checkpoint, history.events, history.head).snapshot, "admin-health", true)
+  const finalSnapshot = historicalSnapshot(replayAppEvents(history.checkpoint, history.events, history.head).snapshot, kind, true)
   await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
   const envelope = parseStorageEnvelope(storage.getItem(ENVELOPE_STORAGE_KEY)!)!
   const rows = (values: readonly { readonly id: string }[]) => JSON.stringify(Object.fromEntries(values.map(data =>
@@ -169,10 +169,10 @@ test("an uncompacted version 32 journal preserves its original legacy upsert and
     ["app-cards", finalSnapshot.cards]] as const) envelope.entries[`smithers-mvp.${id}`] = rows(values)
   storage.setItem(ENVELOPE_STORAGE_KEY, JSON.stringify(envelope))
   const savedBytes = envelope.entries["smithers-mvp.app-events"]!
-  expect(JSON.parse(savedBytes)[`s:${events.find(event => event.type === "card.upsert")!.id}`].data.input.value.card.kind).toBe("admin-health")
-  expect(JSON.parse(savedBytes)[`s:${events.find(event => event.type === "card.updated")!.id}`].data.input.value.patch.kind).toBe("admin-health")
+  expect(JSON.parse(savedBytes)[`s:${events.find(event => event.type === "card.upsert")!.id}`].data.input.value.card.kind).toBe(kind)
+  expect(JSON.parse(savedBytes)[`s:${events.find(event => event.type === "card.updated")!.id}`].data.input.value.patch.kind).toBe(kind)
   const restored = await open(storage)
-  inert(restored.collections.cards.get("saved-cut-card"), "admin-health")
+  inert(restored.collections.cards.get("saved-cut-card"), kind)
   expect(restored.session().draft).toBe("Keep the uncompacted conversation")
   expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
   expect((await restored.verifyState()).valid).toBe(true)
