@@ -1156,6 +1156,8 @@ describe("launch-law parity: every affordance is a command", () => {
       // The tutorial's ranked chooser: one row button plus Skip.
       "../cards/RepositoryChoiceCard.tsx": 2,
       "../cards/RepositoryHomeCard.tsx": 3,
+      // The login screen (Will, 2026-10-03): the GitHub door and the email form's submit.
+      "../cards/LoginScreen.tsx": 2,
 
       "../cards/SyncCards.tsx": 5,
       /* The /theme picker: nine swatches, one shared handler through onRunCommand. */

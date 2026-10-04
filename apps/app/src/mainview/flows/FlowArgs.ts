@@ -14,6 +14,7 @@ export interface FlowInput {
   readonly "runs.graph.execution": { readonly runId: string; readonly executionId?: string }
   readonly "runs.continue": { readonly runId: string; readonly requestId: string }
   readonly "runs.coding.select": { readonly runId: string; readonly changeId: string }
+  readonly "auth.email": { readonly email: string }
   readonly "wiki.cloud": { readonly repo: string; readonly page: number; readonly space?: "public" | "private" }
   readonly "wiki.cloud.open": { readonly slug: string; readonly repo: string; readonly space?: "public" | "private" }
   readonly "wiki.space": { readonly space: "public" | "private"; readonly repo?: string }
@@ -174,6 +175,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.graph.execution": payload => line(token(payload, "runId"), token(payload, "executionId")),
   "runs.continue": payload => line(token(payload, "runId"), token(payload, "requestId")),
   "runs.coding.select": payload => line(token(payload, "runId"), token(payload, "changeId")),
+  "auth.email": payload => line(token(payload, "email")),
   "wiki.cloud": payload => line(token(payload, "repo"), token(payload, "page"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.cloud.open": payload => line(token(payload, "slug"), token(payload, "repo"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.space": payload => line(token(payload, "space"), token(payload, "repo")),

@@ -778,6 +778,9 @@
 
 /* The unknown-repository arrival is a single opening notice. */
 .app-shell .smithers-transcript[data-repository-missing] .sui-chat-messages > :first-child { margin-top: 0; }
+/* The login screen owns the transcript: it sits in the middle of the page, not at the bottom of a chat log (cards/LoginScreen.tsx). */
+.app-shell .smithers-transcript[data-login] .sui-chat-messages { justify-content: center; }
+.app-shell .smithers-transcript[data-login] .sui-chat-messages > :first-child { margin-top: 0; }
 /* Lesson lines are centered; conversation bubbles retain normal reading alignment. */
 .chat-run-timeline {
   flex: none;

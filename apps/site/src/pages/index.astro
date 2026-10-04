@@ -66,10 +66,8 @@ const githubHref = "https://github.com/smithersai/smithers"
   const reduced = matchMedia("(prefers-reduced-motion: reduce)")
   const TRANSITION_STYLE_ID = "smithers-enter-app"
   const MARK_NAME = "smithers-wordmark"
-  const TAGLINE_NAME = "smithers-tagline"
-  /* The signup hero's headline (apps/app/src/mainview/cards/SignupCards.tsx) is the tagline's landing spot. */
-  const HEADLINE = ".signup-hero h1"
-  const HEADLINE_WAIT_MS = 600
+  /* How long the settled shell (its own mark in the header) gets to replace the Suspense fallback before the mark flies. */
+  const SHELL_WAIT_MS = 600
   const APP_MARK_SELECTOR = ".session-shell > .session-navigation > .guide-wordmark"
   /* The mark in SessionNavigation's header (apps/app/src/mainview/SessionNavigation.tsx; guide.css .guide-wordmark). */
   const APP_MARK = { left: 12, top: 12, fontSize: 2.75 }
@@ -77,8 +75,6 @@ const githubHref = "https://github.com/smithersai/smithers"
     @media (prefers-reduced-motion: no-preference) {
       ::view-transition-group(${MARK_NAME}) { animation-duration: 210ms; animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
       ::view-transition-old(${MARK_NAME}) { animation: smithers-mark-out 210ms linear both; }
-      ::view-transition-group(${TAGLINE_NAME}) { animation-duration: 420ms; animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
-      ::view-transition-old(${TAGLINE_NAME}), ::view-transition-new(${TAGLINE_NAME}) { height: 100%; object-fit: contain; }
       ::view-transition-new(${MARK_NAME}) { animation: smithers-mark-in 210ms linear both; }
       ::view-transition-old(root) { animation: smithers-home-out 100ms cubic-bezier(0.4, 0, 1, 1) both; }
       ::view-transition-new(root) { animation: smithers-app-in 180ms cubic-bezier(0.22, 0.61, 0.21, 1) both; }
@@ -250,27 +246,20 @@ const githubHref = "https://github.com/smithersai/smithers"
       style.textContent = TRANSITION_CSS
       document.head.append(style)
       let mark: HTMLElement | null = null
-      let headline: HTMLElement | null = null
-      document.querySelector<HTMLElement>(".home .sub")?.style.setProperty("view-transition-name", TAGLINE_NAME)
+      // The tagline fades with the page: the app opens on the login screen (apps/app cards/LoginScreen.tsx), which has no spot for it.
       const transition = document.startViewTransition(async () => {
         mark = swap(mount)
         mark?.style.setProperty("view-transition-name", MARK_NAME)
-        // The tagline glides into the signup headline once the app paints it; without one in time, it fades with the page.
-        headline = await waitFor(HEADLINE, HEADLINE_WAIT_MS)
         // The shell that replaced the Suspense fallback carries its own mark (AppMount appWordmark's selector).
-        const settledMark = document.querySelector<HTMLElement>(APP_MARK_SELECTOR)
+        const settledMark = (await waitFor(APP_MARK_SELECTOR, SHELL_WAIT_MS)) ?? document.querySelector<HTMLElement>(APP_MARK_SELECTOR)
         if (settledMark !== null && settledMark !== mark) {
           mark?.style.removeProperty("view-transition-name")
           mark = settledMark
           mark.style.setProperty("view-transition-name", MARK_NAME)
         }
-        if (headline === null) return
-        headline.dataset.arrived = ""
-        headline.style.setProperty("view-transition-name", TAGLINE_NAME)
       })
       await transition.finished.catch(() => {})
       ;(mark as HTMLElement | null)?.style.removeProperty("view-transition-name")
-      ;(headline as HTMLElement | null)?.style.removeProperty("view-transition-name")
       style.remove()
     }
 

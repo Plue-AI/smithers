@@ -186,10 +186,15 @@ describe("auth is a conversation state — the chat is the only page", () => {
 
     const { host, markup } = mount(controller)
     expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-repository-missing")).toBe(false)
-    expect(host.querySelector('[data-testid="signup"]')).toBeNull()
+    // The login screen (Will, 2026-10-03) is the opening: the GitHub door and the email door in the middle of the page, no opening message.
+    expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-login")).toBe(true)
+    expect(host.querySelector('[data-testid="login"] h1')?.textContent).toBe("Welcome to Smithers")
+    expect(host.querySelector<HTMLButtonElement>('[data-testid="login-github"]')?.dataset.flow).toBe("auth.sign-in")
+    expect(host.querySelector<HTMLFormElement>('[data-testid="login"] form')?.dataset.flow).toBe("auth.email")
     expect(controller.commands.find("auth.sign-in")).toBeDefined()
-    expect(host.querySelectorAll(".smithers-chat-message").length).toBe(1)
-    expect(markup()).toContain(WEB_OPENING)
+    expect(host.querySelectorAll(".smithers-chat-message").length).toBe(0)
+    expect(markup()).not.toContain(WEB_OPENING)
+    expect(host.querySelector(".app-chat-controls")).toBeNull()
     expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
     expect(markup()).not.toContain("Smithers initialized")
     expect(host.querySelectorAll(".smithers-suggestion").length).toBe(0)
@@ -419,11 +424,11 @@ describe("auth is a conversation state — the chat is the only page", () => {
     await settled()
 
     const { host, markup } = mount(controller)
-    // A remembered selection does not grant this visitor repository access.
+    // A remembered selection does not grant this visitor repository access: the login screen opens, not the repository.
     expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-repository-missing")).toBe(false)
-    expect(host.querySelector('[data-testid="signup"]')).toBeNull()
-    expect(host.querySelectorAll(".smithers-chat-message").length).toBe(1)
-    expect(markup()).toContain(WEB_OPENING)
+    expect(host.querySelector('[data-testid="login-github"]')).not.toBeNull()
+    expect(host.querySelectorAll(".smithers-chat-message").length).toBe(0)
+    expect(markup()).not.toContain(WEB_OPENING)
     expect(markup()).not.toContain("You are exploring")
     expect(controller.commands.state().publicRepo).toBe(false)
   })

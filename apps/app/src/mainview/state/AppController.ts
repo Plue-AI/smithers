@@ -378,6 +378,8 @@ export interface AppController extends IssueFlowsController {
   readonly loadSession: () => Promise<void>
   /** Redirect to the identity seam's GitHub OAuth start. */
   readonly signIn: (reservedOpen?: (url: string) => Promise<boolean>) => Promise<void> | void
+  /** The login screen's email door: what this host can do with an address (auth.email). */
+  readonly signInWithEmail: (email: string) => string | void
   readonly localAuth: LocalAuthController | undefined
   readonly signOut: () => Promise<string | void>
   /**
@@ -889,6 +891,7 @@ export const createAppController = (
     adoptSession,
     loadSession,
     signIn,
+    signInWithEmail,
     signOut,
     refreshBalance,
     settleTurnBilling,
@@ -1550,6 +1553,7 @@ export const createAppController = (
     adoptSession,
     loadSession,
     signIn,
+    signInWithEmail,
     signOut,
     handleAuthReturn,
     handleInstallReturn: gitHubSeam.handleInstallReturn,

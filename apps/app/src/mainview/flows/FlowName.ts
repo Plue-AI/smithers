@@ -33,6 +33,7 @@ export const FLOW_NAMES = [
   "approval.deny",
   "approvals.list",
   "approvals.open",
+  "auth.email",
   "auth.prompt",
   "auth.sign-in",
   "auth.sign-out",

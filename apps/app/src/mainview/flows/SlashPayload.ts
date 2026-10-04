@@ -1106,6 +1106,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok({ cardId, field, value: rest.length === 0 ? "" : value })
   },
   "form.submit": (args) => required("cardId", args, "form.submit needs the card id"),
+  /* The login screen's email door (entries/auth.ts): the address alone. */
+  "auth.email": (args) => required("email", args, "auth.email needs the email address"),
   "repo.select": (args) => required("repo", args, "repo.select needs a pinned repository key"),
   /* `<copyId>[#path]`: the tree row's own id, split at the first `#` (a copy id never carries one; a path may have spaces). */
   "repo.tree": (args) => {

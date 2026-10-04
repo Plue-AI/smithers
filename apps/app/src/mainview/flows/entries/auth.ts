@@ -3,6 +3,7 @@
  * flow here touches no other flow module, and Flows.ts registers each block in
  * the aggregator order.
  */
+import { Schema } from "effect"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, FlowRequirement, Namespace, Recommendation } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -77,6 +78,20 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     userOnlyReason: "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
     input: NoPayload,
     handler: (_payload, _signal, _call, gesture) => actions.signIn(gesture?.openExternal)
+  }),
+  flow({
+    /*
+     * The login screen's second door (Will, 2026-10-03): an email address.
+     * Hidden: it belongs to the login screen's form (cards/LoginScreen.tsx), not to
+     * the catalog. The controller answers with what this host can do with it.
+     */
+    name: "auth.email",
+    hidden: true,
+    summary: "Continue with an email address",
+    args: "<email>",
+    runtime: ["identity"],
+    input: Schema.Struct({ email: Schema.String }),
+    handler: ({ email }) => actions.signInWithEmail(email)
   }),
   flow({
     /*

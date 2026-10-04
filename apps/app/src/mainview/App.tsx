@@ -17,6 +17,7 @@ import { Sparkles } from "lucide-react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { useMemo,useRef,useSyncExternalStore } from "react"
 import { controllerCardActions as cardActions } from "./cards/controllerCardActions"
+import { LoginScreen } from "./cards/LoginScreen"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
 import { CardView } from "./ChatCards"
 import { ChatFilterMenu } from "./ChatFilterMenu"
@@ -279,6 +280,15 @@ function AppContent() {
   const authAction = authMessage?.action
 
   /*
+   * The hosted web app's signed-out opening is the login screen (Will,
+   * 2026-10-03), in the middle of the page: the GitHub door and the email
+   * door, in place of the opening message. A repository notice keeps its
+   * message (it carries the catalog links) and the owner-credentials host
+   * keeps its one Sign in door.
+   */
+  const loginScreen = authMessage?.id === "auth-state" && githubIdentity && !repositoryNotice && authMessage.action?.flow === "auth.sign-in"
+
+  /*
    * The suggestion row is DERIVED (§2a/§2f — never stored, never
    * fabricated): the genuinely-next state-derived step when one exists
    * (signed-out → Sign in; no repo open → Select a repo). An empty pill row
@@ -348,7 +358,7 @@ function AppContent() {
    */
   const mainEntries: ReadonlyArray<TranscriptEntry> = [
     ...(openingMessage === undefined ? [] : [{ kind: "init", message: openingMessage } as const]),
-    ...(authMessage === undefined ? [] : [{ kind: "message", message: authMessage } as const]),
+    ...(authMessage === undefined || loginScreen ? [] : [{ kind: "message", message: authMessage } as const]),
     ...messages.map((message): TranscriptEntry => ({ kind: "message", message })),
     // A missing URL owns this arrival; retained cards from the last repository
     // stay stored, but cannot become the requested repository's projection.
@@ -366,7 +376,7 @@ function AppContent() {
   const entries = mergeTimeline(mainEntries, session.chatFilter ?? allChat).filter((entry): entry is TranscriptEntry => entry.kind === "card" || entry.kind === "message" || entry.kind === "init")
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
-  const initialReadId = repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : undefined
+  const initialReadId = loginScreen ? "login" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : undefined
 
   // Chat stays mounted when closed.
   const composerWrap = (
@@ -509,6 +519,7 @@ function AppContent() {
 
           <div className="sui-chat-transcript smithers-transcript" data-slot="chat-transcript"
             data-repository-missing={repositoryNotice || undefined}
+            data-login={loginScreen || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
           <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={initialReadId}
@@ -524,10 +535,12 @@ function AppContent() {
               install: controller.installSnapshots, allowed: true, view: { maximized: false }, onView: () => {},
               dispatch: (name, payload, gesture) => controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
             })}
+            {loginScreen && <MessageScrollerItem messageId="login" style={{ contentVisibility: "visible" }}>
+              <LoginScreen onRunCommand={controller.runCommand} />
+            </MessageScrollerItem>}
             {!repositoryNotice && homeCard && <MessageScrollerItem messageId={homeCard.id}>
               <RepositoryHomeCard card={homeCard} onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
-            {/* Always rendered: the landing page's tagline transition snapshots this headline on its first frame. */}
             {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "card" ?
                 (
@@ -575,8 +588,8 @@ function AppContent() {
       <div className="composer-overlay" data-testid="composer-overlay" hidden={session.paletteOpen !== true}>
         {composerWrap}
       </div>
-      {/* The signup owns the screen: Chat arrives once there is something to ask it. */}
-      <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
+      {/* The login screen owns the page: Chat's controls arrive once there is something to ask it (⌘K still opens the composer). */}
+      {loginScreen ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
         hidden={chatAway && session.inputMode !== "vim"}>
         {chatAway ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
@@ -586,7 +599,7 @@ function AppContent() {
         {chatAway && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
         {chatAway ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} onRunCommand={controller.runCommand} />}
         {chatAway ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
-      </footer>
+      </footer>}
       </div>
 
       {

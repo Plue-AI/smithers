@@ -1,0 +1,29 @@
+/* One login-wide column; chat.css centers it on the page while the screen owns the transcript. */
+.login { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; width: min(100%, 440px); margin-inline: auto; }
+.login button { color: var(--text); font: inherit; }
+.login button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+
+/* The mark over the title. */
+.login-welcome { display: grid; justify-items: center; gap: 20px; text-align: center; }
+.login-welcome h1 { margin: 0; font-size: 1.6rem; line-height: 1.2; letter-spacing: -0.02em; font-weight: 600; }
+/* The favicon's tile: the wordmark's "S" in the accent, on a rounded surface. */
+.login-logo { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--g-accent); box-shadow: var(--shadow-1); }
+.login-logo pre { margin: 0; font-family: "IBM Plex Mono", monospace; font-size: 7.5px; line-height: 1.07; font-weight: 400; letter-spacing: 0; }
+
+/* The doors: GitHub, then an email address. They rise in once the title is on screen. */
+.login-doors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; animation: login-rise var(--dur-slow) var(--ease-current) 120ms both; }
+@keyframes login-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.login-door, .login-primary { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); transition: background-color var(--dur) var(--ease-current), border-color var(--dur) var(--ease-current), filter var(--dur) var(--ease-current); }
+.login-door:hover { background: var(--hover-subtle); border-color: var(--g-accent); }
+/* Scoped under .login so the button reset above never outranks the ink on the accent fill. */
+.login .login-primary { background: var(--g-accent); color: var(--inverse-text); border-color: transparent; font-weight: 500; }
+.login-primary:hover { filter: brightness(0.95); }
+.login-or { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; color: var(--text-faint); font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.08em; }
+.login-or::before, .login-or::after { content: ""; height: 1px; background: var(--border); }
+.login-email { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.login-email input { min-height: 48px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); padding: 0 14px; color: var(--text); font: inherit; }
+.login-email input::placeholder { color: var(--text-faint); }
+.login-email input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--ring); }
+
+@media (max-width: 480px) { .login-welcome { gap: 16px; } }
+@media (prefers-reduced-motion: reduce) { .login *, .login *::before, .login *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; } }

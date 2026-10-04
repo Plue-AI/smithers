@@ -1092,3 +1092,22 @@ test("a sibling identity signal rereads the session and closes its channel on di
     expect(channels[0]?.posted).toEqual(["changed"])
   }, async () => { answer.resolve(null); await ctx.dispose(); await store.dispose?.() }, true)
 })
+
+describe("the login screen's email door (auth.email)", () => {
+  test("an address answers with the one toast that names the missing seam and offers GitHub; a non-address is refused in words", async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const ctx = createControllerContext(store, agent, { fetchImpl: async () => Response.json({}, { status: 404 }) })
+    ctx.withToast = createFailureController(ctx).withToast
+    const controller = createAuthBillingController(ctx)
+    try {
+      expect(controller.signInWithEmail("ada")).toBe("Enter an email address.")
+      expect(store.collections.toasts.get("toast-auth.email.unavailable")).toBeUndefined()
+      expect(controller.signInWithEmail(" ada@example.com ")).toBeUndefined()
+      const toast = store.collections.toasts.get("toast-auth.email.unavailable")
+      expect(toast).toMatchObject({ status: "failed", title: "Email sign-in isn't available yet", detail: "Continue with GitHub for now.",
+        action: { flow: "auth.sign-in", label: "Continue with GitHub" } })
+      // Nothing navigated, and no sign-in was claimed.
+      expect(store.collections.identitySessions.get("identity")?.state ?? "unknown").not.toBe("signed-in")
+    } finally { await ctx.dispose(); await store.dispose?.() }
+  })
+})

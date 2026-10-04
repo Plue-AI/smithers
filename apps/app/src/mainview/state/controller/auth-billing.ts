@@ -33,11 +33,15 @@ const SIGN_OUT_CLEANUP_UNFINISHED: UserFailureCopy = {
   actions: ["retry", "reset-local-data"]
 }
 
+/** One address, loosely: the browser's own `type="email"` check is the strict one. */
+const EMAIL_ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export interface AuthBillingController {
   readonly handleAuthReturn: (search: string) => boolean
   readonly adoptSession: (session: ResolvedSession) => Promise<void>
   readonly loadSession: () => Promise<void>
   readonly signIn: (reservedOpen?: (url: string) => Promise<boolean>) => Promise<void> | void
+  readonly signInWithEmail: (email: string) => string | void
   readonly signOut: () => Promise<string | void>
   readonly refreshBalance: () => Promise<void>
   readonly settleTurnBilling: () => void
@@ -553,6 +557,21 @@ export const createAuthBillingController = (
     })
   }
 
+  /*
+   * The login screen's email door (Will, 2026-10-03). No identity seam signs
+   * an email address in yet: the hosted session is GitHub OAuth, and self-host
+   * takes the owner's credentials. The answer is one toast naming that, with
+   * the GitHub door on it, never a silent redirect into GitHub (#3704).
+   */
+  const signInWithEmail = (email: string): string | void => {
+    if (ctx.disposed) return
+    if (!EMAIL_ADDRESS.test(email.trim())) return "Enter an email address."
+    const key = "auth.email.unavailable"
+    store.dispatch({ type: "toast.shown", actor: "system", key, title: "Email sign-in isn't available yet" })
+    store.dispatch({ type: "toast.resolved", actor: "system", key, status: "failed", detail: "Continue with GitHub for now.",
+      action: { flow: "auth.sign-in", label: "Continue with GitHub" } })
+  }
+
   // Logout responses can clear cookies even on HTTP failure. An obsolete
   // request cannot retire the new account itself; only a fresh session answer
   // may establish that the browser's current credential was actually removed.
@@ -751,6 +770,7 @@ export const createAuthBillingController = (
     adoptSession,
     loadSession,
     signIn,
+    signInWithEmail,
     signOut,
     refreshBalance,
     settleTurnBilling,
