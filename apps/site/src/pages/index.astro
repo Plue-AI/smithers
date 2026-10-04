@@ -12,8 +12,8 @@ const description = project.tagline
  * apps/app (AppMount.tsx) directly and the wordmark becomes the
  * app's own. The href resumes the same signup for a middle-click or a new
  * tab. The prerendered app document supplies assets independently of any
- * repository's availability. Docs and GitHub are plain secondary links
- * beside Get started for free.
+ * repository's availability. GitHub is a plain secondary link beside
+ * Get started for free.
  */
 const appHref = "/?tutorial"
 const githubHref = "https://github.com/smithersai/smithers"
@@ -31,7 +31,6 @@ const githubHref = "https://github.com/smithersai/smithers"
       <a id="start" class="start" href={appHref} data-app-document={DEFAULT_APP_DOCUMENT_PATH} aria-keyshortcuts="s">
         <span>Get started for free</span>
       </a>
-      <a class="btn ghost" href="/docs/" data-astro-prefetch="hover">Docs</a>
       <a class="btn ghost" href={githubHref} target="_blank" rel="noopener noreferrer">GitHub</a>
       <div id="start-error" hidden>
         <p role="alert">Smithers couldn't load. Reload to try again.</p>
