@@ -1539,6 +1539,57 @@ test("File disabled and unavailable controls cannot dispatch", async () => {
     expect(host.querySelector("button")).toBeNull()
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+// T-UI-19: the production surface stays dark until the restored editor/binding lands.
+for (const saved of ["saving", "saved"] as const) test(`File production ignores unwired co-editing fields (${saved})`, async () => {
+  const { CodeSurface } = await import("../CodeSurface")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/File")
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const onAction = mock(() => {})
+  try {
+    await act(async () => root.render(<CodeSurface {...fixtures.live} actions={[]} gestures={{}}
+      model={{ ...fixtures.live.model, saved, unsaved: { count: 2, text: "retained edit" } }}
+      onAction={onAction} onView={() => {}} />))
+    expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+    expect(host.querySelector(".cm-editor, .cm-ySelection, .code-name-flag, .code-avatar-stack, .code-saved")).toBeNull()
+    expect(host.querySelector("button, [contenteditable=true]")).toBeNull()
+    expect(host.textContent).not.toMatch(/Saving|Saved to the machine|weren't saved|retained edit/)
+    expect(host.querySelector("diffs-container")).not.toBeNull()
+    expect(onAction).not.toHaveBeenCalled()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("File recovery renders hostile text inert and copies the literal buffer", async () => {
+  const { FilePresenceView } = await import("./FilePresenceView")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/File")
+  const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+  const writeText = mock(async (_text: string) => {})
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
+  try {
+    await act(async () => root.render(<FilePresenceView {...fixtures.unsaved}
+      model={{ ...fixtures.unsaved.model, path: "<script>throw 1</script>",
+        unsaved: { count: 2, text: '<img src=x onerror="throw 2">\n<script>throw 3</script>' } }}
+      actions={[{ tag: "file.reapply", label: "Reapply", args: { path: "<script>throw 1</script>" } }]}
+      onAction={onAction} onView={() => {}} />))
+    expect(host.querySelector("script, img")).toBeNull()
+    expect(host.querySelector("h2")?.textContent).toBe("<script>throw 1</script>")
+    expect(host.querySelector("pre")?.textContent).toBe('<img src=x onerror="throw 2">\n<script>throw 3</script>')
+    expect(host.textContent).toContain("2 edits weren't saved")
+    await act(async () => host.querySelector<HTMLButtonElement>(".code-notice button:not([data-flow])")!.click())
+    expect(writeText.mock.calls).toEqual([['<img src=x onerror="throw 2">\n<script>throw 3</script>']])
+    expect(onAction).not.toHaveBeenCalled()
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-flow="file.reapply"]')!.click())
+    expect(onAction.mock.calls).toEqual([["file.reapply", { path: "<script>throw 1</script>" }]])
+  } finally {
+    await act(async () => root.unmount()); host.remove()
+    if (previous) Object.defineProperty(navigator, "clipboard", previous)
+    else Reflect.deleteProperty(navigator, "clipboard")
+  }
+})
+
 test("File Copy writes the recovered edit, with singular recovery copy", async () => {
   const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   const writeText = mock(async (_text: string) => {})
