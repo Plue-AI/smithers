@@ -128,7 +128,7 @@ describe("renderAgentRuntimeContext", () => {
   })
 
   /*
-   * agent-parity.md: the block stated the GitHub connection and never the
+   * The Smithers Cloud session: the block stated the GitHub connection and never the
    * Smithers Cloud session, so the model reached for the GitHub prompt when
    * the cloud session was what was missing. One line per state, naming the
    * agent's door (cloud.prompt) when the session is what's missing.
@@ -180,7 +180,7 @@ describe("renderAgentRuntimeContext", () => {
   })
 
   /*
-   * The guided introduction while it runs (apps/app/docs/ONBOARDING.md): the
+   * The guided introduction while it runs: the
    * model must answer a mid-tutorial message against the lesson transcript
    * the user has actually seen — chatter defers to the lesson, real work
    * skips the tutorial through onboarding.act finish.

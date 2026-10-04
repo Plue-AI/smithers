@@ -559,7 +559,6 @@ describe("a persisted refusal", () => {
 describe("auto-retry", () => {
   test("fires only for the wait fault — the registry's pacing is enough to allow it", () => {
     expect(mayAutoRetry(refusalOf({ body: { code: "guest_not_ready" }, status: 503, message: "x" }))).toBe(true)
-    expect(mayAutoRetry(refusalOf({ body: { code: "desktop_not_ready" }, status: 503, message: "x" }))).toBe(true)
   })
 
   test("waits the interval the response stated, and leaves the caller's own wait alone when it stated none", () => {

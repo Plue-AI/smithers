@@ -434,7 +434,7 @@ export type SandboxEgressRow = z.infer<typeof SandboxEgressRowSchema>
  * terminal facets): plue's status beside its own words. The machine-readable
  * `code` survives the 5xx message sanitizer (`writeRouteError` keeps `Code`
  * and replaces the text with the status text); a code like
- * `desktop_not_ready` or `guest_not_ready` is the one the facet retries on
+ * `guest_not_ready` is the one the facet retries on
  * its own, because the server asked it to.
  * @since 1.0.0
  * @category schemas
