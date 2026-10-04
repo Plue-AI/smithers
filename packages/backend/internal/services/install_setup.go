@@ -115,10 +115,11 @@ func installStepCanStart(step InstallStep, now time.Time) bool {
 }
 
 type InstallSetupService struct {
-	Now      func() time.Time
-	Pool     *pgxpool.Pool
-	Jobs     *jobs.Store
-	Capacity *InstallCapacityService
+	Now              func() time.Time
+	Pool             *pgxpool.Pool
+	Jobs             *jobs.Store
+	Capacity         *InstallCapacityService
+	RepositoryAccess *GitHubUserReposService
 	// Providers are host-side orchestration only. No repository flow is loaded.
 	Providers map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error
 }
@@ -516,14 +517,11 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	fast := coding
-	if keys["CEREBRAS_API_KEY"] {
-		fast = json.RawMessage(`{"protocol":"openai-chat","credential":"CEREBRAS_API_KEY"}`)
-	}
+	fast := json.RawMessage(`{"protocol":"openai-chat","credential":"CEREBRAS_API_KEY"}`)
 	defaults := map[string]json.RawMessage{"fast": fast, "coding": coding, "jev": json.RawMessage(`{"protocol":"openai-chat","credential":"AI_GATEWAY_API_KEY"}`)}
 	models := make([]map[string]string, 0, 3)
 	for _, role := range []string{"fast", "coding", "jev"} {
-		value := map[string]string{"role": role, "provider": "", "key": "none"}
+		value := map[string]string{"role": role, "provider": map[string]string{"fast": "Cerebras", "coding": "OpenAI", "jev": "AI Gateway"}[role], "key": "none"}
 		binding := defaults[role]
 		row, err := q.GetInstallSetting(ctx, "agent:"+role)
 		if err == nil {
@@ -539,7 +537,7 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 			if err = json.Unmarshal(binding, &model); err != nil {
 				return nil, err
 			}
-			provider := map[string]string{"OPENAI_API_KEY": "openai", "ANTHROPIC_API_KEY": "anthropic", "CEREBRAS_API_KEY": "cerebras", "OPENROUTER_API_KEY": "openrouter", "AI_GATEWAY_API_KEY": "vercel"}[model.Credential]
+			provider := map[string]string{"OPENAI_API_KEY": "OpenAI", "ANTHROPIC_API_KEY": "Anthropic", "CEREBRAS_API_KEY": "Cerebras", "OPENROUTER_API_KEY": "OpenRouter", "AI_GATEWAY_API_KEY": "AI Gateway"}[model.Credential]
 			if provider == "" {
 				provider = model.Protocol
 			}
@@ -561,6 +559,31 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		result["repository"] = map[string]string{"owner": o, "name": n}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
+	}
+	if ownerErr == nil && s.RepositoryAccess != nil && result["repository"] == nil {
+		repositories, failure := VerifyGitHubAppInstallations(ctx, s.RepositoryAccess, owner.ID, "")
+		if failure != nil {
+			return nil, failure
+		}
+		choices := make([]string, 0, len(repositories))
+		for _, repository := range repositories {
+			choices = append(choices, repository.FullName)
+		}
+		result["repositories"] = choices
+		github["app_installed"] = len(choices) > 0
+		if len(choices) == 0 {
+			installURL, err := s.RepositoryAccess.GitHubAppInstallURL(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if installURL != "" {
+				projected[3]["state"] = "blocked"
+				projected[3]["blocked"] = map[string]string{"line": "Install the GitHub App", "fix_url": installURL}
+			}
+		}
+	}
+	if result["repository"] != nil && steps[3].Status == InstallReady {
+		github["squash_allowed"] = true
 	}
 	return result, nil
 }

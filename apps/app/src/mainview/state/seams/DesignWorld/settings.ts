@@ -69,7 +69,7 @@ export const designInstall = (design: DesignWorld, live: InstallSnapshots): Inst
     get: () => {
       const answered = live.get()
       if (!design.enabled || answered.model !== undefined) return answered
-      if (version !== design.version()) { version = design.version(); snapshot = { model: designInstallModel(design.world()) } }
+      if (version !== design.version()) { version = design.version(); snapshot = { model: designInstallModel(design.world()), seed: true } }
       return snapshot
     }
   }

@@ -19,8 +19,8 @@ const count = (field: string): Grammar => args => args?.trim().startsWith("{") ?
     ? { payload: { [field]: Number(args.trim()) } } : { error: "Enter a number" }
 const key: Grammar = args => {
   const parsed = object(args)
-  if ("payload" in parsed) { const { role, provider } = parsed.payload; return { payload: {
-    ...(role === undefined ? {} : { role }), ...(provider === undefined ? {} : { provider })
+  if ("payload" in parsed) { const { role, provider, model } = parsed.payload; return { payload: {
+    ...(role === undefined ? {} : { role }), ...(provider === undefined ? {} : { provider }), ...(model === undefined ? {} : { model })
   } } }
   return parsed
 }
@@ -44,12 +44,12 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     handler: ({ path }) => actions.setInstallObsidian(path) }),
   flow({ name: "settings.model-key", summary: "Change model key", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: key, args: "<role> <provider>",
-    input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, value: Schema.optional(Schema.String) }),
+    input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, model: Schema.optional(Schema.String), value: Schema.optional(Schema.String) }),
     form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider }), fields: {
       role: { label: "Role", kind: "select" }, provider: { label: "Provider", kind: "text" },
       value: { label: "Key", kind: "write-only", required: true }
     } },
-    handler: ({ role, provider }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider }, gesture) }),
+    handler: ({ role, provider, model }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider, ...(model ? { model } : {}) }, gesture) }),
   flow({ name: "settings.setup", summary: "Continue setup", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
     grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),

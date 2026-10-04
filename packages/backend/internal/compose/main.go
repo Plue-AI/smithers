@@ -1414,6 +1414,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	if config.IsSingleOwner(cfg.Auth) {
 		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
+		installSetup.RepositoryAccess = gitHubUserReposService
 		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, gitHubImportService, authService.Members)
 		installSetup.Capacity = installCapacity
 		if err := installSetup.Initialize(ctx); err != nil {

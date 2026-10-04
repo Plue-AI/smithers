@@ -3,6 +3,13 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,7 +107,7 @@ func TestInstallSetupModelFlagsBeforeConfirmationPostgres(t *testing.T) {
 	status, err := service.Status(ctx)
 	require.NoError(t, err)
 	models := status["models"].([]map[string]string)
-	require.Equal(t, []map[string]string{{"role": "fast", "provider": "openai", "key": "saved"}, {"role": "coding", "provider": "openai", "key": "saved"}, {"role": "jev", "provider": "vercel", "key": "saved"}}, models)
+	require.Equal(t, []map[string]string{{"role": "fast", "provider": "Cerebras", "key": "none"}, {"role": "coding", "provider": "OpenAI", "key": "saved"}, {"role": "jev", "provider": "AI Gateway", "key": "saved"}}, models)
 	raw, err := json.Marshal(status)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "sealed-key-fixture")
@@ -109,7 +116,7 @@ func TestInstallSetupModelFlagsBeforeConfirmationPostgres(t *testing.T) {
 	status, err = service.Status(ctx)
 	require.NoError(t, err)
 	models = status["models"].([]map[string]string)
-	require.Equal(t, "cerebras", models[0]["provider"])
+	require.Equal(t, "Cerebras", models[0]["provider"])
 }
 
 func TestInstallSetupExpiredProjectionPostgres(t *testing.T) {
@@ -138,4 +145,64 @@ func TestInstallSetupExpiredProjectionPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, InstallRunning, step.Status)
 	}
+}
+
+func TestInstallStatusRepositoriesPostgres(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		t.Run(map[bool]string{true: "installed", false: "not-installed"}[installed], func(t *testing.T) {
+			pool, _ := postgresfixture.NewProductDatabase(t)
+			ctx := t.Context()
+			q := db.New(pool)
+			fixture, credentials := manifestFixture(t)
+			fixture.Close()
+			installations := []githubfake.Installation{}
+			if installed {
+				installations = append(installations, githubfake.Installation{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}}})
+			}
+			fake, err := githubfake.New(githubfake.Config{AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, PrivateKeyPEM: credentials.PEM, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, ConversionCode: "manifest-code", Installations: installations})
+			require.NoError(t, err)
+			defer fake.Close()
+			t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
+			response, err := http.Post(fake.URL+"/app-manifests/manifest-code/conversions", "application/json", strings.NewReader("{}"))
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, 201, response.StatusCode)
+			response, err = http.PostForm(fake.URL+"/login/oauth/access_token", url.Values{"code": {"owner-code"}, "client_id": {credentials.ClientID}, "client_secret": {credentials.ClientSecret}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}})
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, 200, response.StatusCode)
+			codec, err := webhook.NewSecretCodec("install-key")
+			require.NoError(t, err)
+			app := NewGitHubAppCredentialStore(pool, codec)
+			require.NoError(t, app.Save(ctx, credentials))
+			owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "acme", LowerUsername: "acme"})
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+			require.NoError(t, err)
+			token, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey("session-key"), []byte("ghu_githubfake_owner"))
+			require.NoError(t, err)
+			_, err = q.CreateOAuthAccount(ctx, db.CreateOAuthAccountParams{UserID: owner.ID, Provider: "github", ProviderUserID: "7", AccessTokenEncrypted: token, ProfileData: json.RawMessage(`{}`)})
+			require.NoError(t, err)
+			access := NewGitHubUserReposService(q, NewAuthService(q, config.AuthConfig{SessionSecret: "session-key"}, nil, nil), WithGitHubUserReposCredentialStore(app), WithGitHubUserReposHTTPClient(fake.Client()))
+			service := &InstallSetupService{Pool: pool, RepositoryAccess: access}
+			status, err := service.Status(ctx)
+			require.NoError(t, err)
+			github := status["github"].(map[string]any)
+			require.Equal(t, installed, github["app_installed"])
+			if installed {
+				require.Equal(t, []string{"acme/app"}, status["repositories"])
+			} else {
+				require.Empty(t, status["repositories"])
+				step := status["steps"].([]map[string]any)[3]
+				require.Equal(t, "blocked", step["state"])
+				require.Equal(t, map[string]string{"line": "Install the GitHub App", "fix_url": "https://github.com/apps/smithers-integration/installations/new"}, step["blocked"])
+			}
+		})
+	}
+}
+func TestInstallStatusNamesProvidersBeforeKeysPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	status, err := (&InstallSetupService{Pool: pool}).Status(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []map[string]string{{"role": "fast", "provider": "Cerebras", "key": "none"}, {"role": "coding", "provider": "OpenAI", "key": "none"}, {"role": "jev", "provider": "AI Gateway", "key": "none"}}, status["models"])
 }

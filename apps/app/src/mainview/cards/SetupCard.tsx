@@ -25,11 +25,11 @@ const CODING_PROVIDERS = ["OpenAI", "Anthropic", "OpenRouter"] as const
  * The role id stays in `args`; the only visible names are the role's row and its provider's key.
  */
 export const roleKeyActions = (definition: CardActionDefinition<"settings.model-key">, model: InstallModel,
-  args: Readonly<Record<string, string>>): CardActionDefinition<"settings.model-key">[] => model.models.map(role => ({
+  args: Readonly<Record<string, string>>, chooseModel = true): CardActionDefinition<"settings.model-key">[] => model.models.map(role => ({
   ...definition, label: "Save", args: { ...args, role: role.role }, command_input: { role: role.role, provider: role.provider },
   input: [
     ...(role.role === "coding" ? [{ name: "provider", label: "Provider", kind: "choice" as const, required: true, value: role.provider,
-      choices: CODING_PROVIDERS.includes(role.provider as typeof CODING_PROVIDERS[number]) ? [...CODING_PROVIDERS] : [role.provider, ...CODING_PROVIDERS] }] : []),
+      choices: CODING_PROVIDERS.includes(role.provider as typeof CODING_PROVIDERS[number]) ? [...CODING_PROVIDERS] : [role.provider, ...CODING_PROVIDERS] }, ...(chooseModel ? [{ name: "model", label: "Model", kind: "text" as const, required: true }] : [])] : []),
     { name: "value", label: role.role === "jev" ? "AI Gateway key" : role.role === "coding" ? "API key" : `${role.provider} key`, kind: "secret" as const, required: true }
   ]
 }))
@@ -42,7 +42,7 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
   const step = model?.steps.find(step => step.state !== "done")
   if (allowed && model && step) {
     if (step.id === "sign_in") definitions.push({ tag: "sign-in", label: "Sign in", args: { step: step.id }, command_input: undefined })
-    else definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
+    else if (step.id !== "repository" || model.repositories?.length) definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
       // The running App step keeps its control: a press continues to GitHub or starts again (InstallSeam.setupStep).
       disabled: step.state === "running" && step.id !== "app_manifest" ? { reason: "Running" } : undefined,
       args: { step: step.id },
@@ -55,7 +55,7 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
       resolve_input: input => ({ step: step.id, ...(input.owner ? { owner: input.owner } : {}),
         ...(input.repository ? { repository: input.repository } : {}), ...(input.bind ? { bind: input.bind } : {}),
         ...(input.origins ? { origins: input.origins.split("\n").filter(Boolean) } : {}) }) })
-    if (step.id === "models" && model.github.signed_in && key) definitions.push(...roleKeyActions(key.definition, model, { step: "models" }))
+    if (step.id === "models" && model.github.signed_in && key) definitions.push(...roleKeyActions(key.definition, model, { step: "models" }, !snapshot.seed))
   }
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
   if (!model || !allowed) return null

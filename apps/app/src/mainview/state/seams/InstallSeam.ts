@@ -11,7 +11,7 @@ import { InstallErrorSchema, InstallModelSchema, InstallReceiptSchema, type Inst
 export interface InstallTopic {
   readonly subscribe: (topic: "install", receive: (data: unknown) => void, refuse: (error: InstallError) => void) => () => void
 }
-export interface InstallSnapshot { readonly model?: InstallModel; readonly error?: InstallError }
+export interface InstallSnapshot { readonly model?: InstallModel; readonly error?: InstallError; readonly seed?: true }
 export interface InstallSnapshots {
   readonly get: () => InstallSnapshot
   readonly subscribe: (listener: () => void) => () => void
@@ -29,7 +29,7 @@ export interface InstallSeamOptions {
 }
 export interface InstallAddress { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
 export interface SetupInput { readonly step: InstallStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
-export interface ModelKeyInput { readonly role: "fast" | "coding" | "jev"; readonly provider: string }
+export interface ModelKeyInput { readonly role: "fast" | "coding" | "jev"; readonly provider: string; readonly model?: string }
 const error = (code: string, message: string, fault: InstallError["class"] = "infra"): InstallError => ({ code, class: fault, message })
 const permission = error("owner_required", "Owner access required", "permission")
 /** GET /api/install found no install route on this host (see quietWithoutInstall). */
@@ -358,6 +358,21 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           if (failure.class === "permission") revoke(failure)
           else { mark("failed", failure.message); publish({ ...shared.snapshot, error: failure }) }
           return failure.message
+        }
+        if (input.role === "coding" && input.model) {
+          const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/default`, {
+            method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": installRequestId() },
+            body: JSON.stringify({ model: { protocol: input.provider.toLowerCase() === "anthropic" ? "anthropic-messages"
+              : input.provider.toLowerCase() === "openai" ? "openai-responses" : "openai-chat", modelId: input.model, credential: credential.name } })
+          })
+          if (!current()) return false
+          const payload: unknown = await response.json().catch(() => undefined)
+          if (!response.ok || typeof payload !== "object" || payload === null || !("ok" in payload) || payload.ok !== true) {
+            const parsed = InstallErrorSchema.safeParse(payload)
+            const failure = parsed.success ? parsed.data : error("model_refused", "Could not save model")
+            mark("failed", failure.message); publish({ ...shared.snapshot, error: failure })
+            return failure.message
+          }
         }
         // Only the authoritative read can mark a key saved. Credential responses are never retained.
         const failure = await readInstall()

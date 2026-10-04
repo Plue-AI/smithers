@@ -95,6 +95,7 @@ describe("T-APP-03 Containers with recording Views", () => {
       { args: { step: "models", role: "fast" }, label: "Save", input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
       { args: { step: "models", role: "coding" }, label: "Save", input: [
         { name: "provider", label: "Provider", kind: "choice", required: true, value: "OpenAI", choices: ["OpenAI", "Anthropic", "OpenRouter"] },
+        { name: "model", label: "Model", kind: "text", required: true },
         { name: "value", label: "API key", kind: "secret", required: true }] },
       { args: { step: "models", role: "jev" }, label: "Save", input: [{ name: "value", label: "AI Gateway key", kind: "secret", required: true }] }
     ])
@@ -195,3 +196,27 @@ test("a running App step keeps its own control, prefilled, so the person's press
   props.onAction("settings.setup", { step: "app_manifest", owner: "acme" })
   expect(h.commands).toEqual([{ tag: "settings.setup", input: { step: "app_manifest", owner: "acme" } }])
 })
+
+ test("Repository has only the App installation fix when no choices are installed (#3455)", () => {
+   const model = installFixture(); model.steps[3] = { id: "repository", state: "blocked", blocked: { line: "Install the GitHub App", fix_url: "https://github.com/apps/smithers/installations/new" } }; model.repositories = []; delete model.repository
+   const h = harness({ model })
+   const html = renderToStaticMarkup(renderSetupCard({ install: h.install, dispatch: h.dispatch, allowed: true, view: h.view, onView: h.onView }))
+   expect(html).toContain('href="https://github.com/apps/smithers/installations/new"')
+   expect(html).not.toContain('aria-label="Repository"')
+ })
+ test("Repository choice dispatches the installed slug through the card flow (#3455)", () => {
+   const model = installFixture(); model.steps[3]!.state = "pending"; model.repositories = ["acme/real"]; delete model.repository
+   const h = harness({ model }); h.renderSetup()
+   expect(h.setup()!.actions[0]!.input?.[0]?.choices).toEqual(["acme/real"])
+   h.setup()!.onAction("settings.setup", { step: "repository", repository: "acme/real" })
+   expect(h.commands).toEqual([{ tag: "settings.setup", input: { step: "repository", repository: "acme/real" } }])
+ })
+
+ test("coding row carries the model choice with its write-only key; the seed keeps its original inputs (#3455)", () => {
+   const model = installFixture(); model.steps[4]!.state = "pending"
+   const h = harness({ model }); h.renderSetup()
+   h.setup()!.onAction("settings.model-key", { step: "models", role: "coding", provider: "Anthropic", model: "claude-sonnet-4-5", value: "secret" })
+   expect(h.commands).toEqual([{ tag: "settings.model-key", input: { role: "coding", provider: "Anthropic", model: "claude-sonnet-4-5" } }]); expect(h.keys).toEqual(["secret"])
+   const seed = harness({ model, seed: true }); seed.renderSetup(); seed.renderSettings()
+   for (const props of [seed.setup()!, seed.settings()!]) expect(props.actions.filter(action => action.tag === "settings.model-key").flatMap(action => action.input ?? []).some(input => input.name === "model")).toBe(false)
+ })

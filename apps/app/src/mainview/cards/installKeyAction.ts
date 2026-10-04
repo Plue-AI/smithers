@@ -17,7 +17,7 @@ export const installKeyAction = (dispatch: InstallCardDispatch, model: InstallMo
       reserved = input.value ? writeOnlyGesture("settings.model-key", { value: input.value }) : undefined
       delete input.value
       const role = input.role === "fast" || input.role === "jev" ? input.role : "coding"
-      return { role, provider: input.provider ?? model.models.find(model => model.role === role)!.provider }
+      return { role, provider: input.provider ?? model.models.find(model => model.role === role)!.provider, ...(input.model ? { model: input.model } : {}) }
     }
   }
   const run: CardCommandDispatch = (tag, input) => {

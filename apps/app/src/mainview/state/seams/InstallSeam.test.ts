@@ -212,6 +212,20 @@ describe("T-APP-03 install seam", () => {
     expect(h.toasts[0]?.outcome).toBe("401 invalid API key")
     expect(JSON.stringify(h.seam.snapshots.get())).not.toContain("private-key")
   })
+  test("coding Save persists the chosen model after its sealed key and reports default failure (#3455)", async () => {
+    for (const ok of [true, false]) {
+      const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt("OPENAI_API_KEY"))
+        : path === "/api/model/default" ? Response.json({ ok }, { status: ok ? 200 : 503 }) : Response.json(installFixture()))
+      await h.seam.readInstall()
+      h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI", model: "gpt-5" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+      await h.idle()
+      const request = h.requests.find(request => request.path === "/api/model/default")!
+      expect(request.init?.method).toBe("PUT")
+      expect(JSON.parse(String(request.init?.body))).toEqual({ model: { protocol: "openai-responses", modelId: "gpt-5", credential: "OPENAI_API_KEY" } })
+      expect(request.init?.body).not.toContain("private-key")
+      expect(h.toasts[0]?.outcome).toBe(ok ? true : "Could not save model")
+    }
+  })
   test("saved keys refresh from GET; repeated submissions send one write", async () => {
     const gate = deferred<Response>()
     const h = await harness(path => path === "/api/model/credential" ? gate.promise : Response.json(installFixture()))

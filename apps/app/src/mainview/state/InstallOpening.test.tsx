@@ -94,3 +94,64 @@ test("Setup Sign in follows the GitHub door after the setup-only identity answer
     expect(host.textContent).not.toContain("Sign-in isn't available")
   } finally { window.history.replaceState({}, "", "/"); flushSync(() => root.unmount()); host.remove() }
 })
+
+test("without install capability the seeded Setup and Settings remain usable (#3455)", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: [] }, fetchImpl: async () => new Response("", { status: 404 }) })
+  const { designInstall } = await import("./seams/DesignWorld/settings")
+  const { renderSetupCard } = await import("../cards/CardRenderers")
+  const { SettingsContainer } = await import("../cards/SettingsContainer")
+  const { SettingsView } = await import("../cards/views/SettingsView")
+  const { renderToStaticMarkup } = await import("react-dom/server")
+  const install = designInstall(controller.design, controller.installSnapshots)
+  const props = { install, dispatch: () => {}, view: { maximized: false }, onView: () => {} }
+  expect(renderToStaticMarkup(renderSetupCard({ ...props, allowed: true }))).toContain("Cerebras")
+  expect(renderToStaticMarkup(<SettingsContainer {...props} View={SettingsView} owner origin="http://localhost:4000" />)).toContain("Cerebras")
+  expect(controller.installSnapshots.get().model).toBeUndefined()
+  expect(install.get().seed).toBe(true)
+})
+
+test("Setup model rows save three keys and the coding model through their real card flows (#3455)", async () => {
+  const { installFixture, credentialReceipt } = await import("./seams/InstallFixtures.test-support")
+  const model = installFixture(); model.steps[4]!.state = "pending"
+  model.models = model.models.map(role => ({ ...role, key: "none" }))
+  const writes: Array<{ path: string; method: string; body: any }> = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["install"] }, fetchImpl: async (input, init) => {
+    const path = String(input)
+    if (init?.body) {
+      const body = JSON.parse(String(init.body)); writes.push({ path, method: init.method!, body })
+      if (path.endsWith("/model/credential")) {
+        const role = body.name === "CEREBRAS_API_KEY" ? "fast" : body.name === "AI_GATEWAY_API_KEY" ? "jev" : "coding"
+        model.models.find(each => each.role === role)!.key = "saved"
+        return Response.json(credentialReceipt(body.name))
+      }
+      if (path.endsWith("/model/default")) return Response.json({ ok: true })
+      if (path.endsWith("/setup/models")) model.steps[4]!.state = "done"
+    }
+    return path.includes("/api/install") ? Response.json(model) : new Response("", { status: 404 })
+  } })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await settled()
+    for (const [index, label] of ["Fast model", "Coding model", "Decisions"].entries()) {
+      const row = host.querySelectorAll<HTMLElement>('[data-step="models"] .setup-model')[index]!
+      expect(row.textContent).toContain(label)
+      const set = (field: HTMLInputElement, value: string) => {
+        const key = Object.keys(field).find(key => key.startsWith("__reactProps"))!
+        ;(field as any)[key].onChange({ target: { value } })
+      }
+      flushSync(() => set(row.querySelector<HTMLInputElement>('input[type="password"]')!, `key-${index}`))
+      if (index === 1) flushSync(() => set(row.querySelector<HTMLInputElement>('input[aria-label="Model"]')!, "gpt-5"))
+      row.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      for (let n = 0; n < 30 && writes.filter(write => write.path.endsWith("/model/credential")).length <= index; n++) await settled()
+      await settled()
+    }
+    expect(writes.filter(write => write.path.endsWith("/model/credential")).map(write => write.body.name)).toEqual(["CEREBRAS_API_KEY", "OPENAI_API_KEY", "AI_GATEWAY_API_KEY"])
+    expect(writes.find(write => write.path.endsWith("/model/default"))).toMatchObject({ method: "PUT", body: { model: { protocol: "openai-responses", modelId: "gpt-5", credential: "OPENAI_API_KEY" } } })
+    host.querySelector<HTMLFormElement>('[data-step="models"] > .setup-body > .setup-actions form')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    for (let n = 0; n < 30 && host.querySelector('[data-step="models"]')?.getAttribute("data-state") !== "done"; n++) await settled()
+    expect(controller.installSnapshots.get().model?.steps[4]?.state).toBe("done")
+  } finally { flushSync(() => root.unmount()); host.remove() }
+})

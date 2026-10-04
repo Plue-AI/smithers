@@ -60,7 +60,7 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
       command_input: { path: model.wiki_sync.obsidian?.path ?? "" },
       input: [{ name: "path", label: "Obsidian folder", kind: "text" as const, required: true, value: model.wiki_sync.obsidian?.path ?? "" }],
       resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) }]),
-    ...roleKeyActions(key!.definition, model, { field: "key" })
+    ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed)
   ] : []
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
   if (!owner || !model?.health) return null

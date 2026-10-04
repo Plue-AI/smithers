@@ -137,7 +137,7 @@ export interface CardCommandInput {
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.obsidian": { readonly path: string }
   readonly "settings.parallel": { readonly parallel: number }
-  readonly "settings.model-key": { readonly role: ModelRoleId; readonly provider: string }
+  readonly "settings.model-key": { readonly role: ModelRoleId; readonly provider: string; readonly model?: string }
   readonly "settings.setup": { readonly step: SetupStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
 
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
