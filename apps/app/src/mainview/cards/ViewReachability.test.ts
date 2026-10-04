@@ -9,7 +9,6 @@ const PENDING_WIRING: Record<string, string> = {
   "FilePresenceView.tsx": "T-APP-14",
   "DebugApiView.tsx": "T-APP-21",
   "SecretsView.tsx": "T-APP-13",
-  "ProposalView.tsx": "T-FLW-06",
   "DocsView.tsx": "T-APP-20",
 }
 

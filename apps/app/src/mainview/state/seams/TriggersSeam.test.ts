@@ -150,7 +150,7 @@ const DAY_ONE = {
   on: [
     { event: "issue.opened", flow: "issue", description: "Triage every new issue" },
     { event: "issue.labeled:smithers", flow: "implement" },
-    { event: "change.landed", flow: ["wiki", "history.fold", "improve.mine"] },
+    { event: "change.landed", flow: ["wiki", "history.fold"] },
     { event: "schedule:0 9 * * 1-5", flow: "review" }
   ]
 }

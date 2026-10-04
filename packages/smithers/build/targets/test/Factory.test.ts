@@ -117,7 +117,7 @@ describe("Smithers.Factory", () => {
   const github = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land" })
   const on = {
     "issue.opened": { flow: "issue", description: "Triage every new issue" },
-    "change.landed": ["wiki", "history.fold", "improve.mine"],
+    "change.landed": ["wiki", "history.fold"],
     "schedule:0 9 * * 1-5": "review",
     "github.push:main": "history.fold",
     manual: { flow: ["implement", "prototype"] }
@@ -195,7 +195,7 @@ describe("Smithers.Factory", () => {
     const factory = Factory.Factory({ summary: "S.", on })
     expect(Factory.rules(factory)).toEqual([
       { event: "issue.opened", flow: "issue", description: "Triage every new issue" },
-      { event: "change.landed", flow: ["wiki", "history.fold", "improve.mine"] },
+      { event: "change.landed", flow: ["wiki", "history.fold"] },
       { event: "schedule:0 9 * * 1-5", flow: "review" },
       { event: "github.push:main", flow: "history.fold" },
       { event: "manual", flow: ["implement", "prototype"] }

@@ -234,6 +234,8 @@ const coding = Smithers.NodeTest({
     Smithers.file("//flows/test/coding.test.ts"),
     Smithers.file("//flows/test/coding-state.test.ts"),
     Smithers.file("//flows/test/coding-learnings.test.ts"),
+    Smithers.file("//flows/test/coding-recovery-policy.test.ts"),
+    Smithers.file("//flows/test/learning.test.ts"),
     // The local landers over a real colocated jj repository and a recording `gh`.
     Smithers.file("//flows/test/coding-local-landing.test.ts")
   ]),

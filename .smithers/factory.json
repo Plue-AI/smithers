@@ -1139,6 +1139,20 @@
       }
     },
     {
+      "id": "learning",
+      "description": "Read merged TODO evidence and return decision pages and proposals.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/learning/flow.ts",
+      "capabilities": [
+        "model:call:typesafe-ai/jev"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "memory/calibrate",
       "description": "Refit the repository's memory thresholds from run journals and landed fixes; report recall at 32 KiB and each decision's outcome.",
       "summary": null,
@@ -1376,10 +1390,9 @@
     {
       "event": "change.landed",
       "flow": [
-        "coding/wiki",
-        "improve.mine"
+        "coding/wiki"
       ],
-      "description": "Refresh the wiki, mine the landing"
+      "description": "Refresh the wiki"
     },
     {
       "event": "github.push:main",
@@ -1395,11 +1408,6 @@
       "event": "schedule:0 2 * * *",
       "flow": "security-audit",
       "description": "Audit security nightly"
-    },
-    {
-      "event": "box.session.ended",
-      "flow": "improve.mine",
-      "description": "Mine every landing and box session for a better factory"
     },
     {
       "event": "schedule:0 10 * * 1",

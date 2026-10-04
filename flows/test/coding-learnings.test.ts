@@ -11,7 +11,7 @@ import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemorySto
 import * as TestMemory from "../../packages/smithers/agent/memory/src/test/TestMemory.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { correctionLayers, CorrectPlan } from "../coding/correction.ts"
-import { acceptedLearnings, learningNote, namespace, recordLearning } from "../coding/learnings.ts"
+import { acceptedLearnings, failureSignatures, learningNote, learningNotes, namespace, recordLearning } from "../coding/learnings.ts"
 import { NativeCoding } from "../coding/native.ts"
 import {
   checkInputDigest,
@@ -61,7 +61,7 @@ const rejected = (message: string): Result => ({
   findings: [{ owner: "owner", sourceCommitId: "commit-owner", message }]
 })
 
-test("only a rejected round with findings yields a pending note, identified by its round", () => {
+test("only a rejected round with findings yields a pending note, identified by its failure pattern", () => {
   assert.equal(learningNote(plan, "run", 1, { status: "validated", changes: [], findings: [] }), undefined)
   assert.equal(learningNote(plan, "run", 1, { ...rejected("x"), findings: [] }), undefined)
   const note = learningNote(plan, "run", 1, rejected("Handle the empty list"))!
@@ -70,14 +70,17 @@ test("only a rejected round with findings yields a pending note, identified by i
   assert.equal(note.text, "Request: Record what failed\n- Title owner: Handle the empty list")
   assert.deepEqual(note.provenance, { runId: "run", iteration: 1 })
   assert.equal(learningNote(plan, "run", 1, rejected("Handle the empty list"))!.id, note.id)
-  assert.notEqual(learningNote(plan, "run", 2, rejected("Handle the empty list"))!.id, note.id)
-  assert.notEqual(learningNote(plan, "other", 1, rejected("Handle the empty list"))!.id, note.id)
+  assert.equal(learningNote(plan, "run", 2, rejected("Handle the empty list"))!.id, note.id)
+  assert.equal(learningNote(plan, "other", 1, rejected("Handle the empty list"))!.id, note.id)
   const long = learningNote(plan, "run", 1, {
     ...rejected("y".repeat(5_000)),
     findings: Array.from({ length: 30 }, () => rejected("y".repeat(5_000)).findings[0]!)
   })!
   assert.equal(long.text.split("\n").length, 21, "at most twenty findings")
   assert.ok(long.text.split("\n")[1]!.endsWith("…"))
+  assert.equal(learningNotes(plan, "run", 1, {
+    ...rejected("x"), findings: Array.from({ length: 30 }, (_, index) => ({ ...rejected("x").findings[0]!, message: String(index) }))
+  }).length, 20, "at most twenty pending patterns per round")
 })
 
 test("a failing store is logged and never fails the correction", async () => {
@@ -85,6 +88,39 @@ test("a failing store is logged and never fails the correction", async () => {
     recordLearning(plan, "run", 1, rejected("x")).pipe(Effect.provide(MemoryStore.layerNoop()))
   )
   assert.ok(Exit.isSuccess(exit))
+})
+
+test("failed review lint has a literal signature, and infrastructure failures propose nothing", () => {
+  const result: Result = {
+    status: "changes-requested", findings: [], changes: [{
+      implementation: { change: "owner", parent: revision("base"), atoms: [revision("owner")], head: revision("owner"), reads: [], writes: [] },
+      receipts: [{ checkId: "Lint", target: "lint", tier: "slow", change: "owner", commitId: "commit-owner", treeId: "tree-owner",
+        inputDigest: "fixture", status: "failed", evidence: "Unused import", findings: [] }]
+    }]
+  }
+  assert.deepEqual(failureSignatures(result), ["check:lint@review"])
+  assert.equal(learningNote(plan, "run", 1, result)!.id, "check:lint@review")
+  assert.equal(learningNote(plan, "run", 1, result)!.text, "Request: Record what failed\n- Lint@review: Unused import")
+  assert.deepEqual(learningNotes(plan, "run", 1, { ...result, findings: rejected("x").findings }).map(note => note.id), [
+    "check:lint@review", "review:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+  ], "a review finding must not hide the literal lint pattern inside an aggregate key")
+  const infra: Result = { ...result, changes: [{ ...result.changes[0]!, receipts: [{ ...result.changes[0]!.receipts[0]!, fault: "infra" }] }] }
+  assert.equal(learningNote(plan, "run", 1, infra), undefined)
+})
+
+test("later runs preserve the original note's provenance and rejected status", async () => {
+  await Effect.runPromise(Effect.gen(function*() {
+    const store = yield* MemoryStore.MemoryStore
+    yield* recordLearning(plan, "run-first", 1, rejected("Handle the empty list"))
+    const notes = yield* store.listNotes({ namespace, status: "any" })
+    const id = notes[0]!.id
+    yield* store.setNoteStatus({ id, status: "rejected" })
+    yield* recordLearning(plan, "run-second", 2, rejected("Handle the empty list"))
+    const held = yield* store.getNote({ id })
+    assert.equal(held!.status, "rejected")
+    assert.deepEqual(held!.provenance, { runId: "run-first", iteration: 1 })
+    assert.equal((yield* store.listNotes({ namespace, status: "any" })).length, 1)
+  }).pipe(Effect.provide(TestMemory.layer)))
 })
 
 test("a rejected correction round records one pending note that planning reads once accepted", {

@@ -200,3 +200,6 @@ export const renderConfirmCard = (props: ConfirmViewProps) => <ConfirmView {...p
 export const renderSetupCard = (props: Omit<SetupCardProps, "View">) => <SetupCard {...props} View={SetupView} />
 /** The Home card of `main`'s conversation and `/stack` (T-APP-01); HomeCard composes role, admission, dispatch and view state from the controller. */
 export const renderHomeCard = () => <HomeCard />
+
+/** T-FLW-06: the live proposals caller supplies its scoped model and admitted commands. */
+export { ProposalContainer as renderProposalCard } from "./ProposalContainer"

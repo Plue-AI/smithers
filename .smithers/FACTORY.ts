@@ -73,8 +73,8 @@ export const factory = S.Factory({
     // every landing and GitHub main pull, then refreshes the wiki on the
     // folded tip (coding/wiki); these rows declare the flows it runs.
     "change.landed": {
-      flow: ["coding/wiki", "improve.mine"],
-      description: "Refresh the wiki, mine the landing"
+      flow: ["coding/wiki"],
+      description: "Refresh the wiki"
     },
     "github.push:main": {
       flow: "coding/wiki",
@@ -82,10 +82,6 @@ export const factory = S.Factory({
     },
     "schedule:0 9 * * 1-5": { flow: "review", description: "Weekday morning review of main" },
     "schedule:0 2 * * *": { flow: "security-audit", description: "Audit security nightly" },
-    "box.session.ended": {
-      flow: "improve.mine",
-      description: "Mine every landing and box session for a better factory"
-    },
     "schedule:0 10 * * 1": {
       flow: "improve.suggest",
       description: "Suggest factory improvements once a week; every one needs your approval"

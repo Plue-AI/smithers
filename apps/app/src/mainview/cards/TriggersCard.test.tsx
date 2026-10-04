@@ -43,7 +43,7 @@ const triggerCard = (payload: Partial<Payload>): TriggerListCard => ({
 const DECLARED: NonNullable<Payload["declared"]> = [
   { event: "issue.opened", flow: "issue", description: "Triage every new issue" },
   { event: "issue.labeled:smithers", flow: "implement" },
-  { event: "change.landed", flow: ["wiki", "history.fold", "improve.mine"] },
+  { event: "change.landed", flow: ["wiki", "history.fold"] },
   { event: "github.push:main", flow: "history.fold" },
   { event: "schedule:0 9 * * 1-5", flow: "review", description: "Weekday morning review of main" }
 ]
@@ -131,7 +131,7 @@ describe("the dispatcher card", () => {
     /* A description is the sentence with the flow beside it; without one the row says what runs. */
     expect(rows[0]?.textContent).toBe("On a new issueTriage every new issue (issue)")
     expect(rows[1]?.textContent).toBe("On an issue labeled smithersruns implement")
-    expect(rows[2]?.textContent).toBe("On a Change landedruns wiki, history.fold, improve.mine")
+    expect(rows[2]?.textContent).toBe("On a Change landedruns wiki, history.fold")
     expect(rows[3]?.textContent).toBe("GitHub push on mainruns history.fold")
     expect(rows[4]?.textContent).toBe("Every weekday at 09:00Weekday morning review of main (review)")
     expect(host.querySelector("[data-testid='trigger-list-empty']")).toBeNull()
