@@ -133,7 +133,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-MCH-09](T-MCH-09.md) | Cleanup only after settled, captured and quiet | S2 | S | T-STK-01, T-MCH-04, T-MCH-07, T-TRM-07 | C-MCH-05 |
 | [T-MCH-11](T-MCH-11.md) | Member unix users, `team` group, no-sudo image, per-machine homes | S2 | L | T-ACC-02, T-SEC-01 | C-SEC-02, C-COL-04, C-MCH-06, C-MCH-09, C-MCH-10 |
 | [T-MCH-12](T-MCH-12.md) | Secrets into machines; main-only kept out | S2 | M | T-MCH-11, T-COL-03, T-COL-03a, T-TRM-07 | C-MCH-07, C-SEC-01 |
-| **Remote machines (#3706, behind `remoteSandboxes`)** | | | | | |
+| **Remote machines (#3706, behind `remoteSandboxes`; ON HOLD pending §8.13.0)** | | | | | |
 | [T-RMT-01](T-RMT-01.md) | Spike: a macOS install runs a microVM workspace on a Linux KVM host over SSH | W0 | S | — | C-RMT-01 |
 | [T-RMT-02](T-RMT-02.md) | `remoteSandboxes` flag and registered remote hosts in Settings | S1 | M | T-RMT-01, T-INS-06 | C-RMT-02 |
 | [T-RMT-03](T-RMT-03.md) | Remote `WorkspaceRuntime`: the pinned `msb` on a registered host over one install-dialed SSH connection | S1 | L | T-RMT-01, T-RMT-02, T-INS-02, T-FLW-01 | C-RMT-03 |

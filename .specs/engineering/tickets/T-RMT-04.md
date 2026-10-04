@@ -5,6 +5,9 @@ Spec: spec.md §8.13.4, §8.13.5, §8.13.6, §8.2, §8.3, §10.3.1 · Product: #
 
 Added 2026-10-04 by smithers-8a for Will's sandbox-placement ruling (#3706). Behind `remoteSandboxes`, off by default.
 
+
+**ON HOLD (2026-10-04, Will via smithers-56, #3706):** remote machines reuse the Plue Cloud controller and `microsandbox-worker`; this ticket's SSH mechanism is superseded until spec §8.13 is reconciled (§8.13.0). Do not start.
+
 ## Goal
 Install capacity is the sum over reachable hosts; a new machine goes where there is room or where its TODO says; a machine with a disk wakes where the disk is; an unreachable host offers Retry; the owner may pause or remove a host.
 

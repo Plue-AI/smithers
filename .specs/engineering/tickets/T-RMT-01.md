@@ -5,6 +5,9 @@ Spec: spec.md §8.13.3, §8.13.7, §8.13.8 · Product: #3706 Product position (M
 
 Added 2026-10-04 by smithers-8a for Will's sandbox-placement ruling (#3706). Behind `remoteSandboxes`, off by default.
 
+
+**REPLACED (2026-10-04, Will via smithers-56, #3706):** smithers-56 spikes the Plue Cloud controller and worker on `beaver` instead (§8.13.0). Do not start this SSH spike.
+
 ## Goal
 A recorded run proves the §8.13 path before any product code: from Will's Mac mini, one SSH connection to `beaver` starts the pinned `msb` guest image (x86_64), the in-guest Flow host reaches the install's journal database and model proxy through reverse forwards on the remote loopback, and egress leaves through the install's egress relay.
 
