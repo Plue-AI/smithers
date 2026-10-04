@@ -376,15 +376,34 @@ func (store *Store) RecordExternalCancellation(ctx context.Context, claim Claim,
 }
 
 func (store *Store) settleClaim(ctx context.Context, claim Claim, state State, eventType string, receipt json.RawMessage, requireCancellation bool) error {
-	canonical, err := canonicalJSON(receipt, true)
-	if err != nil {
-		return err
-	}
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer rollback(tx)
+	if err := store.settleInTx(ctx, tx, claim, state, eventType, receipt, requireCancellation); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SettleInTx fences completion and appends its event in a product-owned
+// transaction so the setup projection cannot commit separately from its job.
+func (store *Store) SettleInTx(ctx context.Context, tx pgx.Tx, claim Claim, receipt json.RawMessage, failed bool) error {
+	state, event := StateCompleted, "operation.completed"
+	if failed {
+		state, event = StateFailed, "operation.failed"
+	}
+	return store.settleInTx(ctx, tx, claim, state, event, receipt, false)
+}
+func (store *Store) settleInTx(ctx context.Context, tx pgx.Tx, claim Claim, state State, eventType string, receipt json.RawMessage, requireCancellation bool) error {
+	if tx == nil {
+		return errors.New("jobs: settlement transaction required")
+	}
+	canonical, err := canonicalJSON(receipt, true)
+	if err != nil {
+		return err
+	}
 	record, err := lockClaim(ctx, tx, claim)
 	if err != nil {
 		return err
@@ -408,7 +427,7 @@ func (store *Store) settleClaim(ctx context.Context, claim Claim, state State, e
 	if _, err := appendEvent(ctx, tx, claim.Scope, claim.OperationID, eventType, state, canonical); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // Abandon applies the persisted external-effect policy. It never blindly

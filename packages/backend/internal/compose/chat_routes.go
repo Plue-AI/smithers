@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"context"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"net/http"
 	"strings"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 )
 
@@ -74,6 +77,9 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.GlobalAPIRateLimit(queries))
 		r.Use(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser))
+		if config.IsSingleOwner(cfg.Auth) {
+			r.Use(installModelOwner(queries))
+		}
 		r.Get("/api/model/catalog", models.Catalog)
 		r.Post("/api/model/credential", models.Credential)
 		r.Get("/api/model/credential/receipt", models.CredentialReceipt)
@@ -95,5 +101,27 @@ func chatCallbackHandler(runtime *chat.Runtime) http.Handler {
 func mountChatProducerOnSharedListener(router chi.Router, composition *chatComposition) {
 	if composition != nil && composition.listener == nil {
 		composition.runtime.MountProducerCallbacks(router)
+	}
+}
+
+// Install model access belongs to the installer, including during provisional
+// setup. Hosted composition retains its deployment-specific model policy.
+func installModelOwner(owners interface {
+	GetSelfHostOwner(context.Context) (db.User, error)
+}) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			owner, err := owners.GetSelfHostOwner(r.Context())
+			if err != nil {
+				routes.WriteInstallSetupError(w, r, pkgerrors.Forbidden("install owner session required"))
+				return
+			}
+			info := middleware.AuthInfoFromContext(r.Context())
+			if info == nil || info.User == nil || info.User.ID != owner.ID || info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+				routes.WriteInstallSetupError(w, r, pkgerrors.Forbidden("install owner session required"))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
 }

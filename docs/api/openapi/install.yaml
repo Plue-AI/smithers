@@ -40,60 +40,415 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/install:
     get:
-      summary: Read GitHub App setup status
+      summary: Read install setup
       operationId: get_api_install
       tags:
         - Install
-      description: Requires the setup token until an owner exists, then the owner's browser session.
+      description: Setup-session cookie before claim; owner browser session after claim. Never accepts a Bearer setup token.
       security:
         - setupSession: []
         - sessionCookie: []
       responses:
-        '200':
-          description: GitHub App setup status without credentials
+        "200":
+          description: Ordered setup steps and secret-free model access
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GitHubAppSetupStatus'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/install/setup/app_manifest:
-    post:
-      summary: Begin or resume GitHub App setup
-      operationId: post_api_install_setup_app
+                $ref: "#/components/schemas/InstallSetupStatus"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "500":
+          description: Install setup unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+    put:
+      summary: Set owner capacity
+      operationId: put_api_install
       tags:
         - Install
-      description: Post the returned manifest to action_url in the same browser. Organization repositories require an organization owner to create the App at that URL. The callback consumes state once and refuses a second App.
       security:
-        - setupSession: []
         - sessionCookie: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GitHubAppSetupRequest'
+              type: object
+              additionalProperties: false
+              required:
+                - capacity
+              properties:
+                capacity:
+                  type: integer
+                  minimum: 1
       responses:
-        '200':
-          description: Manifest and single-use browser state
+        "200":
+          description: Updated install status
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GitHubAppManifestStart'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          description: This install already has a GitHub App
-        '500':
-          $ref: '#/components/responses/InternalError'
+                $ref: "#/components/schemas/InstallSetupStatus"
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "422":
+          description: Host capacity refusal
+        "503":
+          description: Install capacity unavailable
+  /api/install/setup/address:
+    post:
+      summary: Run setup address
+      operationId: post_api_install_setup_address
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSetupAddress"
+      responses:
+        "202":
+          description: Durable setup admission
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
+  /api/install/setup/app:
+    post:
+      summary: Run setup app
+      operationId: post_api_install_setup_app
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubAppSetupRequest"
+      responses:
+        "200":
+          description: Browser manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubAppManifestStart"
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
+  /api/install/setup/sign_in:
+    post:
+      summary: Run setup sign_in
+      operationId: post_api_install_setup_sign_in
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSetupEmpty"
+      responses:
+        "202":
+          description: Durable setup admission
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
+  /api/install/setup/repository:
+    post:
+      summary: Run setup repository
+      operationId: post_api_install_setup_repository
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSetupRepository"
+      responses:
+        "202":
+          description: Durable setup admission
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
+  /api/install/setup/models:
+    post:
+      summary: Run setup models
+      operationId: post_api_install_setup_models
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSetupEmpty"
+      responses:
+        "202":
+          description: Durable setup admission
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
+  /api/install/setup/source:
+    post:
+      summary: Run setup source
+      operationId: post_api_install_setup_source
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSetupEmpty"
+      responses:
+        "202":
+          description: Durable setup admission
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
+  /api/install/setup/machine:
+    post:
+      summary: Run setup machine
+      operationId: post_api_install_setup_machine
+      tags:
+        - Install
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSetupEmpty"
+      responses:
+        "202":
+          description: Durable setup admission
+        "400":
+          description: Invalid setup body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "401":
+          description: Setup cookie or owner session required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "403":
+          description: Install owner required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallSetupError"
+        "409":
+          description: Setup order or lease conflict
+        "503":
+          description: Install quiesced or setup provider unavailable
   /api/install/quiesce:
     post:
       summary: Freeze or renew install admissions
@@ -193,59 +548,6 @@ components:
             verdict:
               type: string
               enum: [manual]
-    GitHubAppSetupRequest:
-      type: object
-      required:
-        - owner_login
-        - owner_kind
-        - repository
-      properties:
-        resume:
-          type: boolean
-          description: Return the stored App installation URL without repeating conversion.
-        owner_login:
-          type: string
-          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$'
-        owner_kind:
-          type: string
-          enum:
-            - user
-            - org
-        repository:
-          type: string
-          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$'
-    GitHubAppSetupStatus:
-      type: object
-      required:
-        - github_app
-      properties:
-        github_app:
-          type: object
-          required:
-            - configured
-            - installed
-          properties:
-            configured:
-              type: boolean
-            installed:
-              type: boolean
-            slug:
-              type: string
-            installation_id:
-              type: integer
-              format: int64
-            install_url:
-              type: string
-            callback_urls:
-              type: array
-              maxItems: 10
-              items:
-                type: string
-                format: uri
-            callback_fixes:
-              type: array
-              items:
-                $ref: '#/components/schemas/GitHubAppCallbackFix'
     GitHubAppCallbackFix:
       type: object
       required:
@@ -334,3 +636,208 @@ components:
           type: array
           items:
             type: string
+    GitHubAppSetupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - owner
+      properties:
+        owner:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$
+    InstallSetupError:
+      type: object
+      required:
+        - code
+        - class
+        - message
+      properties:
+        code: &a1
+          type: string
+        class:
+          type: string
+          enum:
+            - user
+            - permission
+            - capacity
+            - github
+            - infra
+            - conflict
+            - never
+        message: *a1
+        fix: *a1
+    InstallSetupAddress:
+      type: object
+      additionalProperties: false
+      required:
+        - bind
+        - origins
+      properties:
+        bind: *a1
+        origins:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: string
+            format: uri
+    InstallSetupRepository:
+      type: object
+      additionalProperties: false
+      required:
+        - repository
+      properties:
+        repository:
+          type: string
+          pattern: ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
+    InstallSetupEmpty:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    InstallSetupStatus:
+      type: object
+      required:
+        - address
+        - steps
+        - this_mac
+        - github
+        - models
+        - chatgpt
+        - capacity
+      properties:
+        address:
+          type: object
+          required:
+            - listen
+            - bind
+            - origins
+          properties:
+            listen:
+              type: string
+              enum:
+                - mac
+                - network
+            bind: *a1
+            origins:
+              type: array
+              items:
+                type: string
+                format: uri
+        steps:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items:
+            type: object
+            required:
+              - id
+              - state
+            properties:
+              id:
+                type: string
+                enum:
+                  - address
+                  - app_manifest
+                  - sign_in
+                  - repository
+                  - models
+                  - source
+                  - machine
+              state:
+                type: string
+                enum:
+                  - pending
+                  - running
+                  - done
+                  - blocked
+                  - failed
+              pct:
+                type: integer
+                minimum: 0
+                maximum: 100
+              error:
+                $ref: "#/components/schemas/InstallSetupError"
+              blocked:
+                type: object
+                required:
+                  - line
+                  - fix_url
+                properties:
+                  line: *a1
+                  fix_url:
+                    type: string
+                    format: uri
+        this_mac:
+          type: object
+          required:
+            - memory_gb
+            - disk_free_gb
+            - capacity
+          properties:
+            memory_gb:
+              type: number
+              minimum: 0
+            disk_free_gb:
+              type: number
+              minimum: 0
+            capacity:
+              type: integer
+              minimum: 0
+        github:
+          type: object
+          required:
+            - signed_in
+            - app_installed
+          properties:
+            owner: *a1
+            signed_in:
+              type: boolean
+            app_installed:
+              type: boolean
+            squash_allowed:
+              type: boolean
+        repository:
+          type: object
+          required:
+            - owner
+            - name
+          properties:
+            owner: *a1
+            name: *a1
+        repositories:
+          type: array
+          items: *a1
+        models:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: object
+            required:
+              - role
+              - provider
+              - key
+            properties:
+              role:
+                type: string
+                enum:
+                  - fast
+                  - coding
+                  - jev
+              provider: *a1
+              key:
+                type: string
+                enum:
+                  - none
+                  - validating
+                  - saved
+                  - failed
+              error: *a1
+        chatgpt:
+          type: boolean
+        capacity:
+          type: integer
+          minimum: 0
+        parallel:
+          type: integer
+          minimum: 0

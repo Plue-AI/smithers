@@ -78,7 +78,7 @@ func githubAppSetupTestHandler() (*GitHubAppSetupHandler, *githubAppSetupTestSer
 }
 
 func githubAppSetupBeginRequest(origin string) *http.Request {
-	r := httptest.NewRequest(http.MethodPost, origin+"/api/install/setup/app_manifest", strings.NewReader(`{"owner_login":"smithersai","owner_kind":"org","repository":"smithers","origin":"https://attacker.example"}`))
+	r := httptest.NewRequest(http.MethodPost, origin+"/api/install/setup/app", strings.NewReader(`{"owner":"smithersai"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "127.0.0.1:1234"
 	return r
@@ -191,7 +191,7 @@ func TestGitHubAppSetupBeginRefusesUntrustedOriginsAndMalformedBody(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, s := githubAppSetupTestHandler()
-			r := httptest.NewRequest(http.MethodPost, test.origin+"/api/install/setup/app_manifest", strings.NewReader(test.body))
+			r := httptest.NewRequest(http.MethodPost, test.origin+"/api/install/setup/app", strings.NewReader(test.body))
 			r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
 			r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
 			r.Header.Set("X-CSRF-Token", "csrf")

@@ -96,7 +96,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 		t.Helper()
 		var body io.Reader
 		if method == "POST" {
-			body = strings.NewReader(`{"owner_login":"acme","owner_kind":"org","repository":"app"}`)
+			body = strings.NewReader(`{"owner":"acme"}`)
 		}
 		req, err := http.NewRequest(method, server.URL+path, body)
 		require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	var live []*http.Cookie
 	var attempt services.GitHubAppManifestStart
 	for i, server := range []*httptest.Server{local, network} {
-		for _, path := range []string{"/api/install", "/api/install/setup/app_manifest"} {
+		for _, path := range []string{"/api/install", "/api/install/setup/app"} {
 			method := "GET"
 			if strings.Contains(path, "setup") {
 				method = "POST"
@@ -137,7 +137,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 		require.Equal(t, i == 1, cookies[0].Secure)
 		status, _, _ = request(server, "GET", "/api/install", cookies, false)
 		require.Equal(t, 200, status)
-		status, body, stateCookies := request(server, "POST", "/api/install/setup/app_manifest", cookies, true)
+		status, body, stateCookies := request(server, "POST", "/api/install/setup/app", cookies, true)
 		if i == 0 {
 			require.Equal(t, 200, status, string(body))
 			require.NoError(t, json.Unmarshal(body, &attempt))
@@ -196,14 +196,14 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	require.Equal(t, 200, status, string(body))
 	loaded, err := store.Load(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, 91, loaded.InstallationID)
+	require.Zero(t, loaded.InstallationID, "repository selection, not App creation, records installation coverage")
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "setup-owner", LowerUsername: "setup-owner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES(TRUE,$1)`, owner.ID)
 	require.NoError(t, err)
 	status, _, _ = request(local, "GET", callback, live, false)
 	require.Equal(t, 401, status)
-	require.Len(t, fake.Writes(), 2)
+	require.Len(t, fake.Writes(), 1)
 	require.NotContains(t, logs.String(), attempt.State)
 	require.NotContains(t, logs.String(), "manifest-code")
 	require.NotContains(t, logs.String(), "setup-token")
@@ -213,7 +213,7 @@ func TestGitHubAppSetupRejectsUnusedTokenCORSPreflight(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
 	cfg.Server.AllowedOrigins = []string{"https://setup.example"}
 	router := githubAppSetupComposeRouter(cfg, nil, &routes.GitHubAppSetupHandler{})
-	r := httptest.NewRequest(http.MethodOptions, "http://localhost:4000/api/install/setup/app_manifest", nil)
+	r := httptest.NewRequest(http.MethodOptions, "http://localhost:4000/api/install/setup/app", nil)
 	r.Header.Set("Origin", "https://setup.example")
 	r.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	r.Header.Set("Access-Control-Request-Headers", "Content-Type, X-Smithers-Setup-Token")

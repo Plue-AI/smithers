@@ -152,7 +152,7 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	} else if !errors.Is(err, ErrGitHubAppNotConfigured) {
 		return GitHubAppManifestStart{}, err
 	}
-	if !gitHubAppComponent.MatchString(req.Repository) {
+	if req.Repository != "" && !gitHubAppComponent.MatchString(req.Repository) {
 		return GitHubAppManifestStart{}, pkgerrors.BadRequest("invalid GitHub repository")
 	}
 	session, err := setupSession(ctx)
@@ -179,6 +179,25 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	random := make([]byte, 32)
 	rand.Read(random)
 	state := hex.EncodeToString(random)
+	if req.OwnerKind == "" {
+		var account struct {
+			Type string `json:"type"`
+		}
+		if !gitHubAppComponent.MatchString(req.OwnerLogin) {
+			return GitHubAppManifestStart{}, pkgerrors.BadRequest("invalid GitHub owner")
+		}
+		if err := s.request(ctx, http.MethodGet, "/users/"+url.PathEscape(req.OwnerLogin), "", &account); err != nil {
+			return GitHubAppManifestStart{}, err
+		}
+		switch account.Type {
+		case "User":
+			req.OwnerKind = "user"
+		case "Organization":
+			req.OwnerKind = "org"
+		default:
+			return GitHubAppManifestStart{}, pkgerrors.BadRequest("unsupported GitHub owner")
+		}
+	}
 	manifest, action, err := BuildGitHubAppManifest(req.OwnerLogin, req.OwnerKind, s.origins, state)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
@@ -433,9 +452,12 @@ func (s *GitHubAppManifestService) ResumeInstallation(ctx context.Context) error
 	if err := json.Unmarshal(setting.Value, &repository); err != nil {
 		return err
 	}
-	if !gitHubAppComponent.MatchString(repository.OwnerLogin) || !gitHubAppComponent.MatchString(repository.RepositoryName) {
+	if !gitHubAppComponent.MatchString(repository.OwnerLogin) || (repository.RepositoryName != "" && !gitHubAppComponent.MatchString(repository.RepositoryName)) {
 		return pkgerrors.Internal("invalid GitHub repository binding")
 	}
+	if repository.RepositoryName == "" {
+		return nil
+	} // Repository selection discovers the installation server-side.
 	return s.discoverInstallation(ctx, db.GithubAppManifestState{OwnerLogin: repository.OwnerLogin, OwnerKind: repository.OwnerKind, RepositoryName: repository.RepositoryName})
 }
 func (s *GitHubAppManifestService) discoverInstallation(ctx context.Context, attempt db.GithubAppManifestState) error {

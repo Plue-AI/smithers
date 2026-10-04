@@ -80,34 +80,6 @@ func TestServeRequiresPackagedFlowHostsBeforePreparingLocalState(t *testing.T) {
 	}
 }
 
-func TestPlatformModelKeysFile(t *testing.T) {
-	t.Setenv("SMITHERS_PLATFORM_MODEL_KEYS_FILE", "")
-	t.Setenv("AI_GATEWAY_API_KEY", "")
-	if keys, err := platformModelKeys(); keys != nil || err != nil {
-		t.Fatalf("unset key file = %v, %v", keys, err)
-	}
-	path := filepath.Join(t.TempDir(), "platform-model-keys.json")
-	if err := os.WriteFile(path, []byte(`{"anthropic":"sk-ant-owner"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SMITHERS_PLATFORM_MODEL_KEYS_FILE", path)
-	keys, err := platformModelKeys()
-	if err != nil || strings.Join(keys.PlatformModelProviders(), ",") != "anthropic" {
-		t.Fatalf("key file = %v, %v", keys, err)
-	}
-	t.Setenv("AI_GATEWAY_API_KEY", "vck-owner")
-	if _, err := platformModelKeys(); err == nil || !strings.Contains(err.Error(), `"vercel"`) {
-		t.Fatalf("AI_GATEWAY_API_KEY beside a key file = %v", err)
-	}
-	t.Setenv("AI_GATEWAY_API_KEY", "")
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := platformModelKeys(); err == nil {
-		t.Fatal("a world-readable key file was accepted")
-	}
-}
-
 func TestCreditsWithoutDatabaseFails(t *testing.T) {
 	t.Setenv("SMITHERS_DATABASE_URL", "")
 	t.Setenv("DATABASE_URL", "")

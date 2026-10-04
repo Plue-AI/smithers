@@ -115,11 +115,11 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 	cfgCopy := *cfg
 	cfgCopy.Install.QuiesceEnabled = true
 	cfg = &cfgCopy
-	return hostStatusProductionRouter(cfg, db.New(nil), &routes.HostStatusHandler{})
+	return hostStatusProductionRouter(cfg, db.New(nil), &services.InstallCapacityService{})
 }
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
-func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *routes.HostStatusHandler) chi.Router {
+func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService) chi.Router {
 	authHandler := &routes.AuthHandler{}
 	if config.IsSingleOwner(cfg.Auth) {
 		authHandler.LocalService = (*services.AuthService)(nil)
@@ -141,7 +141,6 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
 		routerExtras{
-			HostStatus:          host,
 			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},
 			BillingCapabilities: conformanceBillingCapabilities(cfg),
 			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{},
@@ -149,7 +148,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:   &routes.RepositoryEgressPolicyHandler{},
-			GitHubAppSetup: &routes.GitHubAppSetupHandler{},
+			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}},
 		},
 	)
 	// The routes run() mounts beside buildRouter.
@@ -479,7 +478,7 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 			}
 			hosted := mode == config.AuthModeMultitenant
 
-			router := hostStatusProductionRouter(cfg, nil, &routes.HostStatusHandler{})
+			router := hostStatusProductionRouter(cfg, nil, &services.InstallCapacityService{})
 			request := httptest.NewRequest("GET", "/api/admin/users", nil)
 			request = withRouterAdminTokenAuth(request, false, middleware.TokenSourcePersonalAccessToken, middleware.ScopeReadRepository)
 			response := httptest.NewRecorder()
@@ -527,7 +526,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = mode
-			router := hostStatusProductionRouter(cfg, q, &routes.HostStatusHandler{})
+			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{})
 			dispatcher := &browserFlowRecordingDispatcher{}
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
 			mountBrowserFlow(router, cfg, q, &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher})

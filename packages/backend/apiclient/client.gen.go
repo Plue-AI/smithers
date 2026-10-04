@@ -1083,30 +1083,6 @@ type InstallScorecardPersonMinutes struct {
 	Verdict string `json:"verdict"`
 }
 
-// GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
-type GitHubAppSetupRequest struct {
-	Resume     *bool  `json:"resume,omitempty"`
-	OwnerLogin string `json:"owner_login"`
-	OwnerKind  string `json:"owner_kind"`
-	Repository string `json:"repository"`
-}
-
-// GitHubAppSetupStatus is generated from docs/api/openapi.yaml.
-type GitHubAppSetupStatus struct {
-	GithubApp GitHubAppSetupStatusGithubApp `json:"github_app"`
-}
-
-// GitHubAppSetupStatusGithubApp is generated from docs/api/openapi.yaml.
-type GitHubAppSetupStatusGithubApp struct {
-	Configured     bool                   `json:"configured"`
-	Installed      bool                   `json:"installed"`
-	Slug           *string                `json:"slug,omitempty"`
-	InstallationID *int64                 `json:"installation_id,omitempty"`
-	InstallURL     *string                `json:"install_url,omitempty"`
-	CallbackURLs   []string               `json:"callback_urls,omitempty"`
-	CallbackFixes  []GitHubAppCallbackFix `json:"callback_fixes,omitempty"`
-}
-
 // GitHubAppCallbackFix is generated from docs/api/openapi.yaml.
 type GitHubAppCallbackFix struct {
 	SettingsURL string `json:"settings_url"`
@@ -1138,6 +1114,98 @@ type GitHubAppManifest struct {
 type GitHubAppManifestHookAttributes struct {
 	URL    string `json:"url"`
 	Active bool   `json:"active"`
+}
+
+// GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
+type GitHubAppSetupRequest struct {
+	Owner string `json:"owner"`
+}
+
+// InstallSetupError is generated from docs/api/openapi.yaml.
+type InstallSetupError struct {
+	Code    string  `json:"code"`
+	Class   string  `json:"class"`
+	Message string  `json:"message"`
+	Fix     *string `json:"fix,omitempty"`
+}
+
+// InstallSetupAddress is generated from docs/api/openapi.yaml.
+type InstallSetupAddress struct {
+	Bind    string   `json:"bind"`
+	Origins []string `json:"origins"`
+}
+
+// InstallSetupRepository is generated from docs/api/openapi.yaml.
+type InstallSetupRepository struct {
+	Repository string `json:"repository"`
+}
+
+// InstallSetupEmpty is generated from docs/api/openapi.yaml.
+type InstallSetupEmpty = map[string]json.RawMessage
+
+// InstallSetupStatus is generated from docs/api/openapi.yaml.
+type InstallSetupStatus struct {
+	Address      InstallSetupStatusAddress      `json:"address"`
+	Steps        []InstallSetupStatusStepsItem  `json:"steps"`
+	ThisMac      InstallSetupStatusThisMac      `json:"this_mac"`
+	Github       InstallSetupStatusGithub       `json:"github"`
+	Repository   *InstallSetupStatusRepository  `json:"repository,omitempty"`
+	Repositories []string                       `json:"repositories,omitempty"`
+	Models       []InstallSetupStatusModelsItem `json:"models"`
+	Chatgpt      bool                           `json:"chatgpt"`
+	Capacity     int64                          `json:"capacity"`
+	Parallel     *int64                         `json:"parallel,omitempty"`
+}
+
+// InstallSetupStatusAddress is generated from docs/api/openapi.yaml.
+type InstallSetupStatusAddress struct {
+	Listen  string   `json:"listen"`
+	Bind    string   `json:"bind"`
+	Origins []string `json:"origins"`
+}
+
+// InstallSetupStatusStepsItem is generated from docs/api/openapi.yaml.
+type InstallSetupStatusStepsItem struct {
+	ID      string                              `json:"id"`
+	State   string                              `json:"state"`
+	Pct     *int64                              `json:"pct,omitempty"`
+	Error   *InstallSetupError                  `json:"error,omitempty"`
+	Blocked *InstallSetupStatusStepsItemBlocked `json:"blocked,omitempty"`
+}
+
+// InstallSetupStatusStepsItemBlocked is generated from docs/api/openapi.yaml.
+type InstallSetupStatusStepsItemBlocked struct {
+	Line   string `json:"line"`
+	FixURL string `json:"fix_url"`
+}
+
+// InstallSetupStatusThisMac is generated from docs/api/openapi.yaml.
+type InstallSetupStatusThisMac struct {
+	MemoryGb   float64 `json:"memory_gb"`
+	DiskFreeGb float64 `json:"disk_free_gb"`
+	Capacity   int64   `json:"capacity"`
+}
+
+// InstallSetupStatusGithub is generated from docs/api/openapi.yaml.
+type InstallSetupStatusGithub struct {
+	Owner         *string `json:"owner,omitempty"`
+	SignedIn      bool    `json:"signed_in"`
+	AppInstalled  bool    `json:"app_installed"`
+	SquashAllowed *bool   `json:"squash_allowed,omitempty"`
+}
+
+// InstallSetupStatusRepository is generated from docs/api/openapi.yaml.
+type InstallSetupStatusRepository struct {
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+}
+
+// InstallSetupStatusModelsItem is generated from docs/api/openapi.yaml.
+type InstallSetupStatusModelsItem struct {
+	Role     string  `json:"role"`
+	Provider string  `json:"provider"`
+	Key      string  `json:"key"`
+	Error    *string `json:"error,omitempty"`
 }
 
 // PostAPIAdminUsersUsernameEraseBody is generated from docs/api/openapi.yaml.
@@ -1190,48 +1258,6 @@ type PostAPIGithubSyncResponse struct {
 	State string `json:"state"`
 }
 
-// GetAPIHostResponse is generated from docs/api/openapi.yaml.
-type GetAPIHostResponse struct {
-	Profile  GetAPIHostResponseProfile  `json:"profile"`
-	Limits   GetAPIHostResponseLimits   `json:"limits"`
-	Machines GetAPIHostResponseMachines `json:"machines"`
-}
-
-// GetAPIHostResponseProfile is generated from docs/api/openapi.yaml.
-type GetAPIHostResponseProfile struct {
-	MemoryBytes   int64  `json:"memory_bytes"`
-	PerfCores     int64  `json:"perf_cores"`
-	PhysicalCores int64  `json:"physical_cores"`
-	DiskFreeBytes int64  `json:"disk_free_bytes"`
-	MacosVersion  string `json:"macos_version"`
-	Hypervisor    bool   `json:"hypervisor"`
-}
-
-// GetAPIHostResponseLimits is generated from docs/api/openapi.yaml.
-type GetAPIHostResponseLimits struct {
-	MemoryMib        int64   `json:"memory_mib"`
-	Cpus             int64   `json:"cpus"`
-	Capacity         int64   `json:"capacity"`
-	LayerBudgetBytes int64   `json:"layer_budget_bytes"`
-	MemoryCapacity   int64   `json:"memory_capacity"`
-	CoreCapacity     int64   `json:"core_capacity"`
-	DiskCapacity     int64   `json:"disk_capacity"`
-	LimitingTerm     string  `json:"limiting_term"`
-	Missing          *int64  `json:"missing,omitempty"`
-	Fix              *string `json:"fix,omitempty"`
-}
-
-// GetAPIHostResponseMachines is generated from docs/api/openapi.yaml.
-type GetAPIHostResponseMachines struct {
-	InUse    int64 `json:"in_use"`
-	Capacity int64 `json:"capacity"`
-}
-
-// PatchAPIHostBody is generated from docs/api/openapi.yaml.
-type PatchAPIHostBody struct {
-	Capacity int64 `json:"capacity"`
-}
-
 // GetAPIStatusResponse is generated from docs/api/openapi.yaml.
 type GetAPIStatusResponse struct {
 	Status     string                         `json:"status"`
@@ -1254,6 +1280,11 @@ type GetAPIStatusResponseComponentsCanary struct {
 type GetAPIInstallScorecardParams struct {
 	From time.Time
 	To   time.Time
+}
+
+// PutAPIInstallBody is generated from docs/api/openapi.yaml.
+type PutAPIInstallBody struct {
+	Capacity int64 `json:"capacity"`
 }
 
 // PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.
@@ -2203,20 +2234,6 @@ func (c *Client) PostAPIGithubSyncedReposOwnerRepoMirrorStatus(ctx context.Conte
 	return out, err
 }
 
-// GetAPIHost calls GET /api/host.
-func (c *Client) GetAPIHost(ctx context.Context) (GetAPIHostResponse, error) {
-	var out GetAPIHostResponse
-	err := c.do(ctx, "GET", "/api/host", nil, nil, &out)
-	return out, err
-}
-
-// PatchAPIHost calls PATCH /api/host.
-func (c *Client) PatchAPIHost(ctx context.Context, body PatchAPIHostBody) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PATCH", "/api/host", nil, body, &out)
-	return out, err
-}
-
 // GetAPIStatus calls GET /api/status.
 func (c *Client) GetAPIStatus(ctx context.Context) (GetAPIStatusResponse, error) {
 	var out GetAPIStatusResponse
@@ -2249,17 +2266,54 @@ func (c *Client) GetAPIInstallScorecard(ctx context.Context, params GetAPIInstal
 }
 
 // GetAPIInstall calls GET /api/install.
-func (c *Client) GetAPIInstall(ctx context.Context) (GitHubAppSetupStatus, error) {
-	var out GitHubAppSetupStatus
+func (c *Client) GetAPIInstall(ctx context.Context) (InstallSetupStatus, error) {
+	var out InstallSetupStatus
 	err := c.do(ctx, "GET", "/api/install", nil, nil, &out)
 	return out, err
 }
 
-// PostAPIInstallSetupApp calls POST /api/install/setup/app_manifest.
+// PutAPIInstall calls PUT /api/install.
+func (c *Client) PutAPIInstall(ctx context.Context, body PutAPIInstallBody) (InstallSetupStatus, error) {
+	var out InstallSetupStatus
+	err := c.do(ctx, "PUT", "/api/install", nil, body, &out)
+	return out, err
+}
+
+// PostAPIInstallSetupAddress calls POST /api/install/setup/address.
+func (c *Client) PostAPIInstallSetupAddress(ctx context.Context, body InstallSetupAddress) error {
+	return c.do(ctx, "POST", "/api/install/setup/address", nil, body, nil)
+}
+
+// PostAPIInstallSetupApp calls POST /api/install/setup/app.
 func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetupRequest) (GitHubAppManifestStart, error) {
 	var out GitHubAppManifestStart
-	err := c.do(ctx, "POST", "/api/install/setup/app_manifest", nil, body, &out)
+	err := c.do(ctx, "POST", "/api/install/setup/app", nil, body, &out)
 	return out, err
+}
+
+// PostAPIInstallSetupSignIn calls POST /api/install/setup/sign_in.
+func (c *Client) PostAPIInstallSetupSignIn(ctx context.Context, body InstallSetupEmpty) error {
+	return c.do(ctx, "POST", "/api/install/setup/sign_in", nil, body, nil)
+}
+
+// PostAPIInstallSetupRepository calls POST /api/install/setup/repository.
+func (c *Client) PostAPIInstallSetupRepository(ctx context.Context, body InstallSetupRepository) error {
+	return c.do(ctx, "POST", "/api/install/setup/repository", nil, body, nil)
+}
+
+// PostAPIInstallSetupModels calls POST /api/install/setup/models.
+func (c *Client) PostAPIInstallSetupModels(ctx context.Context, body InstallSetupEmpty) error {
+	return c.do(ctx, "POST", "/api/install/setup/models", nil, body, nil)
+}
+
+// PostAPIInstallSetupSource calls POST /api/install/setup/source.
+func (c *Client) PostAPIInstallSetupSource(ctx context.Context, body InstallSetupEmpty) error {
+	return c.do(ctx, "POST", "/api/install/setup/source", nil, body, nil)
+}
+
+// PostAPIInstallSetupMachine calls POST /api/install/setup/machine.
+func (c *Client) PostAPIInstallSetupMachine(ctx context.Context, body InstallSetupEmpty) error {
+	return c.do(ctx, "POST", "/api/install/setup/machine", nil, body, nil)
 }
 
 // PostAPIInstallQuiesce calls POST /api/install/quiesce.

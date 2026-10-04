@@ -139,6 +139,13 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		app["pem"], app["client_id"], app["client_secret"], app["webhook_secret"] = s.config.PrivateKeyPEM, s.config.ClientID, s.config.ClientSecret, s.config.WebhookSecret
 		return http.StatusCreated, app
 	}
+	if r.Method == http.MethodGet && r.URL.Path == "/users/"+s.config.OwnerLogin {
+		kind := "User"
+		if s.config.OwnerKind == "org" {
+			kind = "Organization"
+		}
+		return http.StatusOK, map[string]string{"login": s.config.OwnerLogin, "type": kind}
+	}
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 		return failure(http.StatusUnauthorized, "Bearer authorization required")
 	}

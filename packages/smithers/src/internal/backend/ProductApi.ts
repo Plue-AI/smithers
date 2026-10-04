@@ -598,25 +598,6 @@ export type InstallScorecard = {
   }
 }
 
-export type GitHubAppSetupRequest = {
-  resume?: boolean
-  owner_login: string
-  owner_kind: "user" | "org"
-  repository: string
-}
-
-export type GitHubAppSetupStatus = {
-  github_app: {
-    configured: boolean
-    installed: boolean
-    slug?: string
-    installation_id?: number
-    install_url?: string
-    callback_urls?: Array<string>
-    callback_fixes?: Array<GitHubAppCallbackFix>
-  }
-}
-
 export type GitHubAppCallbackFix = {
   settings_url: string
   add_url: string
@@ -642,6 +623,71 @@ export type GitHubAppManifest = {
   }
   default_permissions: Record<string, "read" | "write">
   default_events: Array<string>
+}
+
+export type GitHubAppSetupRequest = {
+  owner: string
+}
+
+export type InstallSetupError = {
+  code: string
+  class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
+  message: string
+  fix?: string
+}
+
+export type InstallSetupAddress = {
+  bind: string
+  origins: Array<string>
+}
+
+export type InstallSetupRepository = {
+  repository: string
+}
+
+export type InstallSetupEmpty = Record<string, never>
+
+export type InstallSetupStatus = {
+  address: {
+    listen: "mac" | "network"
+    bind: string
+    origins: Array<string>
+  }
+  steps: Array<{
+    id: "address" | "app_manifest" | "sign_in" | "repository" | "models" | "source" | "machine"
+    state: "pending" | "running" | "done" | "blocked" | "failed"
+    pct?: number
+    error?: InstallSetupError
+    blocked?: {
+      line: string
+      fix_url: string
+    }
+  }>
+  this_mac: {
+    memory_gb: number
+    disk_free_gb: number
+    capacity: number
+  }
+  github: {
+    owner?: string
+    signed_in: boolean
+    app_installed: boolean
+    squash_allowed?: boolean
+  }
+  repository?: {
+    owner: string
+    name: string
+  }
+  repositories?: Array<string>
+  models: Array<{
+    role: "fast" | "coding" | "jev"
+    provider: string
+    key: "none" | "validating" | "saved" | "failed"
+    error?: string
+  }>
+  chatgpt: boolean
+  capacity: number
+  parallel?: number
 }
 
 export type PostApiAdminGrantBody = AdminCreditGrantRequest
@@ -1378,51 +1424,6 @@ export interface PostApiGithubSyncedReposOwnerRepoMirrorStatusInput {
 export const postApiGithubSyncedReposOwnerRepoMirrorStatus = (transport: Transport, input: PostApiGithubSyncedReposOwnerRepoMirrorStatusInput): Promise<PostApiGithubSyncedReposOwnerRepoMirrorStatusResponse> =>
   transport.request("POST", `/api/github/synced-repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mirror-status`) as Promise<PostApiGithubSyncedReposOwnerRepoMirrorStatusResponse>
 
-export type GetApiHostResponse = {
-  profile: {
-    memory_bytes: number
-    perf_cores: number
-    physical_cores: number
-    disk_free_bytes: number
-    macos_version: string
-    hypervisor: boolean
-  }
-  limits: {
-    memory_mib: number
-    cpus: number
-    capacity: number
-    layer_budget_bytes: number
-    memory_capacity: number
-    core_capacity: number
-    disk_capacity: number
-    limiting_term: "memory" | "cores" | "disk"
-    missing?: number
-    fix?: string
-  }
-  machines: {
-    in_use: number
-    capacity: number
-  }
-}
-
-/** GET /api/host: Read detected host resources and machine limits */
-export const getApiHost = (transport: Transport): Promise<GetApiHostResponse> =>
-  transport.request("GET", `/api/host`) as Promise<GetApiHostResponse>
-
-export type PatchApiHostBody = {
-  capacity: number
-}
-
-export type PatchApiHostResponse = AnyJSON
-
-export interface PatchApiHostInput {
-  readonly body: PatchApiHostBody
-}
-
-/** PATCH /api/host: Lower the install machine capacity */
-export const patchApiHost = (transport: Transport, input: PatchApiHostInput): Promise<PatchApiHostResponse> =>
-  transport.request("PATCH", `/api/host`, input.body) as Promise<PatchApiHostResponse>
-
 export type GetApiStatusResponse = {
   status: "ok" | "degraded"
   checked_at: string
@@ -1460,11 +1461,35 @@ export interface GetApiInstallScorecardInput {
 export const getApiInstallScorecard = (transport: Transport, input: GetApiInstallScorecardInput): Promise<GetApiInstallScorecardResponse> =>
   transport.request("GET", `/api/install/scorecard${search({ from: input.query.from, to: input.query.to })}`) as Promise<GetApiInstallScorecardResponse>
 
-export type GetApiInstallResponse = GitHubAppSetupStatus
+export type GetApiInstallResponse = InstallSetupStatus
 
-/** GET /api/install: Read GitHub App setup status */
+/** GET /api/install: Read install setup */
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
+
+export type PutApiInstallBody = {
+  capacity: number
+}
+
+export type PutApiInstallResponse = InstallSetupStatus
+
+export interface PutApiInstallInput {
+  readonly body: PutApiInstallBody
+}
+
+/** PUT /api/install: Set owner capacity */
+export const putApiInstall = (transport: Transport, input: PutApiInstallInput): Promise<PutApiInstallResponse> =>
+  transport.request("PUT", `/api/install`, input.body) as Promise<PutApiInstallResponse>
+
+export type PostApiInstallSetupAddressBody = InstallSetupAddress
+
+export interface PostApiInstallSetupAddressInput {
+  readonly body: PostApiInstallSetupAddressBody
+}
+
+/** POST /api/install/setup/address: Run setup address */
+export const postApiInstallSetupAddress = (transport: Transport, input: PostApiInstallSetupAddressInput): Promise<void> =>
+  transport.request("POST", `/api/install/setup/address`, input.body).then(() => undefined)
 
 export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
 
@@ -1474,9 +1499,59 @@ export interface PostApiInstallSetupAppInput {
   readonly body: PostApiInstallSetupAppBody
 }
 
-/** POST /api/install/setup/app_manifest: Begin or resume GitHub App setup */
+/** POST /api/install/setup/app: Run setup app */
 export const postApiInstallSetupApp = (transport: Transport, input: PostApiInstallSetupAppInput): Promise<PostApiInstallSetupAppResponse> =>
-  transport.request("POST", `/api/install/setup/app_manifest`, input.body) as Promise<PostApiInstallSetupAppResponse>
+  transport.request("POST", `/api/install/setup/app`, input.body) as Promise<PostApiInstallSetupAppResponse>
+
+export type PostApiInstallSetupSignInBody = InstallSetupEmpty
+
+export interface PostApiInstallSetupSignInInput {
+  readonly body: PostApiInstallSetupSignInBody
+}
+
+/** POST /api/install/setup/sign_in: Run setup sign_in */
+export const postApiInstallSetupSignIn = (transport: Transport, input: PostApiInstallSetupSignInInput): Promise<void> =>
+  transport.request("POST", `/api/install/setup/sign_in`, input.body).then(() => undefined)
+
+export type PostApiInstallSetupRepositoryBody = InstallSetupRepository
+
+export interface PostApiInstallSetupRepositoryInput {
+  readonly body: PostApiInstallSetupRepositoryBody
+}
+
+/** POST /api/install/setup/repository: Run setup repository */
+export const postApiInstallSetupRepository = (transport: Transport, input: PostApiInstallSetupRepositoryInput): Promise<void> =>
+  transport.request("POST", `/api/install/setup/repository`, input.body).then(() => undefined)
+
+export type PostApiInstallSetupModelsBody = InstallSetupEmpty
+
+export interface PostApiInstallSetupModelsInput {
+  readonly body: PostApiInstallSetupModelsBody
+}
+
+/** POST /api/install/setup/models: Run setup models */
+export const postApiInstallSetupModels = (transport: Transport, input: PostApiInstallSetupModelsInput): Promise<void> =>
+  transport.request("POST", `/api/install/setup/models`, input.body).then(() => undefined)
+
+export type PostApiInstallSetupSourceBody = InstallSetupEmpty
+
+export interface PostApiInstallSetupSourceInput {
+  readonly body: PostApiInstallSetupSourceBody
+}
+
+/** POST /api/install/setup/source: Run setup source */
+export const postApiInstallSetupSource = (transport: Transport, input: PostApiInstallSetupSourceInput): Promise<void> =>
+  transport.request("POST", `/api/install/setup/source`, input.body).then(() => undefined)
+
+export type PostApiInstallSetupMachineBody = InstallSetupEmpty
+
+export interface PostApiInstallSetupMachineInput {
+  readonly body: PostApiInstallSetupMachineBody
+}
+
+/** POST /api/install/setup/machine: Run setup machine */
+export const postApiInstallSetupMachine = (transport: Transport, input: PostApiInstallSetupMachineInput): Promise<void> =>
+  transport.request("POST", `/api/install/setup/machine`, input.body).then(() => undefined)
 
 export type PostApiInstallQuiesceBody = {
   op: string

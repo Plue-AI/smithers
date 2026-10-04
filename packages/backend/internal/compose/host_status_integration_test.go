@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -17,84 +18,79 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHostStatusAuthenticatedHTTPModelPostgres(t *testing.T) {
+func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
-	u, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "hostowner", LowerUsername: "hostowner"})
+	ctx := t.Context()
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "hostowner", LowerUsername: "hostowner"})
 	require.NoError(t, err)
-	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES ($1)`, u.ID)
+	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "hostmember", LowerUsername: "hostmember"})
 	require.NoError(t, err)
-	actor := u.ID
-	token := func(value, scope string) string {
-		seed := sha256.Sum256([]byte(value))
-		value = "smithers_" + hex.EncodeToString(seed[:])[:40]
-		digest := sha256.Sum256([]byte(value))
-		hash := hex.EncodeToString(digest[:])
-		_, err := q.CreateAccessToken(t.Context(), db.CreateAccessTokenParams{UserID: actor, Name: value, TokenHash: hash, TokenLastEight: hash[56:], Scopes: scope})
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	session := func(user db.User, value string) string {
+		hash := sha256.Sum256([]byte(value))
+		_, err := q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(hash[:]), UserID: user.ID, Username: user.Username, ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 		return value
 	}
-	good := token("smithers_capacity_owner", "read:user")
-	writer := token("smithers_capacity_write", "read:user,write:user")
-	limited := token("smithers_capacity_limited", "read:repository")
-	member, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "hostmember", LowerUsername: "hostmember"})
-	require.NoError(t, err)
-	actor = member.ID
-	nonowner := token("smithers_capacity_member", "read:user,write:user")
-	s := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}, InUse: func() int { return 1 }}
-	require.NoError(t, s.Set(t.Context(), u.ID, 2))
-	router := hostStatusProductionRouter(testConfigAllFlagsOn(), q, &routes.HostStatusHandler{Service: s})
-	get := func(credential string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodGet, "/api/host", nil)
+	good := session(owner, "owner-capacity-session")
+	other := session(member, "member-capacity-session")
+	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
+	require.NoError(t, capacity.Set(ctx, owner.ID, 2))
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = "http://localhost:4000"
+	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
+	handler := &routes.GitHubAppSetupHandler{Owners: q, AllowedOrigins: []string{"http://localhost:4000"}, Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}
+	router := githubAppSetupComposeRouter(cfg, pool, handler)
+	request := func(method, path, credential, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("Content-Type", "application/json")
 		if credential != "" {
-			request.Header.Set("Authorization", "token "+credential)
+			r.AddCookie(&http.Cookie{Name: "smithers_session", Value: credential})
 		}
-		recorder := httptest.NewRecorder()
-		router.ServeHTTP(recorder, request)
-		return recorder
-	}
-	require.Equal(t, 401, get("").Code)
-	require.Equal(t, 403, get(limited).Code)
-	response := get(good)
-	require.Equal(t, 200, response.Code)
-	var status services.HostStatus
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
-	// spec §8.2.1 and §14.3: profile + formula limits + effective machines count.
-	require.Equal(t, s.Profile, status.Profile)
-	require.Equal(t, 3, status.Limits.Capacity)
-	require.Equal(t, services.MachineCapacity{InUse: 1, Capacity: 2}, status.Machines)
-	// C-MCH-04 steps 3–5: production owner write refuses above-formula values.
-	patch := func(credential, body string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPatch, "/api/host", strings.NewReader(body))
-		request.Header.Set("Content-Type", "application/json")
-		if credential != "" {
-			request.Header.Set("Authorization", "token "+credential)
+		if method != "GET" {
+			r.Header.Set("Origin", "http://localhost:4000")
+			r.Header.Set("X-CSRF-Token", "csrf")
+			r.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
 		}
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		return response
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
 	}
-	require.Equal(t, 401, patch("", `{"capacity":1}`).Code)
-	require.Equal(t, 403, patch(good, `{"capacity":1}`).Code)
-	require.Equal(t, 403, patch(nonowner, `{"capacity":1}`).Code)
-	require.Equal(t, 400, patch(writer, `{"capacity":1,"extra":true}`).Code)
-	require.Equal(t, 400, patch(writer, `{"capacity":1} {}`).Code)
-	require.Equal(t, 422, patch(writer, `{"capacity":4}`).Code)
-	require.Equal(t, 422, patch(writer, `{"capacity":0}`).Code)
-	response = patch(writer, `{"capacity":1}`)
+	require.Equal(t, 404, request("GET", "/api/host", good, "").Code)
+	require.Equal(t, 404, request("PATCH", "/api/host", good, `{"capacity":1}`).Code)
+	require.Equal(t, 403, request("GET", "/api/install", other, "").Code)
+	response := request("GET", "/api/install", good, "")
+	require.Equal(t, 200, response.Code, response.Body.String())
+	var status struct {
+		Capacity int `json:"capacity"`
+		Mac      struct {
+			Memory   float64 `json:"memory_gb"`
+			Capacity int     `json:"capacity"`
+		} `json:"this_mac"`
+		Steps []struct {
+			ID string `json:"id"`
+		} `json:"steps"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	require.Equal(t, 32.0, status.Mac.Memory)
+	require.Equal(t, 2, status.Capacity)
+	require.Equal(t, 3, status.Mac.Capacity)
+	require.Len(t, status.Steps, 7)
+	require.Equal(t, "app_manifest", status.Steps[1].ID)
+	for _, test := range []struct {
+		credential, body string
+		want             int
+	}{{other, `{"capacity":1}`, 403}, {good, `{"capacity":1,"extra":true}`, 400}, {good, `{"capacity":1} {}`, 400}, {good, `{}`, 400}, {good, `{"capacity":4}`, 422}, {good, `{"capacity":0}`, 422}, {good, `{"capacity":1}`, 200}} {
+		response = request("PUT", "/api/install", test.credential, test.body)
+		require.Equal(t, test.want, response.Code, response.Body.String())
+	}
+	capacity.Profile.DiskFreeBytes = 60 << 30
+	response = request("GET", "/api/install", good, "")
 	require.Equal(t, 200, response.Code)
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
-	require.Equal(t, services.MachineCapacity{InUse: 1, Capacity: 1}, status.Machines)
-	s.Profile.DiskFreeBytes = 60 << 30
-	response = get(good)
-	require.Equal(t, 200, response.Code)
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
-	require.Zero(t, status.Machines.Capacity)
-	require.Equal(t, "disk", status.Limits.LimitingTerm)
-	require.NotEmpty(t, status.Limits.Fix)
-	_, err = pool.Exec(t.Context(), `UPDATE install_settings SET value='0' WHERE key='capacity'`)
-	require.NoError(t, err)
-	response = get(good)
-	require.Equal(t, 503, response.Code)
-	require.JSONEq(t, `{"code":"host_status_unavailable","class":"infra","message":"host status unavailable"}`, response.Body.String())
+	require.Zero(t, status.Capacity)
 }

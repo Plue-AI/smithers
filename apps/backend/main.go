@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -19,10 +18,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/localbootstrap"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
-	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/native"
 	"github.com/smithersai/smithers/packages/backend/operator"
-	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/postgres"
 )
 
@@ -74,17 +71,6 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	}
 	if _, err := workspaceIsolation(testFlowHostConfig.AllowTrustedProcessForTests); err != nil {
 		return err
-	}
-	upstreams, err := modelproxy.ParseUpstreams(os.Getenv(modelproxy.UpstreamsEnv))
-	if err != nil {
-		return err
-	}
-	platformKeys, err := platformModelKeys()
-	if err != nil {
-		return err
-	}
-	if upstreams != nil && platformKeys == nil {
-		return fmt.Errorf("%s needs %s", modelproxy.UpstreamsEnv, modelproxy.KeysFileEnv)
 	}
 	manifestPath := strings.TrimSpace(os.Getenv("SMITHERS_FLOW_HOST_MANIFEST"))
 	if manifestPath == "" {
@@ -147,24 +133,9 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	if err != nil {
 		return err
 	}
-	var recommender ports.Recommender
-	if platformKeys != nil && slices.Contains(platformKeys.PlatformModelProviders(), modelproxy.ProviderVercel) {
-		// Metered: the key file is what the install pays for.
-		endpoint := os.Getenv("SMITHERS_JEV_ENDPOINT")
-		if origin, ok := upstreams[modelproxy.ProviderVercel]; ok && strings.TrimSpace(endpoint) == "" {
-			// The Vercel upstream moves every call on the platform key.
-			endpoint = strings.TrimRight(origin, "/") + "/v4/ai/evaluation-model"
-		}
-		recommender, err = modelhost.NewJevRecommender(platformKeys, endpoint, nil)
-		if err != nil {
-			return fmt.Errorf("configure recommender: %w", err)
-		}
-	} else if key := strings.TrimSpace(os.Getenv("AI_GATEWAY_API_KEY")); key != "" {
-		// The owner's own key: a single-owner installation is not metered.
-		recommender, err = modelhost.NewJevRecommender(modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderVercel: key}), os.Getenv("SMITHERS_JEV_ENDPOINT"), nil)
-		if err != nil {
-			return fmt.Errorf("configure recommender: %w", err)
-		}
+	recommender, err := modelhost.NewJevRecommender(modelhost.OwnerGatewayKeys{Resolver: resolver}, os.Getenv("SMITHERS_JEV_ENDPOINT"), nil)
+	if err != nil {
+		return fmt.Errorf("configure owner recommender: %w", err)
 	}
 
 	appConfig := app.Config{
@@ -177,10 +148,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		ChatHost:         chatHost,
 		Recommender:      recommender,
 	}
-	if platformKeys != nil {
-		appConfig.PlatformModelKeys = platformKeys
-		appConfig.ModelProxyUpstreams = upstreams
-	}
+
 	if nativeBin != "" {
 		stateRoot := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
 		if stateRoot == "" {
@@ -239,18 +207,4 @@ func requireExternalBootstrapToken(dataRoot string) error {
 		return fmt.Errorf("inspect local secrets: %w", err)
 	}
 	return errors.New("SMITHERS_AUTH_BOOTSTRAP_TOKEN is required for first setup with external PostgreSQL")
-}
-
-// platformModelKeys opens SMITHERS_PLATFORM_MODEL_KEYS_FILE, the keys the
-// install pays for. Every call on them is metered in the credit ledger and
-// each key is read from the file per call. Nil when unset.
-func platformModelKeys() (*modelproxy.FileKeys, error) {
-	path := strings.TrimSpace(os.Getenv(modelproxy.KeysFileEnv))
-	if path == "" {
-		return nil, nil
-	}
-	if strings.TrimSpace(os.Getenv("AI_GATEWAY_API_KEY")) != "" {
-		return nil, fmt.Errorf("set the AI Gateway key as \"vercel\" in %s instead of AI_GATEWAY_API_KEY", modelproxy.KeysFileEnv)
-	}
-	return modelproxy.OpenKeysFile(path)
 }

@@ -38,7 +38,6 @@ func apiBodyLimit(r *http.Request) int64 {
 
 type routerExtras struct {
 	InstallScorecard    *routes.InstallScorecardHandler
-	HostStatus          *routes.HostStatusHandler
 	GitHubAppSetup      *routes.GitHubAppSetupHandler
 	CanaryRuns          ports.CanaryRunSource
 	Admission           services.BillingPolicy
@@ -885,7 +884,6 @@ func buildRouter(
 		r.Use(authLoader(queries, cfg.Auth))
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
-		mountHostStatus(r, extras.HostStatus)
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
@@ -903,7 +901,10 @@ func buildRouter(
 		}
 		if extras.GitHubAppSetup != nil {
 			r.Get("/install", extras.GitHubAppSetup.Status)
-			r.Post("/install/setup/app_manifest", extras.GitHubAppSetup.Begin)
+			r.Put("/install", extras.GitHubAppSetup.SetCapacity)
+			for _, step := range []string{"address", "app", "sign_in", "repository", "models", "source", "machine"} {
+				r.Post("/install/setup/"+step, extras.GitHubAppSetup.Step)
+			}
 		}
 		if extras.Recommender != nil {
 			r.Post("/recommend", extras.Recommender.Recommend)
@@ -1908,11 +1909,4 @@ func withAdminAuditActor(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next(w, r.WithContext(routes.AdminUserAuditContext(r)))
 	})
-}
-
-func mountHostStatus(r chi.Router, h *routes.HostStatusHandler) {
-	if h != nil {
-		r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/host", h.Status)
-		r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Patch("/host", h.SetCapacity)
-	}
 }

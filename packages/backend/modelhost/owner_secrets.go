@@ -194,3 +194,41 @@ func builtinCredential(name string) bool {
 		return false
 	}
 }
+
+// OwnerGatewayKeys resolves the install's agent:jev binding for every call.
+// It implements Keys solely to reuse Jev's transport; it is never installed as
+// platform-paid proxy access and has no environment or file fallback.
+type OwnerGatewayKeys struct{ Resolver *OwnerSecretResolver }
+
+func (keys OwnerGatewayKeys) PlatformModelProviders() []string { return []string{"vercel"} }
+func (keys OwnerGatewayKeys) PlatformModelKey(ctx context.Context, provider string) (string, error) {
+	if provider != "vercel" || keys.Resolver == nil {
+		return "", ports.ErrModelCredentialMissing
+	}
+	resolver := keys.Resolver
+	pool, err := resolver.openPool(ctx, resolver.databaseURL())
+	if err != nil {
+		return "", err
+	}
+	var owner int64
+	var model json.RawMessage
+	err = pool.QueryRow(ctx, `SELECT o.user_id,s.value FROM self_host_owners o CROSS JOIN install_settings s WHERE s.key='agent:jev'`).Scan(&owner, &model)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrModelCredentialMissing
+	}
+	if err != nil {
+		return "", err
+	}
+	var binding struct {
+		Credential string `json:"credential"`
+	}
+	if json.Unmarshal(model, &binding) != nil || binding.Credential != "AI_GATEWAY_API_KEY" {
+		return "", ports.ErrModelCredentialMissing
+	}
+	request, _ := json.Marshal(map[string]any{"model": model})
+	result, err := resolver.ResolveChatModel(ctx, owner, 0, request)
+	if err != nil {
+		return "", err
+	}
+	return result.CredentialValue, nil
+}
