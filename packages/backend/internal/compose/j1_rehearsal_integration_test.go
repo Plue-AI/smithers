@@ -107,6 +107,8 @@ func TestJ1Rehearsal(t *testing.T) {
 	t.Cleanup(provider.Close)
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
+	node, err = filepath.EvalSymlinks(node)
+	require.NoError(t, err)
 	bundle := filepath.Join(t.TempDir(), "model-host")
 	build := exec.Command(node, filepath.Join(root, "apps/model-host/build.mjs"), bundle)
 	build.Dir = root
