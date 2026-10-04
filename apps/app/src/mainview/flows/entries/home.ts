@@ -86,7 +86,9 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "background.dismiss", summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
     handler: ({ id }) => result(actions.design.dismissRun(id)) }),
-  flow({ name: "github", summary: "Show sync status and retry", hidden: true, input: NoPayload,
+  flow({ name: "github", summary: "Show sync status", input: NoPayload,
+    handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
+  flow({ name: "github.retry", summary: "Retry GitHub sync", hidden: true, input: NoPayload,
     /* The real sync door where this host serves it (GitHubSeam `github.reconcile`); MOCK SEAM: the seed's sync otherwise. */
     handler: () => actions.bootstrap !== undefined && hasCapability(actions.bootstrap, "cloud")
       ? actions.githubReconcile()

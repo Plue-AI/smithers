@@ -37,6 +37,7 @@ export const FLOW_NAMES = [
   "background.retry",
   "background.dismiss",
   "github",
+  "github.retry",
   "settings",
   "settings.address",
   "settings.capacity",

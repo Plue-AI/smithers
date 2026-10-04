@@ -126,8 +126,15 @@ func (s *GitHubMainPullService) WatchSyncHealth(ctx context.Context, changes <-c
 		}
 		var timer *time.Timer
 		var boundary <-chan time.Time
+		var next time.Time
 		if health.State == "fresh" && health.LastSuccessAt != nil {
-			timer = time.NewTimer(health.LastSuccessAt.Add(120*time.Second + time.Nanosecond).Sub(s.now()))
+			next = health.LastSuccessAt.Add(120*time.Second + time.Nanosecond)
+		} else if health.RetryAt != nil {
+			// Persisted pauses expire even when the stream worker stops polling.
+			next = *health.RetryAt
+		}
+		if !next.IsZero() {
+			timer = time.NewTimer(next.Sub(s.now()))
 			boundary = timer.C
 		}
 		select {

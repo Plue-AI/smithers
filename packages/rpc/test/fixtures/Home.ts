@@ -29,7 +29,7 @@ const newTodo: Action = {
   label: "New TODO",
   input: [{ name: "text", label: "TODO", kind: "text", required: true, multiline: true }]
 }
-const retrySync: Action = { tag: "github", label: "Retry" }
+const retrySync: Action = { tag: "github.retry", label: "Retry" }
 const menu = (n: number): Action[] => [
   { tag: "stack.move", label: "Move up", args: { n: String(n), direction: "up" } },
   { tag: "stack.move", label: "Move down", args: { n: String(n), direction: "down" } },

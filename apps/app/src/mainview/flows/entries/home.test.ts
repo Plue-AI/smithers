@@ -31,10 +31,10 @@ const stack = (h: Harness) => h.controller.design.world().repo.stack
 test("the Home doors register, and every one has an agent door (a merge only ever opens the person's card)", async () => {
   const h = await boot()
   try {
-    const entries = h.controller.commands.entries().filter(entry => ["stack", "stack.move", "merge", "background.retry", "background.dismiss", "github"].includes(nameOf(entry)))
-    expect(entries.map(nameOf).sort()).toEqual(["background.dismiss", "background.retry", "github", "merge", "stack", "stack.move"])
+    const entries = h.controller.commands.entries().filter(entry => ["stack", "stack.move", "merge", "background.retry", "background.dismiss", "github", "github.retry"].includes(nameOf(entry)))
+    expect(entries.map(nameOf).sort()).toEqual(["background.dismiss", "background.retry", "github", "github.retry", "merge", "stack", "stack.move"])
     expect(Object.fromEntries(entries.map(entry => [nameOf(entry), modelInvocable(entry)]))).toEqual({
-      "stack": true, "stack.move": true, "merge": true, "background.retry": true, "background.dismiss": true, "github": true
+      "stack": true, "stack.move": true, "merge": true, "background.retry": true, "background.dismiss": true, "github": true, "github.retry": true
     })
   } finally { h.controller.dispose() }
 })
@@ -120,7 +120,10 @@ test("main's sync Retry syncs now and clears a refused or limited health", async
   const h = await boot()
   try {
     h.controller.design.patch("repo", "repo", current => ({ ...current, syncedAgo: 400, mainHealth: { state: "limited", cause: "GitHub rate limit", retryAt: "2026-10-03T12:30:00.000Z" } }))
-    expect(await slash(h, "github")).toEqual({ status: "executed", value: "Synced" })
+    const before = h.controller.design.world().repo
+    expect(await slash(h, "github")).toEqual({ status: "executed", value: "Opened the stack" })
+    expect(h.controller.design.world().repo).toEqual(before)
+    expect(await button(h, "github.retry", {})).toEqual({ status: "executed", value: "Synced" })
     expect(h.controller.design.world().repo.syncedAgo).toBe(3)
     expect(h.controller.design.world().repo.mainHealth).toBeUndefined()
   } finally { h.controller.dispose() }
@@ -135,7 +138,7 @@ test("on a host that serves GitHub sync, Retry calls that door (github.reconcile
     await h.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/api", org: "acme", name: "api", ownerKind: "org", head: null }] }).isPersisted.promise
     await h.store.dispatch({ type: "repo.selected", actor: "user", id: "acme/api" }).isPersisted.promise
     h.controller.design.patch("repo", "repo", current => ({ ...current, syncedAgo: 400, mainHealth: { state: "limited", cause: "GitHub rate limit" } }))
-    await h.controller.runCommandForResult("github")
+    await h.controller.runCommandForResult("github.retry")
     expect(h.requests).toContain("POST /api/repos/acme/api/github/reconcile")
     expect(h.controller.design.world().repo).toMatchObject({ syncedAgo: 400, mainHealth: { state: "limited", cause: "GitHub rate limit" } })
   } finally { h.controller.dispose() }

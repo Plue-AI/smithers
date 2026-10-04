@@ -13,7 +13,7 @@ import { createDesignWorld } from "../state/seams/DesignWorld"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designHomeView } from "../state/seams/DesignWorld/home"
 import { liveChannel } from "../runtime/LiveChannel"
-const allowed = new Set<CatalogTag>(["todo.new", "github", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
+const allowed = new Set<CatalogTag>(["todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
   const calls: unknown[] = []
@@ -65,14 +65,14 @@ test("order OK is a maintainer's: a member sees neither the order row nor its co
 })
 
 test("the mounted Home admission holds Answer, order OK and Reset, so those rows keep their one action", () => {
-  for (const tag of ["todo.answer", "order.ok", "main.reset-to-github", "branch", "merge", "github"] as const) expect(HOME_TAGS.has(tag)).toBe(true)
+  for (const tag of ["todo.answer", "order.ok", "main.reset-to-github", "branch", "merge", "github.retry"] as const) expect(HOME_TAGS.has(tag)).toBe(true)
 })
 
 test("sync Retry is offered only while main's sync is stale", () => {
   const base = Object.values(fixtures)[0]!.model
   const tags = (health: string) => mount({ ...base, main: { ...base.main, health, last_success_at: new Date(Date.now() - (health === "stale" ? 121_000 : 0)).toISOString() } }).props.actions.map(action => action.tag)
   expect(tags("fresh")).toEqual(["todo.new"])
-  expect(tags("stale")).toEqual(["todo.new", "github"])
+  expect(tags("stale")).toEqual(["todo.new", "github.retry"])
   expect(tags("limited")).toEqual(["todo.new"])
   expect(tags("refused")).toEqual(["todo.new"])
 })
@@ -287,7 +287,7 @@ test("sync health ages at 120 seconds and preserves refused and limited facts", 
       Date.now = () => synced + age
       const h = mount({ ...base, main: { ...base.main, last_success_at: "2026-10-04T00:00:00Z", health: "fresh" } })
       expect(h.props.model.main.health).toBe(expected)
-      expect(h.props.actions.map(action => action.tag)).toEqual(expected === "fresh" ? ["todo.new"] : ["todo.new", "github"])
+      expect(h.props.actions.map(action => action.tag)).toEqual(expected === "fresh" ? ["todo.new"] : ["todo.new", "github.retry"])
     }
     for (const health of ["refused", "limited"] as const) {
       const main = { ...base.main, health, cause: "GitHub denied", retry_at: "2026-10-04T01:00:00Z" }
@@ -330,7 +330,7 @@ test("a mounted Home turns stale on its local clock without another snapshot", a
     now += 1000
     await act(async () => { for (const tick of ticks) tick() })
     expect(props.model.main.health).toBe("stale")
-    expect(props.actions.map(action => action.tag)).toEqual(["todo.new", "github"])
+    expect(props.actions.map(action => action.tag)).toEqual(["todo.new", "github.retry"])
   } finally {
     await act(async () => root.unmount())
     Date.now = originalNow

@@ -140,3 +140,43 @@ func TestGitHubSyncStaleTimerRecoversWithoutPolling(t *testing.T) {
 	s := NewGitHubMainPullService(nil, nil, nil, nil)
 	require.Error(t, s.WatchSyncHealth(t.Context(), nil, func(GitHubSyncHealth) { t.Fatal("missing provider published") }))
 }
+
+func TestGitHubSyncPauseTimerRecoversWithoutPolling(t *testing.T) {
+	for _, cause := range []string{"", "permission"} {
+		t.Run(cause, func(t *testing.T) {
+			s := NewGitHubMainPullService(nil, nil, nil, nil)
+			success := time.Now().Add(-121 * time.Second)
+			retry := time.Now().Add(40 * time.Millisecond)
+			s.syncStreams = &syncStreamFixture{streams: []GitHubSyncStream{{LastSuccessAt: &success, RetryAt: &retry, Cause: cause}}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			frames := make(chan GitHubSyncHealth, 4)
+			done := make(chan error, 1)
+			go func() { done <- s.WatchSyncHealth(ctx, nil, func(h GitHubSyncHealth) { frames <- h }) }()
+			receive := func() GitHubSyncHealth {
+				select {
+				case frame := <-frames:
+					return frame
+				case <-time.After(time.Second):
+					t.Fatal("pause expiry did not publish without polling")
+					return GitHubSyncHealth{}
+				}
+			}
+			initial := receive()
+			require.Equal(t, &retry, initial.RetryAt)
+			settled := receive()
+			require.Nil(t, settled.RetryAt)
+			if cause == "" {
+				require.Equal(t, "limited", initial.State)
+				require.Equal(t, "stale", settled.State)
+			} else {
+				require.Equal(t, "refused", initial.State)
+				require.Equal(t, "refused", settled.State)
+				require.Equal(t, cause, settled.Cause)
+			}
+			cancel()
+			require.ErrorIs(t, <-done, context.Canceled)
+			require.Empty(t, frames)
+		})
+	}
+}
