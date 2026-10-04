@@ -1,13 +1,12 @@
 import { FlowActionView } from "./FlowActionView"
 import { Eye } from "lucide-react"
-import { Terminal, type TerminalProps } from "@smthrs/ui/adapters/terminal"
+import type { ReactNode } from "react"
 import type { TerminalCard } from "@smthrs/rpc/TerminalCard"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import { ActorChip, actorName } from "./ActorChip"
 
-export type TerminalViewProps = CardProps<TerminalCard> & {
-  terminal: Pick<TerminalProps, "lines" | "stream" | "onData" | "onResize" | "onError" | "theme">
-}
+/** App-only: the card file supplies the emulator slot (T-UI-17); the View never binds input. */
+export type TerminalViewProps = CardProps<TerminalCard> & { terminal: ReactNode }
 
 export function TerminalView({ model, actions, onAction, terminal }: TerminalViewProps) {
   const readOnly = !model.viewer_is_owner || model.frozen
@@ -24,9 +23,7 @@ export function TerminalView({ model, actions, onAction, terminal }: TerminalVie
     </header>
     <div className="smithers-card-body">
       <div className="terminal-output" aria-label={`${model.title} output`} role="region">
-        <div inert={readOnly}><Terminal key={model.id} {...terminal} onData={readOnly ? undefined : terminal.onData}
-          readOnly={readOnly} palette="paper" fontSize={12.5} cursorBlink={!readOnly}
-          aria-label={`${model.title} terminal`} /></div>
+        <div inert={readOnly}>{terminal}</div>
       </div>
       {model.frozen || !model.viewer_is_owner ? <div className="terminal-status" role="status">{model.frozen ? <span>Rebasing…</span> : null}{!model.viewer_is_owner ? <span>Watching</span> : null}</div> : null}
       {actions.length ? <div className="terminal-actions">{actions.map((action, i) => <FlowActionView key={i} action={action} onAction={onAction} />)}</div> : null}

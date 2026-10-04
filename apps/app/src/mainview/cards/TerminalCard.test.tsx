@@ -3,7 +3,7 @@
  * inert emulator; the stream replays the stored lines and then each line the
  * seed appends. Expected bytes and copy are literals.
  */
-import { describe, expect, test } from "bun:test"
+import { describe, expect, mock, test } from "bun:test"
 import { act, useReducer } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "@smthrs/rpc/Cards"
@@ -117,6 +117,23 @@ describe("terminal stream", () => {
   })
 })
 
+/** Waits for the real xterm adapter to mount its input element. */
+const xtermInput = async (host: HTMLElement): Promise<HTMLTextAreaElement> => {
+  const deadline = Date.now() + 4000
+  while (!host.querySelector(".xterm-helper-textarea") && Date.now() < deadline) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+  const input = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+  expect(input).not.toBeNull()
+  return input!
+}
+/** Forces keys at the emulator boundary even where the browser's inert gate would block them. */
+const press = async (input: HTMLTextAreaElement, text: string) => {
+  for (const char of text) {
+    await act(async () => input.dispatchEvent(char === "\r"
+      ? new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true })
+      : new KeyboardEvent("keypress", { key: char, charCode: char.charCodeAt(0), keyCode: char.charCodeAt(0), bubbles: true })))
+  }
+}
+
 describe("terminal card mount", () => {
   const controller = (design: DesignWorld) => ({ design, commands: { submit: () => Promise.resolve({ status: "executed" }) } }) as unknown as AppController
   const card = (id: string): Extract<Card, { kind: "terminal" }> =>
@@ -141,6 +158,33 @@ describe("terminal card mount", () => {
     const theirs = render(asAlice, owned(asAlice, MAYA))
     expect(theirs).toContain("Watching")
     expect(theirs).toContain("inert")
+  })
+
+  test("mounted, the owner's ls and Enter send terminal.send; a watcher's keys send nothing", async () => {
+    const submit = mock((_command: unknown) => Promise.resolve({ status: "executed" }))
+    const mount = async (design: DesignWorld, id: string) => {
+      const host = document.body.appendChild(document.createElement("div"))
+      const root = createRoot(host)
+      await act(async () => root.render(<ControllerTestProvider controller={{ design, commands: { submit } } as unknown as AppController}>
+        {CARD_RENDERERS.terminal.render(card(id), actions)}
+      </ControllerTestProvider>))
+      return { host, close: async () => { await act(async () => root.unmount()); host.remove() } }
+    }
+    const design = make()
+    const id = owned(design)
+    const mine = await mount(design, id)
+    try {
+      await press(await xtermInput(mine.host), "ls\r")
+      expect(submit.mock.calls).toEqual([[{ name: "terminal.send", payload: { id, command: "ls" }, actor: "user", originCardId: `terminal:${id}` }]])
+    } finally { await mine.close() }
+    submit.mockClear()
+    const asAlice = make(ALICE)
+    const theirs = await mount(asAlice, owned(asAlice, MAYA))
+    try {
+      await press(await xtermInput(theirs.host), "ls\r")
+      expect(theirs.host.querySelector(".terminal-output > div")!.hasAttribute("inert")).toBe(true)
+      expect(submit.mock.calls).toEqual([])
+    } finally { await theirs.close() }
   })
 
   test("a terminal the world does not hold renders nothing", () => {

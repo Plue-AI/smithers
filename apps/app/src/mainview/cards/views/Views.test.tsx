@@ -5,6 +5,7 @@ import type { SecretsViewProps } from "@smthrs/rpc/SecretsCard"
 import { BranchView } from "./BranchView"
 import { fixtures as branchFixtures } from "@smthrs/rpc/fixtures/Branch"
 import { TerminalView } from "./TerminalView"
+import { terminalSlot } from "../TerminalCard"
 import { fixtures as terminalFixtures } from "@smthrs/rpc/fixtures/Terminal"
 import { stories as terminalStories } from "./TerminalView.stories"
 import { createRoot } from "./testDom"
@@ -1364,20 +1365,22 @@ test("Terminal forwards owner bytes and suppresses watcher/frozen bytes through 
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
   const bytes = mock((_data: string) => {})
   try {
-    for (const [viewer_is_owner, frozen] of [[true, false], [false, false], [true, true], [false, true], [true, false]]) {
-      await act(async () => root.render(<TerminalView {...terminalFixtures.idle}
-        model={{ ...terminalFixtures.idle.model, viewer_is_owner: viewer_is_owner!, frozen: frozen! }}
-        onAction={() => {}} onView={() => {}} terminal={{ onData: bytes }} />))
+    for (const [viewer_is_owner, frozen, inert] of [[true, false, false], [false, false, true], [true, true, true], [false, true, true], [true, false, false]] as const) {
+      // The card file's production slot (T-UI-17); the View only places it inside its inert gate.
+      const model = { ...terminalFixtures.idle.model, viewer_is_owner, frozen }
+      await act(async () => root.render(<TerminalView {...terminalFixtures.idle} model={model}
+        onAction={() => {}} onView={() => {}} terminal={terminalSlot(model, undefined, bytes)} />))
       const deadline = Date.now() + 4000
       while (!host.querySelector(".xterm-helper-textarea") && Date.now() < deadline) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
       const input = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")!
       expect(input).not.toBeNull()
+      expect(host.querySelector(".terminal-output > div")!.hasAttribute("inert")).toBe(inert)
       expect(document.activeElement).not.toBe(input)
       bytes.mockClear()
       // Force a key at the emulator boundary even when the browser's inert gate would block it.
       await act(async () => input.dispatchEvent(new KeyboardEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })))
-      expect(bytes.mock.calls).toEqual(viewer_is_owner && !frozen ? [["a"]] : [])
-      if (viewer_is_owner && !frozen) { input.focus(); expect(document.activeElement).toBe(input) }
+      expect(bytes.mock.calls).toEqual(inert ? [] : [["a"]])
+      if (!inert) { input.focus(); expect(document.activeElement).toBe(input) }
     }
   } finally { await act(async () => root.unmount()); host.remove() }
 })
