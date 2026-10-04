@@ -30,7 +30,7 @@ import type { ApplicationIdentityClient, LocalIdentityClient } from "../runtime/
 import type { FrameHistoryPort } from "../runtime/FrameHistory"
 import { localSocketProtocols } from "../runtime/LocalSession"
 import { createActorBindings } from "./ActorBindings"
-import type { AppTransition, Message } from "./AppState"
+import type { AppTransition, Card, Message } from "./AppState"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, MAIN_TAB_ID, rootFrameId } from "./AppState"
 import type { AppStore } from "./AppStore"
 import { createCloudLspClient,pageCloudLspSocketUrl } from "./CloudLspClient"
@@ -128,6 +128,12 @@ import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
+import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
+import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
+import { designSettings } from "./seams/DesignWorld/settings"
+import { shellViewsOf } from "./seams/DesignWorld/shell"
+import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
+import { withDesignTodos } from "./seams/DesignWorld/todo"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
 import { createTriggersSeam } from "./seams/TriggersSeam"
@@ -241,7 +247,7 @@ export interface AppController extends IssueFlowsController {
    */
   readonly answerApproval: (id: string, answer: unknown, question?: string) => void
   readonly retryLastTurn: () => string | void
-  /** Light or dark mode (/appearance.dark-mode): the named one, or the other one when none is named. */
+  /** Light or dark mode (/theme): the named one, or the other one when none is named. */
   readonly setTheme: (theme?: "light" | "dark") => void
   /* The browser tool + surface (§2d/§2d′). */
   readonly openBrowser: (url: string) => Promise<string | void | { readonly value: string }>
@@ -321,10 +327,6 @@ export interface AppController extends IssueFlowsController {
   /** Report what drives a turn (admin /debug.backend; DESIGN.md §14). */
   readonly describeAgentBackend: (backend: string) => string | { readonly value: string }
   /* The composer surfaces menu — the /surfaces command's open state. */
-  readonly toggleChatFilterMenu: () => { readonly value: string }
-  readonly toggleChatFilter: (target: string) => string | { readonly value: string }
-  readonly grepChatFilter: (query: string) => { readonly value: string }
-  readonly resetChatFilter: () => { readonly value: string }
   /*
    * The search palette (Search and Command Palette Spec 2026-09-07): the
    * overlay's rows read synchronously from the store (the button door), the
@@ -420,8 +422,6 @@ export interface AppController extends IssueFlowsController {
   readonly requestFlowConfirmation: (name: string, args: string | null, label: string, question?: string) => void
   /** Cancel only the still-pending revision; retain a typed refusal for stale or answered confirmations. */
   readonly cancelConfirmation: (confirmation: string, revision: string) => Promise<void | { readonly refusal: Refusal }>
-  /** Render the full visible-flow catalog into the chat (the /chat.commands answer). */
-  readonly showCommandCatalog: () => void
   /** Render the sign-in step into the chat (auth.prompt — the agent's door to login). */
   readonly promptSignIn: (required?: boolean, request?: { readonly name?: string; readonly args?: string | null; readonly summary?: string; readonly signInRequirement?: "cloud" }) => void
   /** Render the Smithers Cloud sign-in step into the chat (cloud.prompt — the agent's door to the cloud session). */
@@ -482,6 +482,19 @@ export interface AppController extends IssueFlowsController {
   readonly fileTodo: StackSeam["fileTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
+  /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
+  readonly design: DesignWorld
+  /** Opens a subject-only card (card-kinds.md L5) once per conversation; its card file reads the data. */
+  /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
+  readonly presentCard: (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
+  /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
+  readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
+  /** Opens (or reveals) the Flow card for flow `name`, at `version` when given. */
+  readonly presentFlow: (name: string, title: string, version?: string) => Promise<string>
+  /** MOCK SEAM (DesignWorld/subjects.ts): opens or reveals a retained-kind subject card (issue, file, diff, world, change) by id. */
+  readonly presentSubject: (card: Pick<Card, "id" | "kind" | "title" | "payload">) => Promise<string>
+  /** Opens (or reveals) the Branch or Terminal card for subject `id` (card-kinds.md L5). */
+  readonly presentBranchCard: (kind: "branch" | "terminal", id: string, title: string) => Promise<string>
   readonly showSetup: InstallSeam["showSetup"]
   readonly showSettings: InstallSeam["showSettings"]
   readonly setupStep: InstallSeam["setupStep"]
@@ -780,10 +793,59 @@ export const createAppController = (
     report: (subject, error) => ctx.failures.report("seam.failure", error, subject),
     checkout: services.bootstrap?.capabilities.includes("billing.checkout") ?? false
   }
-  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: services.presentInstallCard }))
+  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: services.presentInstallCard,
+    // MOCK SEAM: the design seed below stands in for an absent install, so its missing /api/install is quiet.
+    quietWithoutInstall: true }))
   ctx.onDispose(installSeam.dispose)
   if (services.bootstrap?.host === "local") void installSeam.showSetup()
-  const todoSeam = actors.pair(seamCtx, context => createTodoSeam(context, { topics: services.todoTopics, debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }))
+  const design = createDesignWorld()
+  ctx.onDispose(design.dispose)
+  const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
+    const id = subject === undefined ? kind : `${kind}:${subject}`
+    const existing = store.collections.cards.get(id)
+    const base = { id, title, status: "active" as const, createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal() }
+    const card: Card = kind === "branch" || kind === "terminal" ? { ...base, kind, payload: { id: subject ?? "" } } : { ...base, kind, payload: {} }
+    await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
+    return `Opened ${title}`
+  }
+  /* THE EMBED LAW: only a person's press maximizes; the agent's binding (ActorBindings) opens the Run card embedded. */
+  const { presentRun } = actors.pair(ctx, context => ({ presentRun: async (runId: string, title: string, maximize: boolean): Promise<string> => {
+    const id = `run:${runId}`
+    const existing = store.collections.cards.get(id)
+    await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
+      id, kind: "run", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId }
+    } }).isPersisted.promise
+    const inspect = maximize && context.commandActor === "user"
+    if (inspect) maximizeCard(id)
+    return inspect ? `Inspecting ${title}` : `Opened ${title}`
+  } }))
+  const presentBranchCard = async (kind: "branch" | "terminal", subject: string, title: string): Promise<string> => {
+    const id = `${kind}:${subject}`
+    const existing = store.collections.cards.get(id)
+    await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
+      id, kind, title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: subject }
+    } }).isPersisted.promise
+    return `Opened ${title}`
+  }
+  const presentSubject = async (card: Pick<Card, "id" | "kind" | "title" | "payload">): Promise<string> => {
+    const existing = store.collections.cards.get(card.id)
+    await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
+      ...card, status: "active", createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal()
+    } as Card }).isPersisted.promise
+    return `Opened ${card.title}`
+  }
+  const presentFlow = async (name: string, title: string, version?: string): Promise<string> => {
+    const id = `flow:${name}`
+    const existing = store.collections.cards.get(id)
+    await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
+      id, kind: "flow", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: version === undefined ? { name } : { name, version }
+    } }).isPersisted.promise
+    return `Opened ${title}`
+  }
+  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics, debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design))
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -921,10 +983,6 @@ export const createAppController = (
     showWorld,
     showWikiPane: togglePane,
     toggleDevtools,
-    toggleChatFilterMenu,
-    toggleChatFilter,
-    grepChatFilter,
-    resetChatFilter,
     askReset,
     cancelReset,
     describeAgentBackend,
@@ -1168,7 +1226,87 @@ export const createAppController = (
     })
   }
 
+  /*
+   * MOCK SEAM (state/seams/DesignWorld/chat.ts): a plain prompt the seeded app
+   * agent can read never reaches the model. The agent runs the flows the
+   * person asked for through the agent's own door (the tool loop's): it acts
+   * with the person's authority, a `confirm` flow asks before it runs, and
+   * what it writes reads "<member> via Smithers". It settles the turn with
+   * its reply and Context line; a prompt it has no reading for takes the
+   * real turn path.
+   */
+  const runDesignTurn = async (turnId: string, turn: DesignTurn): Promise<void> => {
+    const viewer = design.viewer()
+    const said: string[] = []
+    for (const step of turn.run) {
+      const outcome = await ctx.commands.submit({ name: step.name, payload: step.payload, actor: "agent" })
+      if (outcome.status === "failed") said.push(outcome.error)
+      else if (outcome.status === "unavailable") said.push(outcome.reason)
+      else if (outcome.status === "unknown-command") said.push(`/${step.name} is not a flow here.`)
+    }
+    const shown: Array<Pick<Card, "id" | "kind" | "title" | "payload">> = []
+    if (turn.wiki !== undefined) {
+      const { title, lines } = turn.wiki
+      const id = newWikiPage(design, title, `${viewer}~smithers`)
+      design.patch("wiki", id, current => ({ ...current, lines: lines.map((text, index) => ({ n: index + 1, text })) }))
+      shown.push(wikiCard(id, title))
+    }
+    if (turn.ask !== undefined) {
+      const asked = design.ask({ ...turn.ask, by: viewer })
+      const act = asked.ok && asked.id !== undefined ? design.row("acts", asked.id) : undefined
+      if (act !== undefined) shown.push(actCard(act))
+    }
+    if (turn.merge !== undefined) {
+      const todo = design.row("todos", turn.merge)
+      if (todo !== undefined) shown.push(mergeCard(todo, viewer))
+    }
+    // One loop presents them in order (scripts/durable-write-doors.ts reads a write inside an `if` block as every `if`'s).
+    for (const card of shown) await presentSubject(card)
+    const reply = said.length > 0 ? said.join(" ") : turn.reply
+    if (reply !== undefined && reply !== "") {
+      await store.dispatch({ type: "message.response.delta", actor: "smithers", turnId, channel: "text", delta: reply }).isPersisted.promise
+    }
+    const context = said.length > 0 || turn.context === undefined ? {} : { context: [...turn.context] }
+    await store.dispatch({ type: "message.response.completed", actor: "smithers", turnId, ...context }).isPersisted.promise
+  }
+  const designSend: TurnController["send"] = (text, admission, capturedDraft) => {
+    const viewer = design.viewer()
+    const turn = admission === undefined && !text.trimStart().startsWith("/") && store.session().phase === "idle"
+      ? (() => {
+        const at = shellViewsOf(design).get(viewer)?.at ?? "main"
+        // MOCK SEAM: a booted host with no agent provider (the mounted design) answers an unscripted prompt from the seed
+        // instead of failing; a harness with no bootstrap keeps the failure, and a signed-out visitor still meets the sign-in gate.
+        const seedAnswers = !agent.available && services.bootstrap !== undefined
+          && store.collections.identitySessions.get("identity")?.state !== "signed-out"
+        return designTurn(design.world(), viewer, text, at) ?? (seedAnswers ? designPlainTurn(design.world(), text, at) : undefined)
+      })()
+      : undefined
+    if (turn === undefined) return send(text, admission, capturedDraft)
+    const draftCurrent = capturedDraft ?? store.captureComposerDraft(text)
+    const turnId = crypto.randomUUID()
+    const admitted = store.dispatch({ type: "message.submitted", actor: "user", turnId, text: text.trim(), preserveDraft: !draftCurrent() }).isPersisted.promise
+    void admitted.then(() => runDesignTurn(turnId, turn)).catch((error: unknown) => {
+      if (ctx.disposed) return
+      // A thrown step still settles the turn with a visible line, so Chat stays usable (controller/failures.ts reports the cause).
+      ctx.failures.report("command.boundary", error, "design.turn")
+      store.dispatch({ type: "message.response.failed", actor: "system", turnId, message: "Try again." })
+    })
+    return admitted.then(() => true)
+  }
+
   const cancelConfirmation: AppController["cancelConfirmation"] = async (confirmation, revision) => {
+    /* MOCK SEAM: an act cancels in the seeded world (its id is its revision); a Review & merge card closes. */
+    const act = design.row("acts", confirmation)
+    if (act !== undefined) {
+      const stale = confirmCancelRefusal(revision, { revision: act.id, answered: act.state !== "asked" })
+      if (stale !== undefined) return { refusal: stale }
+      design.cancelAct(act.id, design.viewer())
+      return
+    }
+    if (confirmSubject(confirmation)?.kind === "merge") {
+      await store.dispatch({ type: "card.removed", actor: "user", id: `${DESIGN_CARD}confirm:${confirmation}` }).isPersisted.promise
+      return
+    }
     const message = store.collections.messages.get(confirmation)
     const refusal = confirmCancelRefusal(revision, message?.action === undefined ? undefined : { revision: message.action.revision, answered: message.answeredAction !== undefined })
     if (refusal !== undefined) return { refusal }
@@ -1177,7 +1315,7 @@ export const createAppController = (
 
 
   /*
-   * auth.prompt: the agent cannot navigate the user to OAuth (auth.sign-in
+   * auth.prompt: the agent cannot navigate the user to OAuth (sign-in
    * is user-only — a model must not yank the page mid-turn), but it CAN
    * hand the step over: one message whose action IS the sign-in button.
    * Every identity state answers honestly, including a build with no seam.
@@ -1222,13 +1360,13 @@ export const createAppController = (
     for (const message of store.collections.messages.values()) if (message.ordinal > tail.ordinal) tail = { ordinal: message.ordinal, message }
     for (const card of store.collections.cards.values()) if (card.ordinal > tail.ordinal) tail = { ordinal: card.ordinal }
     const last = tail.message
-    if (last?.action?.flow === "auth.sign-in" && last.answeredAction === undefined && last.text === text &&
+    if (last?.action?.flow === "sign-in" && last.answeredAction === undefined && last.text === text &&
         last.action.signInRequirement === signInRequirement) return
     store.dispatch({
       type: "message.appended",
       actor: "system",
       text,
-      action: { flow: "auth.sign-in", label, ...(signInRequirement === undefined ? {} : { signInRequirement }) }
+      action: { flow: "sign-in", label, ...(signInRequirement === undefined ? {} : { signInRequirement }) }
     })
   }
 
@@ -1276,25 +1414,6 @@ export const createAppController = (
       provider: identityProviderFor(services),
       readsScopes: services.applicationIdentity === undefined
     }))
-
-  /*
-   * The /chat.commands answer: the LIVE visible catalog as one chat message —
-   * the slash menu caps at 8 for calm, so this is where "all of it" lives.
-   * Referenced before `commands` initializes; only ever called after.
-   */
-  const showCommandCatalog = (): void => {
-    const lines = commands
-      .all()
-      .filter((command) => command.hidden !== true)
-      .map((command) => `- \`/${command.name}\` — ${command.summary}`)
-    store.dispatch({
-      type: "message.appended",
-      actor: "system",
-      text: `Everything Smithers can do right now:\n\n${
-        lines.join("\n")
-      }\n\nType \`/\` in the composer to filter these as you type.`
-    })
-  }
 
   const reloadApp = (): void => {
     if (typeof window !== "undefined") window.location.reload()
@@ -1413,9 +1532,18 @@ export const createAppController = (
    * embedded cards and record via:"agent", never user chrome.
    */
   const commandActions: CommandActions = {
+    design,
+    presentCard,
+    presentRun,
+    presentFlow,
+    presentSubject,
+    presentBranchCard,
     showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,
-    setInstallAddress: installSeam.setInstallAddress, setInstallCapacity: installSeam.setInstallCapacity,
-    setInstallParallel: installSeam.setInstallParallel, saveInstallModelKey: installSeam.saveInstallModelKey,
+    setInstallAddress: installSeam.setInstallAddress,
+    /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
+    setInstallCapacity: capacity => installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
+    setInstallParallel: parallel => installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
+    saveInstallModelKey: installSeam.saveInstallModelKey,
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
@@ -1430,7 +1558,7 @@ export const createAppController = (
     askReset,
     cancelReset,
     stop,
-    send,
+    send: designSend,
     enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue,
     showChat,
     showWorld,
@@ -1524,10 +1652,6 @@ export const createAppController = (
     dismissCard,
     cloudTerminal,
     toggleDevtools,
-    toggleChatFilterMenu,
-    toggleChatFilter,
-    grepChatFilter,
-    resetChatFilter,
     moveCardHistory: (id, delta) => { store.dispatch({ type: "card.history.moved", actor: ctx.commandActor, id, delta }) },
     toggleDictation,
     cancelDictation,
@@ -1565,7 +1689,6 @@ export const createAppController = (
     traceFlow,
     requestFlowConfirmation,
     cancelConfirmation,
-    showCommandCatalog,
     promptSignIn,
     promptCloudSignIn,
     reloadApp,
@@ -1884,6 +2007,11 @@ export const createAppController = (
     tappedFetch: http,
     localAuth,
     installSnapshots: installSeam.snapshots,
+    design,
+    presentCard,
+    presentRun,
+    presentFlow,
+    presentBranchCard,
     stackSnapshots: stackSeam.snapshots,
     wikiIndexes,
     wikiAttachments,

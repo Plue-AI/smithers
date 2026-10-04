@@ -19,7 +19,7 @@ for (const moment of ["during", "after"] as const) {
     await cdp.send("Network.enable")
     await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 4000, downloadThroughput: -1, uploadThroughput: -1 })
     await page.locator('.flow-graph-drawer-tab[data-tab="code"]').click()
-    const toast = page.locator('[data-toast-status="running"]').filter({ hasText: "Reading " })
+    const toast = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Reading " })
     await expect(toast).toBeVisible()
     if (moment === "after") await expect(page.locator(".flow-graph-code-file")).toBeVisible()
     await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })

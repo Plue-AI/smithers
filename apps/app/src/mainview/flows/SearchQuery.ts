@@ -42,7 +42,7 @@ export interface PrefixRow {
 
 /** The §1 prefix table, in its order. */
 export const PREFIXES: ReadonlyArray<PrefixRow> = [
-  { prefix: "", label: "(none)", mode: "all", searches: "Everything by name, grouped", flow: "search.open", signedIn: false },
+  { prefix: "", label: "(none)", mode: "all", searches: "Everything by name, grouped", flow: "search", signedIn: false },
   { prefix: "", label: "path", mode: "path", searches: "Files by path, fuzzy per segment", flow: "search.files", signedIn: false },
   { prefix: ":", label: ":", mode: "line", searches: "Line :120 or :120:8 in the focused file card", flow: null, signedIn: false },
   { prefix: "/", label: "/", mode: "flows", searches: "Flows: the slash tree", flow: "search.flows", signedIn: false },

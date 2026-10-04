@@ -168,7 +168,7 @@ test("T1: a rev-pinned view pins the Diff facet parent → rev N; a rev the chan
 
   await fillComposer(page, "/change.view qupxosqw 2")
   await page.getByTestId("composer-send").click()
-  const toast = page.locator(".toast-stack .toast-detail")
+  const toast = page.locator('.mvp-notify .mvp-notice[data-tone="failed"]')
   await expect(toast).toContainText("qupxosqw has no rev 2 — its revisions are 1 → 1.", { timeout: 15_000 })
 })
 
@@ -184,6 +184,6 @@ test("T1: a degraded sign-in reads a change freely but can't dispatch an agent",
 
   await fillComposer(page, "/change.resolve qupxosqw src/app.ts")
   await page.getByTestId("composer-send").click()
-  const toast = page.locator(".toast-stack .toast-detail")
+  const toast = page.locator('.mvp-notify .mvp-notice[data-tone="failed"]')
   await expect(toast).toContainText("sign in again to enable", { timeout: 15_000 })
 })

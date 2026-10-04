@@ -2,7 +2,6 @@ import { afterEach, expect, test } from "bun:test"
 import type { Card } from "../AppState"
 import { createAppStore } from "../AppStore"
 import { memoryStorage, settle, unavailableAgent, waitFor } from "../TestFixtures"
-import { workerToastActions } from "../../WorkerToastActions"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
 import { observeBackgroundWork } from "./backgroundWork"
@@ -82,20 +81,17 @@ for (const status of ["failed", "cancelled"] as const) test(`one debounced toast
   await waitFor(() => store.collections.toasts.size === 1)
   const toast = [...store.collections.toasts.values()][0]!
   expect(toast.status).toBe("running")
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toEqual([])
   remote.resolve({ status: "ok", value: { runId: "run-1", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" } })
   await waitFor(() => [...store.collections.cards.values()].some(c => c.kind === "run-trace" && c.payload.runId === "run-1"))
   await settle()
   expect(store.collections.toasts.size).toBe(1)
   expect(store.collections.toasts.get(toast.id)?.status).toBe("running")
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toContain("Stop")
   await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
     scope: { repo: "owner/repo", runId: "run-1", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" }, summary: { runId: "run-1", flowId: "review", status,
       createdAt: 1, updatedAt: 2, turns: 0, calls: 0, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0,
       inputTokens: 0, outputTokens: 0, verdict: "offline", diagnosis: "offline" }
   } }).isPersisted.promise
   await waitFor(() => store.collections.toasts.get(toast.id)?.status === status)
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toEqual(["Run again"])
   expect(launches).toBe(1)
 })
 
@@ -156,7 +152,6 @@ for (const status of ["completed", "failed", "cancelled"] as const) test(`author
   await settle()
   expect(store.collections.toasts.size).toBe(1)
   expect(store.collections.toasts.get(toast.id)?.status).toBe("running")
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toContain("Stop")
   await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
     scope: { repo: "owner/repo", runId: "author-1", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" }, summary: { runId: "author-1", flowId: "create-flow", status,
       createdAt: 1, updatedAt: 2, turns: 0, calls: 0, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0,
@@ -211,5 +206,4 @@ test("a refused authoring launch keeps one failure toast and retries the same re
   expect(keys).toHaveLength(2)
   expect(keys[0]).toBe(keys[1])
   expect(store.collections.toasts.size).toBe(1)
-  expect(workerToastActions(store.collections.cards.get(toast.sourceCard!)).map(a => a.label)).toContain("Stop")
 })

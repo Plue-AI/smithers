@@ -82,7 +82,7 @@ const execute = (
 describe("a failed flow reaches the model as a failure", () => {
   test("a user-only flow the model asks for answers failed, never a bare acknowledgement", async () => {
     const { controller } = await ready()
-    const result = await execute(controller, "chat.stop")
+    const result = await execute(controller, "stop")
     expect(result).toStartWith("failed:")
     expect(result).toContain("user-only")
   })

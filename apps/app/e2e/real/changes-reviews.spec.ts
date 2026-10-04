@@ -79,10 +79,10 @@ test("a signed-out production user can verify a public change and diff but chang
   await openComposer(page)
   await command(page, `/change.view ${change.change_id}`)
   await closeComposer(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="change"]')).toHaveCount(0)
   await reloadApp(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="change"]')).toHaveCount(0)
   await testInfo.attach("public-change-read", {
     body: Buffer.from(JSON.stringify({ change, detail, diffFiles: diff.file_diffs?.length }, null, 2)),
@@ -117,10 +117,10 @@ test("review.request issues no mutation while a production user is signed out", 
   await openComposer(page)
   await command(page, `/review.request ${change.change_id} codeplanesmithers`)
   await closeComposer(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
   expect(uiRequests.some((event) => event.method === "POST" && event.path.includes("/review-requests"))).toBe(false)
   await reloadApp(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
 
   const afterResponse = await realApi(page, request, "GET", `/api/repos/${PUBLIC_REPO}/changes/${change.change_id}`)
   expect(afterResponse.status()).toBe(200)

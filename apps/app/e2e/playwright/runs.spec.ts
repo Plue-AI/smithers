@@ -291,7 +291,7 @@ test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox"
   await expect(card.getByTestId(`run-outcome-${RUN_ID}`)).toHaveAttribute("data-phase", "cancelled")
   await expect(card.locator(".smithers-card-header")).toContainText("Stopped")
   await expect(card).not.toContainText("steering pending")
-  await expect(notice).toHaveAttribute("data-toast-status", "cancelled")
+  await expect(notice).toHaveAttribute("data-tone", "quiet")
   await expect(notice).toHaveAttribute("role", "status")
   await expect(notice.locator(".toast-detail")).toHaveText("Cancelled")
   await expect(notice.locator(".toast-title")).not.toContainText("completed")

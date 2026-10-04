@@ -16,7 +16,7 @@ import type { CommandSelectFailureReason } from "./CommandSelection"
 import { STANDING_INSTRUCTION_TEXT } from "./Instructions"
 
 const offered = [
-  { name: "appearance.dark-mode", summary: "Switch to light or dark mode" },
+  { name: "theme", summary: "Switch to light or dark mode" },
   { name: "runs.list", summary: "List runs" }
 ]
 
@@ -35,9 +35,9 @@ describe("parseSelection", () => {
     expect(parseSelection({ commands: [
       { name: "runs.list", probability: 0.6 },
       { name: "rm.rf", probability: 0.3 },
-      { name: "appearance.dark-mode", probability: 0.1 },
+      { name: "theme", probability: 0.1 },
       { name: "runs.list", probability: 0.05 }
-    ] }, offered)).toEqual([{ name: "runs.list", probability: 0.6 }, { name: "appearance.dark-mode", probability: 0.1 }])
+    ] }, offered)).toEqual([{ name: "runs.list", probability: 0.6 }, { name: "theme", probability: 0.1 }])
   })
 
   test("an empty selection is an answer, not a failure", () => {
@@ -73,9 +73,9 @@ describe("httpCommandSelector", () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
     const select = httpCommandSelector(async (url, init) => {
       calls.push({ url, init })
-      return Response.json({ commands: [{ name: "appearance.dark-mode", probability: 0.99 }], model: "typesafe-ai/jev" })
+      return Response.json({ commands: [{ name: "theme", probability: 0.99 }], model: "typesafe-ai/jev" })
     }, "https://smithers.example")
-    expect(await select(request)).toEqual([{ name: "appearance.dark-mode", probability: 0.99 }])
+    expect(await select(request)).toEqual([{ name: "theme", probability: 0.99 }])
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe(`https://smithers.example${COMMANDS_SELECT_PATH}`)
     expect(calls[0]!.init?.method).toBe("POST")
@@ -135,7 +135,7 @@ describe("commandSelectRequest", () => {
 describe("pinnedCommandNames", () => {
   const catalog = [
     { name: "auth.prompt" }, { name: "debug.errors" }, { name: "chat" }, { name: "wiki" },
-    { name: "appearance.dark-mode" }, { name: "files.read" }, { name: "auth" }
+    { name: "theme" }, { name: "files.read" }, { name: "auth" }
   ]
 
   test("the real standing instructions pin the commands they name, and only dotted names", () => {
@@ -146,7 +146,7 @@ describe("pinnedCommandNames", () => {
     expect(pinned).not.toContain("chat")
     expect(pinned).not.toContain("wiki")
     expect(pinned).not.toContain("auth")
-    expect(pinned).not.toContain("appearance.dark-mode")
+    expect(pinned).not.toContain("theme")
   })
 
   test("a name matches whole: a prefix or a longer dotted name is not a mention", () => {

@@ -8,7 +8,7 @@ test.use({ trace: "off", video: "off" })
 
 test("the hosted sign-in button starts its advertised GitHub handoff", scenario("auth.signed-out-handoff-start", {
   capabilities: ["identity"],
-  coverage: ["action:auth.sign-in", "host:production", "path:success", "path:keyboard", "door:button", "door:user-only", "dimension:keyboard", "dimension:handoff-start", "dimension:no-owner-credentials", "evidence:start-status-and-provider-popup"],
+  coverage: ["action:sign-in", "host:production", "path:success", "path:keyboard", "door:button", "door:user-only", "dimension:keyboard", "dimension:handoff-start", "dimension:no-owner-credentials", "evidence:start-status-and-provider-popup"],
   description: "Activate the actual signed-out door with Enter, require a successful handoff start and the bound OAuth popup reaching GitHub, and prove the app did not open owner credentials or claim authenticated completion."
 }), async ({ page, context, request }, testInfo) => {
   const bootstrap = await (await request.get("/api/bootstrap")).json() as { authFlow: string }

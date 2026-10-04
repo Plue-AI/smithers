@@ -224,9 +224,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     if (!input.cardId) {
       const id = `draft:${crypto.randomUUID()}`
-      await write({ id, kind: "draft", audience_member_id: owner()!, title: input.title ?? input.text.split("\n")[0]!,
+      const text = input.text ?? ""
+      await write({ id, kind: "draft", audience_member_id: owner()!, title: input.title ?? text.split("\n")[0]!,
         status: "active", createdAt: Date.now(), ordinal: ctx.nextOrdinal(), payload: {
-          title: input.title ?? input.text.split("\n")[0]!, prompt: input.text, acceptance: [...input.acceptance ?? []],
+          title: input.title ?? text.split("\n")[0]!, prompt: text, acceptance: [...input.acceptance ?? []],
           place: { ...(input.before ? { mode: "before" as const, n: input.before } : { mode: "append" as const }), options: [...ctx.store.collections.cards.values()]
             .flatMap(row => row.kind === "todo" && row.payload.model && row.payload.model.state !== "merged" && row.payload.model.state !== "dropped"
               ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : []) },

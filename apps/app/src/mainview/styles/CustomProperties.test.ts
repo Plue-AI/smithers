@@ -35,10 +35,6 @@ const undeclared = (css: string, palette: ReadonlySet<string>): Array<string> =>
  */
 const WRITTEN_ELSEWHERE: Readonly<Record<string, { readonly by: string; readonly why: string }>> = {
   "--flow-run-fill": { by: "cards/FlowRunGraphSurface.tsx", why: "the node's run progress, set inline on its bar" },
-  "--toast-height": {
-    by: "ModalPopover.tsx",
-    why: "the free modal region, set with data-modal-placement; with no region the stack hides instead"
-  },
   "--who": { by: "cards/views/ActorChip.tsx", why: "the actor's member color, set inline on the avatar" },
   "--ghc-head-bg": {
     by: "styles/github-cards.css",

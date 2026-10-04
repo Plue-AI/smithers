@@ -134,7 +134,7 @@ describe("the turn passes the current browser host contract", () => {
 
 describe("the command section lists pinned and disclosed commands in full, and only those", () => {
   const catalog = [
-    { name: "appearance.dark-mode", summary: "Switch to the dark theme" },
+    { name: "theme", summary: "Switch to the dark theme" },
     { name: "auth.prompt", summary: "Render the sign-in button" },
     { name: "runs.list", summary: "List runs", args: "[--limit <n>]" },
     { name: "issues.list", summary: "List issues" }
@@ -148,11 +148,11 @@ describe("the command section lists pinned and disclosed commands in full, and o
   })
 
   test("a disclosed command is listed with its arguments and summary; an undisclosed one stays out", () => {
-    const prompt = smithersInstructions(catalog, honesty(), { pinned: ["auth.prompt"], disclosed: ["appearance.dark-mode", "runs.list"] })
+    const prompt = smithersInstructions(catalog, honesty(), { pinned: ["auth.prompt"], disclosed: ["theme", "runs.list"] })
     const section = prompt.slice(prompt.indexOf(header) + header.length).split("\n\n")[0]!.trim().split("\n")
     // Catalog order, not request order; one line per command.
     expect(section).toEqual([
-      "- /appearance.dark-mode — Switch to the dark theme",
+      "- /theme — Switch to the dark theme",
       "- /auth.prompt — Render the sign-in button",
       "- /runs.list [--limit <n>] — List runs"
     ])

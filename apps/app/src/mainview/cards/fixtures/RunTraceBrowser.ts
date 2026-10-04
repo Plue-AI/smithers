@@ -7,7 +7,6 @@ import { applicationIdentityFromFetch, silentAgent } from "../../state/TestFixtu
 import type { Card } from "../../state/AppState"
 import type { FlowName } from "../../flows/FlowName"
 import { RunTraceBody } from "../RunTraceCard.tsx"
-import { ChatRunTimeline } from "../../ChatRunTimeline"
 
 // The real card, store and command registry, on an isolated local origin.
 const stamp = (sequence: number, kind: string, at: number, payload = {}) => ({
@@ -94,7 +93,7 @@ const events = scenario === "interleaved" ? [
     stamp(3 + index * 4, "agent.cell-call-settled", 1800 + index * 2000, { flowName: "read", outcome: "success", value: `result ${index}` }),
     stamp(4 + index * 4, "agent.turn-closed", 1900 + index * 2000)
   ]),
-  ...(scenario === "chat" ? [] : [stamp(17, "run.completed", 9000)])
+  stamp(17, "run.completed", 9000)
 ]
 
 const store = await createAppStore({ kind: "localStorage", storage: localStorage })
@@ -102,7 +101,7 @@ const cardId = "flow-run-strip-browser"
 if (!store.collections.cards.has(cardId)) {
   const card: Extract<Card, { kind: "run-trace" }> = {
     id: cardId, kind: "run-trace", title: "Trace", status: "active", createdAt: 0, ordinal: 0,
-    payload: { repo: "fixture/strip", workspaceId: "00000000-0000-4000-8000-00000000517a", runId: "strip-browser", workflow: "probe", phase: scenario === "live" || scenario === "tail-live" || scenario === "chat" ? "running" : "completed", steps: [], result: null, lastSeq: events.length, events, traceView: "timeline", liveTail: true }
+    payload: { repo: "fixture/strip", workspaceId: "00000000-0000-4000-8000-00000000517a", runId: "strip-browser", workflow: "probe", phase: scenario === "live" || scenario === "tail-live" ? "running" : "completed", steps: [], result: null, lastSeq: events.length, events, traceView: "timeline", liveTail: true }
   }
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
 }
@@ -135,12 +134,7 @@ declare global {
 const render = () => {
   const card = store.collections.cards.get(cardId)
   if (card?.kind !== "run-trace") throw new Error("The fixture run card is absent")
-  root.render(scenario === "chat" ? createElement("div", { style: { display: "flex", flexDirection: "column", height: "90vh" } },
-    createElement("div", { style: { flex: 1, minHeight: 0, overflow: "auto" }, "data-testid": `card-${card.id}` },
-      createElement(RunTraceBody, { card, onRunCommand: run })),
-    createElement(ChatRunTimeline, { cards: [card], onRunCommand: run }),
-    createElement("textarea", { "aria-label": "Chat", placeholder: "Message" }))
-    : createElement(RunTraceBody, { card, onRunCommand: run }))
+  root.render(createElement(RunTraceBody, { card, onRunCommand: run }))
   window.runTraceBrowser = { cursor: card.payload.cursorSeq ?? "latest", selection: card.payload.selection ?? "", commands, refusals, appendMilestone, appendFrame }
 }
 const run = (name: FlowName, args?: string) => {

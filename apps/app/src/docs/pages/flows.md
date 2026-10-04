@@ -11,14 +11,14 @@ Select a command to run it. Select a group to see its commands.
 | --- | --- |
 | Type `/` | Show commands and groups. |
 | Type `/chat.` | Show the Chat group's commands. |
-| Type `/commands` | Filter by name or description; `/chat.commands` is a match. |
-| Type `/chat.commands`, then press Enter | List registered commands that aren't hidden, with descriptions, in the conversation. |
+| Type `/he` | Filter by name or description; `/help` is a match. |
+| Type `/help`, then press Enter | Open the Commands card: every command that isn't hidden, with its description. |
 
 Type more letters to narrow the menu.
 
 ```text
 Group             Command                       Result
-/chat.    ->      /chat.commands      ->        Command list
+/         ->      /help               ->        Commands card
           select                     run
 ```
 

@@ -131,7 +131,7 @@ for (const sample of [
   await page.goto("/")
   await openWorkspaceChat(page)
   if (sample.dark) {
-    await sendSlash(page, "/appearance.dark-mode")
+    await sendSlash(page, "/theme")
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   }
   await sendSlash(page, "/agent.list")
@@ -173,7 +173,7 @@ for (const sample of [
   // The default chrome has no theme toggle (#3334), so the keyboard runs the flow from Chat: Enter on a
   // whole typed name runs that flow over the card. Send would be a new message, a return to the transcript.
   await chat.click()
-  await page.getByTestId("composer-input").fill("/appearance.dark-mode")
+  await page.getByTestId("composer-input").fill("/theme")
   await page.getByTestId("composer-input").press("Enter")
   await expect(page.locator("html")).toHaveAttribute("data-theme", sample.dark ? "light" : "dark")
   await expect(page.getByTestId("composer-input")).toBeHidden()

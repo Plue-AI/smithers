@@ -11,6 +11,7 @@
  * This file is that rule as a gate: the allowlist below is every user-only
  * flow with its reason, and nothing else may be user-only.
  */
+import { MERGE_USER_ONLY_REASON } from "./entries/home"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
@@ -34,6 +35,11 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "storage.recovery.export": STORAGE_RECOVERY_USER_ONLY_REASON,
+  "members": "Only a person can do this",
+  "merge": MERGE_USER_ONLY_REASON,
+  "members.add": "Only a person can do this",
+  "members.role": "Only a person can do this",
+  "members.remove": "Only a person can do this",
   "storage.recovery.reset": STORAGE_RESET_USER_ONLY_REASON,
   "chat.queue": "the prompt queue is the human's composer",
   "chat.queue.edit": "the prompt queue is the human's composer",
@@ -41,7 +47,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "chat.queue.restore": "the prompt queue is the human's composer",
   "chat.queue.resume": "the prompt queue is the human's composer",
   "chat.send": "the composer is the human's; the model is already the turn, and sending would nest one",
-  "chat.stop": "stopping the model's own turn is the human's Escape key",
+  "stop": "stopping the model's own turn is the human's Escape key",
   "chat.copy-message": "the clipboard write is the human's browser gesture",
   "wiki.pane": "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
   "flow.repo.choose": "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
@@ -56,8 +62,8 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "history.land": HISTORY_LAND_USER_ONLY_REASON,
   "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.
-  "auth.sign-in": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
-  "auth.sign-out": "dropping the human's session is theirs alone",
+  "sign-in": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
+  "sign-out": "dropping the human's session is theirs alone",
   "cloud.sign-in": "the Smithers Cloud browser login is the human's gesture on their account; the agent renders the step with cloud.prompt",
   "cloud.sign-out": "dropping the human's Smithers Cloud credential is theirs alone",
   "toast.dismiss": "dismissing a toast is the human's gesture",
@@ -282,7 +288,7 @@ describe("the three-door law", () => {
     test(`missing Cloud session renders only a registered sign-in door on ${host.host}`, async () => {
       const { store, controller } = await boot(host)
       cloudSession(store, "signed-out", null)
-      const flow = host.host === "cloud" ? "auth.sign-in" : "cloud.sign-in"
+      const flow = host.host === "cloud" ? "sign-in" : "cloud.sign-in"
       try {
         for (const name of ["box.terminal", "change.view"] as const) {
           const outcome = await controller.commands.run(name, name === "change.view" ? "change-1" : undefined)
@@ -304,8 +310,8 @@ describe("the three-door law", () => {
     expect(cloud).toContain(USER_ONLY_ALLOWLIST["cloud.sign-in"])
     expect(cloud).toContain("invoke cloud.prompt, which renders that button in the chat")
     // The typed agent door answers the same text.
-    const typed = await controller.commands.runForAgent("auth.sign-in")
-    expect(typed).toEqual({ status: "failed", error: `failed: /auth.sign-in is user-only — ${USER_ONLY_ALLOWLIST["auth.sign-in"]} — invoke auth.prompt, which renders that button in the chat` })
+    const typed = await controller.commands.runForAgent("sign-in")
+    expect(typed).toEqual({ status: "failed", error: `failed: /sign-in is user-only — ${USER_ONLY_ALLOWLIST["sign-in"]} — invoke auth.prompt, which renders that button in the chat` })
   })
 
   test("flow authoring and card acts remain callable through the agent", async () => {
@@ -327,10 +333,10 @@ describe("the three-door law", () => {
 
 
 
-test("versioned flow doors stay dark without projection, TODO and private confirmation providers", async () => {
+test("versioned flow doors register on the design seam; a person's flow.edit drafts at once, an agent's asks first", async () => {
   const { flowVersionFlows } = await import("./entries/flow")
-  const entries = flowVersionFlows()
-  expect(entries.map(nameOf)).toEqual(["flow", "flow.edit", "flow.source"])
+  const entries = flowVersionFlows(new Proxy({}, { get: () => () => undefined }) as never)
+  expect(entries.map(nameOf)).toEqual(["flow", "flow.edit", "flow.source", "flows"])
   expect(entries.every(modelInvocable)).toBe(true)
   const edit = entries[1]!
   expect(edit.metadata.confirm).toBe("change this flow")
@@ -338,11 +344,13 @@ test("versioned flow doors stay dark without projection, TODO and private confir
   expect(edit.metadata.grammar?.("todo Add review")).toEqual({ payload: { name: "todo", request: "Add review" } })
   expect(edit.metadata.form?.args?.({ name: "todo", request: "Add review" })).toBe("todo Add review")
   const { store, controller } = await boot()
-  for (const name of ["flow", "flow.source", "flow.edit"]) {
-    expect(controller.commands.find(name)).toBeUndefined()
-    expect((await controller.commands.run(name, "todo Add review")).status).toBe("unknown-command")
-    expect(await execute(controller, name, "todo Add review")).toStartWith("unknown-command:")
-  }
+  for (const name of ["flow", "flow.source", "flow.edit", "flows"]) expect(controller.commands.find(name)).toBeDefined()
+  expect((await controller.commands.run("flow", "todo")).status).toBe("executed")
+  expect([...store.collections.cards.values()].some(card => card.kind === "flow" && card.payload.name === "todo")).toBe(true)
+  // Spec §11.5.1 and the three-door law: a person's edit is a Draft now; an agent's invocation confirms first.
+  expect((await controller.commands.run("flow.edit", "todo Add review")).status).toBe("executed")
   expect(confirmationFor(store, "flow.edit")).toBeUndefined()
-  expect([...store.collections.cards.values()].some(card => card.kind === "todo" || card.kind === "run-trace")).toBe(false)
+  expect([...store.collections.cards.values()].some(card => card.kind === "draft")).toBe(true)
+  await execute(controller, "flow.edit", "todo Add lint")
+  expect(confirmationFor(store, "flow.edit")).toBeDefined()
 })

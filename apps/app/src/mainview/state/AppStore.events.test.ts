@@ -1099,7 +1099,7 @@ describe("the live store's authoritative event path", () => {
     const storage = memoryStorage()
     const first = await open(storage)
     await first.dispatch({ type: "message.submitted", actor: "user", turnId: "t", text: "Keep the original question" }).isPersisted.promise
-    await first.dispatch({ type: "message.commands.disclosed", actor: "system", turnId: "t", names: ["appearance.dark-mode"] }).isPersisted.promise
+    await first.dispatch({ type: "message.commands.disclosed", actor: "system", turnId: "t", names: ["theme"] }).isPersisted.promise
     await first.dispatch({ type: "message.response.delta", actor: "smithers", turnId: "t", channel: "text", delta: "An answer" }).isPersisted.promise
     await first.dispatch({ type: "message.response.completed", actor: "smithers", turnId: "t" }).isPersisted.promise
     await first.dispatch({ type: "card.upsert", actor: "user", card: {
@@ -1114,7 +1114,7 @@ describe("the live store's authoritative event path", () => {
     })
     const restored = await open(storage)
     expect(restored.collections.messages.get("message-t-user")?.text).toBe("Keep the original question")
-    expect(restored.collections.messages.get("message-t-user")?.disclosed).toEqual(["appearance.dark-mode"])
+    expect(restored.collections.messages.get("message-t-user")?.disclosed).toEqual(["theme"])
     expect(restored.collections.messages.get("message-t-smithers")?.text).toBe("An answer")
     expect(restored.collections.cards.get("file")?.payload).not.toHaveProperty("line", 7)
     expect((await restored.verifyState()).valid).toBe(true)

@@ -1,4 +1,8 @@
-import { useSyncExternalStore, type ComponentType } from "react"
+import { useMemo, useSyncExternalStore, type ComponentType } from "react"
+import { useController } from "../ControllerContext"
+import type { CardActions, CardFamily } from "./CardFamily"
+// MOCK SEAM: the seeded roster until GET /api/members answers (createMembersSeam replaces it).
+import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorld/settings"
 import { MembersCardSchema, type MembersViewProps } from "@smthrs/rpc/MembersCard"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { toActor } from "../state/ProductActor"
@@ -6,7 +10,6 @@ import type { MembersSnapshots } from "../state/seams/MembersSeam"
 import { validMemberLogin } from "../state/seams/MembersSeam"
 import { MembersView } from "./views/MembersView"
 
-/** Dark until the roster, dispatcher, conversation mount and joint journey checks land. */
 export function MembersCard({ roster, role, dispatch, View = MembersView, view, onView }: {
   readonly roster: MembersSnapshots
   readonly role: "owner" | "maintainer" | "member"
@@ -42,3 +45,12 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
   return <View model={model} actions={bindings.actions.filter(action => !action.args?.login)} gestures={bindings.gestures}
     onAction={bindings.onAction} view={view} onView={onView} />
 }
+
+/* The members card (card-kinds.md L5): subject only; maintainers and the owner manage people. */
+const MembersBody = ({ presentation }: { readonly presentation: CardActions["presentation"] }) => {
+  const controller = useController()
+  const roster = useMemo(() => designMembersRoster(controller.design), [controller])
+  return <MembersCard roster={roster} role={designViewerRole(controller.design)} view={{ maximized: presentation === "maximized" }} onView={() => {}}
+    dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })} />
+}
+export const membersCardFamily: CardFamily<"members"> = { members: { render: (_card, { presentation }) => <MembersBody presentation={presentation} />, pill: () => "" } }

@@ -5,6 +5,7 @@
  * unchanged; only what a person reads or types says Wiki. entries/world.ts
  * registers the old names as hidden aliases over the same controller calls.
  */
+import { wikiCard } from "../../state/seams/DesignWorld/subjects"
 import { WIKI_DISPLAY_NAME, wikiOperations, wikiSurfaceOperations } from "@smthrs/ui/app-operations/wiki"
 import { Schema } from "effect"
 import { bind, flow, type CommandActions } from "./Declare"
@@ -20,7 +21,11 @@ export const recommendations: ReadonlyArray<Recommendation> = [
 
 /** The bare `wiki` surface switch, registered first with the other top-level surfaces. */
 export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
-  bind(wikiSurfaceOperations, { wiki: () => actions.showWorld() })
+  /* MOCK SEAM (DesignWorld/subjects.ts): the seeded wiki's first page stands in for the repository wiki. */
+  bind(wikiSurfaceOperations, { wiki: async () => {
+    const page = actions.design.world().wiki[0]
+    return page === undefined ? actions.showWorld() : { value: await actions.presentSubject(wikiCard(page.id, page.title)) }
+  } })
 
 /** The `wiki.*` flows: the shared wiki operations bound to the controller. */
 export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>

@@ -7,8 +7,9 @@ export const namespace: Namespace = { id: "todo", label: "TODOs", summary: "Writ
 const N = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 const Target = Schema.Struct({ n: N })
 const Text = Schema.NonEmptyString
+/** `text` is optional: New TODO opens an empty Draft, filled on the card (design Home → Draft). */
 export const TodoNewInput = Schema.Struct({
-  text: Text, title: Schema.optional(Text), acceptance: Schema.optional(Schema.Array(Schema.String)),
+  text: Schema.optional(Schema.String), title: Schema.optional(Text), acceptance: Schema.optional(Schema.Array(Schema.String)),
   before: Schema.optional(N), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
 })
 export const TodoAmendInput = Schema.Struct({

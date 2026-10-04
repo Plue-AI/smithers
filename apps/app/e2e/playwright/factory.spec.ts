@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import type { MythicalItem, MythicalStack } from "@smthrs/rpc/Mythical"
 import { controlTabKey, expect, test, type Locator, type Page } from "./browserTest"
 import { boxRunCardId, FIXTURE_BOX, installCloudFixture, runningBox } from "./cloudFixture"
 
@@ -128,42 +127,6 @@ const serveGateway = async (page: Page, extra: {
 }
 
 /** The mythical stack double: two needs-you items, two working, two landed today with first-observed stamps, a revert. */
-const HOUR = 3_600_000
-const iso = (ago: number) => new Date(Date.now() - ago).toISOString()
-const item = (id: string, state: MythicalItem["state"], extra: Partial<MythicalItem> = {}): MythicalItem => ({
-  id, state, attempt: 1, runs: {}, dependsOn: [], updatedAt: iso(HOUR),
-  issue: { number: Number(id.slice(1)), title: `Issue ${id}`, url: `https://github.com/${REPO}/issues/${id.slice(1)}` },
-  ...extra
-})
-const STACK: MythicalStack = {
-  repository: REPO, state: "active", generation: 1, mainBehind: false,
-  changes: [
-    { changeId: "kbootstrapchange", commitId: "c1", title: "Initial import", kind: "bootstrap", state: "landed" },
-    { changeId: "krevertchange", commitId: "c2", title: "Revert #3", kind: "revert", state: "landed" }
-  ],
-  items: [
-    item("i11", "blocked", { reason: "out of attempts", attempt: 3, updatedAt: iso(5 * HOUR) }),
-    item("i12", "proposed", { pullRequest: { number: 120, url: "https://github.com/pr/120", state: "open" }, checks: { state: "passed", failed: [] } }),
-    item("i13", "integrating", { lane: 0, updatedAt: iso(60_000) }),
-    item("i14", "queued"),
-    item("i15", "landed", { createdAt: iso(8 * HOUR), updatedAt: iso(2 * HOUR) }),
-    item("i16", "landed", { createdAt: iso(5 * HOUR), updatedAt: iso(HOUR) })
-  ],
-  lanes: [
-    { index: 0, state: "busy", startedAt: iso(60_000), account: { provider: "claude", label: "work@example.com", count: 1 }, seat: "opus" },
-    { index: 1, state: "idle" }
-  ],
-  limits: { maxParallel: 2 }
-}
-
-const serveStack = async (page: Page): Promise<void> => {
-  const base = `/api/repos/${REPO}/mythical`
-  await page.route((url) => url.pathname === base, (route) => route.fulfill({ json: STACK }))
-  await page.route((url) => url.pathname === `${base}/events`, (route) => route.fulfill({
-    status: 200, headers: { "content-type": "text/event-stream" }, body: `event: mythical\ndata: {"generation":1,"kind":"item"}\n\n`
-  }))
-}
-
 /** Reach a control through the keyboard order, never by pointer. */
 const tabTo = async (page: Page, target: Locator, limit = 200): Promise<void> => {
   await expect(target).toBeVisible()
@@ -192,9 +155,9 @@ const boot = async (page: Page): Promise<void> => {
   await expect(page.getByTestId("composer-input")).toBeAttached()
 }
 
-/** Flip the theme through /appearance.dark-mode and wait for the root to say so. */
+/** Flip the theme through /theme and wait for the root to say so. */
 const toggleTheme = async (page: Page, to: "light" | "dark"): Promise<void> => {
-  await command(page, "/appearance.dark-mode")
+  await command(page, "/theme")
   await expect(page.locator("html")).toHaveAttribute("data-theme", to)
 }
 
@@ -312,49 +275,6 @@ test("run forest: a child execution opens in place and Open on its up node retur
   await page.keyboard.press("Enter")
   await expect(gate).toBeVisible()
   await expect(card.locator(`[data-node="${fixtureUp!.id}"]`)).toHaveCount(0)
-})
-
-test("history: the card is an issue list grouped Needs you, Working, Done with metrics, and Metrics shows the table", async ({ page }) => {
-  test.setTimeout(120_000)
-  await installCloudFixture(page)
-  await serveStack(page)
-  await boot(page)
-  await command(page, `/history.show ${REPO}`)
-  const card = page.locator('[data-kind="stack"]')
-  await expect(card.getByTestId("stack-card")).toBeVisible({ timeout: 15_000 })
-
-  const groups = card.locator('[data-testid^="stack-group-"]:not([data-testid$="-count"])')
-  await expect(groups).toHaveCount(3)
-  await expect(card.getByTestId("stack-group-needs-you")).toContainText("Needs you")
-  await expect(card.getByTestId("stack-group-needs-you-count")).toHaveText("2")
-  await expect(card.getByTestId("stack-group-working")).toContainText("Working")
-  await expect(card.getByTestId("stack-group-working-count")).toHaveText("2")
-  await expect(card.getByTestId("stack-group-done")).toContainText("Done")
-  await expect(card.getByTestId("stack-group-done-count")).toHaveText("2")
-  await expect(card.getByTestId("stack-item-i11")).toHaveAttribute("data-group", "needs-you")
-  await expect(card.getByTestId("stack-item-i11")).toContainText("out of attempts")
-  await expect(card.getByTestId("stack-item-i13")).toHaveAttribute("data-group", "working")
-  await expect(card.getByTestId("stack-item-i15")).toHaveAttribute("data-group", "done")
-  // Landed over decided (two landed, one blocked; proposed is still open); one revert; the median of 6h and 4h is 5h.
-  await expect(card.getByTestId("stack-metric-landed")).toHaveText("2/3 landed")
-  await expect(card.getByTestId("stack-metric-reverts")).toHaveText("1 revert")
-  await expect(card.getByTestId("stack-metric-p50")).toHaveText("5h p50")
-  await shot(page, card, "04-issues.png")
-  await toggleTheme(page, "dark")
-  await shot(page, card, "04-issues-dark.png")
-  await toggleTheme(page, "light")
-
-  const metrics = card.getByTestId("stack-metrics").getByRole("button", { name: "Metrics", exact: true })
-  await tabTo(page, metrics)
-  await page.keyboard.press("Enter")
-  const table = card.getByTestId("stack-metrics-table")
-  await expect(table).toBeVisible()
-  await expect(metrics).toHaveAttribute("aria-pressed", "true")
-  await expect(table.getByRole("columnheader")).toHaveText(["Issue", "Outcome", "Issue→landed", "Attempt"])
-  await expect(table.getByTestId("stack-metrics-i16")).toContainText("4h")
-  await expect(table.getByTestId("stack-metrics-i15")).toContainText("6h")
-  await expect(card.getByTestId("stack-group-needs-you")).toHaveCount(0)
-  await shot(page, card, "05-metrics.png")
 })
 
 test("run inbox: Needs you names the gate, Answer opens one button per option, and choosing one submits the answer", async ({ page }) => {

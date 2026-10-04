@@ -58,13 +58,13 @@ describe("command registry pure model", () => {
     expect(recommendedNames(chatState)[0]).toBe("wiki")
     expect(recommendedNames({ ...chatState, hasConnectors: true })[0]).toBe("wiki")
     expect(recommendedNames({ ...chatState, surface: "world" })[0]).toBe("chat")
-    expect(recommendedNames({ ...chatState, typing: true })).toEqual(["chat.stop"])
+    expect(recommendedNames({ ...chatState, typing: true })).toEqual(["stop"])
   })
 
   test("signed-out, sign-in is the only step", () => {
-    expect(recommendedNames({ ...chatState, signedOut: true })).toEqual(["auth.sign-in"])
+    expect(recommendedNames({ ...chatState, signedOut: true })).toEqual(["sign-in"])
     // Typing still outranks everything.
-    expect(recommendedNames({ ...chatState, signedOut: true, typing: true })).toEqual(["chat.stop"])
+    expect(recommendedNames({ ...chatState, signedOut: true, typing: true })).toEqual(["stop"])
   })
 
   test("slash filtering matches name and summary, case-insensitively", () => {
@@ -146,13 +146,13 @@ describe("command registry pure model", () => {
    */
   test("the signed-out listing offers nothing that needs a session", () => {
     const commands = [
-      { name: "auth.sign-in", summary: "Sign in with GitHub" },
-      { name: "auth.sign-out", summary: "Sign out", requires: ["signed-in"] },
+      { name: "sign-in", summary: "Sign in with GitHub" },
+      { name: "sign-out", summary: "Sign out", requires: ["signed-in"] },
       { name: "issues.create", summary: "Create an issue", requires: ["signed-in"] },
       { name: "wiki", summary: "What Smithers understands" }
     ]
     const signedOut = slashItems({ ...chatState, signedOut: true }, "", commands)
-    expect(signedOut.map((item) => item.flow.name)).toEqual(["auth.sign-in", "wiki"])
+    expect(signedOut.map((item) => item.flow.name)).toEqual(["sign-in", "wiki"])
     const signedIn = slashItems(chatState, "", commands)
     expect(signedIn.map((item) => item.flow.name)).toContain("issues.create")
   })
@@ -227,25 +227,25 @@ describe("command registry pure model", () => {
     const commands = [
       { name: "chat", summary: "" },
       { name: "tab.terminal", summary: "" },
-      { name: "appearance.dark-mode", summary: "" },
-      { name: "appearance.dark-mode", summary: "" },
+      { name: "browser.open", summary: "" },
+      { name: "browser.open", summary: "" },
       { name: "toast.dismiss", summary: "", hidden: true },
       { name: "zeta.one", summary: "" }
     ]
     expect(namespacesOf(commands).map((row) => [row.id, row.count])).toEqual([
-      ["appearance", 2],
+      ["browser", 2],
       ["tab", 1],
       ["zeta", 1]
     ])
-    expect(namespacesOf(commands).find((row) => row.id === "appearance")?.label).toBe("Appearance")
+    expect(namespacesOf(commands).find((row) => row.id === "browser")?.label).toBe("Browser")
   })
 
   test("a bare / is the tree's top level: recommendations, surfaces, then namespace rows", () => {
     const commands = [
       { name: "wiki", summary: "Wiki" },
       { name: "chat", summary: "Chat" },
-      { name: "appearance.dark-mode", summary: "Toggle" },
-      { name: "appearance.dark-mode", summary: "Theme" },
+      { name: "browser.open", summary: "Toggle" },
+      { name: "browser.open", summary: "Theme" },
       { name: "tab.terminal", summary: "Terminal" },
       { name: "chat.filter", summary: "Filter" }
     ]
@@ -254,12 +254,12 @@ describe("command registry pure model", () => {
       "wiki",
       "chat",
       "chat/",
-      "appearance/",
+      "browser/",
       "tab/"
     ])
     expect(rows[0]?.kind === "flow" && rows[0].recommended).toBe(true)
     // No loose leaf at the top: the toggle is reachable through its namespace.
-    expect(rows.some((row) => row.kind === "flow" && row.flow.name === "appearance.dark-mode")).toBe(false)
+    expect(rows.some((row) => row.kind === "flow" && row.flow.name === "browser.open")).toBe(false)
   })
 
   test("a namespace head with the dot lists that branch, uncapped; any other text is the flat filter", () => {
@@ -267,22 +267,22 @@ describe("command registry pure model", () => {
       name: `tab.flow-${index}`,
       summary: `Tab flow ${index}`
     }))
-    const commands = [{ name: "chat", summary: "Chat" }, { name: "appearance.dark-mode", summary: "Toggle" }, ...many]
+    const commands = [{ name: "chat", summary: "Chat" }, { name: "browser.open", summary: "Toggle" }, ...many]
     const branch = slashTree(chatState, "tab.", commands)
     expect(branch).toHaveLength(many.length)
     expect(branch.every((row) => row.kind === "flow" && row.flow.name.startsWith("tab."))).toBe(true)
     // Typing part of a namespace offers it as a row above the flat matches.
-    const partial = slashTree(chatState, "app", commands)
+    const partial = slashTree(chatState, "bro", commands)
     expect(partial[0]).toEqual({
       kind: "namespace",
-      namespace: { id: "appearance", label: "Appearance", summary: "Light or dark mode" },
+      namespace: { id: "browser", label: "Browser", summary: "Read web pages" },
       count: 1
     })
     // A name known by heart still leads, exactly as the flat filter ranks it.
-    const exact = slashTree(chatState, "appearance.dark-mode", commands)
-    expect(exact[0]?.kind === "flow" && exact[0].flow.name).toBe("appearance.dark-mode")
-    const fuzzy = slashTree(chatState, "dark", commands)
-    expect(fuzzy.map((row) => (row.kind === "flow" ? row.flow.name : ""))).toEqual(["appearance.dark-mode"])
+    const exact = slashTree(chatState, "browser.open", commands)
+    expect(exact[0]?.kind === "flow" && exact[0].flow.name).toBe("browser.open")
+    const fuzzy = slashTree(chatState, "open", commands)
+    expect(fuzzy.map((row) => (row.kind === "flow" ? row.flow.name : ""))).toEqual(["browser.open"])
   })
 
   test("an exact bare command ranks ahead of a longer namespace prefix", () => {
@@ -435,7 +435,7 @@ describe("command registry bindings", () => {
       sandbox: { platform: "darwin", mode: "enforced" }
     })
     const localNames = local.controller.commands.all().map((command) => command.name)
-    expect(localNames).not.toContain("auth.sign-in")
+    expect(localNames).not.toContain("sign-in")
     /* Repository tracker reads require a backend capability. */
     expect(localNames).not.toContain("issues.list")
     expect(localNames).not.toContain("flow.run")
@@ -451,7 +451,7 @@ describe("command registry bindings", () => {
       sandbox: null
     })
     const cloudNames = cloud.controller.commands.all().map((command) => command.name)
-    expect(cloudNames).toContain("auth.sign-in")
+    expect(cloudNames).toContain("sign-in")
     expect(cloudNames).toContain("issues.list")
     expect(cloudNames).toContain("flow.run")
     expect(cloudNames).toContain("browser.open")
@@ -549,7 +549,7 @@ describe("command registry bindings", () => {
     // Browser mechanics never appear in the agent's tool catalog.
     for (
       const userOnly of [
-        "chat.stop",
+        "stop",
         "chat.send",
         "card.maximize"
       ]
@@ -571,13 +571,13 @@ describe("command registry bindings", () => {
     // Every listed flow is a tool call (flows/invocable.test.ts pins the invariant).
     const theme = await executeAgentToolCall(controller.commands, {
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "appearance.dark-mode" })
+      arguments: JSON.stringify({ action: "execute", name: "theme" })
     })
-    expect(theme).toBe("executed /appearance.dark-mode")
+    expect(theme).toBe("executed /theme")
 
     // The user-only guard never leaks into the user path: the human's own
     // invocation still executes.
-    expect((await controller.commands.run("appearance.dark-mode")).status).toBe("executed")
+    expect((await controller.commands.run("theme")).status).toBe("executed")
   })
 
   test("a bare /name typed into the composer runs the command, not a prompt", async () => {
@@ -585,8 +585,9 @@ describe("command registry bindings", () => {
     controller.changeDraft("/wiki")
     controller.send(store.session().draft)
     const deadline = Date.now() + 2_000
-    while (!store.collections.cards.has("world-embedded") && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 1))
-    expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
+    // MOCK SEAM: /wiki opens the seeded wiki's first page (DesignWorld/subjects.ts wikiCard).
+    while (!store.collections.cards.has("design:wiki:webhook-retries") && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(store.collections.cards.get("design:wiki:webhook-retries")?.title).toBe("Webhook retries")
     expect(store.session().surface).toBe("chat")
     expect(store.session().draft).toBe("")
     expect([...store.collections.messages.values()].some((m) => m.text === "/wiki")).toBe(false)
@@ -635,7 +636,7 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "wiki" })
     })
-    expect(executed).toBe("executed /wiki")
+    expect(executed).toBe("Opened Webhook retries")
 
     // The recovery is in the error: the dead-end "unknown-command: nope"
     // left the live model telling the USER to run the command instead of
@@ -664,17 +665,17 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "/wiki" })
     })
-    expect(executed).toBe("executed /wiki")
+    expect(executed).toBe("Opened Webhook retries")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
+    expect(store.collections.cards.get("design:wiki:webhook-retries")?.title).toBe("Webhook retries")
 
     // The slash spelling resolves through the alias and executes now that the
     // look-and-feel flows are model-invocable (flows/invocable.test.ts).
     const theme = await executeAgentToolCall(controller.commands, {
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "/appearance.dark-mode" })
+      arguments: JSON.stringify({ action: "execute", name: "/theme" })
     })
-    expect(theme).toBe("executed /appearance.dark-mode")
+    expect(theme).toBe("executed /theme")
 
     // A bare "/" names nothing.
     const empty = await executeAgentToolCall(controller.commands, {

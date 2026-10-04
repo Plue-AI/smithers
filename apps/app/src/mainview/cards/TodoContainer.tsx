@@ -3,6 +3,10 @@ import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { TodoEntry } from "../state/seams/TodoSeam"
+import { useController } from "../ControllerContext"
+import { useDesignTodoCard } from "../state/seams/DesignWorld/todo"
+import type { CardFamily, CardOf } from "./CardFamily"
+import { TodoView } from "./views/TodoView"
 
 export interface TodoViewProps extends CardProps<TodoCard> {
   readonly answer?: { readonly text: string; readonly answered_by: string }
@@ -31,8 +35,9 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   const n = model.n
   const live = !["merged", "dropped"].includes(model.state)
   const definitions: CardActionDefinition[] = [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }]
+  if (model.run) definitions.push({ tag: "run.inspect", label: "Inspect", command_input: { id: model.run.id } })
   if (!live) return definitions
-  const textField = (label: string, name: string, value?: string) => [{ name, label, kind: "text" as const, required: true, multiline: true, value }]
+  const waitsFrom = definitions.length
   for (const wait of model.waits) {
     for (const action of wait.actions) {
       switch (action.tag) {
@@ -51,15 +56,16 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
       }
     }
   }
-  definitions.push({ tag: "todo.steer", label: lateAnswer ? "Send as steer" : "Steer", command_input: { n, text: lateAnswer ?? "" },
-    input: textField("Steer", "text", lateAnswer), resolve_input: input => ({ n, text: input.text ?? lateAnswer ?? "" }) })
+  // A wait's own controls render inside that wait (TodoView reads wait.actions): bound as gestures they dispatch, yet stay out of the card's one actions row.
+  for (let index = waitsFrom; index < definitions.length; index++) definitions[index] = { ...definitions[index]!, gesture: `wait:${index}` }
+  // Steer and Amend are plain buttons: an empty text opens Chat on the flow's line (TodoBody); a late answer sends as is.
+  definitions.push({ tag: "todo.steer", label: lateAnswer ? "Send as steer" : "Steer", command_input: { n, text: lateAnswer ?? "" } })
   if (model.state === "paused") definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
   if (["starting", "working"].includes(model.state) || model.state === "needs_you" && model.waits.some(wait => !["question", "approval"].includes(wait.kind))) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })
-  definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" }, input: textField("Prompt", "text"),
-    resolve_input: input => ({ n, text: input.text ?? "" }) }, { tag: "todo.drop", label: "Drop", command_input: { n } })
+  definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } }, { tag: "todo.drop", label: "Drop", command_input: { n } })
   if (model.pr && model.state === "in_review") {
     const checks = requiredChecks(model)
     const ready = model.merge.state === "ready" && model.place === 1 && role !== "member"
@@ -79,4 +85,24 @@ export const TodoContainer = ({ card, role, dispatch, View, view, onView }: Todo
     typeof lateWait === "string" ? lateWait : undefined))
   return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
     answer={card.payload.answeredBy ? { text: card.payload.answerDraft ?? "", answered_by: card.payload.answeredBy } : undefined} />
+}
+
+/** The `todo` kind: the seeded design world's Tn while the seed is mounted (mock seam), else the server projection. */
+const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly maximized: boolean }) => {
+  const controller = useController()
+  const seeded = useDesignTodoCard(card.payload.n)
+  const dispatch: CardCommandDispatch = (tag, input) => {
+    const payload = (input ?? {}) as Record<string, unknown>
+    if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
+      controller.changeDraft(`/${tag} T${card.payload.n} `)
+      return controller.runCommand("chat.open")
+    }
+    return controller.commands.submit({ name: tag, payload, actor: "user", originCardId: card.id })
+  }
+  const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
+  return <TodoContainer card={entry} role={seeded?.role ?? "member"} dispatch={dispatch} View={TodoView}
+    view={{ maximized }} onView={() => {}} />
+}
+export const todoCardFamily: CardFamily<"todo"> = {
+  todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }
 }

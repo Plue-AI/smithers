@@ -51,7 +51,7 @@ const fakeContext = async (options?: {
     toastDebounceMs: options?.toastDebounceMs ?? 0,
     toastAutoDismissMs: options?.toastAutoDismissMs ?? 0,
     commands: { find: (name: string) => {
-      const summary = ({ "auth.sign-in": "Sign in with GitHub", "prs.list": "Read pull requests" } as Record<string, string>)[name]
+      const summary = ({ "sign-in": "Sign in with GitHub", "prs.list": "Read pull requests" } as Record<string, string>)[name]
       return summary ? { metadata: { summary } } : undefined
     } },
     unref: () => {}
@@ -95,8 +95,8 @@ const captureTimers = (delay: number, now?: number) => {
 
 test("human command references leave diagnostic URLs and file paths intact", async () => {
   const { ctx } = await fakeContext()
-  expect(humanCommandText(ctx.commands, "Try /auth.sign-in. See https://host/auth.sign-in and /api/auth.sign-in for details."))
-    .toBe("Try Sign in with GitHub. See https://host/auth.sign-in and /api/auth.sign-in for details.")
+  expect(humanCommandText(ctx.commands, "Try /sign-in. See https://host/sign-in and /api/sign-in for details."))
+    .toBe("Try Sign in with GitHub. See https://host/sign-in and /api/sign-in for details.")
 })
 
 test("the 300 ms debounce holds through launch and remote execution", async () => {
@@ -618,11 +618,11 @@ test("a refused command's notice dismisses itself after stating the refusal", as
 
 test("a seam's sign-in notice uses human summaries and dismisses even with an action", async () => {
   const { ctx, store } = await fakeContext()
-  createFailureController(ctx).surfaceCommandFailure("prs.list", { status: "failed", error: "Use /auth.sign-in to continue." })
+  createFailureController(ctx).surfaceCommandFailure("prs.list", { status: "failed", error: "Use /sign-in to continue." })
   const toast = store.collections.toasts.get("toast-command.failed.prs.list")
   expect(toast?.title).toBe("Read pull requests didn't run")
   expect(toast?.detail).toBe("Use Sign in with GitHub to continue.")
-  expect(toast?.action).toEqual({ flow: "auth.sign-in", label: "Sign in with GitHub" })
+  expect(toast?.action).toEqual({ flow: "sign-in", label: "Sign in with GitHub" })
   await settled()
   expect(store.collections.toasts.size).toBe(0)
 })

@@ -10,34 +10,67 @@ import { flowPlanParts, flowRunParts, payloadFor } from "../SlashPayload"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { RepositoryFlow } from "../../state/AppState"
 import type { CommandActions } from "./Declare"
+import { todoOf } from "../../state/seams/DesignWorld"
+import { flowCardOf, flowNames, flowTitle } from "../../state/seams/DesignWorld/run"
+import { fileCard, findFile } from "../../state/seams/DesignWorld/subjects"
 
 /** The `flow` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "flow", label: "Flows", summary: "Create, list, and run flows" }
 
-/** No repository effect until the version projection and catalog providers land. */
-const unavailableFlow = (): never => {
-  throw Object.assign(new Error("Flow provider unavailable"), { code: "provider_unavailable", class: "infra" })
-}
 const flowNameGrammar = (args: string | undefined) => {
   const [name, ...request] = (args ?? "").trim().split(/\s+/)
   return { payload: { ...(name ? { name } : {}), ...(request.length ? { request: request.join(" ") } : {}) } }
 }
 
-/** Dark catalog doors: register only after version, TODO and private confirmation providers pass. */
-export const flowVersionFlows = (): ReadonlyArray<FlowEntry> => [
-  flow({ name: "flow", summary: "Open a flow", args: "<name>", runtime: ["cloud"],
-    input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
-    handler: unavailableFlow }),
-  flow({ name: "flow.edit", summary: "Change a flow", args: "<name> <request>", runtime: ["cloud"],
-    input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
-    grammar: flowNameGrammar, confirm: "change this flow",
-    form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
-      args: payload => line(text(payload, "name"), text(payload, "request")) },
-    handler: unavailableFlow }),
-  flow({ name: "flow.source", summary: "Open a flow's source", args: "<name>", runtime: ["cloud"],
-    input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
-    handler: unavailableFlow })
-]
+/** The TODO a flow edit becomes (spec §11.5.1): the agent derives the change from this request; nothing else is stored. */
+export const flowEditPrompt = (name: string, request: string): string =>
+  `Change flows/${name}/flow.ts: ${request}; start from the built-in composition when no override exists`
+
+/*
+ * The versioned flow doors (T-APP-05, J5): the Flow card, a proposed edit as
+ * a Draft through the TODO lane's newTodo (the `todo.new` handler), the source
+ * on the branch of the TODO that proposes a change (spec §11.5b), and the list.
+ * MOCK: they read the seeded design world (state/seams/DesignWorld/run.ts)
+ * until topic `flows` and /api/flows land; the handlers then read those.
+ */
+export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
+  const named = (name: string) => flowCardOf(actions.design.world(), name)
+  return [
+    flow({ name: "flow", summary: "Show a flow's steps and versions", args: "<name>",
+      input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+      handler: async ({ name }) => named(name) === undefined ? `No flow ${name}` : { value: await actions.presentFlow(name, flowTitle(name)) } }),
+    flow({ name: "flow.edit", summary: "Propose a change to a flow", args: "<name> <request>",
+      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
+      grammar: flowNameGrammar, confirm: "change this flow",
+      form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
+        args: payload => line(text(payload, "name"), text(payload, "request")) },
+      handler: ({ name, request }) => {
+        const model = named(name)
+        if (model === undefined) return `No flow ${name}`
+        if ("builtin" in model.source) return `${flowTitle(name)} is built in`
+        return actions.newTodo({ text: flowEditPrompt(name, request), title: `Change the ${flowTitle(name)}: ${request}` })
+      } }),
+    flow({ name: "flow.source", summary: "Co-edit a flow's source", args: "<name>",
+      input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+      handler: async ({ name }) => {
+        const world = actions.design.world()
+        const model = named(name)
+        if (model === undefined) return `No flow ${name}`
+        if ("builtin" in model.source) return `${flowTitle(name)} is built in`
+        const proposing = world.flowVersions.find(each => each.flow === name && each.state === "proposed" && each.todo !== undefined)
+        const branch = proposing?.todo === undefined ? undefined : todoOf(world, proposing.todo)?.branch
+        const file = findFile(world, model.source.path, branch) ?? findFile(world, model.source.path, "main")
+        if (file === undefined) return `No source for ${flowTitle(name)}`
+        return { value: await actions.presentSubject(fileCard(world.repo.repo, file.branch, file.path)) }
+      } }),
+    flow({ name: "flows", summary: "List the repository's flows", input: Schema.Struct({}),
+      handler: async () => {
+        const names = flowNames(actions.design.world())
+        for (const name of names) await actions.presentFlow(name, flowTitle(name))
+        return { value: `${names.length} flows` }
+      } })
+  ]
+}
 
 /** The `flow.*` flows: create, choose a repository, list, run, and the run controls. */
 export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [

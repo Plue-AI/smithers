@@ -31,12 +31,12 @@ test("signed-out approvals park behind the real sign-in door and survive reload 
   expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
 
   await command(page, `/approvals.list ${PRODUCTION_REPO}`)
-  await expect(page.locator('[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('[data-flow="sign-in"]:visible').last()).toBeVisible()
   await expect(transcript(page)).toContainText(/Sign in with GitHub to continue\./)
   expect(workflowPaths(requests)).toEqual([])
 
   await reloadApp(page)
-  await expect(page.locator('[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('[data-flow="sign-in"]:visible').last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="approvals-inbox"]')).toHaveCount(0)
   expect(workflowPaths(requests)).toEqual([])
   expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)

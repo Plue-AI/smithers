@@ -110,14 +110,14 @@ describe("the client-side agent tool loop", () => {
    * dark (the bare toggle turned an already-dark app light).
    */
   for (const from of ["light", "dark"] as const) {
-    test(`"switch to dark mode" from ${from} executes /appearance.dark-mode dark and ends dark`, async () => {
+    test(`"switch to dark mode" from ${from} executes /theme dark and ends dark`, async () => {
       const store = await webStore()
       store.dispatch({ type: "theme.changed", actor: "user", theme: from })
       const darkCall = {
         type: "tool_call" as const,
         call_id: "call_dark",
         name: "commands",
-        arguments: JSON.stringify({ action: "execute", name: "appearance.dark-mode", args: "dark" })
+        arguments: JSON.stringify({ action: "execute", name: "theme", args: "dark" })
       }
       const { agent, requests } = scriptedToolAgent([
         () => [darkCall, { type: "done" as const, reason: "tool_call" as const }],
@@ -127,12 +127,12 @@ describe("the client-side agent tool loop", () => {
         ]
       ])
       const controller = createAppController(store, agent)
-      controller.send("switch to dark mode")
+      controller.send("make it darker")
       await settled()
       await settled()
 
       const output = requests[1]?.messages.find((m) => "type" in m && m.type === "function_call_output")
-      expect(output !== undefined && "output" in output ? output.output : undefined).toBe("executed /appearance.dark-mode")
+      expect(output !== undefined && "output" in output ? output.output : undefined).toBe("executed /theme")
       expect(store.session().theme).toBe("dark")
       expect(store.session().phase).toBe("idle")
     })
@@ -251,7 +251,7 @@ describe("the client-side agent tool loop", () => {
           type: "tool_call" as const,
           call_id: `call_${requests.length}`,
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "appearance.dark-mode" })
+          arguments: JSON.stringify({ action: "execute", name: "theme" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ]

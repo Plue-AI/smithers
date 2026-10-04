@@ -151,8 +151,8 @@ export interface CardCommandInput {
   readonly "branch": { readonly name: string }
   readonly "branch.fork": z.infer<typeof BranchForkInputSchema>
   readonly "branch.add-to-stack": z.infer<typeof BranchAddToStackInputSchema>
-  readonly "branch.rebase": undefined
-  readonly "terminal": undefined
+  readonly "branch.rebase": { readonly branch: string } | undefined
+  readonly "terminal": { readonly branch: string } | undefined
   readonly "file": { readonly path: string }
   readonly "files": undefined
   readonly "diff": undefined

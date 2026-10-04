@@ -149,13 +149,12 @@ describe("deployment mode matrix", () => {
 
   test("the self-hosting release journey is a matrix obligation (#1668)", () => {
     const ids = MATRIX_OBLIGATIONS.map(({ id }) => id)
-    for (const id of ["approval", "duplicate-input", "error-surfaced"]) expect(ids).toContain(id)
+    for (const id of ["approval", "error-surfaced"]) expect(ids).toContain(id)
     expect(MATRIX_OBLIGATIONS.find(({ id }) => id === "approval")?.scenarios.map(({ id }) => id))
       .toEqual(["approvals.product-approve", "approvals.product-deny"])
     for (const mode of DEPLOYMENT_MODES) {
       expect(owedScenarioIds(mode)).toEqual(expect.arrayContaining([
-        "approvals.product-approve", "approvals.product-deny",
-        "history.production-bootstrap-show-parallel", "flows.product-no-box"
+        "approvals.product-approve", "approvals.product-deny", "flows.product-no-box"
       ]))
     }
   })

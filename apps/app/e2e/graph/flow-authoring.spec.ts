@@ -67,7 +67,7 @@ test("authors, edits, replans and runs the written source from chat", async ({ p
   const editor = page.locator('.smithers-card[data-kind="run-trace"]').last()
   const order = await page.locator('.smithers-card').evaluateAll(cards => cards.map(card => card.getAttribute("data-testid")))
   expect(order.indexOf(planId)).toBe(order.indexOf(await editor.getAttribute("data-testid")) - 1)
-  await expect(page.locator('[data-toast-status="running"]')).toHaveCount(0)
+  await expect(page.locator('.mvp-notice[data-tone="live"]')).toHaveCount(0)
   await page.reload()
   await expect(validate).toBeVisible()
   await expect(plan).toHaveCount(1)

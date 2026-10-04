@@ -881,6 +881,15 @@ type KindFixtures = {
 
 const FIXTURES: Record<Card["kind"], KindFixtures> = {
   todo: { minimal: { n: 12, requests: [] }, full: { n: 12, model: todoFixtures.failed.model, requests: [], answerDraft: "A late answer", answeredBy: "maya" } },
+  /* Confirm (T-APP-04): the card names its subject; the card file reads the confirmation. */
+  confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },
+  branch: { minimal: { id: "b-retry" }, full: { id: "b-retry" } },
+  terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
+  run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
+  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3" } },
+  settings: { minimal: {}, full: {} },
+  members: { minimal: {}, full: {} },
+  commands: { minimal: {}, full: {} },
   draft: { minimal: { ...draftFixtures.append.model, idempotencyKey: "commit-1" }, full: {
     ...draftFixtures.append.model, issue: draftFixtures.issue_fixes.model.issue, seed: draftFixtures.seed.model.seed, committed: { n: 12, rev: 1 },
     optionsFailure: "Could not load placement", idempotencyKey: "commit-1", request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
@@ -2842,7 +2851,7 @@ test("repository home schema decodes every resolution and refuses unsafe paths",
 /* mvp.md §8: old Cut cards decode inertly; retained kinds keep their schema audits. */
 const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent"] satisfies readonly (keyof typeof FIXTURES)[]
 const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(CUT_KINDS as readonly string[]).includes(kind))
-const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" ? { audience_member_id: "ben" } : {}) })
+const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" || kind === "confirm" ? { audience_member_id: "ben" } : {}) })
 
 /** The fields a kind's payload declares, or null when the payload is a union of stages rather than one object. */
 const payloadFields = (kind: string): Record<string, z.ZodType> | null => {

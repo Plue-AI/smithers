@@ -316,7 +316,7 @@ interface DeclaredMove {
 }
 
 /** Only these app doors left; the persisted oracle is unchanged. */
-const CUT_FLOW_NAMES = new Set(["chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
+const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
   ...(["runs.list", "github.mirror.retry-ref", "flow.create"] as const).map(flow => ({
@@ -394,14 +394,7 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
       because: "Product words (#2144): the refusal names the id the user types as a comment id; the wire field and route still say thread."
     }
   ]),
-  {
-    flow: "appearance.dark-mode", kind: "card", rows: 31,
-    because: "Light or dark mode is named, not only toggled (#3311): the agent asked to switch to dark mode turned an already-dark app light. The flow gains an optional Mode field (light or dark), so every swept line's card lists it; a bare line still toggles."
-  },
-  {
-    flow: "appearance.dark-mode", kind: "sentence", rows: 29,
-    because: "With a mode to name (#3311), a line that names something other than light or dark reads `dark-mode takes light or dark` instead of silently toggling."
-  },
+  /* The #3311 `appearance.dark-mode` moves left with the name: `/theme` (mvp.md Appendix A) has no main@origin rows. */
 
 ]
 
@@ -432,9 +425,17 @@ const CUT_DIAGNOSTIC_MOVES = [
   { flow: "change.split", shape: "quoted-phrase", before: false, after: true }
 ] as const
 
+/*
+ * Cut names the MVP design re-declares as new mvp.md Appendix A flows with their own grammar
+ * (entries/subjects.ts `issues`, entries/flow.ts `flows`). main@origin's rows for the old doors
+ * stay cut; the new flows have no main@origin baseline to match.
+ */
+const REVIVED_FLOW_NAMES = new Set(["issues", "flows"])
+
 /* One exhaustive sweep for the whole file; every test below reads the same rows. */
 let swept: Promise<ReadonlyArray<Row>> | undefined
-const swipe = (): Promise<ReadonlyArray<Row>> => (swept ??= sweep())
+const swipe = (): Promise<ReadonlyArray<Row>> =>
+  (swept ??= sweep().then(rows => rows.filter(row => !REVIVED_FLOW_NAMES.has(row.flow))))
 
 describe("the card every slash line opens, against main@origin", () => {
   test("every (flow, args) row matches main@origin except where this branch declares the move", async () => {
@@ -521,7 +522,7 @@ describe("the card every slash line opens, against main@origin", () => {
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
     /* 1449: the thirteen typed `/triggers.pause` lines no longer quote a button-only refusal (#1732). */
     /* 1454: `/flow.create` and `/feature.prototype` read box-chooser JSON, so malformed JSON and unknown fields get the grammar's diagnostic. */
-    /* 1483: the 29 `/appearance.dark-mode` lines that name no mode read `dark-mode takes light or dark` (#3311). */
+    /* 1483: the 29 `/theme` lines that name no mode read `dark-mode takes light or dark` (#3311). */
     /* 1359: the MVP cut (#3385) removed the desktop, forge, integration, model-lab and time-travel doors; their rows left with them. */
     /* 1361: malformed recovery rejection refuses two unknown box.open flags (099995ffa, #3318). */
     const cutDiagnostics = Object.entries(baseline.rows)
@@ -553,7 +554,8 @@ describe("the card every slash line opens, against main@origin", () => {
     // retain every saved case, adding these three diagnostic-bearing rows.
     expect({ atMain, here }).toEqual({
       atMain: 1437,
-      here: 1361 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
+      // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
+      here: 1361 - 29 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

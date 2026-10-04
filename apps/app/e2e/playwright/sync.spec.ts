@@ -87,7 +87,7 @@ test("CAP-004: unresolved import launch stays starting, leaves chat usable, and 
   await runSlash(page, `/repos.import ${REPO}`)
   const card = page.getByTestId("card-repo-import-smithersai/smithers")
   await expect(card).toContainText("starting")
-  await expect(page.locator(".toast-stack")).toContainText(`Importing ${REPO}…`)
+  await expect(page.locator(".mvp-notify")).toContainText(`Importing ${REPO}…`)
   if (!await page.getByTestId("composer-input").isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).click()
   await page.getByTestId("composer-input").fill("Chat remains usable while this launches")
   await expect(page.getByTestId("composer-input")).toHaveValue("Chat remains usable while this launches")

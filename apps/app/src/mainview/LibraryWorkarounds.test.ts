@@ -56,7 +56,7 @@ describe("landed library contracts have no host workaround left", () => {
     expect(source).toContain("submitProps={COMPOSER_SEND_PROPS}")
     expect(source).toContain("stopProps={COMPOSER_STOP_PROPS}")
     expect(source).toContain('flowProps("chat.send")')
-    expect(source).toContain('flowProps("chat.stop")')
+    expect(source).toContain('flowProps("stop")')
   })
 
   test("the Wiki pane names every flow through the rendering component's own hook", async () => {

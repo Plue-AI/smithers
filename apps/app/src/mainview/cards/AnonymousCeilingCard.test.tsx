@@ -67,10 +67,10 @@ describe("the anonymous ceiling card", () => {
     expect(render({ message: PER_ADDRESS, retryAt: "not a time" }).text("anonymous-ceiling-reset")).toBe(RESETS_DAILY)
   })
 
-  test("offers Sign in with GitHub as the one door, bound to auth.sign-in", () => {
+  test("offers Sign in with GitHub as the one door, bound to sign-in", () => {
     const { host, signIns } = render({ message: PER_ADDRESS, retryAt: null })
     const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")]
-    expect(buttons.map((button) => [button.textContent, button.dataset.flow])).toEqual([["Sign in with GitHub", "auth.sign-in"]])
+    expect(buttons.map((button) => [button.textContent, button.dataset.flow])).toEqual([["Sign in with GitHub", "sign-in"]])
     buttons[0]?.click()
     expect(signIns()).toBe(1)
   })
@@ -86,9 +86,9 @@ test("the answered ceiling keeps its history and no longer renders a sign-in but
   const before = card({ message: PER_ADDRESS, retryAt: null })
   try {
     flushSync(() => root.render(<AnonymousCeilingCardBody card={before} onConnectGitHub={() => {}} />))
-    expect(host.querySelectorAll('[data-flow="auth.sign-in"]').length).toBe(1)
+    expect(host.querySelectorAll('[data-flow="sign-in"]').length).toBe(1)
     flushSync(() => root.render(<AnonymousCeilingCardBody card={{ ...before, status: "acted" }} onConnectGitHub={() => {}} />))
-    expect(host.querySelectorAll('[data-flow="auth.sign-in"]').length).toBe(0)
+    expect(host.querySelectorAll('[data-flow="sign-in"]').length).toBe(0)
     expect(host.textContent).toContain(PER_ADDRESS)
     expect(host.textContent).toContain("Signed in with GitHub.")
   } finally { flushSync(() => root.unmount()) }

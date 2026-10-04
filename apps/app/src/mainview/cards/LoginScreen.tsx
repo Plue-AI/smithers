@@ -2,7 +2,7 @@
  * The login screen (Will, 2026-10-03): what a signed-out visitor of the hosted
  * web app sees first, in the middle of the page (chat.css centers the
  * transcript while the screen owns it). The mark and "Welcome to Smithers"
- * over two doors: Continue with GitHub (auth.sign-in) and an email address
+ * over two doors: Continue with GitHub (sign-in) and an email address
  * (auth.email). No prose beside a button (MINIMAL TEXT). What the email door
  * can do on this host is the controller's answer (#3704).
  */
@@ -24,7 +24,7 @@ export function LoginScreen({ onRunCommand }: { readonly onRunCommand: RunComman
       <h1>Welcome to Smithers</h1>
     </section>
     <section className="login-doors" aria-label="Sign in">
-      <button type="button" className="login-door" data-testid="login-github" {...flowAction(onRunCommand, "auth.sign-in")}><GitHubMark />Continue with GitHub</button>
+      <button type="button" className="login-door" data-testid="login-github" {...flowAction(onRunCommand, "sign-in")}><GitHubMark />Continue with GitHub</button>
       <div className="login-or" role="separator" aria-label="or"><span>or</span></div>
       <form className="login-email" {...flowProps("auth.email")} onSubmit={event => {
         event.preventDefault()

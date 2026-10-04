@@ -133,7 +133,7 @@ export const createAuthBillingController = (
       type: "message.appended",
       actor: "system",
       text: "GitHub sign-in didn't finish — nothing was signed in. Try again whenever you're ready.",
-      action: { flow: "auth.sign-in", label: "Try sign-in again" }
+      action: { flow: "sign-in", label: "Try sign-in again" }
     })
     return true
   }
@@ -511,7 +511,7 @@ export const createAuthBillingController = (
       const key = "auth.sign-in.already"
       store.dispatch({ type: "toast.shown", actor: "system", key, title: `Connected as ${identity.login ?? "you"}` })
       store.dispatch({ type: "toast.resolved", actor: "system", key, status: "ok", detail: identityProviderFor(services) === "github" ? "GitHub is connected." : "Signed in.",
-        action: { flow: "auth.sign-out", label: "Sign out" } })
+        action: { flow: "sign-out", label: "Sign out" } })
       return
     }
     if (openLocalAuth?.() === true) return
@@ -569,7 +569,7 @@ export const createAuthBillingController = (
     const key = "auth.email.unavailable"
     store.dispatch({ type: "toast.shown", actor: "system", key, title: "Email sign-in isn't available yet" })
     store.dispatch({ type: "toast.resolved", actor: "system", key, status: "failed", detail: "Continue with GitHub for now.",
-      action: { flow: "auth.sign-in", label: "Continue with GitHub" } })
+      action: { flow: "sign-in", label: "Continue with GitHub" } })
   }
 
   // Logout responses can clear cookies even on HTTP failure. An obsolete
@@ -579,7 +579,7 @@ export const createAuthBillingController = (
     if (ctx.disposed) return
     try { await loadSession() }
     catch (error) {
-      if (!ctx.disposed) return presentAppFailure(error, unknown => ctx.failures.report("command.boundary", unknown, "auth.sign-out"), SIGN_OUT_UNCONFIRMED).sentence
+      if (!ctx.disposed) return presentAppFailure(error, unknown => ctx.failures.report("command.boundary", unknown, "sign-out"), SIGN_OUT_UNCONFIRMED).sentence
     }
   }
 
@@ -609,7 +609,7 @@ export const createAuthBillingController = (
       retired = admitAccount()
       await cleared.isPersisted.promise
     } catch (error) {
-      if (retired()) return `Signed out. ${presentAppFailure(error, unknown => ctx.failures.report("command.boundary", unknown, "auth.sign-out"), SIGN_OUT_CLEANUP_UNFINISHED).sentence}`
+      if (retired()) return `Signed out. ${presentAppFailure(error, unknown => ctx.failures.report("command.boundary", unknown, "sign-out"), SIGN_OUT_CLEANUP_UNFINISHED).sentence}`
       return
     }
     if (!retired()) return

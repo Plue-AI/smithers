@@ -14,7 +14,7 @@ cardContract("Run", MonitorCardSchema, fixtures)
 // Literal oracles from ui-components.md v0.4 T-UI-12 and spec §14.3 Run; never read from the schema.
 const RUN_STATES = ["running", "waiting", "held", "failed", "done", "interrupted"] as const
 const GRAPH_STATES = ["done", "current", "waiting", "failed", "next", "held"] as const
-const CELL_KINDS = ["context", "read", "edit", "run", "think", "ask", "steer", "reviewer", "rebase"] as const
+const CELL_KINDS = ["context", "read", "edit", "run", "think", "ask", "answer", "steer", "reviewer", "rebase"] as const
 const WAIT_KINDS = ["question", "approval", "pause", "sleep", "signal", "external_job"] as const
 const model = (name: keyof typeof fixtures) => MonitorCardSchema.parse(fixtures[name].model)
 const running = () => structuredClone(fixtures.running.model)
@@ -46,7 +46,7 @@ describe("Run vocabularies", () => {
     changed.attempts[0]!.phases[0]!.cells[0]!.kind = kind
     expect(MonitorCardSchema.safeParse(changed).success).toBe(true)
   })
-  test.each(["answer", "write", "tool", ""])("rejects cell kind %j", (kind) => {
+  test.each(["write", "tool", ""])("rejects cell kind %j", (kind) => {
     const changed = running()
     Object.assign(changed.attempts[0]!.phases[0]!.cells[0]!, { kind })
     expect(MonitorCardSchema.safeParse(changed).success).toBe(false)

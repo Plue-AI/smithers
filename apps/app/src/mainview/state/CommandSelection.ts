@@ -4,7 +4,7 @@
  *
  * The prompt used to carry the whole catalog and degraded it in stages to fit
  * a 16 KiB cap; in an empty web session it fell to namespace counts, so the
- * model never saw /appearance.dark-mode and said it could not switch themes.
+ * model never saw /theme and said it could not switch themes.
  * Now the decision model (Jev, POST /api/commands/select) reads the message
  * and names the relevant commands; the prompt lists those, the commands the
  * standing instructions name (pinned), and everything disclosed for earlier

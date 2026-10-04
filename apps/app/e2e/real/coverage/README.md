@@ -152,7 +152,7 @@ least one mode.
 
 A scenario both providers owe declares `host:local` and `host:production`,
 so self-hosted and Plue builds run the same assertions. Beyond the core loop,
-the catalog owes approve and deny, duplicate-input replay, and a surfaced
+the catalog owes approve and deny and a surfaced
 flow error in every mode. Owed scenarios use `authenticatedTest`: a
 signed-out scenario cannot run under a mode's application token.
 

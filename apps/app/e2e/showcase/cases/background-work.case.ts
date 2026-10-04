@@ -47,7 +47,7 @@ export default showcase({
     await app.slash(`/flow.run review-pr ${REPO} {"args":"PR #70"}`)
     const card = page.locator('[data-kind="run-trace"]')
     await expect(card).toContainText("Requested")
-    const toast = page.locator('.toast-stack [data-toast-status="running"]').filter({ hasText: "review-pr" })
+    const toast = page.locator('.mvp-notify .mvp-notice[data-tone="live"]').filter({ hasText: "review-pr" })
     await expect(toast).toBeVisible()
     await app.beat(1200)
 
@@ -69,14 +69,12 @@ export default showcase({
     launch.release()
     await expect(card).toHaveAttribute("data-run-id", "run-review-70")
     await expect(toast).toBeVisible()
-    await expect(toast.getByRole("button", { name: "Stop" })).toBeVisible()
     await app.beat(2500)
 
     complete = true
-    // A worker's toast reads as its subagent card: the card's title and "Done" (51d2eb7cbf).
-    const completed = page.locator('.toast-stack [data-toast-status="ok"]').filter({ hasText: "review-pr" })
+    // The notice settles with the run (the 300 ms law): done, then the card reads Done.
+    const completed = page.locator('.mvp-notify .mvp-notice[data-tone="done"]').filter({ hasText: "review-pr" })
     await expect(completed).toBeVisible({ timeout: 15_000 })
-    await expect(completed.locator(".toast-title")).toContainText(/\bDone\b/)
     await expect(card).toContainText("Done")
     await app.show(card)
 

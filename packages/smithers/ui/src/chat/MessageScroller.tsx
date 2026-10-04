@@ -1065,6 +1065,32 @@ export function useMessageVisibility(messageId: string): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
+/**
+ * The on-screen band: the first and last ids of `order` that are visible, or
+ * `undefined` when none is. Stable while the band does not move.
+ */
+export function useMessageBand(order: readonly string[]): readonly [first: string, last: string] | undefined {
+  const { subscribeVisibility, isMessageVisible } = useScrollerContext("useMessageBand");
+  const key = order.join("\n");
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const stops = key === "" ? [] : key.split("\n").map((id) => subscribeVisibility(id, listener));
+      return () => { for (const stop of stops) stop(); };
+    },
+    [subscribeVisibility, key],
+  );
+  const getSnapshot = useCallback(() => {
+    const visible = key === "" ? [] : key.split("\n").filter((id) => isMessageVisible(id));
+    return visible.length === 0 ? "" : `${visible[0]}\n${visible[visible.length - 1]}`;
+  }, [isMessageVisible, key]);
+  const band = useSyncExternalStore(subscribe, getSnapshot, () => "");
+  return useMemo(() => {
+    if (band === "") return undefined;
+    const [first, last] = band.split("\n");
+    return [first!, last!] as const;
+  }, [band]);
+}
+
 /** Viewport position + follow state, subscribed only by callers of this hook. */
 export function useMessageScrollerState(): ViewportState {
   const { subscribeState, getState } = useScrollerContext("useMessageScrollerState");

@@ -177,7 +177,7 @@ describe("requirement axis — the run path", () => {
     await signedOut(store)
     const outcome = await controller.commands.run("flow.list")
     // A sign-in message offers the human OAuth; the unmet flow never redirects.
-    expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
     expect(outcome.status).toBe("executed")
     await settled()
     const pending = store.session().pendingCommand
@@ -259,7 +259,7 @@ describe("requirement axis — the run path", () => {
     if (outcome.status === "failed") expect(outcome.error).toContain("already rendered in the chat")
     await settled()
     const prompts = [...store.collections.messages.values()].filter(
-      (message) => message.action?.flow === "auth.sign-in"
+      (message) => message.action?.flow === "sign-in"
     )
     expect(prompts).toHaveLength(1)
   })

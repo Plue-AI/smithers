@@ -209,7 +209,7 @@ describe("triggers seam: the declaration, signed out", () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }))
     expect((await controller.commands.runForAgent("triggers.list", "will/flows")).status).toBe("executed")
     expect(store.session().pendingCommand ?? null).toBeNull()
-    /* The human's door parks the write behind sign-in: the outcome is auth.sign-in's, the parked flow is the register. */
+    /* The human's door parks the write behind sign-in: the outcome is sign-in's, the parked flow is the register. */
     await controller.commands.run("triggers.register")
     expect(store.session().pendingCommand?.name).toBe("triggers.register")
     expect(store.session().pendingCommand?.requirement).toBe("signed-in")

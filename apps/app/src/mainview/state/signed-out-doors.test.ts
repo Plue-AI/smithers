@@ -35,7 +35,7 @@ for (const [name, args, requirement] of [["flow.run", "review smithersai/smither
     const { controller, store, requests, redirects } = await setup()
     controller.runCommand(name, args)
     await settle()
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
     expect(store.session().pendingCommand).toMatchObject({ name, args: args ?? null, requirement })
     expect(requests).toEqual([])
     expect(redirects).toEqual([])
@@ -44,7 +44,7 @@ for (const [name, args, requirement] of [["flow.run", "review smithersai/smither
     controller.runCommand(name, args)
     await settle()
     // The repeat parks again but does not pile a second identical step under the first.
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
     const events = [...store.collections.transitions.values()]
     expect(events.filter(record => record.type === "command.deferred")).toHaveLength(2)
     expect(events.filter(record => record.type.startsWith("toast."))).toEqual([])
@@ -59,7 +59,7 @@ for (const source of ["issues", "github", "prs"] as const) {
     })
     controller.runCommand(source === "prs" ? "prs.list" : "issues.list")
     await settle()
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue-list" || card.kind === "pr-list")).toEqual([])
     expect([...store.collections.toasts.values()]).toEqual([])
     expect(redirects).toEqual([])
@@ -70,10 +70,10 @@ for (const source of ["issues", "github", "prs"] as const) {
 test("gates never copy a registry summary; a named launch keeps its repository", async () => {
   const { controller, store } = await setup()
   await controller.commands.run("secrets.list")
-  let prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").sort((a, b) => a.ordinal - b.ordinal)
+  let prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)
   expect(prompts.at(-1)?.text).toBe("Sign in with GitHub to continue.")
   await controller.commands.runForAgent("flow.run", "unpublished smithersai/smithers")
-  prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").sort((a, b) => a.ordinal - b.ordinal)
+  prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)
   expect(prompts.at(-1)?.text).toBe("Sign in with GitHub to run unpublished on smithersai/smithers.")
 })
 
@@ -85,7 +85,7 @@ test("a repository launch names its human summary and repository for both actors
     ] }).isPersisted.promise
     if (actor === "agent") await controller.commands.runForAgent("flow.run", "internal-review-42 smithersai/smithers")
     else await controller.commands.run("flow.run", "internal-review-42 smithersai/smithers")
-    const prompt = [...store.collections.messages.values()].find(message => message.action?.flow === "auth.sign-in")
+    const prompt = [...store.collections.messages.values()].find(message => message.action?.flow === "sign-in")
     expect(prompt?.text).toBe("Sign in with GitHub to review the changes on smithersai/smithers.")
     expect(prompt?.text).not.toContain("internal-review-42")
   }
@@ -97,7 +97,7 @@ for (const [name, args] of [["issues.view", "3"], ["issues.comment", "3 Looks ri
     const { controller, store } = await setup()
     await controller.commands.run(name, args)
     await settle()
-    const prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").sort((a, b) => a.ordinal - b.ordinal)
+    const prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)
     expect(prompts.at(-1)?.text).toBe("Sign in with GitHub to continue.")
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue")).toEqual([])
 
@@ -125,7 +125,7 @@ test("signed-out chrome doors share one short GitHub sign-in step", async () => 
     await settle()
     expect(store.session().surface).not.toBe("flows")
   }
-  const prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")
+  const prompts = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")
   expect(prompts.map(message => [message.text, message.action?.label])).toEqual([["Sign in with GitHub to continue.", "Sign in with GitHub"]])
   expect([...store.collections.messages.values()].some(message => message.text.includes("/cloud.sign-in"))).toBe(false)
   expect([...store.collections.toasts.values()]).toEqual([])

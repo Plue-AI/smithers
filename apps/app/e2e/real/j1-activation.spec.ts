@@ -27,7 +27,7 @@ const finalEvidence = z.object({
 })
 
 test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
-  capabilities: [], coverage: ["action:auth.sign-in", "dimension:activation", "host:local", "host:production", "path:success", "door:button", "evidence:activation"]
+  capabilities: [], coverage: ["action:sign-in", "dimension:activation", "host:local", "host:production", "path:success", "door:button", "evidence:activation"]
 }), async ({ page, request }, info) => {
   const input = requireJ1Preconditions()
   const publicInput = { ...input, setupURL: new URL(input.setupURL).origin + new URL(input.setupURL).pathname }

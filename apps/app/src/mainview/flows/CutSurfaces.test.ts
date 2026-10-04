@@ -24,7 +24,6 @@ const CUT_NAMES = [
   "world.new-note",
   "world.select",
   "subagents",
-  "flows",
   "connect",
   "smithers.who",
   "workspace.rename",
@@ -40,7 +39,7 @@ const CUT_NAMES = [
   "change.split",
   "change.revert",
   "prs.create",
-  "issues",
+  // Appendix B.835 cuts the old native-states `issues` door; the name now ships as Appendix A's `/issues` list (B.834 Keep), so it is not a Cut name.
   "issues.fix",
   "issues.verify",
   "issues.set",

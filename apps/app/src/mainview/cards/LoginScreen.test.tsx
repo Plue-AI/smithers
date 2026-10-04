@@ -30,7 +30,7 @@ describe("the login screen", () => {
     const { host, flows } = render()
     expect(host.querySelector("h1")?.textContent).toBe("Welcome to Smithers")
     expect(host.querySelector(".login-logo pre")?.textContent?.split("\n")).toHaveLength(6)
-    expect(flows()).toEqual([["button", "auth.sign-in", undefined], ["form", "auth.email", undefined]])
+    expect(flows()).toEqual([["button", "sign-in", undefined], ["form", "auth.email", undefined]])
     expect([...host.querySelectorAll("button")].map(button => button.textContent)).toEqual(["Continue with GitHub", "Continue"])
     const email = host.querySelector<HTMLInputElement>('[data-testid="login-email"]')!
     expect([email.type, email.required, email.getAttribute("aria-label"), email.placeholder]).toEqual(["email", true, "Email address", "Email address"])
@@ -40,17 +40,17 @@ describe("the login screen", () => {
     for (const absent of ["Sign up", "Google", "Log in", "account"]) expect(host.textContent).not.toContain(absent)
   })
 
-  test("the GitHub door runs auth.sign-in; the email form runs auth.email with the trimmed address, and a blank address runs nothing", () => {
+  test("the GitHub door runs sign-in; the email form runs auth.email with the trimmed address, and a blank address runs nothing", () => {
     const { host, calls } = render()
     host.querySelector<HTMLButtonElement>('[data-testid="login-github"]')!.click()
-    expect(calls).toEqual([["auth.sign-in", undefined]])
+    expect(calls).toEqual([["sign-in", undefined]])
     const form = host.querySelector<HTMLFormElement>("form")!
     const email = host.querySelector<HTMLInputElement>('[data-testid="login-email"]')!
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
-    expect(calls).toEqual([["auth.sign-in", undefined]])
+    expect(calls).toEqual([["sign-in", undefined]])
     email.value = " ada@example.com "
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
-    expect(calls).toEqual([["auth.sign-in", undefined], ["auth.email", "ada@example.com"]])
+    expect(calls).toEqual([["sign-in", undefined], ["auth.email", "ada@example.com"]])
   })
 
   test("every door is a keyboard path, in reading order: GitHub, the address, Continue", () => {

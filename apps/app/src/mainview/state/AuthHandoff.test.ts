@@ -9,7 +9,7 @@ const createAppController = scopedControllers()
 
 /*
  * The native sign-in handoff: with the system-browser door (openExternal),
- * auth.sign-in mints a handoff, opens the OAuth start OUTSIDE the webview,
+ * sign-in mints a handoff, opens the OAuth start OUTSIDE the webview,
  * polls the claim until the session cookie lands, and re-probes the session.
  * Passkeys cannot run inside an embedded webview — this flow exists so they
  * never have to.
@@ -92,7 +92,7 @@ const harness = async (options: {
   }
   const controller = createAppController(store, unavailableAgent, services)
   await signedOut(store)
-  return { store, opened, requests, signIn: () => controller.commands.run("auth.sign-in"), dispose: async () => { await controller.dispose() } }
+  return { store, opened, requests, signIn: () => controller.commands.run("sign-in"), dispose: async () => { await controller.dispose() } }
 }
 
 describe("the native sign-in handoff", () => {
@@ -199,8 +199,8 @@ describe("the native sign-in handoff", () => {
     await settled()
     expect(h.requests.filter((line) => line === "POST /api/auth/native/start")).toHaveLength(1)
     const already = [...h.store.collections.toasts.values()].find(entry => entry.id === "toast-auth.sign-in.already")
-    expect(already?.action).toEqual({ flow: "auth.sign-out", label: "Sign out" })
-    expect(already?.detail).not.toContain("/auth.sign-out")
+    expect(already?.action).toEqual({ flow: "sign-out", label: "Sign out" })
+    expect(already?.detail).not.toContain("/sign-out")
   })
 
   test("a ready claim whose session never lands says so instead of 'Signed in'", async () => {

@@ -135,8 +135,8 @@ test("signed out, the list failure is the person's to fix: one sentence and the 
     expect(notice.textContent).not.toContain("Not your fault")
     expect(notice.querySelector("details")).toBeNull()
     const buttons = [...notice.querySelectorAll<HTMLButtonElement>("button")]
-    expect(buttons.map(button => [button.textContent, button.dataset.flow])).toEqual([["Sign in", "auth.sign-in"]])
+    expect(buttons.map(button => [button.textContent, button.dataset.flow])).toEqual([["Sign in", "sign-in"]])
     flushSync(() => buttons[0]!.click())
-    expect(calls).toEqual([["auth.sign-in", undefined]])
+    expect(calls).toEqual([["sign-in", undefined]])
   } finally { flushSync(() => root.unmount()); host.remove() }
 })

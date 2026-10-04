@@ -79,7 +79,8 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
         <StateWord state={todo.state} />
         {todo.place && <span className="todo-title-meta">{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
         <span className="todo-title-meta">{todo.branch.name}</span>
-        <img className="todo-owner" src={todo.owner.avatar_url} alt={todo.owner.name} />
+        <span className="todo-owner-chip"><ActorChip actor={{ kind: "person", login: todo.owner.login, name: todo.owner.name, avatar_url: todo.owner.avatar_url,
+          color_index: ([...todo.owner.login].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6) as 0 | 1 | 2 | 3 | 4 | 5 }} size="m" /></span>
       </header>
       <div className="todo-meta">
         <span>
@@ -145,7 +146,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
             <span className="todo-step-mark" aria-hidden="true">
               {phase === "done" ? "✓" : ""}
             </span>
-            <span>{"label" in step ? step.label : "Wait for merge"}</span>
+            <span>{"label" in step ? step.label : "Merge"}</span>
             {"detail" in step && step.detail && <small>{step.detail}</small>}
           </li>
           );

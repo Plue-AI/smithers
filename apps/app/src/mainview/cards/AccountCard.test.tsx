@@ -51,7 +51,7 @@ for (const provider of ["local", "github"] as const) {
       const html = renderToStaticMarkup(<AccountCardBody card={card} onRunCommand={() => {}} />)
       expect(html.includes("GitHub")).toBe(provider === "github")
       expect(html.includes("read:user")).toBe(provider === "github")
-      expect(html).toContain('data-flow="auth.sign-out"')
+      expect(html).toContain('data-flow="sign-out"')
       // Signup is public (#2145): the card states no access gate.
       expect(html).not.toMatch(/Allowed|Requested, waiting on an answer|Not yet allowed|account-access/)
     } finally { await restored.dispose?.() }

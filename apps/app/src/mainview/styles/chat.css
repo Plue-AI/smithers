@@ -36,15 +36,6 @@
 	flex-direction: column;
 }
 
-/* Subagent cards (#2162): tones name the shared SubagentCard roles. */
-.chat-filter-control { position: relative; }
-.chat-filter-trigger { border: 1px solid var(--border-solid); border-radius: var(--r-sm); background: var(--surface); color: var(--text); padding: 6px 12px; }
-.chat-filter-trigger[data-active] { border-color: var(--text); font-weight: 650; }
-.chat-filter-menu { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 50; min-width: 220px; max-height: min(65vh, 440px); overflow: auto; padding: 6px; border: 1px solid var(--border-solid); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--shadow-2); }
-.chat-filter-menu button { display: flex; align-items: center; width: 100%; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
-.chat-filter-menu button[aria-checked="false"] { opacity: .55; }
-.chat-filter-menu button:focus-visible, .chat-filter-trigger:focus-visible, .chat-filter-menu input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.chat-filter-menu input { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--border-solid); border-radius: 4px; background: var(--surface); color: var(--text); }
 
 .chat-frame[data-pane] .chat-column {
 	flex: 1 1 42%;
@@ -323,35 +314,6 @@
 		animation: none;
 	}}
 
-.app-shell .smithers-suggestions {
-	margin-top: 8px;
-	padding: 0;
-	gap: 8px;
-	/* Beside an open pane the column is narrow; pills wrap rather than scroll out of view. */
-	flex-wrap: wrap;
-	overflow: visible;
-}
-
-.app-shell .smithers-suggestion {
-	display: inline-flex;
-	height: 28px;
-	padding: 0 var(--sp-3);
-	align-items: center;
-	gap: 6px;
-	border: 1px solid var(--border);
-	background: var(--surface-glass);
-	color: var(--text-muted);
-	font-size: var(--fs-small);
-	font-weight: 500;
-}
-
-.app-shell .smithers-suggestion[data-gold="true"] {
-	border-color: var(--golden-border);
-	background: color-mix(in srgb, var(--confluence-wash) 55%, var(--surface));
-	color: var(--confluence-text);
-	font-weight: 600;
-}
-
 .app-shell .smithers-composer {
 	width: 100%;
 	padding: var(--sp-4) var(--sp-4) var(--sp-2);
@@ -453,115 +415,6 @@
 
 .message-init-details > summary {
 	cursor: pointer;
-}
-
-/*
- * Top-right below the session strip normally. ModalPopover measures any active
- * modal and places this same stack beside, below or above its content. An
- * overlay is allowed only in space without interactive controls: persistent
- * failure toasts must never swallow the click needed to continue a dialog.
- */
-.toast-stack {
-	--toast-gap: 16px;
-	position: fixed;
-	inset: auto;
-	margin: 0;
-	border: 0;
-	padding: 0;
-	background: transparent;
-	color: inherit;
-	overflow: visible;
-	right: var(--sp-4);
-	top: var(--toast-y, calc(var(--session-strip, 44px) + var(--sp-4)));
-	left: var(--toast-x, auto);
-	pointer-events: none;
-	z-index: 90;
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-2);
-	width: min(320px, calc(100vw - 32px));
-}
-
-/* A crowded modal can lend a shorter, scrollable control-free region. */
-.toast-stack[data-modal-placement] {
-	max-height: var(--toast-height);
-	overflow-y: auto;
-}
-.toast-stack[data-no-toast-space] { visibility: hidden; }
-/* The measured modal region must contain the entire toast from its first frame. */
-.toast-stack[data-modal-placement] .toast { animation: none; }
-
-/* One notification keeps its full height. Multiple notifications may scroll. */
-.toast-stack:has(.toast + .toast) {
-	max-height: var(--toast-height, calc(100dvh - var(--session-strip, 44px) - 2 * var(--sp-4)));
-	overflow-y: auto;
-}
-
-.toast-stack .toast {
-	flex-shrink: 0;
-	pointer-events: auto;
-	display: flex;
-	align-items: flex-start;
-	gap: var(--sp-2);
-	/* The house overlay anatomy: glass, hairline, r-3, shadow-2 — the same
-	   recipe as the composer and the palette. */
-	border: 1px solid var(--border);
-	border-radius: var(--r-3);
-	background: var(--surface-glass-strong);
-	backdrop-filter: blur(20px);
-	box-shadow: var(--shadow-2);
-	animation: view-in var(--dur) var(--ease-current);
-}
-
-.toast-stack .toast-icon {
-	flex: none;
-	margin-top: 2px;
-}
-
-.toast-stack .toast-body {
-	min-width: 0;
-	flex: 1;
-}
-
-.toast-stack .toast-dismiss {
-	flex: none;
-}
-
-/* A failure's caught detail wraps inside the toast; a long body scrolls. */
-.toast-stack .toast-detail pre {
-	max-height: 12rem;
-	overflow-y: auto;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-
-/* Past three notifications, one compact row holds the rest (ToastStack VISIBLE). */
-.toast-stack .toast-more {
-	flex-shrink: 0;
-	pointer-events: auto;
-	min-height: var(--ctl-h-sm);
-	border: 1px solid var(--border);
-	border-radius: var(--r-3);
-	background: var(--surface-glass-strong);
-	backdrop-filter: blur(20px);
-	box-shadow: var(--shadow-1);
-	color: var(--text-muted);
-	font: inherit;
-	font-size: var(--fs-caption);
-	cursor: pointer;
-}
-.toast-stack .toast-more:hover { color: var(--text); }
-/* Inset: the scrolling stack clips an outset ring on this full-width row. */
-.toast-stack .toast-more:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }
-
-.toast-action {
-	margin-top: var(--sp-3);
-	gap: var(--sp-2);
-}
-
-.toast-action kbd {
-	font-size: var(--fs-caption);
-	opacity: 0.7;
 }
 
 .world-surface {
@@ -781,26 +634,6 @@
 /* The login screen owns the transcript: it sits in the middle of the page, not at the bottom of a chat log (cards/LoginScreen.tsx). */
 .app-shell .smithers-transcript[data-login] .sui-chat-messages { justify-content: center; }
 .app-shell .smithers-transcript[data-login] .sui-chat-messages > :first-child { margin-top: 0; }
-/* Lesson lines are centered; conversation bubbles retain normal reading alignment. */
-.chat-run-timeline {
-  flex: none;
-  width: min(100%, 72rem);
-  align-self: center;
-  box-sizing: border-box;
-  padding: var(--sp-2) var(--sp-5) var(--sp-3);
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-}
-.chat-run-timeline-heading { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
-.chat-run-timeline-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: var(--fs-small); }
-.chat-run-timeline .run-outcome { margin: 0 0 0 auto; min-width: 0; flex-wrap: wrap; }
-.chat-run-timeline .run-phase-members { top: auto; bottom: 100%; }
-@media (max-width: 600px) {
-  .chat-run-timeline { padding-inline: var(--sp-3); }
-  .chat-run-timeline-heading { flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
-  .chat-run-timeline .run-outcome { font-size: var(--fs-small); }
-}
-
 .prompt-queue { margin-top: 8px; padding: 8px 12px; max-height: 30vh; overflow: auto; }
 .prompt-queue-heading, .prompt-queue li { display: flex; align-items: baseline; gap: 8px; }
 .prompt-queue-heading { justify-content: space-between; }
@@ -810,8 +643,6 @@
 .prompt-queue button:focus-visible, .composer-queue-action:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .composer-queue-action:disabled { opacity: .5; cursor: default; }
 
-.toast-worker-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.toast-worker-actions:empty { display: none; }
 
 /* ── The wiki spaces (#1922): the pane's switch, tree, page meta and attachment ── */
 .wiki-space-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-full); background: var(--surface-2); }
@@ -846,3 +677,15 @@
 .wiki-embed { margin: 16px 0; }
 .wiki-embed img { display: block; max-width: 100%; border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
 .wiki-outline { margin-top: 4px; }
+
+/* Beside the activity rail (1,180 px and wider) the transcript keeps the rail's 272 px clear and stays centered when the viewport allows. */
+@media (min-width: 1180px) {
+	.app-shell .chat-frame:has(> .mvp-rail) .smithers-transcript .sui-chat-messages {
+		width: min(var(--chat-max-width), calc(100% - 320px));
+		margin-left: max(296px, calc((100% - var(--chat-max-width)) / 2));
+		align-self: flex-start;
+	}
+}
+
+/* While the first-sight Chat hint floats over the bottom right, the transcript scrolls its last card clear of it. */
+.app-shell:has(#hint-chat) .smithers-transcript .sui-chat-messages { padding-bottom: 132px; }

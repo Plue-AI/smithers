@@ -136,10 +136,10 @@ test("a recoverable localStorage refusal does not stop the controller or require
     const failures: Error[] = []
     store.onStorageFailure(error => { failures.push(error) })
     fail = true
-    expect((await controller.commands.run("appearance.dark-mode", "dark")).status).toBe("failed")
+    expect((await controller.commands.run("theme", "dark")).status).toBe("failed")
     expect(failures).toEqual([])
     fail = false
-    expect(await controller.commands.run("appearance.dark-mode", "dark")).toMatchObject({ status: "executed" })
+    expect(await controller.commands.run("theme", "dark")).toMatchObject({ status: "executed" })
     expect(store.session().theme).toBe("dark")
   } finally { fail = false; await controller.dispose(); await store.dispose?.() }
 })

@@ -58,8 +58,8 @@ export default showcase({
     await backend.json(`${API}/changes`, { items: LOG, next_cursor: "" })
     for (const row of LOG) await backend.json(`${API}/changes/${row.change_id}`, row)
     await backend.json(`${API}/changes/kxyzqrpv/diff`, { change_id: "kxyzqrpv", file_diffs: [
-      { path: "apps/app/src/mainview/cards/StackCard.tsx", change_type: "modified", additions: 12, deletions: 2, is_binary: false,
-        patch: "@@ -40,3 +40,6 @@\n   <li className=\"stack-lane\">\n+    <span data-testid=\"stack-lane-elapsed\">{clock}</span>\n+    <span>{account}</span>\n+    <span>{seat}</span>\n   </li>" }
+      { path: "apps/app/src/mainview/cards/HomeContainer.tsx", change_type: "modified", additions: 12, deletions: 2, is_binary: false,
+        patch: "@@ -40,3 +40,6 @@\n   <li className=\"mvp-run-row\">\n+    <span>{run.title}</span>\n+    <span>{run.detail}</span>\n   </li>" }
     ] })
     await backend.json("/api/repos/smithersai/smithers/commits/c0ffee1234567890/statuses", [
       { context: "typecheck", status: "success", created_at: "2026-09-24T10:42:00Z" },
@@ -68,8 +68,8 @@ export default showcase({
     await backend.json(`${API}/contents/README.md`, { type: "file", path: "README.md", content: README, encoding: "utf-8" })
 
     await app.open(`/${REPO}`)
-    const home = page.locator(".factory-home")
-    await expect(home).toContainText("Durable flows for coding agents.")
+    const home = page.locator(".mvp-home").first()
+    await expect(home).toContainText("T8")
     await app.show(home)
     await app.beat(1500)
 
@@ -101,7 +101,7 @@ export default showcase({
     await app.beat(900)
     await app.click(commits.getByText("the Stack card shows each lane's clock").first())
     const commit = page.locator('[data-kind="commit"]').last()
-    await expect(commit).toContainText("StackCard.tsx", { timeout: 15_000 })
+    await expect(commit).toContainText("HomeContainer.tsx", { timeout: 15_000 })
     await app.show(commit)
     await app.beat(1500)
   }

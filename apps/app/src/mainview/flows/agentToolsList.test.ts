@@ -141,8 +141,8 @@ describe("the commands list action", () => {
     expect(expected.length).toBeGreaterThan(100)
     expect(names).toEqual(expected)
     expect(new Set(names).size).toBe(names.length)
-    for (const name of ["auth.prompt", "search.open", "repo.overview", "repo.update", "runs.list"]) expect(names).toContain(name)
-    for (const name of ["auth.sign-in", "palette.open", "chat.send", "repo.select"]) {
+    for (const name of ["auth.prompt", "search", "repo.overview", "repo.update", "runs.list"]) expect(names).toContain(name)
+    for (const name of ["sign-in", "palette.open", "chat.send", "repo.select"]) {
       expect(controller.commands.find(name)).toBeDefined()
       expect(names).not.toContain(name)
     }

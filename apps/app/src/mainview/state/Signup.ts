@@ -43,7 +43,7 @@ export const accountSlug = (value: string): string => value.toLowerCase().replac
 /**
  * The stage a definitive identity answer moves an unfinished signup to. A
  * browser with no row and no retained owner is meeting its first sign-in:
- * the GitHub door is auth.sign-in's own redirect, so the row starts here, at
+ * the GitHub door is sign-in's own redirect, so the row starts here, at
  * the account step. A browser that retained an owner is a returning person.
  *
  * The account step it opens prefills Full name with the person's GitHub

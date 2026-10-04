@@ -83,23 +83,23 @@ describe("the slash menu is a tree", () => {
     await view.act(() => view.controller.changeDraft("/"))
     const listed = rows(view.host)
     expect(listed).not.toContain("connect")
-    expect(listed).toContain("appearance/")
+    expect(listed).toContain("theme")
     expect(listed).toContain("chat/")
-    expect(listed).not.toContain("appearance.dark-mode")
-    expect(listed).not.toContain("dark-mode")
-    const namespace = view.host.querySelector<HTMLElement>(".slash-menu [data-namespace='appearance']")
-    expect(namespace?.textContent).toContain("Appearance")
+    expect(listed).not.toContain("chat.dictate")
+    expect(listed).not.toContain("dictate")
+    const namespace = view.host.querySelector<HTMLElement>(".slash-menu [data-namespace='chat']")
+    expect(namespace?.textContent).toContain("Chat")
   })
 
   test("Enter or ArrowRight on a namespace opens the branch; ArrowLeft returns to the top", async () => {
     const view = await mount()
     const recent = view.controller.store.session().recentCommands ?? []
-    await view.act(() => view.controller.changeDraft("/app"))
-    // `/app` offers the namespace row first.
-    expect(rows(view.host)[0]).toBe("appearance/")
+    await view.act(() => view.controller.changeDraft("/bro"))
+    // `/bro` offers the namespace row first.
+    expect(rows(view.host)[0]).toBe("browser/")
     await press(view, "Enter")
-    expect(view.controller.store.session().draft).toBe("/appearance.")
-    expect(rows(view.host)).toEqual(["appearance.dark-mode"])
+    expect(view.controller.store.session().draft).toBe("/browser.")
+    expect(rows(view.host)).toEqual(["browser.open"])
     // Nothing ran: opening a branch is a draft edit.
     expect(view.controller.store.session().recentCommands ?? []).toEqual(recent)
     await press(view, "ArrowLeft")
@@ -116,10 +116,10 @@ describe("the slash menu is a tree", () => {
 
   test("a leaf's Enter runs the flow by name", async () => {
     const view = await mount()
-    await view.act(() => view.controller.changeDraft("/appearance."))
+    await view.act(() => view.controller.changeDraft("/theme"))
     await press(view, "ArrowDown")
     await press(view, "Enter")
     expect(view.controller.store.session().draft).toBe("")
-    expect(view.controller.store.session().recentCommands?.[0]).toBe("appearance.dark-mode")
+    expect(view.controller.store.session().recentCommands?.[0]).toBe("theme")
   })
 })

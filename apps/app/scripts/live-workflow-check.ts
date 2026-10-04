@@ -75,7 +75,7 @@ const sessionOf = async () =>
   })
 let session = await sessionOf()
 if (typeof (session.body as { login?: unknown })?.login !== "string") {
-  const signIn = page.locator("[data-flow=\"auth.sign-in\"]").first()
+  const signIn = page.locator("[data-flow=\"sign-in\"]").first()
   await signIn.click()
   await page.waitForURL(/canary\.smithers\.sh|github\.com/, { timeout: 30_000 })
   const authorize = page.locator("button:has-text(\"Authorize\")")

@@ -209,7 +209,7 @@ describe("issues seam — the list", () => {
     await settled()
     await controller.commands.run("issues.list", "open smithersai/smithers")
     await settled()
-    const prompts = [...store.collections.messages.values()].filter((message) => message.action?.flow === "auth.sign-in")
+    const prompts = [...store.collections.messages.values()].filter((message) => message.action?.flow === "sign-in")
     expect(prompts.map((message) => message.text)).toEqual(["Sign in with GitHub to read issues on smithersai/smithers."])
     for (const card of store.collections.cards.values()) {
       expect(card.status).not.toBe("error")
@@ -331,7 +331,7 @@ describe("issues seam — the list", () => {
     expect(card.status).toBe("active")
     expect(card.payload.issues.map(issue => [issue.number, issue.source])).toEqual([[7, "smithers-cloud"]])
     expect(card.payload.github).toMatchObject({ source: "refused", refusal: "GitHub connection required" })
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(0)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(0)
     expect(calls.filter(call => call.includes("/issues?"))).toEqual([
       "GET /api/repos/will/flows/issues?state=open",
       "GET /api/user/github-repos/will/flows/issues?state=open"
@@ -355,7 +355,7 @@ describe("issues seam — the list", () => {
     const result = await controller.commands.run("issues.list")
     await settled()
     expect(result.status).toBe("executed")
-    expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
     expect(calls.filter(call => call.startsWith("GET /api/user/github-repos/"))).toHaveLength(1)
     const card = store.collections.cards.get("issues-will/flows")
     expect(card?.kind === "issue-list" && card.status === "active" && card.payload.issues.length > 0).toBe(false)

@@ -1,9 +1,9 @@
 /*
  * The `history` flows: the repository's mythical stack (epic #1745), which
  * IS its history of logical changes (D-09a, D-20), served by
- * `@smthrs/rpc/Mythical`. `history.show` embeds the live History card (the
- * chrome's History button, the slash and the agent call are its three
- * doors). Bootstrap, lane count, retry and land are the writes the API
+ * `@smthrs/rpc/Mythical`. `history.show` and `history.view` are dark: the
+ * Home card replaced the History card (T-APP-01; `/stack`), and they stay
+ * only as the seam's readers until StackSeam.ts goes with it. Bootstrap, lane count, retry and land are the writes the API
  * has, each acknowledged at once and finished in the shared toast stack.
  * One module per namespace: Flows.ts registers the block.
  */
@@ -25,6 +25,7 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "history.show",
     summary: "Show the history: every change, each issue's lane, checks and pull request",
+    hidden: true,
     runtime: ["cloud"],
     args: "[owner/repo]",
     requires: ["signed-in"],
@@ -34,6 +35,7 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "history.view",
     summary: "Show the history as its issue list or its metrics",
+    hidden: true,
     runtime: ["cloud"],
     args: "<issues|metrics> [owner/repo]",
     requires: ["signed-in"],

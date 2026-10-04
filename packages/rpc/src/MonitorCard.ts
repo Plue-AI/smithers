@@ -33,6 +33,7 @@ export const RunCellKindSchema = z.enum([
   "run",
   "think",
   "ask",
+  "answer",
   "steer",
   "reviewer",
   "rebase"

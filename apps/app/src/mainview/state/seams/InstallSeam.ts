@@ -1,6 +1,6 @@
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { SeamContext } from "./SeamContext"
-import type { FailureController } from "../controller/failures"
+import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
 import { MODEL_CREDENTIALS, ModelCredentialRequestSchema, ModelCredentialResultSchema } from "@smthrs/rpc/ConfiguredModel"
 import { actorSharedState } from "../ActorBindings"
 import { installRequestId } from "./InstallRequestId"
@@ -18,6 +18,8 @@ export interface InstallSnapshots {
 export interface InstallSeamOptions {
   readonly topic?: InstallTopic
   readonly present?: (kind: "setup" | "settings") => void
+  /** MOCK SEAM (state/seams/DesignWorld): while the seed stands in, a host where no install answers is a quiet state, not a failed notice. */
+  readonly quietWithoutInstall?: boolean
 }
 export interface InstallAddress { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
 export interface SetupInput { readonly step: InstallStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
@@ -91,7 +93,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     }
     receive(result)
   }
-  const background = (key: string, title: string, work: () => Promise<boolean | string>, doneTitle = "Saved") => {
+  const background = (key: string, title: string, work: () => Promise<boolean | string | typeof TOAST_SUPERSEDED>, doneTitle = "Saved") => {
     if (!current()) return "Install is closed"
     if (!shared.pending.has(key)) {
       // Register before work begins, including synchronous fake transports.
@@ -104,6 +106,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   const open = (kind: "setup" | "settings") => background(`open:${kind}`, kind === "setup" ? "Setup" : "Settings", async () => {
     const failure = await readInstall()
+    // No install answered at all (no install error body, or no answer): with the seed standing in, nothing failed that the person can act on.
+    if (failure && options.quietWithoutInstall && (failure.code === "invalid_error" || failure.code === "unreachable")) return TOAST_SUPERSEDED
     if (failure) return failure.message
     if (!current() || !shared.snapshot.model) return false
     if (kind === "settings" && !shared.snapshot.model.github.signed_in) {

@@ -38,7 +38,7 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
       if (card?.kind !== "flow-form" || card.payload.via !== "user" || card.payload.submitting || card.status === "acted") return undefined
       name = card.payload.flow
     }
-    if (name === "auth.sign-in") {
+    if (name === "sign-in") {
       if (ctx.services.openExternal !== undefined || !signInByHandoff(ctx.services.bootstrap) || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-out") return undefined
     }
     if (name === "chat.send" || name === "chat.queue") {

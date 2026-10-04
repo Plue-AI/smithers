@@ -559,7 +559,8 @@ test("passed checks complete Propose and hold the dashed merge wait", () => {
 
 test("an open merge wait is current without a step label", () => {
   const view = mount({ ...todoStories.checks_passed, model: { ...todoStories.checks_passed.model, step: undefined } });
-  expect(view.element.querySelector('.todo-steps [data-phase="held"]')?.textContent).toBe("Wait for merge");
+  // The step strip names the step as the mock's strip does (parts.tsx): "Merge".
+  expect(view.element.querySelector('.todo-steps [data-phase="held"]')?.textContent).toBe("Merge");
   view.close();
 });
 test("a question holds the named step, not the first unfinished step", () => {

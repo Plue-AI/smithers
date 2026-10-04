@@ -17,7 +17,7 @@ for (const theme of ["light", "dark"]) {
     style("./base.css")
     style("./chrome.css")
     document.documentElement.dataset.theme = theme
-    document.body.innerHTML = '<div class="session-shell"><button class="chrome-action" data-flow="auth.sign-in">Sign in with GitHub</button><button class="sui-button sui-button-default">Connect GitHub</button></div>'
+    document.body.innerHTML = '<div class="session-shell"><button class="chrome-action" data-flow="sign-in">Sign in with GitHub</button><button class="sui-button sui-button-default">Connect GitHub</button></div>'
     expect(getComputedStyle(document.querySelector(".chrome-action")!).color)
       .toBe(getComputedStyle(document.querySelector(".sui-button")!).color)
   })

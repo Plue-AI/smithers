@@ -3,7 +3,7 @@ import { expect, test } from "./browserTest"
 /*
  * The composer's two affordances, proven end to end.
  *
- * Send and Stop are `chat.send` and `chat.stop`'s button doors, bound through
+ * Send and Stop are `chat.send` and `stop`'s button doors, bound through
  * `ChatComposer`'s `submitProps` / `stopProps`. A test that only read the
  * binding off the DOM would pass while the flow behind it was unwired, so
  * each test here clicks the button, lets the flow run, and asserts what the
@@ -35,7 +35,7 @@ test("clicking Send runs chat.send and the reply lands in the transcript", async
   await expect(input).toHaveValue("")
 })
 
-test("clicking Stop runs chat.stop and the held turn never produces a reply", async ({ page }) => {
+test("clicking Stop runs stop and the held turn never produces a reply", async ({ page }) => {
   // Hold the turn's own request open so the composer really is mid-turn when Stop is clicked.
   let release: (() => void) | undefined
   const held = new Promise<void>((resolve) => { release = resolve })

@@ -59,7 +59,7 @@ export function RepositoryChoiceCard({ payload, onRunCommand, signedIn = true }:
       {payload.error ? <FailureNotice className="repository-choice-error" data-testid="repository-choice-failure"
         failure={signedIn ? describedFailure("RepositoryChoiceFailed", LIST_FAILED, payload.error)
           : describedFailure("RepositoryChoiceSignedOut", SIGNED_OUT, "")}
-        actions={{ retry: flowAction(onRunCommand, "repo.choose"), "sign-in": flowAction(onRunCommand, "auth.sign-in") }} /> : null}
+        actions={{ retry: flowAction(onRunCommand, "repo.choose"), "sign-in": flowAction(onRunCommand, "sign-in") }} /> : null}
       <ol className="repository-choice-list">{payload.repositories.slice(0, RECENT_REPOSITORIES).map(row)}</ol>
       {/* The rest stay behind a native disclosure: the ranking already put the recently pushed ones first. */}
       {payload.repositories.length > RECENT_REPOSITORIES && <details className="repository-choice-all">

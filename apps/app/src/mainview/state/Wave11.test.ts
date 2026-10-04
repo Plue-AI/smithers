@@ -885,15 +885,16 @@ describe("wave 11 — workflows are presented", () => {
      * slash menu and the tool catalog alike. The runs.* lifecycle commands
      * are their own namespace, pinned in the registry test. `flow.plan` is the
      * fourth conversational one (D-080: the flow builder is the app), and it
-     * brought two hidden graph gestures with it.
+     * brought two hidden graph gestures with it. The Flow card (T-APP-05)
+     * added `flow.edit` and `flow.source`, its two buttons.
      */
-    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(10)
+    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(12)
     expect(
       controller.commands
         .all()
         .filter((command) => command.name.startsWith("flow.") && command.hidden !== true)
         .map((command) => command.name)
-    ).toEqual(["flow.create", "flow.list", "flow.run", "flow.plan"])
+    ).toEqual(["flow.create", "flow.list", "flow.run", "flow.plan", "flow.edit", "flow.source"])
   })
 })
 

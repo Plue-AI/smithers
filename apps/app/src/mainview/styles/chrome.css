@@ -51,14 +51,14 @@
 }
 
 /* Sign-in shares the card action's readable foreground. */
-.chrome-action[data-flow="auth.sign-in"] {
+.chrome-action[data-flow="sign-in"] {
 	background: color-mix(in srgb, var(--brand) 10%, var(--surface));
 	color: var(--action-primary);
 	font-weight: 500;
 }
 
-.chrome-action[data-flow="auth.sign-in"]:hover,
-.chrome-action[data-flow="auth.sign-in"]:focus-visible {
+.chrome-action[data-flow="sign-in"]:hover,
+.chrome-action[data-flow="sign-in"]:focus-visible {
 	background: color-mix(in srgb, var(--brand) 16%, var(--surface));
 	color: var(--action-primary);
 }
@@ -75,9 +75,6 @@
 @media (prefers-reduced-motion: reduce) {
 	.app-chat-controls[data-arriving] { animation: none; }
 }
-.app-chat-controls .chat-filter-control { order: -1; }
-/* The conversation's context and cache meter (ChatMeter.tsx): quiet until a level warns. */
-.app-chat-controls .chat-meter { font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; }
 /* Signup buttons stay uncovered by Chat guidance on a phone. */
 @media (max-width: 600px) {
 	.app-shell:has(.signup) .app-chat-controls .help-bubble { display: none; }
@@ -119,4 +116,112 @@
 .app-chat-controls .guide-button:focus-visible {
 	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;
+}
+
+/*
+ * The activity rail (ShellRail.tsx, T-APP-07): live work above the on-screen
+ * band pins to the top, the timeline sits between, live work below pins next
+ * and the notifications dock at the foot. Desktop (1,180 px and wider) shows
+ * the timeline; a narrow screen keeps one pill per edge and the notices.
+ */
+.mvp-rail { position: absolute; top: 8px; bottom: 12px; left: 12px; z-index: 30; display: flex; width: 272px; flex-direction: column; gap: 8px; pointer-events: none; }
+.mvp-rail > *, .mvp-rail .mvp-edge { pointer-events: auto; }
+/* A maximized card is the one full-screen surface: the timeline and its pinned rows step aside instead of drawing over its title and detail pane; notices keep the foot. */
+.app-shell[data-frame-maximized="true"] .mvp-rail :is(.mvp-edge, .mvp-timeline) { display: none; }
+.app-shell[data-frame-maximized="true"] .mvp-notify { margin-top: auto; }
+.mvp-rail button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; }
+.mvp-rail button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.mvp-rail button:disabled { color: var(--text-faint); cursor: default; }
+/* The edges flank the timeline: the map lends its two sections to the rail's column. */
+.mvp-edge-map { display: contents; }
+.mvp-edge[data-edge="above"] { order: 0; }
+.mvp-timeline { order: 1; }
+.mvp-edge[data-edge="below"] { order: 2; }
+.mvp-notify { order: 3; }
+.mvp-rail [data-tone="live"] { --tone: var(--brand); }
+.mvp-rail [data-tone="attention"] { --tone: var(--attention); }
+.mvp-rail [data-tone="failed"] { --tone: var(--danger); }
+.mvp-rail [data-tone="done"], .mvp-rail [data-tone="quiet"] { --tone: var(--text-muted); }
+/* The timeline: one line per entry, a hairline through the nodes, the newest lines low. */
+.mvp-timeline { position: relative; min-height: 0; flex: 1; overflow-y: auto; -webkit-mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 14px), transparent); scrollbar-width: none; }
+.mvp-timeline > ol { position: relative; display: flex; min-height: 100%; flex-direction: column; justify-content: flex-end; margin: 0; padding: 12px 0; list-style: none; }
+.mvp-timeline > ol::before { position: absolute; top: 12px; bottom: 12px; left: 13px; width: 1.5px; background: var(--border); content: ""; }
+.mvp-timeline li > button, .mvp-tl-row { display: grid; width: 100%; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 6px; padding: 5px 8px 5px 0; border-radius: var(--r-1); text-align: left; }
+.mvp-timeline li > button:hover, .mvp-tl-row:hover { background: var(--hover-subtle); }
+.mvp-tl-node { position: relative; z-index: 1; display: inline-flex; width: 28px; height: 20px; align-items: center; justify-content: center; background: var(--bg); color: var(--tone, var(--text-muted)); font-size: 10px; }
+.mvp-tl-text { display: flex; min-width: 0; flex-direction: column; }
+.mvp-tl-text b { overflow: hidden; font-size: 13px; font-weight: 500; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.mvp-tl-text span { overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.mvp-rail [data-tone="attention"] .mvp-tl-text span { color: var(--attention-text); }
+.mvp-rail [data-tone="failed"] .mvp-tl-text span { color: var(--danger); }
+.mvp-timeline li[data-tone="quiet"] .mvp-tl-text b { color: var(--text-muted); font-weight: 400; }
+/* The on-screen band reads as one continuous strip. */
+.mvp-timeline li[data-in-view] > button { border-radius: 0; background: var(--surface); box-shadow: inset 2px 0 0 var(--brand); }
+.mvp-timeline li[data-in-view] .mvp-tl-node { background: var(--surface); }
+.mvp-timeline li[data-in-view]:not(li[data-in-view] + li[data-in-view]) > button { border-top-left-radius: var(--r-1); border-top-right-radius: var(--r-1); }
+.mvp-timeline li[data-in-view]:not(:has(+ li[data-in-view])) > button { border-bottom-left-radius: var(--r-1); border-bottom-right-radius: var(--r-1); }
+.mvp-rail [data-tone="live"] .mvp-tl-node { animation: mvp-shell-live 1.8s ease-in-out infinite; }
+@keyframes mvp-shell-live { 50% { opacity: 0.4; } }
+/* Pinned edges: at most two rows, then "+N above" or "+N below". */
+.mvp-edge { display: flex; flex-direction: column; gap: 4px; }
+.mvp-tl-edge { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.mvp-tl-edge > li { border-radius: var(--r-1); background: var(--surface-glass-strong); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--border); backdrop-filter: blur(12px); }
+.mvp-tl-edge > li[data-tone="attention"] { box-shadow: var(--shadow-1), inset 0 0 0 1px var(--attention); }
+.mvp-tl-edge > li[data-tone="failed"] { box-shadow: var(--shadow-1), inset 0 0 0 1px var(--danger); }
+.mvp-tl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 8px 6px 34px; color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-tl-actions button, .mvp-notice-actions button { padding: 3px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font-size: var(--fs-small); }
+.mvp-tl-more { align-self: flex-start; margin-left: 30px; padding: 0 8px; border-radius: var(--r-full); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-caption); line-height: 20px; }
+.mvp-tl-more:hover { color: var(--text); }
+/* One pill per edge on a narrow screen; the rows then stay away. */
+.mvp-edge-pill { display: none; align-self: flex-start; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-full); background: var(--surface-glass-strong); box-shadow: var(--shadow-1); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; white-space: nowrap; }
+.mvp-edge-pill[data-tone="attention"] { border-color: var(--attention); color: var(--attention-text); }
+.mvp-edge-pill[data-tone="failed"] { border-color: var(--danger); color: var(--danger); }
+.mvp-edge[data-narrow] .mvp-edge-pill { display: inline-flex; align-items: center; }
+.mvp-edge[data-narrow] .mvp-tl-edge { display: none; }
+/* Notifications: at most three, "+N more" discloses the rest. */
+.mvp-notify { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.mvp-notice { display: grid; grid-template-columns: 18px minmax(0, 1fr) 20px; align-items: start; gap: 8px; padding: 10px 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface-glass-strong); box-shadow: var(--shadow-2); backdrop-filter: blur(20px); font-size: var(--fs-small); animation: view-in var(--dur-slow) var(--ease-current); }
+.mvp-notice[data-tone="attention"] { border-color: var(--attention); }
+.mvp-notice[data-tone="failed"] { border-color: var(--danger); }
+.mvp-notice-icon { display: inline-flex; margin-top: 2px; color: var(--tone, var(--text-muted)); }
+.mvp-notice[data-tone="live"] .mvp-notice-icon svg { animation: mvp-shell-spin 1.2s linear infinite; }
+@keyframes mvp-shell-spin { to { transform: rotate(360deg); } }
+.mvp-notice-body { display: flex; min-width: 0; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.mvp-notice-body b { font-weight: 600; }
+.mvp-notice-body > span { color: var(--text-muted); font-size: var(--fs-caption); line-height: 1.45; }
+.mvp-notice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-notice-hide { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 5px; color: var(--text-faint); }
+.mvp-notice-hide:hover { background: var(--hover); color: var(--text); }
+.mvp-notice-more { align-self: flex-start; min-height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-full); background: var(--surface-glass-strong); box-shadow: var(--shadow-1); color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-notice-more:hover { color: var(--text); }
+@media (prefers-reduced-motion: reduce) {
+	.mvp-rail .mvp-tl-node, .mvp-notice, .mvp-notice-icon svg { animation: none; }
+}
+/* Narrow screens: no timeline; the pills sit in the header and footer rows and the notices keep the foot. */
+@media (max-width: 1179px) {
+	.mvp-rail { width: 0; gap: 0; }
+	.mvp-timeline { display: none; }
+	.mvp-edge .mvp-tl-edge { display: none; }
+	.mvp-edge-pill { position: fixed; z-index: 61; display: inline-flex; align-items: center; }
+	.mvp-edge[data-edge="above"] .mvp-edge-pill { top: 9px; right: 132px; }
+	.mvp-edge[data-edge="below"] .mvp-edge-pill { bottom: 14px; left: 16px; }
+	.mvp-notify { position: fixed; bottom: 64px; left: 12px; z-index: 40; width: min(300px, calc(100vw - 24px)); }
+}
+
+/*
+ * Where this person is in the branch tree (SessionNavigation.tsx Crumbs,
+ * T-APP-16): `owner/repo / main / <branch> ▾` beside the wordmark; the last
+ * crumb opens the branch tree beneath the strip.
+ */
+.session-navigation .mvp-crumbs-host { position: absolute; top: 0; right: 196px; left: 148px; z-index: 40; display: flex; height: var(--session-strip, 44px); align-items: center; gap: 6px; color: var(--text-faint); font-size: var(--fs-small); white-space: nowrap; }
+.session-navigation .mvp-crumb-repo { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; }
+.session-navigation .mvp-crumbs { min-width: 0; }
+.session-navigation .mvp-crumb-path { flex-wrap: nowrap; }
+.session-navigation .mvp-crumb { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-navigation .mvp-crumb-here > svg { flex: none; color: var(--text-muted); }
+.session-navigation .mvp-crumbs > .mvp-tree { position: absolute; top: calc(100% + 2px); left: 0; width: 360px; max-width: calc(100vw - 24px); margin-top: 0; }
+@media (max-width: 600px) {
+	.session-navigation .mvp-crumbs-host { right: 12px; left: 128px; }
+	.session-navigation .mvp-crumbs > .mvp-tree { position: fixed; top: calc(var(--session-strip, 44px) + 2px); left: 12px; }
+	.session-navigation .mvp-crumb-repo, .session-navigation .mvp-crumb-repo + span { display: none; }
 }

@@ -96,7 +96,7 @@ chatTest("the model invokes browser.open and cites content returned by the real 
 
 chatTest("Stop generating cancels the live backend turn and leaves an honest stable interruption", scenario("chat.stop-real-turn", {
   capabilities: ["agent"],
-  coverage: ["action:chat.send", "action:chat.stop", "host:local", "host:production", "path:success", "door:button", "door:user-only", "dimension:cancellation", "evidence:backend-cancel-ack"],
+  coverage: ["action:chat.send", "action:stop", "host:local", "host:production", "path:success", "door:button", "door:user-only", "dimension:cancellation", "evidence:backend-cancel-ack"],
   description: "Start a long real model response, stop it through the visible control, and verify the cancellation endpoint and stable interrupted state."
 }), async ({ page }, testInfo) => {
   await bootWorkspace(page)
@@ -106,7 +106,7 @@ chatTest("Stop generating cancels the live backend turn and leaves an honest sta
   await expect(assistantMessages(page).last()).toContainText(marker, { timeout: 90_000 })
   await expect(transcript(page)).toHaveAttribute("aria-busy", "true")
   await openComposer(page)
-  const stop = page.locator('[data-flow="chat.stop"]:visible')
+  const stop = page.locator('[data-flow="stop"]:visible')
   await expect(stop).toBeVisible({ timeout: 30_000 })
   const cancelTraffic = await captureCancelReply(page)
   const cancelling = page.waitForResponse((response) =>
@@ -201,27 +201,18 @@ test("a multiline draft survives keyboard dismissal and a real reload before sub
   await attachJson(testInfo, "draft-persistence-evidence", { expected, url: page.url() })
 })
 
-test("Copy message writes the complete rendered catalog to the real browser clipboard", scenario("chat.copy-message-clipboard", {
+test("Copy message writes the complete rendered message to the real browser clipboard", scenario("chat.copy-message-clipboard", {
   capabilities: [],
-  coverage: ["action:chat.commands", "action:chat.copy-message", "host:local", "host:production", "path:success", "path:keyboard", "door:slash", "door:button", "dimension:keyboard", "dimension:clipboard", "evidence:browser-clipboard-readback"],
-  description: "Render the command catalog, use its Copy message control, and independently read the browser clipboard contents."
+  coverage: ["action:auth.prompt", "action:chat.copy-message", "host:local", "host:production", "path:success", "path:keyboard", "door:slash", "door:button", "dimension:keyboard", "dimension:clipboard", "evidence:browser-clipboard-readback"],
+  description: "Render the sign-in step message, use its Copy message control, and independently read the browser clipboard contents."
 }), async ({ page, context }, testInfo) => {
   await bootWorkspace(page)
-  await command(page, "/chat.commands")
-  const catalog = transcript(page).locator(".smithers-chat-message").filter({ hasText: "/chat.stop" }).last()
-  await expect(catalog).toContainText("/chat.send")
+  await command(page, "/auth.prompt")
+  const catalog = transcript(page).locator(".smithers-chat-message").last()
+  await expect(catalog.locator(".message-markdown")).toBeVisible()
   await closeComposer(page)
-  const heading = await catalog.locator(".message-markdown p").first().innerText()
-  const rows = await catalog.locator(".message-markdown li").evaluateAll((items) => {
-    const markdown = (node: Node): string => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ""
-      const contents = [...node.childNodes].map(markdown).join("")
-      return node instanceof HTMLElement && node.tagName === "CODE" ? "`" + contents + "`" : contents
-    }
-    return items.map(markdown)
-  })
-  const expected = `${heading}\n\n${rows.map((row) => `- ${row}`).join("\n")}\n\nType \`/\` in the composer to filter these as you type.`
-  expect(rows.length).toBeGreaterThan(1)
+  const expected = (await catalog.locator(".message-markdown").innerText()).trim()
+  expect(expected.length).toBeGreaterThan(0)
   const origin = new URL(page.url()).origin
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
   const copy = catalog.getByRole("button", { name: "Copy message", exact: true })
@@ -229,7 +220,7 @@ test("Copy message writes the complete rendered catalog to the real browser clip
   await expect(copy).toBeFocused()
   await copy.press("Enter")
   await expect(catalog.getByRole("button", { name: "Copied", exact: true })).toBeVisible()
-  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  const clipboard = (await page.evaluate(() => navigator.clipboard.readText())).trim()
   expect(clipboard).toBe(expected)
   await attachJson(testInfo, "clipboard-evidence", { length: clipboard.length, exactMatch: clipboard === expected })
 

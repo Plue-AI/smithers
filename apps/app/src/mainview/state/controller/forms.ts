@@ -367,6 +367,13 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       const missing = missingFields(fields, draftFrom(fields, given))
       fields = fields.filter(field => missing.includes(field.name))
     }
+    // A flow whose named input makes fields required asks only for those still missing; what the line named stays in given.
+    const requires = hints?.requires?.(given)
+    if (requires !== undefined) {
+      fields = fields.map(field => requires.includes(field.name) ? { ...field, required: true } : field)
+      const missing = missingFields(fields, draftFrom(fields, given))
+      fields = fields.filter(field => missing.includes(field.name))
+    }
     // T-APP-02: TODO doors ask only for missing required input; the bound Tn stays in given.
     if (request.name === "todo" || request.name.startsWith("todo.")) {
       const missing = missingFields(fields, draftFrom(fields, given))

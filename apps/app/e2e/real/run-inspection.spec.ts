@@ -86,13 +86,13 @@ test("signed-out run inspection parks durably before any workspace RPC", scenari
 
   const requestedRun = `owned-but-absent-${Date.now()}`
   await command(page, `/runs.open ${requestedRun} ${productionRepository}`)
-  const signIn = page.locator('button[data-flow="auth.sign-in"]:visible').last()
+  const signIn = page.locator('button[data-flow="sign-in"]:visible').last()
   await expect(signIn).toBeVisible()
   await expect(runCards(page)).toHaveCount(0)
   expect(rpc).toEqual([])
 
   await reloadApp(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
   await expect(runCards(page)).toHaveCount(0)
   expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   expect(rpc).toEqual([])
@@ -112,7 +112,7 @@ test("signed-out run attention cannot enumerate workspace state", scenario("runs
   const rpc = workflowRpcPosts(page)
 
   await command(page, `/runs.attention ${productionRepository}`)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="run-list"]')).toHaveCount(0)
   await expect(page.locator('.smithers-card[data-kind="approvals-inbox"]')).toHaveCount(0)
   expect(rpc).toEqual([])

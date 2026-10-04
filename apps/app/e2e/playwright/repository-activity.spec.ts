@@ -57,7 +57,7 @@ test("activity waits for URL admission across reload without blocking Chat or du
     await page.goto(`/${repo}`)
     await command()
     await command()
-    const waiting = page.locator('[data-toast-status="running"]').filter({ hasText: "Loading repository" })
+    const waiting = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Loading repository" })
     await expect(waiting).toBeVisible()
     expect(reads).toBe(0)
     await page.getByRole("button", { name: "Chat", exact: true }).click()

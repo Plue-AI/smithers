@@ -5,7 +5,7 @@ import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 /*
  * The login screen (Will, 2026-10-03) in a real browser: a signed-out visitor
  * of the hosted web app meets it in the middle of the page, the GitHub door is
- * auth.sign-in's redirect, and the email door answers for this host.
+ * sign-in's redirect, and the email door answers for this host.
  */
 const SHOTS = process.env.LOGIN_SHOTS
 
@@ -36,7 +36,7 @@ test("a signed-out visitor meets the login screen in the middle of the page, wit
   await expect(login).toBeVisible()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/login-email-toast.png` })
 
-  // The GitHub door is auth.sign-in's redirect.
+  // The GitHub door is sign-in's redirect.
   await page.route("**/api/auth/github**", route => route.fulfill({ body: "Sign-in handoff" }))
   const request = page.waitForRequest(request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
   await page.getByTestId("login-github").click()

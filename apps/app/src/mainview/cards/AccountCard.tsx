@@ -74,7 +74,7 @@ export const AccountCardBody = ({
     {card.payload.refresh?.state === "failed" && <FailureNotice data-testid="account-permissions-failure"
       failure={describedFailure("AccountPermissionsFailed", PERMISSIONS_FAILED, card.payload.refresh.error)}
       actions={{ retry: flowAction(onRunCommand, "account.show") }} />}
-    <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "auth.sign-out")}>
+    <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "sign-out")}>
       Sign out
     </Button>
   </div>

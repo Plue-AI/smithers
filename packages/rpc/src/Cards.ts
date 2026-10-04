@@ -731,12 +731,23 @@ const DraftPayloadSchema: z.ZodType<DraftCard & { idempotencyKey: string; reques
   DraftCardSchema.extend({ idempotencyKey: z.string(), request: TodoRequestSchema.optional(), optionsFailure: z.string().optional() })
 
 const CurrentCardSchema = z.discriminatedUnion("kind", [
+  z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string() }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("todo"), payload: z.object({
     n: z.number().int().positive(), model: TodoModelSchema.optional(), requests: z.array(TodoRequestSchema),
     answerDraft: z.string().optional(), answeredBy: z.string().optional()
   }) }),
   z.object({ ...cardBaseShape, kind: z.literal("draft"), audience_member_id: z.string().nullable(),
     payload: DraftPayloadSchema }),
+  /* Confirm (card-kinds.md Confirm, T-APP-04): A✓ or Review & merge, private to the person who presses it; the card file reads its subject. */
+  z.object({ ...cardBaseShape, kind: z.literal("confirm"), audience_member_id: z.string().nullable(), payload: z.object({ id: z.string() }) }),
+  /* L5 subject references: the Run card (T-FLW-07) names its run; the Flow card (T-APP-05) its flow and chosen version. */
+  z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string() }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional() }) }),
+  /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */
+  z.object({ ...cardBaseShape, kind: z.literal("settings"), payload: z.object({}) }),
+  z.object({ ...cardBaseShape, kind: z.literal("members"), payload: z.object({}) }),
+  z.object({ ...cardBaseShape, kind: z.literal("commands"), payload: z.object({}) }),
   z.object({
     ...cardBaseShape,
     kind: z.literal("factory.home"),
@@ -3055,6 +3066,13 @@ const retiredKinds = new Set([
   "request-queue"
 ])
 /**
+ * The kinds {@link CardSchema} decodes, named so a schema that embeds a card can be declared without inlining the union.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type CardSchemaOptions = typeof CurrentCardSchema.options
+/**
  * One persisted card, decoded by kind. The preprocessor retires a kind or a flow
  * the product no longer serves before the union sees it, so a frame stored by an
  * older build still parses instead of failing the whole snapshot.
@@ -3062,7 +3080,7 @@ const retiredKinds = new Set([
  * @since 1.0.0
  * @category schemas
  */
-export const CardSchema = Object.assign(
+export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> & { readonly options: CardSchemaOptions } = Object.assign(
   z.preprocess((value: unknown) => {
     if (typeof value !== "object" || value === null) return value
     const row = value as Record<string, unknown>

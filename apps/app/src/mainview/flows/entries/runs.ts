@@ -6,8 +6,9 @@
 import { Schema } from "effect"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
-import { flow } from "./Declare"
-import type { CommandActions } from "./Declare"
+import { flow, type CommandActions, type CommandResult } from "./Declare"
+import type { Grammar } from "../SlashPayload"
+import { activeTraces, traceNamed } from "../../state/seams/DesignWorld/run"
 
 /** The `runs` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = {
@@ -16,8 +17,39 @@ export const namespace: Namespace = {
   summary: "The runs on your workspace: open, resume, steer, stop"
 }
 
+/** `/run <id>`: a run id, a TODO id, its ref ("T9") or its number; or the JSON a card button sends. */
+const runGrammar: Grammar = args => {
+  const text = args?.trim() ?? ""
+  if (text.startsWith("{")) {
+    try { return { payload: JSON.parse(text) as Record<string, unknown> } } catch { return { error: "Enter a run" } }
+  }
+  return { payload: text === "" ? {} : { id: text } }
+}
+
 /** The `runs` flows registered as one aggregator block. */
-export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
+  /*
+   * The Run card doors (T-FLW-07): `/run` opens the card, `/run.inspect` is
+   * Inspect (the card maximized), `/runs` opens every run still going. MOCK:
+   * they read the seeded design world (state/seams/DesignWorld/run.ts) until
+   * topic `run:<id>` and /api/runs land; the handlers then read those.
+   */
+  const open = async (id: string, maximize: boolean): Promise<CommandResult> => {
+    const trace = traceNamed(actions.design.world(), id)
+    if (trace === undefined) return `No run ${id}`
+    return { value: await actions.presentRun(trace.id, trace.title, maximize) }
+  }
+  return [
+  flow({ name: "runs", summary: "Active and attention-needing runs", input: Schema.Struct({}),
+    handler: async () => {
+      const traces = activeTraces(actions.design.world())
+      for (const trace of traces) await actions.presentRun(trace.id, trace.title, false)
+      return { value: traces.length === 0 ? "No active runs" : `${traces.length} active ${traces.length === 1 ? "run" : "runs"}` }
+    } }),
+  flow({ name: "run", summary: "Open a run's card", args: "<id>", grammar: runGrammar,
+    input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => open(id, false) }),
+  flow({ name: "run.inspect", summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
+    input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => open(id, true) }),
   flow({
     name: "runs.attention",
     summary: "Show pending approvals and parked or failed runs on this repository",
@@ -243,3 +275,4 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, sourceCard }) => actions.showRunEvents(runId, sourceCard)
   })
 ]
+}

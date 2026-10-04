@@ -28,7 +28,7 @@ export interface CommandGesture {
 export const FlowGesture = Context.Reference<CommandGesture | undefined>("ui/flows/FlowGesture", { defaultValue: () => undefined })
 
 export const reserveBrowserCommandGesture = (name: string): CommandGesture | undefined => {
-  if (name === "auth.sign-in") {
+  if (name === "sign-in") {
     if (typeof window === "undefined") return undefined
     let popup: Window | null
     try { popup = window.open("about:blank", "_blank") } catch { popup = null }

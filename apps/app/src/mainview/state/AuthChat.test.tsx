@@ -96,10 +96,10 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(host.querySelector(".landing-surface")).toBeNull()
     // Sign-in is the explicit auth.prompt action; the composer remains available.
     expect(html).not.toContain("sign in with GitHub to continue")
-    const signIn = host.querySelector<HTMLButtonElement>("[data-flow=\"auth.sign-in\"]")
+    const signIn = host.querySelector<HTMLButtonElement>("[data-flow=\"sign-in\"]")
     expect(signIn).not.toBeNull()
-    expect(signIn?.dataset.flow).toBe("auth.sign-in")
-    expect(controller.commands.find("auth.sign-in")).toBeDefined()
+    expect(signIn?.dataset.flow).toBe("sign-in")
+    expect(controller.commands.find("sign-in")).toBeDefined()
     expect(host.querySelector("textarea")?.placeholder).toBe("Ask Smithers to work on something…")
   })
 
@@ -123,7 +123,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const html = markup()
     expect(html).not.toContain("sign in with GitHub to continue")
     expect(html).not.toContain("The identity service isn't configured")
-    expect(host.querySelector("[data-flow=\"auth.sign-in\"]")).not.toBeNull()
+    expect(host.querySelector("[data-flow=\"sign-in\"]")).not.toBeNull()
     expect(store.collections.identitySessions.get("identity")?.scopesPlain).toBeNull()
   })
 
@@ -189,9 +189,9 @@ describe("auth is a conversation state — the chat is the only page", () => {
     // The login screen (Will, 2026-10-03) is the opening: the GitHub door and the email door in the middle of the page, no opening message.
     expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-login")).toBe(true)
     expect(host.querySelector('[data-testid="login"] h1')?.textContent).toBe("Welcome to Smithers")
-    expect(host.querySelector<HTMLButtonElement>('[data-testid="login-github"]')?.dataset.flow).toBe("auth.sign-in")
+    expect(host.querySelector<HTMLButtonElement>('[data-testid="login-github"]')?.dataset.flow).toBe("sign-in")
     expect(host.querySelector<HTMLFormElement>('[data-testid="login"] form')?.dataset.flow).toBe("auth.email")
-    expect(controller.commands.find("auth.sign-in")).toBeDefined()
+    expect(controller.commands.find("sign-in")).toBeDefined()
     expect(host.querySelectorAll(".smithers-chat-message").length).toBe(0)
     expect(markup()).not.toContain(WEB_OPENING)
     expect(host.querySelector(".app-chat-controls")).toBeNull()
@@ -224,7 +224,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     await settled()
     const { host } = mount(controller)
     expect(host.querySelector('[data-testid="signup"]')).toBeNull()
-    expect(controller.commands.find("auth.sign-in")).toBeDefined()
+    expect(controller.commands.find("sign-in")).toBeDefined()
     expect(store.session().activeRepoKey ?? null).toBeNull()
 
     const parked = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -288,7 +288,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
       expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-repository-missing")).toBe(true)
       expect(message?.textContent).toContain(`${repo} isn't on Smithers yet. Sign in with GitHub to open your own repositories, or pick one below.`)
       expect(message?.querySelector('a[href="/smithersai/smithers/"]')?.textContent).toBe("smithersai/smithers")
-      expect(message?.querySelector<HTMLButtonElement>(".message-cta")?.dataset.flow).toBe("auth.sign-in")
+      expect(message?.querySelector<HTMLButtonElement>(".message-cta")?.dataset.flow).toBe("sign-in")
       if (repo !== "cached/selection") expect(controller.commands.state().publicRepo).toBe(false)
     })
   }
@@ -363,7 +363,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
       const notice = host.querySelector('[data-repository-missing] .smithers-chat-message')
       expect(notice).not.toBeNull()
       expect(notice?.textContent).toContain("nope/nope isn't on Smithers yet.")
-      expect(notice?.querySelector('[data-flow="auth.sign-in"]')).not.toBeNull()
+      expect(notice?.querySelector('[data-flow="sign-in"]')).not.toBeNull()
       expect(window.location.pathname).toBe("/nope/nope/")
     })
   }
@@ -447,7 +447,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(host.querySelector(".landing-surface")).toBeNull()
     expect(markup()).not.toMatch(/design partners|Request access|Your request is in|access request/)
     expect(host.querySelector("[data-flow=\"auth.request-access\"]")).toBeNull()
-    expect(host.querySelector("[data-flow=\"auth.sign-in\"]")).toBeNull()
+    expect(host.querySelector("[data-flow=\"sign-in\"]")).toBeNull()
     expect(host.querySelector("textarea")?.placeholder).toBe("Ask Smithers to work on something…")
   })
 
@@ -498,14 +498,14 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const pending = controller.refreshBalance()
     await settled()
     flushSync(() => {})
-    const stack = document.querySelector(".toast-stack")
+    const stack = document.querySelector(".mvp-notify")
     expect(stack).not.toBeNull()
     expect(stack?.textContent).toContain("Refreshing your balance…")
     release(json(503, { status: "error" }))
     await pending
     await settled()
     flushSync(() => {})
-    expect(document.querySelector(".toast-stack")?.textContent).toContain(
+    expect(document.querySelector(".mvp-notify")?.textContent).toContain(
       "Your balance couldn't be refreshed right now."
     )
   })
@@ -520,7 +520,7 @@ test("an unknown repository's explicit sign-in prompt replaces the web opening c
   await controller.commands.run("auth.prompt")
   await settled()
   const { host } = mount(controller)
-  expect(host.querySelectorAll('.smithers-chat-message [data-flow="auth.sign-in"]')).toHaveLength(1)
+  expect(host.querySelectorAll('.smithers-chat-message [data-flow="sign-in"]')).toHaveLength(1)
   expect(host.textContent).toContain("Sign in with GitHub to continue.")
 })
 

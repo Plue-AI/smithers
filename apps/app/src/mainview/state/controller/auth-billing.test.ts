@@ -1105,7 +1105,7 @@ describe("the login screen's email door (auth.email)", () => {
       expect(controller.signInWithEmail(" ada@example.com ")).toBeUndefined()
       const toast = store.collections.toasts.get("toast-auth.email.unavailable")
       expect(toast).toMatchObject({ status: "failed", title: "Email sign-in isn't available yet", detail: "Continue with GitHub for now.",
-        action: { flow: "auth.sign-in", label: "Continue with GitHub" } })
+        action: { flow: "sign-in", label: "Continue with GitHub" } })
       // Nothing navigated, and no sign-in was claimed.
       expect(store.collections.identitySessions.get("identity")?.state ?? "unknown").not.toBe("signed-in")
     } finally { await ctx.dispose(); await store.dispose?.() }

@@ -58,9 +58,6 @@ describe("the devtools panel fits the 320px minimum shell", () => {
     expect(chat).toContain(".chat-frame:has(> .devtools-panel)")
     expect(chat).toMatch(/@media \(max-width: 900px\)[\s\S]*\.devtools-panel\s*\{[^}]*width:\s*100%;/)
   })
-  test("suggestion pills wrap beside an open pane instead of scrolling out of view", () => {
-    expect(chat).toMatch(/\.app-shell \.smithers-suggestions\s*\{[^}]*flex-wrap:\s*wrap;/)
-  })
 })
 
 describe("the slash menu overlays instead of displacing the transcript", () => {

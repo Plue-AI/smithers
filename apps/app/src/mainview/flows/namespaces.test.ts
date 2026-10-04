@@ -69,13 +69,16 @@ describe("registry data tables read the namespace modules", () => {
     }
   })
 
+  /* Bare flows whose module is not named after them: `connect` lives in connector.ts; mvp.md Appendix A renamed `chat.stop` and `auth.sign-in` to bare names their modules keep. */
+  const BARE_OWNERS: Readonly<Record<string, string>> = { connect: "connector", stop: "chat", "sign-in": "auth" }
+
   test("every recommendation row comes from the module that owns the flow it offers", async () => {
     const found = await modules()
     const exported = [...found].flatMap(([id, module]) => (module.recommendations ?? []).map((row) => ({ id, row })))
     expect(exported.length).toBe(recommendations.length)
     for (const { id, row } of exported) {
       expect(recommendations.includes(row)).toBe(true)
-      expect(namespaceOf(row.name) ?? (row.name === "connect" ? "connector" : row.name)).toBe(id)
+      expect(namespaceOf(row.name) ?? BARE_OWNERS[row.name] ?? row.name).toBe(id)
     }
   })
 })

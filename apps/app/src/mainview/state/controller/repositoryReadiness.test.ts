@@ -75,7 +75,7 @@ test("a cold explicit public target from home persists and acknowledges before i
     expect(await h.controller.commands.run("files.read", `README.md ${repo}`)).toEqual({ status: "executed", value: "Requested" })
     await until(() => catalogs === 1)
     expect(reads).toBe(0)
-    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(false)
     h.controller.changeDraft("Chat remains available")
     expect(h.store.session().draft).toBe("Chat remains available")
     await until(() => h.store.collections.toasts.get("toast-repository.ready")?.status === "running")
@@ -165,7 +165,7 @@ test("an unavailable cold catalog is retryable and a not-public answer never loo
     await h.controller.commands.run("files.list", `docs ${repo}`)
     await until(() => [...h.store.collections.toasts.values()].some(toast => toast.status === "failed"))
     expect(h.store.session().repositoryCommandEntry?.failureKind).toBe("unavailable")
-    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(false)
     const oldId = h.store.session().repositoryCommandEntry!.requestId
     await h.controller.commands.run("files.list", `docs ${repo}`)
     await until(() => h.store.session().pendingCommand?.requirement === "repo-source")
@@ -175,7 +175,7 @@ test("an unavailable cold catalog is retryable and a not-public answer never loo
     await pause(20)
     expect(catalogs).toBe(2)
     expect(hits).toEqual(["/api/public/repos", "/api/public/repos"])
-    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
     expect(h.store.collections.toasts.get("toast-repository.ready")?.status).not.toBe("ok")
   } finally { await h.close() }
 })
@@ -341,7 +341,7 @@ test("catalog wait acknowledges, coalesces and keeps progress through the actual
     expect(await h.controller.commands.run("files.read", `README.md ${repo}`)).toMatchObject({ status: "executed", value: "Requested" })
     await h.controller.commands.run("files.read", `README.md ${repo}`)
     expect(hits).toHaveLength(0)
-    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)
     h.controller.changeDraft("Chat stays usable")
     expect(h.store.session().draft).toBe("Chat stays usable")
     await until(() => h.store.collections.toasts.get("toast-repository.ready")?.status === "running")
@@ -393,7 +393,7 @@ test("private targets keep their sign-in gate and agent calls never queue", asyn
     expect(h.store.session().pendingCommand).toBeFalsy()
     await h.controller.commands.run("files.read", "README.md private/secret")
     await until(() => h.store.session().pendingCommand?.requirement === "repo-source")
-    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(true)
     expect(h.store.session().pendingCommand?.requirement).toBe("repo-source")
   } finally { await h.close() }
 })
@@ -445,10 +445,10 @@ for (const answer of ["private", "invalid", "offline"] as const) {
       if (answer === "private") {
         await until(() => h.store.session().pendingCommand?.requirement === "repo-source")
         expect(h.store.session().pendingCommand).toMatchObject({ args: `README.md ${repo}` })
-        expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(true)
+        expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(true)
         expect(h.store.collections.toasts.get("toast-repository.ready")?.status).not.toBe("ok")
       } else {
-        expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(false)
+        expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)
         await until(() => [...h.store.collections.toasts.values()].some(t => t.status === "failed"))
         expect(h.store.session().repositoryEntry?.failureKind).toBe("unavailable")
       }
@@ -547,7 +547,7 @@ test("a missing-path form waits for catalog and does not report a completed read
     const form = h.store.collections.cards.get("form-files.read")
     expect(form?.kind === "flow-form" && form.payload.given.repo).toBe(repo)
     expect(h.store.collections.toasts.get("toast-repository.ready")?.status).not.toBe("ok")
-    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)
   } finally { await h.close() }
 })
 
@@ -597,7 +597,7 @@ test("a fresh command refreshes a failed catalog once without changing selection
     expect(refreshes).toBe(1)
     expect(reads).toEqual([])
     expect(h.store.session().repositoryEntry?.phase).toBe("pending")
-    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)
     h.controller.changeDraft("usable during refresh")
     expect(h.store.session().draft).toBe("usable during refresh")
     release(json(200, { repos: [{ name: repo }] }))
@@ -617,7 +617,7 @@ test("a failed refresh stays honest and the next user retry can succeed without 
     await h.controller.commands.run("files.list", `docs ${repo}`)
     await until(() => h.store.session().repositoryEntry?.phase === "failed" && h.store.session().pendingCommand == null)
     expect(h.store.session().repositoryEntry?.error).toContain("HTTP 503")
-    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(false)
     await h.controller.commands.run("files.list", `docs ${repo}`)
     await until(() => h.store.collections.cards.get(`files-${repo}-docs`)?.status === "active")
     expect(refreshes).toBe(2)
@@ -635,7 +635,7 @@ test("a retry resolving to not-public renders the sign-in gate and never loops t
     expect(h.store.session().repositoryEntry?.failureKind).toBe("not-public")
     await h.controller.commands.run("files.list", `docs ${repo}`)
     expect(refreshes).toBe(1)
-    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...h.store.collections.messages.values()].some(m => m.action?.flow === "sign-in")).toBe(true)
   } finally { await h.close() }
 })
 

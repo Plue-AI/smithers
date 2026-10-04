@@ -222,7 +222,7 @@ describe("a flow typed into the composer states its refusal", () => {
     expect(prompts).not.toHaveLength(0)
     const action = prompts[prompts.length - 1]?.action
     const flow = action?.flow ?? ""
-    expect(["cloud.sign-in", "auth.sign-in"]).toContain(flow)
+    expect(["cloud.sign-in", "sign-in"]).toContain(flow)
     /* The door it names is one this host actually has, or it is a dead end. */
     expect(controller.commands.find(flow)).toBeDefined()
     for (const toast of failedToasts(store)) expect(toast.detail).not.toContain("/cloud.sign-in")

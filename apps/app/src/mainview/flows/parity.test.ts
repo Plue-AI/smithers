@@ -178,7 +178,7 @@ const PRESENTATION_ONLY = [
   "onFrameBack", // delegated: App.tsx binds it to frame.back
   "onFrameForward", // delegated: App.tsx binds it to frame.forward
   "onOpen(", // delegated: WikiPageView's card and WorldSurface bindings dispatch wiki navigation commands
-  "onConnectGitHub(", // delegated: App.tsx binds it to auth.sign-in
+  "onConnectGitHub(", // delegated: App.tsx binds it to sign-in
   "onRunWorkflow(", // delegated: App.tsx binds it to runCommand("flow.run", ...)
   "onStopRun(", // delegated: App.tsx binds it to runCommand("flow.run.stop", ...)
   "onRetryRun(", // delegated: App.tsx binds it to runCommand("flow.run.retry", ...)
@@ -210,14 +210,17 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
     "onClick={() => setChoosing(true)}",
     "await switchBackend(origin, token)"
   ],
-  "../ToastAction.tsx": ["onAction(action)"], // ToastStack/App bind the typed action to runCommand(action.flow, action.args)
   "../HelpBubble.tsx": ["onClick={dismiss}"], // restores focus, then onDismiss() dismisses transient help
+  // The rail's props-only Views (T-UI-08): every handler is onView (jump_to, toast_hidden) or onAction(action.tag);
+  // ShellRail.tsx binds them to the scroller, toast.dismiss and the registry.
+  "../EdgeMap.tsx": ["onClick={jump}", "onClick={press}", "onClick={more}"],
+  "../Timeline.tsx": ["onClick={jump}"],
+  "../ToastStackView.tsx": ["onClick={press}", "onClick={hide}", "onClick={disclose}"],
   "../InputModeMenu.tsx": ["open ? close() : setOpen(true)", "latest.current.onChange(value)"], // transient menu; selection is input.mode at both mounts
   "../cards/FlowCard.tsx": ["sendRunCommand("],
   "../cards/RunTraceCard.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
-  "../cards/RunsCards.tsx": ["onAnswer(", "onClick={send}"], // retained run questions carry values through the inbox controller
-  "../ToastStack.tsx": ["setExpanded("] // the "+N more" row is a local disclosure of the capped stack
+  "../cards/RunsCards.tsx": ["onAnswer(", "onClick={send}"] // retained run questions carry values through the inbox controller
 }
 
 const routesThroughRegistry = (context: string): boolean =>
@@ -1171,9 +1174,8 @@ describe("launch-law parity: every affordance is a command", () => {
       // +1: the Flows pane's Triggers button, the button door of triggers.list.
       // +1 (Librarian L5): the Wiki pane's Graph button, the button door of wiki.graph.
       "../AgentMark.tsx": 1, // A persona that resolves to an agent profile is a door to the roster.
-      "../App.tsx": 4, // -1: the shell has four handlers; main's five-count baseline was already stale.
+      "../App.tsx": 3, // The shell keeps three: the ⌘K/Escape key routing, the Chat door and the input-mode menu; the rail's handlers live in its Views.
       "../AppRoot.tsx": 1, // saved-store recovery Reload, with no writable command journal.
-      "../ChatFilterMenu.tsx": 2,
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 3,
       "../LocalAuthPanel.tsx": 4, // Includes the failed read's Retry, a FailureNotice action.
@@ -1183,7 +1185,6 @@ describe("launch-law parity: every affordance is a command", () => {
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
       "../HelpBubble.tsx": 1,
       "../InputModeMenu.tsx": 2,
-      "../SessionNavigation.tsx": 1, // -1: the wordmark is a static mark; the sidebar it toggled is gone.
       "../cards/CodingVibeCard.tsx": 1,
       "../cards/RepositoryUpdateCard.tsx": 2,
       /*
@@ -1208,7 +1209,6 @@ describe("launch-law parity: every affordance is a command", () => {
        * cards/ and is pinned there.
        */
       "../ChatCards.tsx": 8, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
-      "../ChatRunTimeline.tsx": 1,
       /* The access-request queue's Approve. */
       /*
        * The run card's lane-runs acts: the two secondary tabs under the trace
@@ -1218,10 +1218,11 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       "../cards/FlowCard.tsx": 6, // Includes a failed launch's Retry, a FailureNotice action (flow.run.retry).
       "../DevtoolsPanel.tsx": 2, // + Reset conversation, admin.reset.ask's door since the rail left (#3334).
+      "../EdgeMap.tsx": 4, // The pinned edges: a row jump, its one action, the pill jump and "+N" (T-UI-08).
       "../SearchPalette.tsx": 6, // + Ask Smithers, the first row of an empty ⌘K
       "../SurfaceChrome.tsx": 3,
-      "../ToastAction.tsx": 1,
-      "../ToastStack.tsx": 2, // + the capped stack's "+N more" row (#3420)
+      "../Timeline.tsx": 1, // A line click is onView({ jump_to }).
+      "../ToastStackView.tsx": 3, // A notice's one action, Hide and "+N more".
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
 
       "../cards/IssueCards.tsx": 11, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips and the saved view toggles
@@ -1231,13 +1232,12 @@ describe("launch-law parity: every affordance is a command", () => {
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
       "../cards/EnvCard.tsx": 3,
-      /* The account card's Sign out door (auth.sign-out through onRunCommand). */
+      /* The account card's Sign out door (sign-out through onRunCommand). */
       "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
       /* 2 = Try again + the done state's Open the workspace (lane sync). */
       "../cards/RepoImportCard.tsx": 2,
       // The tutorial's ranked chooser: one row button plus Skip.
       "../cards/RepositoryChoiceCard.tsx": 2,
-      "../cards/RepositoryHomeCard.tsx": 3,
       // The login screen (Will, 2026-10-03): the GitHub door and the email form's submit.
       "../cards/LoginScreen.tsx": 2,
 
@@ -1271,8 +1271,6 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/RunsCards.tsx": 15, // Retained run references and question-answer controls.
       "../cards/SearchResultsCard.tsx": 2,
       "../cards/SecretsCard.tsx": 10,
-      /* Includes TODO filing, check-receipt run opening, and the failure/Wiki Retry actions. */
-      "../cards/StackCard.tsx": 10, // + Land (history.land).
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 1, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
@@ -1362,7 +1360,9 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(message).toContain("runCommandForResult(\"chat.copy-message\"")
     expect(message).toContain("runCommand(\"chat.retry\"")
     expect(message).not.toContain("agent.explain")
-    expect(app).toContain("runCommand(\"toast.dismiss\"")
+    // The rail is the toast card file: Hide routes through toast.dismiss there.
+    expect(app).toContain("<ShellRail")
+    expect(files["../ShellRail.tsx"]).toContain("runCommand(\"toast.dismiss\"")
   })
 
   /* A card's acts bind once, and the live transcript uses that binding. */
@@ -1375,7 +1375,7 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(actions).toContain("runCommand(\"card.minimize\"")
     expect(actions).toContain("runCommand(\"frame.back\"")
     expect(actions).toContain("runCommand(\"frame.forward\"")
-    expect(actions).toContain("runCommand(\"auth.sign-in\"")
+    expect(actions).toContain("runCommand(\"sign-in\"")
     expect(actions).toContain("runCommand(\"flow.run\"")
     expect(actions).toContain("runCommand(\"flow.run.stop\"")
     expect(actions).toContain("runCommand(\"flow.run.retry\"")
@@ -1413,10 +1413,9 @@ describe("launch-law parity: every affordance is a command", () => {
     }
     const registrySource = registrySources()
     expect(registrySource).not.toContain("\"suggest\"")
-    // The pill row binds commands directly (§2a): the suggestion markup
-    // carries the command, and the click invokes it — never send().
+    // No pill row: the home and the timeline carry the next act (MINIMAL TEXT), never a generic suggest.
     const app = files["../App.tsx"] ?? ""
-    expect(app).toContain("data-flow={suggestion.flow}")
+    expect(app).not.toContain("suggestion.flow")
     expect(app).not.toContain("data-flow=\"suggest\"")
     // No standing composer status chrome (§2g): calm is the budget.
     expect(app).not.toContain("statusText=")
@@ -1557,7 +1556,7 @@ describe("launch-law parity: every affordance is a command", () => {
 
   test("light/dark remains callable while decorative themes are absent", () => {
     const source = registrySources()
-    expect(source).toContain("name: \"appearance.dark-mode\"")
+    expect(source).toContain("name: \"theme\"")
     expect(source).not.toContain("name: \"appearance.theme\"")
     expect(files["../cards/ThemePickerCard.tsx"]).toBeUndefined()
   })

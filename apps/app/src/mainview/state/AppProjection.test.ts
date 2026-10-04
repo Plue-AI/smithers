@@ -72,15 +72,15 @@ describe("pure app event projection", () => {
 
   test("disclosed commands add to the turn's user message in first-seen order, capped at 64, and an unknown turn writes nothing", () => {
     let state = apply(boot(), { type: "message.submitted", actor: "user", turnId: "t1", text: "switch to dark mode" })
-    state = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "t1", names: ["appearance.dark-mode", "runs.list"] })
+    state = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "t1", names: ["theme", "runs.list"] })
     state = apply(state, { type: "message.commands.disclosed", actor: "smithers", turnId: "t1", names: ["runs.list", "issues.list"] })
     const user = () => state.messages.find(message => message.id === "message-t1-user")!
-    expect(user().disclosed).toEqual(["appearance.dark-mode", "runs.list", "issues.list"])
+    expect(user().disclosed).toEqual(["theme", "runs.list", "issues.list"])
     const unknown = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "absent", names: ["a.b"] })
     expect(unknown.messages).toEqual(state.messages)
     state = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "t1", names: Array.from({ length: 70 }, (_, index) => `n.c${index}`) })
     expect(user().disclosed).toHaveLength(64)
-    expect(user().disclosed!.slice(0, 3)).toEqual(["appearance.dark-mode", "runs.list", "issues.list"])
+    expect(user().disclosed!.slice(0, 3)).toEqual(["theme", "runs.list", "issues.list"])
   })
 
   test("owns exactly the domain roster and its stable keys", () => {
@@ -263,7 +263,7 @@ describe("pure app event projection", () => {
 
   test("observed sign-in answers restored prompts while preserving their recorded history", () => {
     let state = apply(boot(), { type: "message.appended", actor: "system", text: "Sign in to continue",
-      action: { flow: "auth.sign-in", label: "Sign in" } })
+      action: { flow: "sign-in", label: "Sign in" } })
     const prompt = state.messages.at(-1)!
     const before = state.sessions[0]!
     state = apply(state, { type: "conversation.cleared", actor: "user", branchId: "next-conversation", notes: [] })

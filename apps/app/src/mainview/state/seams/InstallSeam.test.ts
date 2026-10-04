@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import type { StorageApi } from "@tanstack/db"
 import type { SeamContext } from "./SeamContext"
-import type { FailureController } from "../controller/failures"
-import { createInstallSeam, type InstallTopic } from "./InstallSeam"
+import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
+import { createInstallSeam, type InstallSeamOptions, type InstallTopic } from "./InstallSeam"
 import { InstallModelSchema, setupCardModel, settingsCardModel, type InstallError } from "./InstallModel"
 import { credentialReceipt, installFixture } from "./InstallFixtures.test-support"
 import { installRequestId } from "./InstallRequestId"
@@ -16,7 +16,7 @@ const memoryStorage = (): StorageApi => {
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) }, removeItem: key => { values.delete(key) } }
 }
 const failure = (fault: InstallError["class"] = "user"): InstallError => ({ code: "refused", class: fault, message: "Address refused", fix: "Use another origin", retry_at: "2026-10-02T12:00:00Z" })
-const harness = async (answer: (path: string, init?: RequestInit) => Promise<Response> | Response) => {
+const harness = async (answer: (path: string, init?: RequestInit) => Promise<Response> | Response, options: Pick<InstallSeamOptions, "quietWithoutInstall"> = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ path: string; init?: RequestInit }> = []
   const toasts: Array<{ outcome?: unknown }> = []
@@ -32,7 +32,7 @@ const harness = async (answer: (path: string, init?: RequestInit) => Promise<Res
   }
   const ctx: SeamContext = { http: async (path, init) => { requests.push({ path, init }); return answer(path, init) }, baseUrl: "", store,
     dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
-  const seam = createInstallSeam(ctx, withToast, { topic, present: kind => { presentations.push(kind) } })
+  const seam = createInstallSeam(ctx, withToast, { topic, present: kind => { presentations.push(kind) }, ...options })
   return { seam, store, requests, toasts, presentations, receive: (data: unknown) => receive?.(data), refuse: (data: InstallError) => refuse?.(data),
     subscribed: () => subscribed, stopped: () => stopped, idle: async () => { await tick(); await Promise.all(jobs); await tick() } }
 }
@@ -71,6 +71,21 @@ describe("T-APP-03 install seam", () => {
     const model = InstallModelSchema.parse(fixture)
     expect(setupCardModel(model).steps).toEqual(fixture.steps)
     expect(model).not.toHaveProperty("source"); expect(model).not.toHaveProperty("machine")
+  })
+  test("with the design seed standing in, no install answering opens Setup quietly; install errors and a real install still answer", async () => {
+    const open = async (answer: Parameters<typeof harness>[0], quietWithoutInstall?: boolean) => {
+      const h = await harness(answer, quietWithoutInstall === undefined ? {} : { quietWithoutInstall })
+      h.seam.showSetup(); await h.idle()
+      return h
+    }
+    const missing = await open(() => new Response("<!doctype html>", { status: 404 }), true)
+    expect(missing.toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED]); expect(missing.presentations).toEqual([])
+    const offline = await open(() => { throw new Error("offline") }, true)
+    expect(offline.toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED])
+    expect((await open(() => new Response("<!doctype html>", { status: 404 }))).toasts[0]?.outcome).toBe("Install request failed")
+    expect((await open(() => Response.json(failure("permission"), { status: 403 }), true)).toasts[0]?.outcome).toBe("Address refused")
+    const real = await open(() => Response.json(installFixture()), true)
+    expect(real.presentations).toEqual(["setup"]); expect(real.toasts[0]?.outcome).toBe(true)
   })
   test("permission envelopes present no settings card", async () => {
     const h = await harness(() => Response.json(failure("permission"), { status: 403 }))

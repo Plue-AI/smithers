@@ -877,7 +877,7 @@ const answerSignInPrompts = (
   // Omitted provider preserves pre-provider journal receipts byte-for-byte.
   const answer = `${requirement === "identity" ? (provider === "local" ? "Signed in" : "Signed in with GitHub") : "Signed in to Smithers Cloud"}${login ? ` as @${login}` : ""}.`
   const matches = (action: Message["action"]): boolean => {
-    if (!action || (action.flow !== "auth.sign-in" && action.flow !== "cloud.sign-in")) return false
+    if (!action || (action.flow !== "sign-in" && action.flow !== "cloud.sign-in")) return false
     return (action.signInRequirement ?? (action.flow === "cloud.sign-in" ? "cloud" : "identity")) === requirement
   }
   for (const message of collections.messages.values()) {
@@ -1469,7 +1469,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             reduce({ type: "composer.changed", actor: "system", draft: transition.draft }, 1)
           }
           const label = transition.provider === "github" ? "Sign in with GitHub" : "Sign in"
-          reduce({ type: "message.appended", actor: "system", text: `${label} to send this message.`, action: { flow: "auth.sign-in", label } }, 2)
+          reduce({ type: "message.appended", actor: "system", text: `${label} to send this message.`, action: { flow: "sign-in", label } }, 2)
           break
         }
         case "composer.changed":
@@ -1540,6 +1540,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.phase = "idle"
           })
+          if (transition.context !== undefined) {
+            const answerId = `message-${transition.turnId}-smithers`
+            if (collections.messages.has(answerId)) collections.messages.update(answerId, (draft) => { draft.context = transition.context })
+          }
           break
 
         case "chat.usage.recorded": {
@@ -2985,6 +2989,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             text: transition.text,
             ...(transition.action === undefined ? {} : { action: transition.action }),
             ...(transition.spoken === undefined ? {} : { spoken: transition.spoken }),
+            ...(transition.context === undefined ? {} : { context: transition.context }),
             status: "complete",
             createdAt,
             ordinal: nextOrdinal(collections)

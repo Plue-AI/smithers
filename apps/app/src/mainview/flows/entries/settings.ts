@@ -24,8 +24,10 @@ const key: Grammar = args => {
   } } }
   return parsed
 }
+/* The inputs each setup step needs (InstallSeam.setupStep's bodies); THE FORM LAW asks for the missing ones. */
+const SETUP_REQUIRES: Readonly<Record<string, ReadonlyArray<string>>> = { address: ["bind", "origins"], app_manifest: ["owner"], repository: ["repository"] }
 export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "settings", summary: "Settings", input: NoPayload, handler: () => actions.showSettings() }),
+  flow({ name: "settings", summary: "Settings", input: NoPayload, handler: async () => { await actions.presentCard("settings", "Settings") } }),
   flow({ name: "settings.address", summary: "Change Address", hidden: true, discloseToAgent: true,
     grammar: object, args: "<address>", input: Schema.Struct({ listen: Schema.Literals(["mac", "network"]), bind: Schema.String, origins: Schema.Array(Schema.String) }),
     handler: input => actions.setInstallAddress(input) }),
@@ -46,5 +48,7 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
   flow({ name: "settings.setup", summary: "Continue setup", hidden: true, discloseToAgent: true,
     grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),
+    form: { submitLabel: "Continue", args: input => JSON.stringify(input),
+      requires: payload => SETUP_REQUIRES[String(payload.step)] ?? [] },
     handler: input => actions.setupStep(input) })
 ]

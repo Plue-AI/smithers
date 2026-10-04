@@ -118,7 +118,7 @@ test("T1: a degraded sign-in refuses a box act with the exact enable wording", a
   })
   await page.getByTestId("composer-send").click()
 
-  const toast = page.locator(".toast-stack .toast-detail")
+  const toast = page.locator('.mvp-notify .mvp-notice[data-tone="failed"]')
   await expect(toast).toContainText("sign in again to enable", { timeout: 15_000 })
   await expect(toast).toContainText("This Smithers Cloud sign-in can't use boxes")
   expect(listRequests).toEqual([])

@@ -415,8 +415,8 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     const key = `command.failed.${name}`
     // A seam can refuse before the requirement axis knows the session is gone.
     // Turn its explicit sign-in command into the same human gesture as the prompt.
-    const signIn = outcome.error.match(/\/(auth\.sign-in|cloud\.sign-in)\b/)?.[1]
-    const flow = signIn === "auth.sign-in" || signIn === "cloud.sign-in" ? signIn : undefined
+    const signIn = outcome.error.match(/\/(cloud\.sign-in|sign-in)\b/)?.[1]
+    const flow = signIn === "sign-in" || signIn === "cloud.sign-in" ? signIn : undefined
     const entry = flow === undefined ? undefined : ctx.commands.find(flow)
     const action: Toast["action"] = flow && entry ? { flow, label: entry.metadata.summary } : undefined
     const summary = ctx.commands.find(name)?.metadata.summary ?? "This action"

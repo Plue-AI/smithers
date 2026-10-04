@@ -16,13 +16,13 @@ test(
     capabilities: [],
     description: "Reloads immediately after real appearance commands without a settling delay.",
     coverage: [
-      "host:local", "host:production", "door:slash", "path:persistence", "action:appearance.dark-mode", "dimension:immediate-reload", "evidence:persisted-appearance-after-reload"
+      "host:local", "host:production", "door:slash", "path:persistence", "action:theme", "dimension:immediate-reload", "evidence:persisted-appearance-after-reload"
     ]
   }),
   async ({ page }) => {
     await boot(page)
     const before = await page.locator("html").getAttribute("data-theme")
-    await command(page, "/appearance.dark-mode")
+    await command(page, "/theme")
     const expectedTheme = before === "dark" ? "light" : "dark"
     await expect(page.locator("html")).toHaveAttribute("data-theme", expectedTheme)
     await expect(page.locator("html")).toHaveAttribute("data-palette", "paper")

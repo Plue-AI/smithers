@@ -187,7 +187,7 @@ describe("wave 13 §F — the capability section is generated from the live cata
     expect(names).toContain("flow.create")
     // flow.create is named by the standing instructions, so it is pinned and listed in full.
     expect(instructions).toMatch(/^- \/flow\.create\b.* — /m)
-    for (const name of ["chat.send", "chat.open", "chat.dictate", "auth.sign-in"]) expect(names).not.toContain(name)
+    for (const name of ["chat.send", "chat.open", "chat.dictate", "sign-in"]) expect(names).not.toContain(name)
     expect(instructions).toContain("GitHub is connected as codeplanesmithers, 1 repositories loaded")
     expect(instructions).toContain("Everything the catalog lacks is a can't-yet")
     // User-only browser mechanics are not the agent's to offer.

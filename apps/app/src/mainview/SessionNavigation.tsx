@@ -7,12 +7,34 @@ import { WORDMARK } from "./Wordmark"
 import { flowSelector } from "./flows/FlowAction"
 import { GUIDE_KEYS } from "./onboarding/GuideButton"
 import { bindPressActions } from "./runtime/PressActions"
+import { BranchCrumbs } from "./BranchTree"
+import { catalogRepositoryOf } from "./state/RepoContext"
+import { useDesign, useDesignWorldOf } from "./state/seams/DesignWorld/hooks"
+import { designBranchTree, shellViewsOf } from "./state/seams/DesignWorld/shell"
 
 const Mark = () => <pre aria-hidden="true">{WORDMARK.map((line, i) => <span key={i} style={{ "--row": i } as CSSProperties}>{line}{"\n"}</span>)}</pre>
 export const SessionNavigationFallback = () => <header className="session-navigation" aria-label="Smithers"><h1 className="guide-wordmark" aria-label="Smithers" style={{ margin: 0 }}><Mark /></h1></header>
 
 /** Mode selection is a preference; it never starts microphone capture. */
 export const modeShortcut = (event: KeyboardEvent): boolean => !event.repeat && !event.isComposing && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === GUIDE_KEYS.mode && !(event.target as Element | null)?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])')
+
+/** `owner/repo / main / <branch> ▾`: parent crumbs go up, the last opens the branch tree. */
+function Crumbs() {
+  const controller = useController()
+  const design = useDesign()
+  const world = useDesignWorldOf(design)
+  const { data: views } = useLiveQuery(shellViewsOf(design))
+  const { data: sessions } = useLiveQuery(controller.store.collections.sessions)
+  const { data: repositories } = useLiveQuery(controller.store.collections.repositories)
+  const repo = catalogRepositoryOf(sessions[0]?.activeRepoKey, repositories) ?? controller.repositoryFlows()?.repo ?? world.repo.repo
+  const at = views.find(view => view.id === design.viewer())?.at ?? "main"
+  const nodes = designBranchTree(world, at)
+  return <div className="mvp-crumbs-host">
+    <span className="mvp-crumb-repo">{repo}</span><span aria-hidden="true">/</span>
+    <BranchCrumbs nodes={nodes} view={{ selected_branch: at }}
+      onAction={(tag, input) => { controller.commands.submit({ name: tag, payload: input ?? {}, actor: "user" }) }} onView={() => {}} />
+  </div>
+}
 
 /** One global logo and navigation surface. */
 export function SessionNavigation() {
@@ -55,6 +77,7 @@ export function SessionNavigation() {
     {sessions[0]?.inputMode === "vim" && <KeyboardNavigation />}
     <header className="session-navigation" aria-label="Smithers" data-keyboard-pane="Navigation" ref={mount}>
       <h1 className="guide-wordmark" aria-label="Smithers" style={{ margin: 0 }}><Mark /></h1>
+      <Crumbs />
       {/* The header carries no account chrome: signed out, the login screen holds the one door (Will, 2026-10-03); signed in, Account is /account.show. */}
       {controller.localAuth !== undefined && <LocalAuthPanel auth={controller.localAuth} />}
     </header>

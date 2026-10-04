@@ -101,7 +101,7 @@ describe("wave 10 — the derived pill row (§2a/§2f)", () => {
     expect(host.querySelectorAll(".smithers-suggestion")).toHaveLength(0)
     const signIn = host.querySelector<HTMLElement>(".session-identity")
     expect(signIn).toBeNull()
-    expect(controller.commands.find("auth.sign-in")).toBeDefined()
+    expect(controller.commands.find("sign-in")).toBeDefined()
     expect(host.querySelector(".smithers-transcript")).not.toBeNull()
   })
 })

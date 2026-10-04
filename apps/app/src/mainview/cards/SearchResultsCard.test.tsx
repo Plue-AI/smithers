@@ -14,9 +14,9 @@ afterAll(async () => {
 
 type ResultsCard = Extract<Card, { kind: "search-results" }>
 
-/** The §9 mock's rows as one search.open answer. */
+/** The §9 mock's rows as one search answer. */
 const fixture: ResultsCard = {
-  id: "search-search.open",
+  id: "search-search",
   kind: "search-results",
   title: "Search · redact",
   status: "active",
@@ -24,7 +24,7 @@ const fixture: ResultsCard = {
   ordinal: 0,
   payload: {
     query: "redact",
-    flow: "search.open",
+    flow: "search",
     args: "redact",
     items: [
       {
@@ -70,7 +70,7 @@ describe("the search-results card", () => {
     const { host } = render(fixture)
     const labels = Array.from(host.querySelectorAll(".search-results-group-label")).map((node) => node.textContent)
     expect(labels).toEqual(["Files", "History"])
-    expect(host.querySelector("[data-testid='search-results-query']")?.textContent).toBe("/search.open redact · 3 results")
+    expect(host.querySelector("[data-testid='search-results-query']")?.textContent).toBe("/search redact · 3 results")
   })
 
   test("every action is a button carrying its flow and args, dispatched through onRunCommand", () => {
@@ -93,9 +93,9 @@ describe("the search-results card", () => {
   test("the card re-runs its own flow with its own query", () => {
     const { host, calls } = render(fixture)
     const again = host.querySelector<HTMLButtonElement>("[data-testid='search-results-rerun']")
-    expect(again?.dataset["flow"]).toBe("search.open")
+    expect(again?.dataset["flow"]).toBe("search")
     flushSync(() => again?.click())
-    expect(calls).toEqual([["search.open", "redact"]])
+    expect(calls).toEqual([["search", "redact"]])
   })
 
   test("an answer with no rows says so and offers only the re-run", () => {
@@ -114,7 +114,7 @@ test("an ambiguous saved file row can be searched again but cannot follow the cu
   const { host, calls } = render(savedFile("README.md", "README.md"))
   expect(host.querySelectorAll("[data-role]").length).toBe(0)
   flushSync(() => host.querySelector<HTMLButtonElement>("[data-testid='search-results-rerun']")?.click())
-  expect(calls).toEqual([["search.open", "redact"]])
+  expect(calls).toEqual([["search", "redact"]])
 })
 
 test("a saved global file address becomes an explicit repository argument", () => {

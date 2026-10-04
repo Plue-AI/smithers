@@ -18,6 +18,7 @@ WorkspaceServiceSchema
 } from "@smthrs/rpc/Cards"
 import type { ConfiguredModel,ModelRecordId,ModelTestRecord,SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { ConfiguredModelSchema,ModelTestRecordSchema,SeatAssignmentSchema } from "@smthrs/rpc/ConfiguredModel"
+import { ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
 import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
 import type { AgentTurnUsage } from "@smthrs/rpc/NativeAgent"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
@@ -26,7 +27,7 @@ import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { RepositoryJobSchema, SetupRecoveryResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import { z } from "zod"
 import { SignupSchema, type Signup } from "./Signup"
-import { FLOW_NAMES } from "../flows/FlowName"
+import { currentFlowName, FLOW_NAMES } from "../flows/FlowName"
 import { CloudWikiState } from "../wiki/CloudWikiState"
 import type { CommandIntent } from "./CommandIntent"
 import { INPUT_MODES,type InputMode } from "./InputMode"
@@ -528,8 +529,9 @@ export type Actor = z.infer<typeof ActorSchema>
 const MessageActionSchema = z.object({
   /** Revision of a pending flow confirmation; absent in older history and ordinary message actions. */
   revision: z.string().optional(),
-  flow: z.string(), args: z.string().optional(), label: z.string(),
-  /** Web Cloud login uses auth.sign-in too; its requirement is still Cloud access. */
+  /** Old rows name the flow as it was called when written; decoding answers with the flow that runs today. */
+  flow: z.string().transform(currentFlowName), args: z.string().optional(), label: z.string(),
+  /** Web Cloud login uses sign-in too; its requirement is still Cloud access. */
   signInRequirement: z.enum(["identity", "cloud"]).optional()
 })
 const AnsweredActionSchema = MessageActionSchema.extend({ answer: z.string(), answeredAt: z.number() })
@@ -551,6 +553,8 @@ export const MessageSchema = z.object({
   answeredAction: AnsweredActionSchema.optional(),
   /** A one-line visible tool act ("Smithers ran /world.new-note") renders as a marker row, not a bubble. */
   act: z.string().optional(),
+  /** The Context line of an answer (T-APP-17): what it read, shown as "Context · N". */
+  context: z.array(ContextItemSchema).max(16).optional(),
   /**
    * A door's own refusal, written where it stays.
    *
@@ -929,8 +933,8 @@ export const SessionSchema = z.object({
    */
   turnId: z.string().nullable().optional(),
   /**
-   * Durable chat log filter; absent means every source and kind is shown.
-   * A kind this build no longer has (the retired "subagent rows") drops on read.
+   * Decode-only: the retired chat filter's durable state, kept so persisted
+   * sessions and journaled `chat-filter.*` events still read. No door writes it.
    */
   chatFilter: z.object({
     sources: z.array(z.string()),
@@ -1200,6 +1204,8 @@ export type AppTransition =
     type: "message.response.completed"
     actor: "smithers"
     turnId: string
+    /** The Context line of the answer (T-APP-17): what it read ({@link Message.context}). */
+    context?: Message["context"]
   }
   /* One model call of a chat turn settled with this usage (the `done` frame's). */
   | { type: "chat.usage.recorded"; actor: "smithers"; turnId: string; usage: AgentTurnUsage }
@@ -1653,6 +1659,8 @@ export type AppTransition =
     action?: Message["action"]
     /** The door is saying this refusal here, so its form card must not repeat it ({@link Message.spoken}). */
     spoken?: true
+    /** What the answer read ({@link Message.context}). */
+    context?: Message["context"]
   }
   | { type: "confirmation.cancelled"; actor: "user"; id: string; revision: string }
   /* The card tabs (docs/LOCAL-APP.md "Cards"). */

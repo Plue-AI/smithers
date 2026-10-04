@@ -28,9 +28,9 @@ const noteRows = async (card: Locator): Promise<ReadonlyArray<string>> =>
 
 test("wiki and open search find the stored notes, survive reload and drop a deleted note", scenario("search.wiki-notes-readback", {
   capabilities: [],
-  description: "Create two real Wiki notes in browser storage, find both with search.wiki and a note-only search.open, reload and find them again, delete one from its search row and rerun the search from the keyboard.",
+  description: "Create two real Wiki notes in browser storage, find both with search.wiki and a note-only search, reload and find them again, delete one from its search row and rerun the search from the keyboard.",
   coverage: [
-    "action:search.wiki", "action:search.open", "action:wiki.new-note", "action:wiki.delete", "action:wiki.delete.confirm",
+    "action:search.wiki", "action:search", "action:wiki.new-note", "action:wiki.delete", "action:wiki.delete.confirm",
     "host:local", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:reload", "dimension:keyboard", "dimension:kind-filter", "dimension:delete-readback",
     "evidence:stored-note-search-readback"
@@ -50,18 +50,18 @@ test("wiki and open search find the stored notes, survive reload and drop a dele
   expect(await noteRows(wiki)).toEqual(both)
   await expect(wiki.getByTestId(`search-item-note-${first.id}`)).toContainText(`${first.title}.md`)
 
-  await command(page, "/search.open Untitled")
+  await command(page, "/search Untitled")
   await closeComposer(page)
-  const open = searchCard(page, "search.open")
-  await expect(open.getByTestId("search-results-query")).toHaveText("/search.open Untitled · 2 results")
+  const open = searchCard(page, "search")
+  await expect(open.getByTestId("search-results-query")).toHaveText("/search Untitled · 2 results")
   expect(await noteRows(open)).toEqual(both)
-  await command(page, "/search.open Untitled --kinds flow")
+  await command(page, "/search Untitled --kinds flow")
   await closeComposer(page)
-  await expect(open.getByTestId("search-results-query")).toHaveText("/search.open Untitled · 0 results")
+  await expect(open.getByTestId("search-results-query")).toHaveText("/search Untitled · 0 results")
   expect(await noteRows(open)).toEqual([])
-  await command(page, "/search.open Untitled --kinds note")
+  await command(page, "/search Untitled --kinds note")
   await closeComposer(page)
-  await expect(open.getByTestId("search-results-query")).toHaveText("/search.open Untitled · 2 results")
+  await expect(open.getByTestId("search-results-query")).toHaveText("/search Untitled · 2 results")
   expect(await noteRows(open)).toEqual(both)
 
   await reloadApp(page)
@@ -84,9 +84,9 @@ test("wiki and open search find the stored notes, survive reload and drop a dele
   expect(await noteRows(wiki)).toEqual([second.id])
 
   await reloadApp(page)
-  await command(page, "/search.open Untitled --kinds note")
+  await command(page, "/search Untitled --kinds note")
   await closeComposer(page)
-  await expect(open.getByTestId("search-results-query")).toHaveText("/search.open Untitled · 1 result")
+  await expect(open.getByTestId("search-results-query")).toHaveText("/search Untitled · 1 result")
   expect(await noteRows(open)).toEqual([second.id])
   await attachJson(testInfo, "wiki-search-readback", { created: [first, second], deleted: first.id, remaining: await noteRows(open) })
 })

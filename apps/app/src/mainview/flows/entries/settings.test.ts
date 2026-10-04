@@ -4,6 +4,7 @@ import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { credentialReceipt, installFixture } from "../../state/seams/InstallFixtures.test-support"
+import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { modelInvocable, nameOf } from "../registry"
 import { cardActions } from "../cardActions"
 import { installKeyAction, type InstallCardDispatch } from "../../cards/installKeyAction"
@@ -14,11 +15,12 @@ const memoryStorage = (): StorageApi => {
 }
 const agent: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
 const tick = async () => { for (let i = 0; i < 4; i++) await new Promise(done => setTimeout(done, 0)) }
-const harness = async () => {
+const harness = async (bootstrap?: AppBootstrap) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ path: string; method: string; body?: string | null }> = []
   const cards: string[] = []
   const controller = createAppController(store, agent, {
+    ...(bootstrap === undefined ? {} : { bootstrap }),
     presentInstallCard: kind => { cards.push(kind) },
     fetchImpl: async (input, init) => {
       const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "http://localhost:4000").pathname
@@ -35,10 +37,11 @@ describe("T-APP-03 settings command doors", () => {
     const h = await harness()
     try {
       expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
-      expect(h.cards).toEqual(["settings"])
+      // MOCK SEAM (DesignWorld/settings.ts): /settings upserts the one retained Settings card.
+      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
       expect((await h.controller.commands.submit({ name: "settings", payload: {}, actor: "user" })).status).toBe("executed"); await tick()
-      expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "settings" }) })).toContain("Requested"); await tick()
-      expect(h.cards).toEqual(["settings", "settings", "settings"])
+      expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "settings" }) })).toContain("executed /settings"); await tick()
+      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
       expect(h.store.session().maximizedCardId).toBeNull()
     } finally { await h.controller.dispose() }
   })
@@ -59,10 +62,46 @@ describe("T-APP-03 settings command doors", () => {
       const result = door === "slash" ? await h.controller.commands.run("settings.capacity", "3")
         : door === "button" ? await h.controller.commands.submit({ name: "settings.capacity", payload: { capacity: 3 }, actor: "user" })
         : await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "settings.capacity", args: "3" }) })
-      if (typeof result === "string") expect(result).toContain("Requested")
+      if (typeof result === "string") expect(result).toContain("3 machines")
       else expect(result.status).toBe("executed")
       await tick()
-      expect(h.requests.filter(request => request.method === "PUT")).toEqual([{ path: "/api/install", method: "PUT", body: '{"capacity":3}' }])
+      // MOCK SEAM (DesignWorld/settings.ts designSettings): the seeded install takes the write until /api/install answers.
+      expect(h.controller.design.world().repo.capacity).toBe(3)
+    } finally { await h.controller.dispose() }
+  })
+  test.each([["settings.capacity", "1", "capacity"], ["settings.parallel", "1", "parallel"]] as const)("%s writes the live install, not the seed, once the card shows it", async (name, args, field) => {
+    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
+    try {
+      await tick()
+      expect(h.controller.installSnapshots.get().model).toBeDefined()
+      const seeded = h.controller.design.world().repo[field]
+      expect((await h.controller.commands.run(name, args)).status).toBe("executed"); await tick()
+      const writes = h.requests.filter(request => request.path === "/api/install" && request.method === "PUT")
+      expect(writes.map(request => JSON.parse(request.body!))).toEqual([{ [field]: 1 }])
+      expect(h.controller.design.world().repo[field]).toBe(seeded)
+    } finally { await h.controller.dispose() }
+  })
+  test.each([
+    ['{"step":"address"}', ["bind", "origins"]],
+    ['{"step":"address","bind":"127.0.0.1:4000"}', ["origins"]],
+    ['{"step":"app_manifest"}', ["owner"]],
+    ['{"step":"repository"}', ["repository"]]
+  ] as const)("THE FORM LAW: /settings.setup %s renders the step's missing inputs instead of a refusal", async (args, missing) => {
+    const h = await harness()
+    try {
+      const outcome = await h.controller.commands.run("settings.setup", args)
+      expect(outcome).toMatchObject({ status: "form", flow: "settings.setup", fields: missing })
+      const form = [...h.store.collections.cards.values()].find(card => card.kind === "flow-form")
+      expect(form?.kind === "flow-form" ? form.payload.fields.map(field => field.name) : []).toEqual([...missing])
+      expect(h.requests.some(request => request.path.startsWith("/api/install/setup"))).toBe(false)
+    } finally { await h.controller.dispose() }
+  })
+  test("a setup step that needs no input runs without a form", async () => {
+    const h = await harness()
+    try {
+      const outcome = await h.controller.commands.run("settings.setup", '{"step":"models"}')
+      expect(outcome.status).not.toBe("form")
+      expect([...h.store.collections.cards.values()].some(card => card.kind === "flow-form")).toBe(false)
     } finally { await h.controller.dispose() }
   })
   test("missing model key inputs render the shared write-only form without keeping values", async () => {
@@ -77,7 +116,8 @@ describe("T-APP-03 settings command doors", () => {
     } finally { await h.controller.dispose() }
   })
   test("a card key field reaches the same command once without entering durable card state", async () => {
-    const h = await harness()
+    // The local host reads the install at start, so the key write has a model to check against.
+    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await h.controller.commands.run("settings"); await tick()
       const dispatch: InstallCardDispatch = (tag, input, gesture) =>

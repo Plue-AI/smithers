@@ -8,7 +8,7 @@ test("an unknown repository opens its recovery notice near the header", async ({
   const notice = page.locator('[data-repository-missing] .smithers-chat-message')
   await expect(notice).toBeVisible()
   expect((await notice.boundingBox())!.y).toBeLessThan(180)
-  await expect(notice.locator('[data-flow="auth.sign-in"]')).toBeInViewport()
+  await expect(notice.locator('[data-flow="sign-in"]')).toBeInViewport()
 })
 
 test("an unknown repository opens its recovery notice after a known repository in the same page", async ({ page }) => {
@@ -21,7 +21,7 @@ test("an unknown repository opens its recovery notice after a known repository i
   const notice = page.locator('[data-repository-missing] .smithers-chat-message')
   await expect(notice).toContainText("nope/nope isn't on Smithers yet.")
   expect((await notice.boundingBox())!.y).toBeLessThan(180)
-  await expect(notice.locator('[data-flow="auth.sign-in"]')).toBeInViewport()
+  await expect(notice.locator('[data-flow="sign-in"]')).toBeInViewport()
   await expect(page).toHaveURL(/\/nope\/nope\/$/)
 
   await notice.getByRole("link", { name: "smithersai/smithers", exact: true }).click()

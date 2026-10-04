@@ -1614,7 +1614,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     await waitFor(() => store.collections.toasts.get(inboxToastId)?.status === "running")
 
     // Chat and unrelated acts stay usable while both waits are held.
-    expect((await controller.commands.run("appearance.dark-mode")).status).toBe("executed")
+    expect((await controller.commands.run("theme")).status).toBe("executed")
     controller.send("still chatting")
     await waitFor(() => [...store.collections.messages.values()].some((row) => row.role === "user" && row.text === "still chatting"))
 

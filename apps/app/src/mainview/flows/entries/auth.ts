@@ -60,7 +60,7 @@ export const requirements: ReadonlyArray<FlowRequirement> = [
 
 /** Signed out, sign-in is the only next step. */
 export const recommendations: ReadonlyArray<Recommendation> = [
-  { name: "auth.sign-in", when: (state) => state.signedOut, exclusive: true, rank: () => 0 }
+  { name: "sign-in", when: (state) => state.signedOut, exclusive: true, rank: () => 0 }
 ]
 
 /** The `auth` flows registered as one aggregator block. */
@@ -71,7 +71,7 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * browser): the human's gesture, so user-only — auth.prompt below is the
      * agent's door, rendering this button in the chat.
      */
-    name: "auth.sign-in",
+    name: "sign-in",
     summary: "Sign in",
     runtime: ["identity"],
     userOnly: true,
@@ -95,7 +95,7 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /*
-     * The agent's door to login: it cannot run auth.sign-in (user-only —
+     * The agent's door to login: it cannot run sign-in (user-only —
      * navigation is the human's act), but it CAN render the step. The
      * message's action IS the sign-in button, one click away.
      */
@@ -108,7 +108,7 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({
     /* Signing out needs a session: offering it signed out is the clearest
 		   case of a listing that names a step the user cannot take (§1.2). */
-    name: "auth.sign-out",
+    name: "sign-out",
     summary: "Sign out of Smithers",
     runtime: ["identity"],
     userOnly: true,

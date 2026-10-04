@@ -42,7 +42,7 @@ describe("real E2E coverage gate", () => {
     writeFileSync(join(entries, "search.ts"), `
 const unrelated = search(actions, "search.unregistered", "not returned")
 export const searchFlows = (actions) => [
-  flow({ name: "search.open" }),
+  flow({ name: "search" }),
   search(actions, "search.files", "path"),
   search(actions, "search.wiki", "wiki")
 ]

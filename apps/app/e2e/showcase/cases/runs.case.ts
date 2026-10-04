@@ -95,7 +95,7 @@ export default showcase({
     await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
     await app.slash(`/runs.list ${REPO}`)
     const inbox = page.getByTestId(`card-run-list-${REPO}-${FIXTURE_BOX}`)
-    const loadingList = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Loading runs" })
+    const loadingList = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Loading runs" })
     try {
       await expect.poll(() => listReads).toBe(1)
       await expect(inbox).not.toContainText("No runs match.")
@@ -140,7 +140,7 @@ export default showcase({
     // A finished run reads as its recorded trace, and as its transcript.
     await inbox.getByTestId(`runs-open-${CODING}`).focus()
     await page.keyboard.press("Enter")
-    const opening = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Opening run" })
+    const opening = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Opening run" })
     try {
       await expect.poll(() => summaries.get(CODING) ?? 0).toBe(1)
       await expect(opening).toHaveCount(1)
@@ -157,7 +157,7 @@ export default showcase({
       refuseOpen = true
     } finally { holdOpen = false; openReceipt.resolve() }
     // A failed toast keeps its title; the refusal waits behind its Details as the gateway's sentence, never the workspace's raw words.
-    const refusal = page.locator('.toast[data-toast-status="failed"]').filter({ hasText: "Opening run" })
+    const refusal = page.locator('.mvp-notice[data-tone="failed"]').filter({ hasText: "Opening run" })
     await expect(refusal).toHaveCount(1)
     await expect(refusal.locator(".toast-detail pre")).toHaveText(GATEWAY_REFUSED)
     await page.reload()
@@ -181,7 +181,7 @@ export default showcase({
     await app.beat(900)
     const transcript = coding.getByTestId(`flow-run-facet-transcript-${CODING}`)
     const steps = coding.getByTestId(`flow-run-facet-steps-${CODING}`)
-    const reading = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Loading transcript" })
+    const reading = page.locator('.mvp-notice[data-tone="live"]').filter({ hasText: "Loading transcript" })
     holdTranscript = true
     try {
       await transcript.focus()
@@ -203,7 +203,7 @@ export default showcase({
       await expect(reading).toHaveCount(1)
     } finally { holdTranscript = false; transcriptReceipt.resolve() }
     await expect(reading).toHaveCount(0)
-    await expect(page.locator('.toast[data-toast-status="ok"]').filter({ hasText: "Transcript loaded" })).toHaveCount(1)
+    await expect(page.locator('.mvp-notice[data-tone="done"]').filter({ hasText: "Transcript loaded" })).toHaveCount(1)
     refuseTranscript = true
     await transcript.focus()
     await page.keyboard.press("Enter")
@@ -231,12 +231,12 @@ export default showcase({
     await app.click(review.getByRole("button", { name: "Steer" }))
     await expect(review).toContainText("steering pending")
     await app.beat(900)
-    const toast = page.locator('.toast-stack .toast[data-toast-status="running"]').filter({ hasText: "review-pr" })
+    const toast = page.locator('.mvp-notify .mvp-notice[data-tone="live"]').filter({ hasText: "review-pr" })
     await app.click(toast.getByRole("button", { name: "Stop" }))
     await expect(review.getByTestId(`run-outcome-${REVIEW}`)).toHaveAttribute("data-phase", "cancelled")
     // A stop the human asked for settles as a stop, not a failure (#1863).
     await expect(review).toContainText("Stopped")
-    await expect(page.locator('.toast[data-toast-status="failed"]')).toHaveCount(0)
+    await expect(page.locator('.mvp-notice[data-tone="failed"]')).toHaveCount(0)
     await app.show(review)
     await app.beat(1200)
   }

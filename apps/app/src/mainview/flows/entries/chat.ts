@@ -10,11 +10,11 @@ import type { FlowEntry, Namespace, Recommendation } from "../registry"
 import type { CommandActions } from "./Declare"
 
 /** The `chat` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
-export const namespace: Namespace = { id: "chat", label: "Chat", summary: "The conversation: send, stop, retry, clear" }
+export const namespace: Namespace = { id: "chat", label: "Chat", summary: "The conversation: send, retry, queue" }
 
 /** While the model types, stopping is the only next step; away from the chat, returning to it leads. */
 export const recommendations: ReadonlyArray<Recommendation> = [
-  { name: "chat.stop", when: (state) => state.typing, exclusive: true, rank: () => 0 },
+  { name: "stop", when: (state) => state.typing, exclusive: true, rank: () => 0 },
   { name: "chat", when: (state) => state.surface !== "chat", rank: () => 0 }
 ]
 
@@ -61,7 +61,7 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow(RETRY),
   flow({
-    name: "chat.stop",
+    name: "stop",
     summary: "Stop the current response",
     userOnly: true,
     userOnlyReason: "stopping the model's own turn is the human's Escape key",
@@ -83,15 +83,7 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     input: NoPayload, handler: () => actions.restoreQueuedPrompts() }),
   flow({ name: "chat.queue.resume", summary: "Resume queued prompts", hidden: true,
     userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
-    input: NoPayload, handler: () => actions.resumePromptQueue() }),
-  flow({ name: "chat.filter", summary: "Open the chat filter", input: NoPayload,
-    handler: () => actions.toggleChatFilterMenu() }),
-  flow({ name: "chat.filter.toggle", summary: "Hide or show a chat source or kind", args: "<target>",
-    input: Schema.Struct({ target: Schema.String }), handler: ({ target }) => actions.toggleChatFilter(target) }),
-  flow({ name: "chat.filter.grep", summary: "Search visible chat rows", args: "[text]",
-    input: Schema.Struct({ text: Schema.optional(Schema.String) }), handler: ({ text }) => actions.grepChatFilter(text ?? "") }),
-  flow({ name: "chat.filter.reset", summary: "Show all chat rows", input: NoPayload,
-    handler: () => actions.resetChatFilter() })
+    input: NoPayload, handler: () => actions.resumePromptQueue() })
   ]
 }
 
@@ -131,7 +123,7 @@ export const chatCopyFlows = (_actions: CommandActions): ReadonlyArray<FlowEntry
   ]
 }
 
-/** `chat.reload` and `chat.commands`, registered after the review and findings flows. */
+/** `chat.reload`, registered after the review and findings flows. `/help` (entries/help.ts) lists the commands. */
 export const chatReloadFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   /* The one-keystroke recovery: reload the window (dev loop, stuck states). */
   const RELOAD = {
@@ -140,19 +132,7 @@ export const chatReloadFlows = (actions: CommandActions): ReadonlyArray<FlowEntr
     input: NoPayload,
     handler: () => actions.reloadApp()
   }
-  /*
-   * The full catalog as a chat message: the slash menu caps at 8 for calm,
-   * so THIS is where "show me everything" lives — for the user typed, and
-   * for the agent answering "what can you do".
-   */
-  const COMMANDS = {
-    name: "chat.commands",
-    summary: "List everything Smithers can do",
-    input: NoPayload,
-    handler: () => actions.showCommandCatalog()
-  }
   return [
-  flow(RELOAD),
-  flow(COMMANDS)
+  flow(RELOAD)
   ]
 }

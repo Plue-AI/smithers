@@ -38,6 +38,10 @@ test("Commit has one stable key and placement, field edits go through form.set",
   expect(h.dispatches[2]).toEqual({ tag: "form.set", input: { cardId: "draft:1", field: "prompt", value: "New\nprompt" } })
   h.props!.onAction("draft.discard")
   expect(h.dispatches[3]).toEqual({ tag: "draft.discard", input: { draft: "draft:1" } })
+  /* An appended draft sends no `before` key at all: the flow input decodes absent keys, not `undefined`. */
+  const append = mount(fixtures.append.model)
+  append.props!.onAction("todo.new")
+  expect(Object.keys(append.dispatches[0]!.input as object).sort()).toEqual(["acceptance", "cardId", "idempotencyKey", "text", "title"])
 })
 test("pending Commit disables repeat submission, Discard and editing; failure permits retry", () => {
   const request = { key: "commit-1", owner: "ben", operation: "create" as const, body: {}, state: "accepted" as const }

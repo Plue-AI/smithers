@@ -108,7 +108,7 @@ authenticatedTest("a flow list with no box of the repository asks for one instea
     await awaitBoot(page, "navigate", startedAt)
     await finishFirstVisit(page)
     await runSlash(page, `/flow.list ${repo.fullName}`)
-    await expect(page.locator('[data-toast-status="failed"]').filter({ hasText: `Open a box of ${repo.fullName} first` })).toBeVisible()
+    await expect(page.locator('.mvp-notice[data-tone="failed"]').filter({ hasText: `Open a box of ${repo.fullName} first` })).toBeVisible()
     expect(relayed).toEqual([])
   })
 })

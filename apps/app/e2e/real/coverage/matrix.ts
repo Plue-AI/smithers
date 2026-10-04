@@ -87,8 +87,6 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
     { id: "approvals.product-approve", capabilities: ["identity", "cloud"] },
     { id: "approvals.product-deny", capabilities: ["identity", "cloud"] }
   ], tier: "local-infrastructure" },
-  // Stack bootstrap proves repeat input joins one durable request.
-  { id: "duplicate-input", scenarios: [{ id: "history.production-bootstrap-show-parallel", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "error-surfaced", scenarios: [{ id: "flows.product-no-box", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" }
 ]
 
@@ -160,7 +158,6 @@ export const MANDATORY_DETERMINISTIC_BUN_TESTS = [
 
 export const MANDATORY_DETERMINISTIC_BROWSER_SPECS = [
   "e2e/playwright/flow-launch-background.spec.ts",
-  "e2e/playwright/toast-stack.spec.ts"
 ] as const
 
 export interface ModeConfig {

@@ -334,14 +334,14 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(rename.locator("label")).toHaveCount(1)
   await rename.getByTestId("flow-form-path").fill("Guides/Home.md")
   await rename.getByTestId("flow-form-submit").click()
-  await expect(page.locator('[data-toast-status="failed"]').filter({ hasText: "changed since you opened it" })).toBeVisible()
+  await expect(page.locator('.mvp-notice[data-tone="failed"]').filter({ hasText: "changed since you opened it" })).toBeVisible()
   expect(fixture.pages.public[0]!.path).toBe("Home.md")
   // The refusal stays until dismissed; every notice leaves before the switch is pressed (the stack sits over the pane's header).
-  for (let attempt = 0; attempt < 3 && await page.locator('[data-toast-status="failed"]').count() > 0; attempt++) {
-    await page.getByRole("button", { name: /^Dismiss:/ }).first().click()
+  for (let attempt = 0; attempt < 3 && await page.locator('.mvp-notice[data-tone="failed"]').count() > 0; attempt++) {
+    await page.getByRole("button", { name: /^Hide / }).first().click()
     await page.waitForTimeout(1500)
   }
-  await expect(page.locator(".toast-stack .toast")).toHaveCount(0, { timeout: 20_000 })
+  await expect(page.locator(".mvp-notify .mvp-notice")).toHaveCount(0, { timeout: 20_000 })
   // The private space again for the new page.
   await pane.getByTestId("wiki-space-private").click()
   await expect(tree).toHaveAttribute("data-space", "private")
@@ -351,7 +351,7 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(create.locator("label")).toHaveCount(1)
   await create.getByTestId("flow-form-title").fill("Notes")
   await create.getByTestId("flow-form-submit").click()
-  await expect(page.locator('[data-toast-status="ok"]').filter({ hasText: "Notes created" })).toBeVisible()
+  await expect(page.locator('.mvp-notice[data-tone="done"]').filter({ hasText: "Notes created" })).toBeVisible()
   await expect(pane.getByTestId("wiki-page-path")).toHaveText("Notes.md")
   expect(fixture.requests.some((request) => request.method === "POST" && request.url === `/api/repos/${repo}/wiki?visibility=private`)).toBe(true)
   // Public rows never reached the private tree.

@@ -152,10 +152,14 @@ const ready = async (services: AppServices, state: "signed-in" | "signed-out" = 
   return { store, controller }
 }
 
+/** A leaf runs through flow.run; the app's own `review` (entries/prs.ts) is not one. */
+const isLeaf = (controller: Awaited<ReturnType<typeof ready>>["controller"], name: string): boolean =>
+  controller.commands.find(name)?.metadata.args === "[owner/repo] [JSON object]"
+
 const repositoryLeaves = (controller: Awaited<ReturnType<typeof ready>>["controller"]): Array<string> =>
   visibleItems(controller.commands)
     .map((command) => command.name)
-    .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name))
+    .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && isLeaf(controller, name))
 
 const treeNames = (rows: ReturnType<Awaited<ReturnType<typeof ready>>["controller"]["slashTree"]>): Array<string> =>
   rows.map((entry) => (entry.kind === "flow" ? entry.flow.name : entry.kind === "namespace" ? `${entry.namespace.id}/` : `note:${entry.text}`))
@@ -267,20 +271,16 @@ describe("the repository's flows are slash leaves", () => {
     expect(store.session().pendingCommand).toMatchObject({ name: "review", requirement: "signed-in" })
     const toasts = [...store.collections.toasts.values()]
     expect(toasts).toEqual([])
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
     const outcome = await controller.commands.run("flow.run", "review")
     expect(outcome.status).not.toBe("unknown-command")
   })
 
-  test("without a projection there are no leaves, and /review is refused with the old wording", async () => {
-    const { store, controller } = await ready(backend({}))
+  test("without a projection there are no leaves, and /review is the app's own stand-in", async () => {
+    const { controller } = await ready(backend({}))
     expect(repositoryLeaves(controller)).toEqual([])
-    expect((await controller.commands.run("review")).status).toBe("unknown-command")
-    controller.send("/review")
-    await settled()
-    expect([...store.collections.toasts.values()].map((toast) => toast.detail)).toEqual([
-      "There is no /review flow. Type / to see everything Smithers can do."
-    ])
+    expect(controller.commands.find("review")?.metadata.args).toBe("<number> [owner/repo]")
+    expect(isLeaf(controller, "review")).toBe(false)
   })
 
   test("the leaves follow the target repository: they appear when its projection lands and go with it", async () => {
@@ -303,7 +303,7 @@ describe("the repository's flows are slash leaves", () => {
     store.dispatch({ type: "repo.selected", actor: "user", id: other })
     await settled(6)
     expect(repositoryLeaves(controller)).toEqual(["triage"])
-    expect(controller.commands.find("review")).toBeUndefined()
+    expect(isLeaf(controller, "review")).toBe(false)
     store.dispatch({ type: "repo.selected", actor: "user", id: REPO })
     await settled(6)
     expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])

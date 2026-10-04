@@ -1,7 +1,10 @@
-import type { ComponentType } from "react"
+import { useState, type ComponentType } from "react"
 import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
+import { useController } from "../ControllerContext"
+import { HomeView } from "./views/HomeView"
+import { useDesignHome } from "../state/seams/DesignWorld/home"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -38,7 +41,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View, vi
       const args = { ...action.args, n: String(row.n) }
       if (["merged", "dropped"].includes(row.state) && action.tag !== "branch" && action.tag !== "todo") continue
       switch (action.tag) {
-        case "todo": case "todo.retry": case "todo.drop":
+        case "todo": case "todo.retry": case "todo.resume": case "todo.drop":
           admitted({ ...action, tag: action.tag, args, command_input: { n: row.n } }); break
         case "merge":
           if (row.state === "in_review" && row.place === 1 && row.merge.state === "ready" && row.pr && !row.pr.draft)
@@ -70,4 +73,24 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View, vi
   const model = HomeCardSchema.parse({ ...parsed, attention: bindRows(attention), items: bindRows(items), background_runs: bindRows(runs) })
   const top = cardActions(dispatch, definitions.slice(0, topCount))
   return <View model={model} actions={top.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
+}
+
+const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
+  "todo", "todo.new", "todo.retry", "todo.resume", "todo.drop", "branch", "merge", "stack.move", "background.retry", "background.dismiss"
+])
+/** Sync Retry shows only once main's sync is not fresh. */
+const HOME_TAGS_SYNC: ReadonlySet<CatalogTag> = new Set<CatalogTag>([...HOME_TAGS, "github"])
+
+/**
+ * The Home card of `main`'s conversation and `/stack` (T-APP-01). MOCK SEAM: the model is the seeded
+ * design world projected to the `home` topic's shape; the real card reads `useTopic<HomeCard>("home")`.
+ */
+export const HomeCard = () => {
+  const controller = useController()
+  const { model, role } = useDesignHome()
+  const [view, setView] = useState<HomeViewProps["view"]>({ maximized: false })
+  const dispatch: CardCommandDispatch = (tag, input) =>
+    controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })
+  return <HomeContainer model={model} role={role} allowed={model.main.health === "fresh" ? HOME_TAGS : HOME_TAGS_SYNC} dispatch={dispatch}
+    View={HomeView} view={view} onView={patch => setView(current => ({ ...current, ...patch }))} />
 }

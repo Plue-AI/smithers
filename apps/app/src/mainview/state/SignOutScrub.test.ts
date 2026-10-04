@@ -101,7 +101,7 @@ describe("signing out leaves nothing of the account behind", () => {
     seedAccountState(store)
     expect(leftovers(store).messages).toBeGreaterThan(0)
 
-    await controller.commands.run("auth.sign-out")
+    await controller.commands.run("sign-out")
     await settled()
     expect(leftovers(store)).toEqual({
       messages: 0,
@@ -205,7 +205,7 @@ describe("signing out leaves nothing of the account behind", () => {
     signedIn(store)
     seedAccountState(store)
 
-    const outcome = await controller.commands.run("auth.sign-out")
+    const outcome = await controller.commands.run("sign-out")
     expect(outcome.status).toBe("failed")
     expect(store.collections.identitySessions.get("identity")?.state).toBe("signed-in")
     expect(leftovers(store).messages).toBeGreaterThan(0)

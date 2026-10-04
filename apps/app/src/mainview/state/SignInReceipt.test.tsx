@@ -73,7 +73,7 @@ for (const journal of [false, true]) for (const refusedSave of [false, true]) {
       if (refusedSave) {
         await waitFor(() => [...store.collections.messages.values()].some(message => message.status !== "complete"))
         expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in to send this message.")
-        expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(false)
+        expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(false)
       } else {
         await waitFor(() => host.textContent?.includes("Sign in to send this message.") === true)
         const events = [...store.collections.transitions.values()]
@@ -87,7 +87,7 @@ for (const journal of [false, true]) for (const refusedSave of [false, true]) {
         expect((await reopened.verifyState()).valid).toBe(true)
         if (!refusedSave) {
           expect(reopened.session().draft).toBe("A newer draft")
-          expect([...reopened.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(1)
+          expect([...reopened.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
           if (journal) expect([...reopened.collections.httpTurns.values()][0]?.status).toBe("failed")
         }
       } finally { await reopened.dispose?.() }

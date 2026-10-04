@@ -197,7 +197,7 @@ test.describe("the flow builder's plan door", () => {
     // reads; waiting for a flow row means every one of them has been made.
     await command(page, `/flow.list ${GRAPH_REPO}`)
     await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${GRAPH_FLOW}"]`)).toBeVisible()
-    await expect(page.locator('[data-toast-status="failed"]')).toHaveCount(0)
+    await expect(page.locator('.mvp-notice[data-tone="failed"]')).toHaveCount(0)
     // The balance the host really reported, rather than the absence of a
     // toast alone: nothing here bills, so nothing has been charged, and a
     // launch is not gated on dollars this stack does not need.

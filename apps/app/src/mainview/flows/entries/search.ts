@@ -24,7 +24,7 @@ export const namespace: Namespace = {
 export interface SearchArgs {
   readonly query: string
   readonly limit?: number
-  /** `search.open` only: the kinds to keep, comma-separated in the slash form. */
+  /** `search` only: the kinds to keep, comma-separated in the slash form. */
   readonly kinds?: ReadonlyArray<string>
   readonly repo?: string
 }
@@ -53,12 +53,12 @@ const search = (
 /** The `search.*` flows registered as one aggregator block. */
 export const searchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "search.open",
+    name: "search",
     summary: "Search everything by name: files, flows, targets, runs, changes, issues, boxes, secret names",
     args: "[query] [--kinds file,run,…]",
     input: OptionalQuery,
     handler: ({ query, kinds }) =>
-      actions.search("search.open", "all", {
+      actions.search("search", "all", {
         query: query ?? "",
         ...(kinds === undefined ? {} : { kinds: kinds.split(",").map((kind) => kind.trim()).filter((kind) => kind !== "") })
       })

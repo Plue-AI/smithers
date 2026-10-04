@@ -68,7 +68,7 @@ export const SMITHERS_INSTRUCTIONS = [
   /*
    * §22.7 / the flow-sweep honesty note: asked to stop the response, the model
    * answered "Okay, I've stopped." while its tool call had come back
-   * `failed: /chat.stop is user-only`. The guard held; the sentence did not.
+   * `failed: /stop is user-only`. The guard held; the sentence did not.
    * A result that begins `failed:` is the answer, not a formality.
    */
   "A tool result beginning \"failed:\" means the act DID NOT HAPPEN. Never report it as done, never soften it into \"I've started that\" — relay the reason after the word \"failed:\" and stop. A result beginning \"unknown-command:\" is the same: nothing ran.",
@@ -157,7 +157,7 @@ const connectorLine = (honesty: InstructionHonesty): string => {
     ? `GitHub is connected as ${honesty.github.login ?? "the signed-in user"}, ${
       `${honesty.github.repositories ?? 0} repositories loaded`
     }`
-    : "GitHub is NOT connected (the user is signed out — auth.sign-in is their button, not your tool)"
+    : "GitHub is NOT connected (the user is signed out — sign-in is their button, not your tool)"
   const local = honesty.localRepositories.length > 0
     ? `Local repositories connected: ${honesty.localRepositories.join(", ")}`
     : honesty.localRepositoriesAvailable

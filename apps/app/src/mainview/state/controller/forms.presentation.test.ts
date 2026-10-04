@@ -267,7 +267,7 @@ describe("durable form presentation ordering (#3312)", () => {
         expect(t.durable().sessions[0]?.maximizedCardId).toBe("other-card")
         if (path === "sign-in prerequisite") {
           expect(t.durable().sessions[0]?.pendingCommand).toMatchObject({ name: "flow.list", requirement: "signed-in" })
-          expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+          expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
           expect(Object.keys(observed!).sort()).toEqual(["name", "presentationCurrent", "release"])
           expect(observed!.name).toBe("auth.prompt")
         }

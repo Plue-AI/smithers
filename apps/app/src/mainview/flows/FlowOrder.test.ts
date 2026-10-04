@@ -22,11 +22,11 @@ const inertActions = new Proxy({}, {
 
 /** baseFlows at the split, in registration order. */
 const PRE_SPLIT_BASE: ReadonlyArray<string> = [
-  "appearance.dark-mode",
+  "theme",
   "debug.verbose",
   "chat",
   "chat.retry",
-  "chat.stop",
+  "stop",
   "chat.send",
   "browser.open",
   "flow.create",
@@ -59,9 +59,9 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "chat.copy-message",
   "approval.approve",
   "approval.deny",
-  "auth.sign-in",
+  "sign-in",
   "auth.prompt",
-  "auth.sign-out",
+  "sign-out",
   "storage.recovery",
   "storage.recovery.export",
   "cloud.sign-in",
@@ -127,7 +127,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "findings.please-fix",
   "findings.not-useful",
   "chat.reload",
-  "chat.commands",
   "agent.list",
   "form.set",
   "form.submit",

@@ -55,7 +55,7 @@ const invocation = (lineage = "lineage", ordinal = 1): AgentInvocation => ({
 })
 
 describe("durable command intent at the active shared door", () => {
-  for (const line of ["/appearance.dark-mode paper", "/missing-command", "the original prompt"]) {
+  for (const line of ["/theme paper", "/missing-command", "the original prompt"]) {
     for (const next of [line, "a different next draft"]) {
       test(`a delayed submission of ${line} preserves a newly entered draft: ${next}`, async () => {
         const store = await open()

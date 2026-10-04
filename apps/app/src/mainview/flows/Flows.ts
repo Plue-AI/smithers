@@ -28,7 +28,7 @@ import { accountFlows } from "./entries/account"
 import {  adminResetFlows, adminToolFlows } from "./entries/admin"
 import { agentFlows } from "./entries/agent"
 import { appFlows } from "./entries/app"
-import { appearanceFlows } from "./entries/appearance"
+import { themeFlows } from "./entries/theme"
 import { approvalFlows } from "./entries/approval"
 import { approvalsFlows } from "./entries/approvals"
 import { authFlows } from "./entries/auth"
@@ -46,14 +46,17 @@ export { guideFlows } from "./entries/guide"
 import { envFlows } from "./entries/env"
 import {  filesFlows } from "./entries/files"
 import { findingsFlows } from "./entries/findings"
-import { flowFlows, flowRunStopAllFlows } from "./entries/flow"
+import { flowFlows, flowRunStopAllFlows, flowVersionFlows } from "./entries/flow"
 import { todoFlows } from "./entries/todo"
+import { homeFlows } from "./entries/home"
 import { formFlows } from "./entries/form"
 import { graphFlows } from "./entries/graph"
 import { frameFlows } from "./entries/frame"
 import { githubFlows } from "./entries/github"
 import { issuesFlows } from "./entries/issues"
 import { settingsFlows } from "./entries/settings"
+import { membersFlows } from "./entries/members"
+import { helpFlows } from "./entries/help"
 import { paletteFlows } from "./entries/palette"
 import { prsFlows } from "./entries/prs"
 import { repoFlows, tutorialRepositoryFlows } from "./entries/repo"
@@ -66,6 +69,9 @@ import { HISTORY_LAND_USER_ONLY_REASON, historyFlows } from "./entries/history"
 import { storageFlows } from "./entries/storage"
 import { syncFlows } from "./entries/sync"
 import { toastFlows } from "./entries/toast"
+import { subjectFlows } from "./entries/subjects"
+import { shellFlows } from "./entries/shell"
+import { branchFlows } from "./entries/branch"
 import { triggersFlows } from "./entries/triggers"
 import { wikiFlows, wikiSurfaceFlows } from "./entries/wiki"
 import { workspaceFlows } from "./entries/box"
@@ -89,7 +95,7 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "chat.dictate", why: "microphone capture is the human's explicit gesture" },
   { name: "chat.queue", why: "the prompt queue is the human's composer" },
   { name: "chat.send", why: "turn mechanics: the model is already the turn; sending would nest one" },
-  { name: "chat.stop", why: "turn mechanics: stopping the model's own turn from inside it" },
+  { name: "stop", why: "turn mechanics: stopping the model's own turn from inside it" },
   { name: "admin.reset", why: "destroys the whole store with no undo; the confirm dialog is the only door" },
   { name: "billing.upgrade", why: "external checkout with real money; the human clicks" },
   { name: "billing.portal", why: "external billing portal; the human clicks" },
@@ -97,8 +103,9 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "debug.backend", why: "admin diagnostics presentation" },
   { name: "cloud.sign-in", why: "external browser OAuth on the human's account; the human clicks" },
   { name: "cloud.sign-out", why: "drops the human's cloud credential; the human clicks" },
-  { name: "auth.sign-in", why: "the GitHub OAuth redirect yanks the page; the human clicks (auth.prompt is the agent's door)" },
-  { name: "auth.sign-out", why: "drops the human's session; the human clicks" },
+  { name: "members", why: "people and roles are the person's call; the app agent has no path to members" },
+  { name: "sign-in", why: "the GitHub OAuth redirect yanks the page; the human clicks (auth.prompt is the agent's door)" },
+  { name: "sign-out", why: "drops the human's session; the human clicks" },
   { name: "wiki.pane", why: "surface switch: the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards" },
   { name: "wiki.attach", why: "the file comes from the human's own file dialog; a model has no file to give" },
   { name: "history.land", why: HISTORY_LAND_USER_ONLY_REASON },
@@ -107,11 +114,12 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
 
 export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...wikiSurfaceFlows(actions),
-  ...appearanceFlows(actions),
+  ...themeFlows(actions),
   ...debugVerboseFlows(actions),
   ...chatFlows(actions),
   ...browserFlows(actions),
   ...flowFlows(actions),
+  ...flowVersionFlows(actions),
   ...triggersFlows(actions),
   ...runsFlows(actions),
   ...graphFlows(actions),
@@ -128,16 +136,22 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...storageFlows(actions),
   ...cloudFlows(actions),
   ...toastFlows(actions),
+  ...subjectFlows(actions),
+  ...shellFlows(actions),
+  ...branchFlows(actions),
   ...billingBalanceFlows(actions),
   ...billingPlanFlows(actions),
   ...reposImportFlows(actions),
   ...issuesFlows(actions),
   ...settingsFlows(actions),
+  ...membersFlows(actions),
+  ...helpFlows(actions),
   ...prsFlows(actions),
   ...envFlows(actions),
   ...secretsFlows(actions),
   ...historyFlows(actions),
   ...todoFlows(actions),
+  ...homeFlows(actions),
   ...branchesFlows(actions),
   ...commitsFlows(actions),
   ...filesFlows(actions),

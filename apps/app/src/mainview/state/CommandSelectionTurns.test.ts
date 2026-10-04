@@ -15,7 +15,7 @@ import { memoryStorage, settled } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
-const DARK_LINE = "- /appearance.dark-mode [light|dark] — "
+const DARK_LINE = "- /theme [light|dark] — "
 
 /** One frame without its run id, per member of the union. */
 type FrameBody = AgentTurnFrame extends infer F ? F extends AgentTurnFrame ? Omit<F, "runId"> : never : never
@@ -69,23 +69,23 @@ const userMessage = (store: Awaited<ReturnType<typeof createAppStore>>) =>
 describe("command selection before the first leg", () => {
   test("switch to dark mode: Jev's pick is listed in full, recorded on the message, and the model's call switches the theme", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const { selector, asked } = fakeSelector(() => [{ name: "appearance.dark-mode", probability: 0.99 }])
+    const { selector, asked } = fakeSelector(() => [{ name: "theme", probability: 0.99 }])
     const { agent, requests } = scriptedAgent([
-      () => call("call_1", { action: "execute", name: "appearance.dark-mode", args: "dark" }),
+      () => call("call_1", { action: "execute", name: "theme", args: "dark" }),
       () => say("Dark mode is on.")
     ])
     const controller = createAppController(store, agent, { commandSelector: selector })
     const before = store.session().theme
-    controller.send("switch to dark mode")
+    controller.send("make it darker")
     await until(() => requests.length === 2)
     await settled()
 
     expect(asked).toHaveLength(1)
-    expect(asked[0]!.message).toBe("switch to dark mode")
-    expect(asked[0]!.commands.some(command => command.name === "appearance.dark-mode")).toBe(true)
+    expect(asked[0]!.message).toBe("make it darker")
+    expect(asked[0]!.commands.some(command => command.name === "theme")).toBe(true)
     // Pinned commands are already in the prompt, so Jev is not asked about them.
     expect(asked[0]!.commands.some(command => command.name === "auth.prompt")).toBe(false)
-    expect(userMessage(store)?.disclosed).toEqual(["appearance.dark-mode"])
+    expect(userMessage(store)?.disclosed).toEqual(["theme"])
     expect(requests[0]!.instructions).toContain(DARK_LINE)
     // The continuation leg reuses the selection: no second request.
     expect(requests[1]!.instructions).toContain(DARK_LINE)
@@ -101,17 +101,17 @@ describe("command selection before the first leg", () => {
     controller.send("hi")
     await until(() => requests.length === 1)
     expect(userMessage(store)?.disclosed).toEqual([])
-    expect(requests[0]!.instructions).not.toContain("/appearance.dark-mode")
+    expect(requests[0]!.instructions).not.toContain("/theme")
     expect(requests[0]!.instructions).toContain("- /auth.prompt")
   })
 
   test("a failed selection fails the turn visibly with no model leg, and /chat.retry selects again", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     let fail = true
-    const { selector, asked } = fakeSelector(() => fail ? new CommandSelectError("timeout") : [{ name: "appearance.dark-mode", probability: 0.9 }])
+    const { selector, asked } = fakeSelector(() => fail ? new CommandSelectError("timeout") : [{ name: "theme", probability: 0.9 }])
     const { agent, requests } = scriptedAgent([() => say("Done.")])
     const controller = createAppController(store, agent, { commandSelector: selector })
-    controller.send("switch to dark mode")
+    controller.send("make it darker")
     await until(() => store.session().phase === "idle")
     expect(requests).toHaveLength(0)
     const failed = [...store.collections.messages.values()].find(message => message.role === "smithers" && message.status === "failed")
@@ -127,10 +127,10 @@ describe("command selection before the first leg", () => {
 
   test("later turns keep earlier disclosures in the shared permanent conversation", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const { selector } = fakeSelector(request => request.message.includes("dark") ? [{ name: "appearance.dark-mode", probability: 0.9 }] : [])
+    const { selector } = fakeSelector(request => request.message.includes("dark") ? [{ name: "theme", probability: 0.9 }] : [])
     const { agent, requests } = scriptedAgent([() => say("ok")])
     const controller = createAppController(store, agent, { commandSelector: selector })
-    controller.send("switch to dark mode")
+    controller.send("make it darker")
     await until(() => requests.length === 1 && store.session().phase === "idle")
     controller.send("thanks")
     await until(() => requests.length === 2 && store.session().phase === "idle")
@@ -139,7 +139,7 @@ describe("command selection before the first leg", () => {
     expect(controller.commands.find("chat.clear")).toBeUndefined()
     controller.send("thanks again")
     await until(() => requests.length >= 3)
-    expect(requests.at(-1)!.instructions).toContain("/appearance.dark-mode")
+    expect(requests.at(-1)!.instructions).toContain("/theme")
   })
 })
 
@@ -214,18 +214,18 @@ describe("the web turn path (HTTP journal)", () => {
   test("the first leg waits for selection; a failure interrupts the attempt with no POST", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     let fail = false
-    const { selector } = fakeSelector(() => fail ? new CommandSelectError("credit") : [{ name: "appearance.dark-mode", probability: 0.99 }])
+    const { selector } = fakeSelector(() => fail ? new CommandSelectError("credit") : [{ name: "theme", probability: 0.99 }])
     const remote = journalAgent()
     const controller = createAppController(store, remote.agent, { commandSelector: selector })
-    controller.send("switch to dark mode")
+    controller.send("make it darker")
     await until(() => remote.starts.length === 1)
     expect(remote.starts[0]!.instructions).toContain(DARK_LINE)
-    expect(userMessage(store)?.disclosed).toEqual(["appearance.dark-mode"])
-    await controller.commands.run("chat.stop")
+    expect(userMessage(store)?.disclosed).toEqual(["theme"])
+    await controller.commands.run("stop")
     await until(() => store.session().phase === "idle")
 
     fail = true
-    controller.send("and light mode later")
+    controller.send("and brighter later")
     // The latest Smithers line by ordinal: a collection's iteration order is not the transcript's.
     const refusal = () => {
       const failed = [...store.collections.messages.values()].filter(message => message.role === "smithers").sort((a, b) => a.ordinal - b.ordinal).at(-1)

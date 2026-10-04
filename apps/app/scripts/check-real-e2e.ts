@@ -40,7 +40,7 @@ function joinDefault(root: string, child: string): string {
   const baseline = {
     browser: [
       "app.hint.dismiss", "card.history.back", "card.history.forward", "chat", "chat.dictate",
-      "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.queue",
+      "chat.queue",
       "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload",
       "cloud.prompt", "flow.plan.select", "flow.plan.tab", "flow.repo.choose", "history.view", "input.mode",
       "palette.actions", "palette.recent", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select",
@@ -62,7 +62,7 @@ function joinDefault(root: string, child: string): string {
       "wiki.cloud.rename", "wiki.history", "wiki.space", "prs",
       "repo.choose", "repo.tree", "repo.update", "repos.import.retry", "review.ack",
       "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.signal", "search.changes", "search.files", "search.history",
-      "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex",
+      "search.issues", "search.runs", "search.secrets", "secrets.connect.codex",
       "secrets.move", "search.wiki", "secrets.scope",
       "history.backfill", "history.parallel", "history.retry", "history.show", "triggers.approve",
       "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "box.session.destroy", // Added without a scenario since the review, or left without one by the MVP cut (#3385).

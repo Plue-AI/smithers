@@ -153,7 +153,7 @@ for (const host of ["local", "cloud"] as const) test(`the ${host} OAuth handoff 
       return url.includes("/native/start") ? Response.json({ handoffId: "test-handoff", pollSecret: "private-poll-secret" }) : Response.json({}, { status: 404 })
     } })
   const { popup, opened } = popupFixture()
-  const pending = controller.commands.run("auth.sign-in")
+  const pending = controller.commands.run("sign-in")
   expect(opened).toEqual(["about:blank"])
   expect(requests).toEqual([])
   held.resolve()

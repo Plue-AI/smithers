@@ -1,3 +1,4 @@
+import { numbered } from "./subjects"
 import { Schema } from "effect"
 import { flow, NumberedTarget } from "./Declare"
 import type { CommandActions } from "./Declare"
@@ -16,7 +17,8 @@ export const issueFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   // handler. Only todo.from-issue is offered for new commands.
   flow({ name: "issue.implement", hidden: true, summary: "Make TODO", input: NumberedTarget,
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),
-  flow({ name: "todo.from-issue", summary: "Make TODO", input: NumberedTarget,
+  flow({ name: "todo.from-issue", summary: "Make TODO", args: "#n", input: NumberedTarget, grammar: numbered(),
+    form: { args: payload => JSON.stringify(payload), fields: { number: { label: "Issue", placeholder: "#212" } } },
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),
   flow({ name: "issue.add-flow", summary: "Add a flow to an issue", runtimeAny: ["cloud"],
     form: { args: payload => JSON.stringify(payload), fields: { description: { label: "What should this issue flow do?", placeholder: "Describe the flow to add" } } },

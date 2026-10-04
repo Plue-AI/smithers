@@ -96,6 +96,12 @@ export interface FormHints {
    * own: a door routes here, it never writes a second copy of the copy.
    */
   readonly refuse?: (payload: Readonly<Record<string, unknown>>) => string | undefined
+  /**
+   * The optional fields what the invocation already named makes required
+   * (a setup step that needs its own inputs). The form then asks for those
+   * that are missing, and only those.
+   */
+  readonly requires?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
 }
 
 export interface FormField {

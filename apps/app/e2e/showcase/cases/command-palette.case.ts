@@ -6,7 +6,7 @@ export default showcase({
   order: 20,
   title: "⌘K and slash commands",
   summary: "⌘K opens Chat; / lists every flow; a flow answers with a card.",
-  flows: ["palette.open", "agent.list", "appearance.dark-mode"],
+  flows: ["palette.open", "agent.list", "theme"],
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await app.open("/")
@@ -27,7 +27,7 @@ export default showcase({
     await app.show(card)
     const shade = () => page.evaluate(() => document.documentElement.dataset.theme ?? document.documentElement.className)
     const before = await shade()
-    await app.slash("/appearance.dark-mode")
+    await app.slash("/theme")
     await expect.poll(shade).not.toBe(before)
     await app.beat(1200)
   }

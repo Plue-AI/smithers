@@ -5,16 +5,14 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import type { Card } from "@smthrs/rpc/Cards"
-import type { RepositoryHome } from "@smthrs/rpc/RepositoryHome"
 import { CardView } from "../ChatCards"
 import { FlowGraphSurface } from "../ViewModules"
-import { defaultPill } from "./CardFamily"
-import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, PENDING_CARD_KINDS, RETIRED_CARD_KINDS, pillStatus } from "./CardRenderers"
-import { lastRunOf, RepositoryHomeCard, stripHomeHtml } from "./RepositoryHomeCard"
+import { defaultPill, type CardOf } from "./CardFamily"
+import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, RETIRED_CARD_KINDS, cardRenderer, pillStatus } from "./CardRenderers"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
-import { createAppStore } from "../state/AppStore"
-import { memoryStorage } from "../state/TestFixtures"
+import { createDesignWorld } from "../state/seams/DesignWorld"
+import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 
 /*
  * The renderer map replaced ChatCards.tsx's render switch and pill switch.
@@ -25,7 +23,7 @@ import { memoryStorage } from "../state/TestFixtures"
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !([...RETIRED_CARD_KINDS, ...PENDING_CARD_KINDS] as readonly string[]).includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(RETIRED_CARD_KINDS as readonly string[]).includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 
@@ -247,176 +245,6 @@ describe("wiki history card (#1922)", () => {
   })
 })
 
-describe("factory homepage", () => {
-  const home = (blocks: Extract<RepositoryHome, { kind: "blocks" }>["blocks"]): Extract<Card, { kind: "factory.home" }> => ({
-    ...base, status: "active", kind: "factory.home", payload: {
-      repo: "org/repo", home: { kind: "blocks", blocks },
-      flows: [{ id: "review", summary: "Review", description: "Review code", featured: true }]
-    }
-  })
-
-  test("renders text, links, flows, markdown, and safe README content", () => {
-    const card = home([
-      { type: "text", text: "Welcome" },
-      { type: "links", links: [{ label: "Source", url: "https://example.com" }] },
-      { type: "flows", title: "Try first" },
-      { type: "markdown", path: "README.md", markdown: "# Intro\n<script>alert(1)</script>[unsafe](javascript:alert(1))" }
-    ])
-    const markup = renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />)
-    expect(markup).toContain("Welcome")
-    expect(markup).toContain("https://example.com")
-    expect(markup).toContain('data-flow="review"')
-    expect(markup).toContain("Intro")
-    expect(markup).not.toContain("<script")
-    expect(markup).not.toContain("alert(1)</script>")
-    expect(markup).not.toContain('href="javascript:')
-    expect(stripHomeHtml("<b>Hi</b><!-- x -->")).toBe("Hi")
-    expect(stripHomeHtml("<p>a</p>\n```ts\nconst x: Array<string> = []\n```\n<i>b</i>")).toBe("a\n```ts\nconst x: Array<string> = []\n```\nb")
-    const readme = { ...card, payload: { ...card.payload, home: { kind: "readme" as const, markdown: "# README <img src=x>" } } }
-    expect(renderToStaticMarkup(<RepositoryHomeCard card={readme} onRunCommand={() => {}} />)).not.toContain("<img")
-    const error = { ...card, payload: { ...card.payload, home: { kind: "error" as const, message: "Homepage unavailable" } } }
-    expect(renderToStaticMarkup(<RepositoryHomeCard card={error} onRunCommand={() => {}} />)).toContain('role="alert"')
-  })
-
-  test("a featured flow's button carries the repository the home shows (#3336)", () => {
-    const card = home([{ type: "flows", title: "Try first" }])
-    const markup = renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />)
-    expect(markup).toContain('data-flow="review" data-flow-args="org/repo"')
-  })
-
-  test("app blocks render the app home: the heading, then one tile per app bound to its flow (D-18)", () => {
-    const card = home([
-      { type: "prompt", placeholder: "Ask Smithers…" },
-      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
-      { type: "app", flow: "pr-triage", title: "Review a PR", picture: "review" },
-      { type: "text", text: "After" },
-      { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
-      { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
-    ])
-    const markup = renderToStaticMarkup(<RepositoryHomeCard card={{ ...card, payload: { ...card.payload, home: { kind: "blocks", blocks: card.payload.home.kind === "blocks" ? card.payload.home.blocks.slice(1) : [] } } }} onRunCommand={() => {}} />)
-    // Every app block lands in the one grid, wherever it sits among the blocks; the grid sits where the first one does.
-    expect(markup.match(/data-testid="app-tile"/g)).toHaveLength(4)
-    expect(markup.match(/data-testid="home-apps"/g)).toHaveLength(1)
-    for (const title of ["Fix an issue", "Review a PR", "Ask the codebase", "Run it every night"]) expect(markup.indexOf(title)).toBeLessThan(markup.indexOf("After"))
-    for (const [flow, title, picture] of [["issue.implement", "Fix an issue", "issue"], ["pr-triage", "Review a PR", "review"], ["wiki.cloud", "Ask the codebase", "wiki"], ["triggers.register", "Run it every night", "schedule"]]) {
-      expect(markup).toContain(`data-flow="${flow}"`)
-      expect(markup).toContain(`<span class="app-tile-title">${title}</span>`)
-      expect(markup).toContain(`data-picture="${picture}"`)
-    }
-    // A repository flow id is its slash leaf on the tile.
-    const nested = home([{ type: "app", flow: "checks/wiki", title: "Check the wiki", picture: "wiki" }])
-    expect(renderToStaticMarkup(<RepositoryHomeCard card={nested} onRunCommand={() => {}} />)).toContain('data-flow="checks.wiki"')
-    // The pictures are drawings, never read aloud; the tile's name is its title.
-    expect(markup).toContain('data-picture="issue" aria-hidden="true"')
-    // Words on the home: the heading, the placeholder, the titles — the pictures' marks aside.
-    expect(markup).not.toContain("Learn how to")
-  })
-
-  test("a tile shows the app's last result where one exists, otherwise its picture", () => {
-    const run = (id: string, workflow: string, phase: "completed" | "running", createdAt: number): Card => ({
-      ...base, id, kind: "run-trace", status: "active", createdAt, ordinal: createdAt, title: `${workflow} on org/repo`,
-      payload: { repo: "org/repo", runId: id, workflow, phase, lastSeq: 0, input: {} } as Extract<Card, { kind: "run-trace" }>["payload"]
-    })
-    const cards = new Map<string, Card>([
-      ["r1", run("r1", "coding/request", "completed", 1)],
-      ["r2", run("r2", "coding/request", "running", 2)],
-      ["r3", run("r3", "pr-triage", "completed", 3)],
-      ["other", run("other", "coding/request", "completed", 9)]
-    ])
-    ;(cards.get("other") as Extract<Card, { kind: "run-trace" }> & { payload: { repo: string } }).payload.repo = "org/elsewhere"
-    const controller = {
-      store: { collections: { cards: { values: () => cards.values(), subscribeChanges: () => ({ unsubscribe: () => {} }) } } },
-      commands: { find: (name: string) => name === "issue.implement" ? { metadata: { workflow: "coding/request" } } : undefined },
-      stackSnapshots: { get: () => undefined, subscribe: () => () => {} }
-    } as unknown as AppController
-    const card = home([
-      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
-      { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" }
-    ])
-    const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
-    // The newest run of the workflow the flow launches, on this repository: r2, not r1 and not the other repository's.
-    expect(markup.match(/data-testid="app-tile-preview"/g)).toHaveLength(1)
-    expect(markup).toContain("coding/request on org/repo")
-    expect(markup).toContain('data-status="running"')
-    expect(markup).toContain(">Running<")
-    expect(markup).not.toContain("#42")
-    // No run of wiki.cloud: the wiki tile keeps its picture.
-    expect(markup).toContain('data-picture="wiki" aria-hidden="true"')
-    expect(lastRunOf(cards.values(), "org/repo", "pr-triage")?.id).toBe("r3")
-    expect(lastRunOf(cards.values(), "org/repo", "release")).toBeUndefined()
-  })
-
-  test("a tile with no run and no Wiki claims no state (#2330)", () => {
-    const controller = { stackSnapshots: { get: () => ({ stack: { repository: "org/repo", state: "active" as const, generation: 1, mainBehind: false,
-      changes: [], items: [], lanes: [], limits: { maxParallel: 1 } }, error: null }), subscribe: () => () => {} }, commands: { find: () => undefined },
-      store: { collections: { cards: { values: () => [], subscribeChanges: () => ({ unsubscribe: () => {} }) } } } } as unknown as AppController
-    const card = home([
-      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
-      { type: "app", flow: "pr-triage", title: "Review a PR", picture: "review" },
-      { type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" },
-      { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
-    ])
-    // Signed out (no controller) and signed in with a stack that has no Wiki: pictures only.
-    for (const markup of [
-      renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />),
-      renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
-    ]) {
-      expect(markup.match(/data-picture=/g)).toHaveLength(4)
-      for (const claim of ["✓", "…", "ready", "Approve", "current", "app-stamp", "app-tile-wiki", "app-tile-preview"]) expect(markup).not.toContain(claim)
-    }
-  })
-
-  test("the wiki tile wears the repository Wiki's state once the stack answers", () => {
-    const stack = { repository: "org/repo", state: "active" as const, generation: 1, mainBehind: false, changes: [],
-      items: [], lanes: [{ index: 0, state: "idle" as const }], limits: { maxParallel: 1 }, wiki: { state: "current" as const, pages: 12, edited: 0 } }
-    const controller = { stackSnapshots: { get: () => ({ stack, error: null }), subscribe: () => () => {} }, commands: { find: () => undefined },
-      store: { collections: { cards: { values: () => [], subscribeChanges: () => ({ unsubscribe: () => {} }) } } } } as unknown as AppController
-    const card = home([{ type: "app", flow: "wiki.cloud", title: "Ask the codebase", picture: "wiki" }])
-    const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
-    expect(markup).toContain('data-testid="app-tile-wiki"')
-    expect(markup).toContain("current · main")
-  })
-
-  test("a stack block renders the live stack, and nothing before a read or signed out", () => {
-    const card = home([{ type: "stack", title: "Stack" }])
-    expect(renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />)).not.toContain("home-stack")
-    const stack = { repository: "org/repo", state: "active" as const, generation: 1, mainBehind: false, changes: [],
-      items: [], lanes: [{ index: 0, state: "idle" as const }], limits: { maxParallel: 1 } }
-    const controller = { stackSnapshots: { get: () => ({ stack, error: null }), subscribe: () => () => {} } } as unknown as AppController
-    const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}>
-      <RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
-    expect(markup).toContain("<h2>Stack</h2>")
-    expect(markup).toContain("0/1 lanes")
-    expect(markup).toContain('data-flow="history.backfill"')
-  })
-
-  test("prompt submits through chat.send and flow button uses the repository slash leaf", async () => {
-    GlobalRegistrator.register()
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    store.dispatch({ type: "composer.changed", actor: "user", draft: "Change it" })
-    const controller = { store, changeDraft: (draft: string) => { store.dispatch({ type: "composer.changed", actor: "user", draft }) } } as unknown as AppController
-    const calls: Array<[string, string | undefined]> = []
-    const host = document.createElement("div")
-    const root = createRoot(host)
-    act(() => root.render(<ControllerTestProvider controller={controller}><RepositoryHomeCard
-      card={home([{ type: "prompt", title: "What should we work on?", placeholder: "Change it…" }, { type: "flows" }])}
-      onRunCommand={(name, args) => calls.push([name, args])} /></ControllerTestProvider>))
-    // The prompt's title is the home's heading, over the composer.
-    expect(host.querySelector("h1.factory-home-heading")?.textContent).toBe("What should we work on?")
-    expect(host.querySelector("h1")?.compareDocumentPosition(host.querySelector("form")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    act(() => host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
-    act(() => host.querySelector<HTMLButtonElement>('[data-flow="review"]')?.click())
-    expect(calls).toEqual([["chat.send", "Change it"], ["review", "org/repo"]])
-    act(() => root.render(<ControllerTestProvider controller={controller}><RepositoryHomeCard
-      card={home([{ type: "prompt", flow: "review" }])}
-      onRunCommand={(name, args) => calls.push([name, args])} /></ControllerTestProvider>))
-    act(() => host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
-    expect(calls.at(-1)).toEqual(["chat.send", "/review Change it"])
-    act(() => root.unmount())
-    await GlobalRegistrator.unregister()
-  })
-})
-
 test("repository chooser exposes one keyboard stop and the highlighted repository", async () => {
   GlobalRegistrator.register()
   const host = document.createElement("div"); document.body.append(host)
@@ -436,6 +264,41 @@ test("repository chooser exposes one keyboard stop and the highlighted repositor
     await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })) })
     expect(selected).toEqual(["b/two"])
   } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+})
+
+/*
+ * The subject cards (settings, members, commands) read the seeded design world
+ * through the controller until their seams answer: the owner sees Settings,
+ * the roster lists the seeded people, and /help lists only registered flows.
+ */
+describe("subject card bodies", () => {
+  const unanswered = { get: () => ({}), subscribe: () => () => {} }
+  const controller = (viewer: string, find: (name: string) => unknown) => ({
+    design: createDesignWorld({ viewer }),
+    installSnapshots: unanswered,
+    commands: { find, submit: async () => ({ status: "done" }) }
+  }) as unknown as AppController
+  const body = <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
+    renderToStaticMarkup(<ControllerTestProvider controller={controller(viewer, find)}>
+      {cardRenderer(kind).render(CardSchema.parse({ ...base, kind, status: "active", payload: {} }) as CardOf<K>, handlers)}</ControllerTestProvider>)
+
+  test("settings renders the seeded install for the owner and nothing for a maintainer", () => {
+    expect(body("settings", MAYA)).toContain("Machines")
+    expect(body("settings", BEN)).toBe("")
+  })
+  test("members lists the seeded roster", () => {
+    const markup = body("members", MAYA)
+    expect(markup).toContain('data-login="mayachen"')
+    expect(markup).toContain('data-login="benortiz"')
+  })
+  test("commands lists only the flows the registry holds", () => {
+    const find = (name: string) => name === "help" || name === "members"
+      ? { binding: { descriptor: { modelInvocable: name === "help" } }, metadata: {} } : undefined
+    const markup = body("commands", MAYA, find)
+    expect(markup).toContain("/help")
+    expect(markup).toContain("/members")
+    expect(markup).not.toContain("/settings")
+  })
 })
 
 // T-UI-16: production family entries grant no S2 execution authority.

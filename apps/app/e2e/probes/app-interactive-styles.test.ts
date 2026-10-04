@@ -46,7 +46,7 @@ test("primary actions and Send remain legible in every palette, including hover 
   await content(`<div class="app-shell"><section style="display:flex;flex-direction:column;gap:16px;align-items:flex-start;padding:32px">
     <button id="primary" class="sui-button sui-button-default">Approve</button>
     <button id="solid" class="sui-button sui-button-solid">Start</button>
-    <button id="signin" class="chrome-action" data-flow="auth.sign-in">Sign in with GitHub</button>
+    <button id="signin" class="chrome-action" data-flow="sign-in">Sign in with GitHub</button>
     <div class="smithers-composer"><button id="send" class="sui-button sui-button-solid sui-button-icon-size sui-chat-composer-send" aria-label="Send">↑</button></div>
     <button id="release" class="control-focus-release" data-control-focus-release style="position:static">Release control</button>
   </section></div>`)

@@ -100,7 +100,7 @@ describe("a self-host bootstrap never enables native-shell UI", () => {
     const { host, markup } = mount(controller)
     const door = host.querySelector<HTMLElement>(".smithers-chat-message .message-cta")
     expect(door?.textContent).toBe("Sign in")
-    expect(door?.dataset.flow).toBe("auth.sign-in")
+    expect(door?.dataset.flow).toBe("sign-in")
     expect(markup()).not.toContain("Sign in with GitHub")
     expect(host.querySelector('[data-testid="signup"]')).toBeNull()
   })

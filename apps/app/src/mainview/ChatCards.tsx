@@ -1,4 +1,5 @@
 import { EntryRow } from "./EntryRow"
+import { isDesignCard } from "./state/seams/DesignWorld/subjects"
 import { ViewSkeleton } from "./ViewSkeleton"
 import { flowAction, flowProps } from "./flows/FlowAction"
 /*
@@ -113,7 +114,8 @@ export const CardView = memo(function CardView({
    * the shell whose onKeyDown owns Escape. Each act hands focus to the
    * button that took its place, so Escape (and the Tab ring) keep working.
    */
-  const title = card.kind === "repo-update" ? "Activity" :
+  /* MOCK SEAM: a design subject card (`design:`) carries its own title, e.g. "#212 Failed webhooks are never retried". */
+  const title = isDesignCard(card) ? card.title : card.kind === "repo-update" ? "Activity" :
     card.kind === "issue-list" ? (card.payload.kind === "conversation" ? "Conversations" : "Issues") : card.kind === "issue" ? (card.payload.kind === "chat" ? "Conversation" : "Issue") :
     card.kind === "pr-list" ? "Pull requests" : card.kind === "pr" ? "Pull request" : card.title
   const fallback = pillStatus(card)

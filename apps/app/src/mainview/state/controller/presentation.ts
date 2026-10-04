@@ -7,7 +7,6 @@ import type { Card } from "../AppState"
 import { WIKI_DISPLAY_NAME } from "../AppState"
 import { parseDiagnosticQuery,readDiagnostics } from "../Diagnostics"
 import type { ControllerContext,NetEntry } from "./context"
-import { all as allChat, CHAT_KINDS,  toggle as toggleChat } from "../ChatTimeline"
 
 export interface PresentationController {
   readonly showChat: () => void
@@ -15,10 +14,6 @@ export interface PresentationController {
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
   readonly showWikiPane: () => void
   readonly toggleDevtools: () => void
-  readonly toggleChatFilterMenu: () => { readonly value: string }
-  readonly toggleChatFilter: (target: string) => string | { readonly value: string }
-  readonly grepChatFilter: (query: string) => { readonly value: string }
-  readonly resetChatFilter: () => { readonly value: string }
   readonly askReset: () => void
   readonly cancelReset: () => void
   readonly describeAgentBackend: (backend: string) => string | { readonly value: string }
@@ -81,29 +76,6 @@ export const createPresentationController = (
     const identity = ctx.store.collections.identitySessions.get("identity")
     if (identity?.state !== "signed-in" || !identity.admin) return
     ctx.store.dispatch({ type: "devtools.toggled", actor: "user", open: !ctx.store.session().devtoolsOpen })
-  }
-
-  const toggleChatFilterMenu = (): { readonly value: string } => {
-    const open = ctx.store.session().chatFilterMenuOpen !== true
-    ctx.store.dispatch({ type: "chat-filter.menu.toggled", actor: ctx.commandActor, open })
-    return { value: open ? "Filter opened." : "Filter closed." }
-  }
-  const toggleChatFilter = (target: string): string | { readonly value: string } => {
-    const valid = ["chat", ...CHAT_KINDS]
-    if (!valid.includes(target)) return `Choose one of: ${valid.join(", ")}`
-    const filter = toggleChat(ctx.store.session().chatFilter ?? allChat, target)
-    ctx.store.dispatch({ type: "chat-filter.changed", actor: ctx.commandActor,
-      filter: { sources: [...filter.sources], kinds: [...filter.kinds], query: filter.query } })
-    return { value: `${target}: ${filter.sources.includes(target) || filter.kinds.includes(target as typeof CHAT_KINDS[number]) ? "hidden" : "shown"}.` }
-  }
-  const grepChatFilter = (query: string): { readonly value: string } => {
-    ctx.store.dispatch({ type: "chat-filter.changed", actor: ctx.commandActor,
-      filter: { sources: [...(ctx.store.session().chatFilter?.sources ?? [])], kinds: [...(ctx.store.session().chatFilter?.kinds ?? [])], query } })
-    return { value: query === "" ? "Search cleared." : `Search: ${query}` }
-  }
-  const resetChatFilter = (): { readonly value: string } => {
-    ctx.store.dispatch({ type: "chat-filter.changed", actor: ctx.commandActor, filter: { sources: [], kinds: [], query: "" } })
-    return { value: "Showing all." }
   }
 
   const askReset = (): void => {
@@ -394,10 +366,6 @@ export const createPresentationController = (
     showWorld,
     showWikiPane,
     toggleDevtools,
-    toggleChatFilterMenu,
-    toggleChatFilter,
-    grepChatFilter,
-    resetChatFilter,
     askReset,
     cancelReset,
     describeAgentBackend,

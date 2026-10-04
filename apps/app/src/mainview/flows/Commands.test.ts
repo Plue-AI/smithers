@@ -131,12 +131,12 @@ describe("Chat slash presentation transport (#3348)", () => {
     test(`${door} original dark-mode toggle preserves a maximized card from ${initial}`, async () => {
       const { store, controller, card } = await maximized()
       try {
-        await controller.commands.run("appearance.dark-mode", initial)
-        const before = [...store.collections.commandIntents.values()].filter(row => row.name === "appearance.dark-mode" && row.status === "settled").length
-        const outcome = door === "direct" ? await controller.commands.run("appearance.dark-mode")
-          : await controller.commands.run("chat.send", "/appearance.dark-mode")
+        await controller.commands.run("theme", initial)
+        const before = [...store.collections.commandIntents.values()].filter(row => row.name === "theme" && row.status === "settled").length
+        const outcome = door === "direct" ? await controller.commands.run("theme")
+          : await controller.commands.run("chat.send", "/theme")
         expect(outcome.status).toBe("executed")
-        await settledCommand(store, "appearance.dark-mode", before)
+        await settledCommand(store, "theme", before)
         expect(store.session().theme).toBe(initial === "light" ? "dark" : "light")
         expect(store.session().maximizedCardId).toBe(card.id)
       } finally { await controller.dispose() }
@@ -224,7 +224,7 @@ describe("explainAbsent — an exact miss classified against the unfiltered cata
     const { controller } = await freshController(WEB)
     // Present flows explain nothing, even ones with an unmet prerequisite.
     expect(controller.commands.explainAbsent("issues.list")).toBeUndefined()
-    expect(controller.commands.explainAbsent("auth.sign-out")).toBeUndefined()
+    expect(controller.commands.explainAbsent("sign-out")).toBeUndefined()
     // A name no host has is not a mode problem.
     expect(controller.commands.explainAbsent("does-not-exist")).toBeUndefined()
     expect(controller.commands.explainAbsent("admin.health")).toBeUndefined()

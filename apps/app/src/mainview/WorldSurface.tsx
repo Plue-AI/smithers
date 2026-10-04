@@ -7,9 +7,9 @@ import { Badge, Button, EmptyState, Eyebrow } from "@smthrs/ui"
 import { BacklinksPanel, OutlineView, parseOutline } from "@smthrs/ui/vault"
 import { useLiveQuery } from "@tanstack/react-db"
 import { BookOpen, History, Paperclip, Pencil, Plus, TextCursorInput, Trash2, Waypoints } from "lucide-react"
-import { Suspense, useMemo, useRef, useState } from "react"
+import { Suspense, useContext, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { activeRepositoryId } from "./state/RepoContext"
-import { useController } from "./ControllerContext"
+import { ControllerContext, useController } from "./ControllerContext"
 import { WIKI_DISPLAY_NAME, WIKI_GRAPH_ALL_SCOPE } from "./state/AppState"
 import type { WorldDocument } from "./state/AppState"
 import { SurfaceHeader } from "./SurfaceChrome"
@@ -18,9 +18,16 @@ import { WikiAttachment } from "./wiki/WikiAttachment"
 import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
 import { cloudWikiPageFailure } from "./wiki/CloudWikiFailure"
 import { FailureNotice } from "./FailureNotice"
-import { useStackSnapshot } from "./cards/StackCard"
+import type { StackSnapshot } from "./state/seams/StackSeam"
 import { wikiTone } from "@smthrs/rpc/StackView"
 import { linkGraphOf, linksOf, neighbourhoodOf } from "./wiki/VaultAdapter"
+
+const NO_SNAPSHOTS = { get: () => undefined, subscribe: () => () => {} }
+/** The stack seam's live snapshot of one repository (its wiki state); absent outside a controller. */
+const useStackSnapshot = (repo: string): StackSnapshot | undefined => {
+  const snapshots = useContext(ControllerContext)?.stackSnapshots ?? NO_SNAPSHOTS
+  return useSyncExternalStore(snapshots.subscribe, () => snapshots.get(repo), () => snapshots.get(repo))
+}
 
 
 /* The Wiki pane's graph mode renders over d3-force; it loads on first use like the editor. */

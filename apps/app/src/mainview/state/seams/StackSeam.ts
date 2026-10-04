@@ -6,8 +6,9 @@
  * one more snapshot read (at most one read in flight, at most one a second).
  *
  * The snapshot is live server state, held here in memory and read by the
- * History card and the homepage block through `snapshots`; it is never
- * journaled. The History card (`stack:<repo>`) holds only what the person
+ * wiki freshness and the lane notices through `snapshots`; it is never
+ * journaled. The `stack:<repo>` card is retired (T-APP-01: the Home card
+ * replaced it); this seam goes with the wiki-refresh move. Its card row holds only what the person
  * asked for: the durable bootstrap request and the last failed act.
  *
  * Writes (bootstrap, backfill, lane count, retry) are acknowledged at once and

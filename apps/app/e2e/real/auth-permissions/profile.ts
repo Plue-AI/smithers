@@ -255,7 +255,7 @@ export const restoreAuthenticatedSession = async (page: Page, baseURL: string): 
   // 72 s, so reading it straight after the navigation spends Playwright's 15 s
   // default inside the boot skeleton and then reports the door as missing.
   await awaitBoot(page, "navigate", startedAt)
-  const door = page.locator('[data-flow="auth.sign-in"]').first()
+  const door = page.locator('[data-flow="sign-in"]').first()
   await expect(door).toBeVisible()
   await door.click()
   await finishGitHubOAuth(page, origin)

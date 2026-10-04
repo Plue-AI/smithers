@@ -126,7 +126,7 @@ describe("the copy the slash menu and the prompt carry", () => {
     expect(searchNamespace.summary).not.toMatch(/wiki|history/i)
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent)
-    const open = controller.commands.all().find(item => item.name === "search.open")
+    const open = controller.commands.all().find(item => item.name === "search")
     expect(open?.summary).toBeDefined()
     expect(open?.summary).not.toMatch(/wiki|history/i)
   })

@@ -1,10 +1,10 @@
 import { SetupCard, type SetupCardProps } from "./SetupCard"
 import { SetupView } from "./views/SetupView"
+import { HomeCard } from "./HomeContainer"
 import { runTraceCardFamily } from "./RunTraceCard"
 import type { ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
 import { ConfirmView } from "./views/ConfirmView"
 import { repositoryUpdateCardFamily } from "./RepositoryUpdateCard"
-import { repositoryHomeCardFamily } from "./RepositoryHomeCard"
 import { useLiveQuery } from "@tanstack/react-db"
 import { projectRepositoryUpdate } from "../state/CardProjection"
 /*
@@ -30,7 +30,6 @@ import { envCardFamily } from "./EnvCard"
 import { fileCardFamily } from "./FileCards"
 import { flowFormCardFamily } from "./FlowFormCards"
 import { flowPlanCardFamily } from "./FlowPlanCard"
-import { stackCardFamily } from "./StackCard"
 import { issueCardFamily } from "./IssueCards"
 import { landingCardFamily } from "./LandingCards"
 import { RepositoryChoiceCard } from "./RepositoryChoiceCard"
@@ -42,8 +41,17 @@ import { syncCardFamily } from "./SyncCards"
 import { triggersCardFamily } from "./TriggersCard"
 import { turnCardFamily } from "./TurnCards"
 import { wikiCardFamily } from "./WikiCards"
-import { workflowCardFamily } from "./FlowCard"
+import { flowCardFamily, workflowCardFamily } from "./FlowCard"
 import { workspaceCardFamily } from "./WorkspaceCard"
+import { settingsCardFamily } from "./SettingsContainer"
+import { membersCardFamily } from "./MembersCard"
+import { commandsCardFamily } from "./CommandsContainer"
+import { todoCardFamily } from "./TodoContainer"
+import { draftCardFamily } from "./DraftContainer"
+import { confirmCardFamily } from "./ActCard"
+import { branchCardFamily } from "./BranchCard"
+import { terminalCardFamily } from "./TerminalCard"
+import { runCardFamily } from "./RunContainer"
 
 /* The tutorial's two embedded surfaces: the ranked repository chooser and the Library shelf. */
 const repositoryChoiceCardFamily: CardFamily<"repository-choice"> = {
@@ -57,18 +65,19 @@ const repositoryChoiceCardFamily: CardFamily<"repository-choice"> = {
 /** Wire kinds retained for old journals, with no live producer or UI. */
 export { RETIRED_CARD_KINDS } from "../state/CardAvailability"
 import { RETIRED_CARD_KINDS } from "../state/CardAvailability"
+/* MOCK SEAM (state/seams/DesignWorld): `design:` cards read the seeded world through their own bodies. */
+import { isDesignCard } from "../state/seams/DesignWorld/subjects"
+import { DesignSubjectBody } from "./SubjectCards"
 type RetiredCardKind = (typeof RETIRED_CARD_KINDS)[number]
-/** T-APP-02 supplies Containers; design supplies these Views before registration. */
-export const PENDING_CARD_KINDS = ["todo", "draft"] as const
-const isPendingCard = (card: Card): card is Extract<Card, { kind: typeof PENDING_CARD_KINDS[number] }> =>
-  (PENDING_CARD_KINDS as readonly string[]).includes(card.kind)
-type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind | typeof PENDING_CARD_KINDS[number]>
+type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind>
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: RetiredCardKind }> =>
   (RETIRED_CARD_KINDS as readonly string[]).includes(card.kind)
 
 /** The families in registration order; the test reads this list to prove the slices are disjoint. */
 export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
-  repositoryHomeCardFamily,
+  settingsCardFamily,
+  membersCardFamily,
+  commandsCardFamily,
   turnCardFamily,
   approvalCardFamily,
   conversationCardFamily,
@@ -84,7 +93,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   envCardFamily,
   secretsCardFamily,
   accountCardFamily,
-  stackCardFamily,
   repoImportCardFamily,
   syncCardFamily,
   branchesCardFamily,
@@ -96,12 +104,21 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   searchResultsCardFamily,
   repositoryChoiceCardFamily,
   wikiCardFamily,
-  commitCardFamily
+  commitCardFamily,
+  todoCardFamily,
+  draftCardFamily,
+  confirmCardFamily,
+  branchCardFamily,
+  terminalCardFamily,
+  runCardFamily,
+  flowCardFamily
 ]
 
 /** One entry per card kind. Written as a literal so a missing kind fails to compile. */
 export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
-  ...repositoryHomeCardFamily,
+  ...settingsCardFamily,
+  ...membersCardFamily,
+  ...commandsCardFamily,
   ...turnCardFamily,
   ...approvalCardFamily,
   ...conversationCardFamily,
@@ -118,7 +135,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...envCardFamily,
   ...secretsCardFamily,
   ...accountCardFamily,
-  ...stackCardFamily,
   ...repoImportCardFamily,
   ...syncCardFamily,
   ...branchesCardFamily,
@@ -129,7 +145,14 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...anonymousCeilingCardFamily,
   ...searchResultsCardFamily,
   ...repositoryChoiceCardFamily,
-  ...wikiCardFamily
+  ...wikiCardFamily,
+  ...todoCardFamily,
+  ...draftCardFamily,
+  ...confirmCardFamily,
+  ...branchCardFamily,
+  ...terminalCardFamily,
+  ...runCardFamily,
+  ...flowCardFamily
 }
 
 /** The entry for one kind, typed to that kind's card. */
@@ -140,7 +163,7 @@ export const cardRenderer = <K extends RenderedCardKind>(kind: K): CardFamilyEnt
  * otherwise the family that owns the kind answers.
  */
 export const pillStatus = (card: Card): string => {
-  if (isRetiredCard(card) || isPendingCard(card)) return ""
+  if (isRetiredCard(card) || isDesignCard(card)) return ""
   if (card.status === "error" && card.kind !== "flow-form") return "failed"
   return cardRenderer(card.kind).pill(card)
 }
@@ -153,7 +176,8 @@ const signedInFor = (actions: CardActions): boolean => {
 
 /** The card's body, from the family that owns its kind. */
 export const renderCardBody = (card: Card, actions: CardActions) =>
-  isRetiredCard(card) || isPendingCard(card) ? null : card.kind === "repo-update" && actions.projectionStore !== undefined
+  isRetiredCard(card) ? null : isDesignCard(card) ? <DesignSubjectBody card={card} />
+    : card.kind === "repo-update" && actions.projectionStore !== undefined
     ? <ProjectedRepositoryUpdateBody card={card} actions={actions} store={actions.projectionStore} />
     : cardRenderer(card.kind).render(card, actions)
 
@@ -178,3 +202,5 @@ export const renderConfirmCard = (props: ConfirmViewProps) => <ConfirmView {...p
 
 /** Browser-private setup projection; shared persistence activates in the later phase. */
 export const renderSetupCard = (props: Omit<SetupCardProps, "View">) => <SetupCard {...props} View={SetupView} />
+/** The Home card of `main`'s conversation and `/stack` (T-APP-01). */
+export const renderHomeCard = () => <HomeCard />

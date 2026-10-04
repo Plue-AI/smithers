@@ -34,7 +34,7 @@ test("all TODO commands register slash, button and agent doors; amend/drop and c
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
-    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop"])
+    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop"])
     for (const entry of entries) {
       expect(modelInvocable(entry)).toBe(true)
       expect(entry.metadata.grammar).toBeDefined()
@@ -61,22 +61,48 @@ test("missing input opens a form for just the missing fields, preserving Tn", as
     expect(form.payload.given.n).toBe(12)
     expect(form.payload.fields.map(field => field.name)).toEqual(["answer"])
     expect(h.mutations).toEqual([])
+    /* New TODO needs no text: the slash door and the Home button open the same empty private Draft. */
     await h.controller.runCommandForResult("todo.new")
-    expect([...h.store.collections.cards.values()].filter(row => row.kind === "flow-form")).toHaveLength(2)
+    expect([...h.store.collections.cards.values()].filter(row => row.kind === "flow-form")).toHaveLength(1)
+    const draft = [...h.store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
+    expect([draft.payload.title, draft.payload.prompt, draft.payload.private]).toEqual(["", "", true])
   } finally { h.controller.dispose() }
 })
 test("slash and typed button use the same TODO command; form.set persists the Draft", async () => {
   const h = await boot()
   try {
-    await h.controller.runCommandForResult("todo.steer", "T12 Keep whitespace")
-    await h.controller.submitCommand({ name: "todo.steer", actor: "user", payload: { n: 12, text: "A second steer" }, display: JSON.stringify({ n: 12, text: "A second steer" }) })
-    await waitFor(() => h.mutations.length === 2)
-    expect(h.mutations).toEqual([{ path: "/api/todos/12/steer", body: { text: "Keep whitespace" } }, { path: "/api/todos/12/steer", body: { text: "A second steer" } }])
+    /* MOCK SEAM: while the design seed is mounted both doors land on its T10, not on /api/todos. */
+    const steers = () => h.controller.design.world().todos.find(each => each.ref === "T10")!.steers?.map(each => each.text)
+    await h.controller.runCommandForResult("todo.steer", "T10 Keep whitespace")
+    await h.controller.submitCommand({ name: "todo.steer", actor: "user", payload: { n: 10, text: "A second steer" }, display: JSON.stringify({ n: 10, text: "A second steer" }) })
+    await waitFor(() => steers()?.length === 2)
+    expect(steers()).toEqual(["Keep whitespace", "A second steer"])
+    expect(h.mutations).toEqual([])
     await h.controller.runCommandForResult("todo.new", "A prompt")
     const draft = [...h.store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
     await h.controller.submitCommand({ name: "form.set", actor: "user", payload: { cardId: draft.id, field: "prompt", value: "Changed\nverbatim" }, display: `${draft.id} prompt Changed\nverbatim` })
     expect((h.store.collections.cards.get(draft.id) as DraftEntry).payload.prompt).toBe("Changed\nverbatim")
   } finally { h.controller.dispose() }
+})
+test("signed out, the Draft's Commit input commits through todo.new {cardId} and opens the new TODO (mock seam)", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, unavailable, { fetchImpl: async () => new Response("{}", { status: 404 }) })
+  try {
+    expect(store.collections.identitySessions.get("identity")?.state).not.toBe("signed-in")
+    expect((await controller.runCommandForResult("todo.new")).status).toBe("executed")
+    const draft = [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
+    for (const [field, value] of [["title", "Log retry counts"], ["prompt", "Count retries per webhook."]] as const)
+      await controller.submitCommand({ name: "form.set", actor: "user", payload: { cardId: draft.id, field, value }, display: `${field} ${value}` })
+    /* The Commit button's input (DraftContainer): optional keys absent, never `undefined`. */
+    const result = await controller.submitCommand({ name: "todo.new", actor: "user", display: "Commit",
+      payload: { cardId: draft.id, idempotencyKey: draft.payload.idempotencyKey, text: "Count retries per webhook.", title: "Log retry counts", acceptance: [] } })
+    expect(result).toMatchObject({ status: "executed", value: "Committed as T12" })
+    expect(controller.design.world().todos.find(each => each.ref === "T12")?.title).toBe("Log retry counts")
+    expect(store.collections.cards.get("todo:12")?.payload).toEqual({ n: 12, requests: [] })
+    expect((store.collections.cards.get(draft.id) as DraftEntry).payload.committed).toEqual({ n: 12, rev: 1 })
+    expect(await controller.submitCommand({ name: "todo.new", actor: "user", display: "Commit", payload: { cardId: draft.id, text: "x", before: undefined } }))
+      .toMatchObject({ status: "failed" })
+  } finally { controller.dispose() }
 })
 test("TODO grammar and schema retain JSON whitespace, reject invalid numbers and keep missing fields", () => {
   const parse = todoGrammar("answer")
@@ -125,8 +151,10 @@ test("Retry with the current flow is an agent-invocable card control with its st
     expect(entry.metadata.hidden).toBe(true)
     expect(entry.metadata.discloseToAgent).toBe(true)
     expect(modelInvocable(entry)).toBe(true)
-    await h.controller.runCommandForResult("todo.retry-current-flow", JSON.stringify({ n: 12, text: " First\nmessage " }))
-    await waitFor(() => h.mutations.length === 1)
-    expect(h.mutations).toEqual([{ path: "/api/todos/12", body: { op: "retry-current-flow", steer: " First\nmessage " } }])
+    /* MOCK SEAM: while the design seed is mounted the control lands on its T10, stopped first, not on /api/todos. */
+    await h.controller.runCommandForResult("todo.stop", "T10")
+    expect(await h.controller.runCommandForResult("todo.retry-current-flow", JSON.stringify({ n: 10, text: " First\nmessage " })))
+      .toMatchObject({ status: "executed", value: "Retrying T10 · attempt 2" })
+    expect(h.mutations).toEqual([])
   } finally { h.controller.dispose() }
 })

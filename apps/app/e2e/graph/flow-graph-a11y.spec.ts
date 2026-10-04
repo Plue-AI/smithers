@@ -255,7 +255,7 @@ test.describe("the graph, to a reader who is not looking at it", () => {
           .toBe(palette)
         const current = await page.evaluate(() => document.documentElement.getAttribute("data-theme") ?? "light")
         if (current !== mode) {
-          await runFlow(page, "/appearance.dark-mode")
+          await runFlow(page, "/theme")
           await expect
             .poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme") ?? "light"))
             .toBe(mode)

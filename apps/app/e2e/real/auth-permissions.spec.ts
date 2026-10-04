@@ -83,7 +83,7 @@ test("a signed-out required action parks behind its durable sign-in step", scena
   const refusal = page.locator(".smithers-chat-message").filter({
     has: page.getByText(/^Sign in(?: with GitHub)? to show your balance\.$/)
   }).last()
-  const signIn = refusal.locator('button[data-flow="auth.sign-in"]')
+  const signIn = refusal.locator('button[data-flow="sign-in"]')
   await expect(refusal).toBeVisible()
   await expect(signIn).toBeVisible()
 
@@ -118,7 +118,7 @@ test("a signed-out browser gets the same concealed response as an unknown admin 
 
 test("GitHub sign-in advertises a callback on the initiating origin", scenario("auth.oauth-callback-origin", {
   capabilities: ["identity"],
-  coverage: ["action:auth.sign-in", "host:production", "path:success", "door:user-only",
+  coverage: ["action:sign-in", "host:production", "path:success", "door:user-only",
     "dimension:oauth-callback-origin", "evidence:provider-callback-origin"],
   description: "The deployed sign-in route must bind GitHub's callback to the browser origin before authentication."
 }), async ({ request }, testInfo) => {
@@ -140,7 +140,7 @@ test("GitHub sign-in advertises a callback on the initiating origin", scenario("
 test("an unsafe absolute OAuth return destination is discarded before GitHub", scenario("auth.oauth-unsafe-return-to-rejected", {
   capabilities: ["identity"],
   coverage: [
-    "action:auth.sign-in", "host:production", "path:permission", "door:user-only",
+    "action:sign-in", "host:production", "path:permission", "door:user-only",
     "dimension:unsafe-return-to-rejected", "evidence:provider-navigation-and-absent-return-cookie"
   ],
   description: "The real OAuth start route reaches GitHub but neither follows nor stores an attacker-controlled absolute return destination."
@@ -166,7 +166,7 @@ test("an unsafe absolute OAuth return destination is discarded before GitHub", s
 authenticatedTest("GitHub OAuth stays on the original repository and resumes the parked action", scenario("auth.oauth-return-to-deferred-resume", {
   capabilities: ["identity"],
   coverage: [
-    "action:auth.sign-in", "action:auth.prompt", "action:billing.balance", "host:production",
+    "action:sign-in", "action:auth.prompt", "action:billing.balance", "host:production",
     "path:success", "path:permission", "path:persistence", "door:slash", "door:button", "door:user-only",
     "dimension:github-oauth-return-to", "dimension:deferred-action-resume", "evidence:session-api-and-balance-card"
   ],
@@ -181,7 +181,7 @@ authenticatedTest("GitHub OAuth stays on the original repository and resumes the
   await appReady(page, 60_000)
   await openComposer(page)
   await command(page, "/billing.balance")
-  const signIn = page.locator('button[data-flow="auth.sign-in"]:visible').last()
+  const signIn = page.locator('button[data-flow="sign-in"]:visible').last()
   await expect(signIn).toBeVisible()
   const opened = context.waitForEvent("page")
   await signIn.click()
@@ -226,7 +226,7 @@ authenticatedTest("the saved admin identity can open devtools and survives a pag
   expect(await afterNavigation.json()).toEqual(expectedWireSession)
   // A boot skeleton shows no sign-in door either, so boot before reading its absence.
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.locator('[data-flow="auth.sign-in"]:visible')).toHaveCount(0)
+  await expect(page.locator('[data-flow="sign-in"]:visible')).toHaveCount(0)
 
   await openComposer(page)
   await command(page, "/admin.devtools")
@@ -286,7 +286,7 @@ authenticatedTest("authenticated cookies survive the canonical document and boot
 authenticatedTest("sign-out clears the real session and a real OAuth round trip restores it", scenario("auth.sign-out-reauth-restart", {
   capabilities: ["identity"],
   coverage: [
-    "action:account.show", "action:auth.sign-out", "action:auth.sign-in", "host:production", "path:success",
+    "action:account.show", "action:sign-out", "action:sign-in", "host:production", "path:success",
     "path:persistence", "door:slash", "door:button", "door:user-only", "dimension:logout-reauth-restart",
     "evidence:session-api-account-card-and-reload"
   ],
@@ -300,12 +300,12 @@ authenticatedTest("sign-out clears the real session and a real OAuth round trip 
   const account = page.locator('.smithers-card[data-kind="account"]')
   await expect(account).toBeVisible()
   await expect(account.getByTestId("account-login")).toContainText("@codeplanesmithers")
-  await account.locator('[data-flow="auth.sign-out"]').click()
+  await account.locator('[data-flow="sign-out"]').click()
 
   await expect.poll(() => readAuthenticatedSession(page)).toBeUndefined()
   await expect(page.locator('.smithers-card[data-kind="account"]')).toHaveCount(0)
   await reloadApp(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(page.locator('button[data-flow="sign-in"]:visible').last()).toBeVisible()
   expect(await readAuthenticatedSession(page)).toBeUndefined()
 
   const restored = await restoreAuthenticatedSession(page, baseURL)
@@ -345,7 +345,7 @@ ordinaryTest("an ordinary account is denied by both the admin UI and server rout
 ordinaryTest("signing out one real user does not alter another user's live session", scenario("auth.cross-user-session-isolation", {
   capabilities: ["identity"],
   coverage: [
-    "action:auth.sign-out", "action:account.show", "host:production", "path:permission", "path:persistence",
+    "action:sign-out", "action:account.show", "host:production", "path:permission", "path:persistence",
     "door:button", "dimension:cross-user-cookie-isolation", "evidence:two-profile-session-api-readback"
   ],
   description: "Two independently provisioned persistent profiles hold distinct live sessions; signing the ordinary one out leaves the admin session unchanged."
@@ -363,7 +363,7 @@ ordinaryTest("signing out one real user does not alter another user's live sessi
     await openApp(page)
     await openComposer(page)
     await command(page, "/account.show")
-    await page.locator('.smithers-card[data-kind="account"] [data-flow="auth.sign-out"]').click()
+    await page.locator('.smithers-card[data-kind="account"] [data-flow="sign-out"]').click()
     await expect.poll(() => readAuthenticatedSession(page)).toBeUndefined()
     expect(await readAuthenticatedSession(admin.page)).toEqual(admin.session)
   } finally {

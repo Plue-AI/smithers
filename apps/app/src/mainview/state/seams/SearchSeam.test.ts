@@ -242,17 +242,17 @@ describe("§4 signed-out scope", () => {
 
   test("signed out, the flows a bare query lists are only the ones that work signed out", async () => {
     const { controller } = await ready()
-    // Signed out, auth.sign-in is the exclusive recommendation, so it leads in Recommended rather than Flows.
+    // Signed out, sign-in is the exclusive recommendation, so it leads in Recommended rather than Flows.
     const answer = controller.searchPalette("sign")
     const names = answer.groups.flatMap((group) => group.items.map((row) => row.item.ref))
     expect(answer.groups[0]?.label).toBe("Recommended")
-    expect(names).toContain("auth.sign-in")
-    expect(names).not.toContain("auth.sign-out")
+    expect(names).toContain("sign-in")
+    expect(names).not.toContain("sign-out")
   })
 
   test("Enter on a signed-in-only search defers through sign-in: the flow parks on the requirement", async () => {
     const { store, controller } = await ready()
-    // The outcome is the fulfilling flow's (auth.sign-in ran in its place); the search itself parks on the session row.
+    // The outcome is the fulfilling flow's (sign-in ran in its place); the search itself parks on the session row.
     await controller.commands.run("search.secrets", "main")
     expect(store.session().pendingCommand).toMatchObject({ name: "search.secrets", args: "main", requirement: "signed-in" })
   })
@@ -295,17 +295,17 @@ describe("§6 the flow doors", () => {
     expect(store.collections.cards.get("search-search.files")).toBeUndefined()
   })
 
-  test("search.open without a query answers the pills and recents; --kinds narrows", async () => {
+  test("search without a query answers the pills and recents; --kinds narrows", async () => {
     const { store, controller } = await ready()
     await seed(store)
-    const all = await controller.commands.run("search.open", "redact")
+    const all = await controller.commands.run("search", "redact")
     expect(all.status).toBe("executed")
-    const narrowed = await controller.commands.run("search.open", "redact --kinds issue")
+    const narrowed = await controller.commands.run("search", "redact --kinds issue")
     expect(narrowed.status).toBe("executed")
     if (narrowed.status !== "executed") return
     const value = JSON.parse(narrowed.value ?? "{}") as { items: Array<{ kind: string }> }
     expect(value.items.map((item) => item.kind)).toEqual(["issue"])
-    expect(resultsCard(store, "search.open").payload.items.map((item) => item.kind)).toEqual(["issue"])
+    expect(resultsCard(store, "search").payload.items.map((item) => item.kind)).toEqual(["issue"])
   })
 
   test("search.runs, search.changes and search.issues read their seams' rows", async () => {
@@ -695,8 +695,8 @@ test("bare search excludes Cut targets and boxes while retaining files, issues a
     const palette = controller.searchPalette("cut-match")
     expect(palette.groups.map(group => group.label)).toEqual(expect.arrayContaining(["Files", "Issues", "Notes"]))
     expect(palette.groups.flatMap(group => group.items.map(row => row.item.kind)).filter(kind => kind === "target" || kind === "box")).toEqual([])
-    expect(await controller.commands.run("search.open", "cut-match")).toMatchObject({ status: "executed" })
-    const items = resultsCard(store, "search.open").payload.items
+    expect(await controller.commands.run("search", "cut-match")).toMatchObject({ status: "executed" })
+    const items = resultsCard(store, "search").payload.items
     expect(items.map(item => item.kind)).toEqual(expect.arrayContaining(["file", "issue", "note"]))
     expect(items.filter(item => item.kind === "target" || item.kind === "box")).toEqual([])
   } finally { await controller.dispose(); await store.dispose?.() }

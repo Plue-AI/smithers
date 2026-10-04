@@ -351,7 +351,7 @@ const numberedChangeRef = (name: string, field: string, what: string, args: stri
 }
 
 const GRAMMAR: Readonly<Record<string, Grammar>> = {
-  "appearance.dark-mode": (args) => {
+  "theme": (args) => {
     const mode = trimmed(args).toLowerCase()
     return mode === "" ? NONE : mode === "light" || mode === "dark" ? ok({ mode }) : no("dark-mode takes light or dark")
   },
@@ -359,8 +359,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "chat.queue.edit": args => required("id", args, "Choose a queued prompt"),
   "chat.queue.remove": args => required("id", args, "Choose a queued prompt"),
   "chat.send": (args) => required("text", args, "send needs the text to submit"),
-  "chat.filter.toggle": (args) => required("target", args, "Choose a filter target"),
-  "chat.filter.grep": (args) => ok({ text: args ?? "" }),
   "browser.open": (args) => required("url", args, "browser needs a URL: /browser.open https://example.com"),
   /*
    * The description keeps the trailing `owner/repo` token: createWorkflow
@@ -758,10 +756,10 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   /*
    * The palette flows (Search and Command Palette Spec 2026-09-07 §6): the
    * whole line is the query, qualifiers included (`deploy status:failed`);
-   * the seam reads them in the mode's own grammar. Only search.open takes
+   * the seam reads them in the mode's own grammar. Only search takes
    * a flag, `--kinds a,b`, and only it may run with no query at all.
    */
-  "search.open": (args) => {
+  "search": (args) => {
     const tokens = tokensOf(args)
     const at = tokens.indexOf("--kinds")
     const kinds = at === -1 ? undefined : tokens[at + 1]

@@ -61,7 +61,7 @@ const signedIn = typeof sessionProbe.body === "object" &&
 
 if (!signedIn) {
   // Drive the real OAuth: the sign-in action rides the opening message.
-  const signIn = page.locator("[data-flow=\"auth.sign-in\"]").first()
+  const signIn = page.locator("[data-flow=\"sign-in\"]").first()
   await signIn.click()
   await page.waitForURL(/canary\.smithers\.sh|github\.com/, { timeout: 30_000 })
   // GitHub may ask to authorize the OAuth app once; approve if it does.

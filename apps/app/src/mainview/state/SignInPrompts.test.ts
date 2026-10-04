@@ -49,7 +49,7 @@ for (const producer of producers) {
     else if (producer === "chat gate") h.controller.send("Keep this draft")
     else if (producer === "requirement") await h.controller.commands.run("secrets.list", "smithersai/smithers")
     await settle()
-    const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "auth.sign-in")
+    const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "sign-in")
     expect(prompt).toBeDefined()
     // The transcript prompt owns sign-in; parking a command adds no duplicate toast.
     expect(h.store.collections.toasts.get("toast-command.requirement")).toBeUndefined()
@@ -60,7 +60,7 @@ for (const producer of producers) {
     const answered = h.store.collections.messages.get(prompt!.id)
     expect(answered?.action).toBeUndefined()
     expect(answered).toMatchObject({ id: prompt!.id, text: prompt!.text, ordinal: prompt!.ordinal, createdAt: prompt!.createdAt,
-      answeredAction: { flow: "auth.sign-in", answer: "Signed in with GitHub as @codeplanesmithers." } })
+      answeredAction: { flow: "sign-in", answer: "Signed in with GitHub as @codeplanesmithers." } })
     expect(h.store.collections.toasts.get("toast-command.requirement")).toBeUndefined()
     if (producer === "requirement") {
       // Continuing the parked act has its own observation; the original prompt keeps its answer.
@@ -79,7 +79,7 @@ for (const web of [true, false]) {
     const h = await setup(web)
     await h.controller.commands.runForAgent("cloud.prompt")
     const prompt = [...h.store.collections.messages.values()].at(-1)!
-    expect(prompt.action?.flow).toBe(web ? "auth.sign-in" : "cloud.sign-in")
+    expect(prompt.action?.flow).toBe(web ? "sign-in" : "cloud.sign-in")
     await h.signIn()
     expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
     await h.cloud("degraded")
@@ -93,7 +93,7 @@ for (const web of [true, false]) {
   })
 }
 
-for (const flow of ["auth.sign-in", "cloud.sign-in"] as const) {
+for (const flow of ["sign-in", "cloud.sign-in"] as const) {
   test(`failure toast with ${flow} answers without claiming the failed command succeeded`, async () => {
     const h = await setup(false)
     const ctx = createControllerContext(h.store, unavailableAgent, {})
@@ -102,7 +102,7 @@ for (const flow of ["auth.sign-in", "cloud.sign-in"] as const) {
       createFailureController(ctx).surfaceCommandFailure("test.read", { status: "failed", error: `Sign in first — /${flow}.` })
       const before = h.store.collections.toasts.get("toast-command.failed.test.read")!
       expect(before.action?.flow).toBe(flow)
-      if (flow === "auth.sign-in") await h.signIn()
+      if (flow === "sign-in") await h.signIn()
       else await h.cloud("signed-in")
       const after = h.store.collections.toasts.get(before.id)!
       expect(after.action).toBeUndefined()
@@ -118,7 +118,7 @@ test("an OAuth reload answers legacy persisted prompts; the answer survives the 
   h.controller.promptSignIn()
   const prompt = [...h.store.collections.messages.values()].at(-1)!
   // This producer has the old action shape: no requirement or completion metadata.
-  expect(prompt.action).toEqual({ flow: "auth.sign-in", label: "Sign in with GitHub" })
+  expect(prompt.action).toEqual({ flow: "sign-in", label: "Sign in with GitHub" })
   await h.store.settled?.()
   await h.controller.dispose()
   await settle()
@@ -160,7 +160,7 @@ test("an owner backend names its credential door without promising GitHub", asyn
 
   expect([...store.collections.messages.values()].at(-1)).toMatchObject({
     text: "Sign in to continue.",
-    action: { flow: "auth.sign-in", label: "Sign in" }
+    action: { flow: "sign-in", label: "Sign in" }
   })
 })
 
@@ -200,7 +200,7 @@ test("the web-Plue session uses the selected backend identity and canonical OAut
   })
   try {
     await controller.loadSession()
-    await controller.commands.run("auth.sign-in")
+    await controller.commands.run("sign-in")
     await settle()
 
     expect(assigned).toEqual(["/api/auth/github?return_to=%2F%3Fsigned-in%3Dgithub"])
@@ -245,7 +245,7 @@ for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow
   })
   try {
     await controller.adoptSession(signedOut)
-    await controller.commands.run("auth.sign-in")
+    await controller.commands.run("sign-in")
     for (let i = 0; i < 100 && store.collections.identitySessions.get("identity")?.state !== "signed-in"; i++) await settle()
     expect(localStatusReads).toBe(0)
     expect(controller.identityProvider).toBe("github")
@@ -297,7 +297,7 @@ test("a signed-out Cloud session on web still offers reauthentication when GitHu
   await h.signIn()
   await h.cloud("signed-out")
   await h.controller.commands.runForAgent("cloud.prompt")
-  const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "auth.sign-in")
+  const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "sign-in")
   expect(prompt).toBeDefined()
   await h.cloud("signed-in")
   expect(h.store.collections.messages.get(prompt!.id)?.action).toBeUndefined()

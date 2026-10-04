@@ -2,7 +2,7 @@
  * Will's rule, pinned: "Every workflow in the / command menu is meant to be
  * available as a tool call to the agent." A flow listed to the human and
  * refused to the model is the dark-mode bug of 2026-08-31 — the agent said
- * "I don't have a command to toggle the theme" while /appearance.dark-mode
+ * "I don't have a command to toggle the theme" while /theme
  * sat in the menu. The ONLY listed flows allowed to stay user-only are the
  * enumerated USER_ONLY_VISIBLE set, each with a structural reason.
  */
@@ -91,7 +91,7 @@ describe("every listed flow is a tool call", () => {
   test("the model toggles dark mode — the reported bug", async () => {
     const { controller, store } = await freshController(EVERYTHING)
     const before = store.session().theme
-    const outcome = await controller.commands.runForAgent("appearance.dark-mode")
+    const outcome = await controller.commands.runForAgent("theme")
     expect(outcome.status).toBe("executed")
     expect(store.session().theme).not.toBe(before)
     const palette = await controller.commands.runForAgent("appearance.theme", "paper")
@@ -105,18 +105,18 @@ describe("every listed flow is a tool call", () => {
     for (const from of ["light", "dark"] as const) {
       for (const mode of ["light", "dark"] as const) {
         start(from)
-        expect((await controller.commands.runForAgent("appearance.dark-mode", mode)).status).toBe("executed")
+        expect((await controller.commands.runForAgent("theme", mode)).status).toBe("executed")
         expect(`${from} -> ${mode}: ${store.session().theme}`).toBe(`${from} -> ${mode}: ${mode}`)
       }
       start(from)
-      expect((await controller.commands.runForAgent("appearance.dark-mode")).status).toBe("executed")
+      expect((await controller.commands.runForAgent("theme")).status).toBe("executed")
       expect(store.session().theme).toBe(from === "light" ? "dark" : "light")
     }
     // The grammar is case-insensitive; anything but a mode asks for the mode (THE FORM LAW) and changes nothing.
     start("light")
-    expect((await controller.commands.runForAgent("appearance.dark-mode", " DARK ")).status).toBe("executed")
+    expect((await controller.commands.runForAgent("theme", " DARK ")).status).toBe("executed")
     expect(store.session().theme).toBe("dark")
-    const refused = await controller.commands.runForAgent("appearance.dark-mode", "dim")
+    const refused = await controller.commands.runForAgent("theme", "dim")
     expect(refused.status).toBe("form")
     expect(store.session().theme).toBe("dark")
   })

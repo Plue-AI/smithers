@@ -208,7 +208,7 @@ describe("identity session record", () => {
       entry.text.includes("GitHub sign-in didn't finish")
     )
     expect(message?.role).toBe("smithers")
-    expect(message?.action).toEqual({ flow: "auth.sign-in", label: "Try sign-in again" })
+    expect(message?.action).toEqual({ flow: "sign-in", label: "Try sign-in again" })
     expect(controller.handleAuthReturn("")).toBe(false)
     expect(controller.handleAuthReturn("?theme=dark")).toBe(false)
   })

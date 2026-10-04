@@ -12,7 +12,8 @@ export function SettingsView({ model, actions, onAction }: SettingsViewProps) {
   const rowFor = (action: Action) => action.tag === "settings.model.set" ? `model:${action.args?.role}`
     : action.tag === "github" ? "health"
     : action.tag === "docs" && action.args?.page === "quickstart#put-https-in-front" ? "notifications"
-    : action.tag === "settings" ? action.args?.step === "address" ? "address" : action.args?.field : undefined
+    : action.tag === "settings" ? action.args?.step === "address" ? "address" : action.args?.field
+    : action.tag === "settings.address" || action.tag === "settings.capacity" || action.tag === "settings.parallel" ? action.args?.field : undefined
   const rowActions = (row: string, value?: number | string) => actions.filter(action => rowFor(action) === row).map(action => ({
     ...action, label: row === "obsidian" ? "Change" : action.label,
     input: action.input?.map(field => value === undefined ? field : { ...field, value: String(value) })

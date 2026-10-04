@@ -89,7 +89,7 @@ test("a signed-out Wiki slash door asks for sign-in after real HTTP401 and mutat
     expect(t.requests.some(request => request.path === "/api/user")).toBe(true)
     expect(await t.controller.commands.run("wiki.create", repo)).toMatchObject({ status: "executed" })
     expect(t.store.collections.cards.get("form-wiki.create")).toBeUndefined()
-    expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in" && message.text === "Sign in to continue.")).toBe(true)
+    expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "sign-in" && message.text === "Sign in to continue.")).toBe(true)
     expect(t.requests.filter(request => !["GET", "HEAD"].includes(request.method))).toEqual([])
     expect(t.store.collections.worldDocuments.size).toBe(0)
     expect(t.store.session().wikiRequests ?? []).toEqual([])
@@ -106,7 +106,7 @@ test("the existing signed-out Create Wiki button retains the sign-in prerequisit
     expect(button?.textContent).toBe("Create Wiki")
     expect(await t.controller.commands.run(button!.dataset.flow!, button!.dataset.flowArgs)).toMatchObject({ status: "executed" })
     expect(t.store.collections.cards.get("form-wiki.create")).toBeUndefined()
-    expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in" && message.text === "Sign in to continue.")).toBe(true)
+    expect([...t.store.collections.messages.values()].some(message => message.action?.flow === "sign-in" && message.text === "Sign in to continue.")).toBe(true)
     expect(t.requests.filter(request => !["GET", "HEAD"].includes(request.method))).toEqual([])
   } finally { await t.close() }
 })

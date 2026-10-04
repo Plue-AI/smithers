@@ -119,6 +119,7 @@ export {
   MessageScrollerButton,
   useMessageScroller,
   useMessageVisibility,
+  useMessageBand,
   useMessageScrollerState,
   type MessageScrollerCommands,
   type MessageScrollerProviderProps,

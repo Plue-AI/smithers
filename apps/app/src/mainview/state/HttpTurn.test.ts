@@ -499,7 +499,7 @@ test("HTTP Stop cancellation settles before an explicit retry can POST the same 
   const controller = controllerFor(store, { ...remote.agent, cancelTurn: async () => { cancellations++; await held } })
   controller.send("Hello")
   await until(() => remote.starts.length === 1)
-  await controller.commands.run("chat.stop")
+  await controller.commands.run("stop")
   await until(() => cancellations === 1)
   await controller.commands.run("chat.retry")
   await store.settled?.()
@@ -591,7 +591,7 @@ test("Stop still settles a turn whose batch and ambiguity writes both failed, on
   await store.settled?.()
   expect(store.session().phase).toBe("responding")
   fail = false
-  await controller.commands.run("chat.stop")
+  await controller.commands.run("stop")
   await until(() => store.session().phase === "idle")
   expect([...store.collections.httpTurns.values()][0]?.status).toBe("cancelled")
   expect(await controller.send("Again")).toBe(true)

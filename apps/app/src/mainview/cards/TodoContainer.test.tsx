@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test"
+import { act } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
-import { TodoContainer, type TodoViewProps } from "./TodoContainer"
+import { TodoContainer, todoCardFamily, type TodoViewProps } from "./TodoContainer"
 import type { TodoEntry } from "../state/seams/TodoSeam"
+import { TodoView } from "./views/TodoView"
+import { ControllerTestProvider } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
+import { BEN, createDesignWorld } from "../state/seams/DesignWorld"
+import { createRoot } from "./views/testDom"
 
 const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maintainer", answerDraft?: string) => {
   let props!: TodoViewProps
@@ -85,9 +91,11 @@ describe("TODO Container", () => {
     expect(failed.dispatches).toEqual([{ tag: "todo.retry", input: { n: 12, text: "Use the schema" } }])
     expect(mount(fixtures.failed_permanent.model).props.actions.some(action => action.tag === "todo.retry")).toBe(false)
     const h = mount(fixtures.merged.model)
-    expect(h.props.actions.map(action => action.tag)).toEqual(["branch"])
+    expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "run.inspect"])
     h.props.onAction("todo.drop")
     expect(h.dispatches).toEqual([])
+    h.props.onAction("run.inspect")
+    expect(h.dispatches).toEqual([{ tag: "run.inspect", input: { id: fixtures.merged.model.run!.id } }])
   })
 })
 
@@ -96,7 +104,9 @@ test("independent answer waits dispatch their own IDs even after another answer"
   const approval = fixtures.approval.model.waits[0]!
   const model: TodoCard = { ...fixtures.late_answer.model, waits: [question, approval] }
   const h = mount(model)
-  const actions = h.props.actions.filter(action => action.tag === "todo.answer")
+  // Each wait renders its own Answer; the card's actions row never repeats it.
+  expect(h.props.actions.some(action => action.tag === "todo.answer")).toBe(false)
+  const actions = h.props.model.waits.flatMap(wait => wait.actions.filter(action => action.tag === "todo.answer"))
   expect(actions).toHaveLength(2)
   expect(actions[1]!.input?.[0]?.choices).toEqual(["Approve", "Deny"])
   for (const action of actions) h.props.onAction(action.tag, { ...action.args, answer: "Yes" })
@@ -104,7 +114,39 @@ test("independent answer waits dispatch their own IDs even after another answer"
     { tag: "todo.answer", input: { n: 12, wait: question.id, answer: "Yes" } },
     { tag: "todo.answer", input: { n: 12, wait: approval.id, answer: "Yes" } }
   ])
-  expect(mount(model, "member", "Late text").props.actions.filter(action => action.tag === "todo.answer")).toHaveLength(2)
+  const late = mount(model, "member", "Late text")
+  for (const action of actions) late.props.onAction(action.tag, { ...action.args, answer: "Yes" })
+  expect(late.dispatches.map(each => each.tag)).toEqual(["todo.answer", "todo.answer"])
+})
+test("one actions row: Open branch, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
+  const model = { ...fixtures.needs_you.model, first_answer: undefined }
+  const h = mount(model)
+  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "run.inspect", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.every(action => action.input === undefined)).toBe(true)
+  h.props.onAction("todo.steer")
+  h.props.onAction("todo.amend")
+  expect(h.dispatches).toEqual([{ tag: "todo.steer", input: { n: 12, text: "" } }, { tag: "todo.amend", input: { n: 12, text: "" } }])
+  const markup = renderToStaticMarkup(<TodoContainer card={{ id: "todo:12", kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1,
+    payload: { n: 12, model, requests: [] } }} role="maintainer" View={TodoView} view={{ maximized: false }} onView={() => {}} dispatch={() => {}} />)
+  expect([...markup.matchAll(/<form[^>]*data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["todo.answer"])
+  expect(markup.match(/<textarea/g)).toHaveLength(1)
+})
+test("on a mounted TODO card, Steer and Amend open Chat on the flow's line instead of running it", async () => {
+  const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: BEN })
+  const calls: string[] = []
+  const stub = { design,
+    changeDraft: (draft: string) => { calls.push(`draft ${draft}`) },
+    runCommand: (name: string) => { calls.push(`run ${name}`); return true },
+    commands: { submit: (submission: { name: string }) => { calls.push(`submit ${submission.name}`); return Promise.resolve({ status: "executed" }) } } }
+  const card = { id: "todo:9", kind: "todo", title: "T9", status: "active", createdAt: 1, ordinal: 1, payload: { n: 9, requests: [] } } as unknown as Parameters<typeof todoCardFamily.todo.render>[0]
+  const host = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={stub as unknown as AppController}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>))
+    expect(host.querySelectorAll("form textarea, form input")).toHaveLength(1)
+    for (const flow of ["todo.steer", "todo.amend", "todo.drop"]) await act(async () => host.querySelector<HTMLElement>(`.todo-actions > button[data-flow="${flow}"]`)!.click())
+    expect(calls).toEqual(["draft /todo.steer T9 ", "run chat.open", "draft /todo.amend T9 ", "run chat.open", "submit todo.drop"])
+  } finally { await act(async () => root.unmount()); host.remove() }
 })
 test("passing checks from an earlier head cannot enable Merge", () => {
   const h = mount({ ...fixtures.in_review.model, pr: { ...fixtures.in_review.model.pr!, head: "new-head" } })

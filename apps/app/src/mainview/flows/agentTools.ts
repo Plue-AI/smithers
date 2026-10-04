@@ -66,11 +66,11 @@ export const agentVisibleCatalog = (
  * A flow that stops being user-only leaves this table (.specs/engineering/spec.md §6.1).
  */
 const USER_ONLY_ALTERNATIVES: Readonly<Record<string, string>> = {
-  "auth.sign-in": "invoke auth.prompt, which renders that button in the chat",
+  "sign-in": "invoke auth.prompt, which renders that button in the chat",
   "cloud.sign-in": "invoke cloud.prompt, which renders that button in the chat",
   "chat.send": "answer with text instead",
   "card.maximize": "your invocation of a surface flow renders the embedded card",
-  "palette.open": "invoke a search.* flow (search.open, search.files, search.flows, …), which answers the same rows as data"
+  "palette.open": "invoke a search.* flow (search, search.files, search.flows, …), which answers the same rows as data"
 }
 
 /**

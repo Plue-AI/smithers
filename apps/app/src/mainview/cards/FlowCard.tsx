@@ -5,7 +5,7 @@ import { Button, Markdown } from "@smthrs/ui"
 import { useId, useState, type KeyboardEvent } from "react"
 import type { Card } from "../state/AppState"
 import { rovingKeyDown } from "../RovingKeyDown"
-import type { CardFamily, RunCommand } from "./CardFamily"
+import type { CardFamily, CardOf, RunCommand } from "./CardFamily"
 import { defaultPill, settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
 import type { ComponentType } from "react"
@@ -13,6 +13,9 @@ import { type FlowCard as FlowModel, type FlowViewProps } from "@smthrs/rpc/Flow
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { FlowView } from "./views/FlowView"
+import { useController } from "../ControllerContext"
+import { useDesignWorld } from "../state/seams/DesignWorld/hooks"
+import { flowCardOf } from "../state/seams/DesignWorld/run"
 
 export interface FlowCardProps {
   /** Versioned flows projection supplied by the topic adapter when T-FLW-03 lands. */
@@ -124,7 +127,7 @@ export const WorkflowListCardBody = ({
   return (
     <div>
       {issueContext ? <p className="smithers-card-note">Issue #{issueContext.number} · {issueContext.title}</p> : null}
-      {workflows.length === 0 ? <p className="smithers-card-note">No flows on this workspace yet.</p> : null}
+      {workflows.length === 0 ? <p className="smithers-card-note">No flows yet</p> : null}
       <ul className="workflow-list">
         {workflows.map((workflow) => (
           <li key={workflow.key} className="workflow-list-row">
@@ -155,4 +158,24 @@ export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> =
     render: (card, actions) => <WorkflowListCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: settledPill
   }
+}
+
+/*
+ * The `flow` kind (card-kinds.md L5, T-APP-05): the card names its flow; this
+ * reads the model. MOCK: from the seeded design world (state/seams/DesignWorld/
+ * run.ts) until topic `flows` lands. Source and Edit are the design seam's
+ * presses; Plan and Run arrive with the cloud flow catalog.
+ */
+const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit"])
+const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly maximized: boolean }) => {
+  const controller = useController()
+  const world = useDesignWorld()
+  const model = flowCardOf(world, card.payload.name)
+  const dispatch: CardCommandDispatch = (tag, input) =>
+    controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
+  return <FlowCard model={model} system={model !== undefined && "builtin" in model.source} allowed={DESIGN_FLOW_ACTIONS} dispatch={dispatch}
+    view={{ maximized }} onView={() => {}} />
+}
+export const flowCardFamily: CardFamily<"flow"> = {
+  flow: { render: (card, actions) => <FlowBody card={card} maximized={actions.presentation === "maximized"} />, pill: () => "" }
 }

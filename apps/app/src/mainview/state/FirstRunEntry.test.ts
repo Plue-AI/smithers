@@ -29,7 +29,7 @@ test("a bare repository command during first-run selection parks instead of aski
     await until(() => store.session().pendingCommand?.requirement === "repo-source")
     expect(forms()).toEqual([])
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue-list")).toHaveLength(0)
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
   } finally { await controller.dispose() }
 })
 
@@ -109,7 +109,7 @@ test("a first-run-target park resumes exactly once when the selection settles", 
     selectFirstRunRepository(store, controller.settleFirstRunTarget)
     await until(() => store.session().pendingCommand?.requirement === "repo-source")
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue-list")).toHaveLength(0)
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
   } finally { await controller.dispose() }
 })
 
@@ -147,7 +147,7 @@ test("a command issued after signed-out but before the selection settles parks a
     await until(() => store.session().pendingCommand?.requirement === "repo-source")
     expect(forms()).toEqual([])
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue-list")).toHaveLength(0)
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
   } finally { await controller.dispose() }
 })
 
@@ -186,7 +186,7 @@ test("a signed-out visitor's issues door offers sign-in and nothing to fill in",
     await controller.commands.run("issues.list")
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(forms()).toEqual([])
-    expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
     expect(store.session().pendingCommand).toMatchObject({ name: "issues.list", requirement: "repo-source" })
   } finally { await controller.dispose() }
 })

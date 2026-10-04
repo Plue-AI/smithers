@@ -32,10 +32,10 @@ describe("anonymous tutorial chat", () => {
 
   test("commands still execute while signed out", async () => {
     const { controller, store, requests } = await setup()
-    controller.send("/chat.commands")
+    controller.send("/help")
     await settled()
     expect(requests).toHaveLength(0)
-    expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(false)
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(false)
     expect(store.session().draft).toBe("")
   })
 
@@ -68,7 +68,7 @@ describe("anonymous tutorial chat", () => {
     expect(store.session().phase).toBe("idle")
     expect(store.session().draft).toBe(newerDraft ? "My next thought" : question)
     expect([...store.collections.messages.values()].some(message => message.status === "failed")).toBe(false)
-    expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
   })
 })
 
@@ -85,7 +85,7 @@ for (const mode of ["github", "bearer"] as const) {
     await settled()
     expect(requests).toHaveLength(0)
     expect(store.session().draft).toBe(question)
-    const prompt = [...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").at(-1)
+    const prompt = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").at(-1)
     const label = mode === "github" ? "Sign in with GitHub" : "Sign in"
     expect(prompt).toMatchObject({ text: `${label} to send this message.`, action: { label } })
     await controller.dispose()
@@ -107,8 +107,8 @@ for (const mode of ["owner", "bearer", "github"] as const) for (const journal of
     await waitFor(() => requests.length === 1)
     if (newerDraft) await store.dispatch({ type: "composer.changed", actor: "user", draft: "My next thought" }).isPersisted.promise
     refuse({ status: "error", message: "Sign in to continue.", refusal: { code: "sign_in_required", message: "Sign in to continue.", retryAt: null } })
-    await waitFor(() => [...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in"))
-    const prompt = [...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in").at(-1)
+    await waitFor(() => [...store.collections.messages.values()].some(message => message.action?.flow === "sign-in"))
+    const prompt = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").at(-1)
     const label = mode === "github" ? "Sign in with GitHub" : "Sign in"
     expect(prompt).toMatchObject({ text: `${label} to send this message.`, action: { label } })
     expect(store.session().phase).toBe("idle")

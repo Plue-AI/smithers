@@ -146,7 +146,7 @@ test(
     const refusal = page.locator(".smithers-chat-message").filter({
       has: page.getByText(/^Sign in(?: with GitHub)? to create an issue(?:[.,]|$)/)
     }).last()
-    const signIn = refusal.locator('button[data-flow="auth.sign-in"]')
+    const signIn = refusal.locator('button[data-flow="sign-in"]')
     await expect(refusal).toBeVisible()
     await expect(signIn).toBeVisible()
     expect(issueWrites).toEqual([])

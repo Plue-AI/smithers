@@ -68,7 +68,7 @@ test("a focus re-read during the boot identity read still offers sign-in for the
     await until(() => store.session().pendingCommand?.requirement === "repo-source")
     expect(forms(store)).toEqual([])
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue-list")).toHaveLength(0)
-    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
   } finally { await controller.dispose() }
 })
 

@@ -91,7 +91,7 @@ describe("the retained Paper palette", () => {
     expect(controller.commands.find("plugins")).toBeUndefined()
     expect(controller.commands.find("agent.explain")).toBeUndefined()
     for (const mode of ["light", "dark"] as const) {
-      expect((await controller.commands.run("appearance.dark-mode", mode)).status).toBe("executed")
+      expect((await controller.commands.run("theme", mode)).status).toBe("executed")
       expect(store.session().theme).toBe(mode)
       expect(document.documentElement.dataset.theme).toBe(mode)
       expect(store.session().palette).toBe("paper")

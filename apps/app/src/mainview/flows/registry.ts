@@ -25,7 +25,6 @@ import * as account from "./entries/account"
 import * as admin from "./entries/admin"
 import * as agent from "./entries/agent"
 import * as app from "./entries/app"
-import * as appearance from "./entries/appearance"
 import * as approval from "./entries/approval"
 import * as approvals from "./entries/approvals"
 import * as auth from "./entries/auth"
@@ -72,8 +71,7 @@ import type { OperationMetadata } from "@smthrs/ui/app-operations"
  * decision: capabilities and effect tiers live on the declaration, and the
  * user-only axis is the descriptor's `modelInvocable` flag. Requirement ids
  * come from `flowRequirements`; flows/agent-parity.test.ts enumerates every
- * `userOnlyReason`; `workflow` is what the app home reads a tile's last
- * result by (cards/RepositoryHomeCard.tsx).
+ * `userOnlyReason`; `workflow` names the flow a run card belongs to.
  */
 export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBootstrap["host"]> {
   /**
@@ -197,7 +195,7 @@ export const absentDoor = (metadata: FlowMetadata, bootstrap: AppBootstrap): Mis
  * Whether a model may invoke this flow.
  *
  * The trigger axis is the descriptor's own `modelInvocable` flag: user-only
- * browser mechanics (sign-in/out, reset, theme, chat.stop, send, maximize)
+ * browser mechanics (sign-in/out, reset, theme, stop, send, maximize)
  * declare `modelInvocable: false`, so they never reach the agent's catalog and
  * the model can neither invoke them nor promise them.
  */
@@ -331,7 +329,7 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
 
 
 /** Built-in top-level leaves, distinct from repository-owned flows. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "settings", "todo"]
+export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "settings", "todo", "help", "members", "stack", "theme", "stop", "search", "sign-in", "sign-out", "flow", "flows", "runs", "run", "issue", "issues", "file", "files", "diff", "pr"]
 
 export interface Namespace {
   readonly id: string
@@ -343,7 +341,6 @@ export interface Namespace {
 export const NAMESPACES: ReadonlyArray<Namespace> = [
   todo.namespace,
   chat.namespace,
-  appearance.namespace,
   repo.namespace,
   repos.namespace,
   wiki.namespace,
@@ -442,7 +439,7 @@ export const collisionNote = <C extends CatalogItem>(id: string): SlashRow<C> =>
  *    namespace's visible flows, uncapped — the branch IS the listing;
  *  - anything else is the flat fuzzy filter `slashItems` already does, so a
  *    user who knows a name loses nothing, plus the namespaces whose id the
- *    query starts (`/app` offers `appearance ›` above fuzzy leaves). An exact
+ *    query starts (`/wi` offers `wiki ›` above fuzzy leaves). An exact
  *    flow name always precedes prefix namespaces so Enter runs what was typed.
  */
 export const slashTree = <C extends CatalogItem>(
@@ -468,9 +465,13 @@ export const slashTree = <C extends CatalogItem>(
      */
     const recommended = slashItems(state, "", commands).filter((item) => item.recommended)
     const named = new Set(recommended.map((item) => item.flow.name))
+    /* The surface switches lead, in SURFACE_FLOWS order; every other bare leaf keeps registry order. */
+    const surfaceRank = (name: string): number => { const at = SURFACE_FLOWS.indexOf(name); return at < 0 ? SURFACE_FLOWS.length : at }
     const bare = visible(offerable(state, commands))
       .filter((command) => namespaceOf(command.name) === undefined && !named.has(command.name))
-      .map((flow): SlashItem<C> => ({ flow, recommended: false }))
+      .map((flow, index): { flow: C; index: number } => ({ flow, index }))
+      .sort((left, right) => surfaceRank(left.flow.name) - surfaceRank(right.flow.name) || left.index - right.index)
+      .map(({ flow }): SlashItem<C> => ({ flow, recommended: false }))
     return [...recommended.map(asFlow), ...bare.map(asFlow), ...namespaces.map(asNamespace)]
   }
   const branch = query.endsWith(".") ? query.slice(0, -1) : undefined
@@ -494,7 +495,7 @@ export const slashTree = <C extends CatalogItem>(
 
 /**
  * §1.2: signed out, sign-in is the one step, so a listing offers only what
- * works signed out. The whole registry used to be listed: `/auth.sign-out`,
+ * works signed out. The whole registry used to be listed: `/sign-out`,
  * `/billing.upgrade`, `/issues.create`, every one of which needs a session.
  * Nothing is un-invokable: typing a name still defers through sign-in
  * (§6.2), which is why a flow the user named OUTRIGHT (the whole name) is

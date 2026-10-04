@@ -13,15 +13,15 @@ import { paletteKey,PaletteOverlay,paletteRows } from "./SearchPalette"
 /** Stable Playwright handle; spread past ChatComposer's excess-property check. */
 const COMPOSER_INPUT_TEST_ID: Record<string, string> = { "data-testid": "composer-input" }
 
-/* Send and Stop are `chat.send` and `chat.stop`'s doors, named through
+/* Send and Stop are `chat.send` and `stop`'s doors, named through
  * ChatComposer's own pass-through props. The names come from `flowProps`, so
  * the registry — not this file — decides that they exist. */
 
 /** The Send button's flow binding, and Playwright's handle on it. */
 const COMPOSER_SEND_PROPS = { ...flowProps("chat.send"), "data-testid": "composer-send" }
 
-/** The Stop button is `chat.stop`'s door. */
-const COMPOSER_STOP_PROPS = flowProps("chat.stop")
+/** The Stop button is `stop`'s door. */
+const COMPOSER_STOP_PROPS = flowProps("stop")
 
 /*
  * The composer, and everything a keystroke touches.
@@ -101,7 +101,7 @@ export function Composer({
     : undefined
   /*
    * §5.2: the listing used to be suppressed for the whole duration of a turn,
-   * which made `typing -> chat.stop` — the first clause of the recommendation
+   * which made `typing -> stop` — the first clause of the recommendation
    * order — unreachable in the shipped UI, and left the composer with no way
    * to invoke any flow mid-turn. Submission and the menu now both stay usable.
    */
@@ -252,7 +252,7 @@ export function Composer({
       if (event.key === "Escape") {
         if (typing) {
           event.preventDefault()
-          controller.runCommand("chat.stop")
+          controller.runCommand("stop")
         } else controller.closePalette(inputDraft)
       }
       return
@@ -340,7 +340,7 @@ export function Composer({
           // The input transition is synchronous; its React projection can lag.
           controller.runCommand("chat.send", controller.store.session().draft.trim())
         }}
-        onStop={() => controller.runCommand("chat.stop")}
+        onStop={() => controller.runCommand("stop")}
         submitWhileBusy
         actions={<button type="button" className="composer-queue-action" disabled={draft.trim() === ""}
           aria-keyshortcuts="Alt+Enter" {...flowProps("chat.queue")}

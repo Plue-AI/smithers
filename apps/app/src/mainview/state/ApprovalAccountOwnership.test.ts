@@ -94,7 +94,7 @@ const fixture = async (hold: Hold = "receipt", rejectReceipt = false, refuseResp
   } })
   const change = async (kind: Change) => {
     if (kind === "sign-out") {
-      expect((await controller.commands.run("auth.sign-out")).status).toBe("executed")
+      expect((await controller.commands.run("sign-out")).status).toBe("executed")
     } else if (kind === "dispose") await controller.dispose()
     else {
       await controller.adoptSession({ state: "signed-in", login: "new-owner", admin: false })

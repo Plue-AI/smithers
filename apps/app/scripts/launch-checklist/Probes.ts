@@ -7,7 +7,7 @@
  *    (App.tsx: `controller.commands.all().map(c => c.name).join(" ")`), so
  *    "reachable by /name" is checkable from the page instead of guessed at.
  *  - `[data-flow="<name>"]` on every interactive affordance is that
- *    affordance's command name (App.tsx, ChatCards.tsx, ToastStack.tsx,
+ *    affordance's command name (App.tsx, ChatCards.tsx, ShellRail.tsx,
  *    ConnectorsSurface.tsx).
  *  - `textarea` is the composer; its presence next to the transcript is what
  *    "no separate landing view" means in the rendered DOM.

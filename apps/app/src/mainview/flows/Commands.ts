@@ -274,7 +274,7 @@ const valueOf = (value: unknown): string | undefined => {
 }
 
 /** Chrome commands that render no card, so they leave a maximized card in place. */
-const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dictate", "palette.open", "palette.actions", "appearance.dark-mode", "input.mode"])
+const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dictate", "palette.open", "palette.actions", "theme", "input.mode"])
 
 export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle): CommandRegistry => {
   /*
@@ -299,12 +299,14 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
    * row that shares one (`chat`, `flow.list`) gets no leaf, so no name ever
    * resolves to two entries.
    */
+  const standsIn = (entry: FlowEntry): boolean => entry.metadata.workflow === nameOf(entry)
   let leafCache: { readonly repo: string; readonly loadedAt: number; readonly leaves: ReadonlyArray<FlowEntry> } | undefined
   const leaves = (): ReadonlyArray<FlowEntry> => {
     const catalog = actions.repositoryFlows()
     if (catalog === undefined) return []
     if (leafCache !== undefined && leafCache.repo === catalog.repo && leafCache.loadedAt === catalog.loadedAt) return leafCache.leaves
-    const taken = new Set([...base, ...guide, ...admin].map(nameOf))
+    // A declared flow that stands in for the repository's leaf (`workflow` is its own name) yields to that leaf.
+    const taken = new Set([...base, ...guide, ...admin].filter((entry) => !standsIn(entry)).map(nameOf))
     const built = repositoryFlowLeaves(actions, catalog.repo, catalog.flows).filter((entry) => !taken.has(nameOf(entry)))
     leafCache = { repo: catalog.repo, loadedAt: catalog.loadedAt, leaves: built }
     return built
@@ -313,12 +315,12 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   const agentEntry = (name: string): FlowEntry | undefined => {
     agentEntries ??= agentActions === actions ? [...base, ...guide, ...admin] : [...baseFlows(agentActions), ...guideFlows(agentActions), ...adminFlows(agentActions)]
     const declared = agentEntries.find((candidate) => nameOf(candidate) === name)
-    if (declared !== undefined) return declared
-    if (agentActions === actions) return leaves().find((candidate) => nameOf(candidate) === name)
+    if (declared !== undefined && !standsIn(declared)) return declared
+    if (agentActions === actions) return leaves().find((candidate) => nameOf(candidate) === name) ?? declared
     const catalog = agentActions.repositoryFlows()
-    return catalog === undefined
+    return (catalog === undefined
       ? undefined
-      : repositoryFlowLeaves(agentActions, catalog.repo, catalog.flows).find((candidate) => nameOf(candidate) === name)
+      : repositoryFlowLeaves(agentActions, catalog.repo, catalog.flows).find((candidate) => nameOf(candidate) === name)) ?? declared
   }
 
   const available = (entry: FlowEntry): boolean => {
@@ -332,9 +334,13 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       (runtimeAny === undefined || runtimeAny.some((capability) => flowCapabilityHeld(bootstrap, capability)))
   }
 
-  const entries = (): ReadonlyArray<FlowEntry> =>
-    [...base, ...guide,
-      ...(actions.snapshot().admin ? admin : []), ...leaves()].filter(available)
+  const entries = (): ReadonlyArray<FlowEntry> => {
+    const leafEntries = leaves()
+    const leafNames = new Set(leafEntries.map(nameOf))
+    return [...base, ...guide, ...(actions.snapshot().admin ? admin : [])]
+      .filter((entry) => !(standsIn(entry) && leafNames.has(nameOf(entry))))
+      .concat(leafEntries).filter(available)
+  }
 
   const items = (): ReadonlyArray<CatalogItem> => entries().map(itemOf)
 
@@ -679,7 +685,9 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     // JSON can parse successfully while omitting a required schema field.
     // Let the form collect it before the binding can produce an input error.
     const fields = formFieldsFor(target.input, target.metadata.form)
-    if ("error" in parsed || fields.some(field => field.required && (field.kind === "write-only"
+    // A field the named input makes required (FormHints.requires) is asked for like a schema-required one.
+    const requires = "error" in parsed ? [] : target.metadata.form?.requires?.(parsed.payload) ?? []
+    if ("error" in parsed || fields.some(field => (field.required || requires.includes(field.name)) && (field.kind === "write-only"
       ? invoker !== "agent" && gesture?.hasWriteOnly?.(field.name) !== true
       : parsed.payload[field.name] === undefined))) {
       /*

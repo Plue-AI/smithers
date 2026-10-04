@@ -3,6 +3,7 @@ import { Bot, FolderSync, SquareTerminal } from "lucide-react"
 
 import type { ActorChipCard } from "@smthrs/rpc/ActorChipCard"
 import type { Actor } from "@smthrs/rpc/CardPrimitives"
+import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 export type { Actor } from "@smthrs/rpc/CardPrimitives"
 export type ActorChipProps = ActorChipCard
 import { actorName } from "./actorName"
@@ -23,7 +24,8 @@ export function ActorChip({ actor, size, live = false }: ActorChipProps) {
   const smithers = agent && actor.agent === "smithers"
   const delegated = agent && actor.for_member !== undefined
   const style = { "--size": size === "s" ? "22px" : "28px", "--who": actorColour(actor) } as CSSProperties
-  const avatar = actor.kind === "person" ? actor.avatar_url : undefined
+  /* The placeholder silhouette is no picture: initials in the lane colour read better. */
+  const avatar = actor.kind === "person" && actor.avatar_url !== PlaceholderAvatarUrl ? actor.avatar_url : undefined
   const initials = actor.kind === "person" ? actor.name.trim().split(/\s+/).slice(0, 2).map(word => word[0]).join("") : label[0]
   return <span className="mvp-avatar" role="img" aria-label={label} title={label} style={style}
     data-kind={actor.kind} data-agent={agent || undefined} data-smithers={smithers || undefined}

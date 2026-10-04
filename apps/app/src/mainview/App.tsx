@@ -1,4 +1,4 @@
-import { renderSetupCard } from "./cards/CardRenderers"
+import { renderHomeCard, renderSetupCard } from "./cards/CardRenderers"
 import { shownInTranscript } from "./state/ApprovalDeciders"
 import {
 Button,
@@ -8,40 +8,31 @@ MessageScrollerContent,
 MessageScrollerItem,
 MessageScrollerProvider,
 MessageScrollerViewport,
-SmithersUiStyles,
-Suggestion,
-SuggestionGroup
+SmithersUiStyles
 } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
-import { Sparkles } from "lucide-react"
-import type { PointerEvent as ReactPointerEvent } from "react"
+import type { ReactNode, PointerEvent as ReactPointerEvent } from "react"
 import { useMemo,useRef,useSyncExternalStore } from "react"
 import { controllerCardActions as cardActions } from "./cards/controllerCardActions"
 import { LoginScreen } from "./cards/LoginScreen"
-import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
 import { CardView } from "./ChatCards"
-import { ChatFilterMenu } from "./ChatFilterMenu"
-import { ChatMeter } from "./ChatMeter"
 import { Composer } from "./Composer"
 import { useController } from "./ControllerContext"
 import { DevtoolsPanel } from "./DevtoolsPanel"
 import { ChatHint,FirstSightHint } from "./FirstSightHint"
 import { dynamicFlowAction, flowProps } from "./flows/FlowAction"
-import { repositoryFlowName } from "./flows/entries/flow"
 import { InputModeMenu } from "./InputModeMenu"
 import type { InitMessage } from "./Onboarding"
 import { cloudWebHost, initMessage } from "./Onboarding"
 import { GUIDE_KEYS,GuideButton } from "./onboarding/GuideButton"
 import { pathRepo } from "./RepoLink"
-import type { Card,Message,Suggestion as SuggestionBinding } from "./state/AppState"
-import { conversationTabIdOf,DEFAULT_BRANCH_ID,inConversation,MAIN_TAB_ID } from "./state/AppState"
+import type { Card,Message } from "./state/AppState"
+import { conversationTabIdOf,inConversation } from "./state/AppState"
 import { catalogRepositoryOf } from "./state/RepoContext"
 import { useCardRows,useFileCardRows,useFlowDurationRows,useTriggerListRows,useWorkflowCatalogRows } from "./state/useCardRows"
 import { ConfirmDialog } from "./SurfaceChrome"
-import { ToastStack } from "./ToastStack"
 import { TranscriptMessage } from "./TranscriptMessage"
-import { all as allChat, entryId,  merge as mergeTimeline } from "./state/ChatTimeline"
-import { ChatRunTimeline } from "./ChatRunTimeline"
+import { HOME_ENTRY_ID, ShellRail } from "./ShellRail"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
 import { WorldSurface } from "./WorldSurface"
 
@@ -55,6 +46,8 @@ const entryOrdinal = (entry: TranscriptEntry): number =>
 
 const entryCreatedAt = (entry: TranscriptEntry): number =>
   entry.kind === "card" ? entry.card.createdAt : entry.message.createdAt
+
+const entryId = (entry: TranscriptEntry): string => entry.kind === "card" ? entry.card.id : entry.message.id
 
 function AppContent() {
   const controller = useController()
@@ -87,13 +80,8 @@ function AppContent() {
       theme: session.theme,
       surface: session.surface,
       maximizedCardId: session.maximizedCardId,
-      activeWorkspaceId: session.activeWorkspaceId,
       activeBranchId: session.activeBranchId,
-      activeFrameId: session.activeFrameId,
       devtoolsOpen: session.devtoolsOpen,
-      activeTabId: session.activeTabId,
-      chatFilter: session.chatFilter,
-      chatFilterMenuOpen: session.chatFilterMenuOpen,
       paletteOpen: session.paletteOpen,
       dictating: session.dictating,
       inputMode: session.inputMode,
@@ -101,8 +89,7 @@ function AppContent() {
       resetConfirmOpen: session.resetConfirmOpen,
       verbose: session.verbose,
       activeRepoKey: session.activeRepoKey,
-      repositoryEntry: session.repositoryEntry,
-      chatUsage: session.chatUsage
+      repositoryEntry: session.repositoryEntry
     }))
   )
   const { data: worldDocumentRows } = useLiveQuery(collections.worldDocuments)
@@ -114,7 +101,6 @@ function AppContent() {
   const { data: identityRows } = useLiveQuery(collections.identitySessions)
   const { data: connectorRows } = useLiveQuery(collections.connectors)
   const { data: repositoryRows } = useLiveQuery(collections.repositories)
-  const { data: recommendationRows } = useLiveQuery(collections.recommendations)
   /* The composer wrap: Cmd+K focuses the textarea inside it (the palette opens on the composer). */
   const composerWrapRef = useRef<HTMLDivElement>(null)
   const chatTriggerRef = useRef<HTMLButtonElement>(null)
@@ -129,7 +115,7 @@ function AppContent() {
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
   const messages = messageRows.filter((message) => inConversation(message, conversationTabId) &&
-    (message.action?.flow !== "auth.sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
+    (message.action?.flow !== "sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
   // Admin chrome follows the same capability-filtered registry as every act.
   const isAdmin = controller.commands.find("admin.devtools") !== undefined
@@ -152,7 +138,6 @@ function AppContent() {
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
   const typing = session.phase === "responding"
-  const activeTabId = session.activeTabId ?? MAIN_TAB_ID
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
   const identity = identityRows[0]
 
@@ -174,9 +159,6 @@ function AppContent() {
       event.preventDefault()
       dismissComposer()
     }
-    if (session.chatFilterMenuOpen === true && target.closest(".chat-filter-control") === null) {
-      controller.runCommand("chat.filter")
-    }
   }
   /*
    * One page: the chat. Auth is a conversation state, never a view — a
@@ -190,7 +172,7 @@ function AppContent() {
    *
    * Signed out on the web (docs/web-mode/PLAN.md §3) is the third definitive
    * state: the visitor reads what this is and the one act that is theirs,
-   * in the shape auth.prompt renders (message + CTA bound to auth.sign-in).
+   * in the shape auth.prompt renders (message + CTA bound to sign-in).
    * Only the cloud host: local keeps its opening read (sign-in is an option
    * there), and a build with no identity seam is "unavailable", not this.
    *
@@ -202,7 +184,7 @@ function AppContent() {
    * The sign-in door, named once: the hosted GitHub session is the provider
    * `github` (state/IdentityProvider.ts), and the GitHub copy, the public
    * catalog exploring and the signup are its. The owner's credentials
-   * (self-host, the owned native backend) get the one `auth.sign-in` door
+   * (self-host, the owned native backend) get the one `sign-in` door
    * below. Neither reads the host name: a self-hosted origin is the web app.
    * A build with no bootstrap at all (a harness) has no sign-in to offer and
    * no opening read to give; the empty transcript is the pinned behaviour.
@@ -231,7 +213,7 @@ function AppContent() {
       role: "smithers",
       text: "Sign in to continue.",
       status: "complete",
-      action: { flow: "auth.sign-in", label: "Sign in" },
+      action: { flow: "sign-in", label: "Sign in" },
       createdAt: 0,
       ordinal: 0
     }
@@ -245,7 +227,7 @@ function AppContent() {
         createdAt: 0,
         ordinal: 0
       }
-      : repositoryNotice || (bootEntry?.phase !== "ready" && exploringRepo === null && !messages.some(message => message.action?.flow === "auth.sign-in"))
+      : repositoryNotice || (bootEntry?.phase !== "ready" && exploringRepo === null && !messages.some(message => message.action?.flow === "sign-in"))
       ? {
         id: "auth-state",
         role: "smithers",
@@ -255,12 +237,13 @@ function AppContent() {
             publicRepositoryLinks.length === 0 ? "." : `, or pick one below.\n\n${publicRepositoryLinks.join("\n")}`
           }`,
         status: "complete",
-        action: { flow: "auth.sign-in", label: "Sign in with GitHub" },
+        action: { flow: "sign-in", label: "Sign in with GitHub" },
         createdAt: 0,
         ordinal: 0
       }
       : undefined
-    : identity?.state === "unavailable"
+    // MOCK SEAM (state/seams/DesignWorld): the mounted seed stands in for the sign-in this host lacks, so the bubble stays out while it is mounted.
+    : identity?.state === "unavailable" && controller.design === undefined
     ? {
       id: "auth-state",
       role: "smithers",
@@ -286,64 +269,28 @@ function AppContent() {
    * message (it carries the catalog links) and the owner-credentials host
    * keeps its one Sign in door.
    */
-  const loginScreen = authMessage?.id === "auth-state" && githubIdentity && !repositoryNotice && authMessage.action?.flow === "auth.sign-in"
+  const loginScreen = authMessage?.id === "auth-state" && githubIdentity && !repositoryNotice && authMessage.action?.flow === "sign-in"
 
-  /*
-   * The suggestion row is DERIVED (§2a/§2f — never stored, never
-   * fabricated): the genuinely-next state-derived step when one exists
-   * (signed-out → Sign in; no repo open → Select a repo). An empty pill row
-   * is a correct state; a fabricated one is a violation.
-   */
-  /*
-   * The pills are the recommendation row's projection (state/Recommend.ts):
-   * regenerated by the `recommend` flow after every material change — a cheap
-   * agent's pick, or the rule's. Before the first regeneration lands the rule
-   * answers inline; a pill whose flow this host does not register is dropped.
-   */
-  const recommended = recommendationRows[0]?.suggestions
-  const suggestions: ReadonlyArray<SuggestionBinding> = (recommended ?? [])
-    .filter((suggestion) => controller.commands.find(suggestion.flow) !== undefined)
   /*
    * The opening entry: what the host registered, derived from the live
    * collections (never stored), with the repo step riding it as its action.
    * A gated auth state (signed out) still shows only itself.
    */
   const gatedByAuth = identity?.state === "signed-out"
-  const repositoryCatalog = controller.repositoryFlows()
-  // An app names a flow; a tile whose flow this host does not register would be a dead button, so it is not shown.
-  const home = repositoryCatalog?.home?.kind === "blocks"
-    ? { ...repositoryCatalog.home, blocks: repositoryCatalog.home.blocks.filter((block) => block.type !== "app" || controller.commands.find(repositoryFlowName(block.flow)) !== undefined) }
-    : repositoryCatalog?.home
-  const homeCard: Extract<Card, { kind: "factory.home" }> | undefined = home === undefined || home.kind === "none"
-    ? undefined
-    : {
-      kind: "factory.home", id: `factory.home:${repositoryCatalog!.repo}`, title: "", status: "active",
-      createdAt: 0, ordinal: 0, payload: {
-        repo: repositoryCatalog!.repo, home,
-        flows: repositoryCatalog!.flows.filter(({ id }) => controller.commands.find(repositoryFlowName(id)) !== undefined)
-          .map(({ id, summary, description, featured }) => ({ id, summary, description, featured }))
-      }
-    }
   /*
-   * The app home (PRODUCT.md D-18) is the whole first screen: the heading,
-   * the composer and the apps replace the setup checklist, the recommended
-   * jobs and the host's opening diagnostic while it renders.
+   * HOME MOUNT (T-APP-01): the Home card (HomeView through its card file) is
+   * pinned first in main's conversation. The home lane fills this slot.
    */
-  const appsHome = homeCard !== undefined && homeApps(homeCard.payload.home).length > 0
-  /*
-   * The home alone (MINIMAL TEXT): while the apps home is all the transcript
-   * holds, the chat controls strip stays away — the home's own composer names
-   * ⌘K, which still summons Chat from anywhere. Only a chosen Vim mode keeps
-   * its indicator, because the keys under the person's hands changed.
-   */
-  const homeOnly = appsHome && messages.length === 0 && conversationCards.length === 0 && !typing
+  const homeCard: ReactNode = renderHomeCard()
+  // The login screen owns the page: no home beside its two doors.
+  const home = homeCard !== null && conversationTabId === undefined && !loginScreen
   // A cloud repository opens on its Welcome actions. Selection is durable and
   // precedes that card's load, so the technical success read never flashes first.
   const repositoryOpening = session.activeRepoKey != null
   // A new conversation opens empty; the host's opening read belongs to main alone.
   // The host read is a diagnostic: local hosts show it; a cloud visitor never needs it.
   const cloudWeb = cloudWebHost(controller.bootstrap)
-  const openingMessage: InitMessage | undefined = gatedByAuth || cloudWeb || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
+  const openingMessage: InitMessage | undefined = gatedByAuth || cloudWeb || repositoryOpening || conversationTabId !== undefined || home ? undefined : initMessage({
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
     connectors: connectorRows,
@@ -368,15 +315,13 @@ function AppContent() {
     if (entryOrdinal(left) !== entryOrdinal(right)) return entryOrdinal(left) - entryOrdinal(right)
     return entryCreatedAt(left) - entryCreatedAt(right)
   })
-  // Transient chrome: Chat that was withheld against a known answer arrives with motion; Chat present from load does not.
-  const chatAway = homeOnly
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
   const transcriptKey = `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
 
-  const entries = mergeTimeline(mainEntries, session.chatFilter ?? allChat).filter((entry): entry is TranscriptEntry => entry.kind === "card" || entry.kind === "message" || entry.kind === "init")
+  const entries = mainEntries
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
-  const initialReadId = loginScreen ? "login" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : undefined
+  const initialReadId = loginScreen ? "login" : repositoryNotice ? authMessage?.id : home ? HOME_ENTRY_ID : undefined
 
   // Chat stays mounted when closed.
   const composerWrap = (
@@ -386,23 +331,6 @@ function AppContent() {
         autoFocus={authMessage === undefined}
         placeholder="Ask Smithers to work on something…"
       />
-      {/* The next-step pills sit UNDER the chat box; DOM order is focus order: composer, then pills. Feature-flagged (features.suggestionPills), on for the cloud host. */}
-      {controller.features.suggestionPills && suggestions.length > 0 ? <FirstSightHint id="recommendations" content="Choose a suggested next action."><SuggestionGroup className="smithers-suggestions">
-        {suggestions.map((suggestion) => (
-          <Suggestion
-            className="smithers-suggestion"
-            data-gold={suggestion.emphasis === "primary"}
-            key={suggestion.id}
-            suggestion={suggestion.label}
-            title={suggestion.why}
-            disabled={typing}
-            {...dynamicFlowAction(controller.runCommand, suggestion.flow, suggestion.args)}
-          >
-            <Sparkles size={12} />
-            {suggestion.label}
-          </Suggestion>
-        ))}
-      </SuggestionGroup></FirstSightHint> : null}
     </div>
   )
 
@@ -442,12 +370,6 @@ function AppContent() {
           if (event.key === "Escape" && session.paletteOpen === true && controller.store.session().paletteOpen !== true) focusChatDoor()
           return
         }
-        // Close visible menus before dismissing Chat.
-        if (event.key === "Escape" && session.chatFilterMenuOpen === true) {
-          event.preventDefault()
-          controller.runCommand("chat.filter")
-          return
-        }
         if (event.key === "Escape" && event.target instanceof Element && event.target.closest(".input-mode-menu")) return
         if (event.key === "Escape" && session.paletteOpen === true) {
           event.preventDefault()
@@ -485,8 +407,14 @@ function AppContent() {
         data-kind="main"
         data-conversation={conversationTabId}
         data-testid="tab-body-main"
-        hidden={activeTabId !== MAIN_TAB_ID && conversationTabId === undefined}
       >
+      <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
+            initialMessageId={initialReadId}
+            readAnchor={{ messageId: latestReadId ?? "",
+              actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
+              requestId: readRequestRef.current,
+              userMessageId: messages.filter(message => message.role === "user").at(-1)?.id,
+              version: latestEntry?.kind === "card" ? `${latestEntry.card.ordinal}:${latestEntry.card.kind}` : undefined }}>
       <div className="chat-frame" data-pane={session.surface === "chat" ? undefined : session.surface}>
         <div className="chat-column">
           {
@@ -521,13 +449,6 @@ function AppContent() {
             data-repository-missing={repositoryNotice || undefined}
             data-login={loginScreen || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
-          <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
-            initialMessageId={initialReadId}
-            readAnchor={{ messageId: latestReadId ?? "",
-              actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
-              requestId: readRequestRef.current,
-              userMessageId: messages.filter(message => message.role === "user").at(-1)?.id,
-              version: latestEntry?.kind === "card" ? `${latestEntry.card.ordinal}:${latestEntry.card.kind}` : undefined }}>
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
             <MessageScrollerViewport fade>
             <MessageScrollerContent className="sui-chat-messages">
@@ -538,9 +459,7 @@ function AppContent() {
             {loginScreen && <MessageScrollerItem messageId="login" style={{ contentVisibility: "visible" }}>
               <LoginScreen onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
-            {!repositoryNotice && homeCard && <MessageScrollerItem messageId={homeCard.id}>
-              <RepositoryHomeCard card={homeCard} onRunCommand={controller.runCommand} />
-            </MessageScrollerItem>}
+            {!repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
             {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "card" ?
                 (
@@ -566,13 +485,12 @@ function AppContent() {
             </MessageScrollerViewport>
             <MessageScrollerButton />
             </div>
-          </MessageScrollerProvider>
           </div>
 
-          {!repositoryNotice && session.surface === "chat" &&
-            <ChatRunTimeline cards={conversationCards} onRunCommand={controller.runCommand} />}
 
         </div>
+
+        {!repositoryNotice && session.surface === "chat" && <ShellRail entries={entries} home={home} />}
 
         {session.surface === "world" ?
           <WorldSurface documents={worldDocuments} /> :
@@ -581,6 +499,7 @@ function AppContent() {
         {/* Admin-only: the panel is absent — not hidden — for everyone else. */}
         {isAdmin && session.devtoolsOpen ? <DevtoolsPanel /> : null}
       </div>
+      </MessageScrollerProvider>
       </div>
 
       {/* Card tabs; hidden while inactive, never unmounted. */}
@@ -589,16 +508,13 @@ function AppContent() {
         {composerWrap}
       </div>
       {/* The login screen owns the page: Chat's controls arrive once there is something to ask it (⌘K still opens the composer). */}
-      {loginScreen ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
-        hidden={chatAway && session.inputMode !== "vim"}>
-        {chatAway ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
+      {loginScreen ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls">
+        <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
           // Focus an already-open input now; Composer owns focus on opening.
           composerWrapRef.current?.querySelector("textarea")?.focus()
-        }}>Chat</GuideButton></FirstSightHint>}
-        {chatAway && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
-        {chatAway ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} onRunCommand={controller.runCommand} />}
-        {chatAway ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
+        }}>Chat</GuideButton></FirstSightHint>
+        <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />
       </footer>}
       </div>
 
@@ -628,12 +544,6 @@ function AppContent() {
 }
 
 function App() {
-  const controller = useController()
-  const { data: toasts } = useLiveQuery(controller.store.collections.toasts)
-  const { data: privacyNotices } = useLiveQuery(controller.privacyNotices)
-  const { data: workCards } = useLiveQuery(controller.store.collections.cards)
-  return <><AppContent /><ToastStack toasts={[...toasts, ...privacyNotices]} cards={workCards} available={action => controller.commands.find(action.flow) !== undefined}
-    onDismiss={id => controller.runCommand("toast.dismiss", id)}
-    onAction={action => controller.runCommand(action.flow, action.args)} /></>
+  return <AppContent />
 }
 export default App

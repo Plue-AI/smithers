@@ -109,18 +109,18 @@ describe("/verbose", () => {
     console.debug = (...args: Array<unknown>) => {
       logged.push(String(args[0]))
     }
-    await controller.commands.run("appearance.dark-mode")
+    await controller.commands.run("theme")
     await store.settled?.()
     expect(logged).toEqual([])
     await controller.commands.run("debug.verbose")
     await store.settled?.()
-    await controller.commands.run("appearance.dark-mode")
+    await controller.commands.run("theme")
     await store.settled?.()
-    expect(logged.some((line) => line.includes("ran /appearance.dark-mode"))).toBe(true)
+    expect(logged.some((line) => line.includes("ran /theme"))).toBe(true)
     const count = logged.length
     await controller.commands.run("debug.verbose")
     await store.settled?.()
-    await controller.commands.run("appearance.dark-mode")
+    await controller.commands.run("theme")
     await store.settled?.()
     expect(logged.length).toBe(count)
   })
