@@ -139,9 +139,9 @@ for (const path of paths) {
             const action = story.actions![index]! as Action
             const values = Object.fromEntries((action.input ?? []).map(field => [field.name, field.value ?? field.choices?.[0] ?? "Fixture input"]))
             await act(async () => {
-              for (const field of control.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")) {
+              for (const field of control.querySelectorAll<HTMLInputElement>("input")) {
                 const definition = action.input!.find(input => input.label === field.getAttribute("aria-label"))!
-                Object.getOwnPropertyDescriptor(field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!.call(field, values[definition.name])
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, values[definition.name])
                 field.dispatchEvent(new Event("input", { bubbles: true }))
               }
             })
@@ -1335,6 +1335,27 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
     await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "files" }} onAction={onAction} onView={onView} />))
     expect(host.textContent).toContain("flows/todo/prompt.md → flows/todo/instructions/implementer.md")
     expect(host.querySelectorAll(".branch-list .mvp-avatar")).toHaveLength(6)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("Branch inline steer stays a placeholdered input and submits its tag", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
+    const form = host.querySelector<HTMLFormElement>('form[data-flow="todo.steer"]')!
+    expect(form.querySelector("textarea")).toBeNull()
+    const input = form.querySelector<HTMLInputElement>("input")!
+    expect(input.tagName).toBe("INPUT")
+    expect(input.placeholder).toBe("Steer the coding agent")
+    expect(input.getAttribute("aria-label")).toBe("Steer the coding agent")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Keep it small")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+    expect(onAction.mock.calls).toEqual([["todo.steer", { n: "12", text: "Keep it small" }]])
+    expect(onView).toHaveBeenCalledTimes(0)
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 

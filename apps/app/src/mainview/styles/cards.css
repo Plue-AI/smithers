@@ -104,6 +104,7 @@
 	background: transparent;
 }
 
+
 .smithers-card-body .sui-confirm-accepted,
 .smithers-card-body .sui-confirm-rejected {
 	font-family: var(--font-mono);
@@ -437,6 +438,7 @@
 	.message-actions {
 		transition: none;
 	}}
+
 
 .sui-approval-error {
 	margin: 8px 0 0;
@@ -1132,6 +1134,7 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+
 
 /* The secrets card (Secrets L1): the scope line and the metadata table; values never exist on the wire. */
 .secrets-scope {
@@ -2090,6 +2093,7 @@
 .repo-update-actions svg { margin-right: 4px; }
 .repo-update-items > li:last-child > .ghc-row-btn { border-radius: 0; }
 
+
 @media (pointer: coarse) {
 	.palette-foot { display: none; }}
 
@@ -2837,6 +2841,7 @@
 .terminal-view .terminal-status { display: flex; gap: 12px; margin-top: 8px; color: var(--text-muted); font-size: var(--fs-caption); }
 .terminal-view .terminal-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .terminal-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+
 
 /* BranchView (T-UI-15): machine, shared presence and branch activity. */
 .branch-view { min-width: 0; }
