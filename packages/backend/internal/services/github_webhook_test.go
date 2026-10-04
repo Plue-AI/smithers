@@ -116,6 +116,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_SupportedAsyncEventsEnqueue(t 
 	}{
 		{name: "pull request", event: "pull_request", action: "opened"},
 		{name: "pull request review", event: "pull_request_review", action: "submitted"},
+		{name: "review comment", event: "pull_request_review_comment", action: "created"},
 		{name: "check suite", event: "check_suite", action: "requested"},
 		{name: "check run", event: "check_run", action: "created"},
 	}

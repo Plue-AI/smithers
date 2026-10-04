@@ -83,15 +83,16 @@ ON CONFLICT (delivery_id) DO NOTHING;
 `
 
 var supportedGitHubWebhookEvents = map[string]struct{}{
-	"push":                      {},
-	"issues":                    {},
-	"issue_comment":             {},
-	"pull_request":              {},
-	"pull_request_review":       {},
-	"check_suite":               {},
-	"check_run":                 {},
-	"installation":              {},
-	"installation_repositories": {},
+	"push":                        {},
+	"issues":                      {},
+	"issue_comment":               {},
+	"pull_request":                {},
+	"pull_request_review":         {},
+	"pull_request_review_comment": {},
+	"check_suite":                 {},
+	"check_run":                   {},
+	"installation":                {},
+	"installation_repositories":   {},
 }
 
 type GitHubWebhookDB interface {

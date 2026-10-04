@@ -92,13 +92,34 @@ func (service *Service) AdmitInTx(ctx context.Context, tx pgx.Tx, request Launch
 // the host. Runtime delivery, retry, and lost-ack reconciliation are owned by
 // the same jobs worker as launches and approvals.
 func (service *Service) Signal(ctx context.Context, request SignalRequest) (jobs.RequestReceipt, error) {
+	admission, err := signalAdmission(request)
+	if err != nil {
+		return jobs.RequestReceipt{}, err
+	}
+	return service.store.Admit(ctx, admission)
+}
+
+// SignalInTx joins a signal intent to its domain transaction. The existing
+// durable worker dispatches only committed intents and reconciles lost acks.
+func (service *Service) SignalInTx(ctx context.Context, tx pgx.Tx, request SignalRequest) (jobs.RequestReceipt, error) {
+	if tx == nil {
+		return jobs.RequestReceipt{}, errors.New("flow dispatch: transaction is required")
+	}
+	admission, err := signalAdmission(request)
+	if err != nil {
+		return jobs.RequestReceipt{}, err
+	}
+	return service.store.AdmitInTx(ctx, tx, admission)
+}
+
+func signalAdmission(request SignalRequest) (jobs.Admission, error) {
 	if strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.FlowID) == "" ||
 		strings.TrimSpace(request.RunID) == "" || strings.TrimSpace(request.Name) == "" {
-		return jobs.RequestReceipt{}, errors.New("flow dispatch: signal request, flow, run, and name are required")
+		return jobs.Admission{}, errors.New("flow dispatch: signal request, flow, run, and name are required")
 	}
 	request.Target = scopedTarget(request.Scope, request.Target)
 	if err := validateTarget(request.Scope, request.Target); err != nil {
-		return jobs.RequestReceipt{}, err
+		return jobs.Admission{}, err
 	}
 	if len(request.Projection) == 0 {
 		request.Projection = json.RawMessage(`{}`)
@@ -108,14 +129,14 @@ func (service *Service) Signal(ctx context.Context, request SignalRequest) (jobs
 		Name: request.Name, Payload: request.Payload, Projection: request.Projection,
 	})
 	if err != nil {
-		return jobs.RequestReceipt{}, fmt.Errorf("flow dispatch: encode signal: %w", err)
+		return jobs.Admission{}, fmt.Errorf("flow dispatch: encode signal: %w", err)
 	}
-	return service.store.Admit(ctx, jobs.Admission{
+	return jobs.Admission{
 		Scope: request.Scope, Operation: OperationSignal, RequestID: request.RequestID,
 		Payload: payload, AuthorizationContext: request.AuthorizationContext,
 		EffectPolicy: jobs.EffectReconcile,
 		EffectKey:    "flow-runtime-signal:" + request.RequestID,
-	})
+	}, nil
 }
 
 func launchAdmission(request LaunchRequest) (jobs.Admission, error) {
