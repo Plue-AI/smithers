@@ -36,6 +36,9 @@ export const Implement = Action.make("coding/implement-change", {
   nondeterministic: true
 })
 export const RunCheck = Action.make("coding/check", {
+  // The delegate runs on the same immutable revision, including after recovery.
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: { implementation: Implementation, check: Check },
   success: Receipt,
   error: CodingError

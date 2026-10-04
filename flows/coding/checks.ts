@@ -18,6 +18,9 @@ const Command = Schema.Struct({
 const Input = Schema.Struct({ implementation: Implementation, check: Check })
 
 export const CheckCommand = Action.make("coding/check-command", {
+  // Replaces implicit recovery defaults: the command owns an immutable export.
+  tier: "sealed",
+  idempotencyKey: undefined,
   // Invocation includes the pinned body, so command changes change action keys.
   payload: Executable.Invocation,
   success: Receipt,

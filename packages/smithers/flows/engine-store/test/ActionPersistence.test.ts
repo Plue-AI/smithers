@@ -64,6 +64,68 @@ const layer = Layer.mergeAll(TestStores.layer(), StepBoundary.layerTest(), jj)
 const tolerantLayer = Layer.provideMerge(Inconsistency.layerTolerant(owner), layer)
 
 describe("ActionPersistence", () => {
+  for (const policy of ["keyed-write", "keyless-shell", "sealed-check", "completed-write"] as const) {
+    it.effect(`recovers ${policy} from its persisted crossing`, () =>
+      Effect.gen(function*() {
+        const runId = `reconcile-${policy}`, key = `${runId}/action`
+        const id = { runId, stepKeyDigest: sha256(key), attempt: 1 }
+        yield* activate(runId)
+        const attempts = yield* AttemptStore.AttemptStore
+        const tier = policy === "sealed-check" ? "sealed" : "irreversible"
+        yield* attempts.put({
+          ...id,
+          state: "running",
+          startedAtMs: 1,
+          ...(policy === "completed-write" ? { outcome: "remote-result" } : {}),
+          meta: {
+            tier,
+            effectCrossing: policy === "completed-write" ? "succeeded" : "intended",
+            ...(policy === "keyed-write" ? { keyed: true } : {})
+          }
+        }, owner)
+        let calls = 0, writes = 0
+        const events: Array<string> = []
+        // The remote already applied the write before the old host died.
+        const remote: string | undefined = "remote-result"
+        const execute = ActionPersistence.make({
+          runId,
+          owner,
+          sourceId: "reconcile",
+          ...(policy === "keyed-write" ? { idempotencyKey: "recorded-operation" } : {}),
+          execute: () =>
+            Effect.sync(() => {
+              calls++
+              if (policy === "keyed-write") {
+                events.push("lookup")
+                if (remote !== undefined) return remote
+              }
+              writes++
+              return "remote-result"
+            })
+        })
+        const result = yield* Effect.result(execute({ action: {}, attempt: 1, key, tier }))
+        if (policy === "keyless-shell") {
+          expect(result._tag).toBe("Failure")
+          if (result._tag === "Failure") {
+            expect(result.failure).toBeInstanceOf(Action.IrreversibleRetryRequiresIdempotencyKey)
+          }
+          expect(calls).toBe(0)
+          expect(writes).toBe(0)
+        } else {
+          expect(result._tag).toBe("Success")
+          if (result._tag === "Success") expect(result.success).toBe("remote-result")
+          expect(calls).toBe(policy === "completed-write" ? 0 : 1)
+          expect(writes).toBe(policy === "sealed-check" ? 1 : 0)
+          expect(events).toEqual(policy === "keyed-write" ? ["lookup"] : [])
+          // Finished steps replay their recorded outcome without redispatch.
+          expect(yield* execute({ action: {}, attempt: 1, key, tier })).toBe("remote-result")
+          expect(calls).toBe(policy === "completed-write" ? 0 : 1)
+          const recorded = yield* attempts.get(id)
+          expect(Option.isSome(recorded) && recorded.value.state).toBe("succeeded")
+        }
+      }).pipe(Effect.provide(layer), Effect.scoped, withCrypto))
+  }
+
   for (const tier of ["sealed", "compensable", "irreversible"] as const) {
     for (const keyed of [false, true]) {
       for (const outcome of ["succeeded", "failed", "interrupted"] as const) {

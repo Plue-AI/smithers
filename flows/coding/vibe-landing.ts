@@ -45,12 +45,18 @@ const Observed = Schema.Union([AppendObservation, Unobserved])
 
 /** Only send-upstream repositories hand results to an active mythical stack. */
 const ReadStack = Action.make("coding/read-vibe-stack", {
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup },
   success: Schema.Boolean,
   error: CodingError,
   nondeterministic: true
 })
+// Legacy delivery has no qualified remote reconciliation provider. An unresolved
+// crossing must refuse automatic replay; a request ID alone is not a lookup.
 const SubmitLane = Action.make("coding/submit-vibe-lane", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, cleanedSource: PublishVibeSource.successSchema },
   success: VibeSubmitted,
   error: CodingError,
@@ -58,42 +64,56 @@ const SubmitLane = Action.make("coding/submit-vibe-lane", {
 })
 /** Recorded once, so a restart never switches an in-flight request to the other delivery. */
 const ReadDelivery = Action.make("coding/read-vibe-delivery", {
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup },
   success: Delivery,
   error: CodingError,
   nondeterministic: true
 })
 const OpenPull = Action.make("coding/open-vibe-pull", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, cleanedSource: PublishVibeSource.successSchema, landing: LandingIdentity },
   success: VibeProposed,
   error: CodingError,
   nondeterministic: true
 })
 const PrepareAppend = Action.make("coding/prepare-vibe-append", {
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup },
   success: AppendPreparation,
   error: CodingError,
   nondeterministic: true
 })
 const CreateLanding = Action.make("coding/create-vibe-landing", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, preparation: AppendPreparation },
   success: LandingIdentity,
   error: CodingError,
   nondeterministic: true
 })
 const QueueAppend = Action.make("coding/queue-vibe-append", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, preparation: AppendPreparation, landing: LandingIdentity },
   success: QueuedAppend,
   error: CodingError,
   nondeterministic: true
 })
 const ObserveAppend = Action.make("coding/observe-vibe-append", {
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: { queued: QueuedAppend, attempt: Schema.Number },
   success: Poll.CheckResult(Observed),
   error: CodingError,
   nondeterministic: true
 })
 const VerifyLanded = Action.make("coding/verify-vibe-landed", {
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: {
     cleanup: VibeCleanup,
     cleanedSource: PublishVibeSource.successSchema,
@@ -105,6 +125,8 @@ const VerifyLanded = Action.make("coding/verify-vibe-landed", {
 })
 /** A local lander's candidate: the cleaned tip merged onto main as one commit. */
 const PrepareCandidate = Action.make("coding/prepare-vibe-candidate", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup },
   success: LandingCandidate,
   error: CodingError,
@@ -112,18 +134,24 @@ const PrepareCandidate = Action.make("coding/prepare-vibe-candidate", {
 })
 /** Fast-forward main to the candidate every required check passed on; otherwise evict it. */
 const FastForward = Action.make("coding/fast-forward-vibe", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, prepared: LandingCandidate, receipts: Schema.Array(Receipt) },
   success: VibeFastForwarded,
   error: CodingError,
   nondeterministic: true
 })
 const OpenLocalPull = Action.make("coding/open-vibe-local-pull", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, prepared: LandingCandidate },
   success: LocalPull,
   error: CodingError,
   nondeterministic: true
 })
 const ObserveChecks = Action.make("coding/observe-vibe-pull-checks", {
+  tier: "sealed",
+  idempotencyKey: undefined,
   payload: { pull: LocalPull, attempt: Schema.Number },
   success: Poll.CheckResult(PullChecks),
   error: CodingError,
@@ -131,6 +159,8 @@ const ObserveChecks = Action.make("coding/observe-vibe-pull-checks", {
 })
 /** Merge the candidate GitHub's required checks passed, or report why GitHub keeps it open; failed checks evict. */
 const MergeLocalPull = Action.make("coding/merge-vibe-local-pull", {
+  tier: "irreversible",
+  idempotencyKey: undefined,
   payload: { cleanup: VibeCleanup, prepared: LandingCandidate, pull: LocalPull, checks: PullChecks },
   success: VibePullRequested,
   error: CodingError,
