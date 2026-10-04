@@ -95,6 +95,15 @@ for (const [id, label, owner] of [
   await click(label)
   await done(id)
 })
+test("agent question with file cards", async ({}, info) => {
+  info.annotations.push({ type: "owner", description: "crit4-agent-file-cards (T-APP-03 #3497; T-APP-16 host catalog dispatch)" }); test.fail()
+  await done("source")
+  const input = page.getByTestId("composer-input")
+  if (!await input.isVisible()) await page.keyboard.press("Control+k")
+  await input.fill("What is in README.md? Show the file.")
+  await input.press("Enter")
+  await expect(page.locator('[data-kind="file"]').last()).toContainText("README.md")
+})
 test("8 TODO start", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "TODO start lane (T-FLW-11)" }); test.fail()
   const input = page.getByTestId("composer-input")

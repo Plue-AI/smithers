@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -393,15 +394,67 @@ func (b *lockedBuffer) String() string {
 }
 
 // Reuse the same model HTTP fixture for composed journeys.
-func localChatProvider(receivedKey chan string) *httptest.Server {
+func localChatProvider(receivedKey chan string, fileQuestions ...string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case receivedKey <- r.Header.Get("Authorization"):
 		default:
 		}
+		var body struct {
+			Messages []struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil {
+			http.Error(w, "invalid model request", http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		hasResult := false
+		for _, message := range body.Messages {
+			hasResult = hasResult || message.Role == "tool"
+		}
+		for _, path := range fileQuestions {
+			for _, message := range body.Messages {
+				if !hasResult && message.Role == "user" && strings.Contains(string(message.Content), path) {
+					arguments, _ := json.Marshal(map[string]string{"path": path})
+					chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "read-source", "type": "function", "function": map[string]string{"name": "files.read", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
+					_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
+					return
+				}
+			}
+		}
 		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello from provider\"},\"finish_reason\":null}]}\n\n")
 		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	}))
+}
+
+// The source question shares the ordinary provider fixture and exercises an
+// actual model tool call, rather than synthesizing a File card in a response.
+func TestLocalChatProviderSourceQuestion(t *testing.T) {
+	server := localChatProvider(make(chan string, 4), "JOURNEY.md")
+	defer server.Close()
+	request := func(body string) string {
+		t.Helper()
+		response, err := http.Post(server.URL, "application/json", strings.NewReader(body))
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		data, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		return string(data)
+	}
+	question := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"}]}`)
+	require.Contains(t, question, `"name":"files.read"`)
+	require.Contains(t, question, `"finish_reason":"tool_calls"`)
+	require.Contains(t, question, `\"path\":\"JOURNEY.md\"`)
+	require.NotContains(t, question, `"kind":"file"`)
+	continuation := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"},{"role":"tool","content":"Add a greeting to JOURNEY.md\n"}]}`)
+	require.Contains(t, continuation, "hello from provider")
+	require.NotContains(t, continuation, "tool_calls")
+	ordinary := request(`{"messages":[{"role":"user","content":"hello"}]}`)
+	require.Contains(t, ordinary, "hello from provider")
+	require.NotContains(t, ordinary, "tool_calls")
 }

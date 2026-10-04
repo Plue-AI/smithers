@@ -109,7 +109,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	} {
 		t.Setenv(name, value)
 	}
-	provider := localChatProvider(make(chan string, 16))
+	provider := localChatProvider(make(chan string, 16), "JOURNEY.md")
 	t.Cleanup(provider.Close)
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
@@ -136,21 +136,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	logs := &lockedBuffer{}
 	stdout := &lockedBuffer{}
 	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo")}}, ComputeProvider: sandboxfake.New(), ChatHost: host, FlowHostProductAPIURL: origin, GitHubImportGitRunner: func(ctx context.Context, env []string, args ...string) (string, error) {
-			args = append([]string(nil), args...)
-			env = append([]string(nil), env...)
-			if len(args) > 2 && args[0] == "clone" {
-				expected := "https://github.com/rehearsal-owner/app.git"
-				if args[2] != expected {
-					return "", fmt.Errorf("rehearsal forbids external Git source %q", args[2])
-				}
-				args[2] = fake.URL + "/rehearsal-owner/app.git"
-				for i, value := range env {
-					env[i] = strings.ReplaceAll(value, "http.https://github.com/.", "http."+fake.URL+"/.")
-				}
-			}
-			return services.RunGitImportCommand(ctx, env, args...)
-		}}, func(h http.Handler) { ready <- h })
+		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo")}}, ComputeProvider: sandboxfake.New(), ChatHost: host, FlowHostProductAPIURL: origin}, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:
@@ -411,19 +397,15 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	for _, id := range []string{"source", "machine"} {
-		if !step("6 "+id+" ready", "POST /api/install/setup/"+id+" → GET /api/install", "202 → "+id+" done (separate readiness)", "T-INS-06, T-MCH-10", func() error {
-			if _, err := expect("POST", "/api/install/setup/"+id, `{}`, 202); err != nil {
-				return err
-			}
-			err := waitStep(id)
-			if id == "source" && err == nil {
-				sourceReady = true
-			}
+	if !step("6 source ready", "POST /api/install/setup/source → GET /api/install", "202 → source done (separate readiness)", "T-INS-06, T-MCH-10", func() error {
+		if _, err := expect("POST", "/api/install/setup/source", `{}`, 202); err != nil {
 			return err
-		}) {
-			return
 		}
+		err := waitStep("source")
+		sourceReady = err == nil
+		return err
+	}) {
+		return
 	}
 	if !step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
 		body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": "What is in JOURNEY.md? Show the file."}}})
@@ -435,7 +417,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			return fmt.Errorf("Source ready absent before the answer; file-card journey remains blocked")
 		}
 		var answer strings.Builder
-		fileCard, terminal := false, false
+		fileCard, terminal, fileRead := false, false, false
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
 		scanner.Buffer(make([]byte, 4096), 1<<20)
 		for scanner.Scan() {
@@ -452,6 +434,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			for _, raw := range delivery.Batch.Frames {
 				var frame struct {
 					Type string `json:"type"`
+					Name string `json:"name"`
 					Text string `json:"text"`
 					Card struct {
 						Kind    string `json:"kind"`
@@ -464,6 +447,7 @@ func TestJ1Rehearsal(t *testing.T) {
 					return err
 				}
 				answer.WriteString(frame.Text)
+				fileRead = fileRead || (frame.Type == "tool_call" && frame.Name == "files.read")
 				fileCard = fileCard || (frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md")
 			}
 		}
@@ -471,9 +455,17 @@ func TestJ1Rehearsal(t *testing.T) {
 			return err
 		}
 		if !terminal || !strings.Contains(answer.String(), "hello from provider") || !fileCard {
-			return fmt.Errorf("answer/file card missing (terminal=%t file_card=%t)", terminal, fileCard)
+			return fmt.Errorf("answer/file card missing (terminal=%t file_read=%t file_card=%t)", terminal, fileRead, fileCard)
 		}
 		return nil
+	}) {
+		return
+	}
+	if !step("6 machine ready", "POST /api/install/setup/machine → GET /api/install", "202 → machine done (separate readiness)", "T-INS-06, T-MCH-10", func() error {
+		if _, err := expect("POST", "/api/install/setup/machine", `{}`, 202); err != nil {
+			return err
+		}
+		return waitStep("machine")
 	}) {
 		return
 	}
