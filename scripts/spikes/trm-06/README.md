@@ -30,6 +30,15 @@ startup registration.
   writes every `cgroup.kill` before polling, and requires exact `populated 0`
   under one shared two-second deadline. It is compiled, not run on real cgroups.
   The guest helper is a design reference, never a cleanup subprocess or oracle.
+  The inline polling loop is replaced by a shared policy tested with deterministic
+  clock/kernel faults: all kills precede reads, every child is observed, one
+  deadline includes descriptor resolution, and kill/read errors refuse admission.
+- Dormant Linux child identity drop pins Ben 20001 or agent 19999, supplementary
+  team group 20000, matching primary GID, and umask 002. It sets real/effective/
+  saved GID and UID, verifies all credentials, and returns an error at the first
+  failed operation. It is not called by a process launcher; account provisioning
+  and real before-payload identity observations remain unimplemented. Mac tests
+  inject syscall failures; Linux code is cross-compiled, not executed.
 - Go maps shell/exec/PTY/SFTP/direct-tcpip and resize/signal/exit requests, refuses
   agent and remote forwarding, restricts TCP to literal guest loopback targets,
   and returns fixed fresh-only `DefaultImage` configuration with nil environments
@@ -59,8 +68,8 @@ with poisoned PATH/import/environment and unchanged outside sentinel). It is
 real init/start/restart and authenticated SSH/relay dispatch.
 
 Still required in #3554: authenticated installed-main provenance and accepted
-T-SEC-01 R1–R3 receipts; fixed account provisioning and privilege drop; guest
-PTY/exec/SFTP/TCP execution and owned cgroup registry; authenticated multiplexed
+T-SEC-01 R1–R3 receipts; fixed account provisioning and process-launch integration
+of the dormant privilege drop; guest PTY/exec/SFTP/TCP execution and owned cgroup registry; authenticated multiplexed
 control/data dispatch; SSH listener/authentication and channel pumping; close,
 revocation and restart operations; live flow control/reattachment; both real
 root-validation matrices; the nine C-SPK-08 steps on the reference host with

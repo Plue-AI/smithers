@@ -2,6 +2,7 @@
 //! startup barrier. No helper subprocess, path-based kill or ignored kill error.
 //! Not activated until installed provenance and real root validation exist.
 use crate::cgroup_policy::{empty, name_valid};
+use crate::drain::{Observation, drain};
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -63,7 +64,7 @@ impl Sessions {
     /// Kill all children before polling any. One deadline bounds the whole
     /// barrier rather than giving each orphan another independent timeout.
     pub fn startup_barrier(&self) -> io::Result<()> {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let started = Instant::now();
         let mut children = Vec::new();
         // /proc/self/fd targets the held, already validated parent, not a
         // re-resolved member-controlled path. No child path is followed.
@@ -77,37 +78,7 @@ impl Sessions {
             }
             children.push(directory(self.parent.as_raw_fd(), &name)?);
         }
-        for child in &children {
-            let fd = open_at(child.as_raw_fd(), "cgroup.kill", libc::O_WRONLY)?;
-            File::from(fd).write_all(b"1")?;
-        }
-        loop {
-            let mut all_empty = true;
-            for child in &children {
-                let fd = open_at(
-                    child.as_raw_fd(),
-                    "cgroup.events",
-                    libc::O_RDONLY | libc::O_NONBLOCK,
-                )?;
-                let mut bytes = vec![];
-                File::from(fd).take(4097).read_to_end(&mut bytes)?;
-                if bytes.len() > 4096 {
-                    return Err(refusal());
-                }
-                let text = std::str::from_utf8(&bytes).map_err(|_| refusal())?;
-                all_empty &= empty(text)?;
-            }
-            if Instant::now() >= deadline {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "startup cgroups did not drain in 2 s",
-                ));
-            }
-            if all_empty {
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        drain(&mut Handles { children, started }, Duration::from_secs(2))
     }
 }
 fn entry_is_directory(parent: RawFd, name: &str) -> io::Result<bool> {
@@ -129,4 +100,42 @@ fn entry_is_directory(parent: RawFd, name: &str) -> io::Result<bool> {
         return Err(refusal());
     }
     Ok(info.st_mode & libc::S_IFMT == libc::S_IFDIR)
+}
+
+// The policy owns ordering/deadlines; this adapter alone reads kernel files.
+struct Handles {
+    children: Vec<OwnedFd>,
+    started: Instant,
+}
+impl Observation for Handles {
+    fn count(&self) -> usize {
+        self.children.len()
+    }
+    fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+    fn kill(&mut self, index: usize) -> io::Result<()> {
+        let fd = open_at(
+            self.children[index].as_raw_fd(),
+            "cgroup.kill",
+            libc::O_WRONLY,
+        )?;
+        File::from(fd).write_all(b"1")
+    }
+    fn empty(&mut self, index: usize) -> io::Result<bool> {
+        let fd = open_at(
+            self.children[index].as_raw_fd(),
+            "cgroup.events",
+            libc::O_RDONLY | libc::O_NONBLOCK,
+        )?;
+        let mut bytes = vec![];
+        File::from(fd).take(4097).read_to_end(&mut bytes)?;
+        if bytes.len() > 4096 {
+            return Err(refusal());
+        }
+        empty(std::str::from_utf8(&bytes).map_err(|_| refusal())?)
+    }
+    fn wait(&mut self) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
