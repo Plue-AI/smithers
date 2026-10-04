@@ -642,12 +642,11 @@ Rows show names and scope, without a Hosts count or Bind control.
 ### T-UI-21 Docs (bundled pages)
 
 `DocsViewProps = CardProps<DocsCard, {}, "open">` from `@smthrs/rpc/DocsCard`.
-`DocsCard` is decoded by `DocsCardSchema`: `toc[] {slug, title}`, `page {slug, title,
+`DocsCard` is a View-only TypeScript type: `toc[] {slug, title}`, `page {slug, title,
 summary, markdown}`, `anchor?`, `not_found?`. The missing slug appears above the
-supplied fallback page. The read-only wiki Markdown adapter renders inert
-HTML. TOC and document links dispatch the supplied `open` gesture with
+supplied fallback page. The wiki’s shared `Markdown` renderer renders inert HTML. TOC and document links dispatch the supplied `open` gesture with
 `{...args, page: "<slug>#<anchor>"}`; absent or disabled gestures are inert.
-The adapter reveals `anchor` once per page/anchor reset. At 390px the rail wraps
+A commit ref supplies heading anchors and reveals `anchor` on page/anchor changes. At 390px the rail wraps
 above the page. No router, loader or authorization belongs to this View.
 
 ### T-UI-22 Debug API

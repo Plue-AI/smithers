@@ -1783,65 +1783,77 @@ test("Lessons receipt names pages without inventing navigation", async () => {
 
 // T-UI-21: document safety at the actual wiki-adapter boundary, plus absent gestures.
 import { DocsView } from "./DocsView"
-import { fixtures as docsFixtures } from "@smthrs/rpc/fixtures/Docs"
+import type { DocsViewProps } from "@smthrs/rpc/DocsCard"
 describe("DocsView", () => {
-  test("raw HTML stays inert in the read-only document", async () => {
-    const fixture = { ...docsFixtures.hostile, model: { ...docsFixtures.hostile.model, page: {
-      ...docsFixtures.hostile.model.page,
-      markdown: docsFixtures.hostile.model.page.markdown + "\n`a < b`\n\n```html\n<div>example</div>\n```\n"
-    } } }
-    const rendered = await mounted({ name: "hostile", expect: [], render: callbacks => <DocsView {...fixture} {...callbacks} /> })
+  const props: Omit<DocsViewProps, "onAction" | "onView"> = {
+    model: { toc: [{ slug: "guide/start", title: "Start" }, { slug: "todos", title: "TODOs" }], page: {
+      slug: "guide/start", title: "Start", summary: "Install Smithers", markdown: "# Start\n\n## Install\n\nFirst.\n\n## Install\n\n[TODOs](../todos.md#review) [Local](#install-1) [Other](other.txt) [Web](https://example.com)"
+    } }, actions: [], gestures: { open: { tag: "docs", label: "Open", args: { source: "docs-card", page: "old" } } }, view: { maximized: false }
+  }
+  test("toc order, body, repeated headings and navigation preserve supplied args", async () => {
+    const rendered = await mounted({ name: "docs", expect: [], render: callbacks => <DocsView {...props} {...callbacks} /> })
     try {
-      expect(rendered.host.querySelector("script,img,iframe")).toBeNull()
-      const source = rendered.host.querySelector<HTMLTextAreaElement>("textarea")!
-      expect(source.readOnly).toBe(true)
-      expect(source.value).toContain("    <div>")
-      expect(source.value).not.toContain("# Quickstart")
-      expect([...rendered.host.querySelectorAll("h1,h2")].filter(h => h.textContent === "Quickstart")).toHaveLength(1)
-      expect(source.value).not.toContain("javascript:")
-      expect(source.value).toContain("Reference")
-      expect(source.value).not.toContain("[r]")
-      expect(source.value).toContain("<script>alert(1)</script>")
-      expect(source.value).toContain("<img src=x onerror=alert(1)>")
-      expect(source.value).toContain("`a < b`")
-      expect(source.value).toContain("```html\n<div>example</div>\n```")
-      await act(async () => rendered.host.querySelectorAll<HTMLAnchorElement>("nav a")[1]!.click())
-      expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos" }]])
+      expect([...rendered.host.querySelectorAll("nav a")].map(node => node.textContent)).toEqual(["Start", "TODOs"])
+      expect(rendered.host.querySelector("h2")?.textContent).toBe("Start")
+      expect(rendered.host.textContent).toContain("Install Smithers")
+      expect(rendered.host.textContent).toContain("First.")
+      expect([...rendered.host.querySelectorAll(".sui-md-heading")].map(node => node.id)).toEqual(["install", "install-1"])
+      const links = [...rendered.host.querySelectorAll<HTMLAnchorElement>(".sui-md a")]
+      expect(links.map(link => link.dataset.flow)).toEqual(["docs", "docs", "docs", "docs"])
+      await act(async () => {
+        rendered.host.querySelectorAll<HTMLAnchorElement>("nav a")[1]!.click()
+        for (const link of links) { const event = new MouseEvent("click", { bubbles: true, cancelable: true }); link.dispatchEvent(event); expect(event.defaultPrevented).toBe(true) }
+      })
+      expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos" }], ["docs", { source: "docs-card", page: "todos#review" }], ["docs", { source: "docs-card", page: "guide/start#install-1" }]])
     } finally { await rendered.close() }
   })
-  test("absent and disabled navigation cannot dispatch", async () => {
-    for (const fixture of [docsFixtures.inert, docsFixtures.disabled]) {
-      const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...fixture} {...callbacks} /> })
+  test("absent or disabled gestures block every link including browser navigation", async () => {
+    for (const gestures of [{}, { open: { ...props.gestures.open!, disabled: { reason: "Unavailable" } } }]) {
+      const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...props} gestures={gestures} {...callbacks} /> })
       try {
-        const buttons = [...rendered.host.querySelectorAll<HTMLAnchorElement>("nav a")]
-        expect(buttons.map(button => button.getAttribute("aria-disabled"))).toEqual(fixture === docsFixtures.inert ? [] : ["true", "true", "true"])
-        await act(async () => buttons[1]?.click())
+        for (const link of rendered.host.querySelectorAll("a")) { const event = new MouseEvent("click", { bubbles: true, cancelable: true }); await act(async () => link.dispatchEvent(event)); expect(event.defaultPrevented).toBe(true) }
         expect(rendered.onAction).toHaveBeenCalledTimes(0)
-        if (fixture === docsFixtures.disabled) expect(rendered.host.textContent).toContain("Unavailable")
       } finally { await rendered.close() }
     }
   })
-  test("supplied actions retain order, args, and disabled reason", async () => {
-    const actions: import("@smthrs/rpc/CardAction").Action[] = [
-      { tag: "docs", label: "Open", args: { page: "flows", source: "button" } },
-      { tag: "docs", label: "Retry", disabled: { reason: "Unavailable" } },
-    ]
-    const rendered = await mounted({ name: "actions", expect: [], render: callbacks => <DocsView {...docsFixtures.page} actions={actions} {...callbacks} /> })
+  test("shared Markdown escapes HTML and filters unsafe schemes", async () => {
+    const model = { ...props.model, page: { ...props.model.page, markdown: '<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[Script](javascript:alert) [Control](java\tscript:alert) [Data](data:text/html,hello)' } }
+    const rendered = await mounted({ name: "hostile", expect: [], render: callbacks => <DocsView {...props} model={model} {...callbacks} /> })
     try {
-      const buttons = [...rendered.host.querySelectorAll<HTMLButtonElement>("footer button")]
-      expect(buttons.map(button => button.textContent)).toEqual(["Open", "Retry"])
-      await act(async () => { buttons[0]!.click(); buttons[1]!.click() })
-      expect(rendered.onAction.mock.calls).toEqual([["docs", { page: "flows", source: "button" }]])
-      expect(buttons[1]!.disabled).toBe(true)
-      expect(rendered.host.querySelector("footer")?.textContent).toBe("OpenRetryUnavailable")
+      expect(rendered.host.querySelector("script,img,iframe")).toBeNull()
+      expect(rendered.host.textContent).toContain("<script>alert(1)</script>")
+      expect(rendered.host.textContent).toContain("<img src=x onerror=alert(1)>")
+      const links = [...rendered.host.querySelectorAll<HTMLAnchorElement>(".sui-md a")]
+      expect(links).toHaveLength(3)
+      for (const link of links) { expect(link.getAttribute("href")).toBeNull(); await act(async () => link.click()) }
+      expect(rendered.onAction).toHaveBeenCalledTimes(0)
     } finally { await rendered.close() }
   })
-  test("missing page shows the requested slug and supplied fallback", async () => {
-    const rendered = await mounted({ name: "missing", expect: [], render: callbacks => <DocsView {...docsFixtures.not_found} {...callbacks} /> })
+  test("anchor is revealed again after page changes; unknown anchors remain usable", async () => {
+    const scroll = mock(() => {})
+    const original = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = scroll
+    const model = { ...props.model, anchor: "install-1" }
+    const rendered = await mounted({ name: "anchor", expect: [], render: callbacks => <DocsView {...props} model={model} {...callbacks} /> })
     try {
-      expect(rendered.host.querySelector(".mvp-docs-missing")?.textContent).toBe("Page not found: deploy-to-kubernetes")
-      expect(rendered.host.querySelector("h2")?.textContent).toBe("Quickstart")
-      expect(rendered.host.querySelector('[aria-current="page"]')?.textContent).toBe("Quickstart")
+      expect(scroll).toHaveBeenCalledTimes(1)
+      expect((scroll.mock.contexts[0] as HTMLElement).id).toBe("install-1")
+      await act(async () => rendered.root.render(<DocsView {...props} model={{ ...model, page: { ...model.page, slug: "other" } }} onAction={rendered.onAction} onView={rendered.onView} />))
+      expect(scroll).toHaveBeenCalledTimes(2)
+      for (const anchor of ["unknown", "%ZZ"]) await act(async () => rendered.root.render(<DocsView {...props} model={{ ...model, anchor }} onAction={rendered.onAction} onView={rendered.onView} />))
+      expect(scroll).toHaveBeenCalledTimes(2)
+      expect(rendered.host.textContent).toContain("First.")
+    } finally { await rendered.close(); HTMLElement.prototype.scrollIntoView = original }
+  })
+  test("missing page keeps the fallback and supplied actions", async () => {
+    const rendered = await mounted({ name: "missing", expect: [], render: callbacks => <DocsView {...props} model={{ ...props.model, not_found: "missing" }} actions={[{ tag: "docs", label: "Open", args: { page: "todos" } }, { tag: "docs", label: "Retry", disabled: { reason: "Unavailable" } }]} {...callbacks} /> })
+    try {
+      expect(rendered.host.querySelector(".mvp-docs-missing")?.textContent).toBe("Page not found: missing")
+      expect(rendered.host.querySelector('[aria-current="page"]')?.textContent).toBe("Start")
+      const buttons = rendered.host.querySelectorAll<HTMLButtonElement>("footer button")
+      await act(async () => { buttons[0]!.click(); buttons[1]!.click() })
+      expect(rendered.onAction.mock.calls).toEqual([["docs", { page: "todos" }]])
+      expect(buttons[1]!.disabled).toBe(true)
     } finally { await rendered.close() }
   })
 })

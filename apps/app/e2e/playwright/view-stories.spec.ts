@@ -48,7 +48,7 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
     }
     if (story.name.startsWith("DocsView/")) {
-      await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+      await expect(page.locator(".mvp-docs .sui-md")).toBeVisible()
       if (story.name.endsWith("No navigation gesture")) {
         const current = page.locator('.mvp-docs nav [aria-current="page"]')
         await expect(current).toHaveText("Quickstart")
@@ -56,21 +56,11 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
         expect(await current.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)")
       }
       if (story.name.endsWith("Inert HTML")) {
-        await expect(page.locator(".mvp-docs .ProseMirror")).not.toContainText("[r]")
-        await expect(page.locator(".mvp-docs .milkdown-code-block .tools")).toBeHidden()
-        const contrast = await page.locator(".mvp-docs .cm-gutterElement").first().evaluate(node => {
-          const rgb = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
-          const luminance = (values: number[]) => values.map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4 }).reduce((sum, value, i) => sum + value * [ .2126, .7152, .0722 ][i]!, 0)
-          let parent: Element | null = node
-          while (parent && getComputedStyle(parent).backgroundColor === "rgba(0, 0, 0, 0)") parent = parent.parentElement
-          const foreground = luminance(rgb(getComputedStyle(node).color))
-          const background = luminance(rgb(getComputedStyle(parent!).backgroundColor))
-          return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
-        })
-        expect(contrast).toBeGreaterThanOrEqual(4.5)
+        await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe")).toHaveCount(0)
+        for (const name of ["Blocked", "Control", "Data"]) await expect(page.locator(".mvp-docs .sui-md a").filter({ hasText: name })).not.toHaveAttribute("href")
       }
       if (story.name.endsWith("Scrolled to a heading")) {
-        const top = await page.locator(".mvp-docs .ProseMirror h2").evaluate(node => node.getBoundingClientRect().top)
+        const top = await page.locator(".mvp-docs .sui-md-heading").evaluate(node => node.getBoundingClientRect().top)
         expect(top).toBeGreaterThanOrEqual(0)
         expect(top).toBeLessThan(width === 390 ? 844 : 800)
       }
@@ -638,20 +628,46 @@ test("File Copy failure remains visible and retains recovered text", async ({ pa
   await expect(page.getByRole("button", { name: "Reapply", exact: true })).toBeEnabled()
 })
 
+test("Docs missing and disabled navigation stay on the page", async ({ page }) => {
+  for (const story of ["No navigation gesture", "Navigation unavailable"]) {
+    await page.goto(`/view-stories.html?story=DocsView/${encodeURIComponent(story)}`)
+    const url = page.url()
+    await page.evaluate(() => {
+      Object.assign(window, { docsReceipts: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { docsReceipts: unknown[] }).docsReceipts.push((event as CustomEvent).detail))
+    })
+    await page.locator(".mvp-docs .sui-md a").click()
+    expect(page.url()).toBe(url)
+    expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([])
+  }
+})
+
 test("Docs document links are gestures and HTML remains inert", async ({ page }) => {
   await page.goto("/view-stories.html?story=DocsView/Inert%20HTML")
-  await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+  await expect(page.locator(".mvp-docs .sui-md")).toBeVisible()
   await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe,.mvp-docs a[href^=\"javascript:\"]")).toHaveCount(0)
-  await expect(page.locator(".mvp-docs .ProseMirror")).toContainText("<script>alert(1)</script>")
-  await expect(page.locator(".mvp-docs .cm-content")).toContainText("<div>")
-  await expect(page.locator(".mvp-docs .ProseMirror")).not.toContainText("[r]")
-  await expect(page.getByRole("textbox", { name: "Code", exact: true })).toHaveAttribute("aria-readonly", "true")
+  await expect(page.locator(".mvp-docs .sui-md")).toContainText("<script>alert(1)</script>")
+  await expect(page.locator(".mvp-docs .sui-md")).toContainText("<div>")
   await page.evaluate(() => {
     const receipts: unknown[] = []
     Object.assign(window, { docsReceipts: receipts })
     window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
   })
-  await page.getByRole("link", { name: "Titled", exact: true }).click()
+  const url = page.url()
+  for (const name of ["Blocked", "Control", "Data"]) {
+    const link = page.locator(".mvp-docs .sui-md a").filter({ hasText: name })
+    await expect(link).not.toHaveAttribute("href")
+    await link.click()
+  }
+  expect(page.url()).toBe(url)
+  expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([])
+  const titled = page.getByRole("link", { name: "Titled", exact: true })
+  await titled.focus()
+  await page.keyboard.press("Shift+Tab")
+  await page.keyboard.press("Tab")
+  await expect(titled).toBeFocused()
+  expect(await titled.evaluate(node => getComputedStyle(node).outlineStyle)).not.toBe("none")
+  await page.keyboard.press("Enter")
   expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([
     { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "todos" } } }
   ])
@@ -661,7 +677,7 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
     { kind: "action", value: { tag: "docs", args: { source: "docs-card", page: "quickstart#put-https-in-front" } } }
   ])
   await page.goto("/view-stories.html?story=DocsView/The%20quickstart%20page")
-  await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+  await expect(page.locator(".mvp-docs .sui-md")).toBeVisible()
   await page.evaluate(() => {
     Object.assign(window, { docsReceipts: [] })
     window.addEventListener("story-callback", event => (window as unknown as { docsReceipts: unknown[] }).docsReceipts.push((event as CustomEvent).detail))
@@ -671,10 +687,10 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
     { kind: "action", value: { tag: "docs", args: { page: "todos" } } }
   ])
   await page.goto("/view-stories.html?story=DocsView/Scrolled%20to%20a%20heading")
-  await expect(page.locator('.mvp-docs .ProseMirror h2')).toHaveText("Put HTTPS in front")
+  await expect(page.locator('.mvp-docs .sui-md-heading')).toHaveText("Put HTTPS in front")
   await expect(page.getByRole("heading", { name: "Quickstart", exact: true })).toHaveCount(1)
-  const scroll = page.locator('.mvp-docs .sui-markdown-editor')
-  const headingTop = await page.locator(".mvp-docs .ProseMirror h2").evaluate(node => node.getBoundingClientRect().top)
+  const scroll = page.locator('.mvp-docs .sui-md')
+  const headingTop = await page.locator(".mvp-docs .sui-md-heading").evaluate(node => node.getBoundingClientRect().top)
   expect(headingTop).toBeGreaterThanOrEqual(0)
   expect(headingTop).toBeLessThan(page.viewportSize()!.height)
   const position = await scroll.evaluate(node => ({ editor: node.scrollTop, window: window.scrollY }))

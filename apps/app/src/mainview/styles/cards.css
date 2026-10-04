@@ -2967,21 +2967,15 @@
 .mvp-docs header p { margin: 0 0 var(--sp-5); color: var(--text-muted); font-size: var(--fs-small); }
 .mvp-docs .mvp-docs-missing { margin: 0 0 var(--sp-5); color: var(--text-muted); font-size: var(--fs-small); }
 .mvp-docs .mvp-docs-markdown { min-width: 0; }
-.mvp-docs .milkdown { background: transparent; color: var(--text); }
-.mvp-docs .mvp-docs-markdown .milkdown .ProseMirror { padding: 0; font-family: var(--font-ui); font-size: var(--fs-small); line-height: 1.55; }
-.mvp-docs .milkdown pre, .mvp-docs .milkdown table { max-width: 100%; overflow: auto; }
-.mvp-docs .sui-markdown-editor-fallback { box-sizing: border-box; width: 100%; min-height: 240px; color: var(--text); background: var(--surface); }
+.mvp-docs .sui-md { color: var(--text); font-family: var(--font-ui); font-size: var(--fs-small); line-height: 1.55; }
+.mvp-docs .sui-md pre, .mvp-docs .sui-md table { max-width: 100%; overflow: auto; }
+.mvp-docs .sui-md a:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .mvp-docs footer { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-5); }
 @media (max-width: 600px) {
   .mvp-docs { grid-template-columns: minmax(0, 1fr); }
   .mvp-docs nav { flex-direction: row; flex-wrap: wrap; padding: var(--sp-3); border-right: 0; border-bottom: 1px solid var(--border); }
   .mvp-docs .mvp-docs-page { padding: var(--sp-5) var(--sp-4); }
 }
-.mvp-docs .milkdown .ProseMirror h1 { font-size: var(--fs-6); font-weight: 600; line-height: 1.3; margin: var(--sp-5) 0 var(--sp-3); }
-.mvp-docs .milkdown .ProseMirror h2 { font-size: var(--fs-md); font-weight: 600; line-height: 1.3; margin: var(--sp-5) 0 var(--sp-2); }
-.mvp-docs .milkdown .ProseMirror h3 { font-weight: 600; font-size: var(--fs-body); margin: var(--sp-4) 0 var(--sp-2); }
-.mvp-docs .milkdown .ProseMirror code { color: var(--text); }
-
 .mvp-docs .mvp-docs-markdown[data-inert] a { color: inherit; text-decoration: none; cursor: text; }
 
 
