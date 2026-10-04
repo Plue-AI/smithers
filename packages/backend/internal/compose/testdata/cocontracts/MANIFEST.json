@@ -1,0 +1,10 @@
+{
+  "scope": "T-COL-08b browser fixtures only; daemon golden manifest owned by T-COL-03r",
+  "pins": {
+    "yjs": "13.6.32",
+    "yrs": "0.27.4"
+  },
+  "files": {
+    "doc-browser.json": "68db6be546d02e325e633e58c8511eb24f7ba42e640d45ced91fa88728b2b379"
+  }
+}

@@ -16,6 +16,10 @@
     "./fixtures/*": {
       "types": "./test/fixtures/*.ts",
       "default": "./test/fixtures/*.ts"
+    },
+    "./testing/LiveDocRelay": {
+      "types": "./src/testing/LiveDocRelay.ts",
+      "default": "./src/testing/LiveDocRelay.ts"
     }
   },
   "scripts": {
@@ -27,7 +31,8 @@
   "dependencies": {
     "@smthrs/canonical": "1.0.0-rc.1",
     "string-width": "7.2.0",
-    "zod": "4.5.4"
+    "zod": "4.5.4",
+    "yjs": "13.6.32"
   },
   "devDependencies": {
     "@types/node": "26.4.1",
