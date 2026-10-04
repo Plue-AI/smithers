@@ -1046,6 +1046,36 @@ type SavedConversationProblem struct {
 	Code   string `json:"code"`
 }
 
+// ScorecardWindow is generated from docs/api/openapi.yaml.
+type ScorecardWindow struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
+// ScorecardMeasure is generated from docs/api/openapi.yaml.
+type ScorecardMeasure struct {
+	Value          json.RawMessage `json:"value"`
+	Target         string          `json:"target"`
+	KillSignal     string          `json:"kill_signal"`
+	Verdict        string          `json:"verdict"`
+	Window         ScorecardWindow `json:"window"`
+	SourceTables   []string        `json:"source_tables"`
+	MissingTickets []string        `json:"missing_tickets,omitempty"`
+}
+
+// InstallScorecard is generated from docs/api/openapi.yaml.
+type InstallScorecard struct {
+	Window        ScorecardWindow               `json:"window"`
+	Measures      map[string]ScorecardMeasure   `json:"measures"`
+	PersonMinutes InstallScorecardPersonMinutes `json:"person_minutes"`
+}
+
+// InstallScorecardPersonMinutes is generated from docs/api/openapi.yaml.
+type InstallScorecardPersonMinutes struct {
+	Source  string `json:"source"`
+	Verdict string `json:"verdict"`
+}
+
 // GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
 type GitHubAppSetupRequest struct {
 	Resume     *bool  `json:"resume,omitempty"`
@@ -1211,6 +1241,12 @@ type GetAPIStatusResponseComponents struct {
 type GetAPIStatusResponseComponentsCanary struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+}
+
+// GetAPIInstallScorecardParams is the query of GET /api/install/scorecard.
+type GetAPIInstallScorecardParams struct {
+	From time.Time
+	To   time.Time
 }
 
 // PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.
@@ -2178,6 +2214,16 @@ func (c *Client) GetAPIHealth(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/webhooks/github", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIInstallScorecard calls GET /api/install/scorecard.
+func (c *Client) GetAPIInstallScorecard(ctx context.Context, params GetAPIInstallScorecardParams) (InstallScorecard, error) {
+	query := url.Values{}
+	query.Set("from", params.From.Format(time.RFC3339Nano))
+	query.Set("to", params.To.Format(time.RFC3339Nano))
+	var out InstallScorecard
+	err := c.do(ctx, "GET", "/api/install/scorecard", query, nil, &out)
 	return out, err
 }
 

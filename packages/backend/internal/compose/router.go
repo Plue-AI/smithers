@@ -37,6 +37,7 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	InstallScorecard    *routes.InstallScorecardHandler
 	HostStatus          *routes.HostStatusHandler
 	GitHubAppSetup      *routes.GitHubAppSetupHandler
 	CanaryRuns          ports.CanaryRunSource
@@ -879,6 +880,10 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		mountHostStatus(r, extras.HostStatus)
+		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
+		if extras.InstallScorecard.Available() {
+			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
+		}
 		if config.IsSingleOwner(cfg.Auth) {
 			// No authority/stream provider is wired until T-GH-07 qualifies activation.
 			sync := &routes.GitHubSyncHandler{}

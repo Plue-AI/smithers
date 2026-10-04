@@ -687,7 +687,7 @@
     },
     "C-REL-04": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/routes/install_scorecard_test.go, packages/backend/internal/services/scorecard_test.go",
+      "reason": "Dark scorecard boundary tests exist; numeric source contracts, qualified owner authorization, PostgreSQL lifecycle fixtures and sampled-session evidence remain pending.",
       "ticket": "T-REL-03"
     },
     "C-REL-05": {

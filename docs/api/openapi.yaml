@@ -3348,6 +3348,45 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/install/scorecard:
+    get:
+      summary: Read the alpha scorecard
+      operationId: get_api_install_scorecard
+      tags:
+        - Install
+      description: Owner person session only. Unmounted until the owner authorizer is available. Missing lifecycle producer coverage returns source_missing, never zero. Person-minutes are reviewed separately in sampled alpha sessions.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Scorecard for the half-open UTC window
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallScorecard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Owner person session authorizer unavailable
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/install:
     get:
       summary: Read GitHub App setup status
@@ -23203,6 +23242,59 @@ components:
             - limit
             - corrupt
             - storage_failed
+    ScorecardWindow:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+    ScorecardMeasure:
+      type: object
+      required: [value, target, kill_signal, verdict, window, source_tables]
+      properties:
+        value:
+          description: Null when source_missing; otherwise the automated measure's value.
+        target:
+          type: string
+        kill_signal:
+          type: string
+        verdict:
+          type: string
+          enum: [pass, kill, between, source_missing, diagnostic]
+        window:
+          $ref: '#/components/schemas/ScorecardWindow'
+        source_tables:
+          type: array
+          items:
+            type: string
+        missing_tickets:
+          type: array
+          items:
+            type: string
+    InstallScorecard:
+      type: object
+      required: [window, measures, person_minutes]
+      properties:
+        window:
+          $ref: '#/components/schemas/ScorecardWindow'
+        measures:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ScorecardMeasure'
+        person_minutes:
+          type: object
+          required: [source, verdict]
+          properties:
+            source:
+              type: string
+              enum: [sampled_alpha_sessions]
+            verdict:
+              type: string
+              enum: [manual]
     GitHubAppSetupRequest:
       type: object
       required:

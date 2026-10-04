@@ -568,6 +568,30 @@ export type SavedConversationProblem = {
   code: "request_invalid" | "forbidden" | "not-found" | "retired" | "cursor" | "conflict" | "terminal" | "limit" | "corrupt" | "storage_failed"
 }
 
+export type ScorecardWindow = {
+  from: string
+  to: string
+}
+
+export type ScorecardMeasure = {
+  value: unknown
+  target: string
+  kill_signal: string
+  verdict: "pass" | "kill" | "between" | "source_missing" | "diagnostic"
+  window: ScorecardWindow
+  source_tables: Array<string>
+  missing_tickets?: Array<string>
+}
+
+export type InstallScorecard = {
+  window: ScorecardWindow
+  measures: Record<string, ScorecardMeasure>
+  person_minutes: {
+    source: "sampled_alpha_sessions"
+    verdict: "manual"
+  }
+}
+
 export type GitHubAppSetupRequest = {
   resume?: boolean
   owner_login: string
@@ -1403,6 +1427,16 @@ export type PostWebhooksGithubResponse = AnyJSON
 /** POST /webhooks/github */
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
+
+export type GetApiInstallScorecardResponse = InstallScorecard
+
+export interface GetApiInstallScorecardInput {
+  readonly query: { readonly from: string; readonly to: string }
+}
+
+/** GET /api/install/scorecard: Read the alpha scorecard */
+export const getApiInstallScorecard = (transport: Transport, input: GetApiInstallScorecardInput): Promise<GetApiInstallScorecardResponse> =>
+  transport.request("GET", `/api/install/scorecard${search({ from: input.query.from, to: input.query.to })}`) as Promise<GetApiInstallScorecardResponse>
 
 export type GetApiInstallResponse = GitHubAppSetupStatus
 
