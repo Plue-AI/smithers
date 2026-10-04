@@ -30,6 +30,12 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | fixme-before-implementation | T-GH-03, T-STK-05, T-MCH-14 |
 | C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts) | fixme-before-implementation | T-FLW-13, T-MCH-06, T-REL-02 |
 | C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | fixme-before-implementation | T-COL-06, T-APP-10, T-REL-02 |
+| C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
+| C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-12, T-APP-10 |
+| C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | fixme-before-implementation | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
+| C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | fixme-before-implementation | T-STK-06 |
+| C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | fixme-before-implementation | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
+| C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
