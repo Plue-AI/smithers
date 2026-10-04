@@ -3,6 +3,7 @@
 export const systemFlows = [
   "stack",
   "stack.move",
+  "stack.candidate",
   "stack.propose",
   "history.show",
   "history.view",
@@ -19,6 +20,8 @@ export const systemFlows = [
   "todo.retry",
   "todo.drop",
   "todo.takeover",
+  "todo.preapprove",
+  "todo.unapprove",
   "history.todo",
   "issue.implement",
   "runs.steer",

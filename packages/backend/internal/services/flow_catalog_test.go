@@ -11,7 +11,8 @@ func TestSystemFlowsAreNeverOverridable(t *testing.T) {
 	// Required names are drawn from engineering spec §11.1.1 and product
 	// Appendix A. This is a contract minimum, not a snapshot of SystemFlows.
 	want := []string{
-		"stack", "stack.move", "stack.propose",
+		"stack", "stack.move", "stack.candidate", "stack.propose",
+		"todo.preapprove", "todo.unapprove",
 		"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop",
 		"branch.fork", "branch.add-to-stack", "branch.rebase",
 		"merge", "members", "settings", "secrets", "sync", "admission", "setup", "flow-load", "summarizer",

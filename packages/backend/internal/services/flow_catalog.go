@@ -7,10 +7,11 @@ import "slices"
 // Legacy repository responsibility names remain reserved while their machinery
 // stays hidden for the maintainer release.
 var SystemFlows = []string{
-	"stack", "stack.move", "stack.propose",
+	"stack", "stack.move", "stack.candidate", "stack.propose",
 	// Product Appendix B.2: stack/TODO operations and their retained aliases.
 	"history.show", "history.view", "history.parallel", "history.bootstrap", "history.backfill",
 	"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "todo.takeover",
+	"todo.preapprove", "todo.unapprove",
 	"history.todo", "issue.implement", "runs.steer", "history.retry",
 	"branch.fork", "branch.add-to-stack", "branch.rebase",
 	// B.2: merge, members, settings/model access, and repository secrets.
