@@ -108,7 +108,7 @@ The build-system workflow attributes are:
 | `name`        | `string`                     | required          | Workflow display name, job id for a raw-step job, and the stem of `workflows/<name>.yml`.                                                                   |
 | `on`          | `On`                         | required          | Trigger table described below.                                                                                                                              |
 | `setup`       | `Github.Setup`               | optional          | Shared composite action inserted into target-derived jobs after checkout.                                                                                   |
-| `affected`    | `boolean`                    | optional          | Refused at render time with `unsupported_affected`: no CLI flag restricts a run to a base, so no workflow can narrow to changed targets.                     |
+| `affected`    | `boolean`                    | optional          | Uses `--base-green` for non-matrix gates; missing verified history runs the full gate.                     |
 | `run`         | `Array<Target>`              | `[]`              | Targets rendered as generated jobs. Each job checks out the repository, invokes `setup` when declared, and runs its target label through the workspace CLI. |
 | `steps`       | `Array<Step>`                | optional          | Raw ordered steps rendered into a job named from the workflow. The generator inserts nothing into this list.                                                |
 | `env`         | `Record<string, string>`     | optional          | Workflow-level environment.                                                                                                                                 |
@@ -399,3 +399,20 @@ Write mode is non-cacheable.
 - [Writing build files](../../workspace/writing-build-files.md#build-files-declare-targets-never-commands)
 - [Running targets](../../workspace/running-targets.md)
 - [Remote caching](../../workspace/remote-caching.md)
+
+## Affected gates
+
+`affected: true` renders non-matrix gates as
+`pnpm exec smthrs affected <verb> '<pattern>' --base-green`. The default is
+false; matrix gates always run the full verb. Jobs retain their parallelism,
+known-red list and results files. The workflow grants `actions: read` and only
+these gate steps receive `GITHUB_TOKEN`; target children do not inherit it.
+Pull-request checkouts retain at least two commits and use `HEAD^1` as base.
+
+On a branch push, `--base-green` finds the newest earlier run of the same
+workflow and branch where the same job passed, verifies the base SHA and its
+ancestry through GitHub's compare API, then fetches that commit at depth one.
+Missing history, API failures, redirects, invalid SHAs, diverged history and an
+empty diff run the full gate. A nonempty diff may select zero targets only
+with that successful base as evidence. Explicit `--base` keeps its existing
+working-tree comparison behavior.

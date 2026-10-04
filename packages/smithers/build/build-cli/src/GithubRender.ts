@@ -54,7 +54,6 @@ export type ErrorCode =
   | "preserve_conflict"
   | "outside_write_set"
   | "write_failed"
-  | "unsupported_affected"
 
 /**
  * One typed CI-generation refusal.
@@ -472,35 +471,6 @@ const shardCountOf = (target: Target.AnyTarget, seen = new Set<Target.AnyTarget>
   return Math.max(direct, ...metadata.dependencies.map((dependency) => shardCountOf(dependency, seen)))
 }
 
-/**
- * Refuses `affected: true` while no CLI flag restricts a run to a base.
- *
- * The renderer used to append `--affected-base "$(git merge-base ...)"` to
- * every job command. No command in {@link Cli} defines that flag and the
- * parser rejects an unknown one, so the workflow this produced failed at
- * argument parsing in every job it generated: a workflow file that cannot run
- * at all, checked in and byte-checked as though it were correct.
- *
- * Refusing at render time is the choice rather than defining the flag,
- * because there is no sound answer here for what "affected" means yet. A
- * target's key covers ambient inputs the file set does not name: the
- * lockfile, the host Node version, the toolchain's own fingerprint. So a
- * prune computed from changed files alone would skip targets a change really
- * did affect and report green. A build system may cost time; it may not
- * report a green it did not establish. The result cache already gives an
- * unchanged target a hit, which is most of what the flag was reaching for.
- *
- * When the flag exists, this refusal is what has to be deleted.
- */
-const refuseAffected = (workflowName: string): never => {
-  throw new GithubRenderError(
-    "unsupported_affected",
-    `workflow ${workflowName} declares affected: true, which renders a --affected-base flag no ` +
-      "smithers-build command defines; the generated workflow would fail argument parsing in every job. " +
-      "Remove affected: true until the CLI restricts a run to a base."
-  )
-}
-
 /** Appends one run value, rendering line arrays and multiline strings as one script. */
 const renderRun = (lines: Array<string>, prefix: string, run: string | ReadonlyArray<string>): void => {
   const script = typeof run === "string" ? run : run.join("\n")
@@ -589,7 +559,6 @@ const renderWorkflow = (
   setup: (typeof GithubTarget.SetupAttrs)["Type"] | undefined,
   toolchain: Toolchain
 ): string => {
-  if (workflow.affected === true) refuseAffected(workflow.name)
   const lines: Array<string> = [header(label)]
   lines.push(`name: ${scalar(workflow.name)}`)
   lines.push("on:")
@@ -659,8 +628,8 @@ const renderWorkflow = (
       lines.push(`  cancel-in-progress: \${{ github.event_name == '${cancel}' }}`)
     }
   }
-  if (workflow.permissions !== undefined) {
-    lines.push("permissions:", ...mapping(workflow.permissions, "  "))
+  if (workflow.permissions !== undefined || workflow.affected) {
+    lines.push("permissions:", ...mapping({ contents: "read", ...workflow.permissions, ...(workflow.affected ? { actions: "read" } : {}) }, "  "))
   }
   if (workflow.env !== undefined) lines.push("env:", ...mapping(workflow.env, "  "))
   lines.push("jobs:")
@@ -702,6 +671,7 @@ const renderWorkflow = (
     if (workflow.environment !== undefined) lines.push(`    environment: ${scalar(workflow.environment)}`)
     lines.push("    steps:")
     lines.push(usesLine("      ", pinnedActions.checkout))
+    if (workflow.affected && workflow.on.pullRequest) lines.push("        with:", "          fetch-depth: 2")
     if (setup !== undefined) {
       lines.push(`      - uses: ./${packageDir}/actions/setup`)
       const withEntries: Record<string, string> = {}
@@ -711,8 +681,10 @@ const renderWorkflow = (
         lines.push("        with:", ...mapping(withEntries, "          "))
       }
     }
-    const command = [...toolchain.exec, `'${runLabel}'`].join(" ")
+    const affected = workflow.affected === true && shards === 1
+    const command = [...toolchain.exec, ...(affected ? ["affected", "ci"] : []), `'${runLabel}'`, ...(affected ? ["--base-green"] : [])].join(" ")
     lines.push(`      - run: ${scalar(command)}`)
+    if (affected) lines.push("        env:", "          GITHUB_TOKEN: ${{ github.token }}", `          SMTHRS_CI_JOB: ${scalar(workflow.jobName ?? jobId)}`)
   }
   return `${lines.join("\n")}\n`
 }

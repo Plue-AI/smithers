@@ -549,7 +549,9 @@ describe("render", () => {
     const text = render(attrsOf({ ...goldenAttrs, results: true }))
     const workflow = parseWorkflow(text)
     for (const job of workflow.jobs) {
-      const commands = job.steps.map((step) => step.run ?? "").filter((command) => command.startsWith("pnpm exec smthrs"))
+      const commands = job.steps.map((step) => step.run ?? "").filter((command) =>
+        command.startsWith("pnpm exec smthrs")
+      )
       for (const command of commands) {
         expect(command).toMatch(/ --results-file "\$RUNNER_TEMP\/smthrs-results\/\$GITHUB_ACTION\.json" --verbose$/)
       }
@@ -562,7 +564,11 @@ describe("render", () => {
       expect(upload.condition).toBe("always()")
       expect(upload.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/)
       // Non-matrix jobs get a literal 0: strategy.job-index is only defined under a matrix.
-      expect(text).toMatch(new RegExp(`smthrs-results-${job.id}-(0|\\$\\{\\{ strategy\\.job-index \\}\\})-\\$\\{\\{ github\\.run_attempt \\}\\}`))
+      expect(text).toMatch(
+        new RegExp(
+          `smthrs-results-${job.id}-(0|\\$\\{\\{ strategy\\.job-index \\}\\})-\\$\\{\\{ github\\.run_attempt \\}\\}`
+        )
+      )
     }
     expect(text).toContain("${{ runner.temp }}/smthrs-results")
   })
@@ -1842,5 +1848,38 @@ describe("system packages", () => {
   it("refuses a package name apt would not accept", () => {
     expect(() => CiToolchain.Apt({ packages: ["bubble wrap"] })).toThrow()
     expect(() => CiToolchain.Apt({ packages: [] })).toThrow()
+  })
+})
+
+describe("affected gates", () => {
+  it("binds every affected invocation to a green base and keeps matrix gates full", () => {
+    const parsed = Yaml.parse(
+      render({ ...goldenAttrs, affected: true, knownRed: ".github/ci-known-red.json", results: true })
+    )
+    expect(parsed.permissions).toEqual({ contents: "read", actions: "read" })
+    const gate = parsed.jobs.test.steps.find((step: any) => step.name === "Workspace targets")
+    expect(gate.run).toBe(
+      "pnpm exec smthrs affected ci '//packages/...' --base-green --jobs 2 --known-red '.github/ci-known-red.json' --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
+    )
+    expect(gate.env.GITHUB_TOKEN).toBe("${{ github.token }}")
+    expect(parsed.jobs.test.steps[1].env?.GITHUB_TOKEN).toBeUndefined()
+    expect(parsed.jobs.test.steps.find((step: any) => step.uses?.startsWith("actions/checkout")).with["fetch-depth"])
+      .toBe("2")
+    const matrix = Yaml.parse(render({
+      ...goldenAttrs,
+      affected: true,
+      gates: [],
+      jobs: [{
+        ...goldenAttrs.jobs[0]!,
+        runsOn: undefined,
+        matrix: [{ os: "ubuntu-latest", advisory: false }]
+      }]
+    }))
+    expect(matrix.jobs.test.steps.find((step: any) => step.name === "Workspace targets").run).not.toContain("affected")
+    for (const job of Object.values(parsed.jobs) as Array<any>) {
+      for (const step of job.steps) {
+        if (step.run?.includes("smthrs affected")) expect(step.run).toContain("--base-green")
+      }
+    }
   })
 })

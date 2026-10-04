@@ -225,7 +225,7 @@ it.each(["test", "ci"])("affected %s preserves a partial wildcard's exclusive de
       expect(result.output).toContain("wildcard selection reaches exclusive dependency //packages/dependency:exclusive")
       expect(result.output).toContain("--include-exclusive")
       expect(result.output).not.toContain("\"counts\"")
-      expect(result.logs).toContain("Affected but not run here: //packages/dependency:exclusive")
+      expect(result.logs).toContain("Selected, not run: //packages/dependency:exclusive")
     }
   } finally {
     await Fs.rm(root, { recursive: true, force: true })
@@ -249,7 +249,7 @@ it.each(["test", "ci"])(
         "//packages/dependency:exclusive"
       ])
       expect(plan.targets.map((target) => target.label).sort()).toEqual([...plan.roots].sort())
-      expect(result.logs).not.toContain("Affected but not run here")
+      expect(result.logs).not.toContain("Selected, not run")
     } finally {
       await Fs.rm(root, { recursive: true, force: true })
     }
@@ -304,7 +304,7 @@ it("affected does not report an exclusive dependency that ran through a named ro
       expect.objectContaining({ label: "//packages/dependency:exclusive", status: "ran" }),
       expect.objectContaining({ label: "//packages/affected:ordinary", status: "ran" })
     ]))
-    expect(result.logs).not.toContain("Affected but not run here")
+    expect(result.logs).not.toContain("Selected, not run")
   } finally {
     await Fs.rm(root, { recursive: true, force: true })
   }
@@ -341,7 +341,7 @@ it.each(["failed", "skipped"])("affected reports an exclusive dependency's %s ex
     expect(result.exitCode, result.output + result.logs).toBe(1)
     expect(result.logs).toContain(`//packages/dependency:exclusive  ${status}`)
     if (status === "failed") expect(result.logs).toContain("expected 1 to be 2")
-    expect(result.logs.includes("Affected but not run here: //packages/dependency:exclusive")).toBe(
+    expect(result.logs.includes("Selected, not run: //packages/dependency:exclusive")).toBe(
       status === "skipped"
     )
     expect(result.output).toContain("targets_failed")
@@ -368,7 +368,7 @@ it("runs what it can on a conservative diff and names the target the wildcard le
     ])
     expect(result.exitCode, result.output + result.logs).toBe(0)
     expect(result.logs).toContain("//:here  ran")
-    expect(result.logs).toContain("Affected but not run here: //:there")
+    expect(result.logs).toContain("Selected, not run: //:there")
   } finally {
     await Fs.rm(root, { recursive: true, force: true })
   }
@@ -392,7 +392,7 @@ it("leaves out another host's target on a precise diff too, instead of failing t
     const result = await serve(root, ["affected", "test", "//...", "--files", "src/a.txt", "--no-cache", "--jobs", "1"])
     expect(result.exitCode, result.output + result.logs).toBe(0)
     expect(result.logs).toContain("//:here  ran")
-    expect(result.logs).toContain("Affected but not run here: //:there")
+    expect(result.logs).toContain("Selected, not run: //:there")
   } finally {
     await Fs.rm(root, { recursive: true, force: true })
   }

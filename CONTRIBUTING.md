@@ -73,9 +73,9 @@ The cost is that one edit lands in several places. If you change:
 
 | What                                          | Also update                                                                                                                                                                            |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm-workspace.yaml` package membership      | `packages/smithers/flows/test/vitestCoverageIsolation.test.ts` (the coverage-universe policy pin); lockfile inputs are derived automatically. Nesting a package inside another has its own recipe below                                                    |
-| root `package.json` scripts                   | `packages/smithers/flows/test/vitestCoverageIsolation.test.ts` (the aggregator roster)                                                                                                          |
-| root `PACKAGE.ts` CI jobs, steps, or triggers | the generated `.github/workflows/ci.yml` (`pnpm exec smithers-build build '//:ci'` with `mode: "write"`), `packages/smithers/flows/test/vitestCoverageIsolation.test.ts` (source-text pins), and the hand-written `.github/workflows/release.yml`, which copies the required `test` job's toolchain and gate steps verbatim |
+| `pnpm-workspace.yaml` package membership      | `scripts/test/ci.test.ts` (the coverage-universe policy pin); lockfile inputs are derived automatically. Nesting a package inside another has its own recipe below                                                    |
+| root `package.json` scripts                   | `scripts/test/ci.test.ts` (the aggregator roster)                                                                                                          |
+| root `PACKAGE.ts` CI jobs, steps, or triggers | the generated `.github/workflows/ci.yml` (`pnpm exec smithers-build build '//:ci'` with `mode: "write"`), `scripts/test/ci.test.ts` (source-text pins), and the hand-written `.github/workflows/release.yml`, which copies the required gates as full invocations |
 | `.github/workflows/release.yml`               | the same suite, plus `scripts/release-rehearsal.test.mjs` and `scripts/pack-release.test.mjs`, which compares the release workflow's steps against the generated `ci.yml`               |
 | any `PACKAGE.ts` target set — adding, renaming or removing a target, or changing its declared inputs or outputs (a new test file reached by a glob counts) | `.smithers/target-index.json`, with `pnpm run target-index`. Nothing about it is hand-written: the script writes it and `smthrs lint '//:targetIndex'` drift-checks it. See “The target index” |
 | the product API (`docs/api/openapi.yaml`)     | the per-tag source under `docs/api/openapi/` instead: `<tag>.yaml` holds that tag's paths and `_root.yaml` everything else. `pnpm exec smithers-build run '//:openapiBundle'` writes the bundle and `lint '//:openapiBundle'` drift-checks it; then `run '//:openapiClients'` regenerates the Go (`packages/backend/apiclient`) and TypeScript (`packages/smithers/src/internal/backend/ProductApi.ts`) clients from it and `lint '//:openapiClients'` drift-checks them |
@@ -304,7 +304,7 @@ To move `packages/<child>` under `packages/<parent>`:
    list, and `scripts/repo-contract/test-script-wiring.test.mjs` checks the two
    lists agree.
 6. Update the coverage-universe pin in
-   `packages/smithers/flows/test/vitestCoverageIsolation.test.ts`, as any
+   `scripts/test/ci.test.ts`, as any
    membership change does.
 7. In the PARENT's `vitest.config.ts`, add `"<child>/**"` to `coverage.exclude`.
    The v8 provider reports every file executed under the vitest root whatever
