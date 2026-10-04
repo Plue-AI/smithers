@@ -134,3 +134,12 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-INS-06 | [C-INS-06.spec.ts](C-INS-06.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J9-01 | [C-J9-01.spec.ts](C-J9-01.spec.ts) | fixme-before-implementation | T-APP-02 |
 | C-MCH-01 | [C-MCH-01.spec.ts](C-MCH-01.spec.ts) | fixme-before-implementation | T-MCH-04 |
+| C-MCH-02 | [C-MCH-02.spec.ts](C-MCH-02.spec.ts) | fixme-before-implementation | T-MCH-06 |
+| C-MCH-03 | [C-MCH-03.spec.ts](C-MCH-03.spec.ts) | fixme-before-implementation | T-MCH-07 |
+| C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | fixme-before-implementation | T-MCH-01 |
+| C-MCH-05 | [C-MCH-05.spec.ts](C-MCH-05.spec.ts) | fixme-before-implementation | T-MCH-09 |
+| C-MCH-06 | [C-MCH-06.spec.ts](C-MCH-06.spec.ts) | fixme-before-implementation | T-MCH-11 |
+| C-MCH-07 | [C-MCH-07.spec.ts](C-MCH-07.spec.ts) | fixme-before-implementation | T-MCH-12 |
+
+C-MCH-03 also has a passing mounted projection: reading Files and Activity
+keeps the sleeping branch Asleep across reload. Runtime capture and wake counts remain fixme.
