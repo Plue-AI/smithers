@@ -3,6 +3,7 @@ import { SetupActions } from "./SetupActions"
 
 export function DebugApiView({ model, view, actions, onAction, onView }: DebugApiViewProps) {
   const selected = view.selected ?? model.selected
+  const form = <SetupActions key={selected} actions={actions} onAction={onAction} />
   const op = model.operations.find(operation => operation.id === selected)
   return <article className="smithers-card mvp-debug-api" aria-label="Debug API" data-keyboard-pane="Debug API">
     <header className="smithers-card-header"><h2 className="smithers-card-title">Debug API</h2></header>
@@ -14,7 +15,7 @@ export function DebugApiView({ model, view, actions, onAction, onView }: DebugAp
       </section>)}</nav>
       <div className="debug-detail">
         {op && <h3><code>{op.method} {op.path}</code></h3>}
-        {model.pending ? <div className="debug-pending" data-tone="attention"><SetupActions key={selected} actions={actions} onAction={onAction} /></div> : <SetupActions key={selected} actions={actions} onAction={onAction} />}
+        {model.pending ? <div className="debug-pending" data-tone="attention">{form}</div> : form}
         {model.exchange && <section aria-label="Exchange">
           <h3>Request</h3><code>{model.exchange.request.method} {model.exchange.request.url}</code>
           <HeaderRows headers={model.exchange.request.headers} />

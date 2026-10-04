@@ -26,6 +26,38 @@ const request = {
 }
 type DebugApiStory = Story<DebugApiCard, DebugApiView>
 export const fixtures = {
+  empty: story<DebugApiCard, DebugApiView>("No operations", { operations: [], selected: "" }, {
+    expect: [""]
+  }),
+  pending_put: story<DebugApiCard, DebugApiView>("Confirm PUT", {
+    operations, selected: "putSecret", pending: { method: "PUT", path: "/api/secrets/key" }
+  }, {
+    actions: [{ tag: "debug-api", label: "Confirm PUT /api/secrets/key", args: { operation: "putSecret", confirm: "true" }, primary: true }],
+    expect: ["/api/secrets/key"]
+  }),
+  pending_patch: story<DebugApiCard, DebugApiView>("Confirm PATCH", {
+    operations, selected: "patchSettings", pending: { method: "PATCH", path: "/api/settings" }
+  }, {
+    actions: [{ tag: "debug-api", label: "Confirm PATCH /api/settings", args: { operation: "patchSettings", confirm: "true" }, primary: true }],
+    expect: ["/api/settings"]
+  }),
+  pending_delete: story<DebugApiCard, DebugApiView>("Confirm DELETE", {
+    operations, selected: "deleteSecret", pending: { method: "DELETE", path: "/api/secrets/key" }
+  }, {
+    actions: [{ tag: "debug-api", label: "Confirm DELETE /api/secrets/key", args: { operation: "deleteSecret", confirm: "true" }, primary: true }],
+    expect: ["/api/secrets/key"]
+  }),
+  forbidden: story<DebugApiCard, DebugApiView>("A typed 403 failure", {
+    operations, exchange: { request, failure: { class: "forbidden", message: "Access denied", status: 403 } }
+  }, { expect: ["forbidden", "Access denied"] }),
+  hostile: story<DebugApiCard, DebugApiView>("Escaped response and failure", {
+    operations, exchange: {
+      request,
+      response: { status: 200, headers: [], body: '<img src=x onerror="window.__pwned=1">', duration_ms: 1 },
+      failure: { class: "network", message: '<script>window.__pwned=1</script>' }
+    }
+  }, { expect: ['<img src=x onerror="window.__pwned=1">', '<script>window.__pwned=1</script>'] }),
+
   operations: story<DebugApiCard, DebugApiView>("Every documented operation", { operations }, {
     expect: ["Read install health", "/api/todos/{n}/drop", "Delete a secret"]
   }),

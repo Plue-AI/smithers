@@ -648,3 +648,30 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
   await page.waitForTimeout(500)
   expect(await scroll.evaluate(node => ({ editor: node.scrollTop, window: window.scrollY }))).toEqual(position)
 })
+
+
+for (const key of ["Enter", "Space"]) test(`DebugApiView keyboard selection and Send: ${key}`, async ({ page }) => {
+  await page.goto('/view-stories.html?story=DebugApiView/get_200')
+  await page.evaluate(() => {
+    const calls: unknown[] = []
+    Object.assign(window, { debugApiCalls: calls })
+    window.addEventListener('story-callback', event => calls.push((event as CustomEvent).detail))
+  })
+  await page.locator('nav[aria-label="Operations"] button').first().focus()
+  await page.keyboard.press(key)
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "debugApiCalls"))).toEqual([
+    { kind: "view", value: { selected: "getHealth" } }
+  ])
+  await page.getByRole('textbox', { name: 'n', exact: true }).fill('12')
+  await page.getByRole('button', { name: 'Send', exact: true }).focus()
+  await page.keyboard.press(key)
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "debugApiCalls"))).toEqual([
+    { kind: "view", value: { selected: "getHealth" } },
+    { kind: "action", value: { tag: "debug-api", args: { operation: "getTodo", n: "12" } } }
+  ])
+  await page.goto('/view-stories.html?story=DebugApiView/hostile')
+  await expect(page.locator('[data-story]')).toContainText('<img src=x onerror="window.__pwned=1">')
+  await expect(page.locator('[data-story]')).toContainText('<script>window.__pwned=1</script>')
+  await expect(page.locator('[data-story] img, [data-story] script')).toHaveCount(0)
+  expect(await page.evaluate(() => Reflect.get(window, "__pwned"))).toBeUndefined()
+})

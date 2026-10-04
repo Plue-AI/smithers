@@ -139,9 +139,9 @@ for (const path of paths) {
             const action = story.actions![index]! as Action
             const values = Object.fromEntries((action.input ?? []).map(field => [field.name, field.value ?? field.choices?.[0] ?? "Fixture input"]))
             await act(async () => {
-              for (const field of control.querySelectorAll<HTMLInputElement>("input")) {
+              for (const field of control.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")) {
                 const definition = action.input!.find(input => input.label === field.getAttribute("aria-label"))!
-                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, values[definition.name])
+                Object.getOwnPropertyDescriptor(field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!.call(field, values[definition.name])
                 field.dispatchEvent(new Event("input", { bubbles: true }))
               }
             })
@@ -1315,9 +1315,9 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
     onAction.mockClear()
     await act(async () => host.querySelector<HTMLButtonElement>('.branch-muted button[data-flow="terminal.watch"]')!.click())
     expect(onAction.mock.calls).toEqual([["terminal.watch", { id: "terminal-2" }]])
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Steer"]') ?? host.querySelector<HTMLInputElement>("input")!
+    const input = host.querySelector<HTMLInputElement | HTMLTextAreaElement>('form[data-flow="todo.steer"] :is(input, textarea)')!
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Check cancellation")
+      Object.getOwnPropertyDescriptor(input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!.call(input, "Check cancellation")
       input.dispatchEvent(new Event("input", { bubbles: true }))
     })
     onAction.mockClear()
@@ -1685,6 +1685,20 @@ describe("DebugApiView", () => {
   for (const story of debugStories) test(story.name, async () => {
     const { host, onView, onAction, close } = await mounted(story)
     try {
+      if (story.name === "empty") {
+        expect(host.querySelectorAll("nav button")).toHaveLength(0)
+        expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
+      }
+      if (story.name === "forbidden") {
+        expect(host.textContent).toContain("forbidden · 403")
+        expect(host.textContent).toContain("Access denied")
+      }
+      if (story.name === "hostile") {
+        expect(host.textContent).toContain('<img src=x onerror="window.__pwned=1">')
+        expect(host.textContent).toContain('<script>window.__pwned=1</script>')
+        expect(host.querySelector("img, script")).toBeNull()
+        expect(Reflect.get(window, "__pwned")).toBeUndefined()
+      }
       const operations = debugFixtures.operations.model.operations
       const operationIds = [...new Set(operations.map(operation => operation.group))].flatMap(group => operations.filter(operation => operation.group === group).map(operation => operation.id))
       for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("nav button")].entries()) {
@@ -1714,17 +1728,57 @@ describe("DebugApiView", () => {
           })
           await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
           expect(fresh.onAction).toHaveBeenCalledTimes(1)
-          const expected: Record<string, string> = story.name === "pending_mutation" ? { operation: "dropTodo", confirm: "true" } : story.name === "patch_body" ? { operation: "patchSettings", body: '{"capacity":2}' } : { operation: "getTodo", n: "12" }
+          const expected: Record<string, string> = story.name.startsWith("pending_") ? { operation: ({ pending_mutation: "dropTodo", pending_put: "putSecret", pending_patch: "patchSettings", pending_delete: "deleteSecret" } as Record<string, string>)[story.name]!, confirm: "true" } : story.name === "patch_body" ? { operation: "patchSettings", body: '{"capacity":2}' } : { operation: "getTodo", n: "12" }
           expect(fresh.onAction.mock.calls[0]).toEqual(["debug-api", expected])
         }
         if (story.name === "get_200") expect(fresh.host.textContent).toContain("200 · 18 ms")
         if (story.name === "patch_body") expect(fresh.host.querySelector("textarea")).not.toBeNull()
-        if (story.name === "pending_mutation") expect(fresh.host.querySelector('[aria-label="Exchange"]')).toBeNull()
+        if (story.name.startsWith("pending_")) {
+          expect(fresh.host.querySelectorAll("button[data-flow]")).toHaveLength(1)
+          expect(fresh.host.querySelector("button[data-flow]")!.textContent).toMatch(/^Confirm (POST|PUT|PATCH|DELETE) /)
+        }
+        if (story.name.startsWith("pending_")) expect(fresh.host.querySelector('[aria-label="Exchange"]')).toBeNull()
       } finally { await fresh.close() }
       const removed = await mounted(story, true)
       try { expect(removed.host.querySelector("button[data-flow]")).toBeNull() }
       finally { await removed.close() }
 
     } finally { await close() }
+  })
+})
+
+
+describe("DebugApiView keyboard", () => {
+  for (const key of ["Enter", " "]) test(`selection and Send activate with ${key}`, async () => {
+    const story = debugStories.find(story => story.name === "get_200")!
+    const item = await mounted(story)
+    try {
+      const nav = item.host.querySelector<HTMLButtonElement>("nav button")!
+      nav.focus()
+      expect(document.activeElement).toBe(nav)
+      await act(async () => {
+        nav.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }))
+        // happy-dom does not synthesize browser default keyboard activation.
+        nav.click()
+      })
+      expect(item.onView.mock.calls).toEqual([[{ selected: "getHealth" }]])
+      expect(item.onAction).toHaveBeenCalledTimes(0)
+    } finally { await item.close() }
+    const fresh = await mounted(story)
+    try {
+      const input = fresh.host.querySelector<HTMLInputElement>("input")!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "12")
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      const send = fresh.host.querySelector<HTMLButtonElement>('button[data-flow="debug-api"]')!
+      send.focus()
+      expect(document.activeElement).toBe(send)
+      await act(async () => {
+        send.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }))
+        send.click()
+      })
+      expect(fresh.onAction.mock.calls).toEqual([["debug-api", { operation: "getTodo", n: "12" }]])
+    } finally { await fresh.close() }
   })
 })

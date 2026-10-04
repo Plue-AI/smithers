@@ -2595,10 +2595,10 @@
 .setup-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .setup-action { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
 .setup-action .setup-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
-:is(.setup-view, .mvp-debug-api .setup-action) button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
-:is(.setup-view, .mvp-debug-api .setup-action) button:hover:not(:disabled) { background: var(--hover); }
-:is(.setup-view, .mvp-debug-api .setup-action) button:disabled { opacity: .6; cursor: default; }
-:is(.setup-view, .mvp-debug-api .setup-action) button[data-primary] { color: var(--on-action-primary); background: var(--action-primary); border-color: var(--action-primary); }
+:where(.mvp-debug-api .setup-action) button, .setup-view button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+:where(.mvp-debug-api .setup-action) button:hover:not(:disabled), .setup-view button:hover:not(:disabled) { background: var(--hover); }
+:where(.mvp-debug-api .setup-action) button:disabled, .setup-view button:disabled { opacity: .6; cursor: default; }
+:where(.mvp-debug-api .setup-action) button[data-primary], .setup-view button[data-primary] { color: var(--on-action-primary); background: var(--action-primary); border-color: var(--action-primary); }
 .setup-view :is(input, select, button, a):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .setup-copy { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--code-bg); }
 .setup-copy code { flex: 1; min-width: 0; }
@@ -3068,5 +3068,10 @@
 .mvp-debug-api :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 @media (max-width: 600px) { .mvp-debug-api .debug-layout { grid-template-columns: minmax(0, 1fr); } }
 
-.mvp-debug-api nav h3 { margin: 0 0 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-debug-api nav h3 { margin: 0 0 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
 .mvp-debug-api :is(code, pre) { font-family: var(--font-mono); font-size: var(--fs-small); }
+
+.mvp-debug-api .debug-pending { background: var(--attention-wash); }
+.mvp-debug-api .debug-pending .setup-actions { margin-top: 0; }
+.mvp-debug-api nav section + section { margin-top: 12px; }
+.mvp-debug-api .debug-detail > h3:first-child { margin-top: 0; }
