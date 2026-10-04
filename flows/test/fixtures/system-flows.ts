@@ -18,6 +18,7 @@ export const systemFlows = [
   "todo.stop",
   "todo.resume",
   "todo.retry",
+  "todo.retry-current-flow",
   "todo.drop",
   "todo.takeover",
   "todo.preapprove",

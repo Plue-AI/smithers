@@ -231,7 +231,7 @@ test("system name matching is exact and takes its names only from the launch cat
 })
 
 // Compatibility coding routes retain install ownership even when unconfigured.
-for (const name of ["members.add", "secrets.set", "coding/wiki", "stack.candidate", "todo.preapprove", "todo.unapprove"]) {
+for (const name of ["members.add", "secrets.set", "coding/wiki", "stack.candidate", "todo.preapprove", "todo.unapprove", "todo.retry-current-flow"]) {
   test(`install-owned ${name} is refused before import without a packaged default`, async (t) => {
     const { catalog, write, repositoryPath } = await boundary(t)
     const marker = join(repositoryPath, "reserved-imported")
