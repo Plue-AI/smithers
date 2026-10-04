@@ -37,7 +37,7 @@ const mergeLabel = (model: TodoCard) => {
 export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps["role"], lateAnswer?: string, lateWait?: string): CardActionDefinition[] => {
   const n = model.n
   const live = !["merged", "dropped"].includes(model.state)
-  const definitions: CardActionDefinition[] = [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }]
+  const definitions: CardActionDefinition[] = model.branch ? [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }] : []
   if (model.run) definitions.push({ tag: "run.inspect", label: "Inspect", command_input: { id: model.run.id } })
   if (!live) return definitions
   const waitsFrom = definitions.length
@@ -50,9 +50,9 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
             resolve_input: input => ({ n, wait: wait.id, answer: input.answer ?? "" }) })
           break
         case "branch":
-          definitions.push({ ...action, tag: "branch", args: { ...action.args, wait: wait.id }, command_input: { name: model.branch.name } }); break
+          if (model.branch) definitions.push({ ...action, tag: "branch", args: { ...action.args, wait: wait.id }, command_input: { name: model.branch.name } }); break
         case "branch.bring-in": case "branch.discard-foreign":
-          if (wait.sha) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, revision: wait.sha } })
+          if (wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, revision: wait.sha } })
           break
         case "todo.return-to-item": case "todo.keep-moved":
           definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { n } }); break

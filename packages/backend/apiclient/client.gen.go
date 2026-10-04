@@ -1376,12 +1376,6 @@ type PostAPIReposOwnerRepoMythicalItemsIDMergeBody struct {
 	ReviewedHeadSHA string `json:"reviewed_head_sha"`
 }
 
-// PostAPIReposOwnerRepoMythicalTodosBody is generated from docs/api/openapi.yaml.
-type PostAPIReposOwnerRepoMythicalTodosBody struct {
-	Title string  `json:"title"`
-	Body  *string `json:"body,omitempty"`
-}
-
 // GetAPIReposOwnerRepoEgressPolicyResponse is generated from docs/api/openapi.yaml.
 type GetAPIReposOwnerRepoEgressPolicyResponse struct {
 	AllowDomains []string   `json:"allow_domains"`
@@ -1470,6 +1464,21 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	StopReason     *string    `json:"stop_reason,omitempty"`
 	FailureMessage *string    `json:"failure_message,omitempty"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+}
+
+// PostAPITodosBody is generated from docs/api/openapi.yaml.
+type PostAPITodosBody struct {
+	Title      string   `json:"title"`
+	Prompt     string   `json:"prompt"`
+	Acceptance []string `json:"acceptance,omitempty"`
+	Place      *string  `json:"place,omitempty"`
+}
+
+// PostAPITodosResponse is generated from docs/api/openapi.yaml.
+type PostAPITodosResponse struct {
+	State string `json:"state"`
+	N     int64  `json:"n"`
+	Rev   int64  `json:"rev"`
 }
 
 // GetAPIUserGithubAppInstallationsResponse is generated from docs/api/openapi.yaml.
@@ -4510,13 +4519,6 @@ func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDMerge(ctx context.Context, 
 	return out, err
 }
 
-// PostAPIReposOwnerRepoMythicalTodos calls POST /api/repos/{owner}/{repo}/mythical/todos.
-func (c *Client) PostAPIReposOwnerRepoMythicalTodos(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoMythicalTodosBody) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/todos", nil, body, &out)
-	return out, err
-}
-
 // PostAPIReposOwnerRepoMythicalWiki calls POST /api/repos/{owner}/{repo}/mythical/wiki.
 func (c *Client) PostAPIReposOwnerRepoMythicalWiki(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -4681,6 +4683,23 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/telemetry/errors", nil, nil, &out)
 	return out, err
+}
+
+// GetAPITodos calls GET /api/todos.
+func (c *Client) GetAPITodos(ctx context.Context) error {
+	return c.do(ctx, "GET", "/api/todos", nil, nil, nil)
+}
+
+// PostAPITodos calls POST /api/todos.
+func (c *Client) PostAPITodos(ctx context.Context, body PostAPITodosBody) (PostAPITodosResponse, error) {
+	var out PostAPITodosResponse
+	err := c.do(ctx, "POST", "/api/todos", nil, body, &out)
+	return out, err
+}
+
+// GetAPITodosN calls GET /api/todos/{n}.
+func (c *Client) GetAPITodosN(ctx context.Context, n int64) error {
+	return c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, nil)
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

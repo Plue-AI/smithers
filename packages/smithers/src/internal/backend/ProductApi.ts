@@ -4614,22 +4614,6 @@ export interface PostApiReposOwnerRepoMythicalItemsIdMergeInput {
 export const postApiReposOwnerRepoMythicalItemsIdMerge = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdMergeInput): Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/merge`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse>
 
-export type PostApiReposOwnerRepoMythicalTodosBody = {
-  title: string
-  body?: string
-}
-
-export type PostApiReposOwnerRepoMythicalTodosResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoMythicalTodosInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body: PostApiReposOwnerRepoMythicalTodosBody
-}
-
-/** POST /api/repos/{owner}/{repo}/mythical/todos */
-export const postApiReposOwnerRepoMythicalTodos = (transport: Transport, input: PostApiReposOwnerRepoMythicalTodosInput): Promise<PostApiReposOwnerRepoMythicalTodosResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/todos`, input.body) as Promise<PostApiReposOwnerRepoMythicalTodosResponse>
-
 export type PostApiReposOwnerRepoMythicalWikiBody = AnyJSON
 
 export type PostApiReposOwnerRepoMythicalWikiResponse = AnyJSON
@@ -4937,6 +4921,39 @@ export type PostApiTelemetryErrorsResponse = AnyJSON
 /** POST /api/telemetry/errors */
 export const postApiTelemetryErrors = (transport: Transport): Promise<PostApiTelemetryErrorsResponse> =>
   transport.request("POST", `/api/telemetry/errors`) as Promise<PostApiTelemetryErrorsResponse>
+
+/** GET /api/todos: Read the install repository TODOs */
+export const getApiTodos = (transport: Transport): Promise<void> =>
+  transport.request("GET", `/api/todos`).then(() => undefined)
+
+export type PostApiTodosBody = {
+  title: string
+  prompt: string
+  acceptance?: Array<string>
+  place?: "append"
+}
+
+export type PostApiTodosResponse = {
+  state: "accepted"
+  n: number
+  rev: number
+}
+
+export interface PostApiTodosInput {
+  readonly body: PostApiTodosBody
+}
+
+/** POST /api/todos: Append a TODO to the install repository stack */
+export const postApiTodos = (transport: Transport, input: PostApiTodosInput): Promise<PostApiTodosResponse> =>
+  transport.request("POST", `/api/todos`, input.body) as Promise<PostApiTodosResponse>
+
+export interface GetApiTodosNInput {
+  readonly path: { readonly n: number }
+}
+
+/** GET /api/todos/{n}: Read a TODO by its repository number */
+export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Promise<void> =>
+  transport.request("GET", `/api/todos/${segment(input.path.n)}`).then(() => undefined)
 
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }

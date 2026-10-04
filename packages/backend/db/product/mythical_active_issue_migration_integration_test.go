@@ -38,14 +38,31 @@ func TestMythicalActiveIssueMigrationPreservesHistory(t *testing.T) {
  (1,8,'skipped','',NULL, '', '', '', '{}');`, pgx.QueryExecModeSimpleProtocol)
 	// Keep the skipped row literal without inventing a TODO link or backfill.
 	require.NoError(t, err)
+	// Before the current schema exists, inspect historical rows literally;
+	// today's Queries consumer correctly requires today's migrations.
+	var originalJSON, skippedJSON []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(i) FROM mythical_items i WHERE issue_number=7`).Scan(&originalJSON))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(i) FROM mythical_items i WHERE issue_number=8`).Scan(&skippedJSON))
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name)
+ SELECT 'retained-workspace',1,id,'implement' FROM mythical_items WHERE issue_number=7`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, forward.sql, pgx.QueryExecModeSimpleProtocol)
+	require.NoError(t, err)
+	var afterJSON []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(i) FROM mythical_items i WHERE issue_number=7`).Scan(&afterJSON))
+	require.JSONEq(t, string(originalJSON), string(afterJSON))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(i) FROM mythical_items i WHERE issue_number=8`).Scan(&afterJSON))
+	require.JSONEq(t, string(skippedJSON), string(afterJSON))
+	for _, m := range registered {
+		if m.version > 107 {
+			_, err = pool.Exec(ctx, m.sql, pgx.QueryExecModeSimpleProtocol)
+			require.NoError(t, err)
+		}
+	}
 	q := db.New(pool)
 	original, err := q.GetMythicalItemByIssue(ctx, 1, 7)
 	require.NoError(t, err)
 	skipped, err := q.GetMythicalItemByIssue(ctx, 1, 8)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES('retained-workspace',1,$1,'implement')`, original.ID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, forward.sql, pgx.QueryExecModeSimpleProtocol)
 	require.NoError(t, err)
 	after, err := q.GetMythicalItem(ctx, original.ID)
 	require.NoError(t, err)

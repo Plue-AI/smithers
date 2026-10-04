@@ -41,7 +41,7 @@ const working: TodoCard = {
   state: "working",
   step: "Implement",
   queue: undefined,
-  branch: { ...base.branch, machine: { state: "awake" } },
+  branch: { ...base.branch!, machine: { state: "awake" } },
   steps: [
     { id: "plan", label: "Plan", detail: "Read the card contract", state: "done" },
     { id: "implement", label: "Implement", state: "current" },
@@ -216,7 +216,7 @@ export const fixtures = {
       ...base,
       state: "starting",
       queue: undefined,
-      branch: { ...base.branch, machine: { state: "waking" } },
+      branch: { ...base.branch!, machine: { state: "waking" } },
       run: { id: "run-41", attempt: 1, indicators: [] }
     },
     { actions: [inspect], expect: ["Card model contracts"] }
@@ -282,7 +282,7 @@ export const fixtures = {
       ...working,
       state: "paused",
       pause: { reason: "person", since: at },
-      branch: { ...base.branch, machine: { state: "asleep" } },
+      branch: { ...base.branch!, machine: { state: "asleep" } },
       steps: [{ id: "implement", label: "Implement", state: "paused" }, { id: "merge", kind: "wait", state: "next" }]
     },
     { actions: [{ tag: "todo.resume", label: "Resume", args: n, primary: true }, drop], expect: ["Implement"] }
@@ -293,7 +293,7 @@ export const fixtures = {
       ...working,
       state: "paused",
       pause: { reason: "daily_token_budget", owner: will, since: at, resume_at: "2026-10-03T00:00:00.000Z" },
-      branch: { ...base.branch, machine: { state: "asleep" } },
+      branch: { ...base.branch!, machine: { state: "asleep" } },
       steps: [{ id: "implement", label: "Implement", state: "paused" }, { id: "merge", kind: "wait", state: "next" }]
     },
     { expect: ["Will Cory", "Implement"] }
@@ -324,7 +324,7 @@ export const fixtures = {
     {
       ...working,
       state: "failed",
-      branch: { ...base.branch, machine: { state: "failed", error: { class: "disk_full", message: "Disk full" } } },
+      branch: { ...base.branch!, machine: { state: "failed", error: { class: "disk_full", message: "Disk full" } } },
       failure: { step: "source", class: "permission_denied", message: "Repository access refused", retryable: false }
     },
     { actions: [drop], expect: ["Repository access refused"] }
@@ -440,7 +440,7 @@ export const fixtures = {
       ...working,
       state: "merged",
       place: undefined,
-      branch: { ...base.branch, machine: { state: "closed" } },
+      branch: { ...base.branch!, machine: { state: "closed" } },
       steps: [{ id: "merge", kind: "wait", state: "done" }],
       pr,
       merged_via: 15,
@@ -456,7 +456,7 @@ export const fixtures = {
       state: "dropped",
       place: undefined,
       queue: undefined,
-      branch: { ...base.branch, machine: { state: "closed" } },
+      branch: { ...base.branch!, machine: { state: "closed" } },
       present: []
     },
     { expect: ["Card model contracts"] }

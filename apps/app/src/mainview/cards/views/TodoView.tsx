@@ -78,7 +78,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
         </h2>
         <StateWord state={todo.state} />
         {todo.place && <span className="todo-title-meta">{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
-        <span className="todo-title-meta">{todo.branch.name}</span>
+        {todo.branch && <span className="todo-title-meta">{todo.branch.name}</span>}
         <span className="todo-owner-chip"><ActorChip actor={{ kind: "person", login: todo.owner.login, name: todo.owner.name, avatar_url: todo.owner.avatar_url,
           color_index: ([...todo.owner.login].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6) as 0 | 1 | 2 | 3 | 4 | 5 }} size="m" /></span>
       </header>

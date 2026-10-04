@@ -340,3 +340,23 @@ func (store *Store) ReplacePayload(ctx context.Context, operationID string, expe
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// RecordFactInTx records a completed product fact without enqueueing an external
+// effect. It shares the stream allocator with delivery; rollback publishes none.
+func RecordFactInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID, eventType, state string, data json.RawMessage) (Event, error) {
+	if err := scope.validate(); err != nil {
+		return Event{}, err
+	}
+	canonical, err := canonicalJSON(data, true)
+	if err != nil {
+		return Event{}, err
+	}
+	fingerprint := payloadFingerprint(canonical)
+	_, err = tx.Exec(ctx, `INSERT INTO product_job_requests
+ (id,tenant_id,principal_id,operation,request_id,payload_fingerprint,payload,authorization_context,state,request_receipt,terminal_receipt)
+ VALUES($1,$2,$3,$4,$7,$5,$6,'{}','completed',$6,$6)`, operationID, scope.TenantID, scope.PrincipalID, eventType, fingerprint[:], canonical, operationID)
+	if err != nil {
+		return Event{}, err
+	}
+	return appendEvent(ctx, tx, scope, operationID, eventType, State(state), canonical)
+}

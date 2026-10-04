@@ -47,7 +47,7 @@ func TestIssueWebhookRemainsRetryableWithoutAdmission(t *testing.T) {
 
 func TestFileTodoNeverCreatesAnIssueWithoutAdmission(t *testing.T) {
 	s := &MythicalService{}
-	for _, input := range []MythicalTodoInput{{}, {Title: "Original", Body: "Prompt", Request: "same-request"}} {
+	for _, input := range []MythicalTodoInput{{}, {Title: "Original", Prompt: "Prompt", Request: "same-request"}} {
 		item, err := s.FileTodo(context.Background(), 1, 2, input)
 		require.Equal(t, MythicalItemView{}, item)
 		var failure *pkgerrors.APIError

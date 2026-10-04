@@ -877,16 +877,9 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			step.busy++
 		}
 	}
-	// Direct chat work first; preserve issue order and lane accounting.
+	// The public stack order is independent of optional GitHub issue links.
 	sort.SliceStable(items, func(i, j int) bool {
-		a, b := items[i], items[j]
-		if (a.Source == "chat") != (b.Source == "chat") {
-			return a.Source == "chat"
-		}
-		if a.IssueNumber.Valid != b.IssueNumber.Valid {
-			return a.IssueNumber.Valid
-		}
-		return a.IssueNumber.Int64 < b.IssueNumber.Int64
+		return items[i].StackPosition.Int64 < items[j].StackPosition.Int64
 	})
 	step.items = items
 	defer s.sweepLanes(ctx, r)
@@ -1405,7 +1398,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	// Delivery, verify and review still drain already-admitted history. New
 	// composition admission requires the persisted pin and isolated providers.
 	next := item
-	if item.Source != "issue" {
+	if item.Source != "issue" && item.Source != "todo" {
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
@@ -2723,7 +2716,12 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	Todo bool `json:"todo,omitempty"`
+	CreationSession string     `json:"creation_session,omitempty"`
+	CreationPayload string     `json:"creation_payload,omitempty"`
+	Waits           []TodoWait `json:"waits,omitempty"`
+	RunLaunched     bool       `json:"run_launched,omitempty"`
+	RunAttached     bool       `json:"run_attached,omitempty"`
+	Todo            bool       `json:"todo,omitempty"`
 	// AutoTodo is why the factory made the issue a TODO without the label;
 	// OptedOut records a maintainer taking todo off such an issue, after
 	// which the factory never makes it one again on its own.

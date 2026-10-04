@@ -2,31 +2,106 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // MythicalTodoInput is a TODO a person files through Smithers. Request,
 // when given, names the filing: the same request again answers the TODO it
 // filed instead of opening another issue.
 type MythicalTodoInput struct {
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-	Request string `json:"request,omitempty"`
+	Prompt     string   `json:"prompt"`
+	Acceptance []string `json:"acceptance"`
+	Place      string   `json:"place,omitempty"`
+	Title      string   `json:"title"`
+	Request    string   `json:"-"`
 }
 
-// FileTodo retains the old transport boundary while admission is dark. It no
-// longer creates a GitHub issue: the issue snapshot and its author-bound digest
-// must come from the install dispatcher before a TODO can be committed.
+// FileTodo appends the person's prompt directly to the existing stack. No
+// GitHub issue or machine launch is performed in the HTTP transaction.
 func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput) (MythicalItemView, error) {
 	if err := middleware.RequirePerson(ctx, "make a TODO"); err != nil {
 		return MythicalItemView{}, err
 	}
-	return MythicalItemView{}, issueTodoUnavailable()
+	if s == nil || s.store == nil {
+		return MythicalItemView{}, issueTodoUnavailable()
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.IsTokenAuth || info.SessionHash == "" || info.User == nil || info.User.ID != userID {
+		return MythicalItemView{}, &TodoControlError{403, "permission", "permission", "Install owner session required"}
+	}
+	owner, err := s.queries().GetSelfHostOwner(ctx)
+	if err != nil || owner.ID != userID {
+		return MythicalItemView{}, &TodoControlError{403, "permission", "permission", "Install owner session required"}
+	}
+	input.Title = strings.TrimSpace(input.Title)
+	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || input.Request == "" || len(input.Request) > 256 {
+		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "Title, prompt and Idempotency-Key are required"}
+	}
+	if input.Place != "" && input.Place != "append" {
+		return MythicalItemView{}, &TodoControlError{400, "invalid_place", "user", "Only append is available"}
+	}
+	input.Place = "append"
+	if input.Acceptance == nil {
+		input.Acceptance = []string{}
+	}
+	canonical, _ := json.Marshal(input)
+	var item db.MythicalItem
+	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
+			return err
+		}
+		existing, err := q.GetMythicalTodoRequest(ctx, repositoryID, info.SessionHash, input.Request)
+		if err == nil {
+			held := mythicalChecksOf(existing)
+			if held.CreationPayload != string(canonical) {
+				return &TodoControlError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
+			}
+			item = existing
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		stack, err := q.GetMythicalStack(ctx, repositoryID)
+		if err != nil || stack.State != "active" {
+			return &TodoControlError{503, "stack_unavailable", "infra", "Repository stack is not ready"}
+		}
+		revision, _ := json.Marshal([]map[string]any{{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}})
+		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: info.SessionHash, CreationPayload: string(canonical)}
+		item, err = q.InsertMythicalTodo(ctx, repositoryID, userID, input.Title, input.Prompt, revision, checks.encode())
+		if err != nil {
+			return err
+		}
+		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID})
+		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.created", "queued", fact); err != nil {
+			return err
+		}
+		if _, err = q.RequestMythicalStack(ctx, repositoryID); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return MythicalItemView{}, err
+	}
+	return mythicalItemView(item), nil
+}
+
+func todoOperationScope(item db.MythicalItem) jobs.Scope {
+	return jobs.Scope{TenantID: strconv.FormatInt(item.RepositoryID, 10), PrincipalID: "todo:" + uuidString(item.ID)}
 }
 
 // personGitHubID is the numeric id of the GitHub account the person signed

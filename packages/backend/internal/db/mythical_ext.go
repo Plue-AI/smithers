@@ -289,7 +289,7 @@ const mythicalItemColumns = `id, repository_id, issue_number, issue_title, issue
 source, version, state, reason, attempt,
 generation, lane, workspace_id, base_commit, candidate_base, candidate_head, candidate_verified, request_run_id, vibe_run_id, verify_run_id,
 request_outcome, vibe_outcome, verify_outcome, summary, plan, integration, checks, pr_number, pr_url, pr_state, pr_head, pr_merge_commit,
-pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider`
+pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider, number, title, stack_position, paused_at, created_by, owner_id, flow_digest, revisions`
 
 func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error) {
 	var i MythicalItem
@@ -298,7 +298,7 @@ func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error)
 		&i.ProposalRound, &i.Source, &i.Version, &i.State,
 		&i.Reason, &i.Attempt, &i.Generation, &i.Lane, &i.WorkspaceID, &i.BaseCommit, &i.CandidateBase, &i.CandidateHead, &i.CandidateVerified,
 		&i.RequestRunID, &i.VibeRunID, &i.VerifyRunID, &i.RequestOutcome, &i.VibeOutcome, &i.VerifyOutcome, &i.Summary, &plan, &integration,
-		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider)
+		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider, &i.Number, &i.Title, &i.StackPosition, &i.PausedAt, &i.CreatedBy, &i.OwnerID, &i.FlowDigest, &i.Revisions)
 	i.Plan, i.Integration, i.Checks, i.PendingOp = rawJSON(plan), rawJSON(integration), rawJSON(checks), rawJSON(pending)
 	return i, err
 }
@@ -314,7 +314,7 @@ func rawJSON(value []byte) json.RawMessage {
 // settled ones after the ones still moving.
 func (q *Queries) ListMythicalItems(ctx context.Context, repositoryID int64, limit int32) ([]MythicalItem, error) {
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1
-		ORDER BY (state IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')), issue_number NULLS LAST, created_at
+		ORDER BY (state IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')), stack_position NULLS LAST, created_at
 		LIMIT $2`, repositoryID, limit)
 	return scanMythicalItems(rows, err)
 }
@@ -490,6 +490,7 @@ func (q *Queries) MythicalItemCosts(ctx context.Context, repositoryID int64, ite
 // LaneStartedAt records when the current attempt's lane launched.
 func (q *Queries) SaveMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `UPDATE mythical_items SET
+		title = $38, paused_at = $39, owner_id = $40, flow_digest = $41, revisions = $42,
 		issue_body = $33, approved_digest = $34, proposal_round = $35, lane_started_at = $36, outsider = $37,
 		issue_title = $3, issue_url = $4, issue_digest = $5, state = $6, reason = $7, attempt = $8, generation = $9, lane = $10,
 		workspace_id = $11, base_commit = $12, candidate_base = $13, candidate_head = $14, candidate_verified = $15,
@@ -502,7 +503,7 @@ func (q *Queries) SaveMythicalItem(ctx context.Context, item MythicalItem) (Myth
 		item.Lane, item.WorkspaceID, item.BaseCommit, item.CandidateBase, item.CandidateHead, item.CandidateVerified, item.RequestRunID,
 		item.VibeRunID, item.VerifyRunID, item.RequestOutcome, item.VibeOutcome, item.VerifyOutcome, item.Summary, jsonArg(item.Plan),
 		jsonArg(item.Integration), jsonArg(item.Checks), item.PRNumber, item.PRURL, item.PRState, item.PRHead, item.PRMergeCommit,
-		jsonArg(item.PendingOp), item.NextAttemptAt, item.IssueBody, item.ApprovedDigest, item.ProposalRound, item.LaneStartedAt, item.Outsider))
+		jsonArg(item.PendingOp), item.NextAttemptAt, item.IssueBody, item.ApprovedDigest, item.ProposalRound, item.LaneStartedAt, item.Outsider, item.Title, item.PausedAt, item.OwnerID, item.FlowDigest, jsonArg(item.Revisions)))
 }
 
 func jsonArg(value json.RawMessage) any {
@@ -615,4 +616,17 @@ func (q *Queries) SaveMythicalItemUnderLease(ctx context.Context, item MythicalI
 		return MythicalItem{}, err
 	}
 	return saved, nil
+}
+
+// GetMythicalItemByNumber uses the repository TODO number, never an issue number.
+func (q *Queries) GetMythicalItemByNumber(ctx context.Context, repositoryID, number int64) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND number=$2`, repositoryID, number))
+}
+
+func (q *Queries) GetMythicalTodoRequest(ctx context.Context, repositoryID int64, session, request string) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND checks->>'creation_session'=$2 AND checks->>'filedRequest'=$3`, repositoryID, session, request))
+}
+func (q *Queries) InsertMythicalTodo(ctx context.Context, repositoryID, userID int64, title, prompt string, revisions, checks json.RawMessage) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,issue_body,created_by,owner_id,revisions,checks)
+ VALUES($1,'todo','queued',$3,$3,$4,$2,$2,$5,$6) RETURNING `+mythicalItemColumns, repositoryID, userID, title, prompt, jsonArg(revisions), jsonArg(checks)))
 }

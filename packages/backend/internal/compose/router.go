@@ -887,6 +887,13 @@ func buildRouter(
 		r.Use(authLoader(queries, cfg.Auth))
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
+		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
+			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
+			todos := &routes.TodoHandler{Queries: queries, Service: service}
+			r.Get("/todos", todos.List)
+			r.Post("/todos", todos.Create)
+			r.Get("/todos/{n}", todos.Get)
+		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
@@ -1151,7 +1158,6 @@ func buildRouter(
 					r.With(append(readRepo, withholdConversation)...).Get("/mythical/items/{ref}", extras.Mythical.GetItem)
 					r.With(adminRepo...).Post("/mythical/bootstrap", extras.Mythical.Bootstrap)
 					r.With(adminRepo...).Put("/mythical/config", extras.Mythical.Config)
-					r.With(writeRepo...).Post("/mythical/todos", extras.Mythical.Todos)
 					r.With(writeRepo...).Post("/mythical/items/{id}/merge", extras.Mythical.Merge)
 					r.With(writeRepo...).Put("/mythical/lanes", extras.Mythical.Lanes)
 					r.With(writeRepo...).Post("/mythical/wiki", extras.Mythical.Wiki)

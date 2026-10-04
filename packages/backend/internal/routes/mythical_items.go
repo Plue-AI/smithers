@@ -24,7 +24,6 @@ type MythicalRouteService interface {
 	SubmitLane(ctx context.Context, repositoryID, userID int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error)
 	SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error
 	Item(ctx context.Context, repositoryID int64, ref string) (services.MythicalItemView, error)
-	FileTodo(ctx context.Context, repositoryID, userID int64, input services.MythicalTodoInput) (services.MythicalItemView, error)
 	Merge(ctx context.Context, repositoryID, userID int64, itemID string, input services.MythicalMergeInput) (services.MythicalItemView, error)
 	RequestWiki(ctx context.Context, repositoryID int64) error
 }
@@ -235,32 +234,6 @@ func (h *MythicalHandler) Config(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, view)
-}
-
-// Todos files a TODO on the repository's GitHub issues for a maintainer
-// person and answers its item, queued on the stack.
-func (h *MythicalHandler) Todos(w http.ResponseWriter, r *http.Request) {
-	user, err := requireRouteUser(r)
-	if err != nil {
-		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
-		return
-	}
-	repoCtx, ok := h.repository(w, r)
-	if !ok {
-		return
-	}
-	var body services.MythicalTodoInput
-	if !decodeMythicalBody(w, r, 64<<10, &body) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-	item, err := h.Service.FileTodo(ctx, repoCtx.Repository.ID, user.ID, body)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	pkgerrors.WriteJSON(w, http.StatusCreated, item)
 }
 
 // Merge acknowledges the person's persisted, head-bound request. Only the

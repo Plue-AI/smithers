@@ -17829,64 +17829,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/mythical/todos:
-    post:
-      summary: POST /api/repos/{owner}/{repo}/mythical/todos
-      description: File a TODO on the repository's GitHub issues as a maintainer person and queue it on the stack. Answers the queued item.
-      operationId: post_api_repos_owner_repo_mythical_todos
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required:
-                - title
-              properties:
-                title:
-                  type: string
-                  maxLength: 256
-                body:
-                  type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '201':
-          description: The queued item
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/mythical/wiki:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/wiki
@@ -19128,6 +19070,95 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/todos:
+    get:
+      x-composition: install
+      summary: Read the install repository TODOs
+      operationId: get_api_todos
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: TODO card projections
+        '403':
+          description: Install owner session required
+        '503':
+          description: Install repository unavailable
+    post:
+      x-composition: install
+      summary: Append a TODO to the install repository stack
+      operationId: post_api_todos
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, prompt]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 256}
+                prompt: {type: string, minLength: 1, maxLength: 65536}
+                acceptance:
+                  type: array
+                  items: {type: string}
+                place: {type: string, enum: [append]}
+      responses:
+        '202':
+          description: Persisted TODO creation; execution has not completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, n, rev]
+                properties:
+                  state: {type: string, enum: [accepted]}
+                  n: {type: integer, minimum: 1}
+                  rev: {type: integer, minimum: 1}
+        '400':
+          description: Invalid TODO or missing Idempotency-Key
+        '403':
+          description: Install owner session required
+        '409':
+          description: Idempotency-Key reused for a different request
+        '503':
+          description: Repository stack unavailable
+  /api/todos/{n}:
+    get:
+      x-composition: install
+      summary: Read a TODO by its repository number
+      operationId: get_api_todos_n
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: TODO card projection
+        '400':
+          description: Invalid TODO number
+        '403':
+          description: Install owner session required
+        '404':
+          description: TODO not found
+        '503':
+          description: Install repository unavailable
   /api/user/connections/{id}:
     delete:
       summary: DELETE /api/user/connections/{id}

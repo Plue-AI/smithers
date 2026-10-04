@@ -146,6 +146,7 @@ var migrationRegistry = []migrationSpec{
 	{108, "migrations/0108_branch_machines.sql"},
 	{109, "migrations/0109_install_app_before_repository.sql"},
 	{110, "migrations/0110_github_owner_identity.sql"},
+	{111, "migrations/0111_mythical_todos.sql"},
 }
 
 type migration struct {

@@ -26,6 +26,12 @@ const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maint
   return { props, dispatches, patches }
 }
 describe("TODO Container", () => {
+  test("a queued TODO without an admitted branch renders and has no Open branch action", () => {
+    const model = TodoCardSchema.parse({ ...fixtures.queued.model, branch: undefined })
+    const h = mount(model)
+    expect(h.props.actions.some(action => action.tag === "branch")).toBe(false)
+    expect(renderToStaticMarkup(<TodoView {...h.props} />)).toContain(model.title)
+  })
   test("maps every schema fixture, including past attempts and repairs, without owning presentation", () => {
     for (const model of Object.values(fixtures).map(story => story.model)) {
       const h = mount(model)

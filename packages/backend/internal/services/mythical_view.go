@@ -73,15 +73,20 @@ type MythicalPullRequestView struct {
 }
 
 type MythicalItemView struct {
-	ID          string             `json:"id"`
-	Issue       *MythicalIssueView `json:"issue,omitempty"`
-	State       string             `json:"state"`
-	Reason      string             `json:"reason,omitempty"`
-	Attempt     int32              `json:"attempt"`
-	Lane        *int32             `json:"lane,omitempty"`
-	Runs        MythicalRunsView   `json:"runs"`
-	Plan        json.RawMessage    `json:"plan,omitempty"`
-	Integration json.RawMessage    `json:"integration,omitempty"`
+	Number        int64              `json:"number,omitempty"`
+	Title         string             `json:"title,omitempty"`
+	TodoState     string             `json:"todoState,omitempty"`
+	StackPosition int64              `json:"stack_position,omitempty"`
+	Revisions     json.RawMessage    `json:"revisions,omitempty"`
+	ID            string             `json:"id"`
+	Issue         *MythicalIssueView `json:"issue,omitempty"`
+	State         string             `json:"state"`
+	Reason        string             `json:"reason,omitempty"`
+	Attempt       int32              `json:"attempt"`
+	Lane          *int32             `json:"lane,omitempty"`
+	Runs          MythicalRunsView   `json:"runs"`
+	Plan          json.RawMessage    `json:"plan,omitempty"`
+	Integration   json.RawMessage    `json:"integration,omitempty"`
 	// Checks is the verification of the item's candidate: pending while it
 	// runs, passed, or failed with the failed checks' ids.
 	Checks *MythicalChecksView `json:"checks,omitempty"`
@@ -447,7 +452,7 @@ func mythicalSettled(state string) bool {
 }
 
 func mythicalItemView(item db.MythicalItem) MythicalItemView {
-	row := MythicalItemView{ID: uuidString(item.ID), State: item.State, Reason: item.Reason, Attempt: item.Attempt,
+	row := MythicalItemView{Number: item.Number.Int64, Title: item.Title.String, TodoState: todoState(item), StackPosition: item.StackPosition.Int64, Revisions: item.Revisions, ID: uuidString(item.ID), State: item.State, Reason: item.Reason, Attempt: item.Attempt,
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
 		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), Route: mythicalRouteView(item),
 		Placement:   mythicalChecksOf(item).Placement,

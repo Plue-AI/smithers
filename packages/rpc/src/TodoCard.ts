@@ -71,7 +71,7 @@ export const TodoCardSchema = z.object({
     z.object({ text: z.string(), acceptance: z.array(z.string()), by: ActorSchema, at: z.string() })
   ),
   issue: z.object({ number: z.number().int().positive(), url: HttpUrlSchema, fixes: z.boolean() }).optional(),
-  branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }),
+  branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }).optional(),
   steps: z.array(
     z.union([
       z.object({
