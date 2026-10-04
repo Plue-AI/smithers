@@ -82,6 +82,11 @@ type MythicalService struct {
 	// publicURL is this Smithers's origin, where a landed item's issue is
 	// pointed at its run (SetPublicURL); absent, the comment names no link.
 	publicURL string
+
+	// todoFlow answers the Active todo flow digest a fresh TODO attempt pins
+	// (SetTodoFlow). Unset, owner TODO admission refuses before placement,
+	// capture or launch.
+	todoFlow func(ctx context.Context, repositoryID int64) (string, error)
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {

@@ -38,7 +38,8 @@ import (
 // inside the stack's claim, so one writer decides; run projections only
 // record outcomes (optimistic version) and wake the worker.
 //
-// queued -> running (coding/request on a lane) -> delivering (coding/vibe)
+// queued -> running (the pinned todo composition on a lane; already-admitted
+// coding/request runs drain into delivering, coding/vibe)
 // -> integrating (candidate on the tip; rebase when the tip moved)
 // -> verifying (coding/verify on a rebased candidate) -> proposing
 // (one GitHub PR whose tree is exactly the verified candidate) -> proposed
@@ -120,6 +121,17 @@ func (s *MythicalService) SetOrchestration(github mythicalGitHub, launcher mythi
 
 // SetLauncher completes the construction cycle with the Flow dispatcher.
 func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = launcher }
+
+// SetTodoFlow supplies the Active todo flow digest a fresh TODO attempt pins
+// (T-FLW-11), which opens owner TODO admission. Production composition leaves
+// it unset, so admission stays dark, until one joint change binds it with
+// every provider the composition needs: isolated guest dispatch (T-FLW-01),
+// retained wake (T-MCH-14), candidate authorization (T-STK-12), outbound
+// recovery (T-GH-09), validated root startup (T-SEC-01) and pinned-source
+// loading (T-FLW-03/04).
+func (s *MythicalService) SetTodoFlow(active func(ctx context.Context, repositoryID int64) (string, error)) {
+	s.todoFlow = active
+}
 
 // mythicalAdmission decides, deterministically and before any model, whether
 // an issue is worked; the reason is shown for every skip. approved is whether
@@ -337,7 +349,10 @@ type mythicalProjection struct {
 	ItemID     string `json:"itemId"`
 	Generation int64  `json:"generation"`
 	Attempt    int32  `json:"attempt,omitempty"`
-	Phase      string `json:"phase"` // request | vibe | verify | review
+	Phase      string `json:"phase"` // todo | request | vibe | verify | review
+	// FlowDigest is the attempt's pinned todo flow digest; every launch of a
+	// pinned attempt carries it, and a projection of another pin is stale.
+	FlowDigest string `json:"flowDigest,omitempty"`
 }
 
 // ProjectFlowRuntime records a lane run's id and terminal outcome on its item
@@ -374,13 +389,19 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if item.Generation != projection.Generation || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
 				return nil
 			}
+			if projection.FlowDigest != "" && projection.FlowDigest != item.FlowDigest.String {
+				return nil
+			}
 			next := item
 			runID := strings.TrimSpace(update.Checkpoint.RunID)
-			if item.Source == "todo" && (runID == "" || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
+			// A TODO's runs are bound by run ID. Only its composition's launch
+			// may end without one: refused before any run existed.
+			unstarted := projection.Phase == "todo" && runID == "" && update.State.Terminal()
+			if item.Source == "todo" && ((runID == "" && !unstarted) || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
 				return nil
 			}
 			// A later checkpoint cannot replace the run already bound to this phase.
-			bound := map[string]string{"request": item.RequestRunID, "vibe": item.VibeRunID, "verify": item.VerifyRunID}
+			bound := map[string]string{"todo": item.RequestRunID, "request": item.RequestRunID, "vibe": item.VibeRunID, "verify": item.VerifyRunID}
 			if review := mythicalChecksOf(item).Review; review != nil {
 				bound["review"] = review.RunID
 			}
@@ -389,6 +410,33 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			outcome := mythicalRunOutcome(projection.Phase, update)
 			switch projection.Phase {
+			case "todo":
+				// The composition's one run: bound once its host accepts it
+				// running the attempt's pinned flow, which is when the TODO is
+				// working rather than starting. A launch that ended before any
+				// run settles the attempt with its outcome (an outage).
+				checks := mythicalChecksOf(item)
+				if !checks.RunLaunched || (runID == "" && checks.RunAttached) {
+					return nil
+				}
+				switch {
+				case runID != "" && update.Checkpoint.ExecutionDigest != item.FlowDigest.String:
+					// Another flow, or one that names none, ran under this
+					// pin: it is never the attempt's run.
+					if item.RequestOutcome == "" {
+						next.RequestOutcome = mythicalOutage + "infra: " + mythicalPinMismatch
+					}
+				default:
+					if runID != "" {
+						next.RequestRunID = runID
+						checks.RunAttached = true
+					}
+					if outcome != "" && item.RequestOutcome == "" {
+						next.RequestOutcome = outcome
+						checks.Route = mythicalRoute(update)
+					}
+				}
+				next.Checks = checks.encode()
 			case "request":
 				if runID != "" {
 					next.RequestRunID = runID
@@ -493,6 +541,10 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 		output = *update.Checkpoint.Run.FinalOutput
 	}
 	switch phase {
+	case "todo":
+		// Success alone is not a proposal: the stack's own candidate and
+		// propose operations move an attempt past running (T-STK-12).
+		return "completed"
 	case "request":
 		var result struct {
 			Outcome struct {
@@ -1153,6 +1205,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	case "queued", "retrying":
 		return st.start(ctx, item)
 	case "running":
+		if mythicalChecksOf(item).RunLaunched {
+			return mythicalComposedOutcome(item, st.now), false, nil
+		}
 		switch outcome := item.RequestOutcome; {
 		case outcome == "":
 			return nil, false, nil
@@ -1207,6 +1262,20 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	return nil, false, nil
 }
 
+// mythicalComposedOutcome settles a todo composition run still running on
+// its item: nothing while it runs, no_proposal (factory, retryable) when it
+// ended without the stack accepting a proposal, else its typed failure.
+func mythicalComposedOutcome(item db.MythicalItem, now time.Time) *db.MythicalItem {
+	switch outcome := item.RequestOutcome; outcome {
+	case "":
+		return nil
+	case "completed":
+		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, "failed: no_proposal", now)
+	default:
+		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, outcome, now)
+	}
+}
+
 // commit saves item and admits its launch in one transaction: either both
 // are recorded or neither, so a crash never leaves a launch the item does not
 // know about, and a projection never meets an older generation.
@@ -1232,9 +1301,19 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 	}
 	id := uuidString(saved.ID)
 	tenant, principal := "repository:"+strconv.FormatInt(r.row.RepositoryID, 10), "user:"+strconv.FormatInt(r.row.ActorUserID.Int64, 10)
-	projection, _ := json.Marshal(mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Attempt: saved.Attempt, Phase: phase})
-	authorization, _ := json.Marshal(map[string]any{"repositoryId": r.row.RepositoryID, "userId": r.row.ActorUserID.Int64,
-		"workspaceId": saved.WorkspaceID, "itemId": id, "generation": saved.Generation})
+	// Every launch of a pinned attempt (its composition and the engine's
+	// delivery and review) carries the one todo flow digest it pinned.
+	pin := ""
+	if saved.FlowDigest.Valid {
+		pin = saved.FlowDigest.String
+	}
+	projection, _ := json.Marshal(mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Attempt: saved.Attempt, Phase: phase, FlowDigest: pin})
+	binding := map[string]any{"repositoryId": r.row.RepositoryID, "userId": r.row.ActorUserID.Int64,
+		"workspaceId": saved.WorkspaceID, "itemId": id, "generation": saved.Generation}
+	if pin != "" {
+		binding["attempt"], binding["flowDigest"] = saved.Attempt, pin
+	}
+	authorization, _ := json.Marshal(binding)
 	if _, err := s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{
 		Scope:     jobs.Scope{TenantID: tenant, PrincipalID: principal},
 		RequestID: fmt.Sprintf("mythical:%s:%d:%s:%d", id, saved.Attempt, phase, saved.Generation),
@@ -1413,18 +1492,137 @@ func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalI
 	return &next
 }
 
-func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
-	// T-FLW-11: no fresh request executor remains behind the dark refusal.
-	// Delivery, verify and review still drain already-admitted history. New
-	// composition admission requires the persisted pin and isolated providers.
+// mythicalFlowPin is a todo flow execution digest.
+var mythicalFlowPin = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// mythicalPinMismatch is the outage tag of a todo run whose execution digest
+// is not its attempt's pin.
+const mythicalPinMismatch = "pin_mismatch"
+
+// todoAdmissionUnavailable refuses a fresh attempt before any effect: the
+// attempt, its counters and its earlier receipts stay as they were.
+func todoAdmissionUnavailable(item db.MythicalItem, missing string, now time.Time) *db.MythicalItem {
 	next := item
+	next.Reason = "TODO admission unavailable"
+	if missing != "" {
+		next.Reason += ": " + missing
+	}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true}
+	return &next
+}
+
+// start opens a lane for a fresh attempt of an owner's TODO and launches the
+// todo composition on it, pinned to one Active todo flow digest: the TODO is
+// starting until its host accepts the run (ProjectFlowRuntime). The first
+// attempt pins the Active digest; Retry and Resume keep that pin. Admission
+// refuses before placement, capture or launch while any provider is missing,
+// and GitHub-issue TODOs stay hidden until the maintainer release.
+func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	s, r := st.s, st.r
 	if item.Source != "issue" && item.Source != "todo" {
+		next := item
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	next.Reason = "TODO admission unavailable"
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(time.Minute), Valid: true}
-	return &next, false, nil
+	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
+		return todoAdmissionUnavailable(item, "", st.now), false, nil
+	}
+	pin := item.FlowDigest.String
+	if !item.FlowDigest.Valid || pin == "" {
+		active, err := s.todoFlow(ctx, r.row.RepositoryID)
+		if err != nil {
+			return todoAdmissionUnavailable(item, err.Error(), st.now), false, nil
+		}
+		pin = active
+	}
+	if !mythicalFlowPin.MatchString(pin) {
+		return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
+	}
+	if hold := st.launchable(ctx, item); hold != nil {
+		return hold, false, nil
+	}
+	// A new lane is placed before the previous one is retired, so a
+	// placement refusal changes nothing else.
+	placement, refused := st.place(ctx, item)
+	if refused != nil {
+		return refused, false, nil
+	}
+	if item.WorkspaceID != "" {
+		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
+			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
+		}
+	}
+	next := item
+	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
+	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
+	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
+	workspaceID, err := st.lane(ctx, item, fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation), placement)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
+	}
+	checks := mythicalChecksOf(next)
+	checks.Placement = &placement
+	checks.RunLaunched, checks.RunAttached = true, false
+	next.Checks = checks.encode()
+	base := st.prefix(item)
+	next.WorkspaceID, next.BaseCommit = workspaceID, base
+	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
+	// The launch below records the lane's start with the item, atomically.
+	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+	ref, err := s.retainFor(ctx, r, workspaceID, base)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
+	}
+	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
+		"base": map[string]string{"commitId": base, "ref": ref}}
+	// The lane plans with the published wiki; it never reviews the pages again.
+	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
+		request["wiki"] = wiki
+	}
+	payload, _ := json.Marshal(request)
+	next.FlowDigest = pgtype.Text{String: pin, Valid: true}
+	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
+	saved, err := st.commit(ctx, next, "todo", "todo", payload)
+	if err != nil {
+		// The lane stays bound; the sweep retires it once the item provably
+		// does not reference it, so a lost COMMIT acknowledgment never
+		// deletes an admitted lane.
+		return mythicalInfraOutage(item, "launch", "the TODO could not be launched: "+err.Error(), st.now), false, nil
+	}
+	st.held[saved.Lane.Int32] = saved.ID
+	return &saved, true, nil
+}
+
+// todoPrompt is an owner's TODO as its run receives it (spec §10.4.2): the
+// title, revision 1's text and its acceptance, capped like an issue prompt.
+// Later revisions reach a running attempt as steers, never here.
+func todoPrompt(item db.MythicalItem) string {
+	var revisions []struct {
+		Text       string   `json:"text"`
+		Acceptance []string `json:"acceptance"`
+	}
+	text, acceptance := item.IssueBody, []string(nil)
+	if json.Unmarshal(item.Revisions, &revisions) == nil && len(revisions) > 0 {
+		text, acceptance = revisions[0].Text, revisions[0].Acceptance
+	}
+	var b strings.Builder
+	title := item.IssueTitle
+	if item.Title.Valid && item.Title.String != "" {
+		title = item.Title.String
+	}
+	b.WriteString(title + "\n\n" + text + "\n")
+	if len(acceptance) > 0 {
+		b.WriteString("\nAcceptance:\n")
+		for _, line := range acceptance {
+			b.WriteString("- " + line + "\n")
+		}
+	}
+	out := b.String()
+	if len(out) > 2*mythicalPromptBytes {
+		out = out[:2*mythicalPromptBytes]
+	}
+	return out
 }
 
 // prompt is the pinned issue as the planner reads it, with the retry
