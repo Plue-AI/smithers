@@ -229,3 +229,6 @@ __pycache__/
 
 # Local review diffs
 .review-diff*.patch
+
+# Lane reports are written outside the repository (~/lanes/<lane>.REPORT.md).
+/REPORT.md
