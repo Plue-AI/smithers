@@ -1595,5 +1595,8 @@ test("Lessons receipt names pages without inventing navigation", async () => {
     expect(host.textContent).toBe("2 lessonsRetry policyKeep completion receipts")
     expect(host.querySelectorAll("button")).toHaveLength(0)
     expect(host.querySelector("[data-state]")).toBeNull()
+    expect(host.querySelector("[data-keyboard-pane]")).toBeNull()
+    await act(async () => root.render(<LessonsReceiptView {...lessonFixtures.lessons} model={{ todo: 12, lessons: [] }} onAction={() => {}} onView={() => {}} />))
+    expect(host.innerHTML).toBe("")
   } finally { await act(async () => root.unmount()) }
 })

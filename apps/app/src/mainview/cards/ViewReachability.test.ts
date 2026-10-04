@@ -15,6 +15,7 @@ const PENDING_WIRING: Record<string, string> = {
   "CommandsView.tsx": "T-UI-14",
   "TerminalView.tsx": "T-APP-12",
   "SecretsView.tsx": "T-APP-13",
+  "ProposalView.tsx": "T-FLW-06",
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")

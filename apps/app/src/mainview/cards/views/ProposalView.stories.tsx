@@ -14,7 +14,7 @@ const lessonStories = {
     "wiki:Retry policy": { tag: "wiki.page" as const, label: "Retry policy", args: { name: "Retry policy" } },
     "proposal-12": { tag: "run" as const, label: "Keep completion receipts", args: { id: "proposal-12" } },
   } },
-  empty: { ...receipts.lessons, name: "No lessons", model: { todo: 12, lessons: [] }, expect: ["0 lessons"] },
+  empty: { ...receipts.lessons, name: "No lessons", model: { todo: 12, lessons: [] }, expect: [] },
   single: { ...receipts.lessons, name: "One lesson", model: { todo: 12, lessons: [receipts.lessons.model.lessons[0]!] }, expect: ["Retry policy"] },
 }
 export const stories = [

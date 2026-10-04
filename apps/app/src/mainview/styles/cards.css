@@ -2990,10 +2990,9 @@
 @media (prefers-reduced-motion: reduce) { .code-file-view .code-name-flag, .code-file-view .code-saved[data-saving]::before { animation: none; } }
 
 /* ProposalView (T-UI-20): evidence disclosure and merged TODO lessons. */
-.proposal-view { min-width: 0; overflow-wrap: anywhere; }
-.proposal-view .smithers-card-title { display: flex; align-items: center; gap: 8px; margin: 0; }
+.proposal-view { box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.proposal-view .smithers-card-title { display: flex; align-items: center; gap: 8px; margin: 0; min-width: 0; white-space: normal; }
 .proposal-view .smithers-card-title svg { flex: none; color: var(--text-muted); }
-.proposal-view .proposal-status { font-size: var(--fs-caption); color: var(--text-muted); }
 .proposal-view .proposal-evidence { font-size: var(--fs-small); }
 .proposal-view summary { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); cursor: pointer; list-style: none; }
 .proposal-view summary::-webkit-details-marker { display: none; }
@@ -3001,22 +3000,15 @@
 .proposal-view details[open] summary svg { transform: rotate(90deg); }
 .proposal-view .proposal-evidence p { margin: 6px 0 0; }
 .proposal-view .proposal-refs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.proposal-view a { color: var(--text-muted); text-underline-offset: 2px; }
+.proposal-view .proposal-ref { padding: 1px 7px; border-radius: 6px; background: var(--surface-2); color: var(--action-primary); font-size: var(--fs-caption); font-weight: 500; text-decoration: none; }
 .proposal-view button { font-family: var(--font-ui); cursor: pointer; background: transparent; color: var(--text); }
 .proposal-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .proposal-view .proposal-made { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; color: var(--text-muted); font-size: var(--fs-small); }
 .proposal-view .proposal-made button, .proposal-view .proposal-page button { padding: 0 2px; border: 0; border-radius: var(--r-sm); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; text-align: left; }
-.proposal-view .proposal-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+.proposal-view .proposal-actions { justify-content: flex-start; }
 .proposal-view .proposal-actions:empty { display: none; }
-.proposal-view .proposal-actions button { border: 1px solid transparent; border-radius: var(--r-sm); padding: 4px 10px; min-height: 28px; font-size: var(--fs-small); font-weight: 500; }
-.proposal-view .proposal-actions button:hover { background: var(--hover); }
-.proposal-view .proposal-actions button[data-primary] { background: var(--action-primary); color: var(--on-action-primary); }
-.proposal-view button:disabled { opacity: .6; cursor: default; }
 .proposal-view.proposal-lessons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-small); }
 .proposal-view.proposal-lessons > svg { flex: none; }
 .proposal-view .proposal-page { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.proposal-view .proposal-status[data-state="open"] { color: var(--attention-text); }
-.proposal-view, .proposal-view * { box-sizing: border-box; }
 .proposal-view .smithers-card-header { flex-wrap: wrap; }
-.proposal-view .smithers-card-title { min-width: 0; white-space: normal; }
-.proposal-view .proposal-actions .flow-control + .flow-control { margin-left: auto; }
+.proposal-view .proposal-actions .flow-control:last-child:not(:first-child) { margin-left: auto; }
