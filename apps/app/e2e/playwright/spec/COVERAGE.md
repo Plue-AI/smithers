@@ -127,3 +127,10 @@ by keyboard and retains it across reload. Watcher faults remain fixme.
 C-DUR-02 also has a passing projection for the mounted recorded interrupted run:
 its Interrupted state and last edited phase survive reload without duplicate cards.
 Machine-kill recovery and retry version pinning remain fixme.
+
+| C-INS-01 | [C-INS-01.spec.ts](C-INS-01.spec.ts) | fixme-before-implementation | T-INS-04 |
+| C-INS-03 | [C-INS-03.spec.ts](C-INS-03.spec.ts) | fixme-before-implementation | T-INS-04 |
+| C-INS-05 | [C-INS-05.spec.ts](C-INS-05.spec.ts) | fixme-before-implementation | T-INS-01, T-INS-02 |
+| C-INS-06 | [C-INS-06.spec.ts](C-INS-06.spec.ts) | fixme-before-implementation | T-INS-08 |
+| C-J9-01 | [C-J9-01.spec.ts](C-J9-01.spec.ts) | fixme-before-implementation | T-APP-02 |
+| C-MCH-01 | [C-MCH-01.spec.ts](C-MCH-01.spec.ts) | fixme-before-implementation | T-MCH-04 |
