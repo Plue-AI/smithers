@@ -275,16 +275,45 @@ describe("THE FORM LAW — filling and submitting", () => {
     expect(submitted).toContain("asked the user to confirm")
     expect(messages(store).find((message) => message.action?.flow === "runs.resume")?.action?.args).toBe("run-9")
   })
+
+  /*
+   * An agent's form for a consequential flow submits as the agent, so its line
+   * becomes the confirm button's line and re-runs through the flow's grammar.
+   * todo.from-issue's form wrote JSON its `numbered` grammar refuses, and
+   * triggers.pause's a positional line its carried grammar refuses: both
+   * answered "cannot be confirmed" and left the person no button to press.
+   */
+  test("an agent's form for a confirm flow posts a confirmation whose line re-runs the same values", async () => {
+    const { store, controller } = await boot()
+    const cases = [
+      { flow: "todo.from-issue", set: [["number", "212"]], payload: { number: 212 } },
+      { flow: "triggers.pause", set: [["slug", "nightly"], ["repo", "will/flows"]], payload: { slug: "nightly", repo: "will/flows" } }
+    ] as const
+    for (const { flow, set, payload } of cases) {
+      expect(await execute(controller, flow)).toStartWith("rendered a form")
+      for (const [field, value] of set) expect(await execute(controller, "form.set", `form-${flow} ${field} ${value}`)).toBe("executed /form.set")
+      expect(await execute(controller, "form.submit", `form-${flow}`)).toContain("asked the user to confirm")
+      expect(formOf(store, flow)?.payload.error).toBeUndefined()
+      const line = messages(store).find((message) => message.action?.flow === flow)?.action?.args
+      expect(payloadFor(flow, line ?? undefined, controller.commands.find(flow)?.metadata.grammar)).toEqual({ payload })
+    }
+  })
 })
 
 describe("THE FORM LAW — every flow's form round-trips through its own grammar", () => {
-  test("a filled form assembles to a line the flow's grammar parses, for every flow that takes arguments", async () => {
+  /*
+   * Every flow that can render a form, including the button-only and hidden
+   * ones that declare no `args`: an agent's form submits through the confirm
+   * button, and a sign-in resume re-runs the line, both through the grammar
+   * the flow itself declares (`metadata.grammar` where SlashPayload has none).
+   */
+  test("a filled form assembles to a line the flow's grammar parses, for every flow that renders a form", async () => {
     const { controller } = await boot()
     const failures: Array<string> = []
     for (const entry of controller.commands.entries()) {
-      if (entry.metadata.args === undefined) continue
       const name = nameOf(entry)
       const fields = formFieldsFor(entry.input, entry.metadata.form)
+      if (fields.length === 0) continue
       const sample: Record<string, unknown> = {}
       for (const field of fields) {
         if (field.kind === "number") sample[field.name] = 1
@@ -299,7 +328,7 @@ describe("THE FORM LAW — every flow's form round-trips through its own grammar
       const publicFields = fields.filter(field => field.kind !== "write-only")
       if (missingFields(publicFields, draft).length > 0) failures.push(`${name}: the sample left ${missingFields(publicFields, draft).join(", ")} missing`)
       const args = assembleArgs(fields, entry.metadata.form, { ...draft })
-      const parsed = payloadFor(name, args === "" ? undefined : args)
+      const parsed = payloadFor(name, args === "" ? undefined : args, entry.metadata.grammar)
       if ("error" in parsed) failures.push(`${name}: "${args}" → ${parsed.error}`)
     }
     expect(failures).toEqual([])

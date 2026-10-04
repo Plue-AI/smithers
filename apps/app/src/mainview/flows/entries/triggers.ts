@@ -132,6 +132,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     userOnly: true,
     userOnlyReason: "approvals belong to the human",
     grammar: carriedPayload("triggers.approve"),
+    form: { args: payload => JSON.stringify(payload) },
     input: PreparedRegistration,
     handler: (payload) => actions.registerTrigger({ operation: "approve", ...payload })
   }),
@@ -182,6 +183,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     requires: ["signed-in"],
     confirm: (payload) => `pause ${String(payload["slug"])}`,
     grammar: carriedPayload("triggers.pause"),
+    form: { args: payload => JSON.stringify(payload) },
     input: ScheduleTarget,
     handler: ({ repo, slug }) => actions.registerTrigger({ operation: "pause", repo, slug })
   })

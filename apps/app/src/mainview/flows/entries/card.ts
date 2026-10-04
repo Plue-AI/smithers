@@ -20,6 +20,7 @@ export const cardFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       try { return { payload: JSON.parse(args ?? "{}") } }
       catch { return { error: "Invalid confirmation input" } }
     },
+    form: { args: payload => JSON.stringify(payload) },
     handler: ({ confirmation, revision }) => actions.cancelConfirmation(confirmation, revision) }),
   flow({ name: "card.history.back", summary: "Go back inside an embedded frame", args: "<cardId>", input: CardTarget,
     handler: ({ cardId }) => actions.moveCardHistory(cardId, -1) }),
