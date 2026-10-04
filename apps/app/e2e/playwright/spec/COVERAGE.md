@@ -324,3 +324,12 @@ composer available, seeded sync health and source reads. `/monitor` and
 | A-MEMBERS | [A-MEMBERS.spec.ts](A-MEMBERS.spec.ts) | fixme-before-implementation | T-ACC-02, T-APP-06, T-REL-02 |
 
 Cycle 33: plan preview, factory agent configuration, install settings, secrets and member admission retain full pending scenarios. Mounted Plan missing-input, Settings and Members projections are checked separately; seeded reads do not qualify live providers.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-SSH | [A-SSH.spec.ts](A-SSH.spec.ts) | fixme-before-implementation | T-TRM-03, T-APP-10 |
+| A-SIGN-IN | [A-SIGN-IN.spec.ts](A-SIGN-IN.spec.ts) | fixme-before-implementation | T-ACC-02, T-REL-02 |
+| A-SIGN-OUT | [A-SIGN-OUT.spec.ts](A-SIGN-OUT.spec.ts) | fixme-before-implementation | T-ACC-02, T-REL-02 |
+| A-THEME | [A-THEME.spec.ts](A-THEME.spec.ts) | passing | T-REL-02 |
+
+Cycle 34: the final four Appendix A commands exhaust the unwritten catalog. SSH command parity awaits implementation; the mounted branch copy button is checked with keyboard and clipboard assertions. Sign-in and sign-out retain pending live GitHub/session qualification; mocked browser handoffs are checked separately. Theme covers explicit light, bare toggle, reload and repeated explicit selection. All engineering check IDs and Appendix A commands now have specs; fixmes remain outstanding evidence.
