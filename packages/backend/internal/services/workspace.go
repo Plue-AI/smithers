@@ -571,6 +571,7 @@ type WorkspaceService struct {
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions
+	branchMachineProviders       BranchMachineProviders
 	sandbox                      SandboxVMClient
 	runtime                      workspaceapi.WorkspaceRuntime
 	runtimeIdentity              WorkspaceRuntimeIdentityResolver

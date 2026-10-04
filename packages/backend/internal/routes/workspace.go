@@ -62,8 +62,9 @@ type workspacePreviewRouteService interface {
 
 // WorkspaceHandler handles workspace session API endpoints.
 type WorkspaceHandler struct {
-	Service     WorkspaceRouteService
-	EgressAudit SandboxEgressAuditRouteService
+	BranchRepositoryID int64 // Trusted install repository; zero keeps branch reads unmounted.
+	Service            WorkspaceRouteService
+	EgressAudit        SandboxEgressAuditRouteService
 	// EnvironmentImages serves the NixOS environment image registry; nil
 	// disables those routes.
 	EnvironmentImages *SandboxEnvironmentImageHandler

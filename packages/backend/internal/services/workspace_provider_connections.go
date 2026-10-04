@@ -217,3 +217,20 @@ func (s *WorkspaceService) bindWorkspaceModelProxy(ctx context.Context, workspac
 	}
 	return nil
 }
+
+// mergeEgressSecrets overlays run bindings on the repository's bindings.
+func mergeEgressSecrets(base, run []sandbox.EgressProxySecret) []sandbox.EgressProxySecret {
+	merged := make([]sandbox.EgressProxySecret, 0, len(base)+len(run))
+	seen := make(map[string]struct{}, len(run))
+	for _, secret := range run {
+		seen[secret.Name] = struct{}{}
+		merged = append(merged, secret)
+	}
+	for _, secret := range base {
+		if _, dup := seen[secret.Name]; dup {
+			continue
+		}
+		merged = append(merged, secret)
+	}
+	return merged
+}

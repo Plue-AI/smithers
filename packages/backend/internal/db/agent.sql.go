@@ -873,7 +873,7 @@ func (q *Queries) SetAgentSessionWorkspace(ctx context.Context, arg SetAgentSess
 const touchWorkspaceActivityByAgentSession = `-- name: TouchWorkspaceActivityByAgentSession :exec
 UPDATE workspaces
 SET last_activity_at = NOW()
-WHERE agent_session_id = $1::uuid
+WHERE id = (SELECT workspace_id FROM agent_sessions WHERE id = $1::uuid)
   AND deleted_at IS NULL
 `
 

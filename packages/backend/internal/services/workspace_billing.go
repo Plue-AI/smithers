@@ -44,7 +44,7 @@ func (s *WorkspaceService) createWorkspaceRow(ctx context.Context, arg db.Create
 		}
 		arg.IdleTimeoutSecs = pgtype.Int4{Int32: idle, Valid: true}
 	}
-	return s.q.CreateWorkspace(ctx, arg)
+	return s.createBranchMachineRow(ctx, arg)
 }
 
 func (s *WorkspaceService) stampResumedWorkspaceIdleTimeout(ctx context.Context, workspace db.Workspace) (db.Workspace, error) {

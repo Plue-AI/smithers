@@ -11,6 +11,10 @@ import (
 func TestNamedWorkspaceMigrationPreservesDuplicateGuests(t *testing.T) {
 	pool := reviewDatabase(t, 74)
 	ctx := context.Background()
+	registered, err := registeredMigrations()
+	require.NoError(t, err)
+	// Verify the deployed pre-branch schema: 0108 refuses conflicting branch runtimes.
+	applyNamed := func() error { return applyOnce(ctx, pool, registered[:107]) }
 	exec := func(sql string, args ...any) {
 		t.Helper()
 		_, err := pool.Exec(ctx, sql, args...)
@@ -30,7 +34,7 @@ func TestNamedWorkspaceMigrationPreservesDuplicateGuests(t *testing.T) {
 		VALUES(1,1,$1,'feature/one',true,'running','guest-suffix')`, "issue ["+older+"]")
 	exec(`INSERT INTO workspaces(repository_id,user_id,name,target_bookmark,is_fork,status)
 		VALUES(1,1,$1,'feature/one',true,'starting')`, "\u2003unicode\u00a0")
-	require.NoError(t, Apply(ctx, pool))
+	require.NoError(t, applyNamed())
 	q := db.New(pool)
 	unicodeRow, err := q.GetActiveWorkspaceForIdentity(ctx, db.GetActiveWorkspaceForIdentityParams{
 		RepositoryID: 1, UserID: 1, Name: "unicode", TargetBookmark: "feature/one", Kind: "container",
@@ -52,5 +56,5 @@ func TestNamedWorkspaceMigrationPreservesDuplicateGuests(t *testing.T) {
 	_, err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: 1, UserID: 1,
 		Name: "issue", TargetBookmark: "feature/one", Kind: "container", IsFork: true, Status: "starting"})
 	require.Error(t, err, "the migrated ready guest reserves its identity")
-	require.NoError(t, Apply(ctx, pool), "recorded migration can be applied again")
+	require.NoError(t, applyNamed(), "recorded migration can be applied again")
 }

@@ -34,7 +34,7 @@ func storeImplements[T any](store any) bool {
 // implements. Product must carry each one. The key is the asserted type as the
 // source spells it; an anonymous interface is keyed by its method names.
 var productStoreCapabilities = map[string]func(any) bool{
-	"agentWorkspaceStore":                  storeImplements[agentWorkspaceStore],
+	"branchMachineOwnerStore":              storeImplements[branchMachineOwnerStore],
 	"boxHostQuerier":                       storeImplements[boxHostQuerier],
 	"neverStartedAgentQuerier":             storeImplements[neverStartedAgentQuerier],
 	"providerPoolTokenLister":              storeImplements[providerPoolTokenLister],

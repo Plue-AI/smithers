@@ -40,6 +40,20 @@ const (
 // "you are not the owner" when no explicit share exists — both return 403.
 // This prevents ownership enumeration via timing or error shape differences.
 func (s *WorkspaceService) requireWorkspaceAccess(ctx context.Context, workspaceID string, ownerUserID, requesterUserID int64, minLevel WorkspaceAccessLevel) error {
+	branchOwned, err := s.branchMachineOwned(ctx, ownerUserID)
+	if err != nil {
+		return err
+	}
+	if branchOwned {
+		row, err := s.q.GetWorkspace(ctx, workspaceID)
+		if err != nil {
+			return err
+		}
+		if err := s.preflightBranchMachine(ctx, row.RepositoryID, requesterUserID, row.TargetBookmark); err != nil {
+			return err
+		}
+	}
+
 	if ownerUserID == requesterUserID {
 		return nil
 	}
@@ -80,6 +94,14 @@ type workspaceMutationAuthority struct {
 // begun after it is refused. fn's own statements use the service store; the
 // transaction only holds the grant.
 func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, row db.Workspace, requesterID int64, fn func(context.Context) error) error {
+	branchOwned, err := s.branchMachineOwned(ctx, row.UserID)
+	if err != nil {
+		return err
+	}
+	if branchOwned {
+		return s.withBranchMachineMutation(ctx, row, requesterID, fn)
+	}
+
 	if requesterID == row.UserID {
 		return fn(ctx)
 	}

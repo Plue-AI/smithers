@@ -1032,6 +1032,84 @@ func (q *Queries) GetActiveWorkspaceLSPSession(ctx context.Context, arg GetActiv
 	return i, err
 }
 
+const getBranchMachineOwner = `-- name: GetBranchMachineOwner :one
+SELECT id FROM users WHERE lower_username = 'smithers-machines'
+  AND user_type = 'service' AND prohibit_login AND deleted_at IS NULL
+`
+
+func (q *Queries) GetBranchMachineOwner(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getBranchMachineOwner)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getBranchWorkspace = `-- name: GetBranchWorkspace :one
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit, vcpu_count, memory_mb, disk_mb FROM workspaces
+WHERE repository_id = $1
+  AND target_bookmark = $2::text
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type GetBranchWorkspaceParams struct {
+	RepositoryID   int64  `json:"repository_id"`
+	TargetBookmark string `json:"target_bookmark"`
+}
+
+// Includes excluded-index sources and retained failures; none permit replacement.
+func (q *Queries) GetBranchWorkspace(ctx context.Context, arg GetBranchWorkspaceParams) (Workspace, error) {
+	row := q.db.QueryRow(ctx, getBranchWorkspace, arg.RepositoryID, arg.TargetBookmark)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.RepositoryID,
+		&i.UserID,
+		&i.Name,
+		&i.IsFork,
+		&i.ParentWorkspaceID,
+		&i.TargetBookmark,
+		&i.SourceSnapshotID,
+		&i.Kind,
+		&i.EnvironmentSource,
+		&i.EnvironmentRevision,
+		&i.EnvironmentClosureHash,
+		&i.AgentSessionID,
+		&i.HeadPushTokenID,
+		&i.EnvironmentImage,
+		&i.DesktopSessionID,
+		&i.DesktopSessionTokenHash,
+		&i.DesktopSessionExpiresAt,
+		&i.VmID,
+		&i.ProvisioningGeneration,
+		&i.Status,
+		&i.FailureCode,
+		&i.FailureMessage,
+		&i.ProvisioningStage,
+		&i.LastActivityAt,
+		&i.IdleTimeoutSecs,
+		&i.SuspendedAt,
+		&i.StartedAt,
+		&i.ResumedAt,
+		&i.HeadChangeID,
+		&i.HeadCommitID,
+		&i.Ahead,
+		&i.Behind,
+		&i.LastAccessedAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
+		&i.ClientLeaseSecs,
+		&i.ClientLeaseExpiresAt,
+		&i.SourceCommit,
+		&i.VcpuCount,
+		&i.MemoryMb,
+		&i.DiskMb,
+	)
+	return i, err
+}
+
 const getRepoOwnerSlugAndNameByID = `-- name: GetRepoOwnerSlugAndNameByID :one
 SELECT r.name AS repo_name,
        COALESCE(o.name, u.username, '')::text AS owner_slug
@@ -1120,7 +1198,7 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error
 const getWorkspaceByAgentSession = `-- name: GetWorkspaceByAgentSession :one
 SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit, vcpu_count, memory_mb, disk_mb
 FROM workspaces
-WHERE agent_session_id = $1::uuid
+WHERE id = (SELECT workspace_id FROM agent_sessions WHERE id = $1::uuid)
   AND deleted_at IS NULL
 LIMIT 1
 `

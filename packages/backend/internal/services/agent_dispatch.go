@@ -754,29 +754,12 @@ func (d *agentDispatch) agentPath() string {
 	return "/usr/local/bin:/root/.bun/bin:/usr/bin:/bin"
 }
 
-// createAgentWorkspaceVM is the workspace-mode createVM (RFD-004): the run's
-// computer is a kind=agent workspace provisioned by the workspace service
-// with the run's egress bindings merged into the VM's proxy policy.
+// createAgentWorkspaceVM attaches workspace-mode dispatch to the branch's
+// canonical machine. Shared run bindings remain dark until scoped delivery is available.
 func (d *agentDispatch) createAgentWorkspaceVM() error {
-	d.vmReq = sandbox.CreateRequest{}
-	quota, quotaErr := egressQuotaForUser(d.ctx, d.svc.billing, d.input.UserID)
-	if quotaErr != nil {
-		return quotaErr
-	}
-	d.vmReq.EgressProxy = &sandbox.EgressProxyPolicy{Enabled: true, Quota: quota, Secrets: append([]sandbox.EgressProxySecret(nil), d.egressSecrets...)}
-	if err := d.vmReq.EgressProxy.Validate(); err != nil {
-		return d.markInfraFailed("egress proxy bindings: " + err.Error())
-	}
-	d.recordSecretDelivery(secretDeliveryPathEgressProxy, len(d.egressSecrets))
 	var members []sandbox.GitRepositorySpec
 	if len(d.gitRepos) > 1 {
 		members = append(members, d.gitRepos[1:]...)
-	}
-	title := ""
-	if d.svc.q != nil {
-		if session, err := d.svc.q.GetAgentSession(d.ctx, d.input.SessionID); err == nil {
-			title = session.Title
-		}
 	}
 	vmCreateStartedAt := time.Now()
 	provisionCtx := d.ctx
@@ -787,7 +770,6 @@ func (d *agentDispatch) createAgentWorkspaceVM() error {
 		RepositoryID:   d.input.RepositoryID,
 		UserID:         d.input.UserID,
 		SessionID:      d.input.SessionID,
-		Title:          title,
 		RepoOwner:      d.input.RepoOwner,
 		RepoName:       d.input.RepoName,
 		SourceBookmark: d.input.SourceBookmark,

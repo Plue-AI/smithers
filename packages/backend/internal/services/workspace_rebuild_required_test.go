@@ -64,29 +64,9 @@ func TestRebuildRequiredWorkspaceIsNotResumed(t *testing.T) {
 	}
 }
 
-func TestRebuildRequiredPrimaryIsNotReusedByCreate(t *testing.T) {
-	t.Parallel()
-	q := &mockWorkspaceQuerier{getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-		row := flaggedWorkspace("ws-primary")
-		row.Name = ""
-		return row, nil
-	}}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(sandboxUntouched(t)))
-	_, err := svc.findOrCreatePrimaryWorkspace(context.Background(), 101, 1, "", "main", workspaceCreateMetadata{})
-	requireRebuildRequired(t, err)
-}
-
-func TestRebuildRequiredWorkspaceIsNeverAnAgentForkSource(t *testing.T) {
-	t.Parallel()
-	agent := sampleDBWorkspace("ws-agent")
-	agent.Kind = "agent"
-	agent.VmID = ""
-	candidate := flaggedWorkspace("ws-flagged-candidate")
-	candidate.VmID = "vm-flagged-candidate"
-	q := &agentForkKindQuerier{mockWorkspaceQuerier: forkKindQuerier(), candidates: []db.Workspace{candidate}}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(sandboxUntouched(t)))
-	_, _, ok := svc.agentForkSource(context.Background(), agent, "main")
-	assert.False(t, ok)
+func TestRebuildRequiredBranchMachineIsNotReused(t *testing.T) {
+	row := flaggedWorkspace("ws-primary")
+	requireRebuildRequired(t, branchMachineCompatible(row, db.CreateWorkspaceParams{}, row.UserID))
 }
 
 func TestRebuildRequiredSnapshotIsNotRestored(t *testing.T) {
@@ -106,9 +86,9 @@ func TestRebuildRequiredSnapshotIsNotRestored(t *testing.T) {
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(sandboxUntouched(t)))
 	input := CreateWorkspaceInput{RepositoryID: 101, UserID: 1, RepoOwner: "alice", RepoName: "demo", SnapshotID: snapshot.ID}
 	_, err := svc.CreateWorkspace(context.Background(), input)
-	requireRebuildRequired(t, err)
+	requireBranchMachineUnavailable(t, err)
 	_, err = svc.CreateWorkspaceAsync(context.Background(), input)
-	requireRebuildRequired(t, err)
+	requireBranchMachineUnavailable(t, err)
 	assert.False(t, created)
 }
 

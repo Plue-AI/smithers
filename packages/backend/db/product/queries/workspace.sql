@@ -46,7 +46,7 @@ RETURNING *;
 -- RFD-004: the workspace an agent run executes in.
 SELECT *
 FROM workspaces
-WHERE agent_session_id = sqlc.arg(agent_session_id)::uuid
+WHERE id = (SELECT workspace_id FROM agent_sessions WHERE id = sqlc.arg(agent_session_id)::uuid)
   AND deleted_at IS NULL
 LIMIT 1;
 
@@ -962,3 +962,15 @@ WHERE client_lease_expires_at < NOW()
   AND deleted_at IS NULL
 ORDER BY client_lease_expires_at ASC
 LIMIT sqlc.arg(max_rows)::integer;
+
+-- name: GetBranchWorkspace :one
+-- Includes excluded-index sources and retained failures; none permit replacement.
+SELECT * FROM workspaces
+WHERE repository_id = sqlc.arg(repository_id)
+  AND target_bookmark = sqlc.arg(target_bookmark)::text
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: GetBranchMachineOwner :one
+SELECT id FROM users WHERE lower_username = 'smithers-machines'
+  AND user_type = 'service' AND prohibit_login AND deleted_at IS NULL;

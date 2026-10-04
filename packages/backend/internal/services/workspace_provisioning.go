@@ -27,7 +27,6 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services/workspace_scripts"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
-	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // bootstrapVars holds the dynamic values injected into the bootstrap shell template.
@@ -645,6 +644,9 @@ func localMicrosandboxHostFirewall(gitBaseURL string) *sandbox.FirewallPolicy {
 
 // CreateWorkspace creates or resumes a first-class workspace resource.
 func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWorkspaceInput) (out WorkspaceResponse, retErr error) {
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	defer func() { s.observeWorkspaceLifecycle("create", retErr) }()
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
@@ -667,6 +669,9 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 		return WorkspaceResponse{}, err
 	}
 	input.SourceBookmark = bookmark
+	if err := s.preflightBranchMachine(ctx, input.RepositoryID, input.UserID, bookmark); err != nil {
+		return WorkspaceResponse{}, err
+	}
 
 	var workspace db.Workspace
 
@@ -684,7 +689,11 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 		if err := s.refuseWorkspaceResourceMismatch(workspace, input.Resources); err != nil {
 			return WorkspaceResponse{}, err
 		}
-		if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+		if err = s.withWorkspaceMutationAuthority(ctx, workspace, input.UserID, func(authCtx context.Context) error {
+			var leaseErr error
+			workspace, leaseErr = s.applyWorkspaceClientLease(authCtx, workspace, input.ClientLeaseSeconds)
+			return leaseErr
+		}); err != nil {
 			return WorkspaceResponse{}, err
 		}
 		workspace, err = s.ensureWorkspaceRunning(ctx, workspace, CreateWorkspaceSessionInput{
@@ -700,12 +709,7 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 		return s.toWorkspaceResponse(workspace), nil
 	}
 
-	// Snapshot-restore is a NEW workspace row — enforce the per-user cap
-	// before we insert. Ticket 0105.
-	if err := s.enforceWorkspaceQuota(ctx, input.UserID); err != nil {
-		return WorkspaceResponse{}, err
-	}
-
+	// Snapshot restore reserves the canonical destination branch.
 	snapshot, err := s.loadOwnedWorkspaceSnapshot(ctx, strings.TrimSpace(input.SnapshotID), input.RepositoryID, input.UserID)
 	if err != nil {
 		return WorkspaceResponse{}, err
@@ -741,20 +745,17 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 	if err != nil {
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create snapshot workspace")
 	}
-	if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+	if err = s.withWorkspaceMutationAuthority(ctx, workspace, input.UserID, func(authCtx context.Context) error {
+		var leaseErr error
+		workspace, leaseErr = s.applyWorkspaceClientLease(authCtx, workspace, input.ClientLeaseSeconds)
+		return leaseErr
+	}); err != nil {
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return WorkspaceResponse{}, err
 	}
-	if s.runtime != nil {
-		workspace, err = s.restoreRuntimeWorkspaceSnapshot(ctx, workspace, snapshot, input.UserID)
-		if err != nil {
-			s.markWorkspaceProvisionFailed(ctx, workspace, err)
-			return WorkspaceResponse{}, err
-		}
-		return s.toWorkspaceResponse(workspace), nil
-	}
-
-	workspace, err = s.createWorkspaceVMFromSnapshot(ctx, workspace, snapshot)
+	workspace, err = s.ensureWorkspaceRunning(ctx, workspace, CreateWorkspaceSessionInput{
+		RepositoryID: input.RepositoryID, UserID: input.UserID, RepoOwner: input.RepoOwner, RepoName: input.RepoName, SourceBookmark: bookmark,
+	})
 	if err != nil {
 		return WorkspaceResponse{}, err
 	}
@@ -767,6 +768,9 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 // routes use this path so startup can exceed proxy/client deadlines without
 // canceling the real operation.
 func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input CreateWorkspaceInput) (out WorkspaceResponse, retErr error) {
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	defer func() { s.observeWorkspaceLifecycle("create", retErr) }()
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
@@ -789,6 +793,9 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 		return WorkspaceResponse{}, err
 	}
 	input.SourceBookmark = bookmark
+	if err := s.preflightBranchMachine(ctx, input.RepositoryID, input.UserID, bookmark); err != nil {
+		return WorkspaceResponse{}, err
+	}
 
 	var workspace db.Workspace
 
@@ -806,7 +813,11 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 		if err := s.refuseWorkspaceResourceMismatch(workspace, input.Resources); err != nil {
 			return WorkspaceResponse{}, err
 		}
-		if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+		if err = s.withWorkspaceMutationAuthority(ctx, workspace, input.UserID, func(authCtx context.Context) error {
+			var leaseErr error
+			workspace, leaseErr = s.applyWorkspaceClientLease(authCtx, workspace, input.ClientLeaseSeconds)
+			return leaseErr
+		}); err != nil {
 			return WorkspaceResponse{}, err
 		}
 		s.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{
@@ -817,10 +828,6 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 			SourceBookmark: input.SourceBookmark,
 		})
 		return s.toWorkspaceResponse(workspace), nil
-	}
-
-	if err := s.enforceWorkspaceQuota(ctx, input.UserID); err != nil {
-		return WorkspaceResponse{}, err
 	}
 
 	snapshot, err := s.loadOwnedWorkspaceSnapshot(ctx, strings.TrimSpace(input.SnapshotID), input.RepositoryID, input.UserID)
@@ -858,17 +865,24 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	if err != nil {
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create snapshot workspace")
 	}
-	if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+	if err = s.withWorkspaceMutationAuthority(ctx, workspace, input.UserID, func(authCtx context.Context) error {
+		var leaseErr error
+		workspace, leaseErr = s.applyWorkspaceClientLease(authCtx, workspace, input.ClientLeaseSeconds)
+		return leaseErr
+	}); err != nil {
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return WorkspaceResponse{}, err
 	}
 
-	s.provisionSnapshotWorkspaceAsync(ctx, workspace, snapshot)
+	s.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{RepositoryID: input.RepositoryID, UserID: input.UserID, RepoOwner: input.RepoOwner, RepoName: input.RepoName, SourceBookmark: bookmark})
 	return s.toWorkspaceResponse(workspace), nil
 }
 
 // ForkWorkspace forks a workspace into a new derived workspace.
 func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
@@ -900,30 +914,22 @@ func (s *WorkspaceService) forkSandboxWorkspace(ctx context.Context, input ForkW
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return WorkspaceResponse{}, pkgerrors.Internal("load mythical stack").WithCause(err)
 	}
-	// The fork belongs to the source owner, even when a write grantee requests it.
-	if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
-		return WorkspaceResponse{}, err
+	if strings.TrimSpace(input.Name) == "" {
+		return WorkspaceResponse{}, pkgerrors.BadRequest("scratch branch name is required")
+	}
+	if targetWorkspaceBookmark(input.Name) == source.TargetBookmark {
+		return WorkspaceResponse{}, pkgerrors.Conflict("branch already has a machine")
 	}
 	var err error
-	// Resume-then-fork: a suspended source VM is resumed before ForkSandbox. When the
-	// source was never provisioned (empty VmID) we skip the resume — there is
-	// nothing to run — and forkWorkspaceVM takes the provision-on-empty branch,
-	// binding a fresh VM to the fork instead of 409ing.
-	if strings.TrimSpace(source.VmID) != "" {
-		source, err = s.ensureExistingWorkspaceRunningFor(ctx, source, input.UserID)
-		if err != nil {
-			return WorkspaceResponse{}, err
-		}
-	}
 
 	created, err := s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
 		RepositoryID:           source.RepositoryID,
-		UserID:                 source.UserID,
+		UserID:                 input.UserID,
 		Name:                   strings.TrimSpace(input.Name),
 		IsFork:                 true,
 		ParentWorkspaceID:      stringToUUID(source.ID),
 		SourceSnapshotID:       source.SourceSnapshotID,
-		TargetBookmark:         source.TargetBookmark,
+		TargetBookmark:         targetWorkspaceBookmark(input.Name),
 		Kind:                   source.Kind,
 		EnvironmentSource:      source.EnvironmentSource,
 		EnvironmentRevision:    source.EnvironmentRevision,
@@ -937,7 +943,27 @@ func (s *WorkspaceService) forkSandboxWorkspace(ctx context.Context, input ForkW
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create fork workspace")
 	}
 
-	created, err = s.forkWorkspaceVM(ctx, created, source)
+	// Resume-then-fork: a suspended source VM is resumed before ForkSandbox. When the
+	// source was never provisioned (empty VmID) we skip the resume — there is
+	// nothing to run — and forkWorkspaceVM takes the provision-on-empty branch,
+	// binding a fresh VM to the fork instead of 409ing.
+	if strings.TrimSpace(source.VmID) != "" {
+		source, err = s.ensureExistingWorkspaceRunningFor(ctx, source, input.UserID)
+		if err != nil {
+			return WorkspaceResponse{}, err
+		}
+	}
+
+	err = s.withWorkspaceMutationAuthority(ctx, created, input.UserID, func(authCtx context.Context) error {
+		var forkErr error
+		created, forkErr = s.withWorkspaceProvisionLock(authCtx, created, func(current db.Workspace) (db.Workspace, error) {
+			if current.VmID != "" {
+				return current, nil
+			}
+			return s.forkWorkspaceVM(authCtx, current, source)
+		})
+		return forkErr
+	})
 	if err != nil {
 		return WorkspaceResponse{}, err
 	}
@@ -1094,55 +1120,6 @@ func (s *WorkspaceService) findOrCreatePrimaryWorkspace(ctx context.Context, rep
 	return s.findOrCreateWorkspaceByIdentity(ctx, repositoryID, userID, name, targetBookmark, metadata, false)
 }
 
-// retireMissingWorkspace frees a bookmark workspace identity only on confirmed
-// runtime loss. A failed row retains its VM, snapshot, and volume references
-// for recovery. Lease loss alone is transient; an adapter must also report
-// ErrWorkspaceNotFound when the worker is permanently retired.
-func (s *WorkspaceService) retireMissingWorkspace(ctx context.Context, row db.Workspace) (bool, error) {
-	if row.Status != "running" && row.Status != "suspended" {
-		return false, nil
-	}
-	var inspectErr error
-	if s.runtime != nil {
-		operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "inspect-reuse"))
-		if err != nil {
-			return false, err
-		}
-		observed, err := s.runtime.InspectWorkspace(operationCtx, row.ID)
-		inspectErr = err
-		if err == nil {
-			if err := validateRuntimeWorkspace(row.ID, observed); err != nil {
-				return false, pkgerrors.Internal(err.Error())
-			}
-		}
-	} else if s.sandbox != nil && strings.TrimSpace(row.VmID) != "" {
-		_, inspectErr = s.sandbox.InspectSandbox(ctx, row.VmID)
-	}
-	if inspectErr == nil {
-		return false, nil
-	}
-	if !errors.Is(inspectErr, workspaceapi.ErrWorkspaceNotFound) && !vmAlreadyGone(inspectErr) &&
-		workspaceFailureDetailsFor(inspectErr).Code != pkgerrors.CodeWorkspaceVMMissing {
-		return false, runtimeOperationError("inspect workspace runtime", inspectErr)
-	}
-	failure := lostWorkerError(inspectErr)
-	if failure == nil {
-		failure = pkgerrors.New(pkgerrors.CodeWorkspaceVMMissing, "workspace runtime no longer exists; create a fresh workspace")
-	}
-	retained, err := s.failWorkspace(ctx, row, failure)
-	if err != nil {
-		return false, err
-	}
-	if retained.Status != "failed" {
-		return false, pkgerrors.Conflict("workspace changed while checking its runtime; retry")
-	}
-	if s.runtime == nil && row.Status == "running" && s.sandboxMetrics != nil {
-		// Only the winner of the failure CAS releases the old VM's gauge slot.
-		s.sandboxMetrics.AddSandboxActiveVMs("workspace", -1)
-	}
-	return true, nil
-}
-
 func (s *WorkspaceService) findOrCreateDerivedWorkspaceForBookmark(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {
 	return s.findOrCreateWorkspaceByIdentity(ctx, repositoryID, userID, name, targetBookmark, metadata, true)
 }
@@ -1155,36 +1132,6 @@ func workspaceIdentity(repositoryID, userID int64, name, targetBookmark, kind st
 }
 
 func (s *WorkspaceService) findOrCreateWorkspaceByIdentity(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata, isFork bool) (db.Workspace, error) {
-	metadata = normalizeWorkspaceCreateMetadata(metadata)
-	if err := s.failStalePendingWorkspacesForRepoUser(ctx, repositoryID, userID); err != nil {
-		return db.Workspace{}, err
-	}
-	identity := workspaceIdentity(repositoryID, userID, name, targetBookmark, metadata.kind)
-	workspace, err := s.q.GetActiveWorkspaceForIdentity(ctx, identity)
-	if err == nil {
-		if err := s.refuseWorkspaceResourceMismatch(workspace, metadata.resources); err != nil {
-			return db.Workspace{}, err
-		}
-		if s.shouldReplaceZombieWorkspace(workspace, time.Now()) {
-			if _, failErr := s.failWorkspace(ctx, workspace, errors.New("workspace provisioning timed out")); failErr != nil {
-				return db.Workspace{}, failErr
-			}
-		} else {
-			if err := s.refuseRebuildRequired(workspace); err != nil {
-				return db.Workspace{}, err
-			}
-			retired, inspectErr := s.retireMissingWorkspace(ctx, workspace)
-			if inspectErr != nil {
-				return db.Workspace{}, inspectErr
-			}
-			if retired {
-				return s.createBookmarkWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata, isFork)
-			}
-			return s.ensureWorkspaceTargetBookmark(ctx, workspace, targetBookmark)
-		}
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return db.Workspace{}, pkgerrors.Internal("load workspace: " + err.Error())
-	}
 	return s.createBookmarkWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata, isFork)
 }
 
@@ -1198,66 +1145,14 @@ func (s *WorkspaceService) createDerivedWorkspaceForBookmark(ctx context.Context
 
 func (s *WorkspaceService) createBookmarkWorkspace(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata, isFork bool) (db.Workspace, error) {
 	metadata = normalizeWorkspaceCreateMetadata(metadata)
-	identity := workspaceIdentity(repositoryID, userID, name, targetBookmark, metadata.kind)
-	// Reuse does not consume quota. If a concurrent request used the last slot
-	// for this identity, return its row even when our friendly precheck failed.
-	if err := s.enforceWorkspaceQuota(ctx, userID); err != nil {
-		return s.workspaceAfterCreateConflict(ctx, identity, err)
-	}
 	params := db.CreateWorkspaceParams{
-		RepositoryID: repositoryID, UserID: userID, Name: identity.Name, IsFork: isFork,
-		ParentWorkspaceID: pgtype.UUID{}, SourceSnapshotID: pgtype.UUID{},
-		TargetBookmark: identity.TargetBookmark, Kind: metadata.kind,
-		EnvironmentSource:      metadata.environment.Source,
-		EnvironmentRevision:    metadata.environment.Revision,
+		RepositoryID: repositoryID, UserID: userID, Name: strings.TrimSpace(name), IsFork: isFork,
+		TargetBookmark: targetWorkspaceBookmark(targetBookmark), Kind: metadata.kind,
+		EnvironmentSource: metadata.environment.Source, EnvironmentRevision: metadata.environment.Revision,
 		EnvironmentClosureHash: metadata.environment.ClosureHash, Status: "starting",
 	}
 	params.VcpuCount, params.MemoryMb, params.DiskMb = workspaceResourceColumns(metadata.resources)
-	action := "create workspace"
-	if isFork {
-		action = "create branch workspace"
-	}
-	for attempt := 0; ; attempt++ {
-		workspace, err := s.createWorkspaceRow(ctx, params)
-		if err == nil {
-			return workspace, nil
-		}
-		if isWorkspaceActiveUniqueViolation(err) {
-			winner, conflictErr := s.workspaceAfterCreateConflict(ctx, identity, err)
-			if !errors.Is(conflictErr, pgx.ErrNoRows) {
-				return winner, conflictErr
-			}
-			// Deletion/failure may release the identity between the unique
-			// violation and the lookup. Retry once, without leaking a raw PG error.
-			if attempt == 0 {
-				continue
-			}
-			return db.Workspace{}, mapWorkspaceCreateError(err, action)
-		}
-		return s.workspaceAfterCreateConflict(ctx, identity, mapWorkspaceCreateError(err, action))
-	}
-}
-
-func (s *WorkspaceService) workspaceAfterCreateConflict(ctx context.Context, identity db.GetActiveWorkspaceForIdentityParams, createErr error) (db.Workspace, error) {
-	var apiErr *pkgerrors.APIError
-	quota := errors.As(createErr, &apiErr) && apiErr.Code == pkgerrors.CodeQuotaExceeded
-	if !quota && !isWorkspaceActiveUniqueViolation(createErr) {
-		return db.Workspace{}, createErr
-	}
-	winner, err := s.q.GetActiveWorkspaceForIdentity(ctx, identity)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if isWorkspaceActiveUniqueViolation(createErr) {
-			return db.Workspace{}, pgx.ErrNoRows
-		}
-		return db.Workspace{}, createErr
-	}
-	if err != nil {
-		return db.Workspace{}, pkgerrors.Internal("load winning workspace: " + err.Error())
-	}
-	if err := s.refuseRebuildRequired(winner); err != nil {
-		return db.Workspace{}, err
-	}
-	return winner, nil
+	return s.createWorkspaceRow(ctx, params)
 }
 
 func (s *WorkspaceService) ensureWorkspaceTargetBookmark(ctx context.Context, workspace db.Workspace, targetBookmark string) (db.Workspace, error) {
@@ -1632,6 +1527,9 @@ func (s *WorkspaceService) deleteOrphanedWorkspaceVM(ctx context.Context, vmID s
 }
 
 func (s *WorkspaceService) markWorkspaceProvisionFailed(ctx context.Context, workspace db.Workspace, cause error) {
+	if errors.Is(cause, errBranchMachineAdmission) {
+		return
+	}
 	if s.q == nil {
 		return
 	}
@@ -1668,6 +1566,20 @@ func (s *WorkspaceService) createWorkspaceVM(ctx context.Context, workspace db.W
 // keeps a registered vm_id so a restarted provisioner finishes the guest it
 // already allocated instead of allocating a second one.
 func (s *WorkspaceService) provisionWorkspaceVM(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput, reuse bool) (out db.Workspace, retErr error) {
+	if owned, err := s.branchMachineOwned(ctx, workspace.UserID); err != nil {
+		return workspace, err
+	} else if owned {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return workspace, err
+		}
+		if err := s.branchMachineProviders.MicroVM(ctx); err != nil {
+			return workspace, err
+		}
+		if err := s.branchMachineProviders.SessionIdentity(ctx); err != nil {
+			return workspace, err
+		}
+	}
+
 	if !reuse {
 		workspace.VmID = ""
 	}
@@ -2192,6 +2104,20 @@ func shellQuote(value string) string {
 }
 
 func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, workspace db.Workspace, snapshot db.WorkspaceSnapshot) (out db.Workspace, retErr error) {
+	if owned, err := s.branchMachineOwned(ctx, workspace.UserID); err != nil {
+		return workspace, err
+	} else if owned {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return workspace, err
+		}
+		if err := s.branchMachineProviders.MicroVM(ctx); err != nil {
+			return workspace, err
+		}
+		if err := s.branchMachineProviders.SessionIdentity(ctx); err != nil {
+			return workspace, err
+		}
+	}
+
 	s = s.withWorkspaceIdleTimeout(workspace)
 	defer func() { s.observeWorkspaceLifecycle("start", retErr) }()
 	startedAt := time.Now()
@@ -2289,6 +2215,20 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 }
 
 func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, source db.Workspace) (out db.Workspace, retErr error) {
+	if owned, err := s.branchMachineOwned(ctx, workspace.UserID); err != nil {
+		return workspace, err
+	} else if owned {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return workspace, err
+		}
+		if err := s.branchMachineProviders.MicroVM(ctx); err != nil {
+			return workspace, err
+		}
+		if err := s.branchMachineProviders.SessionIdentity(ctx); err != nil {
+			return workspace, err
+		}
+	}
+
 	s = s.withWorkspaceIdleTimeout(workspace)
 	defer func() { s.observeWorkspaceLifecycle("start", retErr) }()
 	if strings.TrimSpace(source.VmID) == "" {

@@ -299,7 +299,7 @@ WHERE id = $1;
 -- RFD-004: an agent run's activity keeps its workspace out of idle suspend.
 UPDATE workspaces
 SET last_activity_at = NOW()
-WHERE agent_session_id = sqlc.arg(agent_session_id)::uuid
+WHERE id = (SELECT workspace_id FROM agent_sessions WHERE id = sqlc.arg(agent_session_id)::uuid)
   AND deleted_at IS NULL;
 
 -- name: GetAgentMessageStreamHead :one

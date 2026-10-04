@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -54,7 +55,7 @@ func (m *sandboxUsageRecorder) requireClose(t *testing.T, kind, id string) {
 
 func TestSandboxUsageWorkspaceStarts(t *testing.T) {
 	ctx := context.Background()
-	for _, point := range []string{"create", "snapshot", "fork", "empty-source fork", "derived fork", "resume", "recover existing", "recover session", "agent fresh", "agent fork", "pod running"} {
+	for _, point := range []string{"create", "snapshot", "fork", "empty-source fork", "derived fork", "resume", "recover existing", "recover session", "pod running"} {
 		t.Run(point, func(t *testing.T) {
 			w := sampleDBWorkspace("meter-workspace")
 			w.Status = "starting"
@@ -90,7 +91,6 @@ func TestSandboxUsageWorkspaceStarts(t *testing.T) {
 				},
 			}))
 			input := CreateWorkspaceSessionInput{UserID: w.UserID, RepoOwner: "alice", RepoName: "repo", SourceBookmark: "feature"}
-			agentInput := CreateAgentWorkspaceInput{UserID: w.UserID, RepoOwner: "alice", RepoName: "repo"}
 			var err error
 			switch point {
 			case "create":
@@ -117,14 +117,15 @@ func TestSandboxUsageWorkspaceStarts(t *testing.T) {
 			case "recover session":
 				w.VmID = "vm-meter"
 				_, err = svc.ensureWorkspaceRunning(ctx, w, input)
-			case "agent fresh":
-				w.Kind = "agent"
-				_, err = svc.provisionFreshAgentWorkspace(ctx, w, agentInput, nil, "main")
-			case "agent fork":
-				w.Kind = "agent"
-				_, err = svc.forkAgentWorkspace(ctx, w, agentInput, nil, source, true)
 			case "pod running":
 				err = svc.UpdateWorkspacePodStatus(ctx, UpdateWorkspacePodStatusInput{WorkspaceID: w.ID, Status: "running"})
+			}
+			if point == "resume" {
+				var apiErr *pkgerrors.APIError
+				require.ErrorAs(t, err, &apiErr)
+				require.Equal(t, 503, apiErr.Status)
+				require.Empty(t, q.opens)
+				return
 			}
 			require.NoError(t, err)
 			q.requireOpen(t, w.UserID, "workspace", w.ID)
@@ -133,14 +134,14 @@ func TestSandboxUsageWorkspaceStarts(t *testing.T) {
 }
 
 func TestSandboxUsageWorkspaceStopsAndSweep(t *testing.T) {
-	for _, point := range []string{"suspend", "sessionless suspend", "stop/delete teardown", "delete", "fail", "provision failed", "agent failed", "agent suspend", "pod stopped", "pod failed", "idle sweep", "sweep list failure"} {
+	for _, point := range []string{"suspend", "sessionless suspend", "stop/delete teardown", "delete", "fail", "provision failed", "admission refused", "agent failed", "agent suspend", "pod stopped", "pod failed", "idle sweep", "sweep list failure"} {
 		t.Run(point, func(t *testing.T) {
 			ctx := context.Background()
 			w := sampleDBWorkspace("meter-close")
 			w.Status = "running"
 			w.VmID = "vm-meter"
 			q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return w, nil }, listIdleWorkspacesFn: func(context.Context) ([]db.Workspace, error) { return []db.Workspace{w}, nil }}
-			// Every lifecycle must still succeed when metering writes fail.
+			// Activated lifecycle writes survive meter failures; dark paths write nothing.
 			q.err = errors.New("meter unavailable")
 			svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
 			var err error
@@ -157,6 +158,8 @@ func TestSandboxUsageWorkspaceStopsAndSweep(t *testing.T) {
 				_, err = svc.failWorkspace(ctx, w, errors.New("VM failed"))
 			case "provision failed":
 				svc.markWorkspaceProvisionFailed(ctx, w, errors.New("VM failed"))
+			case "admission refused":
+				svc.markWorkspaceProvisionFailed(ctx, w, errBranchMachineAdmission)
 			case "agent failed":
 				err = svc.FailAgentWorkspace(ctx, w.ID)
 			case "agent suspend":
@@ -174,7 +177,18 @@ func TestSandboxUsageWorkspaceStopsAndSweep(t *testing.T) {
 				require.Equal(t, 1, q.sweeps)
 				return
 			}
+			if point == "suspend" || point == "sessionless suspend" {
+				var apiErr *pkgerrors.APIError
+				require.ErrorAs(t, err, &apiErr)
+				require.Equal(t, 503, apiErr.Status)
+				require.Empty(t, q.closes)
+				return
+			}
 			require.NoError(t, err)
+			if point == "agent failed" || point == "agent suspend" || point == "idle sweep" || point == "admission refused" {
+				require.Empty(t, q.closes)
+				return
+			}
 			q.requireClose(t, "workspace", w.ID)
 		})
 	}

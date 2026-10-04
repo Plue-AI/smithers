@@ -568,9 +568,25 @@ func (s *WorkspaceService) ensureExistingWorkspaceRunningAuthorized(ctx context.
 }
 
 func (s *WorkspaceService) ensureWorkspaceRunning(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput) (db.Workspace, error) {
-	return s.withWorkspaceProvisionLock(ctx, workspace, func(current db.Workspace) (db.Workspace, error) {
-		return s.ensureWorkspaceRunningOwned(ctx, current, input)
+	provision := func(ctx context.Context) (db.Workspace, error) {
+		return s.withWorkspaceProvisionLock(ctx, workspace, func(current db.Workspace) (db.Workspace, error) {
+			return s.ensureWorkspaceRunningOwned(ctx, current, input)
+		})
+	}
+	owned, err := s.branchMachineOwned(ctx, workspace.UserID)
+	if err != nil {
+		return workspace, err
+	}
+	if !owned {
+		return provision(ctx)
+	}
+	result := workspace
+	err = s.withBranchMachineMutation(ctx, workspace, input.UserID, func(ctx context.Context) error {
+		var provisionErr error
+		result, provisionErr = provision(ctx)
+		return provisionErr
 	})
+	return result, err
 }
 
 func (s *WorkspaceService) ensureWorkspaceRunningOwned(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput) (db.Workspace, error) {

@@ -1046,6 +1046,13 @@ type SavedConversationProblem struct {
 	Code   string `json:"code"`
 }
 
+// BranchMachine is generated from docs/api/openapi.yaml.
+type BranchMachine struct {
+	Name    string  `json:"name"`
+	State   string  `json:"state"`
+	Machine AnyJSON `json:"machine"`
+}
+
 // ScorecardWindow is generated from docs/api/openapi.yaml.
 type ScorecardWindow struct {
 	From time.Time `json:"from"`
@@ -2070,6 +2077,20 @@ func (c *Client) GetAPIBootstrap(ctx context.Context) (AppBootstrap, error) {
 // HeadAPIBootstrap calls HEAD /api/bootstrap.
 func (c *Client) HeadAPIBootstrap(ctx context.Context) error {
 	return c.do(ctx, "HEAD", "/api/bootstrap", nil, nil, nil)
+}
+
+// GetAPIBranches calls GET /api/branches.
+func (c *Client) GetAPIBranches(ctx context.Context) ([]BranchMachine, error) {
+	var out []BranchMachine
+	err := c.do(ctx, "GET", "/api/branches", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIBranchesB calls GET /api/branches/{b}.
+func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (BranchMachine, error) {
+	var out BranchMachine
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b), nil, nil, &out)
+	return out, err
 }
 
 // GetAPIBuildCacheHealthz calls GET /api/build-cache/healthz.

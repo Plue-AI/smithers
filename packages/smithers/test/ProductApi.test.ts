@@ -88,16 +88,13 @@ describe("the generated product API client", () => {
     const exported = Object.entries(ProductApi).filter(([, value]) => typeof value === "function").map(([name]) => name)
       .sort()
     expect(exported).toEqual(expected)
-    // Reviewed MVP inventory: 534 operations minus 28 Pair, 6 marketplace and 4
-    // third-party OAuth application operations, plus the two install App setup
-    // operations added by T-GH-01, minus two repository-setup operations.
-    // Exact equality above remains
-    // independent of this count and every retained operation is exercised below.
-    expect(expected).toHaveLength(498)
+    // Reviewed deployed resource inventory plus T-MCH-04's two dark branch reads.
+    // Exact parity above and the literal resource inventory below remain independent.
+    expect(expected).toHaveLength(497)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
-    ).sort()).toEqual(["GET /api/install", "POST /api/install/setup/app_manifest"])
+    ).sort()).toEqual(["DELETE /api/install/quiesce", "GET /api/install", "GET /api/install/scorecard", "POST /api/install/quiesce", "POST /api/install/setup/app_manifest"])
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
     }
