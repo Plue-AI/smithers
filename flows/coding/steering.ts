@@ -33,12 +33,18 @@ export const routeMessages = (
   ...queue,
   admit: (runId, notification) =>
     Effect.suspend(() => {
-      if (notification.targetLineageId !== runId || SteerPayload.decode(notification)?.kind !== "Message") {
+      if (SteerPayload.decode(notification)?.kind !== "Message") {
         return queue.admit(runId, notification)
       }
       return journal.transact(Effect.gen(function*() {
         const run = yield* control.getRun(runId).pipe(Effect.mapError(() => unavailable(notification.id)))
-        if (run.flowId !== flowId) return yield* queue.admit(runId, notification)
+        // TODO ownership, boundary closure and guest delivery are supplied by
+        // T-FLW-11/T-STK-01. Until their production gates pass, a TODO message
+        // must not fall through to generic admission and reach a model turn.
+        if (run.flowId === "todo") return yield* Effect.fail(unavailable(notification.id))
+        if (notification.targetLineageId !== runId || run.flowId !== flowId) {
+          return yield* queue.admit(runId, notification)
+        }
         if (
           run.planId === undefined || run.status === "cancelled" || run.status === "failed" ||
           run.status === "completed"

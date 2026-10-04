@@ -34,7 +34,7 @@ import {
 } from "../coding/steering.ts"
 
 const controlLayer = ControlRuntime.layerMemory({
-  flows: ["coding/request", "other"].map((flowId) => ({
+  flows: ["coding/request", "todo", "other"].map((flowId) => ({
     flowId,
     description: "Steering fixture",
     deployClass: false,
@@ -698,3 +698,28 @@ test(
     }))
   }
 )
+
+
+test("TODO messages refuse before queue effects while the pinned delivery providers are unavailable", async () => {
+  const host = ManagedRuntime.make(Layer.mergeAll(controlLayer, Journal.layerNoop()))
+  try {
+    await host.runPromise(Effect.gen(function*() {
+      const control = yield* ControlRuntime.ControlRuntime
+      const owner = yield* launch(control, "todo")
+      let admissions = 0
+      const queue = {
+        admit: () => Effect.sync(() => { admissions++; throw new Error("unexpected admission") })
+      } as unknown as NotificationQueue.Service
+      const journal = yield* Journal.Journal
+      for (const target of [owner.runId, "explicit-todo-step"]) {
+        const error = yield* routeMessages(queue, control, journal)
+          .admit(owner.runId, message("todo-steer", target)).pipe(Effect.flip)
+        assert.equal(error.code, "notification_unavailable")
+        assert.equal(error.notificationId, "todo-steer")
+      }
+      assert.equal(admissions, 0)
+    }))
+  } finally {
+    await host.dispose()
+  }
+})

@@ -270,6 +270,23 @@ func TestSignalAdmissionUnitRefusesBeforeDurableWork(t *testing.T) {
 	}
 }
 
+func TestSignalAdmissionPreservesScopeAndAuthorization(t *testing.T) {
+	launch := unitLaunch()
+	request := SignalRequest{Scope: launch.Scope, Target: launch.Target, RequestID: "steer-1", FlowID: "todo", RunID: "run-1", Name: "steer", Payload: json.RawMessage(`{"text":"Keep the wait open","actor":9,"via":"codex"}`), AuthorizationContext: json.RawMessage(`{"decision":"bound"}`)}
+	admission, err := signalAdmission(request)
+	require.NoError(t, err)
+	require.Equal(t, request.Scope, admission.Scope)
+	require.Equal(t, request.AuthorizationContext, admission.AuthorizationContext)
+	require.Equal(t, "flow-runtime-signal:steer-1", admission.EffectKey)
+	require.Equal(t, jobs.EffectReconcile, admission.EffectPolicy)
+	var payload signalPayload
+	require.NoError(t, json.Unmarshal(admission.Payload, &payload))
+	require.Equal(t, request.Scope.TenantID, payload.Target.TenantID)
+	require.Equal(t, request.Scope.PrincipalID, payload.Target.PrincipalID)
+	require.JSONEq(t, string(request.Payload), string(payload.Payload))
+	require.JSONEq(t, `{}`, string(payload.Projection))
+}
+
 func TestPreRunRuntimeFailurePreservesAuthoritativeRefusals(t *testing.T) {
 	for _, refusal := range []string{"http_refused", "health_refused"} {
 		for _, tc := range []struct {
