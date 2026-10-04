@@ -19,20 +19,21 @@ Out: starting VMs on the host (T-RMT-03); capacity and placement (T-RMT-04); Clo
 - App: `AppFeatures.remoteSandboxes`; Settings Machines rows (name, address, fingerprint, profile, limits, state) in the existing Settings View; design (smithers-06) supplies the rows.
 
 ## Decisions and pre-review
+- Design: `.specs/design/placement.md` (4786488c8c) supplies the Computers list, Add computer and the row states.
 - smithers-3f approves key storage, host-key pinning and the trust statement before this lands. smithers-06 supplies the Settings rows. smithers-8a accepts the flag name.
 
 ## Tests
 
 C-RMT-02:
 1. Config test: both flag keys exist and are distinct; `remote_sandboxes` defaults false.
-2. With the flag off, the owner PUTs `machines`; the app hides the rows.
+2. With the flag off, the owner PUTs a new host; the app hides the Computers list and the Runs on control. Then, with one host already holding a machine, turn the flag off.
 3. With the flag on, the maintainer and the member each PUT `machines`.
 4. The owner registers a fake SSH host (in-process server with KVM present), confirms the fingerprint, then the server presents another host key.
 5. Register a fake host without `/dev/kvm`.
 6. Read back `GET /api/install`; grep the response and logs for the private key.
 
 Pass when:
-- Step 1 passes. Step 2 is refused with class `disabled`, and no row renders. Step 3 is refused with class `permission`.
+- Step 1 passes. Step 2 refuses the new host with class `disabled` and renders no list, except the holding host's row reading "beaver · 1 branch · remove to finish", whose machine keeps running. Step 3 is refused with class `permission`.
 - Step 4 stores the host and then refuses connections with class `security` until re-confirmed. Step 5 is refused naming "needs /dev/kvm".
 - Step 6 shows the public key only.
 
@@ -41,3 +42,4 @@ Pass when:
 
 ## Risks and notes
 - The flag name sits close to `remote_sandbox_enabled`; the config test is the guard.
+- `beaver` has VT-x disabled in firmware (smithers-56, #3706, 13:20 PT): `/dev/kvm` is absent until someone enables Intel Virtualization Technology at the keyboard. CI uses a Linux KVM VM.

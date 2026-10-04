@@ -25,7 +25,7 @@ C-RMT-05:
 2. Revoke the Cloud grant mid-step.
 
 Pass when:
-- Step 1 passes as for an SSH host. Step 2 fails the step with a typed error and offers Move.
+- Step 1 passes as for an SSH host. Step 2 fails the step with class `computer_unreachable`; the row reads "Signed out · Sign in".
 
 ## Acceptance
 - [C-RMT-05](../checks/C-RMT-05.md)

@@ -137,7 +137,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | [T-RMT-01](T-RMT-01.md) | Spike: a macOS install runs a microVM workspace on a Linux KVM host over SSH | W0 | S | — | C-RMT-01 |
 | [T-RMT-02](T-RMT-02.md) | `remoteSandboxes` flag and registered remote hosts in Settings | S1 | M | T-RMT-01, T-INS-06 | C-RMT-02 |
 | [T-RMT-03](T-RMT-03.md) | Remote `WorkspaceRuntime`: the pinned `msb` on a registered host over one install-dialed SSH connection | S1 | L | T-RMT-01, T-RMT-02, T-INS-02, T-FLW-01 | C-RMT-03 |
-| [T-RMT-04](T-RMT-04.md) | Summed capacity, placement at wake, sticky disks and Move | S1 | M | T-RMT-03, T-MCH-01 | C-RMT-04, C-RMT-06 |
+| [T-RMT-04](T-RMT-04.md) | Summed capacity, placement at wake, sticky disks, pause, unreachable and Remove | S1 | M | T-RMT-03, T-MCH-01 | C-RMT-04, C-RMT-06 |
 | [T-RMT-05](T-RMT-05.md) | Cloud boxes as remote hosts | S2 | M | T-RMT-01, T-RMT-03, T-RMT-04 | C-RMT-05 |
 | **Live layer and machine daemon** | | | | | |
 | [T-COL-10](T-COL-10.md) | Every file write carries `base_digest`; a stale write is refused | S1, S2 | M | S1: T-FLW-01 · S2: T-COL-03 | S1: C-COL-01, C-J1-04 |
