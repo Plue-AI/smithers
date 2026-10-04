@@ -265,7 +265,30 @@ type ChatTurnGrant struct {
 	ExpiresAt       time.Time       `json:"expiresAt"`
 	Request         json.RawMessage `json:"request"`
 	ProducerBaseURL string          `json:"producerBaseUrl"`
+	// Source is present only when the turn's author can read a mirrored
+	// main; the model host offers its source read tool only then.
+	Source *ChatTurnSource `json:"source,omitempty"`
 }
+
+// ChatTurnSource names the mirrored repository, as owner/name, that an
+// app-agent turn reads through the producer's source read callback.
+type ChatTurnSource struct {
+	Repository string `json:"repository"`
+}
+
+// SourceFile is one file an app-agent turn read from its repository's
+// mirrored main.
+type SourceFile = services.SourceFile
+
+// Source read refusals. A turn's host states each one to the model and the
+// conversation; none is retried by the host.
+var (
+	ErrSourceNotReady    = services.ErrSourceNotReady
+	ErrSourcePathRefused = services.ErrSourcePathRefused
+	ErrSourceForbidden   = services.ErrSourceForbidden
+	ErrSourceNotFound    = services.ErrSourceNotFound
+	ErrSourceTooLarge    = services.ErrSourceTooLarge
+)
 
 // ChatHost runs the canonical TypeScript model runtime. Go owns admission and
 // receipts; adapters differ only in where this same packaged host runs.

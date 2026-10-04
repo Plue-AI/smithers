@@ -49,8 +49,10 @@ type Handler struct {
 	Revocations RevocationSource
 	Store       *Store
 	Dispatcher  *Dispatcher
-	logger      *slog.Logger
-	metrics     *metrics
+	// Sources serves the source read callback; nil refuses it.
+	Sources SourceReader
+	logger  *slog.Logger
+	metrics *metrics
 }
 
 // streamAborted records why a renderer stream stopped before its turn ended.
@@ -567,4 +569,5 @@ func (h *Handler) MountPublic(router chi.Router) {
 func (h *Handler) MountProducerCallbacks(router chi.Router) {
 	router.Post(CommitPath, h.Commit)
 	router.Post(ProviderStartedPath, h.ProviderStarted)
+	router.Post(SourceReadPath, h.SourceRead)
 }

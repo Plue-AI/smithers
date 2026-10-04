@@ -32,6 +32,8 @@ type RuntimeOptions struct {
 	Concurrency int
 	Lease       time.Duration
 	Logger      *slog.Logger
+	// Sources serves turns' reads of a mirrored main; nil offers none.
+	Sources SourceReader
 }
 
 type Runtime struct {
@@ -71,12 +73,12 @@ func NewRuntime(pool *pgxpool.Pool, host ports.ChatHost, producerBaseURL string,
 	if err != nil {
 		return nil, err
 	}
-	dispatcher, err := NewDispatcher(store, PortHost{Host: host, ProducerBaseURL: callback.String()}, options.QueueSize, options.Lease)
+	dispatcher, err := NewDispatcher(store, PortHost{Host: host, ProducerBaseURL: callback.String(), Sources: options.Sources}, options.QueueSize, options.Lease)
 	if err != nil {
 		return nil, err
 	}
 	dispatcher.logger = options.Logger
-	handler := &Handler{Store: store, Dispatcher: dispatcher, logger: options.Logger, metrics: dispatcher.metrics}
+	handler := &Handler{Store: store, Dispatcher: dispatcher, Sources: options.Sources, logger: options.Logger, metrics: dispatcher.metrics}
 	return &Runtime{Handler: handler, dispatcher: dispatcher, store: store, concurrency: options.Concurrency}, nil
 }
 
