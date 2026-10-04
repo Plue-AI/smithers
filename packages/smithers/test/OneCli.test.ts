@@ -261,7 +261,8 @@ describe("migrated command dispatch", () => {
       "repo fork",
       "repo transfer"
     ]
-    expect(Object.keys(definitions)).toHaveLength(212 - retired.length)
+    // T-INS-04 adds the registered host start command (spec §1.4).
+    expect(Object.keys(definitions)).toHaveLength(212 + 1 - retired.length)
     for (const name of retired) {
       expect(Object.hasOwn(definitions, name)).toBe(false)
       expect(Object.hasOwn(handlers, name)).toBe(false)
