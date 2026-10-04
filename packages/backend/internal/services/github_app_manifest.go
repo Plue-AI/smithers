@@ -104,6 +104,7 @@ func BuildGitHubAppManifest(ownerLogin, ownerKind string, origins []string, stat
 }
 
 type GitHubAppManifestService struct {
+	Now        func() time.Time
 	pool       *pgxpool.Pool
 	store      *GitHubAppCredentialStore
 	apiBaseURL string
@@ -220,14 +221,22 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
-	result, err := tx.Exec(ctx, `UPDATE install_settings SET value=jsonb_build_object('status','running','digest',$1::text,'expires_at',$2::timestamptz), updated_at=now() WHERE key='setup.step.app_manifest' AND (value->>'status' IN ('pending','failed','blocked') OR (value->>'status'='running' AND (value->>'expires_at')::timestamptz <= now()))`, GitHubAppStateDigest(state), time.Now().Add(10*time.Minute))
+	step, err := (&InstallSetupService{}).readStep(ctx, db.New(tx), "app_manifest")
+	if err != nil {
+		return GitHubAppManifestStart{}, err
+	}
+	if !installStepCanStart(step, setupNow(s.Now)) {
+		return GitHubAppManifestStart{}, pkgerrors.Conflict("GitHub App setup is already running or complete")
+	}
+	expires := setupNow(s.Now).Add(10 * time.Minute)
+	result, err := tx.Exec(ctx, `UPDATE install_settings SET value=jsonb_build_object('status','running','digest',$1::text,'expires_at',$2::timestamptz), updated_at=now() WHERE key='setup.step.app_manifest'`, GitHubAppStateDigest(state), expires)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
 	if result.RowsAffected() != 1 {
 		return GitHubAppManifestStart{}, pkgerrors.Conflict("GitHub App setup is already running or complete")
 	}
-	_, err = db.New(tx).CreateGithubAppManifestState(ctx, db.CreateGithubAppManifestStateParams{Digest: GitHubAppStateDigest(state), SetupSessionDigest: session.digest, OwnerLogin: req.OwnerLogin, OwnerKind: req.OwnerKind, RepositoryName: req.Repository, Origin: origin, CallbackUrls: callbackURLs, ExpiresAt: time.Now().Add(10 * time.Minute)})
+	_, err = db.New(tx).CreateGithubAppManifestState(ctx, db.CreateGithubAppManifestStateParams{Digest: GitHubAppStateDigest(state), SetupSessionDigest: session.digest, OwnerLogin: req.OwnerLogin, OwnerKind: req.OwnerKind, RepositoryName: req.Repository, Origin: origin, CallbackUrls: callbackURLs, ExpiresAt: expires})
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
@@ -261,14 +270,39 @@ func (s *GitHubAppManifestService) ValidateCallbackOrigin(ctx context.Context, s
 	if sessionErr != nil {
 		return sessionErr
 	}
-	if subtle.ConstantTimeCompare([]byte(attempt.SetupSessionDigest), []byte(session.digest)) != 1 || !time.Now().Before(attempt.ExpiresAt) {
+	if subtle.ConstantTimeCompare([]byte(attempt.SetupSessionDigest), []byte(session.digest)) != 1 || installStepCanStart(InstallStep{Status: InstallRunning, ExpiresAt: attempt.ExpiresAt}, setupNow(s.Now)) {
 		return pkgerrors.Forbidden("invalid or expired setup session")
 	}
 	if subtle.ConstantTimeCompare([]byte(attempt.Digest), []byte(GitHubAppStateDigest(state))) != 1 {
 		return pkgerrors.Forbidden("invalid GitHub App setup state")
 	}
+	if !attempt.UsedAt.Valid {
+		if err := s.validateAttemptLease(ctx, db.New(s.pool), state); err != nil {
+			return err
+		}
+	}
 	if attempt.Origin != origin || session.origin != origin {
 		return pkgerrors.Forbidden("GitHub App setup callback origin changed")
+	}
+	return nil
+}
+
+// The conversion lock serializes this check with Begin's takeover. Refusal
+// leaves the durable step and the single-use conversion state untouched.
+func (s *GitHubAppManifestService) validateAttemptLease(ctx context.Context, q *db.Queries, state string) error {
+	row, err := q.GetInstallSetting(ctx, "setup.step.app_manifest")
+	if err != nil {
+		return err
+	}
+	var step struct {
+		InstallStep
+		Digest string `json:"digest"`
+	}
+	if err = json.Unmarshal(row.Value, &step); err != nil {
+		return err
+	}
+	if step.Status != InstallRunning || installStepCanStart(step.InstallStep, setupNow(s.Now)) || step.Digest != GitHubAppStateDigest(state) {
+		return pkgerrors.Forbidden("GitHub App setup state is used or expired")
 	}
 	return nil
 }
@@ -314,6 +348,9 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	}
 	session, err := setupSession(ctx)
 	if err != nil {
+		return "", err
+	}
+	if err = s.validateAttemptLease(ctx, db.New(conn), state); err != nil {
 		return "", err
 	}
 	// Autocommit makes refusal durable when GitHub fails or the owner cancels.

@@ -586,24 +586,19 @@ func TestGitHubAppSetupProxyOriginRequiresTrustAndExactAllowlist(t *testing.T) {
 }
 
 func TestGitHubAppSetupCallbackOriginBindingPrecedesExchange(t *testing.T) {
-	for _, installed := range []bool{false} {
-		h, s := githubAppSetupTestHandler()
-		s.originError = pkgerrors.Forbidden("GitHub App setup origin does not match")
-		r := githubAppSetupCallbackRequest("https://factory.example", "callback", "code=code&state=browser-state&installation_id=123", "browser-state")
-		if r.RemoteAddr == "192.0.2.1:1234" && strings.Contains(r.Host, "localhost") {
-			r.RemoteAddr = "127.0.0.1:1234"
-		}
-		w := httptest.NewRecorder()
-		if installed {
-			h.Installed(w, r)
-		} else {
+	for _, message := range []string{"GitHub App setup origin does not match", "invalid or expired setup session", "GitHub App setup state is used or expired"} {
+		t.Run(message, func(t *testing.T) {
+			h, s := githubAppSetupTestHandler()
+			s.originError = pkgerrors.Forbidden(message)
+			r := githubAppSetupCallbackRequest("https://factory.example", "callback", "code=code&state=browser-state", "browser-state")
+			w := httptest.NewRecorder()
 			h.Callback(w, r)
-		}
-		require.Equal(t, http.StatusForbidden, w.Code)
-		require.Equal(t, 1, s.originCalls)
-		require.Equal(t, "https://factory.example", s.origin)
-		require.Zero(t, s.convertCalls, "another configured origin must not exchange the code")
-		require.Zero(t, s.installedCalls, "another configured origin must not record installation")
+			require.Equal(t, http.StatusForbidden, w.Code)
+			require.JSONEq(t, `{"code":"permission","class":"permission","message":"`+message+`"}`, w.Body.String())
+			require.Equal(t, 1, s.originCalls)
+			require.Equal(t, "https://factory.example", s.origin)
+			require.Zero(t, s.convertCalls, "state and origin refusals precede conversion")
+		})
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -1115,4 +1116,47 @@ func TestGitHubAppManifestCompletionFencesActiveAttemptPostgres(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key IN ('github.repository','github.callback_urls','setup.projection.app_manifest')`).Scan(&n))
 	require.Zero(t, n)
 	require.Len(t, f.github.Writes(), 1)
+}
+
+func TestGitHubAppManifestLapsedStepNeverConsumesOrConvertsPostgres(t *testing.T) {
+	f := newAppManifestFixture(t)
+	ctx := WithGitHubAppSetupSession(t.Context(), strings.Repeat("s", 64), "http://localhost:4000")
+	now := time.Now()
+	f.service.Now = func() time.Time { return now }
+	// Only the durable step lease lapses: even a still-live conversion state
+	// cannot authorize an exchange after the attempt lost its lease.
+	_, err := f.pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb($1::timestamptz)) WHERE key='setup.step.app_manifest'`, now)
+	require.NoError(t, err)
+	before, err := db.New(f.pool).GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	if f.service.ValidateCallbackOrigin(ctx, f.start.State, "http://localhost:4000") == nil {
+		t.Error("lapsed step accepted at callback boundary")
+	}
+	_, err = f.service.Convert(ctx, "manifest-code", f.start.State, f.start.State)
+	require.Error(t, err)
+	require.Empty(t, f.github.Writes())
+	after, err := db.New(f.pool).GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	require.JSONEq(t, string(before.Value), string(after.Value))
+	attempt, err := db.New(f.pool).GetGithubAppManifestState(ctx, GitHubAppStateDigest(f.start.State))
+	require.NoError(t, err)
+	require.False(t, attempt.UsedAt.Valid)
+	start, err := f.service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "another-owner", OwnerKind: "org"})
+	require.NoError(t, err)
+	require.NotEqual(t, f.start.State, start.State)
+	replacement, err := db.New(f.pool).GetGithubAppManifestState(ctx, GitHubAppStateDigest(start.State))
+	require.NoError(t, err)
+	require.Equal(t, "another-owner", replacement.OwnerLogin)
+	// The old state's own TTL is still live, but it no longer owns the step.
+	require.Error(t, f.service.ValidateCallbackOrigin(ctx, f.start.State, "http://localhost:4000"))
+	before, err = db.New(f.pool).GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	_, err = f.service.Convert(ctx, "manifest-code", f.start.State, f.start.State)
+	require.Error(t, err)
+	require.Empty(t, f.github.Writes())
+	after, err = db.New(f.pool).GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	require.JSONEq(t, string(before.Value), string(after.Value))
+	_, err = f.store.Load(ctx)
+	require.ErrorIs(t, err, ErrGitHubAppNotConfigured)
 }

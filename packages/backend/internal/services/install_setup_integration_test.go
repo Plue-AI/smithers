@@ -111,3 +111,31 @@ func TestInstallSetupModelFlagsBeforeConfirmationPostgres(t *testing.T) {
 	models = status["models"].([]map[string]string)
 	require.Equal(t, "cerebras", models[0]["provider"])
 }
+
+func TestInstallSetupExpiredProjectionPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	now := time.Now().UTC()
+	service := &InstallSetupService{Pool: pool, Now: func() time.Time { return now }}
+	for _, id := range InstallStepIDs {
+		raw, err := json.Marshal(InstallStep{Status: InstallRunning, ExpiresAt: now.Add(time.Minute)})
+		require.NoError(t, err)
+		require.NoError(t, db.New(pool).UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.step." + id, Value: raw}))
+	}
+	steps, err := service.Steps(t.Context())
+	require.NoError(t, err)
+	for _, step := range steps {
+		require.Equal(t, InstallRunning, step.Status, step.ID)
+	}
+	now = now.Add(time.Minute)
+	steps, err = service.Steps(t.Context())
+	require.NoError(t, err)
+	for _, step := range steps {
+		require.Equal(t, InstallPending, step.Status, step.ID)
+	}
+	// Projection does not change the persisted operation or its recovery fence.
+	for _, id := range InstallStepIDs {
+		step, err := service.readStep(t.Context(), db.New(pool), id)
+		require.NoError(t, err)
+		require.Equal(t, InstallRunning, step.Status)
+	}
+}

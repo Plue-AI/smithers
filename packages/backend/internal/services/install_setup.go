@@ -115,6 +115,7 @@ func installStepCanStart(step InstallStep, now time.Time) bool {
 }
 
 type InstallSetupService struct {
+	Now      func() time.Time
 	Pool     *pgxpool.Pool
 	Jobs     *jobs.Store
 	Capacity *InstallCapacityService
@@ -137,12 +138,23 @@ func (s *InstallSetupService) Initialize(ctx context.Context) error {
 	}
 	return tx.Commit(ctx)
 }
+func setupNow(now func() time.Time) time.Time {
+	if now != nil {
+		return now()
+	}
+	return time.Now()
+}
+
 func (s *InstallSetupService) Steps(ctx context.Context) ([]InstallStep, error) {
 	result := make([]InstallStep, 0, len(InstallStepIDs))
 	for _, id := range InstallStepIDs {
 		step, err := s.readStep(ctx, db.New(s.Pool), id)
 		if err != nil {
 			return nil, err
+		}
+		if step.Status == InstallRunning && installStepCanStart(step, setupNow(s.Now)) {
+			step.Status = InstallPending
+			step.Pct = nil
 		}
 		result = append(result, step)
 	}
@@ -246,7 +258,7 @@ func (s *InstallSetupService) Admit(ctx context.Context, id, key string, raw jso
 	if err != nil {
 		return jobs.RequestReceipt{}, err
 	}
-	if !installStepCanStart(step, time.Now()) {
+	if !installStepCanStart(step, setupNow(s.Now)) {
 		return jobs.RequestReceipt{}, pkgerrors.Conflict("setup step is running or complete")
 	}
 	if step.Status == InstallRunning {
@@ -269,7 +281,7 @@ func (s *InstallSetupService) Admit(ctx context.Context, id, key string, raw jso
 			return receipt, err
 		}
 		step.Attempt++
-		step.ExpiresAt = time.Now().Add(time.Minute)
+		step.ExpiresAt = setupNow(s.Now).Add(time.Minute)
 		if err = saveInstallStep(ctx, tx, step); err != nil {
 			return receipt, err
 		}
@@ -282,7 +294,7 @@ func (s *InstallSetupService) Admit(ctx context.Context, id, key string, raw jso
 	step.Status = InstallRunning
 	step.OperationID = receipt.OperationID
 	step.Attempt++
-	step.ExpiresAt = time.Now().Add(time.Minute)
+	step.ExpiresAt = setupNow(s.Now).Add(time.Minute)
 	step.Input = raw
 	step.Error = nil
 	step.Blocked = nil

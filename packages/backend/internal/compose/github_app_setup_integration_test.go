@@ -162,13 +162,53 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 		require.Equal(t, 404, status)
 	}
 	require.Empty(t, fake.Writes())
+	// The abandoned attempt is visible as retryable before another POST.
+	now := time.Now()
+	manifestService := h.Service.(*services.GitHubAppManifestService)
+	manifestService.Now = func() time.Time { return now }
+	h.Setup = &services.InstallSetupService{Pool: pool, Now: func() time.Time { return now }}
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.address", Value: []byte(`{"status":"done"}`)}))
+	status, body, _ := request(local, "GET", "/api/install", live, false)
+	require.Equal(t, 200, status)
+	require.Contains(t, string(body), `"id":"app_manifest","state":"running"`)
+	status, body, _ = request(local, "POST", "/api/install/setup/app", live[:2], true)
+	require.Equal(t, 409, status)
+	require.JSONEq(t, `{"code":"conflict","class":"conflict","message":"GitHub App setup is already running or complete"}`, string(body))
+	now = now.Add(10 * time.Minute)
+	status, body, _ = request(local, "GET", "/api/install", live, false)
+	require.Equal(t, 200, status)
+	require.Contains(t, string(body), `"id":"app_manifest","state":"pending"`)
+	oldState := attempt.State
+	before, err := q.GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	status, body, _ = request(local, "GET", "/setup/github/callback?code=manifest-code&state="+oldState, live, false)
+	require.Equal(t, 403, status)
+	require.JSONEq(t, `{"code":"permission","class":"permission","message":"invalid or expired setup session"}`, string(body))
+	after, err := q.GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	require.JSONEq(t, string(before.Value), string(after.Value))
+	require.Empty(t, fake.Writes())
+	status, body, stateCookies := request(local, "POST", "/api/install/setup/app", live[:2], true)
+	require.Equal(t, 200, status, string(body))
+	require.NoError(t, json.Unmarshal(body, &attempt))
+	require.NotEqual(t, oldState, attempt.State)
+	oldCookies := live
+	live = append(append([]*http.Cookie(nil), live[:2]...), stateCookies...)
+	before, err = q.GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	status, _, _ = request(local, "GET", "/setup/github/callback?code=manifest-code&state="+oldState, oldCookies, false)
+	require.Equal(t, 403, status)
+	after, err = q.GetInstallSetting(ctx, "setup.step.app_manifest")
+	require.NoError(t, err)
+	require.JSONEq(t, string(before.Value), string(after.Value))
+	require.Empty(t, fake.Writes())
 	// Durable session deletion, expiration and claim fence refuse before exchange.
 	callback := "/setup/github/callback?code=manifest-code&state=" + attempt.State
 	session := live[0].Value
 	sessionKey := "setup.session." + services.GitHubAppStateDigest(session)
 	_, err = pool.Exec(ctx, `UPDATE install_settings SET value='{"expires_at":"2000-01-01T00:00:00Z"}' WHERE key=$1`, sessionKey)
 	require.NoError(t, err)
-	status, _, _ := request(local, "GET", callback, live, false)
+	status, _, _ = request(local, "GET", callback, live, false)
 	require.Equal(t, 401, status)
 	require.Empty(t, fake.Writes())
 	_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_build_object('expires_at',now()+interval '24 hours') WHERE key=$1`, sessionKey)
@@ -205,7 +245,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	// even after the conversion attempt expired and redirect supplied a foreign id.
 	_, err = pool.Exec(ctx, `UPDATE github_app_manifest_states SET expires_at=now()-interval '1 second'`)
 	require.NoError(t, err)
-	status, body, _ := request(local, "GET", "/setup/github/installed?installation_id=999", live[:2], false)
+	status, body, _ = request(local, "GET", "/setup/github/installed?installation_id=999", live[:2], false)
 	require.Equal(t, 200, status, string(body))
 	loaded, err := store.Load(ctx)
 	require.NoError(t, err)
