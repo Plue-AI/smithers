@@ -86,6 +86,12 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 	if flowID == "review" {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Review is unavailable on this host.")
 	}
+	// The todo composition starts only from stack admission of a filed TODO,
+	// pinned to its attempt and lane (T-FLW-11). Invoked by name it would run
+	// with neither; refuse before source reads, billing admission or dispatch.
+	if flowID == "todo" {
+		return nil, pkgerrors.Forbidden("File a TODO to run the todo flow.")
+	}
 	if s.invoker == nil {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the Flow runtime is not configured on this deployment")
 	}

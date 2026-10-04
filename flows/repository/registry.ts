@@ -53,6 +53,7 @@ const policySources = [
   "../coding/request/flow.ts",
   "../coding/todo.ts",
   "../coding/todo-route.ts",
+  "../todo/flow.ts",
   "../coding/verify/flow.ts",
   "../coding/vibe/flow.ts",
   "../coding/wiki/flow.ts",
@@ -394,8 +395,10 @@ export const bindRepositoryRegistry = (
   policy: string,
   systemFlows: ReadonlyArray<string>
 ): Registry.Registry => {
-  // TODO activation needs the real pinned-source and current-attempt providers.
-  // Refuse before module import; working-tree discovery cannot supply that pin.
+  // The `todo` composition (flows/todo/flow.ts) runs only from stack admission
+  // with the real pinned-source and current-attempt providers (T-FLW-03/04,
+  // T-FLW-11). Until they bind a launch to its attempt, no generic route may
+  // reach it: refuse before module import, packaged or repository alike.
   const dark = (name: string) => name === "todo"
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)

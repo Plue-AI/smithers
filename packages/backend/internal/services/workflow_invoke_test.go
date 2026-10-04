@@ -97,6 +97,37 @@ func TestInvokeWorkflowReviewCannotUseWorkingCopyAdmission(t *testing.T) {
 	}
 }
 
+// The todo composition starts only from stack admission of a filed TODO,
+// pinned to its attempt. Invoking it by name admits, bills and launches
+// nothing; a flow whose name merely starts with todo still runs.
+func TestInvokeWorkflowNeverStartsTheTodoComposition(t *testing.T) {
+	for _, identifier := range []string{"todo", "flows/todo/flow.ts", " todo ", " flows/todo/flow.ts "} {
+		t.Run(identifier, func(t *testing.T) {
+			policy := &denyWorkflowDispatchBillingPolicy{}
+			invoker := &recordingFlowInvoker{}
+			svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIBillingPolicy(policy), WithWorkflowAPIFlowInvoker(invoker))
+			result, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
+				RepositoryID: 7, UserID: 3, Identifier: identifier,
+				Input: map[string]interface{}{"prompt": "Add a greeting", "base": map[string]interface{}{"commitId": strings.Repeat("1", 40)}},
+			})
+			require.Nil(t, result)
+			var refusal *pkgerrors.APIError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, 403, refusal.Status)
+			require.Equal(t, "File a TODO to run the todo flow.", refusal.Message)
+			require.Zero(t, policy.dispatchCalls, "no billing admission")
+			require.Empty(t, invoker.launches, "no run and no Flow launch")
+		})
+	}
+	for _, name := range []string{"todos", "todo-list"} {
+		invoker := &recordingFlowInvoker{}
+		svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIFlowInvoker(invoker))
+		_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, UserID: 3, Identifier: name})
+		require.NoError(t, err, name)
+		require.Len(t, invoker.launches, 1, name)
+	}
+}
+
 func TestInvokeWorkflowReadsAFlowNameOrItsPath(t *testing.T) {
 	for identifier, want := range map[string]string{
 		"echo": "echo", "flows/echo/flow.ts": "echo", "ci-2": "ci-2", "7": "7",

@@ -22,15 +22,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
+import { factory } from "../../.smithers/FACTORY.ts"
 import { missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
-import Todo from "../coding/todo.ts"
 import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "../repository/registry.ts"
 import { RunJob, RunSetup } from "../repository/setup.ts"
 import { RunTrigger } from "../repository/triggers.ts"
+import Todo from "../todo/flow.ts"
 import { systemFlows } from "./fixtures/system-flows.ts"
-import { factory } from "../../.smithers/FACTORY.ts"
 
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
 const policy = "a".repeat(64)
@@ -104,11 +104,15 @@ test("without the built-in routes the same repository fails the host's startup c
 
 test("a route the host stops serving is no longer discoverable under the same policy", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
-  assert.ok((await startup(repositoryPath, stateRoot, "host")).listed.includes("coding/vibe"))
+  const bound = await startup(repositoryPath, stateRoot, "host")
+  assert.ok(bound.listed.includes("coding/vibe"))
   const unbound = await startup(repositoryPath, stateRoot, "host", false)
   assert.deepEqual(unbound.missing, [])
   assert.equal(unbound.listed.includes("coding/vibe"), false)
   assert.ok(unbound.listed.includes("coding/request"))
+  // The TODO composition is never a host route: only stack admission of a
+  // pinned attempt may start it, and no host can tell such a launch apart.
+  assert.equal(bound.listed.includes("todo") || unbound.listed.includes("todo"), false)
 })
 
 // 2026-09-29, production: in a workspace of smithersai/smithers the repository's
@@ -143,12 +147,16 @@ export default Flow.make(${JSON.stringify(name)}, {
 })
 `
 
-/** Real discovery/import admission with two minimal packaged flow defaults. */
-const boundary = async (t: TestContext, names: ReadonlyArray<string> = systemFlows) => {
+/** Real discovery/import admission with minimal packaged flow defaults. */
+const boundary = async (
+  t: TestContext,
+  names: ReadonlyArray<string> = systemFlows,
+  packagedNames: ReadonlyArray<string> = ["merge", "review"]
+) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   await symlink(fileURLToPath(new URL("../node_modules", import.meta.url)), join(repositoryPath, "node_modules"), "dir")
   const defaults = join(stateRoot, "defaults")
-  for (const name of ["merge", "review"]) {
+  for (const name of packagedNames) {
     await mkdir(join(defaults, name), { recursive: true })
     await writeFile(join(defaults, name, "flow.ts"), moduleSource(name, `Packaged ${name}`))
   }
@@ -161,7 +169,7 @@ const boundary = async (t: TestContext, names: ReadonlyArray<string> = systemFlo
       const packaged = yield* make(defaults, "repository-host")
       const registry = bindRepositoryRegistry(base, packaged, policy, names)
       const built = yield* repositoryCatalog({ delegates: [] }, (file) => {
-        const name = file.includes("/merge/") ? "merge" : "review"
+        const name = packagedNames.find((candidate) => file.includes(`/${candidate}/`)) ?? "review"
         return Effect.succeed({
           default: Flow.make(name, {
             payload: {},
@@ -232,7 +240,17 @@ test("system name matching is exact and takes its names only from the launch cat
 })
 
 // Compatibility coding routes retain install ownership even when unconfigured.
-for (const name of ["members.add", "secrets.set", "coding/wiki", "stack.candidate", "todo.preapprove", "todo.unapprove", "todo.retry-current-flow"]) {
+for (
+  const name of [
+    "members.add",
+    "secrets.set",
+    "coding/wiki",
+    "stack.candidate",
+    "todo.preapprove",
+    "todo.unapprove",
+    "todo.retry-current-flow"
+  ]
+) {
   test(`install-owned ${name} is refused before import without a packaged default`, async (t) => {
     const { catalog, write, repositoryPath } = await boundary(t)
     const marker = join(repositoryPath, "reserved-imported")
@@ -247,13 +265,14 @@ for (const name of ["members.add", "secrets.set", "coding/wiki", "stack.candidat
 
 // Composition inspection does not claim the joint guest/Active-source gate.
 // Existing routes remain discoverable exclusively for legacy draining.
-test("the TODO composition reuses the request and delivery children and remains unmounted", async (t) => {
+test("the TODO composition reuses the request and delivery children and no host serves it", async (t) => {
   assert.equal(Todo._tag, "todo")
   const graph = Graph.build(Todo, {
     prompt: "Add a regression test.",
     base: {
       commitId: "1111111111111111111111111111111111111111",
-      ref: "refs/smithers/workspaces/11111111-2222-3333-4444-555555555555/sources/1111111111111111111111111111111111111111"
+      ref:
+        "refs/smithers/workspaces/11111111-2222-3333-4444-555555555555/sources/1111111111111111111111111111111111111111"
     }
   })
   const calls = graph.nodes.flatMap(({ ast }) =>
@@ -261,18 +280,33 @@ test("the TODO composition reuses the request and delivery children and remains 
   )
   assert.deepEqual(calls, ["coding/Request", "coding/todo-delivery", "coding/Vibe", "todo"])
   const { repositoryPath, stateRoot } = await workspace(t)
-  assert.equal((await startup(repositoryPath, stateRoot, "host")).listed.includes("todo"), false)
+  const started = await startup(repositoryPath, stateRoot, "host")
+  assert.deepEqual(started.missing, [])
+  assert.equal(started.listed.includes("todo"), false)
 })
 
-test("a TODO override is refused before import until pinned-source activation is integrated", async (t) => {
-  const { catalog, write, repositoryPath } = await boundary(t)
-  const marker = join(repositoryPath, "todo-imported")
-  assert.deepEqual(factory.on["issue.labeled:todo"], { flow: "todo", description: "Implement every TODO" })
-  await write("todo", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
-  const { built, registry } = await catalog()
-  assert.deepEqual(built.refused.map(({ flow, code }) => ({ flow, code })), [{ flow: "todo", code: "missing_service" }])
-  assert.equal(built.executables.some((entry) => entry.descriptor.name === "todo"), false)
-  await assert.rejects(Effect.runPromise(registry.loadBody("todo", "b".repeat(64))), /body_unavailable/)
-  assert.equal((await Effect.runPromise(registry.list())).some((entry) => entry.name === "todo"), false)
-  await assert.rejects(access(marker), { code: "ENOENT" })
-})
+// Packaged or repository, `todo` is refused before import until pinned-source
+// activation binds a launch to its attempt (T-FLW-03/04): a generic route,
+// such as an invoked or triggered run, never reaches it.
+for (const packaged of [false, true]) {
+  test(`a TODO ${packaged ? "beside a packaged composition " : ""}is refused before import until pinned-source activation is integrated`, async (t) => {
+    const { catalog, write, repositoryPath } = await boundary(
+      t,
+      systemFlows,
+      packaged ? ["merge", "review", "todo"] : ["merge", "review"]
+    )
+    const marker = join(repositoryPath, "todo-imported")
+    assert.deepEqual(factory.on["issue.labeled:todo"], { flow: "todo", description: "Implement every TODO" })
+    await write("todo", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
+    const { built, registry } = await catalog()
+    assert.deepEqual(built.refused.map(({ flow, code }) => ({ flow, code })), [{
+      flow: "todo",
+      code: "missing_service"
+    }])
+    assert.equal(built.executables.some((entry) => entry.descriptor.name === "todo"), false)
+    await assert.rejects(Effect.runPromise(registry.get("todo")), /body_unavailable/)
+    await assert.rejects(Effect.runPromise(registry.loadBody("todo", "b".repeat(64))), /body_unavailable/)
+    assert.equal((await Effect.runPromise(registry.list())).some((entry) => entry.name === "todo"), false)
+    await assert.rejects(access(marker), { code: "ENOENT" })
+  })
+}
