@@ -20,6 +20,16 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: 1.26.8
+      - name: Install PostgreSQL 18
+        run: bash .github/scripts/install-postgres-18.sh
+      - name: Real PostgreSQL backup and restore
+        env:
+          SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
+          SMITHERS_POSTGRES_TEST_MAJOR: "18"
+        run: go test -p 1 ./distribution -run 'TestRealBackupRestorePostgreSQL|TestRealFailedUpgradeRecoveryPostgreSQL|TestFailedUpgradeReportsRecovery|TestIncompleteUpgrade' -count=1 -v
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0

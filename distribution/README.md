@@ -63,3 +63,5 @@ archive. It never installs a service or boots a guest. Preserve the complete
 payload and its `manifest.json` when unpacking it. The sibling distribution
 manifest records the archive digest. Operator instructions have one source:
 [Stage-1 service](../apps/app/scripts/README.md#stage-1-service).
+
+The lifecycle scripts (`backup.sh`, `restore.sh`, `upgrade.sh`, `lib.sh`) and guard tests are retained as T-INS-07 port sources with no production invocation.
