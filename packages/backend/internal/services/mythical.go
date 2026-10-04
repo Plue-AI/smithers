@@ -67,9 +67,10 @@ type MythicalService struct {
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
 	outbound MythicalOutboundProviders
-	// Accepted publication facts are supplied only after the dependency
-	// acceptance gates pass. No production provider is installed yet.
+	// Accepted publication facts and the install's App publication
+	// (EnableTodoPublication); absent, every TODO-branch write is held.
 	prFacts          func(context.Context, db.MythicalItem) (mythicalPRShape, error)
+	publication      *mythicalPublication
 	github           mythicalGitHub
 	launcher         mythicalLauncher
 	lanes            mythicalLanes

@@ -91,7 +91,8 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem) (m
 		card["place"] = item.StackPosition.Int64
 	}
 	if item.PRNumber.Valid && item.PRURL != "" {
-		card["pr"] = map[string]any{"number": item.PRNumber.Int64, "url": item.PRURL, "head": item.PRHead, "draft": false, "included_items": []int64{item.Number.Int64}}
+		// draft is GitHub's flag as the stack last read the pull request.
+		card["pr"] = map[string]any{"number": item.PRNumber.Int64, "url": item.PRURL, "head": item.PRHead, "draft": mythicalChecksOf(item).PRDraft, "included_items": []int64{item.Number.Int64}}
 	}
 	card["evidence"] = todoEvidence(item)
 	return card, nil

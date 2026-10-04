@@ -1587,17 +1587,14 @@ type mythicalProposalOp struct {
 // available prefix. The intended branch head is recorded and pinned before the
 // push; a recorded push is settled before anything new is computed.
 func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
-	if err := mythicalPublicationAuthority(); err != nil {
+	if err := st.publicationAuthority(item); err != nil {
 		next := item
 		next.Reason = err.Error()
 		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 		return &next, nil
 	}
 	s, r := st.s, st.r
-	if s.prFacts == nil {
-		return nil, &mythicalPRUnavailable{}
-	}
-	shape, err := s.prFacts(ctx, item)
+	shape, err := st.shape(ctx, item)
 	if err != nil {
 		return nil, err
 	}
@@ -1619,13 +1616,8 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if s.github == nil || !r.row.ActorUserID.Valid {
 		return nil, nil
 	}
-	if st.gh == nil && st.ghErr == nil {
-		repository, owner, err := s.repository(ctx, r.row.RepositoryID)
-		if err != nil {
-			return nil, err
-		}
-		gh, err := s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64)
-		st.gh, st.ghErr = &gh, err
+	if err := st.resolveGitHub(ctx); err != nil {
+		return nil, err
 	}
 	if st.ghErr != nil {
 		if item.State == "waiting" && item.Reason == mythicalGitHubUnreached {
@@ -1677,6 +1669,11 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	op := mythicalProposalOp{Branch: branch, Expected: item.PRHead, Head: commit}
 	pending, _ := json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "intended"})
 	next.PendingOp = pending
+	// The first intent records the slug branch: the TODO's GitHub identity
+	// from here on, whatever its title becomes.
+	recorded := mythicalChecksOf(next)
+	recorded.Branch = branch
+	next.Checks = recorded.encode()
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
 	if err != nil {
 		return nil, err
@@ -1689,15 +1686,13 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		return nil, err
 	}
 	if err := st.pushProposal(ctx, gh, op); err != nil {
-		remote, lsErr := r.g.lsRemote(ctx, gh.GitURL)
-		current := remote["refs/heads/"+branch]
-		switch {
-		case lsErr != nil, current == op.Expected:
-			return mythicalInfraOutage(next, "github", "the proposal push did not finish; retrying", st.now), nil
-		case current != op.Head:
-			next.State, next.Reason = "blocked", "the pull request branch "+branch+" moved outside Smithers"
-			return &next, nil
+		var foreign *mythicalForeignHead
+		if errors.As(err, &foreign) {
+			return st.holdForeignHead(next, foreign), nil
 		}
+		// The slot stays unknown: a response lost after GitHub applied the
+		// push is settled by lookup on the next pass, never by a second push.
+		return mythicalInfraOutage(next, "github", "the proposal push did not finish; retrying", st.now), nil
 	}
 	next.PRHead, next.PendingOp = commit, nil
 	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
@@ -1707,19 +1702,87 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	return st.openPull(ctx, next, gh, branch)
 }
 
-const mythicalPublicationUnavailable = "TODO publication is held until GitHub facts, own-push reconciliation and independent waits are available"
+const mythicalPublicationUnavailable = "TODO publication is held until the install composes its GitHub App publication"
 
-// pushProposal refuses publication until the shared authority is wired and
-// tested at the production boundary (T-GH-02/03/09 and T-STK-01).
-func (st *mythicalItemStep) pushProposal(ctx context.Context, gh mythicalGitHubRepo, op mythicalProposalOp) error {
-	// T-GH-06 lands dark: the legacy transport has no current-fact,
-	// reconciled-own-push or independent-wait authority. A lease alone
-	// cannot authorize overwriting a head a person has not answered.
-	return mythicalPublicationAuthority()
+// publicationAuthority holds every TODO-branch write until the install
+// composes current facts, own-push reconciliation and the publication
+// guards, and while a head a person pushed is unanswered: a lease alone
+// never authorizes overwriting it (M-33).
+func (st *mythicalItemStep) publicationAuthority(item db.MythicalItem) error {
+	if st.s == nil || st.s.publication == nil || st.s.prFacts == nil {
+		return errors.New(mythicalPublicationUnavailable)
+	}
+	if head := mythicalChecksOf(item).ForeignHead; head != "" {
+		return fmt.Errorf("someone else pushed %s to this TODO's branch; Smithers will not overwrite it and a person decides", short(head))
+	}
+	for _, wait := range todoOpenWaits(item) {
+		if wait.Kind == "foreign_push" {
+			return errors.New("an outside push to this TODO's branch waits for a person")
+		}
+	}
+	return nil
 }
 
-func mythicalPublicationAuthority() error {
-	return errors.New(mythicalPublicationUnavailable)
+// mythicalForeignHead is a branch head on GitHub that is neither the
+// recorded head nor the one being published: someone else's push.
+type mythicalForeignHead struct {
+	Branch, Head string
+}
+
+func (e *mythicalForeignHead) Error() string {
+	return "the pull request branch " + e.Branch + " moved outside Smithers"
+}
+
+// pushProposal publishes the recorded head through the controlled bare-object
+// transport. It reads the branch on GitHub first: the recorded head (or no
+// branch for a first push) is pushed over with a lease on exactly that value,
+// the proposal itself is already there, and anything else is a person's push
+// that is never overwritten.
+func (st *mythicalItemStep) pushProposal(ctx context.Context, gh mythicalGitHubRepo, op mythicalProposalOp) error {
+	if st.s == nil || st.s.publication == nil {
+		return errors.New(mythicalPublicationUnavailable)
+	}
+	r := st.r
+	if !r.g.has(ctx, op.Head) {
+		keep := repohost.MythicalReservedRefNS + "keep/" + op.Head
+		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, keep); err != nil {
+			return fmt.Errorf("fetch the pinned proposal: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		}
+	}
+	remote, err := r.g.lsRemote(ctx, gh.GitURL)
+	if err != nil {
+		return fmt.Errorf("read the pull request branch: %s", sanitizeMirrorError(err, gh.GitURL))
+	}
+	switch current := remote["refs/heads/"+op.Branch]; current {
+	case op.Head:
+		return nil
+	case op.Expected:
+	default:
+		return &mythicalForeignHead{Branch: op.Branch, Head: current}
+	}
+	lease := "--force-with-lease=refs/heads/" + op.Branch + ":" + op.Expected
+	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", lease, gh.GitURL, op.Head+":refs/heads/"+op.Branch); err != nil {
+		return fmt.Errorf("push the proposal: %s", sanitizeMirrorError(err, gh.GitURL))
+	}
+	return nil
+}
+
+// holdForeignHead keeps a person's push: the push slot settles as a
+// conflict, the head is retained as the hold's durable sha and the issue
+// hears it once. Nothing is pushed until a person answers (T-GH-06).
+func (st *mythicalItemStep) holdForeignHead(item db.MythicalItem, foreign *mythicalForeignHead) *db.MythicalItem {
+	next := item
+	if op, err := decodeMythicalOutbound(item.PendingOp); err == nil {
+		op.State = "conflict"
+		next.PendingOp, _ = json.Marshal(op)
+	}
+	next.Reason = "someone else pushed to " + foreign.Branch + " on GitHub; Smithers will not overwrite it and a person decides"
+	checks := mythicalChecksOf(next)
+	checks.ForeignHead = foreign.Head
+	checks.notice("foreign_push:"+foreign.Head, "Smithers is holding this TODO: "+next.Reason+".")
+	next.Checks = checks.encode()
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	return &next
 }
 
 func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string) (*db.MythicalItem, error) {
@@ -1727,8 +1790,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	if st.prShape == nil || st.prShape.Branch != branch {
 		return nil, &mythicalPRUnavailable{}
 	}
-	title, body, err := st.prShape.render()
-	if err != nil {
+	if _, _, err := st.prShape.render(); err != nil {
 		return nil, err
 	}
 	next := item
@@ -1738,7 +1800,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	if err := s.outboundReady(ctx, item, "open"); err != nil {
 		return nil, err
 	}
-	if s.outbound.Lookup == nil || s.outbound.Settle == nil {
+	if p := st.outbound(); p.Lookup == nil || p.Settle == nil {
 		return nil, errors.New("Waiting for GitHub reconciliation and settlement integration")
 	}
 	pull, err := s.github.FindPull(ctx, gh, branch)
@@ -1746,22 +1808,6 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		return mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", st.now), nil
 	}
 	if pull == nil || (pull.State == "closed" && !pull.Merged) {
-		repository, _, err := s.repository(ctx, r.row.RepositoryID)
-		if err != nil {
-			return nil, err
-		}
-		base := strings.TrimSpace(repository.DefaultBookmark)
-		if base == "" {
-			base = "main"
-		}
-
-		draft := !st.prShape.First && st.prShape.DraftsAvailable
-		if !st.prShape.First && !st.prShape.DraftsAvailable {
-			if st.prShape.FirstNumber <= 0 {
-				return nil, &mythicalPRUnavailable{}
-			}
-			title = fmt.Sprintf("[waits for T%d] %s", st.prShape.FirstNumber, title)
-		}
 		op := MythicalOutboundOp{Kind: "open", Target: branch, Desired: item.PRHead, State: "intended"}
 		next.PendingOp, _ = json.Marshal(op)
 		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
@@ -1775,8 +1821,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 			return nil, err
 		}
 
-		_, err = s.github.CreatePull(ctx, gh, title, branch, base, body, draft)
-		if err != nil {
+		if err := st.createPull(ctx, next, gh, branch); err != nil {
 			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
 		// Even a successful response reconciles the durable slot. Projection
@@ -1788,16 +1833,66 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 			return mythicalInfraOutage(next, "github", "the waiting label could not be applied: "+err.Error(), st.now), nil
 		}
 	}
+	return st.proposedFrom(next, *pull), nil
+}
+
+// createPull opens the item's pull request from its accepted shape: head
+// the slug branch, base the default bookmark; only the first item is ready
+// for review, and where drafts are unavailable a later one names the item
+// it waits for (§12.5.1).
+func (st *mythicalItemStep) createPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string) error {
+	s := st.s
+	if st.prShape == nil || st.prShape.Branch != branch {
+		shape, err := st.shape(ctx, item)
+		if err != nil {
+			return err
+		}
+		if shape.Branch != branch {
+			return &mythicalPRUnavailable{}
+		}
+		st.prShape = &shape
+	}
+	title, body, err := st.prShape.render()
+	if err != nil {
+		return err
+	}
+	repository, _, err := s.repository(ctx, item.RepositoryID)
+	if err != nil {
+		return err
+	}
+	base := strings.TrimSpace(repository.DefaultBookmark)
+	if base == "" {
+		base = "main"
+	}
+	draft := !st.prShape.First && st.prShape.DraftsAvailable
+	if !st.prShape.First && !st.prShape.DraftsAvailable {
+		if st.prShape.FirstNumber <= 0 {
+			return &mythicalPRUnavailable{}
+		}
+		title = fmt.Sprintf("[waits for T%d] %s", st.prShape.FirstNumber, title)
+	}
+	_, err = s.github.CreatePull(ctx, gh, title, branch, base, body, draft)
+	return err
+}
+
+// proposedFrom binds the item to the pull request GitHub answered with: In
+// review comes only from this read, and the draft flag is GitHub's own. A
+// dropped item keeps its state; its close obligation is settled elsewhere.
+func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull) *db.MythicalItem {
+	next := item
 	next.PendingOp = nil
 	next.PRNumber = pgtype.Int8{Int64: pull.Number, Valid: true}
 	next.PRURL, next.PRState = pull.URL, pull.State
-	next.State, next.Reason = "proposed", ""
-	// The change is proposed: the outages on the way here are behind it.
 	proposed := mythicalChecksOf(next)
-	proposed.Outages, proposed.GitHubOutages, proposed.Fault = 0, 0, nil
+	proposed.PRDraft = pull.Draft
+	if item.State != "cancelled" && item.State != "dropped" {
+		next.State, next.Reason = "proposed", ""
+		// The change is proposed: the outages on the way here are behind it.
+		proposed.Outages, proposed.GitHubOutages, proposed.Fault = 0, 0, nil
+	}
 	next.Checks = proposed.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
-	return &next, nil
+	return &next
 }
 
 // mythicalClosingKeyword is a GitHub closing keyword before an issue
@@ -1819,13 +1914,8 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	if s.github == nil || !item.PRNumber.Valid || !r.row.ActorUserID.Valid {
 		return nil, nil
 	}
-	if st.gh == nil && st.ghErr == nil {
-		repository, owner, err := s.repository(ctx, r.row.RepositoryID)
-		if err != nil {
-			return nil, err
-		}
-		gh, err := s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64)
-		st.gh, st.ghErr = &gh, err
+	if err := st.resolveGitHub(ctx); err != nil {
+		return nil, err
 	}
 	if st.ghErr != nil {
 		return mythicalInfraOutage(item, "github", st.ghErr.Error(), st.now), nil
@@ -1836,14 +1926,18 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	}
 	next := item
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
-	if answered := mythicalChecksOf(next); answered.GitHubOutages > 0 {
+	answered := mythicalChecksOf(next)
+	// A person may mark a later PR ready or draft on GitHub: the card shows
+	// GitHub's flag as read, with no corrective write (§12.5.1).
+	answered.PRDraft = pull.Draft
+	if answered.GitHubOutages > 0 {
 		answered.GitHubOutages = 0
 		if answered.Fault != nil && answered.Fault.kind() == mythicalFailLanding {
 			// GitHub answers again: the outage it retried after is over.
 			answered.Fault = nil
 		}
-		next.Checks = answered.encode()
 	}
+	next.Checks = answered.encode()
 	fact := mythicalGitHubFact{Head: pull.HeadSHA, MergeCommit: pull.MergeCommit}
 	switch {
 	case pull.Merged:
@@ -2746,6 +2840,11 @@ type mythicalChecks struct {
 	// ForeignHead is the pull request head someone other than Smithers
 	// pushed; the stack neither reviews nor merges it.
 	ForeignHead string `json:"foreignHead,omitempty"`
+	// Branch is the TODO's smithers/<slug> branch on GitHub, recorded with
+	// its first publication intent and never derived again (§8.1.1).
+	Branch string `json:"branch,omitempty"`
+	// PRDraft is GitHub's draft flag on the item's pull request, as last read.
+	PRDraft bool `json:"prDraft,omitempty"`
 	// Notice is an issue comment waiting to be posted, and Noticed the keys
 	// of every comment posted, so each is said once and a failed post is
 	// retried on a later pass (mythicalNotice).

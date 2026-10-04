@@ -984,6 +984,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService.SetWiki(wikiService)
 	mythicalService.SetOrchestration(services.NewMythicalGitHub(queries, repoConnectionService, gitHubUserReposService, repoConnectionService),
 		nil, services.NewWorkspaceMythicalLanes(workspaceService))
+	if config.IsSingleOwner(cfg.Auth) {
+		// The install's own GitHub App publishes TODO pull requests; Plue's
+		// composition publishes none.
+		mythicalService.EnableTodoPublication(gitHubAppCredentials, repoConnectionService, gitHubBudgetTracker)
+	}
 	// A lane's coding host starts only on a box with its declared tools.
 	services.WithWorkspaceBoxTools(mythicalService.LaneTools)(workspaceService)
 	userRefHandler := &routes.UserRefHandler{Service: services.NewUserRefService(repoHostClient, queries)}

@@ -108,7 +108,7 @@ func TestMythicalOutboundProposalRefusesBeforeResolve(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, next)
 	require.Equal(t, slot, []byte(next.PendingOp))
-	require.Equal(t, "TODO publication is held until GitHub facts, own-push reconciliation and independent waits are available", next.Reason)
+	require.Equal(t, "TODO publication is held until the install composes its GitHub App publication", next.Reason)
 }
 
 func TestMythicalOutboundDroppedProposalOnlyReconciles(t *testing.T) {

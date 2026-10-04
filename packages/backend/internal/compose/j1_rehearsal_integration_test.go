@@ -104,6 +104,8 @@ func TestJ1Rehearsal(t *testing.T) {
 		"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "rehearsal-callback", "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_OTEL_EXPORTER": "none", "SMITHERS_METRICS_ADDR": "",
 		"SMITHERS_AUTH_GITHUB_API_BASE_URL": fake.URL, "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": fake.URL, "SMITHERS_GITHUB_APP_API_BASE_URL": fake.URL,
+		// TODO branches are pushed to the fake's Git, never to github.com.
+		"SMITHERS_GITHUB_GIT_BASE_URL": fake.URL,
 	} {
 		t.Setenv(name, value)
 	}

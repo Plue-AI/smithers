@@ -36,9 +36,16 @@ type MythicalOutboundProviders struct {
 	Settle func(context.Context, db.MythicalItem, MythicalOutboundOp) (db.MythicalItem, error)
 }
 
-// SetOutboundProviders is install composition's seam, deliberately unwired
-// until all six dependency contracts and the production dispatchers exist.
-func (s *MythicalService) SetOutboundProviders(p MythicalOutboundProviders) { s.outbound = p }
+// outbound is the providers this claimed pass dispatches through. Composed
+// publication binds lookup, send and settlement to the pass's own GitHub
+// destination and bare-object transport (mythical_publication.go).
+func (st *mythicalItemStep) outbound() MythicalOutboundProviders {
+	p := st.s.outbound
+	if st.s.publication != nil {
+		p.Lookup, p.Send, p.Settle = st.appLookup, st.appSend, st.appSettle
+	}
+	return p
+}
 
 func (s *MythicalService) outboundReady(ctx context.Context, item db.MythicalItem, kind string) error {
 	p := s.outbound
@@ -112,7 +119,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	if op.State == "done" {
 		return st.settleOutbound(ctx, item, op)
 	}
-	p := st.s.outbound
+	p := st.outbound()
 	if p.Lookup == nil {
 		return nil, errors.New("Waiting for GitHub reconciliation integration")
 	}
@@ -173,11 +180,12 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		// Open binds the discovered PR; merge waits for main containment and its
 		// fenced inbound transaction; Drop records the outstanding close. None
 		// can be invented from a transport response or a head alone.
-		if st.s.outbound.Settle == nil {
+		settle := st.outbound().Settle
+		if settle == nil {
 			return nil, errors.New("Waiting for GitHub settlement integration")
 		}
 		var err error
-		next, err = st.s.outbound.Settle(ctx, item, op)
+		next, err = settle(ctx, item, op)
 		if err != nil {
 			return nil, err
 		}

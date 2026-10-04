@@ -80,6 +80,33 @@ There is no local credential or confirmation substitute. Future activation
 requires the served install router, catalog dispatcher and pinned guest-host
 checks; these direct-handler refusal tests are supplemental evidence only.
 
+## Pull requests
+
+An install publishes a TODO's verified candidate through its own GitHub App.
+The first publication records the TODO's branch, `smithers/<slug>`: the title's
+letters and digits folded to ASCII, lowercased and joined by hyphens, at most
+48 characters, with the TODO number appended when another TODO holds the slug.
+The head is one commit on `main` with the candidate's tree. The host records
+the push intent, reads the branch on GitHub, then pushes with a lease on the
+recorded head, or on no branch for a first push. A lost push response is
+settled by reading the branch, never by a second push.
+
+The pull request targets `main`. Only the first unsettled TODO opens ready for
+review. Later TODOs open as drafts on public repositories; on a private
+repository they open ready, titled `[waits for Tn]` and labeled
+`smithers:waiting`. A TODO shows In review only after GitHub returns its pull
+request, and the card's draft flag is GitHub's as last read. Smithers opens
+pull requests; it never approves or merges one.
+
+Every write first checks the install's App and its installation on the
+repository, the stack's lease, the installation's GitHub budget, the TODO
+person's membership, the operation's authorization, and the TODO's current
+version and verified candidate. A refusal records no intent and writes nothing
+to GitHub. A branch head that is neither the recorded head nor the head being
+published is a person's push: the intent settles as a conflict, the head is
+kept as the TODO's foreign head, and publication stays held. Plue's
+composition publishes no TODO pull requests.
+
 ## Browser-session Merge
 
 The repository TODO request is now `POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge`
