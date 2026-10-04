@@ -48,16 +48,7 @@ func TestLocalChatComposedModelTurn(t *testing.T) {
 	require.NoError(t, lookupErr)
 	providerKey := "owner-private-provider-key"
 	receivedKey := make(chan string, 1)
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case receivedKey <- r.Header.Get("Authorization"):
-		default:
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello from provider\"},\"finish_reason\":null}]}\n\n")
-		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
-		_, _ = io.WriteString(w, "data: [DONE]\n\n")
-	}))
+	provider := localChatProvider(receivedKey)
 	defer provider.Close()
 	_, err := secretService.SetSecret(ctx, local.actor, "chatowner", "chatrepo", "TEST_PROVIDER", providerKey, nil, nil)
 	require.NoError(t, err)
@@ -399,4 +390,18 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
+}
+
+// Reuse the same model HTTP fixture for composed journeys.
+func localChatProvider(receivedKey chan string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case receivedKey <- r.Header.Get("Authorization"):
+		default:
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello from provider\"},\"finish_reason\":null}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
 }

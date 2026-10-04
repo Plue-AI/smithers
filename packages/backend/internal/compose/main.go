@@ -105,6 +105,8 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
 	HostProfile *microsandbox.HostProfile
+	// GitHubImportGitRunner reuses the importer transport seam for integration fixtures.
+	GitHubImportGitRunner func(context.Context, []string, ...string) (string, error)
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
 	EnvGitHubAppCredentials bool
 	CanaryRuns              ports.CanaryRunSource
@@ -855,6 +857,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		authService,
 		publicBaseURL,
 		services.WithGitHubImportOrgs(queries),
+		services.WithGitHubImportGitRunner(options.GitHubImportGitRunner),
 		services.WithGitHubImportHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),
 		services.WithGitHubImportMetrics(smithersMetrics),
 		services.WithGitHubImportBillingPolicy(billingPolicy),

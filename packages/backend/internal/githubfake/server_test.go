@@ -16,6 +16,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -287,4 +291,164 @@ func TestPullDraftLifecycleRequiresScopedInstallation(t *testing.T) {
 	for _, write := range writes {
 		require.NotContains(t, string(write.Body), token.Token)
 	}
+}
+
+func TestOwnerOAuthAndRepositoryBoundaries(t *testing.T) {
+	server, cfg, key := fixture(t)
+	form := url.Values{"code": {"owner-code"}, "client_id": {cfg.ClientID}, "client_secret": {cfg.ClientSecret}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}}
+	exchange := func(values url.Values) int {
+		status, _ := request(t, server, "POST", "/login/oauth/access_token", "", []byte(values.Encode()))
+		return status
+	}
+	require.Equal(t, 401, exchange(form), "App must be converted first")
+	status, _ := request(t, server, "POST", "/app-manifests/one-use-code/conversions", "", nil)
+	require.Equal(t, 201, status)
+	for _, field := range []string{"code", "client_id", "client_secret", "redirect_uri"} {
+		bad := url.Values{}
+		for k, v := range form {
+			bad[k] = append([]string(nil), v...)
+		}
+		bad.Set(field, "")
+		require.Equal(t, 401, exchange(bad))
+	}
+	require.Equal(t, 200, exchange(form))
+	require.Equal(t, 401, exchange(form), "OAuth code is single-use")
+	for _, path := range []string{"/user", "/user/emails", "/user/repos", "/repos/acme/app"} {
+		status, body := request(t, server, "GET", path, "ghu_githubfake_owner", nil)
+		require.Equal(t, 200, status, string(body))
+		status, _ = request(t, server, "GET", path, "invalid", nil)
+		require.Equal(t, 401, status)
+	}
+	status, _ = request(t, server, "GET", "/repos/acme/foreign", "ghu_githubfake_owner", nil)
+	require.Equal(t, 404, status)
+	for _, write := range server.Writes() {
+		if write.Path == "/login/oauth/access_token" {
+			require.Empty(t, write.Body, "OAuth client secret must never appear in receipts")
+		}
+	}
+	appJWT := jwt(t, key, cfg.AppID, time.Now().Add(time.Minute))
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", appJWT, nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "GET", "/repos/acme/app", access.Token, nil)
+	require.Equal(t, 200, status)
+	status, user := request(t, server, "GET", "/user/7", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.Contains(t, string(user), `"login":"acme"`)
+	var metadata struct {
+		Squash bool   `json:"allow_squash_merge"`
+		Branch string `json:"default_branch"`
+	}
+	require.NoError(t, json.Unmarshal(body, &metadata))
+	require.True(t, metadata.Squash)
+	require.Equal(t, "main", metadata.Branch)
+	status, _ = request(t, server, "GET", "/repos/acme/app/collaborators/acme/permission", access.Token, nil)
+	require.Equal(t, 200, status)
+	for _, path := range []string{"/repos/acme/foreign", "/repos/acme/app/collaborators/foreign/permission"} {
+		status, _ = request(t, server, "GET", path, access.Token, nil)
+		require.Equal(t, 404, status)
+	}
+}
+
+func TestGitSmartHTTPUsesRealObjectsAndInstallationAuthority(t *testing.T) {
+	server, cfg, key := fixture(t)
+	root := t.TempDir()
+	seed := filepath.Join(root, "seed")
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("/usr/bin/git", args...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return string(out)
+	}
+	git("init", "-b", "main", seed)
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "JOURNEY.md"), []byte("canary\n"), 0600))
+	git("-C", seed, "add", "JOURNEY.md")
+	git("-C", seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Seed")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "acme"), 0700))
+	git("clone", "--bare", seed, filepath.Join(root, "acme/app.git"))
+	server.config.GitRoot = root
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	clone := filepath.Join(root, "clone")
+	header := "Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+access.Token))
+	git("-c", "http.extraHeader="+header, "clone", server.URL+"/acme/app.git", clone)
+	contents, err := os.ReadFile(filepath.Join(clone, "JOURNEY.md"))
+	require.NoError(t, err)
+	require.Equal(t, "canary\n", string(contents))
+	require.Equal(t, strings.TrimSpace(git("-C", seed, "rev-parse", "HEAD")), strings.TrimSpace(git("-C", clone, "rev-parse", "HEAD")))
+	for _, path := range []string{"/acme/app.git/info/refs?service=git-upload-pack", "/acme/foreign.git/info/refs?service=git-upload-pack", "/acme/app.git/git-receive-pack"} {
+		status, _ := request(t, server, "GET", path, "", nil)
+		require.Equal(t, 403, status)
+	}
+	req, err := http.NewRequest("GET", server.URL+"/acme/foreign.git/info/refs?service=git-upload-pack", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", header)
+	resp, err := server.Client().Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, 403, resp.StatusCode)
+	require.True(t, func() bool {
+		for _, write := range server.Writes() {
+			if write.Path == "/acme/app.git/git-upload-pack" && write.Status == 200 {
+				return true
+			}
+		}
+		return false
+	}(), "real pack transfer must leave a write receipt")
+}
+
+func TestSquashMergeIsHeadBoundAndProjectsOnlyAfterTheWrite(t *testing.T) {
+	server, cfg, key := fixture(t)
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"First","head":"smithers/first","base":"main"}`))
+	require.Equal(t, 201, status)
+	var pull Pull
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.Len(t, pull.Head.SHA, 40)
+	require.False(t, pull.Merged)
+	require.Nil(t, pull.MergedAt)
+	merge := func(head, method string) int {
+		body, _ := json.Marshal(map[string]string{"sha": head, "merge_method": method})
+		status, _ := request(t, server, "PUT", "/repos/acme/app/pulls/1/merge", access.Token, body)
+		return status
+	}
+	require.Equal(t, 409, merge(strings.Repeat("0", 40), "squash"))
+	require.Equal(t, 422, merge(pull.Head.SHA, "merge"))
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.False(t, pull.Merged)
+	status, _ = request(t, server, "GET", "/repos/acme/app/pulls/1/merge", access.Token, nil)
+	require.Equal(t, 404, status)
+	require.Equal(t, 200, merge(pull.Head.SHA, "squash"))
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.True(t, pull.Merged)
+	require.NotNil(t, pull.MergedAt)
+	require.Len(t, pull.MergeCommitSHA, 40)
+	require.Equal(t, "closed", pull.State)
+	firstSHA, firstTime := pull.MergeCommitSHA, *pull.MergedAt
+	require.Equal(t, 200, merge(pull.Head.SHA, "squash"))
+	_, body = request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.Equal(t, firstSHA, pull.MergeCommitSHA)
+	require.Equal(t, firstTime, *pull.MergedAt)
+	status, _ = request(t, server, "GET", "/repos/acme/app/pulls/1/merge", access.Token, nil)
+	require.Equal(t, 204, status)
+	status, _ = request(t, server, "PUT", "/repos/acme/foreign/pulls/1/merge", access.Token, []byte(`{}`))
+	require.Equal(t, 404, status)
 }

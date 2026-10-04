@@ -399,6 +399,21 @@ func WithGitHubImportStorageSet(storageSetID string) GitHubImportOption {
 	}
 }
 
+// WithGitHubImportGitRunner exposes the existing native Git seam to composed
+// integration fixtures; nil retains the production command and its policy.
+func WithGitHubImportGitRunner(run func(context.Context, []string, ...string) (string, error)) GitHubImportOption {
+	return func(s *GitHubImportService) {
+		if run != nil {
+			s.runGit = run
+		}
+	}
+}
+
+// RunGitImportCommand retains the one policy-enforcing native implementation.
+func RunGitImportCommand(ctx context.Context, env []string, args ...string) (string, error) {
+	return runGitCombinedOutput(ctx, env, args...)
+}
+
 func WithGitHubImportHTTPClient(client *http.Client) GitHubImportOption {
 	return func(s *GitHubImportService) {
 		if client != nil {
