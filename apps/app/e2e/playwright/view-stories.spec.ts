@@ -746,3 +746,35 @@ test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page
   await page.goto("/view-stories.html?story=BranchView/branch-waking-activity")
   await expect(page.locator("button[data-flow]")).toHaveCount(0)
 })
+
+// T-UI-16 uses the existing production story runner; no live route is enabled.
+test("File and burst Diff supplied actions have keyboard doors", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const [story, label, tag, args] of [
+      ["CodeSurface/deleted", "Restore", "file.restore-deleted", { path: "flows/todo/flow.ts" }],
+      ["CodeSurface/renamed", "Follow", "file.follow-rename", { path: "flows/todo/flow.ts" }],
+      ["CodeSurface/outside", "Compare", "file.compare", { path: "flows/todo/flow.ts" }],
+      ["DiffSurface/burst", "Restore this file", "file.restore", { path: "flows/todo/flow.ts", revision: "burst-17" }],
+    ] as const) {
+      await page.goto(`/view-stories.html?story=${story}&theme=${theme}`)
+      await page.evaluate(() => {
+        Object.assign(window, { liveStateReceipts: [] })
+        window.addEventListener("story-callback", event =>
+          (window as unknown as { liveStateReceipts: unknown[] }).liveStateReceipts.push((event as CustomEvent).detail))
+      })
+      await page.getByRole("button", { name: label, exact: true }).focus()
+      await page.keyboard.press("Enter")
+      expect(await page.evaluate(() => (window as unknown as { liveStateReceipts: unknown[] }).liveStateReceipts)).toEqual([
+        { kind: "action", value: { tag, args } },
+      ])
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    for (const story of ["deleted_readonly", "renamed_readonly", "outside_readonly"]) {
+      await page.goto(`/view-stories.html?story=CodeSurface/${story}&theme=${theme}`)
+      await expect(page.locator('.code-actions button')).toHaveCount(0)
+    }
+    await page.goto(`/view-stories.html?story=CodeSurface/restore_disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeDisabled()
+  }
+})

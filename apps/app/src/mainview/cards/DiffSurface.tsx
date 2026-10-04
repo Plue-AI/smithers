@@ -64,12 +64,14 @@ export function unifiedPatch(model: DiffCard): string {
 // Static Paper overrides: Pierre inline syntax colours fail AA on changed-line backgrounds.
 const paperDiffCss = `pre { --diffs-bg: var(--surface); --diffs-fg: var(--code-text); } [data-diffs-header] { background: var(--surface-2); color: var(--text); } [data-line] span[style] { color: var(--code-text) !important; } :focus-visible { outline: 2px solid var(--ring-border); }`
 export function DiffCardSurface({ model, actions, onAction }: DiffViewProps) {
+  // Replace unconditional Restore rendering: only a burst supplies a restorable before version.
+  const visibleActions = actions.filter(action => action.tag !== "file.restore" || model.against.kind === "burst")
   return <section className="smithers-card code-diff-view" data-kind="diff" data-keyboard-pane="Diff" aria-label={`${model.path} changes`}>
     <header className="smithers-card-header"><h2 className="smithers-card-title">{model.renamed_to ?? model.path}</h2><span className="mvp-branch-chip">{model.branch}</span></header>
     <div className="smithers-card-body">
       <div className="code-diff-base" data-against={model.against.kind}>{model.against.kind === "burst" ? <><ActorChip actor={model.against.actor} size="s" /><span>{actorName(model.against.actor)}</span><time>{model.against.at}</time></> : <code>{model.against.rev}</code>}</div>
       {model.binary ? <p className="code-file-size">Binary file · {formatBytes(model.binary.before_bytes, "decimal")} → {formatBytes(model.binary.after_bytes, "decimal")}</p> : model.hunks.length ? <DiffSurface path={model.renamed_to ?? model.path} patch={unifiedPatch(model)} unsafeCSS={paperDiffCss} /> : null}
-      {actions.length ? <div className="code-actions">{actions.map((action, index) => <DiffAction key={index} action={action} onAction={onAction} />)}</div> : null}
+      {visibleActions.length ? <div className="code-actions">{visibleActions.map((action, index) => <DiffAction key={index} action={action} onAction={onAction} />)}</div> : null}
     </div>
   </section>
 }

@@ -2211,3 +2211,106 @@ describe("HomeView", () => {
     }
   })
 })
+
+// T-UI-16: literal inputs keep presentation expectations independent of shared fixtures.
+test("File literal live states preserve the selected line and data-only snapshot", async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), calls: unknown[] = []
+  const model: import("@smthrs/rpc/FileCard").FileCard = {
+    path: "src/keep.ts", branch: "scratch/alice", language: "typescript", digest: "blob-before",
+    content: { kind: "text", text: 'const first = 1\n<script>alert("file")</script>\n' },
+    mode: "read_only", diagnostics: [], authors: [], editors: [],
+    gone: { kind: "deleted", by: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.com/alice.png", color_index: 0 } },
+  }
+  const callbacks = { onAction: (...args: unknown[]) => calls.push(args), onView: () => {} }
+  const draw = (next: typeof model, actions: Action[]) => act(async () => root.render(
+    <CodeSurface model={next} actions={actions} gestures={{}} view={{ maximized: false, line: 2 }} {...callbacks} />))
+  try {
+    await draw(model, [{ tag: "file.restore-deleted", label: "Restore", args: { path: "src/keep.ts" } }])
+    expect(host.querySelector(".code-file-notice > span")?.textContent).toBe("Deleted by Alice")
+    expect(host.querySelector(".code-snapshot-cap")?.textContent).toBe("Snapshot")
+    expect(host.querySelector(".cm-content")?.textContent).toContain('<script>alert("file")</script>')
+    expect(host.querySelector("script")).toBeNull()
+    const editor = host.querySelector<HTMLElement>(".cm-editor")!
+    editor.scrollTop = 67
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click())
+    await draw({ ...model, gone: { kind: "renamed", to: "src/next.ts", by: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.com/alice.png", color_index: 0 } } },
+      [{ tag: "file.follow-rename", label: "Follow", args: { path: "src/keep.ts" } }])
+    expect(host.querySelector(".code-file-notice > span")?.textContent).toBe("Renamed to next.ts by Alice")
+    expect(host.querySelector(".code-file-notice code")?.getAttribute("title")).toBe("src/next.ts")
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click())
+    await draw({ ...model, gone: undefined, digest: "blob-after", content: { kind: "text", text: "const first = 2\nconst second = 3\n" }, outside: { version: "outside-42", at: "2026-10-04T10:00:00Z" } },
+      [{ tag: "file.compare", label: "Compare", args: { path: "src/keep.ts" } }])
+    expect(host.querySelector(".code-file-notice > span")?.textContent).toBe("Changed outside Smithers")
+    expect(host.querySelector(".cm-editor")).toBe(editor)
+    expect(editor.scrollTop).toBe(67)
+    expect(host.querySelector(".cm-content")?.textContent).toContain("const second = 3")
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click())
+    expect(calls).toEqual([
+      ["file.restore-deleted", { path: "src/keep.ts" }],
+      ["file.follow-rename", { path: "src/keep.ts" }],
+      ["file.compare", { path: "src/keep.ts" }],
+    ])
+    for (const label of ["Deleted by Alice", "Renamed to next.ts by Alice", "Changed outside Smithers", "Snapshot", "Restore", "Follow", "Compare"]) {
+      expect(label.split(/\s+/).length).toBeLessThanOrEqual(12)
+      expect(label).not.toMatch(/\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythical|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i)
+    }
+    await draw(model, [])
+    expect(host.querySelector("button")).toBeNull()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("Diff literal revisions and bytes never offer Restore outside a burst", async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), calls: unknown[] = []
+  const model: import("@smthrs/rpc/DiffCard").DiffCard = {
+    path: "assets/old.bin", renamed_to: "assets/new.bin", branch: "scratch/alice", change: "renamed",
+    against: { kind: "item_base", rev: "candidate-17" }, binary: { before_bytes: 2000, after_bytes: 3000 }, hunks: [],
+  }
+  const draw = (against: typeof model.against, actions: Action[]) => act(async () => root.render(
+    <DiffCardSurface model={{ ...model, against }} actions={actions} gestures={{}} view={{ maximized: false }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  const restore: Action = { tag: "file.restore", label: "Restore this file", args: { path: "assets/old.bin", revision: "burst-42" } }
+  try {
+    for (const against of [{ kind: "item_base", rev: "candidate-17" }, { kind: "fork", rev: "fork-23" }] as const) {
+      await draw(against, [restore])
+      expect(host.querySelector(".code-diff-base")?.textContent).toBe(against.rev)
+      expect(host.querySelector("h2")?.textContent).toBe("assets/new.bin")
+      expect(host.querySelector(".code-file-size")?.textContent).toBe("Binary file · 2.0 kB → 3.0 kB")
+      expect(host.querySelector("button")).toBeNull()
+    }
+    const burst = { kind: "burst", burst: "burst-42", actor: { kind: "outside", color_index: 7 }, at: "2026-10-04T10:00:00Z" } as const
+    await draw(burst, [restore])
+    const surface = host.querySelector("section")!
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click())
+    expect(calls).toEqual([["file.restore", { path: "assets/old.bin", revision: "burst-42" }]])
+    await draw(burst, [{ ...restore, disabled: { reason: "Revision changed" } }])
+    host.querySelector<HTMLButtonElement>("button")!.click()
+    expect(calls).toHaveLength(1)
+    expect(host.querySelector("section")).toBe(surface)
+    await draw(burst, [])
+    expect(host.querySelector("button")).toBeNull()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("Diff patch reload retains its mounted surface and scroll", async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const model: import("@smthrs/rpc/DiffCard").DiffCard = {
+    path: "src/reload.ts", branch: "scratch/alice", change: "modified", against: { kind: "fork", rev: "fork-23" },
+    hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const value = 1" }, { op: "+", text: "const value = 2" }] }],
+  }
+  const draw = (next: typeof model) => act(async () => root.render(<DiffCardSurface model={next} actions={[]} gestures={{}}
+    view={{ maximized: false }} onAction={() => {}} onView={() => {}} />))
+  try {
+    await draw(model)
+    const card = host.querySelector<HTMLElement>("section")!
+    const diff = host.querySelector("diffs-container")!
+    expect(diff).not.toBeNull()
+    card.scrollTop = 43
+    await draw({ ...model, hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const value = 1" }, { op: "+", text: "const value = 3" }] }] })
+    expect(host.querySelector("section")).toBe(card)
+    expect(host.querySelector("diffs-container")).toBe(diff)
+    expect(card.scrollTop).toBe(43)
+    expect(host.querySelector(".code-diff-base")?.textContent).toBe("fork-23")
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
