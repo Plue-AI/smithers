@@ -889,6 +889,17 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 }
 
 func (s *WorkspaceService) forkSandboxWorkspace(ctx context.Context, input ForkWorkspaceInput, source db.Workspace) (WorkspaceResponse, error) {
+	// Hosted disk forks cannot bypass the stack's revision-only history writer.
+	// Keep compatibility only when the store proves this is not a stack repo.
+	stacks, ok := s.q.(workspaceMythicalStackReader)
+	if !ok {
+		return WorkspaceResponse{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
+	}
+	if _, err := stacks.GetMythicalStack(ctx, source.RepositoryID); err == nil {
+		return WorkspaceResponse{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return WorkspaceResponse{}, pkgerrors.Internal("load mythical stack").WithCause(err)
+	}
 	// The fork belongs to the source owner, even when a write grantee requests it.
 	if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 		return WorkspaceResponse{}, err

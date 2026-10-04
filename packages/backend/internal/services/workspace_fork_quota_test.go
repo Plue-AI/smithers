@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -253,4 +254,63 @@ func TestForkWorkspace_UnauthorizedCallerRejectedBeforeOwnerQuota(t *testing.T) 
 			require.Zero(t, rowCreates)
 		})
 	}
+}
+
+// Legacy hosted fixtures explicitly model repositories without a stack.
+func (*mockWorkspaceQuerier) GetMythicalStack(context.Context, int64) (db.MythicalStack, error) {
+	return db.MythicalStack{}, pgx.ErrNoRows
+}
+
+func TestHostedForkRefusesStackBeforeMachineEffects(t *testing.T) {
+	for _, stackErr := range []error{nil, errors.New("stack lookup failed")} {
+		t.Run(fmt.Sprint(stackErr), func(t *testing.T) {
+			source := forkQuotaSource()
+			q := &userRefStackQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{
+				getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) { return source, nil },
+				getWorkspaceFn:       func(context.Context, string) (db.Workspace, error) { return source, nil },
+				createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
+					t.Fatal("created a fork row")
+					return db.Workspace{}, nil
+				},
+			}, stackErr: stackErr}
+			// Tripwires observe row creation and every fork machine operation.
+			svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+				getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
+					t.Fatal("inspected source")
+					return sandbox.Sandbox{}, nil
+				},
+				startVMFn: func(context.Context, string, sandbox.StartRequest) (sandbox.StartResult, error) {
+					t.Fatal("started source")
+					return sandbox.StartResult{}, nil
+				},
+				forkVMFn: func(context.Context, string, sandbox.ForkRequest) (sandbox.CreateResult, error) {
+					t.Fatal("copied source")
+					return sandbox.CreateResult{}, nil
+				},
+				createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
+					t.Fatal("created machine")
+					return sandbox.CreateResult{}, nil
+				},
+			}))
+			_, err := svc.ForkWorkspace(context.Background(), ForkWorkspaceInput{RepositoryID: source.RepositoryID, UserID: source.UserID, WorkspaceID: source.ID})
+			var failure *pkgerrors.APIError
+			require.ErrorAs(t, err, &failure)
+			if stackErr == nil {
+				require.Equal(t, http.StatusServiceUnavailable, failure.Status)
+			} else {
+				require.Equal(t, http.StatusInternalServerError, failure.Status)
+			}
+		})
+	}
+}
+
+// A compatibility store must prove the absence of a stack, not assume it.
+type forkStoreWithoutStackReader struct{ WorkspaceQuerier }
+
+func TestHostedForkRefusesMissingStackReader(t *testing.T) {
+	svc := newWorkspaceServiceForTests(forkStoreWithoutStackReader{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
+	_, err := svc.forkSandboxWorkspace(context.Background(), forkQuotaInput(), forkQuotaSource())
+	var failure *pkgerrors.APIError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, http.StatusServiceUnavailable, failure.Status)
 }
