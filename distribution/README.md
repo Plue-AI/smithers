@@ -101,10 +101,10 @@ The native macOS package (`build:native`, `Smithers.app`) was deleted with Elect
 The MVP Mac install runs every workspace, command, service, terminal, preview and coding Flow host in a local [Microsandbox](https://github.com/superradcompany/microsandbox) microVM. The owned backend launcher always selects `microvm` and ignores shell isolation overrides. For a direct backend launch, set it explicitly; it never falls back:
 
 ```sh
-npm install -g microsandbox@0.6.16    # the backend is qualified with msb 0.6.16
+BUNDLE=/path/to/installed/smithers    # includes msb 0.6.16
 export SMITHERS_WORKSPACE_ISOLATION=microvm
-export SMITHERS_MICROSANDBOX_BIN="$(npm root -g)/microsandbox/node_modules/@superradcompany/microsandbox-darwin-arm64/bin/msb"
-smithers-backend microvm doctor       # read-only: msb, image, owned microVMs and layers, stopped disks, free disk
+export SMITHERS_MICROSANDBOX_BIN="$BUNDLE/bin/msb"
+"$BUNDLE/bin/smithers-backend" microvm doctor # read-only: msb, image, owned microVMs and layers, stopped disks, free disk
 ```
 
 With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. They also reach the egress relay on `SMITHERS_EGRESS_RELAY_PORT` (default: the backend port + 1), which swaps bound credentials into requests so a guest never holds them; keep it fixed across restarts. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.

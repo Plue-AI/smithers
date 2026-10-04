@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
 import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
@@ -21,11 +21,11 @@ export interface NativeBackend {
 export interface NativeBackendOptions {
   readonly stateDir: string
   /** The built SPA the owned backend serves at its public origin. */
-  readonly webRoot: string
+  readonly webRoot?: string
   readonly env?: Readonly<Record<string, string | undefined>>
-  /** Replaces the persisted or generated first-owner token; tests only. */
-  readonly bootstrapToken?: string
-  readonly fromDir?: string
+  /** Executable location injection for bundle fixtures only. */
+  readonly executablePath?: string
+  readonly setupHandoff?: "socket"
   readonly spawn?: (
     argv: ReadonlyArray<string>,
     options: {
@@ -37,22 +37,6 @@ export interface NativeBackendOptions {
   readonly fetch?: (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>
   readonly sleep?: (milliseconds: number) => Promise<void>
   readonly startupTimeoutMs?: number
-}
-
-const setting = (
-  env: Readonly<Record<string, string | undefined>>,
-  name: string
-): string | undefined => {
-  const value = env[name]?.trim()
-  return value === "" ? undefined : value
-}
-
-export const nativeBackendMode = (
-  env: Readonly<Record<string, string | undefined>>
-): NativeBackendMode => {
-  const mode = setting(env, "SMITHERS_BACKEND_MODE") ?? "own"
-  if (mode === "own" || mode === "plue") return mode
-  throw new Error("SMITHERS_BACKEND_MODE must be own or plue.")
 }
 
 /**
@@ -69,29 +53,7 @@ const LAUNCHER_PASSTHROUGH = [
 ] as const
 
 /** A Dock launch can arrive without PATH; the backend still needs the system tools. */
-const SYSTEM_PATH = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter)
-
-const localOrigin = (value: string): string => {
-  let origin: URL
-  try {
-    origin = new URL(value)
-  } catch {
-    throw new Error("The owned backend origin must be an absolute loopback HTTP origin.")
-  }
-  if (
-    origin.protocol !== "http:" ||
-    !["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname) ||
-    origin.username !== "" ||
-    origin.password !== "" ||
-    origin.pathname !== "/" ||
-    origin.search !== "" ||
-    origin.hash !== "" ||
-    origin.origin !== value.replace(/\/$/, "")
-  ) {
-    throw new Error("The owned backend origin must be an absolute loopback HTTP origin.")
-  }
-  return origin.origin
-}
+const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter)
 
 const readinessProbe = async (
   fetchImpl: (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>,
@@ -264,55 +226,27 @@ const checksummedExecutable = (path: string, label: string): string => {
   return path
 }
 
-const nativeBootstrapToken = (stateDir: string): string => {
-  const path = resolve(stateDir, "config", "secrets.json")
-  if (!existsSync(path)) return randomBytes(32).toString("hex")
-  const info = statSync(path)
-  if (!info.isFile() || (info.mode & 0o077) !== 0) {
-    throw new Error(`Owned backend secrets are not a private regular file: ${path}`)
-  }
-  let decoded: unknown
-  try {
-    decoded = JSON.parse(readFileSync(path, "utf8"))
-  } catch {
-    throw new Error(`Owned backend secrets are invalid: ${path}`)
-  }
-  const token = isRecord(decoded) && decoded.version === 1 && isRecord(decoded.values)
-    ? decoded.values.SMITHERS_AUTH_BOOTSTRAP_TOKEN
-    : undefined
-  if (typeof token !== "string" || token.trim() === "") {
-    throw new Error(`Owned backend secrets contain no bootstrap token: ${path}`)
-  }
-  return token
-}
-
 export const startNativeBackend = async (
   options: NativeBackendOptions
 ): Promise<NativeBackend> => {
   const env = options.env ?? Bun.env
-  const mode = nativeBackendMode(env)
-  if (mode === "plue") {
-    return { mode, origin: undefined, bootstrapToken: undefined, failure: undefined, stop: async () => {} }
-  }
-
-  const fromDir = options.fromDir ?? import.meta.dir
-  const backend = setting(env, "SMITHERS_BACKEND_BINARY") ??
-    resolve(fromDir, "..", "bin", "smithers-backend")
-  const postgresRoot = setting(env, "SMITHERS_POSTGRES_BUNDLE_DIR") ??
-    resolve(fromDir, "..", "postgres")
-  const postgres = postgresBinDirectory(postgresRoot)
-  const binaryRoot = dirname(backend)
-  const hosts = flowHostBundle(
-    setting(env, "SMITHERS_FLOW_HOST_MANIFEST") ?? resolve(binaryRoot, "flow-hosts.json")
-  )
-  const modelHost = checksummedExecutable(resolve(binaryRoot, "smithers-model-host"), "Packaged model host")
-  const jj = resolve(binaryRoot, "jj")
-  const git = resolve(binaryRoot, "git")
+  const mode = "own"
+  const executable = realpathSync(options.executablePath ?? process.execPath)
+  const binaryRoot = dirname(executable)
+  const bundleRoot = dirname(binaryRoot)
+  const backend = packagedPath(bundleRoot, "bin/smithers-backend", "Owned backend")
+  const postgres = postgresBinDirectory(packagedPath(bundleRoot, "postgres", "Owned PostgreSQL bundle"))
+  const hosts = flowHostBundle(packagedPath(bundleRoot, "bin/flow-hosts.json", "Packaged Flow host manifest"))
+  const msb = packagedPath(bundleRoot, "bin/msb", "Bundled microVM runtime")
+  const modelHost = checksummedExecutable(packagedPath(bundleRoot, "bin/smithers-model-host", "Packaged model host"), "Packaged model host")
+  const jj = packagedPath(bundleRoot, "bin/jj", "Packaged jj")
+  const git = packagedPath(bundleRoot, "bin/git", "Packaged Git")
   const gitRoot = resolve(binaryRoot, "..")
   const gitExecPath = resolve(gitRoot, "libexec", "git-core")
   const gitTemplateDir = resolve(gitRoot, "share", "git-core", "templates")
   const executables = [
     backend,
+    msb,
     hosts.node,
     hosts.coding.path,
     modelHost,
@@ -350,34 +284,31 @@ export const startNativeBackend = async (
     throw new Error(`Owned backend FFI library is unavailable: ${ffi}`)
   }
 
-  const origin = localOrigin(
-    setting(env, "SMITHERS_OWNED_BACKEND_ORIGIN") ?? "http://127.0.0.1:4000"
-  )
-  const bootstrapToken = options.bootstrapToken ?? nativeBootstrapToken(options.stateDir)
-  const launcherPath = setting(env, "PATH") ?? SYSTEM_PATH
+  const origin = "http://127.0.0.1:4000"
   const environment: Record<string, string> = Object.fromEntries(
     LAUNCHER_PASSTHROUGH.flatMap((name) => {
       const value = env[name]
       return value === undefined || value === "" ? [] : [[name, value]]
     })
   )
-  environment.PATH = `${binaryRoot}${delimiter}${launcherPath}`
-  environment.SMITHERS_WEB_ROOT = options.webRoot
+  environment.PATH = `${binaryRoot}${delimiter}${SYSTEM_PATH}`
+  environment.SMITHERS_WEB_ROOT = options.webRoot ?? packagedPath(bundleRoot, "views/mainview", "Packaged web app")
   // The backend's git is plumbing over owned repositories; the user's git config never applies.
   environment.GIT_CONFIG_NOSYSTEM = "1"
   environment.GIT_CONFIG_GLOBAL = "/dev/null"
   environment.SMITHERS_AUTH_MODE = "selfhost"
-  environment.SMITHERS_AUTH_BOOTSTRAP_TOKEN = bootstrapToken
   environment.SMITHERS_NATIVE_POSTGRES_BIN = postgres
   environment.SMITHERS_NATIVE_POSTGRES_MAJOR = "18"
   environment.SMITHERS_NATIVE_STATE_DIR = options.stateDir
   environment.SMITHERS_DATA_ROOT = options.stateDir
   environment.SMITHERS_SERVER_ADDR = new URL(origin).host
-  environment.SMITHERS_PUBLIC_URL = origin
   environment.SMITHERS_FLOW_HOST_MANIFEST = hosts.manifest
   environment.SMITHERS_WORKSPACE_CODING_HOST_BINARY = hosts.coding.path
   environment.SMITHERS_WORKSPACE_CODING_HOST_SHA256 = hosts.coding.sha256
   environment.SMITHERS_WORKSPACE_ISOLATION = "microvm"
+  environment.SMITHERS_MICROSANDBOX_BIN = msb
+  environment.SMITHERS_EGRESS_RELAY_PORT = "4001"
+  environment.SMITHERS_SSH_ADDR = "127.0.0.1:2222"
   environment.SMITHERS_MODEL_HOST_BUNDLE = modelHost
   environment.SMITHERS_NODE_BINARY = resolve(binaryRoot, "node")
   environment.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY = hosts.jjExport.path
@@ -389,7 +320,7 @@ export const startNativeBackend = async (
   // Names only: the triage line for a backend that differs between terminal and Dock launches.
   console.error(`owned backend env: ${Object.keys(environment).sort().join(" ")}`)
   const spawn = options.spawn ?? ((argv, childOptions) => Bun.spawn([...argv], childOptions))
-  const child = spawn([backend], {
+  const child = spawn(options.setupHandoff === "socket" ? [backend, "--setup-handoff=socket"] : [backend], {
     env: environment,
     stdout: "inherit",
     stderr: "inherit"
@@ -431,7 +362,7 @@ export const startNativeBackend = async (
       if (exitCode !== undefined) {
         throw new Error(`Owned backend exited before readiness with code ${exitCode}.`)
       }
-      if (response?.ok) return { mode, origin, bootstrapToken, failure, stop }
+      if (response?.ok) return { mode, origin, bootstrapToken: undefined, failure, stop }
       await sleep(Math.min(50, remaining))
     }
     throw new Error("Owned backend did not become ready before its startup deadline.")

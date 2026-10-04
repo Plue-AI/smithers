@@ -302,7 +302,8 @@ const securityReview = Smithers.SecurityReview({
         "A spawn env built from Bun.env or process.env instead of LAUNCHER_PASSTHROUGH plus explicit keys.",
         "An executable path taken from an env override that skips the checksum check.",
         "The bootstrap-token secrets file read when it is group/world readable or not a regular file.",
-        "The owned backend origin allowed to be non-loopback."
+        "Isolation not forced to microvm or runtime paths taken from the shell.",
+        "An address, origin, PATH or machine sizing value taken from the process environment."
       ],
       paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
     },

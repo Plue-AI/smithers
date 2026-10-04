@@ -4,7 +4,7 @@ const scenario = process.env.SMITHERS_SERVE_SCENARIO
 const failure = Promise.withResolvers<Error | undefined>()
 const stopped = Promise.withResolvers<void>()
 const started = Promise.withResolvers<string>()
-const calls: Array<{ stateDir: string; webRoot: string }> = []
+const calls: Array<{ stateDir: string; webRoot?: string }> = []
 const logs: string[] = []
 const errors: string[] = []
 let stopCalls = 0
@@ -19,7 +19,7 @@ console.log = (value: unknown) => {
 console.error = (value: unknown) => { errors.push(String(value)) }
 
 mock.module('../../../src/bun/NativeBackendProcess', () => ({
-  startNativeBackend: async (options: { stateDir: string; webRoot: string }) => {
+  startNativeBackend: async (options: { stateDir: string; webRoot?: string }) => {
     calls.push(options)
     return {
       mode: scenario === 'missing-origin' || scenario === 'plue-origin' ? 'plue' : 'own',
@@ -63,7 +63,7 @@ test('headless serve entrypoint handles its lifecycle', async () => {
     expect(line).toBe(scenario === 'plue-origin'
       ? 'SMITHERS_LOCAL_ORIGIN=https://plue.example'
       : 'SMITHERS_LOCAL_ORIGIN=http://127.0.0.1:4185')
-    expect(calls).toEqual([{ stateDir: scenario === 'plue-origin' ? '/configured' : '/state/headless', webRoot: '/web' }])
+    expect(calls).toEqual([{ stateDir: '/state' }])
     expect(stopCalls).toBe(0)
 
     if (scenario === 'signal') {

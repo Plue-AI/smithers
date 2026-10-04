@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
-import { nativeBackendMode, startNativeBackend } from "./NativeBackendProcess"
+import { startNativeBackend } from "./NativeBackendProcess"
 
 const roots: Array<string> = []
 const webRoot = "/packaged/views/mainview"
@@ -13,13 +13,15 @@ afterEach(() => {
 })
 
 const packagedRuntime = (): { backend: string; postgresBin: string; root: string; state: string } => {
-  const packageRoot = mkdtempSync(join(tmpdir(), "smithers-owned-"))
+  const packageRoot = realpathSync(mkdtempSync(join(tmpdir(), "smithers-owned-")))
   roots.push(packageRoot)
   const root = join(packageRoot, "bin")
   const postgresBin = join(packageRoot, "postgres", "bin")
   mkdirSync(postgresBin, { recursive: true })
   mkdirSync(root, { recursive: true })
   writeFileSync(join(packageRoot, "postgres", "bundle.json"), '{"version":1,"bin":"bin"}\n')
+  writeFileSync(join(root, "smithers-server"), "x", { mode: 0o755 })
+  writeFileSync(join(root, "msb"), "x", { mode: 0o755 })
   const backend = join(root, "smithers-backend")
   writeFileSync(backend, "x", { mode: 0o755 })
   const coding = join(root, "smithers-coding-host")
@@ -72,14 +74,10 @@ const ownedEnvironment = async (
   let resolveExit!: (code: number) => void
   const exited = new Promise<number>((resolve) => { resolveExit = resolve })
   const instance = await startNativeBackend({
+    executablePath: join(runtime.root, "smithers-server"),
     stateDir: runtime.state,
     webRoot,
-    env: {
-      ...launcher,
-      SMITHERS_BACKEND_MODE: "own",
-      SMITHERS_BACKEND_BINARY: runtime.backend,
-      SMITHERS_POSTGRES_BUNDLE_DIR: join(runtime.postgresBin, "..")
-    },
+    env: launcher,
     spawn: (_, options) => {
       env = options.env
       return { exited, kill: () => resolveExit(0) }
@@ -95,28 +93,12 @@ describe("native backend ownership", () => {
     const runtime = packagedRuntime()
     writeFileSync(join(runtime.root, "linux-arm64", "smithers-jj-export"), "tampered", { mode: 0o755 })
     await expect(startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
       stateDir: runtime.state,
       webRoot,
       env: { SMITHERS_BACKEND_MODE: "own", SMITHERS_BACKEND_BINARY: runtime.backend,
         SMITHERS_POSTGRES_BUNDLE_DIR: join(runtime.postgresBin, "..") }
     })).rejects.toThrow("Packaged Linux arm64 jj-export checksum failed")
-  })
-
-  test("plue starts neither process", async () => {
-    let spawned = false
-    const backend = await startNativeBackend({
-      stateDir: "/unused",
-      webRoot,
-      env: { SMITHERS_BACKEND_MODE: "plue" },
-      spawn: () => {
-        spawned = true
-        throw new Error("spawn")
-      }
-    })
-    expect(spawned).toBe(false)
-    expect(backend.origin).toBeUndefined()
-    expect(backend.failure).toBeUndefined()
-    await backend.stop()
   })
 
   test("owned passes packaged postgres", async () => {
@@ -128,6 +110,7 @@ describe("native backend ownership", () => {
     })
     const signals: Array<string> = []
     const instance = await startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
       stateDir: runtime.state,
       webRoot,
       env: {
@@ -135,7 +118,6 @@ describe("native backend ownership", () => {
         SMITHERS_BACKEND_BINARY: runtime.backend,
         SMITHERS_POSTGRES_BUNDLE_DIR: join(runtime.postgresBin, "..")
       },
-      bootstrapToken: "native-bootstrap",
       spawn: (_, options) => {
         env = options.env
         return {
@@ -151,9 +133,9 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_NATIVE_POSTGRES_BIN).toBe(realpathSync(runtime.postgresBin))
     expect(env.SMITHERS_NATIVE_POSTGRES_MAJOR).toBe("18")
     expect(env.SMITHERS_DATA_ROOT).toBe(runtime.state)
-    expect(env.SMITHERS_PUBLIC_URL).toBe("http://127.0.0.1:4000")
+    expect(env.SMITHERS_PUBLIC_URL).toBeUndefined()
     expect(env.SMITHERS_AUTH_MODE).toBe("selfhost")
-    expect(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toBe("native-bootstrap")
+    expect(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toBeUndefined()
     expect(env.SMITHERS_FFI_LIBRARY_PATH).toBe(join(runtime.root,
       process.platform === "darwin" ? "libsmithers_ffi.dylib" : process.platform === "linux" ? "libsmithers_ffi.so" : "smithers_ffi.dll"
     ))
@@ -170,7 +152,7 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_FFI_LIBRARY).toBeUndefined()
     expect(env.SMITHERS_CODING_HOST_PATH).toBeUndefined()
     expect(instance.origin).toBe("http://127.0.0.1:4000")
-    expect(instance.bootstrapToken).toBe("native-bootstrap")
+    expect(instance.bootstrapToken).toBeUndefined()
     await instance.stop()
     expect(await instance.failure).toBeUndefined()
     expect(signals).toEqual(["SIGTERM"])
@@ -181,6 +163,7 @@ describe("native backend ownership", () => {
     let resolveExit!: (code: number) => void
     const exited = new Promise<number>((resolve) => { resolveExit = resolve })
     const instance = await startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
       stateDir: runtime.state,
       webRoot,
       env: {
@@ -204,6 +187,7 @@ describe("native backend ownership", () => {
     })
     const signals: Array<string> = []
     const launch = startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
       stateDir: runtime.state,
       webRoot,
       env: {
@@ -267,19 +251,20 @@ describe("native backend ownership", () => {
       "HOME",
       "HTTPS_PROXY",
       "PATH",
-      "SMITHERS_AUTH_BOOTSTRAP_TOKEN",
       "SMITHERS_AUTH_MODE",
       "SMITHERS_DATA_ROOT",
+      "SMITHERS_EGRESS_RELAY_PORT",
       "SMITHERS_FFI_LIBRARY_PATH",
       "SMITHERS_FLOW_HOST_MANIFEST",
       "SMITHERS_JJ_PATH",
+      "SMITHERS_MICROSANDBOX_BIN",
       "SMITHERS_MODEL_HOST_BUNDLE",
       "SMITHERS_NATIVE_POSTGRES_BIN",
       "SMITHERS_NATIVE_POSTGRES_MAJOR",
       "SMITHERS_NATIVE_STATE_DIR",
       "SMITHERS_NODE_BINARY",
-      "SMITHERS_PUBLIC_URL",
       "SMITHERS_SERVER_ADDR",
+      "SMITHERS_SSH_ADDR",
       "SMITHERS_WEB_ROOT",
       "SMITHERS_WORKSPACE_CODING_HOST_BINARY",
       "SMITHERS_WORKSPACE_CODING_HOST_SHA256",
@@ -291,7 +276,7 @@ describe("native backend ownership", () => {
     expect(Object.values(env)).not.toContain("canary")
     expect(env.HOME).toBe("/Users/owner")
     expect(env.HTTPS_PROXY).toBe("http://proxy.internal:3128")
-    expect(env.PATH).toBe(`${runtime.root}${delimiter}/usr/bin:/bin`)
+    expect(env.PATH).toBe([runtime.root, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
     expect(env.SMITHERS_WEB_ROOT).toBe(webRoot)
     expect(env.GIT_CONFIG_NOSYSTEM).toBe("1")
     expect(env.GIT_CONFIG_GLOBAL).toBe("/dev/null")
@@ -300,7 +285,7 @@ describe("native backend ownership", () => {
   test("a launcher without PATH still gives the backend the system tools", async () => {
     const runtime = packagedRuntime()
     const env = await ownedEnvironment(runtime, {})
-    expect(env.PATH).toBe([runtime.root, "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
+    expect(env.PATH).toBe([runtime.root, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
   })
 
   test.each([undefined, "process", "microvm", "invalid", ""])(
@@ -311,20 +296,6 @@ describe("native backend ownership", () => {
       expect(env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
     })
 
-  test("the first-owner token comes from the owned state, never the launcher", async () => {
-    const runtime = packagedRuntime()
-    mkdirSync(join(runtime.state, "config"), { recursive: true })
-    writeFileSync(
-      join(runtime.state, "config", "secrets.json"),
-      JSON.stringify({ version: 1, values: { SMITHERS_AUTH_BOOTSTRAP_TOKEN: "persisted-owner-token" } }),
-      { mode: 0o600 }
-    )
-    const env = await ownedEnvironment(runtime, { SMITHERS_AUTH_BOOTSTRAP_TOKEN: "shell-export" })
-    expect(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toBe("persisted-owner-token")
-    const fresh = await ownedEnvironment(packagedRuntime(), { SMITHERS_AUTH_BOOTSTRAP_TOKEN: "shell-export" })
-    expect(fresh.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toMatch(/^[0-9a-f]{64}$/)
-  })
-
   test("the spawn log names the backend environment without its values", async () => {
     const lines: Array<string> = []
     const log = spyOn(console, "error").mockImplementation((line: unknown) => { lines.push(String(line)) })
@@ -332,22 +303,17 @@ describe("native backend ownership", () => {
       const env = await ownedEnvironment(packagedRuntime(), { HOME: "/Users/owner" })
       expect(lines).toEqual([`owned backend env: ${Object.keys(env).sort().join(" ")}`])
       expect(lines[0]).not.toContain("/Users/owner")
-      expect(lines[0]).not.toContain(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN)
+      expect(env.SMITHERS_AUTH_BOOTSTRAP_TOKEN).toBeUndefined()
     } finally {
       log.mockRestore()
     }
-  })
-
-  test("unknown mode is refused", () => {
-    expect(() => nativeBackendMode({ SMITHERS_BACKEND_MODE: "unknown" })).toThrow(
-      "own or plue"
-    )
   })
 
   test("owned refuses a modified canonical Flow host", async () => {
     const runtime = packagedRuntime()
     writeFileSync(join(runtime.root, "smithers-coding-host"), "modified", { mode: 0o755 })
     await expect(startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
       stateDir: runtime.state,
       webRoot,
       env: {
@@ -358,3 +324,49 @@ describe("native backend ownership", () => {
     })).rejects.toThrow("checksum failed")
   })
 })
+
+ test.each([undefined, "socket"] as const)("bundled launch ignores shell and inherits output (%s)", async (setupHandoff) => {
+  const runtime = packagedRuntime()
+  const link = join(runtime.state, "server-link")
+  mkdirSync(runtime.state)
+  symlinkSync(join(runtime.root, "smithers-server"), link)
+  const hostile = Object.fromEntries([
+   "SMITHERS_BACKEND_BINARY", "SMITHERS_POSTGRES_BUNDLE_DIR", "SMITHERS_FLOW_HOST_MANIFEST",
+   "SMITHERS_OWNED_BACKEND_ORIGIN", "SMITHERS_MICROSANDBOX_BIN", "SMITHERS_EGRESS_RELAY_PORT",
+   "SMITHERS_SERVER_ADDR", "SMITHERS_SSH_ADDR", "SMITHERS_PUBLIC_URL", "SMITHERS_MICROVM_MEMORY_MIB",
+   "SMITHERS_PLATFORM_MODEL_KEYS_FILE"
+  ].map((name) => [name, "hostile"]))
+  let resolveExit!: (code: number) => void
+  const exited = new Promise<number>((resolve) => { resolveExit = resolve })
+  let argv: ReadonlyArray<string> = []
+  let childOptions: unknown
+  const instance = await startNativeBackend({
+   executablePath: link, stateDir: runtime.state, webRoot, setupHandoff,
+   env: { ...hostile, SMITHERS_BACKEND_MODE: "plue", SMITHERS_WORKSPACE_ISOLATION: "process", PATH: "/opt/homebrew/bin:/hostile/bin" },
+   spawn: (args, options) => {
+    argv = args; childOptions = options
+    expect(Object.values(options.env)).not.toContain("hostile")
+    expect(options.env.PATH).toBe([runtime.root, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
+    expect(options.env.SMITHERS_MICROSANDBOX_BIN).toBe(join(runtime.root, "msb"))
+    expect(options.env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
+    expect(options.env.SMITHERS_EGRESS_RELAY_PORT).toBe("4001")
+    expect(options.env.SMITHERS_SERVER_ADDR).toBe("127.0.0.1:4000")
+    expect(options.env.SMITHERS_SSH_ADDR).toBe("127.0.0.1:2222")
+    return { exited, kill: () => resolveExit(0) }
+   }, fetch: async () => new Response(null, { status: 200 })
+  })
+  expect(argv).toEqual(setupHandoff === "socket" ? [runtime.backend, "--setup-handoff=socket"] : [runtime.backend])
+  expect(childOptions).toMatchObject({ stdout: "inherit", stderr: "inherit" })
+  expect(instance.mode).toBe("own")
+  await instance.stop()
+ })
+
+ test("missing bundled msb refuses before spawning", async () => {
+  const runtime = packagedRuntime()
+  rmSync(join(runtime.root, "msb"))
+  let spawned = false
+  await expect(startNativeBackend({ executablePath: join(runtime.root, "smithers-server"),
+   stateDir: runtime.state, webRoot, spawn: () => { spawned = true; throw new Error("spawn") }
+  })).rejects.toThrow("Bundled microVM runtime is unavailable")
+  expect(spawned).toBe(false)
+ })

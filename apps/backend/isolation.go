@@ -88,23 +88,24 @@ func egressRelayPort(backend uint16) (uint16, error) {
 	return uint16(port), nil
 }
 
-func workspaceIsolation() (string, error) {
+func workspaceIsolation(allowProcessForTests bool) (string, error) {
+	if allowProcessForTests {
+		return isolationProcess, nil
+	}
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_ISOLATION")))
 	switch mode {
-	case "", isolationProcess:
-		return isolationProcess, nil
 	case isolationMicroVM:
 		return isolationMicroVM, nil
 	default:
-		return "", fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION must be %q or %q", isolationProcess, isolationMicroVM)
+		return "", fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION must be %q; process isolation is tests-only", isolationMicroVM)
 	}
 }
 
 // openExecutionRuntimes composes the workspace runtime. hostBundle is the
 // directory of the packaged Flow hosts; in microvm mode its files are planted
 // in a guest when a host or the helper it names runs there.
-func openExecutionRuntimes(ctx context.Context, dataRoot, hostBundle string) (executionRuntimes, error) {
-	mode, err := workspaceIsolation()
+func openExecutionRuntimes(ctx context.Context, dataRoot, hostBundle string, allowProcessForTests bool) (executionRuntimes, error) {
+	mode, err := workspaceIsolation(allowProcessForTests)
 	if err != nil {
 		return executionRuntimes{}, err
 	}

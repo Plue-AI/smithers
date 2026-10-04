@@ -19,7 +19,7 @@ import (
 
 func TestProcessIsolationKeepsOneTrustedRuntime(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "")
-	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir())
+	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 			t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 			t.Setenv("SMITHERS_MICROSANDBOX_BIN", binary)
 			freeRelayPort(t)
-			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t))
+			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false)
 			if err == nil {
 				_ = runtimes.Close()
 				t.Fatal("microvm mode started without Microsandbox")
@@ -98,13 +98,13 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 
 func TestIsolationModeIsValidated(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "container")
-	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir()); err == nil {
+	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir(), false); err == nil {
 		t.Fatal("unknown isolation mode accepted")
 	}
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	t.Setenv("SMITHERS_SERVER_ADDR", ":0")
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/bin/sh")
-	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t)); err == nil || !strings.Contains(err.Error(), "fixed SMITHERS_SERVER_ADDR port") {
+	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false); err == nil || !strings.Contains(err.Error(), "fixed SMITHERS_SERVER_ADDR port") {
 		t.Fatalf("dynamic port accepted: %v", err)
 	}
 }
@@ -149,7 +149,7 @@ func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
-			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle)
+			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle, false)
 			if err == nil {
 				_ = runtimes.Close()
 				t.Fatal("microvm mode started without a guest workspace helper")
@@ -162,7 +162,7 @@ func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
 	// The same bundle with the Linux helper passes the helper check and is
 	// refused only by the (fake) Microsandbox qualification.
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", filepath.Join(bundle, "linux-arm64", "smithers-jj-export"))
-	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle)
+	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle, false)
 	if !errors.Is(err, microsandbox.ErrUnavailable) {
 		t.Fatalf("a Linux helper was refused: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
 func TestControlRuntimeCannotBindCodingFlowHost(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "process")
 	root := t.TempDir()
-	runtimes, err := openExecutionRuntimes(context.Background(), root, t.TempDir())
+	runtimes, err := openExecutionRuntimes(context.Background(), root, t.TempDir(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,5 +271,19 @@ func TestMicroVMConfigDetectionFailureRefusesStartup(t *testing.T) {
 	}
 	if config.CPUs != 0 || config.MemoryMiB != 0 || config.MaxRunningVMs != 0 || config.HostProfile != nil {
 		t.Fatalf("detection failure selected fallback limits: %#v", config)
+	}
+}
+
+func TestMicroVMIsolationRefusesWrongVersion(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "msb")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho 'msb 0.6.15'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
+	t.Setenv("SMITHERS_MICROSANDBOX_BIN", binary)
+	freeRelayPort(t)
+	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false)
+	if !errors.Is(err, microsandbox.ErrUnavailable) || !strings.Contains(err.Error(), "qualified with msb 0.6.16") {
+		t.Fatalf("version refusal = %v", err)
 	}
 }

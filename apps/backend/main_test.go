@@ -67,6 +67,7 @@ func TestMigrationWithoutDatabaseDoesNotPrepareLocalState(t *testing.T) {
 }
 
 func TestServeRequiresPackagedFlowHostsBeforePreparingLocalState(t *testing.T) {
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	root := t.TempDir()
 	t.Setenv("SMITHERS_DATA_ROOT", root)
 	t.Setenv("SMITHERS_NATIVE_POSTGRES_BIN", "/unused/postgres")
@@ -112,5 +113,41 @@ func TestCreditsWithoutDatabaseFails(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	if err := run(context.Background(), []string{"credits", "balance", "-owner", "user:alice"}); err == nil || !strings.Contains(err.Error(), "DATABASE_URL") {
 		t.Fatalf("credits without PostgreSQL = %v", err)
+	}
+}
+
+func TestProductionRefusesUnsafeIsolationBeforeInputs(t *testing.T) {
+	for _, mode := range []string{"", "process", "container"} {
+		for _, native := range []string{"", "/unused/postgres"} {
+			t.Run(mode+native, func(t *testing.T) {
+				root := t.TempDir()
+				t.Setenv("SMITHERS_WORKSPACE_ISOLATION", mode)
+				t.Setenv("SMITHERS_NATIVE_POSTGRES_BIN", native)
+				t.Setenv("SMITHERS_DATABASE_URL", "postgres://unused")
+				t.Setenv("SMITHERS_DATA_ROOT", root)
+				t.Setenv("SMITHERS_PLATFORM_MODEL_KEYS_FILE", filepath.Join(root, "absent-keys"))
+				t.Setenv("SMITHERS_FLOW_HOST_MANIFEST", filepath.Join(root, "absent-manifest"))
+				if err := run(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "process isolation is tests-only") {
+					t.Fatalf("early isolation refusal = %v", err)
+				}
+				entries, err := os.ReadDir(root)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("startup produced state: %v, %v", entries, err)
+				}
+			})
+		}
+	}
+}
+
+func TestDoctorRemainsServerFreeWithoutIsolation(t *testing.T) {
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "")
+	root := t.TempDir()
+	t.Setenv("SMITHERS_DATA_ROOT", root)
+	if err := run(context.Background(), []string{"microvm", "invalid"}); err == nil || !strings.Contains(err.Error(), "usage: smithers-backend microvm doctor") {
+		t.Fatalf("doctor dispatch = %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("doctor produced server state: %v, %v", entries, err)
 	}
 }

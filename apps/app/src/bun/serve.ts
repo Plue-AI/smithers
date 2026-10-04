@@ -1,12 +1,11 @@
-import { join, resolve } from "node:path"
 import { startNativeBackend } from "./NativeBackendProcess"
 import { nativeStateDirectory } from "./NativeState"
-import { defaultDistDir } from "./server"
 
-const stateDir = Bun.env.SMITHERS_LOCAL_STATE_DIR?.trim()
-  ? resolve(Bun.env.SMITHERS_LOCAL_STATE_DIR)
-  : join(nativeStateDirectory(), "headless")
-const backend = await startNativeBackend({ stateDir, webRoot: defaultDistDir(import.meta.dir) })
+const stateDir = nativeStateDirectory()
+const backend = await startNativeBackend({
+  stateDir,
+  ...(process.argv.includes("--setup-handoff=socket") ? { setupHandoff: "socket" as const } : {})
+})
 const origin = backend.mode === "own" ? backend.origin : Bun.env.SMITHERS_API_ORIGIN?.trim()
 if (origin === undefined || origin === "") {
   await backend.stop()

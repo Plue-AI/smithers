@@ -72,6 +72,9 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	if len(args) > 0 && args[0] == "microvm" {
 		return runMicroVM(ctx, args[1:])
 	}
+	if _, err := workspaceIsolation(testFlowHostConfig.AllowTrustedProcessForTests); err != nil {
+		return err
+	}
 	upstreams, err := modelproxy.ParseUpstreams(os.Getenv(modelproxy.UpstreamsEnv))
 	if err != nil {
 		return err
@@ -116,7 +119,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	}()
 
 	dataRoot := os.Getenv("SMITHERS_DATA_ROOT")
-	runtimes, err := openExecutionRuntimes(ctx, dataRoot, filepath.Dir(registry.Coding.Executable))
+	runtimes, err := openExecutionRuntimes(ctx, dataRoot, filepath.Dir(registry.Coding.Executable), testFlowHostConfig.AllowTrustedProcessForTests)
 	if err != nil {
 		return err
 	}
