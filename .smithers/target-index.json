@@ -24203,6 +24203,32 @@
     }
   },
   {
+    "label": "//flows:preview",
+    "package": "flows",
+    "name": "preview",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/test/preview.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//flows:provider",
     "package": "flows",
     "name": "provider",

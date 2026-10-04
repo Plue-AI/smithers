@@ -74,6 +74,13 @@ const fmt = Smithers.Dprint({
   cwd
 })
 
+const preview = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//flows/test/preview.test.ts")]),
+  srcs: [sources],
+  deps: [],
+  cwd
+})
+
 const recording = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//flows/test/recording.test.ts")]),
   srcs: [sources],
@@ -699,6 +706,7 @@ export const Package = Smithers.Package({
     fmt,
     repository,
     suite,
+    preview,
     recording,
     issueSweep,
     issueSweepVm,

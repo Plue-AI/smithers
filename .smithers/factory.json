@@ -1189,6 +1189,50 @@
       "flows": []
     },
     {
+      "id": "preview",
+      "description": "Preview a branch's app.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/preview/flow.ts",
+      "capabilities": [
+        "deploy:preview"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": []
+    },
+    {
       "id": "register-repository",
       "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
       "summary": null,
