@@ -3027,7 +3027,7 @@
 .mvp-docs .mvp-docs-missing { margin: 0 0 var(--sp-5); color: var(--text-muted); font-size: var(--fs-small); }
 .mvp-docs .mvp-docs-markdown { min-width: 0; }
 .mvp-docs .milkdown { background: transparent; color: var(--text); }
-.mvp-docs .milkdown .ProseMirror { padding: 0; font-family: var(--font-ui); font-size: var(--fs-small); line-height: 1.55; }
+.mvp-docs .mvp-docs-markdown .milkdown .ProseMirror { padding: 0; font-family: var(--font-ui); font-size: var(--fs-small); line-height: 1.55; }
 .mvp-docs .milkdown pre, .mvp-docs .milkdown table { max-width: 100%; overflow: auto; }
 .mvp-docs .sui-markdown-editor-fallback { box-sizing: border-box; width: 100%; min-height: 240px; color: var(--text); background: var(--surface); }
 .mvp-docs footer { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-5); }

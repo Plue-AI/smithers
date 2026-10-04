@@ -333,9 +333,15 @@ describe("MarkdownEditor scrollToLine (WYSIWYG path)", () => {
       await rerender(view("a"));
       const lateCode = document.createElement("div");
       lateCode.setAttribute("role", "textbox");
+      const writes: MutationRecord[] = [];
+      const recorder = new MutationObserver(records => writes.push(...records));
+      recorder.observe(lateCode, { attributes: true });
       await act(async () => { host().append(lateCode) });
       expect(lateCode.getAttribute("aria-label")).toBe("Page");
       expect(lateCode.getAttribute("aria-readonly")).toBe("true");
+      await act(async () => { host().append(document.createElement("p")) });
+      expect(writes).toHaveLength(2);
+      recorder.disconnect();
       expect(seen).toEqual(["Target"]);
       await rerender(view("b"));
       expect(seen).toEqual(["Target", "Target"]);

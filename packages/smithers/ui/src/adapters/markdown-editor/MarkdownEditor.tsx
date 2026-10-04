@@ -556,8 +556,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         readyRef.current = true;
         const labelContent = () => {
           for (const content of host.querySelectorAll<HTMLElement>('.ProseMirror,[role="textbox"]')) {
-            if (ariaLabel) content.setAttribute("aria-label", ariaLabel);
-            content.setAttribute("aria-readonly", String(readOnly));
+            if (ariaLabel && content.getAttribute("aria-label") !== ariaLabel) content.setAttribute("aria-label", ariaLabel);
+            if (content.getAttribute("aria-readonly") !== String(readOnly)) content.setAttribute("aria-readonly", String(readOnly));
           }
         };
         labelContent();
