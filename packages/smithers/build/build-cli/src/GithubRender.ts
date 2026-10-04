@@ -629,7 +629,10 @@ const renderWorkflow = (
     }
   }
   if (workflow.permissions !== undefined || workflow.affected) {
-    lines.push("permissions:", ...mapping({ contents: "read", ...workflow.permissions, ...(workflow.affected ? { actions: "read" } : {}) }, "  "))
+    lines.push(
+      "permissions:",
+      ...mapping({ contents: "read", ...workflow.permissions, ...(workflow.affected ? { actions: "read" } : {}) }, "  ")
+    )
   }
   if (workflow.env !== undefined) lines.push("env:", ...mapping(workflow.env, "  "))
   lines.push("jobs:")
@@ -682,9 +685,20 @@ const renderWorkflow = (
       }
     }
     const affected = workflow.affected === true && shards === 1
-    const command = [...toolchain.exec, ...(affected ? ["affected", "ci"] : []), `'${runLabel}'`, ...(affected ? ["--base-green"] : [])].join(" ")
+    const command = [
+      ...toolchain.exec,
+      ...(affected ? ["affected", "ci"] : []),
+      `'${runLabel}'`,
+      ...(affected ? ["--base-green"] : [])
+    ].join(" ")
     lines.push(`      - run: ${scalar(command)}`)
-    if (affected) lines.push("        env:", "          GITHUB_TOKEN: ${{ github.token }}", `          SMTHRS_CI_JOB: ${scalar(workflow.jobName ?? jobId)}`)
+    if (affected) {
+      lines.push(
+        "        env:",
+        "          GITHUB_TOKEN: ${{ github.token }}",
+        `          SMTHRS_CI_JOB: ${scalar(workflow.jobName ?? jobId)}`
+      )
+    }
   }
   return `${lines.join("\n")}\n`
 }

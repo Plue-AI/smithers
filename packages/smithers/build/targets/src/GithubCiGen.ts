@@ -21,10 +21,12 @@
 
 import type { Action } from "@smthrs/flow"
 import type * as Node from "@smthrs/plan/Node"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as CiToolchain from "./CiToolchain.ts"
 import { DriftError, generateFile, resolveOutputPath, WriteFileError } from "./GeneratedFile.ts"
+import { Permission } from "./GithubTarget.ts"
 import { independentGateCondition } from "./GithubWorkflow.ts"
 import * as Input from "./Input.ts"
 import * as Nix from "./Nix.ts"
@@ -86,6 +88,8 @@ export const maximumParallelism = 256
 export const TargetStep = Schema.Struct({
   /** Operator-facing step name. Defaults to the verb and pattern it runs. */
   name: Schema.optional(Schema.NonEmptyString),
+  /** Secret names injected only into this outward Run step. */
+  secrets: Schema.optional(Schema.Array(Secret.Declaration)),
   /**
    * The CLI verb, as a typed {@link Verb.PipelineVerb} value. `Verb.Ci` is the
    * aggregate: one invocation that plans every kind over the pattern, rather
@@ -218,6 +222,10 @@ export type MatrixRow = typeof MatrixRow.Type
  */
 export const Job = Schema.Struct({
   id: Schema.NonEmptyString,
+  /** Deployment environment, permitted only for explicit outward Run steps. */
+  environment: Schema.optional(Schema.NonEmptyString),
+  needs: Schema.optional(Schema.NonEmptyArray(Schema.NonEmptyString)),
+  permissions: Schema.optional(Schema.Record(Schema.String, Permission)),
   name: Schema.optional(Schema.NonEmptyString),
   /**
    * The runner, for a job that runs on one. A job declares this or
@@ -279,6 +287,8 @@ export type Job = typeof Job.Type
  * @since 0.1.0
  */
 export const Attrs = Schema.Struct({
+  /** Workflow token permissions; writes are confined to deployment jobs. */
+  permissions: Schema.optional(Schema.Record(Schema.String, Permission)),
   /** @default "CI" */
   workflowName: Schema.NonEmptyString.pipe(
     Schema.withConstructorDefault(Effect.succeed("CI"))
@@ -701,15 +711,17 @@ export const stepCommand = (attrs: Attrs, step: TargetStep, nix?: CiToolchain.Ni
   if (step.verb.name === "review") {
     throw new Error("GithubCiGen: model review requires a trusted review host and an explicitly pinned policy")
   }
+  const affected = attrs.affected === true && step.verb.name !== "run"
   return [
     ...developPrefix(nix),
     ...PackageManager.exec(attrs.packageManager, [
       "smthrs",
-      ...(attrs.affected === true ? ["affected"] : []),
+      ...(affected ? ["affected"] : []),
       Verb.command(step.verb)
     ]),
     shellArgument(step.pattern),
-    ...(attrs.affected === true ? ["--base-green"] : []),
+    ...(affected ? ["--base-green"] : []),
+    ...(step.verb.name === "run" ? ["--outward-only"] : []),
     ...(step.parallelism === undefined ? [] : ["--jobs", String(step.parallelism)]),
     ...(attrs.knownRed === undefined ? [] : ["--known-red", shellArgument(attrs.knownRed)]),
     // GITHUB_ACTION is unique per step within a job, so no two steps share a file.
@@ -1325,11 +1337,71 @@ const validatePublishing = (attrs: Attrs): void => {
   }
 }
 
+class DeploymentError extends Data.TaggedError("smithers-targets/GithubCiGenDeploymentError")<{
+  readonly message: string
+}> {}
+
 const validateJobs = (attrs: Attrs): void => {
   const ids = new Set<string>()
   const required = new Set(attrs.requiredJobs)
   validatePublishing(attrs)
+  const permissionName =
+    /^(?:actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses)$/
+  const permissions = (values: Attrs["permissions"], deploy: boolean) => {
+    for (const [name, level] of Object.entries(values ?? {})) {
+      if (!permissionName.test(name) || !["read", "write", "none"].includes(level) || (level === "write" && !deploy)) {
+        throw new DeploymentError({ message: `GithubCiGen: unsafe permission ${name}: ${level}` })
+      }
+    }
+  }
+  permissions(attrs.permissions, false)
   for (const job of attrs.jobs) {
+    permissions(job.permissions, job.environment !== undefined)
+    const runs = job.steps.some((step) => step.verb.name === "run")
+    if (runs && job.environment === undefined) {
+      throw new DeploymentError({ message: `GithubCiGen: job "${job.id}": a Run step needs environment` })
+    }
+    if (job.environment !== undefined) {
+      if (job.steps.some((step) => step.verb.name !== "run")) {
+        throw new DeploymentError({ message: "GithubCiGen: environment job holds a non-Run step" })
+      }
+      if (!job.needs?.length) throw new DeploymentError({ message: "GithubCiGen: environment job needs needs" })
+      if (attrs.pullRequest) {
+        throw new DeploymentError({ message: "GithubCiGen: Run cannot use a pull-request trigger" })
+      }
+      if (!attrs.pushBranches.length || attrs.pushBranches.some((branch) => !publishBranchName.test(branch))) {
+        throw new DeploymentError({ message: "GithubCiGen: Run needs literal push branches" })
+      }
+      if (job.matrix !== undefined || job.continueOnError || job.publishesToCache) {
+        throw new DeploymentError({
+          message: "GithubCiGen: deploy jobs cannot be matrix, advisory or cache publishers"
+        })
+      }
+      for (const id of job.needs) {
+        const dependency = attrs.jobs.find((entry) => entry.id === id)
+        if (
+          !dependency || dependency.id === job.id || dependency.continueOnError ||
+          dependency.matrix?.some((row) => row.advisory)
+        ) {
+          throw new DeploymentError({ message: "GithubCiGen: deploy needs successful required jobs" })
+        }
+      }
+    }
+    for (const step of job.steps) {
+      if (
+        step.verb.name === "run" &&
+        (!/^\/\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]*:[A-Za-z0-9_.-]+$/.test(step.pattern) ||
+          step.pattern.includes("...") || step.pattern.endsWith(":all"))
+      ) {
+        throw new DeploymentError({ message: "GithubCiGen: Run needs one explicit target" })
+      }
+      if (step.secrets?.length && step.verb.name !== "run") {
+        throw new DeploymentError({ message: "GithubCiGen: secrets need a Run step" })
+      }
+      if (step.secrets?.some((secret) => !Schema.is(Secret.Declaration)(secret))) {
+        throw new DeploymentError({ message: "GithubCiGen: invalid step secret" })
+      }
+    }
     validateJobRunners(job)
     // A lane named in `requiredJobs` is a lane the pipeline promises to run.
     // One that is advisory everywhere fails nothing, so naming it required
@@ -1552,7 +1624,7 @@ export const render = (attrs: Attrs): string => {
     // a branch's in-progress run always finishes.
     attrs.concurrency === "commit"
       ? "  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}"
-      : "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
+      : "  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
     `  cancel-in-progress: ${
       attrs.concurrency !== "commit" && attrs.cancelInProgress ? "${{ github.event_name == 'pull_request' }}" : "false"
     }`,
@@ -1560,8 +1632,8 @@ export const render = (attrs: Attrs): string => {
     // every job reads the repository and nothing else. Secrets reach a job
     // only through its declared step environment.
     "permissions:",
-    "  contents: read",
-    ...(attrs.affected === true ? ["  actions: read"] : []),
+    ...Object.entries({ contents: "read", ...attrs.permissions, ...(attrs.affected ? { actions: "read" } : {}) })
+      .map(([name, level]) => `  ${name}: ${level}`),
     "jobs:"
   ]
   const cacheEnv = cacheEnvironment(attrs)
@@ -1582,7 +1654,6 @@ export const render = (attrs: Attrs): string => {
         } :
         {})
     }
-    const hasJobEnv = Object.keys(jobEnv).length > 0
     // A job id is a mapping KEY, and YAML resolves a plain `no:` or `on:` to a
     // boolean just as it does a value, so an id that reads as one is quoted.
     lines.push(`  ${scalar(job.id)}:`)
@@ -1606,8 +1677,18 @@ export const render = (attrs: Attrs): string => {
     } else {
       lines.push(`    runs-on: ${runner(job.runsOn!)}`)
     }
-    if (publishes) {
-      lines.push(`    if: ${publishGuard(attrs)}`, `    environment: ${scalar(attrs.cacheWriteEnvironment!)}`)
+    if (publishes || job.environment !== undefined) {
+      lines.push(
+        `    if: ${publishGuard(attrs)}`,
+        `    environment: ${scalar(job.environment ?? attrs.cacheWriteEnvironment!)}`
+      )
+    }
+    if (job.needs !== undefined) lines.push(`    needs: [${job.needs.map(scalar).join(", ")}]`)
+    if (job.permissions !== undefined) {
+      lines.push(
+        "    permissions:",
+        ...Object.entries(job.permissions).map(([name, level]) => `      ${name}: ${level}`)
+      )
     }
     if (job.timeoutMinutes !== undefined) lines.push(`    timeout-minutes: ${job.timeoutMinutes}`)
     if (job.matrix !== undefined) {
@@ -1629,20 +1710,17 @@ export const render = (attrs: Attrs): string => {
     // job renders the same shape, so release.yml copies any gate verbatim.
     rendered.push({ ...rendered.pop()!, id: "setup" })
     for (const step of job.steps) {
+      const affected = attrs.affected === true && job.matrix === undefined && step.verb.name !== "run"
+      const env = {
+        ...jobEnv,
+        ...(affected ? { GITHUB_TOKEN: "${{ github.token }}", SMTHRS_CI_JOB: job.name ?? job.id } : {}),
+        ...Object.fromEntries((step.secrets ?? []).map((secret) => [secret.env, `\${{ secrets.${secret.env} }}`]))
+      }
       rendered.push({
         ...(step.name === undefined ? {} : { name: step.name }),
-        condition: independentGate,
-        run: stepCommand(job.matrix === undefined ? attrs : { ...attrs, affected: false }, step, job.toolchain.nix),
-        ...(hasJobEnv || (attrs.affected && job.matrix === undefined)
-          ? {
-            env: {
-              ...jobEnv,
-              ...(attrs.affected && job.matrix === undefined
-                ? { GITHUB_TOKEN: "${{ github.token }}", SMTHRS_CI_JOB: job.name ?? job.id }
-                : {})
-            }
-          }
-          : {})
+        ...(step.verb.name === "run" ? {} : { condition: independentGate }),
+        run: stepCommand({ ...attrs, affected }, step, job.toolchain.nix),
+        ...(Object.keys(env).length > 0 ? { env } : {})
       })
     }
     if (job.toolchain.artifacts !== undefined) rendered.push(...artifactSteps(job.toolchain.artifacts))
