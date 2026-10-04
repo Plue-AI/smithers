@@ -1,6 +1,8 @@
 package repohost
 
 import (
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"strings"
 	"testing"
 )
@@ -227,6 +229,32 @@ func TestRefKeyMatchesCanonicalCaseless(t *testing.T) {
 	} {
 		if !SameRef(pair[0], pair[1]) {
 			t.Errorf("SameRef(%q, %q) = false", pair[0], pair[1])
+		}
+	}
+}
+
+func TestInstallMainMirrorUsesCanonicalRefIdentity(t *testing.T) {
+	for _, ref := range []string{"refs/heads/main", "refs/heads/MAIN", "refs/heads/ma\u200cin"} {
+		for _, kind := range []middleware.CredentialKind{"", "person", "run", "platform", "sync", "unknown"} {
+			err := RequireInstallMainMirror(true, kind, ref)
+			if kind == middleware.CredentialSync {
+				if err != nil {
+					t.Fatal(err)
+				}
+				continue
+			}
+			refusal, ok := err.(*pkgerrors.APIError)
+			if !ok || refusal.Status != 403 || refusal.Code != "permission" || refusal.Class != "permission" {
+				t.Fatalf("%s/%s: %#v", ref, kind, err)
+			}
+			if err := RequireInstallMainMirror(false, kind, ref); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, ref := range []string{"refs/heads/feature", "refs/heads/main/child", "refs/tags/main", "refs/heads/mythical", ""} {
+		if err := RequireInstallMainMirror(true, middleware.CredentialPerson, ref); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

@@ -62,15 +62,19 @@ func TestPushHookPayloadsCarryPusherCredential(t *testing.T) {
 	assert.Equal(t, middleware.CredentialSync, payloads[0].PusherCredential)
 }
 
-// Main is append-only: no pusher rewinds, rewrites or deletes the default
-// bookmark. Only the GitHub sync credential copies GitHub's refs as they are.
+// Install main is a GitHub mirror: people cannot fast-forward, rewrite or
+// delete it (§5.2.1, §12.2.3). Sync copies GitHub refs, including rewrites.
 func TestReceivePackRefusesDefaultBookmarkRewrite(t *testing.T) {
 	f := newLaneHTTPFixture(t, nil)
+	f.srv.config.InstallMainMirror = true
 	require.NoError(t, setGitDefaultBookmark(context.Background(), f.repo.gitDir, "main"))
 	tip := f.commit("landed", func(dir string) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "landed.txt"), []byte("landed\n"), 0o644))
 	})
 	rec := postReceivePack(t, f, f.pushBody(f.base, tip, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, f.base, f.repo.refs()["refs/heads/main"])
+	rec = postReceivePack(t, f, f.pushBody(f.base, tip, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialSync))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	f.git("reset", "-q", "--hard", f.base)
 	rewrite := f.commit("rewritten", func(dir string) {
@@ -127,4 +131,59 @@ func TestReceivePackAgentRunUnreadableDefaultBookmarkFailsClosed(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "default bookmark cannot be read")
 	assert.Equal(t, f.base, f.repo.refs()["refs/heads/main"])
 	assert.Empty(t, f.importedRefs())
+}
+
+// Each credential label is hostile data at the shared repository receive door.
+// Person sessions/tokens/deploy keys forward person; machine/workspace forward run.
+func TestReceivePackInstallMainMirror(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	f.srv.config.InstallMainMirror = true
+	require.NoError(t, setGitDefaultBookmark(context.Background(), f.repo.gitDir, "main"))
+	tip := f.commit("reviewed", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "reviewed.txt"), []byte("reviewed\n"), 0o644))
+	})
+	for _, kind := range []string{"person", "session", "personal_token", "delegated", "run", "machine", "workspace", "deploy_key", "", "platform"} {
+		for _, op := range []string{"fast-forward", "non-fast-forward", "create", "delete"} {
+			t.Run(kind+"/"+op, func(t *testing.T) {
+				old, next := f.base, tip
+				if op == "non-fast-forward" {
+					old, next = tip, f.base
+				}
+				if op == "create" {
+					old = laneZeroOID
+				}
+				if op == "delete" {
+					next = laneZeroOID
+				}
+				current := f.repo.refs()["refs/heads/main"]
+				if current == "" {
+					current = laneZeroOID
+				}
+				if current != old {
+					// Sync alone sets up a genuinely absent or divergent main.
+					require.NoError(t, os.WriteFile(filepath.Join(f.repo.gitDir, "HEAD"), []byte(f.base+"\n"), 0o644))
+					setup := postReceivePack(t, f, f.pushBody(current, old, "refs/heads/main"), repohost.PusherCredentialHeader, "sync")
+					require.Equal(t, http.StatusOK, setup.Code, setup.Body.String())
+				}
+				rec := postReceivePack(t, f, f.pushBody(old, next, "refs/heads/main"), repohost.PusherCredentialHeader, kind)
+				require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+				assert.Equal(t, "permission", rec.Header().Get("X-Smithers-Error-Code"))
+				expected := old
+				if expected == laneZeroOID {
+					expected = ""
+				}
+				assert.Equal(t, expected, f.repo.refs()["refs/heads/main"])
+			})
+		}
+	}
+	for _, kind := range []string{"person", "run", "sync"} {
+		rec := postReceivePack(t, f, f.pushBody(laneZeroOID, tip, repohost.MythicalBookmarkRef), repohost.PusherCredentialHeader, kind)
+		require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	}
+	rec := postReceivePack(t, f, f.pushBody(f.base, tip, "refs/heads/main"), repohost.PusherCredentialHeader, "sync")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()["refs/heads/main"])
+	rec = postReceivePack(t, f, f.pushBody(laneZeroOID, tip, "refs/heads/feature"), repohost.PusherCredentialHeader, "person")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()["refs/heads/feature"])
 }

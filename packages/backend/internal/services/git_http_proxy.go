@@ -221,6 +221,11 @@ func RepositoryStillAt(
 // pattern, or, for an agent run's credential, the default bookmark.
 // Non-branch refs (tags, ...) are not subject to bookmark protection.
 func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, owner, repo string, kind middleware.CredentialKind, commands []repohost.ReceivePackCommand) error {
+	for _, command := range commands {
+		if err := repohost.RequireInstallMainMirror(s.ownerBoundary != nil, kind, command.RefName); err != nil {
+			return err
+		}
+	}
 	if len(commands) == 0 || s.queries == nil {
 		return nil
 	}

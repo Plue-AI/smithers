@@ -1378,6 +1378,12 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 // pattern. Protected bookmarks may only move through the landing queue, which
 // uses repo-host's land endpoint rather than receive-pack.
 func (s *Server) rejectProtectedBookmarkPush(ctx context.Context, sess ssh.Session, owner, repo string, commands []repohost.ReceivePackCommand) error {
+	for _, command := range commands {
+		if err := repohost.RequireInstallMainMirror(s.BranchLogins, middleware.CredentialPerson, command.RefName); err != nil {
+			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", err)
+			return err
+		}
+	}
 	if len(commands) == 0 {
 		return nil
 	}

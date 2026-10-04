@@ -14,6 +14,7 @@ import (
 type appError struct {
 	StatusCode int
 	Code       string
+	Class      string
 	Message    string
 	Cause      error
 	// RetryAfter, when > 0, is written as the Retry-After header, in seconds.
@@ -22,6 +23,7 @@ type appError struct {
 
 type errorEnvelope struct {
 	Code    string   `json:"code,omitempty"`
+	Class   string   `json:"class,omitempty"`
 	Message string   `json:"message"`
 	Errors  []string `json:"errors,omitempty"`
 }
@@ -104,7 +106,7 @@ func writeAppError(w http.ResponseWriter, err error, logger *slog.Logger) {
 		logger.Error("repo-host handler failed", "error", appErr.Cause)
 	}
 	setErrorHeaders(w, appErr)
-	_ = writeJSON(w, appErr.StatusCode, errorEnvelope{Code: appErr.Code, Message: appErr.Message})
+	_ = writeJSON(w, appErr.StatusCode, errorEnvelope{Code: appErr.Code, Class: appErr.Class, Message: appErr.Message})
 }
 
 // writeGitAppError answers a git smart-HTTP request with err as plain text,

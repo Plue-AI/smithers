@@ -24,6 +24,8 @@ const (
 )
 
 type Config struct {
+	// InstallMainMirror reserves main for authenticated GitHub sync writes.
+	InstallMainMirror     bool
 	StoragePath           string
 	ListenAddr            string
 	AuthToken             string

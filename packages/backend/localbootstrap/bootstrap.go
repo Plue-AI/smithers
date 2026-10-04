@@ -59,6 +59,7 @@ func Prepare(root string) (*Runtime, error) {
 		return nil, fmt.Errorf("configure local repository: %w", err)
 	}
 	cfg.StoragePath = filepath.Join(root, "repositories")
+	cfg.InstallMainMirror = true
 	local, err := repository.OpenLocal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open local repository: %w", err)

@@ -98,7 +98,11 @@ func (f *laneHTTPFixture) pushBody(oldOID, newOID, ref string) []byte {
 		return body.Bytes()
 	}
 	cmd := exec.Command("git", "-C", f.clientDir, "pack-objects", "--revs", "--stdout", "-q")
-	cmd.Stdin = strings.NewReader(newOID + "\n^" + oldOID + "\n")
+	revs := newOID + "\n"
+	if oldOID != laneZeroOID {
+		revs += "^" + oldOID + "\n"
+	}
+	cmd.Stdin = strings.NewReader(revs)
 	pack, err := cmd.Output()
 	require.NoError(f.t, err)
 	body.Write(pack)

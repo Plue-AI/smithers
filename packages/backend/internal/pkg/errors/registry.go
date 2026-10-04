@@ -83,6 +83,7 @@ const (
 	CodeUnknownOrigin         Code = "unknown_origin"
 	CodeUnauthenticated       Code = "unauthenticated"
 	CodeInvalidToken          Code = "invalid_token"
+	CodePermission            Code = "permission"
 	CodeForbidden             Code = "forbidden"
 	CodeNotFound              Code = "not_found"
 	CodeConflict              Code = "conflict"
@@ -312,7 +313,8 @@ var registry = map[Code]Entry{
 	CodeUnauthorized:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
 	CodeInvalidToken:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The presented token has an unrecognized format or is no longer valid."},
 	// The credential is valid but is not allowed to perform this operation.
-	CodeForbidden: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The credential is valid but is not allowed to perform this operation."},
+	CodePermission: {Status: http.StatusForbidden, Fault: FaultUser, Doc: "Install permission policy refused the operation."},
+	CodeForbidden:  {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The credential is valid but is not allowed to perform this operation."},
 	// The addressed resource does not exist, or the caller may not see that
 	// it does.
 	CodeNotFound: {Status: http.StatusNotFound, Fault: FaultUser, RetryAfter: 0, Doc: "The addressed resource does not exist, or the caller may not see that it does."},
@@ -692,7 +694,7 @@ func New(code Code, msg string) *APIError {
 		entry = Entry{Status: http.StatusInternalServerError, Fault: FaultBug}
 	}
 	class := ""
-	if code == CodeSetupClosed || code == CodeOwnerUnverified || code == CodeUnauthenticated {
+	if code == CodePermission || code == CodeSetupClosed || code == CodeOwnerUnverified || code == CodeUnauthenticated {
 		class = "permission"
 	}
 	return &APIError{

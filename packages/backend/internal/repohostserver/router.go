@@ -970,6 +970,11 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// The API sets X-Smithers-Pusher-Id from the credential it authenticated;
 	// it names whose refs/smithers/users/<id>/ namespace this push may write.
 	sender := pushHookSenderFromHeaders(r.Header)
+	for _, command := range commands {
+		if err := repohost.RequireInstallMainMirror(s.config.InstallMainMirror, sender.PusherCredential, command.RefName); err != nil {
+			return &appError{StatusCode: http.StatusForbidden, Code: "permission", Class: "permission", Message: err.Error()}
+		}
+	}
 	pusherID := sender.PusherID
 	if msg := repohost.ControlPlaneRefViolation(commands, r.Header.Get("X-Smithers-Workspace-Id"),
 		pusherID, r.Header.Get("X-Smithers-Control-Plane") == "mythical"); msg != "" {

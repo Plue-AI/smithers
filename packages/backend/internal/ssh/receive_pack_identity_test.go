@@ -5,6 +5,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -68,5 +69,48 @@ func TestSSHReceivePackChecksRepositoryUnderLock(t *testing.T) {
 			assert.Equal(t, 1, sess.exitCode)
 			assert.Contains(t, sess.stderr.String(), "repository was replaced during the push; retry the push")
 		})
+	}
+}
+
+func TestSSHReceivePackInstallMainMirror(t *testing.T) {
+	for _, deploy := range []bool{false, true} {
+		for _, op := range []string{"fast-forward", "non-fast-forward", "create", "delete"} {
+			t.Run(fmt.Sprintf("deploy=%v/%s", deploy, op), func(t *testing.T) {
+				old, next := strings.Repeat("1", 40), strings.Repeat("2", 40)
+				if op == "non-fast-forward" {
+					old, next = next, old
+				}
+				if op == "create" {
+					old = strings.Repeat("0", 40)
+				}
+				if op == "delete" {
+					next = strings.Repeat("0", 40)
+				}
+				line := old + " " + next + " refs/heads/main\x00report-status\n"
+				body := fmt.Sprintf("%04x%s0000PACK", len(line)+4, line)
+				calls := 0
+				server := &Server{BranchLogins: true, Queries: pushRepoQuerier(), RepoHostClient: &mockRepoHostGitProxy{
+					infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
+					proxyReceivePackFn: func(_ context.Context, _, _ string, stdin io.Reader, _ io.Writer, _ ...repohost.ReceivePackMetadata) error {
+						_, _ = io.Copy(io.Discard, stdin)
+						calls++
+						return nil
+					},
+				}}
+				sess := newTestSession("", body)
+				err := server.proxyReceivePack(context.Background(), sess, "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy})
+				require.Error(t, err)
+				assert.Contains(t, sess.stderr.String(), "main")
+				assert.Zero(t, calls)
+				// Hosted main and install feature pushes retain their receive behavior.
+				server.BranchLogins = false
+				require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", body), "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy}))
+				assert.Equal(t, 1, calls)
+				server.BranchLogins = true
+				feature := strings.Replace(body, "refs/heads/main", "refs/heads/work", 1)
+				require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", feature), "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy}))
+				assert.Equal(t, 2, calls)
+			})
+		}
 	}
 }

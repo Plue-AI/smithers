@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
@@ -312,4 +314,14 @@ func ControlPlaneRefViolation(commands []ReceivePackCommand, workspaceID string,
 		}
 	}
 	return ""
+}
+
+// RequireInstallMainMirror rejects every receive-pack mutation of install main.
+// Sync is server-issued authority, never a member-selected push option (§12.2.3).
+// Hosted repositories retain their existing receive policy.
+func RequireInstallMainMirror(install bool, kind middleware.CredentialKind, ref string) error {
+	if install && kind != middleware.CredentialSync && SameRef(ref, "refs/heads/main") {
+		return pkgerrors.New(pkgerrors.CodePermission, "main is a GitHub mirror; merge a pull request on GitHub")
+	}
+	return nil
 }

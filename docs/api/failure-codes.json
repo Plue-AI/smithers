@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:d78daa3984aa8a1a2b53a795f1f18777345bb824320e089c239c85a53bc43da3",
+  "digest": "sha256:6e7b46b7e63f05d2973d0d13d66aa9bb3fcff05b6312e904622737665b2b3727",
   "faults": [
     "user",
     "wait",
@@ -514,6 +514,13 @@
       "status": 403,
       "retry_after": 0,
       "doc": "The calling peer's mTLS identity is not one this worker accepts."
+    },
+    {
+      "code": "permission",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "Install permission policy refused the operation."
     },
     {
       "code": "plan_limit_exceeded",
