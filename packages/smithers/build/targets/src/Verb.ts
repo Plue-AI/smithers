@@ -13,12 +13,8 @@
  * references by name, so a misspelling is an unresolved identifier rather than
  * a string the renderer rejects at plan time.
  *
- * The set is deliberately smaller than {@link Target.Kind}. `run` is
- * addressable from the CLI and is not here: run targets include development
- * servers and source-tree scaffolds, and an unattended pipeline must not start
- * or mutate one merely because it is addressable. A pipeline that runs `run`
- * targets is therefore not a declaration that exists, rather than one the
- * renderer refuses.
+ * `run` is available only to explicit deploy steps with an environment and
+ * successful gate dependencies. It is never part of the aggregate CI verb.
  *
  * `review` IS here, and it is not in {@link all}. A pipeline may declare a job
  * that runs the model reviews, and that job is the only thing that plans them:
@@ -131,6 +127,18 @@ export const CiVerb = Schema.Struct({ name: Schema.Literal("ci") })
  */
 export type CiVerb = typeof CiVerb.Type
 
+/** Schema for an explicit outward invocation in a deploy workflow.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const RunVerb = Schema.Struct({ name: Schema.Literal("run") })
+
+/** One explicit outward invocation, never aggregated by `ci`.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const Run = RunVerb.make({ name: "run" })
+
 /**
  * Schema for one verb a generated pipeline may run.
  *
@@ -237,7 +245,7 @@ export const Ci: CiVerb = CiVerb.make({ name: "ci" })
  * @category schemas
  * @since 0.1.0
  */
-export const PipelineVerb = Schema.Union([BuildVerb, TestVerb, LintVerb, DocsVerb, ReviewVerb, CiVerb])
+export const PipelineVerb = Schema.Union([BuildVerb, TestVerb, LintVerb, DocsVerb, ReviewVerb, CiVerb, RunVerb])
 
 /**
  * One verb a generated pipeline step may run, aggregate included.

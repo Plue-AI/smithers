@@ -1033,8 +1033,12 @@ describe("toolchain variants", () => {
     const run = anyTarget()
     const workflow = S.Github.Workflow({ name: "ci", on: { pullRequest: true }, affected: true, run: [run] })
     const ciGen = S.Github.CiGen({ workflows: [workflow] })
-    const outputs = GithubRender.render({ ciGen, workspace: unitWorkspace,
-      resolve: resolver([[ciGen, "//.github:github"], [run, "//:build"]]), packageDir: ".github" })
+    const outputs = GithubRender.render({
+      ciGen,
+      workspace: unitWorkspace,
+      resolve: resolver([[ciGen, "//.github:github"], [run, "//:build"]]),
+      packageDir: ".github"
+    })
     expect(JSON.stringify(outputs)).toContain("affected ci '//:build' --base-green")
     expect(JSON.stringify(outputs)).toContain("GITHUB_TOKEN: ${{ github.token }}")
   })

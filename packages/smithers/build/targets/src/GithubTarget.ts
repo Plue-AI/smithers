@@ -286,6 +286,7 @@ export const WorkflowAttrs = Schema.Struct({
   runsOn: Schema.optional(Schema.NonEmptyString),
   steps: Schema.optional(Schema.NonEmptyArray(Step)),
   setup: Schema.optional(Target.Target),
+  /** Non-matrix gates use the same job’s last successful ancestor via --base-green. */
   affected: Schema.optional(Schema.Boolean),
   run: Schema.Array(Target.Target).pipe(
     Schema.withConstructorDefault(Effect.succeed<ReadonlyArray<Target.AnyTarget>>([]))

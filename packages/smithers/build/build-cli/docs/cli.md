@@ -169,7 +169,7 @@ in one plan.
 | `docs`   | `<patterns...>` | `--write`                                                                                                         |
 | `review` | `<patterns...>` | `--policy-revision` (required), `--revision`, `--plan`, `--required`, `--findings-store`, `--credential-receiver` |
 | `ci`     | `<patterns...>` |                                                                                                                   |
-| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`                                                           |
+| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`, `--outward-only`                                                           |
 | `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i`                                                     |
 
 ### build, test, lint
@@ -455,7 +455,7 @@ state.
 | `targets`        | `[pattern]`            |                                           |
 | `info`           |                        |                                           |
 | `explain`        | `<label>`              | `--verb`                                  |
-| `affected`       | `<verb> [patterns...]` | `--base`, `--head`, `--files`, `--list`   |
+| `affected`       | `<verb> [patterns...]` | `--base`, `--base-green`, `--head`, `--files`, `--list`   |
 | `clean`          | `[patterns...]`        |                                           |
 | `watch`          | `<verb> [patterns...]` | `--debounce-ms`, `--once`                 |
 
@@ -594,3 +594,12 @@ module resolution hook and boots the programmatic `tsx` loader that ships as a
 CLI dependency, which then loads the CLI's own modules and the workspace's
 `WORKSPACE.ts` and `PACKAGE.ts` declarations. See
 [Installation](./installation.md).
+
+`affected --base-green` compares against this workflow job's last successful
+ancestor on the same branch. Missing or invalid history, API failures and empty
+diffs run the full gate. Pull requests use `HEAD^1` and cannot use that parent
+as evidence for an empty verdict. The API token is withheld from target children.
+See [generated CI](../../docs/reference/targets/github-ci-gen.md#affected-gates).
+
+`run --outward-only` requires one explicit outward target label. Wildcards,
+`:all`, multiple targets and non-outward targets are refused before execution.

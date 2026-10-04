@@ -416,3 +416,25 @@ Missing history, API failures, redirects, invalid SHAs, diverged history and an
 empty diff run the full gate. A nonempty diff may select zero targets only
 with that successful base as evidence. Explicit `--base` keeps its existing
 working-tree comparison behavior.
+
+## Deployment jobs
+
+`Verb.Run` is an explicit outward invocation and never belongs to `Verb.all` or
+`ci`. A Run job declares `environment`, nonempty `needs`, and optionally job
+`permissions`. An environment job contains only Run steps. Dependencies must
+name required jobs that cannot hide failures; a deploy workflow cannot have a
+pull-request trigger, a matrix deploy, or wildcard push branches.
+
+Each Run pattern names one explicit label, without `...` or `:all`. It renders
+`pnpm exec smthrs run '<label>' --outward-only`. The CLI refuses a non-outward
+target or any selection other than one explicit target using the shared rule
+policy. Run steps use GitHub's ordinary success condition, so an earlier red
+step prevents the deploy. The job also uses the push-only publication guard
+and waits for its `needs` jobs to succeed.
+
+A step's `secrets: [Smithers.Secret("CLOUDFLARE_API_TOKEN")]` produces only that
+step's `env: { CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} }`.
+Secrets on non-Run steps are refused. Workflow `permissions` may grant read or
+none; token writes are confined to environment jobs. A job permission map
+replaces the workflow map under GitHub's normal rules. Both ref and commit
+concurrency groups start with `${{ github.workflow }}` to isolate workflows.
