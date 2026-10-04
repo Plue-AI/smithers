@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -45,11 +46,11 @@ func (o *mythicalOrchestration) appLabeled(number int64) {
 // automerge label for them, the item records their Land for the head they
 // saw, and the stack merges it exactly as for their own label, at the
 // reviewed head once the review approves and CI is green.
-func TestMythicalLandTodoMergesAtTheReviewedHead(t *testing.T) {
+func TestMythicalMergeMergesAtTheReviewedHead(t *testing.T) {
 	o, item := landingTodo(t, 90, "ninety.md")
-	ctx := context.Background()
+	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "browser-session"})
 
-	view, err := o.service.LandTodo(ctx, o.repoID, o.userID, uuidString(item.ID), MythicalLandInput{Head: item.PRHead})
+	view, err := o.service.Merge(ctx, o.repoID, o.userID, uuidString(item.ID), MythicalMergeInput{Head: item.PRHead})
 	require.NoError(t, err)
 	assert.True(t, view.Automerge)
 	require.NotNil(t, view.PullRequest)
@@ -58,7 +59,7 @@ func TestMythicalLandTodoMergesAtTheReviewedHead(t *testing.T) {
 	assert.Empty(t, o.github.merges, "Land itself never merges")
 	checks := mythicalChecksOf(o.item(90))
 	assert.True(t, checks.Automerge)
-	assert.Equal(t, &mythicalLand{By: "roninjin10", Account: 42, Head: item.PRHead}, checks.Land)
+	assert.Equal(t, &mythicalLand{By: "roninjin10", Account: 42, Head: item.PRHead, Generation: item.Generation, Session: "browser-session"}, checks.Land)
 
 	// The label's own event names the App: the Land keeps automerge on.
 	o.appLabeled(90)
@@ -77,7 +78,7 @@ func TestMythicalLandTodoMergesAtTheReviewedHead(t *testing.T) {
 // is not a maintainer's, and the stale Land is dropped.
 func TestMythicalAppAutomergeWithoutALandHolds(t *testing.T) {
 	o, item := landingTodo(t, 91, "ninety-one.md")
-	ctx := context.Background()
+	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "browser-session"})
 	next := item
 	checks := mythicalChecksOf(next)
 	checks.Automerge = true
@@ -100,8 +101,8 @@ func TestMythicalAppAutomergeWithoutALandHolds(t *testing.T) {
 // no maintainer list, GitHub's word on the person decides, read live.
 func TestMythicalLandRereadsThePersonAtTheMerge(t *testing.T) {
 	o, item := landingTodo(t, 92, "ninety-two.md")
-	ctx := context.Background()
-	_, err := o.service.LandTodo(ctx, o.repoID, o.userID, uuidString(item.ID), MythicalLandInput{Head: item.PRHead})
+	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "browser-session"})
+	_, err := o.service.Merge(ctx, o.repoID, o.userID, uuidString(item.ID), MythicalMergeInput{Head: item.PRHead})
 	require.NoError(t, err)
 	o.appLabeled(92)
 	// The policy now names no one: the stack asks GitHub, which no longer
@@ -120,7 +121,7 @@ func TestMythicalLandRereadsThePersonAtTheMerge(t *testing.T) {
 	o.github.mu.Lock()
 	o.github.readOnly = nil
 	o.github.mu.Unlock()
-	_, err = o.service.LandTodo(ctx, o.repoID, o.userID, uuidString(item.ID), MythicalLandInput{Head: item.PRHead})
+	_, err = o.service.Merge(ctx, o.repoID, o.userID, uuidString(item.ID), MythicalMergeInput{Head: item.PRHead})
 	require.NoError(t, err)
 	o.wake()
 	landed := o.item(92)
@@ -137,46 +138,101 @@ func openPolicy(t *testing.T) string {
 
 // Land refuses, before GitHub is written, anything but a person who
 // maintains, landing an open TODO at the head they saw.
-func TestMythicalLandTodoRefusals(t *testing.T) {
+func TestMythicalMergeRefusals(t *testing.T) {
 	o, item := landingTodo(t, 93, "ninety-three.md")
-	ctx := context.Background()
+	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "browser-session"})
 	id := uuidString(item.ID)
 	head := item.PRHead
-	refuse := func(ctx context.Context, userID int64, id string, input MythicalLandInput, status int, message string) {
+	refuse := func(ctx context.Context, userID int64, id string, input MythicalMergeInput, status int, message string) {
 		t.Helper()
-		_, err := o.service.LandTodo(ctx, o.repoID, userID, id, input)
-		code, text := apiCode(t, err)
+		_, err := o.service.Merge(ctx, o.repoID, userID, id, input)
+		var code int
+		var text string
+		if refusal, ok := err.(*TodoControlError); ok {
+			code, text = refusal.Status, refusal.Message
+		} else {
+			code, text = apiCode(t, err)
+		}
 		assert.Equal(t, status, code, text)
 		if message != "" {
 			assert.Equal(t, message, text)
 		}
 	}
 	agent := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, IsTokenAuth: true, TokenSystemIssued: true})
-	refuse(agent, o.userID, id, MythicalLandInput{Head: head}, http.StatusForbidden, "")
-	refuse(ctx, o.userID, "not-a-uuid", MythicalLandInput{Head: head}, http.StatusBadRequest, "invalid item id")
-	refuse(ctx, o.userID, id, MythicalLandInput{Head: "HEAD"}, http.StatusUnprocessableEntity, "")
-	refuse(ctx, o.userID, "00000000-0000-4000-8000-000000000000", MythicalLandInput{Head: head}, http.StatusNotFound, "item not found")
-	refuse(ctx, o.userID, id, MythicalLandInput{Head: strings.Repeat("0", 40)}, http.StatusConflict, "the pull request changed since you saw it")
+	refuse(agent, o.userID, id, MythicalMergeInput{Head: head}, http.StatusForbidden, "")
+	refuse(ctx, o.userID, "not-a-uuid", MythicalMergeInput{Head: head}, http.StatusBadRequest, "invalid item id")
+	refuse(ctx, o.userID, id, MythicalMergeInput{Head: "HEAD"}, http.StatusBadRequest, "")
+	refuse(ctx, o.userID, "00000000-0000-4000-8000-000000000000", MythicalMergeInput{Head: head}, http.StatusNotFound, "item not found")
+	refuse(ctx, o.userID, id, MythicalMergeInput{Head: strings.Repeat("0", 40)}, http.StatusConflict, "the pull request changed since you saw it")
 
 	o.github.mu.Lock()
 	o.github.readOnly = map[string]bool{"roninjin10": true}
 	o.github.mu.Unlock()
-	refuse(ctx, o.userID, id, MythicalLandInput{Head: head}, http.StatusForbidden, "only a maintainer of smithersai/smithers on GitHub may land a TODO")
+	refuse(ctx, o.userID, id, MythicalMergeInput{Head: head}, http.StatusForbidden, "only a maintainer of smithersai/smithers on GitHub may merge a TODO")
 	o.github.mu.Lock()
 	o.github.readOnly = nil
 	o.github.accounts[42] = gitHubActor{ID: 42, Login: "stranger", Type: "User"}
 	o.github.mu.Unlock()
-	refuse(ctx, o.userID, id, MythicalLandInput{Head: head}, http.StatusForbidden, "only a maintainer the factory's policy names may land a TODO")
+	refuse(ctx, o.userID, id, MythicalMergeInput{Head: head}, http.StatusForbidden, "only a maintainer the factory's policy names may merge a TODO")
 	_, err := o.pool.Exec(ctx, `DELETE FROM oauth_accounts WHERE user_id = $1`, o.userID)
 	require.NoError(t, err)
-	refuse(ctx, o.userID, id, MythicalLandInput{Head: head}, http.StatusForbidden, "connect your GitHub account to land a TODO")
+	refuse(ctx, o.userID, id, MythicalMergeInput{Head: head}, http.StatusForbidden, "connect your GitHub account to merge a TODO")
 
 	// A queued TODO has no pull request to land; a landed one is done.
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 94, Title: "Queued", State: "open",
 		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	queued := o.item(94)
-	refuse(ctx, o.userID, uuidString(queued.ID), MythicalLandInput{Head: head}, http.StatusConflict, "only a TODO whose pull request is open is landed")
+	refuse(ctx, o.userID, uuidString(queued.ID), MythicalMergeInput{Head: head}, http.StatusConflict, "only a TODO with an open pull request can merge")
 	assert.NotContains(t, o.github.added, "#93 automerge")
 	assert.NotContains(t, o.github.added, "#94 automerge")
 	assert.Nil(t, mythicalChecksOf(o.item(93)).Land)
+}
+
+func TestMythicalMergeRequiresSessionBeforeReads(t *testing.T) {
+	for _, info := range []*middleware.AuthInfo{
+		nil, {}, {User: &db.User{ID: 7}},
+		{User: &db.User{ID: 7}, SessionHash: "session", IsTokenAuth: true},
+		{User: &db.User{ID: 7, UserType: "bot"}, SessionHash: "session"},
+		{User: &db.User{ID: 8}, SessionHash: "session"},
+	} {
+		ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+		_, err := (&MythicalService{}).Merge(ctx, 1, 7, "invalid", MythicalMergeInput{})
+		require.IsType(t, &TodoControlError{}, err)
+		assert.Equal(t, "permission", err.(*TodoControlError).Code)
+	}
+}
+func TestMythicalMergeMalformedSHABeforeReads(t *testing.T) {
+	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "session"})
+	for _, sha := range []string{"", "HEAD", strings.Repeat("a", 39), strings.Repeat("a", 41), strings.Repeat("g", 40)} {
+		_, err := (&MythicalService{}).Merge(ctx, 1, 7, "00000000-0000-4000-8000-000000000001", MythicalMergeInput{Head: sha})
+		require.IsType(t, &TodoControlError{}, err)
+		assert.Equal(t, 400, err.(*TodoControlError).Status)
+		assert.Equal(t, "invalid_reviewed_head_sha", err.(*TodoControlError).Code)
+	}
+}
+
+func TestMythicalMergeRequestReadiness(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	ready := db.MythicalItem{Source: "issue", IssueNumber: pgtype.Int8{Int64: 1, Valid: true}, State: "proposed", PRNumber: pgtype.Int8{Int64: 1, Valid: true}, PRState: "open", PRHead: head, Checks: mythicalChecks{Todo: true}.encode()}
+	require.NoError(t, mythicalMergeable(ready, head))
+	for _, tc := range []struct {
+		name    string
+		change  func(*db.MythicalItem)
+		message string
+	}{
+		{"not TODO", func(i *db.MythicalItem) { i.Checks = nil }, "only a TODO can merge"},
+		{"queued", func(i *db.MythicalItem) { i.State = "queued" }, "only a TODO with an open pull request can merge"},
+		{"closed", func(i *db.MythicalItem) { i.PRState = "closed" }, "only a TODO with an open pull request can merge"},
+		{"foreign head", func(i *db.MythicalItem) { i.Checks = mythicalChecks{Todo: true, ForeignHead: head}.encode() }, "someone else pushed to this pull request; a person decides on GitHub"},
+		{"pending", func(i *db.MythicalItem) { i.PendingOp = json.RawMessage(`{"kind":"merge"}`) }, "A GitHub operation is in flight"},
+		{"stale", func(i *db.MythicalItem) { i.PRHead = strings.Repeat("b", 40) }, "the pull request changed since you saw it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := ready
+			tc.change(&item)
+			err := mythicalMergeable(item, head)
+			require.Error(t, err)
+			assert.Equal(t, tc.message, err.Error())
+		})
+	}
 }

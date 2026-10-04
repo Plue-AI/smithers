@@ -16,7 +16,7 @@ import {
   MythicalStackSchema
 } from "@smthrs/rpc/Mythical"
 import * as StackIssues from "@smthrs/rpc/StackIssues"
-import { itemReason, itemStateLabel, itemTitle, landable, retryable } from "@smthrs/rpc/StackView"
+import { itemReason, itemStateLabel, itemTitle, retryable } from "@smthrs/rpc/StackView"
 import * as Failures from "./failures.ts"
 import * as Log from "./log.ts"
 import type * as Panels from "./panels.ts"
@@ -171,33 +171,6 @@ export const retry = (
     presentFailure
   )
 
-/**
- * Lands a proposed TODO with `POST …/mythical/items/{id}/land`, the route the
- * app's History card and `smthrs history land` use: only a landable item (its
- * pull request open at a known head, no merge asked yet) is sent, naming the
- * head this read saw. The stack merges it at the reviewed head once CI is
- * green; nothing merges here.
- */
-export const land = (
-  cloud: Pick<CloudSession.Cloud, "get" | "post">,
-  repo: Repository,
-  issue: number,
-  signal?: AbortSignal,
-  presentFailure?: (error: unknown) => string
-): Promise<Filing> =>
-  issueAct(
-    cloud,
-    repo,
-    issue,
-    landable,
-    (item, owner, name) => [
-      mythicalRoute("land", owner, name, item.id),
-      { head: item.pullRequest?.head }
-    ],
-    signal,
-    presentFailure
-  )
-
 /** One status line. */
 export interface Line {
   readonly text: string
@@ -256,9 +229,6 @@ const issueCommand = (
 
 /** `/retry <issue>`. */
 export const retryCommand = issueCommand({ verb: "retry", requested: "Retry", not: "not retried" }, retry)
-
-/** `/land <issue>`. */
-export const landCommand = issueCommand({ verb: "land", requested: "Land", not: "not landed" }, land)
 
 const groupStatus: Record<StackIssues.IssueGroupId, NonNullable<Panels.Row["status"]> | undefined> = {
   "needs-you": undefined,

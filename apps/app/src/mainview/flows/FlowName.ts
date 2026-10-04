@@ -171,7 +171,6 @@ export const FLOW_NAMES = [
   "github.reconcile",
   "history.bootstrap",
   "history.parallel",
-  "history.land",
   "history.show",
   "input.mode",
   "issue.add-flow",

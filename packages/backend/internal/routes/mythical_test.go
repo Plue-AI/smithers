@@ -29,12 +29,12 @@ type fakeMythicalRoute struct {
 	todos      []services.MythicalTodoInput
 	todoUsers  []int64
 	todoErr    error
-	lands      []services.MythicalLandInput
+	lands      []services.MythicalMergeInput
 	landItems  []string
 	landErr    error
 }
 
-func (f *fakeMythicalRoute) LandTodo(_ context.Context, _, userID int64, id string, input services.MythicalLandInput) (services.MythicalItemView, error) {
+func (f *fakeMythicalRoute) Merge(_ context.Context, _, userID int64, id string, input services.MythicalMergeInput) (services.MythicalItemView, error) {
 	if f.landErr != nil {
 		return services.MythicalItemView{}, f.landErr
 	}
@@ -276,9 +276,9 @@ func TestMythicalTodosRoute(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// A maintainer presses Land: 202 with the item, automerge on; the service's
+// A maintainer presses Merge: 202 with the item, automerge on; the service's
 // refusal is the answer, and a malformed body never reaches it.
-func TestMythicalLandRoute(t *testing.T) {
+func TestMythicalMergeRoute(t *testing.T) {
 	service := &fakeMythicalRoute{}
 	handler := &MythicalHandler{Service: service}
 	request := func(body string, user bool) *http.Request {
@@ -290,36 +290,56 @@ func TestMythicalLandRoute(t *testing.T) {
 			Repository: &db.Repository{ID: 19, Name: "r"}}, middleware.PermissionWrite)
 		if user {
 			ctx = context.WithValue(ctx, middleware.UserContextKey, &db.User{ID: 7})
+			ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "browser-session"})
 		}
 		return r.WithContext(ctx)
 	}
 	head := strings.Repeat("a", 40)
 	rec := httptest.NewRecorder()
-	handler.Land(rec, request(`{"head":"`+head+`"}`, false))
+	handler.Merge(rec, request(`{"reviewed_head_sha":"`+head+`"}`, false))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 
-	for _, body := range []string{`{"head":"x","merge":true}`, `not json`, `{"head":"` + strings.Repeat("x", 4<<10) + `"}`} {
+	for _, body := range []string{`{"reviewed_head_sha":"x","merge":true}`, `not json`, `{"reviewed_head_sha":"` + strings.Repeat("x", 4<<10) + `"}`} {
 		rec = httptest.NewRecorder()
-		handler.Land(rec, request(body, true))
+		handler.Merge(rec, request(body, true))
 		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
 	}
 	assert.Empty(t, service.lands)
 
 	rec = httptest.NewRecorder()
-	handler.Land(rec, request(`{"head":"`+head+`"}`, true))
+	handler.Merge(rec, request(`{"reviewed_head_sha":"`+head+`"}`, true))
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	assert.Equal(t, []services.MythicalLandInput{{Head: head}}, service.lands)
+	assert.Equal(t, []services.MythicalMergeInput{{Head: head}}, service.lands)
 	assert.Equal(t, []string{"item-9"}, service.landItems)
 	assert.Equal(t, []int64{7}, service.todoUsers)
 	assert.Contains(t, rec.Body.String(), `"automerge":true`)
 
 	service.landErr = pkgerrors.Conflict("the pull request changed since you saw it")
 	rec = httptest.NewRecorder()
-	handler.Land(rec, request(`{"head":"`+head+`"}`, true))
+	handler.Merge(rec, request(`{"reviewed_head_sha":"`+head+`"}`, true))
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "changed since you saw it")
 
 	rec = httptest.NewRecorder()
-	(&MythicalHandler{}).Land(rec, request(`{"head":"`+head+`"}`, true))
+	(&MythicalHandler{}).Merge(rec, request(`{"reviewed_head_sha":"`+head+`"}`, true))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestMythicalMergeRejectsTokensBeforeRepositoryReads(t *testing.T) {
+	for _, info := range []*middleware.AuthInfo{
+		nil,
+		{User: &db.User{ID: 7}, IsTokenAuth: true},
+		{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true},
+		{User: &db.User{ID: 7, UserType: "bot"}, SessionHash: "session"},
+	} {
+		service := &fakeMythicalRoute{}
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+		ctx := context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 7})
+		ctx = middleware.ContextWithAuthInfo(ctx, info)
+		rec := httptest.NewRecorder()
+		(&MythicalHandler{Service: service}).Merge(rec, request.WithContext(ctx))
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+		assert.JSONEq(t, `{"code":"permission","class":"permission","message":"Merge requires an owner or maintainer browser session"}`, rec.Body.String())
+		assert.Empty(t, service.lands)
+	}
 }

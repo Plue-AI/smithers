@@ -23,7 +23,6 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
-import { HISTORY_LAND_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
 import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@smthrs/ui/app-operations/wiki"
 
@@ -57,7 +56,13 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "confirm.cancel": "a confirmation answer belongs to the person",
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
-  "history.land": HISTORY_LAND_USER_ONLY_REASON,
+  "settings": "Install status requires the owner’s person session",
+  "settings.address": "Install controls require the owner’s person session",
+  "settings.capacity": "Install controls require the owner’s person session",
+  "settings.parallel": "Install controls require the owner’s person session",
+  "settings.obsidian": "Install controls require the owner’s person session",
+  "settings.model-key": "Install controls require the owner’s person session",
+  "settings.setup": "Install controls require the owner’s person session",
   "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.
   "sign-in": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
@@ -322,9 +327,10 @@ describe("the three-door law", () => {
     }
     // And listed: the slash menu and the prompt's catalog show them.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
-    for (const name of ["flow.create", "cloud.prompt", "agent.list"]) {
+    for (const name of ["flow.create", "agent.list"]) {
       expect(disclosed.has(name)).toBe(true)
     }
+    expect(disclosed.has("cloud.prompt")).toBe(false)
     expect(disclosed.has("flow.run.retry")).toBe(false)
     // The form card's acts (THE FORM LAW) are hidden from the catalog and callable, like every id-scoped card act.
     for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(false)

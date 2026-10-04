@@ -44,8 +44,8 @@ describe("landable", () => {
     expect(landable({ ...proposed, state: "blocked" })).toBe(false)
   })
 
-  test("the land route names the item", () => {
-    expect(MYTHICAL_ROUTES.land).toBe("/api/repos/{owner}/{repo}/mythical/items/{id}/land")
-    expect(mythicalRoute("land", "o", "r", "item 1")).toBe("/api/repos/o/r/mythical/items/item%201/land")
+  test("the merge route names the item", () => {
+    expect(MYTHICAL_ROUTES.merge).toBe("/api/repos/{owner}/{repo}/mythical/items/{id}/merge")
+    expect(mythicalRoute("merge", "o", "r", "item 1")).toBe("/api/repos/o/r/mythical/items/item%201/merge")
   })
 })

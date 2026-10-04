@@ -56,8 +56,8 @@ export const MYTHICAL_ROUTES = {
   item: "/api/repos/{owner}/{repo}/mythical/items/{id}",
   /** `POST`: retry one blocked or rejected item. */
   retry: "/api/repos/{owner}/{repo}/mythical/items/{id}/retry",
-  /** `POST`: a maintainer asks the stack to merge a proposed TODO's pull request at the head they saw (`{ head }`); answers the item. */
-  land: "/api/repos/{owner}/{repo}/mythical/items/{id}/land",
+  /** `POST`: a maintainer asks the stack to merge a proposed TODO's pull request at the head they saw (`{ reviewed_head_sha }`); answers the item. */
+  merge: "/api/repos/{owner}/{repo}/mythical/items/{id}/merge",
   /** `POST`: a maintainer files a TODO (`{ title, body }`); answers its queued {@link MythicalItemSchema}. */
   todos: "/api/repos/{owner}/{repo}/mythical/todos",
   /** `PUT`: a coding host submits a lane result ({@link MythicalLaneSubmissionSchema}). */

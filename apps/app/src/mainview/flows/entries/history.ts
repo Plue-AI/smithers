@@ -17,9 +17,6 @@ export const namespace: Namespace = { id: "history", label: "History", summary: 
 
 const RepoOptional = Schema.optional(Schema.String)
 
-/** Landing a TODO is a maintainer's own authorization of its merge (the land route requires the person). */
-export const HISTORY_LAND_USER_ONLY_REASON = "landing a TODO is a maintainer's own authorization of its merge"
-
 /** The `history` flows registered as one aggregator block. */
 export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
@@ -54,23 +51,5 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     confirm: "change how many lanes work at once",
     input: Schema.Struct({ value: Schema.Number, repo: RepoOptional }),
     handler: ({ value, repo }) => actions.setStackParallel(value, repo)
-  }),
-  /*
-   * Land: the stack merges a proposed TODO's pull request as for a
-   * maintainer's own automerge label (POST …/mythical/items/{id}/land), at
-   * the reviewed head once CI is green; never a merge from here. The head is
-   * the one the person saw, so a moved head is refused.
-   */
-  flow({
-    name: "history.land",
-    summary: "Land a proposed TODO's pull request once its review approves and CI is green",
-    userOnly: true,
-    userOnlyReason: HISTORY_LAND_USER_ONLY_REASON,
-    runtime: ["cloud"],
-    args: "<item> <head> [owner/repo]",
-    requires: ["signed-in"],
-    confirm: "land this pull request",
-    input: Schema.Struct({ id: Schema.String, head: Schema.String, repo: RepoOptional }),
-    handler: ({ id, head, repo }) => actions.landStackItem(id, head, repo)
   })
 ]

@@ -1154,7 +1154,7 @@ func buildRouter(
 					r.With(adminRepo...).Post("/mythical/bootstrap", extras.Mythical.Bootstrap)
 					r.With(adminRepo...).Put("/mythical/config", extras.Mythical.Config)
 					r.With(writeRepo...).Post("/mythical/todos", extras.Mythical.Todos)
-					r.With(writeRepo...).Post("/mythical/items/{id}/land", extras.Mythical.Land)
+					r.With(writeRepo...).Post("/mythical/items/{id}/merge", extras.Mythical.Merge)
 					r.With(writeRepo...).Put("/mythical/lanes", extras.Mythical.Lanes)
 					r.With(writeRepo...).Post("/mythical/wiki", extras.Mythical.Wiki)
 				}

@@ -65,7 +65,7 @@ import { reviewFlows } from "./entries/review"
 import { runsFlows } from "./entries/runs"
 import { searchFlows } from "./entries/search"
 import { secretsFlows } from "./entries/secrets"
-import { HISTORY_LAND_USER_ONLY_REASON, historyFlows } from "./entries/history"
+import { historyFlows } from "./entries/history"
 import { storageFlows } from "./entries/storage"
 import { syncFlows } from "./entries/sync"
 import { toastFlows } from "./entries/toast"
@@ -108,7 +108,6 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "sign-out", why: "drops the human's session; the human clicks" },
   { name: "wiki.pane", why: "surface switch: the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards" },
   { name: "wiki.attach", why: "the file comes from the human's own file dialog; a model has no file to give" },
-  { name: "history.land", why: HISTORY_LAND_USER_ONLY_REASON },
   { name: "palette.open", why: "focus and an overlay are the human's gesture; the model searches with the search.* flows, which answer the same rows as data" }
 ]
 

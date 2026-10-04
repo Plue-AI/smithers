@@ -4578,20 +4578,20 @@ export interface GetApiReposOwnerRepoMythicalItemsRefInput {
 export const getApiReposOwnerRepoMythicalItemsRef = (transport: Transport, input: GetApiReposOwnerRepoMythicalItemsRefInput): Promise<GetApiReposOwnerRepoMythicalItemsRefResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.ref)}`) as Promise<GetApiReposOwnerRepoMythicalItemsRefResponse>
 
-export type PostApiReposOwnerRepoMythicalItemsIdLandBody = {
-  head: string
+export type PostApiReposOwnerRepoMythicalItemsIdMergeBody = {
+  reviewed_head_sha: string
 }
 
-export type PostApiReposOwnerRepoMythicalItemsIdLandResponse = AnyJSON
+export type PostApiReposOwnerRepoMythicalItemsIdMergeResponse = AnyJSON
 
-export interface PostApiReposOwnerRepoMythicalItemsIdLandInput {
+export interface PostApiReposOwnerRepoMythicalItemsIdMergeInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-  readonly body: PostApiReposOwnerRepoMythicalItemsIdLandBody
+  readonly body: PostApiReposOwnerRepoMythicalItemsIdMergeBody
 }
 
-/** POST /api/repos/{owner}/{repo}/mythical/items/{id}/land */
-export const postApiReposOwnerRepoMythicalItemsIdLand = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdLandInput): Promise<PostApiReposOwnerRepoMythicalItemsIdLandResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/land`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdLandResponse>
+/** POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge */
+export const postApiReposOwnerRepoMythicalItemsIdMerge = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdMergeInput): Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse> =>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/merge`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse>
 
 export type PostApiReposOwnerRepoMythicalTodosBody = {
   title: string

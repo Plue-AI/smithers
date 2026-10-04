@@ -79,3 +79,18 @@ Once the shared authority exists, delegated Amend must refuse
 There is no local credential or confirmation substitute. Future activation
 requires the served install router, catalog dispatcher and pinned guest-host
 checks; these direct-handler refusal tests are supplemental evidence only.
+
+## Browser-session Merge
+
+The repository TODO request is now `POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge`
+with `{reviewed_head_sha}`. The former `/land` route is removed. Only a person’s
+browser session may request it; tokens receive `403 permission`. A malformed
+SHA receives `400 invalid_reviewed_head_sha`; valid hexadecimal is normalized
+to lowercase. The current GitHub maintainer is checked before TODO readiness,
+and `checks.Land` retains the reviewed head, generation and session attribution.
+The request acknowledges persisted approval, never remote completion.
+
+The stack’s existing outbound integration gate remains in force. This request
+does not enable merge dispatch or the install’s numbered `/api/todos/{n}/merge`
+route. Those require the accepted TODO numbering and the production readiness,
+fence and outbound providers; C-J1-04 is not passing evidence for this increment.

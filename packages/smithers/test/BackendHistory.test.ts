@@ -71,7 +71,7 @@ describe("history words match the app's History card", () => {
   it("names a conflict while retrying one", () => {
     const value = item("retrying", { integration: { conflict: { paths: ["a.ts", "b.ts"] } } }) as never
     expect(stateLabel(value)).toBe(itemStateLabel(value))
-    expect(itemLine(value)).toBe("#12 Fix login · conflict · a.ts, b.ts")
+    expect(itemLine(value)).toBe("#12 Fix login · retrying · a.ts, b.ts")
   })
 
   it("says a later typed failure, not an earlier attempt's conflict", () => {
@@ -591,54 +591,8 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("binds internal and public landing to the observed head and refuses items without a landable pull request", async () => {
-    const head = "c".repeat(40)
-    const pullRequest = { number: 40, url: "https://github.com/owner/repo/pull/40", state: "open", head }
-    const f = await serve((req, res) => {
-      if (req.method === "POST") return json(res, item("proposed", { pullRequest, automerge: true }), 202)
-      if (req.url?.endsWith("/items/13")) {
-        return json(res, item("running", { id: "33333333-3333-4333-8333-333333333333" }))
-      }
-      if (req.url?.endsWith("/items/14")) {
-        return json(res, item("proposed", { pullRequest: { ...pullRequest, head: undefined } }))
-      }
-      items(req, res, [item("proposed", { pullRequest })])
-    })
-    try {
-      const invoke = (issue: string) => history["history land"]!(f.client, { issue }, { repo: "owner/repo" })
-      const landed = await invoke("#12")
-      expect(itemLine(landed as Record<string, unknown>)).toContain("#12 Fix login · PR open")
-      for (const ref of ["13", "14"]) {
-        await expect(invoke(ref)).rejects.toMatchObject({
-          code: "not_landable",
-          message: `#${ref} has no open pull request to land`
-        })
-      }
-      await expect(invoke("99")).rejects.toMatchObject({ code: "not_found", message: "#99 is not in the history" })
-      expect(f.requests.filter((r) => r.method === "POST").map((r) => `${r.url} ${r.body}`)).toEqual([
-        `/api/repos/owner/repo/mythical/items/${ID}/land {"head":"${head}"}`
-      ])
-      const count = f.requests.length
-      const publicLanding = await f.run(["history", "land", "#12"])
-      expect(publicLanding.code, publicLanding.output + publicLanding.error).toBe(0)
-      expect(publicLanding.output).toContain("#12 Fix login · PR open")
-      expect(f.requests.slice(count)).toEqual([
-        { method: "GET", url: "/api/repos/owner/repo/mythical/items/12", body: "" },
-        { method: "POST", url: `/api/repos/owner/repo/mythical/items/${ID}/land`, body: JSON.stringify({ head }) }
-      ])
-      for (const ref of ["13", "14", "99"]) {
-        const count = f.requests.length
-        const refused = await f.run(["history", "land", ref, "--json"])
-        expect(refused.code, refused.output + refused.error).toBe(1)
-        expect(JSON.parse(refused.output)).toMatchObject({
-          code: ref === "99" ? "not_found" : "not_landable",
-          message: ref === "99" ? "#99 is not in the history" : `#${ref} has no open pull request to land`
-        })
-        expect(f.requests.slice(count).some((request) => request.method === "POST")).toBe(false)
-      }
-    } finally {
-      await f.close()
-    }
+  it("exposes no TODO land handler", () => {
+    expect("history land" in history).toBe(false)
   })
 
   it("shows a failed TODO's typed reason as the server states it, and retries it", async () => {

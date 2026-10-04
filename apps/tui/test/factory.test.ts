@@ -685,41 +685,9 @@ it("offers an explicit Retry action only for retryable issue rows, without execu
     .toBe(true)
 })
 
-it("lands a proposed TODO at the head the stack served, and never posts for one that is not landable", async () => {
-  const head = "f".repeat(40)
-  const pullRequest = { number: 50, url: "https://github.com/o/r/pull/50", state: "open", head }
-  const landing = {
-    ...served,
-    items: [
-      ...served.items,
-      item("2450", "proposed", { todo: { replans: 0 }, pullRequest }),
-      item("2451", "proposed", { todo: { replans: 0 }, pullRequest, automerge: true })
-    ]
-  }
-  const received: Array<Received> = []
-  const origin = await cloudAt(
-    (method, path) =>
-      method === "GET" && path === stackRoute
-        ? { status: 200, body: landing }
-        : method === "POST" && path === "/api/repos/o/r/mythical/items/2450/land"
-        ? { status: 202, body: item("2450", "proposed", { todo: { replans: 0 }, pullRequest, automerge: true }) }
-        : { status: 404, body: {} },
-    received
-  )
-  const command = Factory.landCommand("#2450", "o/r", signIn(origin))
-  expect(command.now).toEqual({ text: "Land #2450 requested" })
-  expect(await command.settled).toEqual({ text: "#2450 PR open" })
-  expect(JSON.parse(received.find((each) => each.method === "POST")!.body)).toEqual({ head })
-  expect(await Factory.landCommand("2451", "o/r", signIn(origin)).settled).toEqual({
-    text: "#2451 not landed: #2451 is PR open",
-    tone: "warning"
-  })
-  expect(await Factory.landCommand("2431", "o/r", signIn(origin)).settled).toEqual({
-    text: "#2431 not landed: #2431 is blocked",
-    tone: "warning"
-  })
-  expect(Factory.landCommand("x", "o/r", signIn(origin)).now).toEqual({ text: "Usage: /land <issue>", tone: "warning" })
-  expect(received.filter((each) => each.method === "POST")).toHaveLength(1)
+it("exposes no TODO land door", () => {
+  expect("land" in Factory).toBe(false)
+  expect("landCommand" in Factory).toBe(false)
 })
 
 it("keeps raw Cloud failures out of filing results", async () => {

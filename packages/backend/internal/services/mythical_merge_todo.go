@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"errors"
+	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,46 +16,48 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-// MythicalLandInput is a maintainer's press of Land on a proposed TODO:
+// MythicalMergeInput is a maintainer's press of Merge on a proposed TODO:
 // Head is the pull request head they saw, so a head that moved since is
 // refused instead of landed unseen.
-type MythicalLandInput struct {
-	Head string `json:"head"`
+type MythicalMergeInput struct {
+	Head string `json:"reviewed_head_sha"`
 }
 
 // mythicalLand is a maintainer person's request, made through Smithers, that
 // the stack merge a TODO's pull request at one head: the automerge label the
 // App applies for them is theirs while this names the head the stack merges.
 type mythicalLand struct {
-	By      string `json:"by"`
-	Account int64  `json:"account"`
-	Head    string `json:"head"`
+	By         string `json:"by"`
+	Account    int64  `json:"account"`
+	Generation int64  `json:"generation,omitempty"`
+	Session    string `json:"session,omitempty"`
+	Head       string `json:"head"`
 }
 
 var mythicalHead = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// LandTodo asks the stack to merge a proposed TODO's pull request for a
-// maintainer person. It never merges: it applies the automerge label, the
-// same authorization a maintainer's own label on GitHub is, and the stack
-// merges only as it does for that label, at the reviewed head once its
-// review approves and GitHub CI on it is green. The person is read as
-// FileTodo reads them: their linked GitHub account as it stands now, named by
-// the policy (or no one) and a maintainer on GitHub. The App applies the
-// label, so GitHub names the App; the stack counts it only for the head
-// recorded here, and re-reads the person when it merges.
-func (s *MythicalService) LandTodo(ctx context.Context, repositoryID, userID int64, itemID string, input MythicalLandInput) (MythicalItemView, error) {
-	if err := middleware.RequirePerson(ctx, "land a TODO"); err != nil {
+// Merge records a browser-session maintainer's request at the displayed PR
+// head under the existing item CAS and wakes the stack worker. The route never
+// sends a merge PUT; dispatch remains subject to the worker's outbound gate.
+func (s *MythicalService) Merge(ctx context.Context, repositoryID, userID int64, itemID string, input MythicalMergeInput) (MythicalItemView, error) {
+	if err := RequireMergeSession(ctx, userID); err != nil {
 		return MythicalItemView{}, err
 	}
+	info := middleware.AuthInfoFromContext(ctx)
+	input.Head = strings.ToLower(input.Head)
 	id, err := uuid.Parse(itemID)
 	if err != nil {
 		return MythicalItemView{}, pkgerrors.BadRequest("invalid item id")
 	}
 	if !mythicalHead.MatchString(input.Head) {
-		return MythicalItemView{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Land", Field: "head", Code: "invalid"})
+		return MythicalItemView{}, &TodoControlError{Status: http.StatusBadRequest, Code: "invalid_reviewed_head_sha", Class: "user", Message: "reviewed_head_sha must be a 40-character hexadecimal commit SHA"}
 	}
 	if s.github == nil {
 		return MythicalItemView{}, pkgerrors.Internal("GitHub is not configured for the mythical stack")
+	}
+	gh, account, err := s.maintainerPerson(ctx, repositoryID, userID, "merge a TODO")
+	if err != nil {
+		return MythicalItemView{}, err
 	}
 	q := s.queries()
 	item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
@@ -63,11 +67,7 @@ func (s *MythicalService) LandTodo(ctx context.Context, repositoryID, userID int
 	if err != nil {
 		return MythicalItemView{}, err
 	}
-	if err := mythicalLandable(item, input.Head); err != nil {
-		return MythicalItemView{}, err
-	}
-	gh, account, err := s.maintainerPerson(ctx, repositoryID, userID, "land a TODO")
-	if err != nil {
+	if err := mythicalMergeable(item, input.Head); err != nil {
 		return MythicalItemView{}, err
 	}
 	// The label first: its event, whenever it arrives, finds the item as
@@ -80,13 +80,13 @@ func (s *MythicalService) LandTodo(ctx context.Context, repositoryID, userID int
 		if err != nil {
 			return MythicalItemView{}, err
 		}
-		if err := mythicalLandable(item, input.Head); err != nil {
+		if err := mythicalMergeable(item, input.Head); err != nil {
 			return MythicalItemView{}, err
 		}
 		next := item
 		checks := mythicalChecksOf(next)
 		checks.Automerge = true
-		checks.Land = &mythicalLand{By: account.Login, Account: account.ID, Head: item.PRHead}
+		checks.Land = &mythicalLand{By: account.Login, Account: account.ID, Head: input.Head, Generation: item.Generation, Session: info.SessionHash}
 		next.Checks = checks.encode()
 		// The gate runs on the next pass, not the next poll.
 		next.NextAttemptAt = pgtype.Timestamptz{}
@@ -105,19 +105,21 @@ func (s *MythicalService) LandTodo(ctx context.Context, repositoryID, userID int
 	return MythicalItemView{}, pkgerrors.Conflict("the item kept changing; try again")
 }
 
-// mythicalLandable refuses what Land cannot ask for: anything but a TODO
+// mythicalMergeable refuses what Merge cannot ask for: anything but a TODO
 // whose pull request is open at the head the person saw.
-func mythicalLandable(item db.MythicalItem, head string) error {
+func mythicalMergeable(item db.MythicalItem, head string) error {
 	checks := mythicalChecksOf(item)
 	switch {
 	case item.Source != "issue" || !item.IssueNumber.Valid || !checks.Todo && checks.AutoTodo == "":
-		return pkgerrors.Conflict("only a TODO is landed")
+		return pkgerrors.Conflict("only a TODO can merge")
 	case item.State != "proposed" || !item.PRNumber.Valid || item.PRState != "open" && item.PRState != "":
-		return pkgerrors.Conflict("only a TODO whose pull request is open is landed")
+		return pkgerrors.Conflict("only a TODO with an open pull request can merge")
 	case checks.ForeignHead != "":
 		return pkgerrors.Conflict("someone else pushed to this pull request; a person decides on GitHub")
+	case len(item.PendingOp) > 0:
+		return &TodoControlError{Status: http.StatusConflict, Code: "merging", Class: "conflict", Message: "A GitHub operation is in flight"}
 	case item.PRHead != head:
-		return pkgerrors.Conflict("the pull request changed since you saw it")
+		return &TodoControlError{Status: http.StatusConflict, Code: "stale_head", Class: "conflict", Message: "the pull request changed since you saw it"}
 	}
 	return nil
 }
@@ -154,17 +156,15 @@ func (s *MythicalService) maintainerPerson(ctx context.Context, repositoryID, us
 }
 
 // landedByMaintainer reports whether an automerge label the App applied is a
-// maintainer's Land for the head the stack is about to merge: recorded for
+// maintainer's merge approval for the head the stack is about to merge: recorded for
 // exactly that head, by a person the policy still names and, with no list,
 // GitHub still counts a maintainer.
 func (st *mythicalItemStep) landedByMaintainer(ctx context.Context, item db.MythicalItem, applier *mythicalLabelApplier, policy factoryGitHubPolicy) (bool, error) {
 	land := mythicalChecksOf(item).Land
-	if land == nil || land.Head != item.PRHead || !applier.present() || !applier.ViaApp || !policy.maintains(land.By) {
+	if land == nil || land.Head != item.PRHead || land.Generation != 0 && land.Generation != item.Generation || !applier.present() || !applier.ViaApp || !policy.maintains(land.By) {
 		return false, nil
 	}
-	if policy.namesMaintainers() {
-		return true, nil
-	}
+
 	account, err := st.s.github.Account(ctx, *st.gh, land.Account)
 	if err != nil {
 		return false, err
@@ -173,4 +173,14 @@ func (st *mythicalItemStep) landedByMaintainer(ctx context.Context, item db.Myth
 		return false, nil
 	}
 	return st.s.github.Maintainer(ctx, *st.gh, account)
+}
+
+// RequireMergeSession rejects non-session authority before readiness reads.
+// The caller still checks current GitHub maintainer authority before approval.
+func RequireMergeSession(ctx context.Context, userID int64) error {
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil || info.User.ID != userID || info.IsTokenAuth || info.SessionHash == "" || info.IsAgent() {
+		return &TodoControlError{Status: http.StatusForbidden, Code: "permission", Class: "permission", Message: "Merge requires an owner or maintainer browser session"}
+	}
+	return nil
 }

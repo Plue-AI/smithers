@@ -1,3 +1,4 @@
+import { nameOf } from "../flows/registry"
 import { expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
@@ -467,74 +468,7 @@ test("signed out, History parks behind sign-in and reads nothing", async () => {
   expect(stackCard(store)).toBeUndefined()
 })
 
-test("Land (history.land) is acknowledged at once and its notice follows the TODO until it lands (#3059)", async () => {
-  const { store, controller, fake } = await setup()
-  const head = "d".repeat(40)
-  const pullRequest = { number: 40, url: "https://github.com/pr/40", state: "open" as const, head }
-  const proposed = item("i40", "proposed", { todo: { replans: 0 }, pullRequest })
-  fake.set(snapshot(2, [proposed]))
-  await controller.commands.run("history.show", REPO)
-  const held = deferred<Response>()
-  fake.handlers.set(`POST ${BASE}/items/i40/land`, () => held.promise)
-  const key = `stack.land.${REPO}#i40`
-  // The command returns before the request answers; a second press joins it.
-  expect(await controller.commands.run("history.land", `i40 ${head} ${REPO}`)).toMatchObject({ status: "executed", value: "Requested" })
-  expect(await controller.commands.run("history.land", `i40 ${head} ${REPO}`)).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => toast(store, key)?.status === "running")
-  expect(fake.writes.filter(write => write.path === `${BASE}/items/i40/land`)).toEqual([{ method: "POST", path: `${BASE}/items/i40/land`, body: JSON.stringify({ head }) }])
-  // Chat stays usable while it runs.
-  expect(await controller.commands.run("history.show", REPO)).toMatchObject({ status: "executed" })
-
-  const accepted = { ...proposed, automerge: true, updatedAt: "2026-09-25T10:05:00Z" }
-  held.resolve(Response.json(accepted, { status: 202 }))
-  // A read that began before the land was accepted does not settle it.
-  fake.hint(3)
-  await new Promise(resolve => setTimeout(resolve, 50))
-  expect(toast(store, key)?.status).toBe("running")
-  // Reviewed, green, merged: the notice settles only now.
-  fake.set(snapshot(4, [accepted]))
-  fake.hint(4)
-  await new Promise(resolve => setTimeout(resolve, 50))
-  expect(toast(store, key)?.status).toBe("running")
-  fake.set(snapshot(5, [{ ...accepted, state: "landed", updatedAt: "2026-09-25T10:09:00Z", pullRequest: { ...pullRequest, state: "merged" } }]))
-  fake.hint(5)
-  await waitFor(() => toast(store, key)?.status === "ok")
-  expect(stackCard(store)?.payload.failure).toBeNull()
-})
-
-test("a Land the stack stops short of, or that Cloud refuses, fails visibly with Retry and never claims it landed", async () => {
-  const { store, controller, fake } = await setup()
-  const head = "e".repeat(40)
-  const pullRequest = { number: 41, url: "https://github.com/pr/41", state: "open" as const, head }
-  const proposed = item("i41", "proposed", { todo: { replans: 0 }, pullRequest })
-  fake.set(snapshot(2, [proposed]))
-  await controller.commands.run("history.show", REPO)
-  const args = `i41 ${head} ${REPO}`
-  const key = `stack.land.${REPO}#i41`
-
-  fake.handlers.set(`POST ${BASE}/items/i41/land`, async () => Response.json({ message: "the pull request changed since you saw it" }, { status: 409 }))
-  expect(await controller.commands.run("history.land", args)).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => toast(store, key)?.status === "failed")
-  expect(toast(store, key)).toMatchObject({ action: { flow: "history.land", args, label: "Retry" } })
-  // A land failure lives on its notice, never as the card's standing failure.
-  expect(stackCard(store)?.payload.failure).toBeNull()
-
-  // Accepted, then a maintainer takes automerge off: the stack holds it.
-  fake.handlers.set(`POST ${BASE}/items/i41/land`, async () =>
-    Response.json({ ...proposed, automerge: true, updatedAt: "2026-09-25T10:05:00Z" }, { status: 202 }))
-  expect(await controller.commands.run("history.land", args)).toMatchObject({ status: "executed" })
-  await waitFor(() => toast(store, key)?.status === "running")
-  fake.set(snapshot(3, [{ ...proposed, reason: "a maintainer's automerge label is no longer on the issue", updatedAt: "2026-09-25T10:06:00Z" }]))
-  fake.hint(3)
-  await waitFor(() => toast(store, key)?.status === "failed")
-  expect(toast(store, key)).toMatchObject({ action: { flow: "history.land", args, label: "Retry" } })
-  expect(toast(store, key)?.detail).toContain("automerge label is no longer on the issue")
-})
-
-test("history.land refuses a malformed line before any request", async () => {
-  const { controller, fake } = await setup()
-  for (const line of ["", "i1", `i1 ${"a".repeat(40)} extra ${REPO}`]) {
-    expect(await controller.commands.run("history.land", line)).not.toMatchObject({ status: "executed", value: "Requested" })
-  }
-  expect(fake.writes.filter(write => write.path.endsWith("/land"))).toEqual([])
+test("History exposes no obsolete TODO Land door", async () => {
+  const { controller } = await setup()
+  expect(controller.commands.entries().map(nameOf)).not.toContain("history.land")
 })

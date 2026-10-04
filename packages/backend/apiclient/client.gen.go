@@ -1340,9 +1340,9 @@ type GetAPIReposOwnerRepoWorkspacesIDEgressParams struct {
 	Limit  *int64
 }
 
-// PostAPIReposOwnerRepoMythicalItemsIDLandBody is generated from docs/api/openapi.yaml.
-type PostAPIReposOwnerRepoMythicalItemsIDLandBody struct {
-	Head string `json:"head"`
+// PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoMythicalItemsIDMergeBody struct {
+	ReviewedHeadSHA string `json:"reviewed_head_sha"`
 }
 
 // PostAPIReposOwnerRepoMythicalTodosBody is generated from docs/api/openapi.yaml.
@@ -4484,10 +4484,10 @@ func (c *Client) GetAPIReposOwnerRepoMythicalItemsRef(ctx context.Context, owner
 	return out, err
 }
 
-// PostAPIReposOwnerRepoMythicalItemsIDLand calls POST /api/repos/{owner}/{repo}/mythical/items/{id}/land.
-func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDLand(ctx context.Context, owner string, repo string, id string, body PostAPIReposOwnerRepoMythicalItemsIDLandBody) (AnyJSON, error) {
+// PostAPIReposOwnerRepoMythicalItemsIDMerge calls POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge.
+func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDMerge(ctx context.Context, owner string, repo string, id string, body PostAPIReposOwnerRepoMythicalItemsIDMergeBody) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/land", nil, body, &out)
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/merge", nil, body, &out)
 	return out, err
 }
 

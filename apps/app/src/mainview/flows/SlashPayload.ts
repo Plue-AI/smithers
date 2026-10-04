@@ -787,12 +787,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (!/^[1-8]$/.test(rest) || !Number.isInteger(value)) return no("history.parallel takes a lane count from 1 to 8")
     return ok(repo === undefined ? { value } : { value, repo })
   },
-  "history.land": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
-    const [id = "", head = "", ...extra] = rest.split(/\s+/)
-    if (!/^[\w-]{1,64}$/.test(id) || !/^[\w-]{1,64}$/.test(head) || extra.length > 0) return no("history.land takes an item id and its pull request head")
-    return ok(repo === undefined ? { id, head } : { id, head, repo })
-  },
+
   /*
    * Both generators need a repository. Commands.ts renders a form only for a
    * grammar failure, so a blank line must fail here rather than reach schema

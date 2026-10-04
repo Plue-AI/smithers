@@ -17690,11 +17690,11 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/mythical/items/{id}/land:
+  /api/repos/{owner}/{repo}/mythical/items/{id}/merge:
     post:
-      summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/land
-      description: A maintainer person asks the stack to merge a proposed TODO's pull request. The stack applies the automerge label for them and merges as for a maintainer's own label, at the reviewed head once GitHub CI is green; nothing merges here. Answers the item.
-      operationId: post_api_repos_owner_repo_mythical_items_id_land
+      summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge
+      description: A maintainer browser session asks the stack to merge a proposed TODO's pull request. The stack applies the automerge label for them and merges as for a maintainer's own label, at the reviewed head once GitHub CI is green; nothing merges here. Answers the item.
+      operationId: post_api_repos_owner_repo_mythical_items_id_merge
       tags:
         - Repositories
       parameters:
@@ -17721,15 +17721,13 @@ paths:
               type: object
               additionalProperties: false
               required:
-                - head
+                - reviewed_head_sha
               properties:
-                head:
+                reviewed_head_sha:
                   type: string
                   description: The pull request head the person saw; a head that moved since is refused.
-                  pattern: '^[0-9a-f]{40}$'
+                  pattern: '^[0-9a-fA-F]{40}$'
       security:
-        - tokenAuth: []
-        - bearerAuth: []
         - sessionCookie: []
       responses:
         '202':
