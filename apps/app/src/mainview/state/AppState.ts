@@ -26,6 +26,7 @@ import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { RepositoryJobSchema, SetupRecoveryResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import { z } from "zod"
+import { SetupStepIdSchema } from "@smthrs/rpc/SetupCard"
 import { SignupSchema, type Signup } from "./LegacySignup"
 import { currentFlowName, FLOW_NAMES } from "../flows/FlowName"
 import { CloudWikiState } from "../wiki/CloudWikiState"
@@ -785,6 +786,11 @@ export const ChatUsageSchema = z.object({
 export type ChatUsage = z.infer<typeof ChatUsageSchema>
 
 export const SessionSchema = z.object({
+  installRequests: z.array(z.object({
+    id: z.string(), step: SetupStepIdSchema, origin: z.string(), body: z.record(z.string(), z.unknown()),
+    state: z.enum(["requested", "running", "completed", "failed"]),
+    handoff: z.object({ action_url: z.string(), manifest: z.record(z.string(), z.unknown()), state: z.string() }).optional()
+  })).optional(),
   queuedPrompts: z.array(QueuedPromptSchema).optional(),
   promptQueuePaused: z.boolean().optional(),
   codingProviderRequests: z.array(z.object({
@@ -1270,6 +1276,7 @@ export type AppTransition =
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
+  | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }

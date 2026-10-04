@@ -166,3 +166,22 @@ describe("T-APP-03 Containers with recording Views", () => {
     h.setup()!.onAction("settings.parallel", { parallel: "2" }); expect(h.commands).toEqual([])
   })
 })
+
+
+test("after App conversion Setup offers the existing browser sign-in flow", () => {
+  const model = installFixture(); model.steps[2] = { id: "sign_in", state: "pending" }
+  const h = harness({ model }); h.renderSetup()
+  expect(h.setup()!.actions).toEqual([expect.objectContaining({ tag: "sign-in", label: "Sign in", args: { step: "sign_in" } })])
+  h.setup()!.onAction("sign-in", { step: "sign_in" })
+  expect(h.commands).toEqual([{ tag: "sign-in", input: undefined }])
+})
+
+test("Setup prints whole free GB and the owner's typed refusal beside the owner field", async () => {
+  const { SetupView } = await import("./views/SetupView")
+  const model = installFixture(); model.this_mac.disk_free_gb = 74.1594467163086
+  model.steps[1] = { id: "app_manifest", state: "failed", error: { code: "bad_request", class: "user", message: "GitHub owner not found" } }
+  const h = harness({ model }); h.renderSetup()
+  const markup = renderToStaticMarkup(<SetupView {...h.setup()!} />)
+  expect(markup).toContain("74 GB free"); expect(markup).not.toContain("74.159")
+  expect(markup).toContain("GitHub owner not found"); expect(markup).toContain('>Owner</label>')
+})

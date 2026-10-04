@@ -207,7 +207,7 @@ function AppContent() {
   const publicRepositoryLinks = (bootEntry?.publicRepositories ?? [])
     .filter(repo => repo.toLowerCase() !== missingBootRepository?.toLowerCase())
     .map(repo => `- [${repo}](/${repo.toLowerCase()}/)`)
-  const authMessage: Message | undefined = identity?.state === "signed-out" && hasBootstrap && !githubIdentity
+  const authMessage: Message | undefined = controller.bootstrap?.capabilities.includes("install") ? undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity
     ? {
       id: "auth-state",
       role: "smithers",

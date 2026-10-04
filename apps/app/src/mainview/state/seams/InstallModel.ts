@@ -57,3 +57,11 @@ export const settingsCardModel = (model: InstallModel, origin: string): Settings
     notifications_need_https: url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
   })
 }
+
+// Setup writes return admission or browser-handoff receipts, never completion.
+export const InstallManifestSchema = z.object({ action_url: z.string().url(), manifest: z.record(z.string(), z.unknown()), state: z.string().min(1) })
+export const InstallReceiptSchema = z.union([
+  z.object({ operationId: z.string().min(1), requestId: z.string().min(1), kind: z.string().min(1), state: z.literal("accepted") }),
+  InstallManifestSchema
+])
+export type InstallManifest = z.infer<typeof InstallManifestSchema>

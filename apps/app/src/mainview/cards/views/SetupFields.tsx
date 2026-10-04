@@ -4,7 +4,7 @@ import type { SetupCard } from "@smthrs/rpc/SetupCard"
 import { SetupActions } from "./SetupActions"
 const roles = { fast: "Fast model", coding: "Coding model", jev: "Decisions" }
 export function ThisMac({ model, onAction }: { model: SetupCard; onAction: CardProps<unknown>["onAction"] }) {
-  return <div className="setup-mac"><strong>This Mac</strong><span>{model.this_mac.memory_gb} GB · {model.this_mac.disk_free_gb} GB free</span>
+  return <div className="setup-mac"><strong>This Mac</strong><span>{model.this_mac.memory_gb} GB · {Math.floor(model.this_mac.disk_free_gb)} GB free</span>
     {model.this_mac.capacity === 0 && <div className="setup-capacity">No machine fits · {model.this_mac.limit?.term} · {model.this_mac.limit && <SetupActions actions={[model.this_mac.limit.fix]} onAction={onAction} />}</div>}
   </div>
 }

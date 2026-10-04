@@ -421,6 +421,9 @@ func (s *GitHubAppManifestService) request(ctx context.Context, method, path, to
 		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub App request failed")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound && method == http.MethodGet && strings.HasPrefix(path, "/users/") {
+		return pkgerrors.BadRequest("GitHub owner not found")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, fmt.Sprintf("GitHub App request failed (%d)", resp.StatusCode))
 	}

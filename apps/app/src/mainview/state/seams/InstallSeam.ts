@@ -1,10 +1,11 @@
+import { submitGitHubAppManifest } from "../../flows/cardActions"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { SeamContext } from "./SeamContext"
 import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
 import { MODEL_CREDENTIALS, ModelCredentialRequestSchema, ModelCredentialResultSchema } from "@smthrs/rpc/ConfiguredModel"
 import { actorSharedState } from "../ActorBindings"
 import { installRequestId } from "./InstallRequestId"
-import { InstallErrorSchema, InstallModelSchema, type InstallError, type InstallModel, type InstallStepId } from "./InstallModel"
+import { InstallErrorSchema, InstallModelSchema, InstallReceiptSchema, type InstallManifest, type InstallError, type InstallModel, type InstallStepId } from "./InstallModel"
 
 /** T-APP-03: the shared /api/live transport supplies complete install projections after snapshots/deltas. */
 export interface InstallTopic {
@@ -16,6 +17,7 @@ export interface InstallSnapshots {
   readonly subscribe: (listener: () => void) => () => void
 }
 export interface InstallSeamOptions {
+  readonly handoff?: (receipt: InstallManifest) => void
   readonly topic?: InstallTopic
   readonly present?: (kind: "setup" | "settings") => void | Promise<void>
   /**
@@ -35,10 +37,14 @@ export const NO_INSTALL = "no_install"
 
 export const createInstallSeam = (ctx: SeamContext, withToast: FailureController["withToast"], options: InstallSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "install", () => ({
-    snapshot: {} as InstallSnapshot, listeners: new Set<() => void>(), pending: new Map<string, Promise<unknown>>(),
+    snapshot: {} as InstallSnapshot, authoritative: undefined as InstallModel | undefined, listeners: new Set<() => void>(), pending: new Map<string, Promise<unknown>>(),
     stop: undefined as (() => void) | undefined, disposed: false, generation: 0,
     cancel: new Set<() => void>(), tail: Promise.resolve() as Promise<unknown>, subscribing: false
   }))
+  type SetupRequest = NonNullable<ReturnType<typeof ctx.store.session>["installRequests"]>[number]
+  const requests = () => (ctx.store.session().installRequests ?? []).filter(row => row.origin === ctx.baseUrl)
+  const saveRequest = (row: SetupRequest) => ctx.dispatch({ type: "install.requests.changed", actor: ctx.actor(),
+    requests: [...(ctx.store.session().installRequests ?? []).filter(each => each.id !== row.id), row].slice(-32) }).isPersisted.promise
   const current = () => !shared.disposed && ctx.isDisposed?.() !== true
   const publish = (snapshot: InstallSnapshot) => {
     if (!current()) return
@@ -58,7 +64,10 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const parsed = InstallModelSchema.safeParse(data)
     if (!parsed.success) { publish({ ...shared.snapshot, error: error("invalid_install", "Install response unavailable") }); return }
     shared.generation++
-    publish({ model: parsed.data })
+    shared.authoritative = parsed.data
+    const active = requests().filter(row => row.state === "requested" || row.state === "running")
+    publish({ model: { ...parsed.data, steps: parsed.data.steps.map(step => step.state === "pending" && active.some(row => row.step === step.id)
+      ? { ...step, state: "running" } : step) } })
     if (parsed.data.github.signed_in && !shared.stop && !shared.subscribing && options.topic) {
       shared.subscribing = true
       try {
@@ -73,7 +82,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       finally { shared.subscribing = false }
     }
   }
-  const request = async (path: string, init?: RequestInit): Promise<InstallModel | InstallError> => {
+  const request = async (path: string, init?: RequestInit): Promise<InstallModel | InstallError | ReturnType<typeof InstallReceiptSchema.parse>> => {
     try {
       const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api${path}`, {
         credentials: "same-origin", ...init,
@@ -85,6 +94,10 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       if (!response.ok) {
         const parsed = InstallErrorSchema.safeParse(body)
         return parsed.success ? parsed.data : error("invalid_error", "Install request failed")
+      }
+      if (path.startsWith("/install/setup/") && response.ok) {
+        const receipt = InstallReceiptSchema.safeParse(body)
+        if (receipt.success) return receipt.data
       }
       const parsed = InstallModelSchema.safeParse(body)
       return parsed.success ? parsed.data : error("invalid_install", "Install response unavailable")
@@ -99,7 +112,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       else publish({ ...shared.snapshot, error: result })
       return result
     }
-    receive(result)
+    if ("steps" in result) receive(result)
+    else { const failure = error("invalid_install", "Install response unavailable"); publish({ ...shared.snapshot, error: failure }); return failure }
   }
   const background = (key: string, title: string, work: () => Promise<boolean | string | typeof TOAST_SUPERSEDED>, doneTitle = "Saved") => {
     if (!current()) return "Install is closed"
@@ -122,25 +136,50 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       publish({ error: permission }); return permission.message
     }
     await options.present?.(kind)
+    for (const row of requests().filter(row => row.state === "requested" || row.state === "running")) {
+      const step = shared.snapshot.model.steps.find(step => step.id === row.step)
+      if (step?.state === "done" || step?.state === "failed" || step?.state === "blocked") {
+        await saveRequest({ ...row, state: step.state === "done" ? "completed" : "failed" })
+      } else if (row.state === "requested" && shared.authoritative?.steps.find(step => step.id === row.step)?.state !== "running") {
+        write(`setup:${row.step}`, `/install/setup/${row.step === "app_manifest" ? "app" : row.step}`, row.body, true, row)
+      } else {
+        await saveRequest({ ...row, state: "running" })
+        if (row.handoff) (options.handoff ?? submitGitHubAppManifest)(row.handoff)
+      }
+    }
     const running = shared.snapshot.model.steps.find(step => step.state === "running")
-    if (kind === "setup" && running) return await waitStep(running.id)
+    if (kind === "setup" && running) {
+      const outcome = await waitStep(running.id)
+      if (current()) for (const row of requests().filter(row => row.step === running.id && (row.state === "requested" || row.state === "running")))
+        await saveRequest({ ...row, state: outcome === true ? "completed" : "failed" })
+      return outcome
+    }
     return true
   }, kind === "setup" ? "Setup" : "Settings")
-  const write = (key: string, path: string, body: unknown, setup = false) => {
+  const write = (key: string, path: string, body: unknown, setup = false, recovered?: SetupRequest) => {
     const model = shared.snapshot.model
     if (!model || (!setup && !model.github.signed_in)) { publish({ error: permission }); return permission.message }
+    if (setup && shared.pending.has(key)) return { value: "Requested" }
+    const stepId = (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId
+    const row: SetupRequest | undefined = setup ? recovered ?? { id: installRequestId(), origin: ctx.baseUrl, step: stepId,
+      body: body as Record<string, unknown>, state: "requested" } : undefined
+    const saved = row ? saveRequest(row) : Promise.resolve()
+    if (setup) publish({ model: { ...model, steps: model.steps.map(step => step.id === stepId ? { id: step.id, state: "running" } : step) } })
     return background(setup ? key : key + ":" + JSON.stringify(body), setup ? "Setup" : "Saving", async () => {
       const prior = shared.tail
       let release!: () => void
       shared.tail = new Promise<void>(done => { release = done })
       await prior
       try {
+        await saved
         if (!current()) return false
         const generation = shared.generation
         const result = await request(path, { method: path === "/install" ? "PUT" : "POST",
-          headers: { "Idempotency-Key": installRequestId() }, body: JSON.stringify(body) })
+          headers: { "Idempotency-Key": row?.id ?? installRequestId() }, body: JSON.stringify(body) })
         if (!current()) return false
         if ("class" in result) {
+          if (generation !== shared.generation) return setup ? await waitStep(stepId) : TOAST_SUPERSEDED
+          if (row) await saveRequest({ ...row, state: "failed" })
           if (result.class === "permission") revoke(result)
           else {
             const model = shared.snapshot.model
@@ -156,9 +195,24 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           }
           return result.message
         }
-        if (generation === shared.generation) receive(result)
+        if ("steps" in result) {
+          if (generation === shared.generation) receive(result)
+        } else {
+          if (row) await saveRequest({ ...row, state: "running", ...("action_url" in result ? { handoff: result } : {}) })
+          if ("action_url" in result && shared.snapshot.model?.steps.find(step => step.id === stepId)?.state !== "done") {
+            try { (options.handoff ?? submitGitHubAppManifest)(result) }
+            catch { const failure = error("handoff_failed", "GitHub App handoff unavailable");
+              if (row) await saveRequest({ ...row, state: "failed" })
+              publish({ ...shared.snapshot, error: failure, model: shared.snapshot.model && { ...shared.snapshot.model,
+                steps: shared.snapshot.model.steps.map(step => step.id === stepId ? { ...step, state: "failed", error: failure } : step) } }); return failure.message }
+          }
+        }
         release()
-        if (setup) return await waitStep((path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId)
+        if (setup) {
+          const outcome = await waitStep(stepId)
+          if (current() && row) await saveRequest({ ...row, state: outcome === true ? "completed" : "failed" })
+          return outcome
+        }
         return true
       } finally { release() }
     }, setup ? path.endsWith("/source") ? "Source ready" : path.endsWith("/machine") ? "Machine ready" : "Setup" : "Saved")

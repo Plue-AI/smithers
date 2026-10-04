@@ -131,3 +131,17 @@ export const cardActions = <Gesture extends string = never>(
   }
   return bindScope(undefined)
 }
+
+
+/** GitHub's manifest endpoint requires a browser form POST navigation. */
+export const submitGitHubAppManifest = (receipt: { readonly action_url: string; readonly manifest: Readonly<Record<string, unknown>> }, page: Document = document): void => {
+  const target = new URL(receipt.action_url)
+  if (target.origin !== "https://github.com" || target.username || target.password ||
+    !/^\/(?:organizations\/[A-Za-z0-9-]+\/)?settings\/apps\/new$/.test(target.pathname)) throw new Error("GitHub App handoff refused")
+  const form = page.createElement("form")
+  form.method = "POST"; form.action = target.href; form.target = "_self"; form.hidden = true
+  const manifest = page.createElement("input")
+  manifest.type = "hidden"; manifest.name = "manifest"; manifest.value = JSON.stringify(receipt.manifest)
+  form.append(manifest); page.body.append(form)
+  try { form.submit() } finally { form.remove() }
+}

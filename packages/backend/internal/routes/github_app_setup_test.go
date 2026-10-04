@@ -309,7 +309,7 @@ func TestGitHubAppSetupCallbackAndInstallationBrowserRoundTrip(t *testing.T) {
 			w := httptest.NewRecorder()
 			h.Callback(w, r)
 			require.Equal(t, http.StatusSeeOther, w.Code)
-			require.Equal(t, "https://github.com/apps/smithers-test/installations/new", w.Header().Get("Location"))
+			require.Equal(t, "/", w.Header().Get("Location"))
 			require.Equal(t, "conversion-code", s.code)
 			require.Equal(t, "browser-state", s.state)
 			require.Equal(t, "browser-state", s.browserState)

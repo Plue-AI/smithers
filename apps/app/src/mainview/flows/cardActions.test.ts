@@ -498,3 +498,23 @@ describe("catalog card action bindings", () => {
     expect(attempts).toBe(1)
   })
 })
+
+
+test("GitHub manifest handoff submits a native top-level form with one manifest field", async () => {
+  const { Window } = await import("happy-dom")
+  const { submitGitHubAppManifest } = await import("./cardActions")
+  const page = new Window({ url: "http://localhost:4000" })
+  const submissions: unknown[] = []
+  page.HTMLFormElement.prototype.submit = function () {
+    submissions.push({ action: this.action, method: this.method.toLowerCase(), target: this.target,
+      fields: [...this.querySelectorAll("input")].map(input => ({ name: input.name, value: input.value })) })
+  }
+  const manifest = { name: "Smithers", redirect_url: "http://localhost:4000/setup/github/callback" }
+  for (const action_url of ["https://github.com/settings/apps/new?state=one", "https://github.com/organizations/smithersai/settings/apps/new?state=two"])
+    submitGitHubAppManifest({ action_url, manifest }, page.document as unknown as Document)
+  expect(submissions).toEqual(["https://github.com/settings/apps/new?state=one", "https://github.com/organizations/smithersai/settings/apps/new?state=two"].map(action => ({ action, method: "post", target: "_self", fields: [{ name: "manifest", value: JSON.stringify(manifest) }] })))
+  expect(page.document.querySelector("form")).toBeNull()
+  for (const action_url of ["http://github.com/settings/apps/new", "https://github.com.evil.test/settings/apps/new", "https://github.com/login", "https://user:password@github.com/settings/apps/new"])
+    expect(() => submitGitHubAppManifest({ action_url, manifest }, page.document as unknown as Document)).toThrow("refused")
+  await page.happyDOM.close()
+})

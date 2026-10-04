@@ -39,6 +39,8 @@ type Account struct {
 }
 
 type Config struct {
+	// OwnerStatus injects a GitHub outage at the public account lookup boundary.
+	OwnerStatus                                          int
 	AppID                                                int64
 	Slug, OwnerLogin, OwnerKind                          string
 	PrivateKeyPEM, ClientID, ClientSecret, WebhookSecret string
@@ -140,11 +142,17 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		return http.StatusCreated, app
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/users/"+s.config.OwnerLogin {
+		if s.config.OwnerStatus >= 400 {
+			return failure(s.config.OwnerStatus, "GitHub account lookup unavailable")
+		}
 		kind := "User"
 		if s.config.OwnerKind == "org" {
 			kind = "Organization"
 		}
 		return http.StatusOK, map[string]string{"login": s.config.OwnerLogin, "type": kind}
+	}
+	if r.Method == http.MethodGet && len(path) == 2 && path[0] == "users" {
+		return failure(http.StatusNotFound, "GitHub owner not found")
 	}
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 		return failure(http.StatusUnauthorized, "Bearer authorization required")

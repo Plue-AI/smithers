@@ -95,11 +95,12 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	t.Cleanup(network.Close)
 	local.Client().CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	network.Client().CheckRedirect = local.Client().CheckRedirect
+	ownerLogin := "acme"
 	request := func(server *httptest.Server, method, path string, cookies []*http.Cookie, origin bool) (int, []byte, []*http.Cookie) {
 		t.Helper()
 		var body io.Reader
 		if method == "POST" {
-			body = strings.NewReader(`{"owner":"acme"}`)
+			body = strings.NewReader(`{"owner":"` + ownerLogin + `"}`)
 		}
 		req, err := http.NewRequest(method, server.URL+path, body)
 		require.NoError(t, err)
@@ -140,6 +141,15 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 		require.Equal(t, i == 1, cookies[0].Secure)
 		status, _, _ = request(server, "GET", "/api/install", cookies, false)
 		require.Equal(t, 200, status)
+
+		if i == 0 {
+			ownerLogin = "missing-owner"
+			status, body, _ := request(server, "POST", "/api/install/setup/app", cookies, true)
+			require.Equal(t, 400, status)
+			require.JSONEq(t, `{"code":"bad_request","class":"user","message":"GitHub owner not found"}`, string(body))
+			require.Empty(t, fake.Writes())
+			ownerLogin = "acme"
+		}
 		status, body, stateCookies := request(server, "POST", "/api/install/setup/app", cookies, true)
 		if i == 0 {
 			require.Equal(t, 200, status, string(body))

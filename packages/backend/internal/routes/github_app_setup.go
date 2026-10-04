@@ -289,12 +289,12 @@ func (h *GitHubAppSetupHandler) Callback(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	target, err := h.Service.Convert(r.Context(), r.URL.Query().Get("code"), state, browser)
+	_, err := h.Service.Convert(r.Context(), r.URL.Query().Get("code"), state, browser)
 	if err != nil {
 		WriteInstallSetupError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 func (h *GitHubAppSetupHandler) Installed(w http.ResponseWriter, r *http.Request) {
 	if origin, ok := h.requestOrigin(r); !ok {

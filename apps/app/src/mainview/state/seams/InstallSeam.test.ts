@@ -16,8 +16,8 @@ const memoryStorage = (): StorageApi => {
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) }, removeItem: key => { values.delete(key) } }
 }
 const failure = (fault: InstallError["class"] = "user"): InstallError => ({ code: "refused", class: fault, message: "Address refused", fix: "Use another origin", retry_at: "2026-10-02T12:00:00Z" })
-const harness = async (answer: (path: string, init?: RequestInit) => Promise<Response> | Response, options: Pick<InstallSeamOptions, "quietWithoutInstall"> = {}) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+const harness = async (answer: (path: string, init?: RequestInit) => Promise<Response> | Response, options: InstallSeamOptions = {}, storage = memoryStorage()) => {
+  const store = await createAppStore({ kind: "localStorage", storage })
   const requests: Array<{ path: string; init?: RequestInit }> = []
   const toasts: Array<{ outcome?: unknown }> = []
   const jobs: Promise<unknown>[] = []
@@ -304,4 +304,111 @@ describe("T-APP-03 install seam", () => {
     expect(installRequestId()).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
     expect(installRequestId()).not.toBe(installRequestId())
   })
+})
+
+
+test("accepted setup receipts stay running, deduplicate and settle only from the operation", async () => {
+  const gate = deferred<Response>()
+  const model = installFixture(); model.steps[6] = { id: "machine", state: "pending" }
+  const h = await harness((_path, init) => init?.method === "POST" ? gate.promise : Response.json(model))
+  await h.seam.readInstall()
+  expect(h.seam.setupStep({ step: "machine" })).toEqual({ value: "Requested" })
+  h.seam.setupStep({ step: "machine" }); await tick(); await tick()
+  expect(h.requests.filter(row => row.init?.method === "POST")).toHaveLength(1)
+  expect(h.seam.snapshots.get().model?.steps[6]?.state).toBe("running")
+  expect(h.toasts[0]?.outcome).toBeUndefined()
+  gate.resolve(Response.json({ operationId: "operation", requestId: "request", kind: "install.machine", state: "accepted" }, { status: 202 }))
+  await tick(); await tick()
+  expect(h.seam.snapshots.get().error).toBeUndefined()
+  expect(h.toasts[0]?.outcome).toBeUndefined()
+  h.receive({ ...model, steps: model.steps.map(step => step.id === "machine" ? { id: "machine", state: "running", pct: 50 } : step) })
+  expect(h.toasts[0]?.outcome).toBeUndefined()
+  h.receive(installFixture()); await h.idle()
+  expect(h.toasts[0]?.outcome).toBe(true)
+})
+
+test("the App receipt hands the public manifest to a top-level browser form once", async () => {
+  const model = installFixture(); model.steps[1] = { id: "app_manifest", state: "pending" }; model.steps[2] = { id: "sign_in", state: "pending" }
+  const handoffs: unknown[] = []
+  const receipt = { action_url: "https://github.com/settings/apps/new?state=state", manifest: { name: "Smithers", redirect_url: "http://localhost:4000/setup/github/callback" }, state: "state" }
+  const h = await harness((_path, init) => Response.json(init?.method === "POST" ? receipt : model), { handoff: value => { handoffs.push(value) } })
+  await h.seam.readInstall(); h.seam.setupStep({ step: "app_manifest", owner: "acme" }); h.seam.setupStep({ step: "app_manifest", owner: "acme" })
+  await tick(); await tick()
+  expect(handoffs).toEqual([receipt]); expect(h.seam.snapshots.get().error).toBeUndefined()
+  expect(h.seam.snapshots.get().model?.steps[1]?.state).toBe("running")
+  h.seam.dispose(); await h.idle()
+})
+
+
+test("reload of an unresolved launch follows the running operation without another POST", async () => {
+  const storage = memoryStorage(), gate = deferred<Response>()
+  const model = installFixture(); model.steps[6] = { id: "machine", state: "pending" }
+  const first = await harness((_path, init) => init?.method === "POST" ? gate.promise : Response.json(model), {}, storage)
+  await first.seam.readInstall(); first.seam.setupStep({ step: "machine" }); await tick(); await tick()
+  const id = first.store.session().installRequests?.[0]?.id
+  expect(id).toBeString(); expect(first.store.session().installRequests?.[0]?.state).toBe("requested")
+  first.seam.dispose(); await first.store.settled?.()
+  model.steps[6] = { id: "machine", state: "running", pct: 30 }
+  const second = await harness(() => Response.json(model), {}, storage)
+  second.seam.showSetup(); await tick(); await tick()
+  expect(second.store.session().installRequests?.[0]?.id).toBe(id)
+  expect(second.requests.filter(row => row.init?.method === "POST")).toHaveLength(0)
+  expect(second.toasts[0]?.outcome).toBeUndefined()
+  gate.resolve(Response.json({ operationId: "operation", requestId: id, kind: "install.machine", state: "accepted" }, { status: 202 }))
+  await first.idle()
+  second.receive(installFixture()); await second.idle()
+  expect(second.toasts[0]?.outcome).toBe(true)
+  expect(second.store.session().installRequests?.[0]?.state).toBe("completed")
+})
+
+test("a receipt followed by operation failure stays retryable with its real reason", async () => {
+  const model = installFixture(); model.steps[6] = { id: "machine", state: "pending" }
+  const h = await harness((_path, init) => Response.json(init?.method === "POST" ? { operationId: "operation", requestId: "request", kind: "install.machine", state: "accepted" } : model))
+  await h.seam.readInstall(); h.seam.setupStep({ step: "machine" }); await tick(); await tick()
+  h.receive({ ...model, steps: model.steps.map(step => step.id === "machine" ? { id: "machine", state: "failed", error: failure() } : step) })
+  await h.idle()
+  expect(h.toasts[0]?.outcome).toBe("Address refused")
+  expect(h.store.session().installRequests?.[0]?.state).toBe("failed")
+  expect(h.seam.setupStep({ step: "machine" })).toEqual({ value: "Requested" })
+  await tick(); await tick(); h.receive(installFixture()); await h.idle()
+  expect(h.requests.filter(row => row.init?.method === "POST")).toHaveLength(2)
+  expect(h.toasts[1]?.outcome).toBe(true)
+})
+
+test("a late launch refusal cannot overwrite newer operation completion", async () => {
+  const gate = deferred<Response>(), model = installFixture(); model.steps[6] = { id: "machine", state: "pending" }
+  const h = await harness((_path, init) => init?.method === "POST" ? gate.promise : Response.json(model))
+  await h.seam.readInstall(); h.seam.setupStep({ step: "machine" }); await tick(); await tick()
+  h.receive(installFixture()); gate.resolve(Response.json(failure(), { status: 400 })); await h.idle()
+  expect(h.seam.snapshots.get().model?.steps[6]?.state).toBe("done")
+  expect(h.seam.snapshots.get().error).toBeUndefined()
+  expect(h.toasts[0]?.outcome).toBe(true)
+})
+
+test("setup address crosses real HTTP and polls its operation instead of completing at acceptance", async () => {
+  const gate = deferred<Response>()
+  const model = installFixture(); model.github.signed_in = false; model.steps[0] = { id: "address", state: "pending" }
+  let writes = 0, posted: unknown
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: async request => {
+    if (request.method === "POST") { writes++; posted = await request.json(); model.steps[0] = { id: "address", state: "running" }; return gate.promise }
+    return Response.json(model)
+  } })
+  const h = await harness((path, init) => fetch(new URL(path, server.url), init))
+  try {
+    await h.seam.readInstall()
+    expect(h.seam.setupStep({ step: "address", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] })).toEqual({ value: "Requested" })
+    h.seam.setupStep({ step: "address", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] })
+    for (let n = 0; n < 50 && !writes; n++) await tick()
+    expect(writes).toBe(1); expect(posted).toEqual({ bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] })
+    expect(h.toasts[0]?.outcome).toBeUndefined()
+    gate.resolve(Response.json({ operationId: "op-address", requestId: "request-address", kind: "install.address", state: "accepted" }, { status: 202 }))
+    await tick(); await tick()
+    expect(h.toasts[0]?.outcome).toBeUndefined()
+    expect(h.seam.snapshots.get().model?.steps[0]?.state).toBe("running")
+    model.steps[0] = { id: "address", state: "done" }
+    await h.idle()
+    expect(h.toasts[0]?.outcome).toBe(true)
+    expect(h.seam.snapshots.get().model?.steps[0]?.state).toBe("done")
+    expect(h.requests.filter(row => row.init?.method !== "POST").length).toBeGreaterThan(1)
+  } finally { h.seam.dispose(); server.stop(true) }
 })

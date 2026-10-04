@@ -41,7 +41,8 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
   const definitions: CardActionDefinition[] = []
   const step = model?.steps.find(step => step.state !== "done")
   if (allowed && model && step) {
-    definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
+    if (step.id === "sign_in") definitions.push({ tag: "sign-in", label: "Sign in", args: { step: step.id }, command_input: undefined })
+    else definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
       disabled: step.state === "running" ? { reason: "Running" } : undefined,
       args: { step: step.id },
       input: step.id === "address" ? [
