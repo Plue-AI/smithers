@@ -18,7 +18,11 @@ export interface InstallSnapshots {
 export interface InstallSeamOptions {
   readonly topic?: InstallTopic
   readonly present?: (kind: "setup" | "settings") => void | Promise<void>
-  /** MOCK SEAM (state/seams/DesignWorld): while the seed stands in, a host where no install answers is a quiet state, not a failed notice. */
+  /**
+   * MOCK SEAM (state/seams/DesignWorld): while the seed stands in, a host with no install route (GET /api/install
+   * answers 404, or a page that is not an install's JSON) opens quietly. An install that exists and is unreachable
+   * or errors keeps its visible, retryable failure.
+   */
   readonly quietWithoutInstall?: boolean
 }
 export interface InstallAddress { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
@@ -26,6 +30,8 @@ export interface SetupInput { readonly step: InstallStepId; readonly owner?: str
 export interface ModelKeyInput { readonly role: "fast" | "coding" | "jev"; readonly provider: string }
 const error = (code: string, message: string, fault: InstallError["class"] = "infra"): InstallError => ({ code, class: fault, message })
 const permission = error("owner_required", "Owner access required", "permission")
+/** GET /api/install found no install route on this host (see quietWithoutInstall). */
+export const NO_INSTALL = "no_install"
 
 export const createInstallSeam = (ctx: SeamContext, withToast: FailureController["withToast"], options: InstallSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "install", () => ({
@@ -74,6 +80,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         headers: { ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers }
       })
       const body: unknown = await response.json().catch(() => undefined)
+      // No install route on this host: a 404, or a page that is not JSON (the hosted site's HTML fallback).
+      if (response.status === 404 || (response.ok && body === undefined)) return error(NO_INSTALL, "No install on this host")
       if (!response.ok) {
         const parsed = InstallErrorSchema.safeParse(body)
         return parsed.success ? parsed.data : error("invalid_error", "Install request failed")
@@ -106,8 +114,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   const open = (kind: "setup" | "settings") => background(`open:${kind}`, kind === "setup" ? "Setup" : "Settings", async () => {
     const failure = await readInstall()
-    // No install answered at all (no install error body, or no answer): with the seed standing in, nothing failed that the person can act on.
-    if (failure && options.quietWithoutInstall && (failure.code === "invalid_error" || failure.code === "unreachable")) return TOAST_SUPERSEDED
+    // Only a host with no install route is quiet while the seed stands in; an unreachable or failing install stays visible.
+    if (failure && options.quietWithoutInstall && failure.code === NO_INSTALL) return TOAST_SUPERSEDED
     if (failure) return failure.message
     if (!current() || !shared.snapshot.model) return false
     if (kind === "settings" && !shared.snapshot.model.github.signed_in) {
@@ -222,8 +230,15 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const prior = shared.snapshot.model.models.find(role => role.role === input.role)
     const rotate = prior?.provider === input.provider && prior.key === "saved"
     if (shared.pending.has(`key:${input.role}`)) { value = undefined; return { value: "Requested" } }
+    const mark = (key: "validating" | "failed", reason?: string) => {
+      const model = shared.snapshot.model
+      if (model) publish({ ...shared.snapshot, model: { ...model, models: model.models.map(role => role.role !== input.role ? role
+        : { role: role.role, provider: input.provider, key, ...(reason === undefined ? {} : { error: reason }) }) } })
+    }
     return background(`key:${input.role}`, "Saving key", async () => {
       if (!current()) { value = undefined; return false }
+      // A key is Validating while its one request is in flight; only the authoritative read below marks it Saved.
+      mark("validating")
       // Values live only until the one HTTP request is constructed, never in install/card state.
       const requestId = installRequestId()
       const request = ModelCredentialRequestSchema.safeParse({ requestId, name: credential.name, value,
@@ -241,19 +256,19 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         const receipt = ModelCredentialResultSchema.safeParse(payload)
         if (!response.ok || !receipt.success || !receipt.data.ok || receipt.data.credential.name !== credential.name || !receipt.data.credential.present) {
           const parsed = InstallErrorSchema.safeParse(payload)
+          // The provider's own refusal, when the host relays one, is the reason the role shows.
+          const refusal = receipt.success && !receipt.data.ok && receipt.data.failure.code === "host_refused" ? receipt.data.failure.refusal : null
           const failure = parsed.success ? parsed.data : receipt.success && !receipt.data.ok
-            ? error(receipt.data.failure.code, "Key refused", receipt.data.fault === "infra" ? "infra" : "user")
+            ? error(receipt.data.failure.code, refusal ?? "Key refused", receipt.data.fault === "infra" ? "infra" : "user")
             : error("key_refused", "Key refused")
-          const model = shared.snapshot.model
           if (failure.class === "permission") revoke(failure)
-          else publish({ ...shared.snapshot, error: failure, model: model && { ...model,
-            models: model.models.map(role => role.role === input.role ? { ...role, key: "failed", error: failure.message } : role) } })
+          else { mark("failed", failure.message); publish({ ...shared.snapshot, error: failure }) }
           return failure.message
         }
         // Only the authoritative read can mark a key saved. Credential responses are never retained.
         const failure = await readInstall()
         return failure?.message ?? true
-      } catch { const failure = error("unreachable", "Could not save key"); publish({ ...shared.snapshot, error: failure }); return failure.message }
+      } catch { const failure = error("unreachable", "Could not save key"); mark("failed", failure.message); publish({ ...shared.snapshot, error: failure }); return failure.message }
       finally { value = undefined }
     })
   }

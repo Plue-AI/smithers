@@ -177,6 +177,7 @@ describe("the controller's command surface", () => {
       "features",
       "nativeAgentAvailable",
       "design",
+      "live",
       "presentCard",
       "presentBranchCard",
       "presentRun",

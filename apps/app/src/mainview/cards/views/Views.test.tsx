@@ -693,6 +693,70 @@ test("No-capacity fix dispatches its supplied tag and arguments", () => {
   expect(calls).toEqual([[fix.tag, fix.args ?? {}]])
 })
 
+const reachActions: Action[] = [
+  { tag: "settings.address", label: "Save", args: { field: "address", listen: "mac" } },
+  { tag: "settings.address", label: "Save", args: { field: "address", listen: "network" }, input: [
+    { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:8080" },
+    { name: "origins", label: "Origins", kind: "text", required: true, value: "http://mac-mini.local:8080" }
+  ] }
+]
+test("Settings Address: This Mac only shows no Bind; choosing Network reveals prefilled Bind and Origins and saves them", () => {
+  const calls: unknown[] = [], patches: unknown[] = []
+  const mac = { ...settings.ready.model, address: { listen: "mac" as const, bind: "127.0.0.1:8080", origins: ["http://localhost:8080"] } }
+  const host = render(<SettingsView {...settings.ready} model={mac} actions={reachActions} view={{ maximized: false }} onAction={(...args) => calls.push(args)} onView={patch => patches.push(patch)} />)
+  const choices = () => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Who can reach it"] button')].map(button => [button.textContent, button.getAttribute("aria-pressed")])
+  expect(choices()).toEqual([["This Mac only", "true"], ["Network", "false"]])
+  expect(host.querySelector('input[id$="-bind"]')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="Who can reach it"] button:last-child')!.click())
+  expect(patches).toEqual([{ tab: "network" }])
+  act(() => root!.render(<SettingsView {...settings.ready} model={mac} actions={reachActions} view={{ maximized: false, tab: "network" }} onAction={(...args) => calls.push(args)} onView={patch => patches.push(patch)} />))
+  expect(choices()).toEqual([["This Mac only", "false"], ["Network", "true"]])
+  const row = [...host.querySelectorAll("dt")].find(dt => dt.textContent === "This Mac")!.nextElementSibling!
+  expect([...row.querySelectorAll("label")].map(label => label.textContent)).toEqual(["Bind", "Origins"])
+  expect(row.querySelector<HTMLInputElement>('input[id$="-bind"]')!.value).toBe("0.0.0.0:8080")
+  expect(row.querySelector<HTMLInputElement>('input[id$="-origins"]')!.value).toBe("http://mac-mini.local:8080")
+  act(() => row.querySelector<HTMLButtonElement>('button[data-flow="settings.address"]')!.click())
+  expect(calls).toEqual([["settings.address", { field: "address", listen: "network", bind: "0.0.0.0:8080", origins: "http://mac-mini.local:8080" }]])
+})
+test("Settings Address: a network install choosing This Mac only saves with one press", () => {
+  const calls: unknown[] = []
+  const host = render(<SettingsView {...settings.ready} actions={reachActions} view={{ maximized: false, tab: "mac" }} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  expect(host.querySelector('input[id$="-bind"]')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('button[data-flow="settings.address"]')!.click())
+  expect(calls).toEqual([["settings.address", { field: "address", listen: "mac" }]])
+})
+const roleKeys: Action[] = [
+  { tag: "settings.model-key", label: "Save", args: { step: "models", role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
+  { tag: "settings.model-key", label: "Save", args: { step: "models", role: "coding" }, input: [
+    { name: "provider", label: "Provider", kind: "choice", required: true, value: "OpenAI", choices: ["OpenAI", "Anthropic", "OpenRouter"] },
+    { name: "value", label: "API key", kind: "secret", required: true }] },
+  { tag: "settings.model-key", label: "Save", args: { step: "models", role: "jev" }, input: [{ name: "value", label: "AI Gateway key", kind: "secret", required: true }] }
+]
+test("Setup Model access: three named roles, each with its own key control and key state", () => {
+  const calls: unknown[] = []
+  const model = { ...setup.models_validating.model, models: [
+    { role: "fast" as const, provider: "Cerebras", key: "saved" as const },
+    { role: "coding" as const, provider: "OpenAI", key: "validating" as const },
+    { role: "jev" as const, provider: "AI Gateway", key: "failed" as const, error: "401 invalid API key" }
+  ] }
+  const host = render(<SetupView {...setup.models_validating} model={model} actions={roleKeys} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  const rows = [...host.querySelectorAll('[data-step="models"] .setup-model')]
+  expect(rows.map(row => row.firstElementChild!.textContent)).toEqual(["Fast model", "Coding model", "Decisions"])
+  expect(rows.map(row => row.getAttribute("data-state"))).toEqual(["saved", "validating", "failed"])
+  expect(rows.map(row => row.querySelector(".setup-key-state")!.textContent)).toEqual(["Saved", "Validating", "Failed"])
+  expect(rows[2]!.querySelector('[role="alert"]')!.textContent).toBe("401 invalid API key")
+  expect(rows.map(row => row.querySelector<HTMLInputElement>('input[type="password"]')!.getAttribute("aria-label"))).toEqual(["Cerebras key", "API key", "AI Gateway key"])
+  expect(rows[1]!.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')!.value).toBe("OpenAI")
+  expect(host.textContent).not.toMatch(/jev|fast|coding/)
+  expect(host.querySelector('select option[value="jev"]')).toBeNull()
+  const input = rows[2]!.querySelector<HTMLInputElement>('input[type="password"]')!
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "gateway-key"); input.dispatchEvent(new Event("input", { bubbles: true })) })
+  act(() => rows[2]!.querySelector<HTMLButtonElement>('button[data-flow="settings.model-key"]')!.click())
+  expect(calls).toEqual([["settings.model-key", { step: "models", role: "jev", value: "gateway-key" }]])
+  expect(host.textContent).not.toContain("gateway-key")
+  expect(host.querySelectorAll('[data-step="models"] form').length).toBe(3)
+})
+
 test("Settings actions live in their rows and unassigned actions retain order", () => {
   const host = render(<SettingsView {...settings.ready} actions={[...settings.ready.actions, { tag: "flows", label: "Add" }, { tag: "docs", label: "Docs" }]} onAction={() => {}} onView={() => {}} />)
   const row = (label: string) => [...host.querySelectorAll("dt")].find(dt => dt.textContent === label)!.nextElementSibling!
@@ -2059,4 +2123,87 @@ test("Secrets stories keep minimal product copy and redact submitted values", as
       }
     } finally { await m.close() }
   }
+})
+
+import { fixtures as homeFixtures } from "@smthrs/rpc/fixtures/Home"
+import type { HomeViewProps } from "@smthrs/rpc/HomeCard"
+import { HomeView } from "./HomeView"
+import { useState } from "react"
+describe("HomeView", () => {
+  const withBranch = (): HomeViewProps["model"] => {
+    const base = homeFixtures.active.model
+    const row = base.items[0]!
+    return { ...base, attention: [], background_runs: [], items: [{ ...row, actions: [{ tag: "branch", label: row.branch.name, args: { n: String(row.n), door: "branch" } }] }] }
+  }
+  test("the branch chip dispatches the row's own branch action; a row without one shows its name as text", async () => {
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host)
+    const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
+    const onView = mock((_patch: Record<string, unknown>) => {})
+    const model = withBranch()
+    const row = model.items[0]!
+    try {
+      await act(async () => root.render(<HomeView model={model} actions={[]} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
+      const chip = host.querySelector<HTMLButtonElement>(".mvp-stack-row button.mvp-branch-chip")!
+      expect(chip.dataset.flow).toBe("branch")
+      expect(chip.textContent).toBe(row.branch.name)
+      // The chip is the branch action's only control: it is not repeated among the row's end actions.
+      expect(host.querySelectorAll('.mvp-row-end [data-flow="branch"]')).toHaveLength(0)
+      await act(async () => chip.click())
+      expect(onAction.mock.calls).toEqual([["branch", { n: String(row.n), door: "branch" }]])
+      expect(onView).toHaveBeenCalledTimes(0)
+      await act(async () => root.render(<HomeView model={{ ...model, items: [{ ...row, actions: [] }] }} actions={[]} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
+      expect(host.querySelector(".mvp-branch-chip")).toBeNull()
+      expect(host.querySelector(".mvp-where")?.firstChild?.nodeType).toBe(Node.TEXT_NODE)
+      expect(host.querySelector(".mvp-where")?.firstChild?.textContent).toBe(row.branch.name)
+    } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
+  test("visibility reports only changes, through one observer, even when every report re-renders with a new onView", async () => {
+    const observers: Array<{ callback: (entries: Array<{ isIntersecting: boolean }>) => void; disconnected: boolean }> = []
+    const original = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver
+    Object.assign(globalThis, { IntersectionObserver: class {
+      record: { callback: (entries: Array<{ isIntersecting: boolean }>) => void; disconnected: boolean }
+      constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) { this.record = { callback, disconnected: false }; observers.push(this.record) }
+      observe() {}
+      disconnect() { this.record.disconnected = true }
+    } })
+    const patches: unknown[] = []
+    let renders = 0
+    const Parent = ({ initial }: { readonly initial: HomeViewProps["view"] }) => {
+      const [view, setView] = useState(initial)
+      renders += 1
+      // A careless parent: a fresh callback identity on every render that replaces state unconditionally.
+      return <HomeView model={withBranch()} actions={[]} gestures={{}} view={view} onAction={() => {}}
+        onView={patch => { patches.push(patch); setView(current => ({ ...current, ...patch })) }} />
+    }
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host)
+    const report = async (isIntersecting: boolean) => { await act(async () => observers.at(-1)!.callback([{ isIntersecting }])) }
+    try {
+      await act(async () => root.render(<Parent initial={{ maximized: false }} />))
+      await report(true)
+      await report(true)
+      await report(true)
+      await report(false)
+      await report(false)
+      expect(patches).toEqual([{ on_screen: true }, { on_screen: false }])
+      expect(observers).toHaveLength(1)
+      expect(observers[0]!.disconnected).toBe(false)
+      expect(renders).toBeLessThan(6)
+      await act(async () => root.unmount())
+      expect(observers[0]!.disconnected).toBe(true)
+      // A view that already says on screen needs no first report.
+      const again = createRoot(host)
+      patches.length = 0
+      await act(async () => again.render(<Parent initial={{ maximized: false, on_screen: true }} />))
+      await report(true)
+      expect(patches).toEqual([])
+      await act(async () => again.unmount())
+    } finally {
+      host.remove()
+      if (original === undefined) delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver
+      else Object.assign(globalThis, { IntersectionObserver: original })
+    }
+  })
 })

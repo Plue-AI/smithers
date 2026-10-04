@@ -79,15 +79,15 @@ describe("T-APP-03 install seam", () => {
       return h
     }
     const missing = await open(() => new Response("<!doctype html>", { status: 404 }))
-    expect(missing.toasts.map(toast => toast.outcome)).toEqual(["Install request failed"]); expect(missing.presentations).toEqual([])
+    expect(missing.toasts.map(toast => toast.outcome)).toEqual(["No install on this host"]); expect(missing.presentations).toEqual([])
     const offline = await open(() => { throw new Error("offline") })
     expect(offline.toasts.map(toast => toast.outcome)).toEqual(["Could not reach this install"])
-    expect((await open(() => new Response("<!doctype html>", { status: 404 }))).toasts[0]?.outcome).toBe("Install request failed")
+    expect((await open(() => new Response("<!doctype html>", { status: 502 }))).toasts[0]?.outcome).toBe("Install request failed")
     expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("Address refused")
     const real = await open(() => Response.json(installFixture()))
     expect(real.presentations).toEqual(["setup"]); expect(real.toasts[0]?.outcome).toBe(true)
   })
-  test("with the design seed standing in, no install answering opens Setup quietly; install errors and a real install still answer", async () => {
+  test("with the design seed standing in, only a host with no install route opens quietly; an unreachable or failing install stays visible", async () => {
     const open = async (answer: Parameters<typeof harness>[0]) => {
       const h = await harness(answer, { quietWithoutInstall: true })
       h.seam.showSetup(); await h.idle()
@@ -95,8 +95,14 @@ describe("T-APP-03 install seam", () => {
     }
     const missing = await open(() => new Response("<!doctype html>", { status: 404 }))
     expect(missing.toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED]); expect(missing.presentations).toEqual([])
+    expect(missing.seam.snapshots.get()).toEqual({ error: { code: "no_install", class: "infra", message: "No install on this host" } })
+    expect((await open(() => Response.json({}, { status: 404 }))).toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED])
+    // The hosted site's HTML fallback answers 200 with a page, not an install.
+    expect((await open(() => new Response("<!doctype html>", { status: 200, headers: { "Content-Type": "text/html" } }))).toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED])
     const offline = await open(() => { throw new Error("offline") })
-    expect(offline.toasts.map(toast => toast.outcome)).toEqual([TOAST_SUPERSEDED])
+    expect(offline.toasts.map(toast => toast.outcome)).toEqual(["Could not reach this install"]); expect(offline.presentations).toEqual([])
+    expect(offline.seam.snapshots.get().error).toEqual({ code: "unreachable", class: "infra", message: "Could not reach this install" })
+    expect((await open(() => new Response("Bad gateway", { status: 502 }))).toasts[0]?.outcome).toBe("Install request failed")
     expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("Address refused")
     expect((await open(() => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))).toasts[0]?.outcome).toBe("Install unavailable")
     const real = await open(() => Response.json(installFixture()))
@@ -192,6 +198,19 @@ describe("T-APP-03 install seam", () => {
     expect(JSON.stringify(h.seam.snapshots.get())).not.toContain(secret)
     expect(JSON.stringify([...h.store.collections.cards.values()])).not.toContain(secret)
     expect(h.seam.snapshots.get().model?.models[1]).toEqual({ role: "coding", provider: "OpenAI", key: "failed", error: "Provider refused key" })
+  })
+  test("a key is Validating while its request is in flight, then Failed with the provider's relayed reason", async () => {
+    const gate = deferred<Response>()
+    const h = await harness(path => path === "/api/model/credential" ? gate.promise : Response.json(installFixture()))
+    await h.seam.readInstall()
+    h.seam.saveInstallModelKey({ role: "jev", provider: "AI Gateway" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+    await tick(); await tick()
+    expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "validating" })
+    expect(h.seam.snapshots.get().model?.models[0]).toEqual({ role: "fast", provider: "Cerebras", key: "saved" })
+    gate.resolve(Response.json({ ok: false, failure: { code: "host_refused", status: 401, refusal: "401 invalid API key" }, fault: "user" })); await h.idle()
+    expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "failed", error: "401 invalid API key" })
+    expect(h.toasts[0]?.outcome).toBe("401 invalid API key")
+    expect(JSON.stringify(h.seam.snapshots.get())).not.toContain("private-key")
   })
   test("saved keys refresh from GET; repeated submissions send one write", async () => {
     const gate = deferred<Response>()

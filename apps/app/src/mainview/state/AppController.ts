@@ -137,6 +137,7 @@ import { withDesignTodos } from "./seams/DesignWorld/todo"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
 import { createTriggersSeam } from "./seams/TriggersSeam"
+import type { LiveTopics } from "./useTopic"
 import type { WorkspaceSeam } from "./seams/WorkspaceSeam"
 import { createWorkspaceSeam } from "./seams/WorkspaceSeam"
 
@@ -484,6 +485,8 @@ export interface AppController extends IssueFlowsController {
   readonly installSnapshots: InstallSeam["snapshots"]
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
   readonly design: DesignWorld
+  /** The `/api/live` channel the Home card subscribes through; absent when the composition supplied none. */
+  readonly live?: LiveTopics
   /** Opens a subject-only card (card-kinds.md L5) once per conversation; its card file reads the data. */
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
   readonly presentCard: (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
@@ -598,6 +601,8 @@ export interface AppController extends IssueFlowsController {
  * bind honest doubles instead of a network; production uses same-origin fetch.
  */
 export interface AppServices {
+  /** The page's `/api/live` channel; production supplies the tab's one channel, and a controller without it subscribes to no topic. */
+  readonly live?: LiveTopics
   readonly installTopic?: InstallTopic
   readonly presentInstallCard?: (kind: "setup" | "settings") => void
   readonly todoTopics?: TodoTopics
@@ -798,7 +803,8 @@ export const createAppController = (
       if (kind === "settings") await presentCard("settings", "Settings")
       services.presentInstallCard?.(kind)
     },
-    // MOCK SEAM: the design seed below stands in for an absent install, so its missing /api/install is quiet.
+    // MOCK SEAM: the design seed below stands in only where no install route exists (a 404 or a non-install page), so that
+    // answer is quiet; an install that is unreachable or errors keeps its visible, retryable failure.
     quietWithoutInstall: true }))
   ctx.onDispose(installSeam.dispose)
   if (services.bootstrap?.host === "local") void installSeam.showSetup()
@@ -1543,7 +1549,8 @@ export const createAppController = (
     presentSubject,
     presentBranchCard,
     showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,
-    setInstallAddress: installSeam.setInstallAddress,
+    /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
+    setInstallAddress: address => installSeam.snapshots.get().model === undefined ? designSettings(design).address(address) : installSeam.setInstallAddress(address),
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
     setInstallCapacity: capacity => installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
     setInstallObsidian: installSeam.setInstallObsidian,
@@ -2013,6 +2020,7 @@ export const createAppController = (
     localAuth,
     installSnapshots: installSeam.snapshots,
     design,
+    live: services.live,
     presentCard,
     presentRun,
     presentFlow,

@@ -5,11 +5,12 @@
  * §7.2). The card file reads it through `useDesignHome`; the stub flows in
  * flows/entries/home.ts resolve a row's `n` back to a seeded TODO here.
  */
-import { useMemo } from "react"
+import { useCallback, useMemo, useSyncExternalStore } from "react"
+import { createCollection, localOnlyCollectionOptions, localStorageCollectionOptions, type StorageApi } from "@tanstack/db"
 import { PlaceholderAvatarUrl, type Actor, type PersonRef, type TodoState } from "@smthrs/rpc/CardPrimitives"
 import type { Action } from "@smthrs/rpc/CardAction"
-import type { HomeCard, HomeItem } from "@smthrs/rpc/HomeCard"
-import { useDesignViewer, useDesignWorld } from "./hooks"
+import type { HomeCard, HomeItem, HomeViewProps } from "@smthrs/rpc/HomeCard"
+import { useDesign, useDesignViewer, useDesignWorld } from "./hooks"
 import { goToBranch } from "./shell"
 import {
   branchOf, canMerge, machineSlots, memberOf, mergeReadiness, needsAction, openItems, stackItems,
@@ -76,10 +77,13 @@ const rowActions = (world: DesignWorldRows, todo: DesignTodo, viewer: ActorId, f
   const args = { n: String(n) }
   /* The title opens the TODO card (design Home.tsx button.mvp-link); first, so its `door` arg tells it from Answer/Review. */
   const own: Action[] = [{ tag: "todo", label: todo.title, args: { ...args, door: "title" } }]
+  /* The branch chip opens the row's branch (design Home.tsx BranchChip onOpen). */
+  const branch = branchOf(world, todo.branch)
+  own.push({ tag: "branch", label: branch?.name ?? todo.branch, args: { ...args, door: "branch" } })
   if (todo.state === "needs-you") {
     const word = needsAction(todo)
-    /* Answer opens the TODO card, where the answer is typed (design Home.tsx); every Needs you word is that door. */
-    own.push({ tag: "todo", label: word, args, ...(word === "Answer" ? { primary: true } : {}) })
+    /* Answer is the question's door: pressed without an answer it opens the TODO card, where the answer is typed (design Home.tsx). */
+    own.push(word === "Answer" ? { tag: "todo.answer", label: word, args, primary: true } : { tag: "todo", label: word, args })
   }
   if (todo.state === "in-review") own.push(mergeReadiness(world, todo).state === "ready" && canMerge(world, viewer)
     ? { tag: "merge", label: "Merge", args, primary: true }
@@ -164,6 +168,101 @@ export const designRole = (world: DesignWorldRows, viewer: ActorId): "owner" | "
 export const openDesignHome = (design: DesignWorld, who: ActorId): DesignResult => {
   const went = goToBranch(design, who, "main")
   return went.ok ? { ok: true, ack: "Opened the stack" } : went
+}
+
+/*
+ * The Home card's per-member view state (mvp.md §7.2 `view:<member>:main`, mocked). The filter is
+ * kept across reloads in this browser; whether the card is on screen is this tab's alone.
+ */
+export interface DesignHomeView { readonly id: ActorId; readonly filter?: TodoState | undefined }
+export interface DesignHomeScreen { readonly id: ActorId; readonly on_screen: boolean }
+export const HOME_VIEW_STORAGE_KEY = "smithers.design.home-view"
+
+/** Browser storage that never throws: a private window or blocked site data falls back to memory. */
+const safeStorage = (): StorageApi => {
+  const memory = new Map<string, string>()
+  const local = (): Storage | undefined => { try { return globalThis.localStorage ?? undefined } catch { return undefined } }
+  return {
+    getItem: key => { try { const value = local()?.getItem(key); if (value !== null && value !== undefined) return value } catch { /* memory below */ } return memory.get(key) ?? null },
+    setItem: (key, value) => { memory.set(key, value); try { local()?.setItem(key, value) } catch { /* kept in memory */ } },
+    removeItem: key => { memory.delete(key); try { local()?.removeItem(key) } catch { /* kept in memory */ } }
+  }
+}
+const noStorageEvents = { addEventListener: () => {}, removeEventListener: () => {} }
+const uid = () => globalThis.crypto?.randomUUID?.() ?? String(Date.now())
+
+const createHomeViews = (storage: StorageApi) => {
+  const collection = createCollection(localStorageCollectionOptions<DesignHomeView, ActorId>({
+    id: `design-home-view-${uid()}`, storageKey: HOME_VIEW_STORAGE_KEY, storage,
+    storageEventApi: typeof window === "undefined" ? noStorageEvents : window,
+    getKey: row => row.id
+  }))
+  collection.preload()
+  return collection
+}
+const createHomeScreens = () => createCollection(localOnlyCollectionOptions<DesignHomeScreen, ActorId>({
+  id: `design-home-screen-${uid()}`, getKey: row => row.id, initialData: []
+}))
+const homeViews = new WeakMap<DesignWorld, ReturnType<typeof createHomeViews>>()
+const homeScreens = new WeakMap<DesignWorld, ReturnType<typeof createHomeScreens>>()
+/** One view collection per DesignWorld instance; `storage` is the browser's unless a test supplies one. */
+export const homeViewsOf = (design: DesignWorld, storage: StorageApi = safeStorage()) => {
+  const existing = homeViews.get(design)
+  if (existing !== undefined) return existing
+  const created = createHomeViews(storage)
+  homeViews.set(design, created)
+  return created
+}
+const homeScreensOf = (design: DesignWorld) => {
+  const existing = homeScreens.get(design)
+  if (existing !== undefined) return existing
+  const created = createHomeScreens()
+  homeScreens.set(design, created)
+  return created
+}
+
+/** The member's Home view: the remembered filter, plus whether the card is on screen once reported. */
+export const designHomeView = (design: DesignWorld, who: ActorId): HomeViewProps["view"] => {
+  const filter = homeViewsOf(design).get(who)?.filter
+  const onScreen = homeScreensOf(design).get(who)?.on_screen
+  return { maximized: false, ...(filter === undefined ? {} : { filter }), ...(onScreen === undefined ? {} : { on_screen: onScreen }) }
+}
+
+/** Patch the member's Home view. Idempotent: a value it already holds writes nothing. Answers whether it wrote. */
+export const setDesignHomeView = (design: DesignWorld, who: ActorId, patch: Parameters<HomeViewProps["onView"]>[0]): boolean => {
+  let wrote = false
+  if ("filter" in patch) {
+    const views = homeViewsOf(design)
+    const filter = patch.filter as TodoState | undefined
+    const current = views.get(who)
+    if (current === undefined) { if (filter !== undefined) { views.insert({ id: who, filter }); wrote = true } }
+    else if (current.filter !== filter) { views.update(who, draft => { draft.filter = filter }); wrote = true }
+  }
+  if (patch.on_screen !== undefined) {
+    const screens = homeScreensOf(design)
+    const current = screens.get(who)
+    if (current === undefined) { screens.insert({ id: who, on_screen: patch.on_screen }); wrote = true }
+    else if (current.on_screen !== patch.on_screen) { screens.update(who, draft => { draft.on_screen = patch.on_screen! }); wrote = true }
+  }
+  return wrote
+}
+
+/** The tab member's Home view and its one stable, idempotent writer (the card's `onView`). */
+export const useDesignHomeView = (): { readonly view: HomeViewProps["view"]; readonly onView: HomeViewProps["onView"] } => {
+  const design = useDesign()
+  const viewer = useDesignViewer()
+  const subscribe = useCallback((notify: () => void) => {
+    const views = homeViewsOf(design).subscribeChanges(notify)
+    const screens = homeScreensOf(design).subscribeChanges(notify)
+    return () => { views.unsubscribe(); screens.unsubscribe() }
+  }, [design])
+  const readFilter = () => homeViewsOf(design).get(viewer)?.filter
+  const readScreen = () => homeScreensOf(design).get(viewer)?.on_screen
+  const filter = useSyncExternalStore(subscribe, readFilter, readFilter)
+  const onScreen = useSyncExternalStore(subscribe, readScreen, readScreen)
+  const view = useMemo(() => ({ maximized: false, ...(filter === undefined ? {} : { filter }), ...(onScreen === undefined ? {} : { on_screen: onScreen }) }), [filter, onScreen])
+  const onView = useCallback((patch: Parameters<HomeViewProps["onView"]>[0]) => { setDesignHomeView(design, viewer, patch) }, [design, viewer])
+  return { view, onView }
 }
 
 /** The Home model for this tab's member (`?as=ben`), re-derived on every world change. */

@@ -7,12 +7,13 @@
  * Real replacements: InstallSeam (`/api/install`, settings.* flows),
  * MembersSeam (`/api/members`, `members` topic), the secrets routes (§6.3).
  */
+import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import type { MembersCard } from "@smthrs/rpc/MembersCard"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { InstallModel } from "../InstallModel"
-import type { InstallSnapshot, InstallSnapshots } from "../InstallSeam"
+import type { InstallAddress, InstallSnapshot, InstallSnapshots } from "../InstallSeam"
 import type { MembersSnapshot, MembersSnapshots } from "../MembersSeam"
-import type { DesignMember, DesignResult, DesignSecret, DesignWorld, DesignWorldRows } from "./index"
+import type { ActorId, DesignMember, DesignResult, DesignSecret, DesignWorld, DesignWorldRows } from "./index"
 
 /** A flow handler's answer: an acknowledgment, or the refusal it shows. */
 export const designAnswer = (result: DesignResult): string | { readonly value: string } =>
@@ -74,11 +75,36 @@ export const designInstall = (design: DesignWorld, live: InstallSnapshots): Inst
   }
 }
 
-/** Stub writes behind settings.capacity and settings.parallel while no install serves a model. */
+/** Stub writes behind settings.address, settings.capacity and settings.parallel while no install serves a model. */
 export const designSettings = (design: DesignWorld) => ({
+  address: (address: InstallAddress) => designAnswer(design.setAddress(address.origins[0] ?? "", address.listen)),
   capacity: (capacity: number) => designAnswer(design.setCapacity(capacity)),
   parallel: (parallel: number) => designAnswer(design.setParallel(parallel))
 })
+
+/** The Settings card's per-member view state: the Address choice a person is looking at (`view.tab`), never shared. */
+export interface DesignSettingsView { readonly id: ActorId; readonly listen: InstallAddress["listen"] }
+const createSettingsViews = () => createCollection(localOnlyCollectionOptions<DesignSettingsView, ActorId>({
+  id: `design-settings-${globalThis.crypto?.randomUUID?.() ?? String(Date.now())}`,
+  getKey: row => row.id,
+  initialData: []
+}))
+const settingsViews = new WeakMap<DesignWorld, ReturnType<typeof createSettingsViews>>()
+export const settingsViewsOf = (design: DesignWorld) => {
+  const existing = settingsViews.get(design)
+  if (existing !== undefined) return existing
+  const created = createSettingsViews()
+  settingsViews.set(design, created)
+  return created
+}
+/** The Settings card's onView: a `tab` of "mac" or "network" is the viewer's Address choice; other patches change nothing. */
+export const setSettingsView = (design: DesignWorld, who: ActorId, patch: { readonly tab?: string }): void => {
+  const listen = patch.tab
+  if (listen !== "mac" && listen !== "network") return
+  const views = settingsViewsOf(design)
+  if (views.has(who)) views.update(who, draft => { draft.listen = listen })
+  else views.insert({ id: who, listen })
+}
 
 export const designObsidian = (world: DesignWorldRows): { readonly path: string } | undefined =>
   world.repo.setup.obsidian === "" ? undefined : { path: world.repo.setup.obsidian }

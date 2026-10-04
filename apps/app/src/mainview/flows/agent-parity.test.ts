@@ -11,7 +11,6 @@
  * This file is that rule as a gate: the allowlist below is every user-only
  * flow with its reason, and nothing else may be user-only.
  */
-import { MERGE_USER_ONLY_REASON } from "./entries/home"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
@@ -36,7 +35,6 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "storage.recovery.export": STORAGE_RECOVERY_USER_ONLY_REASON,
   "members": "Only a person can do this",
-  "merge": MERGE_USER_ONLY_REASON,
   "members.add": "Only a person can do this",
   "members.role": "Only a person can do this",
   "members.remove": "Only a person can do this",
@@ -96,6 +94,8 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "todo.resume", args: "T12", confirm: false },
   { name: "todo.retry", args: "T12", confirm: false },
   { name: "todo.drop", args: "T12", confirm: true },
+  /* A bare Merge only opens the person's Review & merge; a head-bound one asks the person first (mvp.md Appendix B A✓). */
+  { name: "merge", args: "T8", confirm: false },
   { name: "runs.trace.filter", args: "run-1 failed", confirm: false },
   { name: "runs.trace.select", args: "run-1 frame-1", confirm: false },
   { name: "runs.trace.view", args: "run-1 turns", confirm: false },

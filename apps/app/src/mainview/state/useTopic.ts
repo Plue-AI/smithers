@@ -1,7 +1,10 @@
 import { useCallback, useSyncExternalStore } from "react"
 import { liveChannel, type LiveChannel, type TopicSnapshot } from "../runtime/LiveChannel"
 
-export const useTopic = <T = unknown>(topic: string | undefined, channel: LiveChannel = liveChannel()): TopicSnapshot<T> | undefined => {
+/** The part of a live channel a topic reader needs. */
+export type LiveTopics = Pick<LiveChannel, "subscribe" | "getSnapshot">
+
+export const useTopic = <T = unknown>(topic: string | undefined, channel: LiveTopics = liveChannel()): TopicSnapshot<T> | undefined => {
   const subscribe = useCallback((listener: () => void) => topic === undefined ? () => {} : channel.subscribe(topic, listener), [channel, topic])
   const snapshot = useCallback(() => topic === undefined ? undefined : channel.getSnapshot(topic) as TopicSnapshot<T> | undefined, [channel, topic])
   return useSyncExternalStore(subscribe, snapshot, () => undefined)

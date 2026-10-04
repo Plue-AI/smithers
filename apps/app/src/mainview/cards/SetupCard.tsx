@@ -3,7 +3,7 @@ import type { CardProps } from "@smthrs/rpc/CardAction"
 import type { SetupCard as SetupModel } from "@smthrs/rpc/SetupCard"
 import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
-import { setupCardModel } from "../state/seams/InstallModel"
+import { setupCardModel, type InstallModel } from "../state/seams/InstallModel"
 import type { InstallSnapshots } from "../state/seams/InstallSeam"
 
 export interface SetupCardProps {
@@ -16,6 +16,23 @@ export interface SetupCardProps {
 }
 const labels = { address: "Address", app_manifest: "Create GitHub App", sign_in: "Sign in", repository: "Repository",
   models: "Model access", source: "Mirror", machine: "Build image" } as const
+
+/* The coding model's key providers (MODEL_CREDENTIALS); the fast model is Cerebras and Decisions the AI Gateway (mvp.md §6.5). */
+const CODING_PROVIDERS = ["OpenAI", "Anthropic", "OpenRouter"] as const
+
+/**
+ * One key control per model role (mvp.md J1 2.4, §6.5), each bound to its role so the View puts it on that role's row.
+ * The role id stays in `args`; the only visible names are the role's row and its provider's key.
+ */
+export const roleKeyActions = (definition: CardActionDefinition<"settings.model-key">, model: InstallModel,
+  args: Readonly<Record<string, string>>): CardActionDefinition<"settings.model-key">[] => model.models.map(role => ({
+  ...definition, label: "Save", args: { ...args, role: role.role }, command_input: { role: role.role, provider: role.provider },
+  input: [
+    ...(role.role === "coding" ? [{ name: "provider", label: "Provider", kind: "choice" as const, required: true, value: role.provider,
+      choices: CODING_PROVIDERS.includes(role.provider as typeof CODING_PROVIDERS[number]) ? [...CODING_PROVIDERS] : [role.provider, ...CODING_PROVIDERS] }] : []),
+    { name: "value", label: role.role === "jev" ? "AI Gateway key" : role.role === "coding" ? "API key" : `${role.provider} key`, kind: "secret" as const, required: true }
+  ]
+}))
 
 export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: SetupCardProps) => {
   const snapshot = useSyncExternalStore(install.subscribe, install.get, install.get)
@@ -36,11 +53,7 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
       resolve_input: input => ({ step: step.id, ...(input.owner ? { owner: input.owner } : {}),
         ...(input.repository ? { repository: input.repository } : {}), ...(input.bind ? { bind: input.bind } : {}),
         ...(input.origins ? { origins: input.origins.split("\n").filter(Boolean) } : {}) }) })
-    if (step.id === "models" && model.github.signed_in && key) definitions.push({ ...key.definition, input: [
-      { name: "role", label: "Role", kind: "choice", required: true, choices: ["coding", "fast", "jev"] },
-      { name: "provider", label: "Provider", kind: "text", required: true },
-      { name: "value", label: "Key", kind: "secret", required: true }
-    ] })
+    if (step.id === "models" && model.github.signed_in && key) definitions.push(...roleKeyActions(key.definition, model, { step: "models" }))
   }
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
   if (!model || !allowed) return null

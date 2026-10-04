@@ -1,11 +1,12 @@
-import { useState, type ComponentType } from "react"
-import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
+import { useMemo, type ComponentType } from "react"
+import { HomeCardSchema, type HomeCard as HomeModel, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { useController } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
 import { HomeView } from "./views/HomeView"
 import { useTopic } from "../state/useTopic"
-import { useDesignHome } from "../state/seams/DesignWorld/home"
+import { useDesignHome, useDesignHomeView } from "../state/seams/DesignWorld/home"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -22,11 +23,13 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   const parsed = HomeCardSchema.parse(source)
   const definitions: CardActionDefinition[] = []
   const admitted = (definition: CardActionDefinition) => {
-    if (!allowed.has(definition.tag) || definition.tag === "main.reset-to-github" && role !== "owner" || definition.tag === "merge" && role === "member") return
+    if (!allowed.has(definition.tag) || definition.tag === "main.reset-to-github" && role !== "owner"
+      || (definition.tag === "merge" || definition.tag === "order.ok") && role === "member") return
     definitions.push(definition)
   }
   admitted({ tag: "todo.new", label: "New TODO", command_input: { text: "" } })
-  admitted({ tag: "github", label: "Retry", command_input: undefined })
+  /* Sync Retry shows only once main's sync is stale; limited retries on its own, refused needs a fix. */
+  if (parsed.main.health === "stale") admitted({ tag: "github", label: "Retry", command_input: undefined })
   const topCount = definitions.length
   const attention = parsed.attention.filter(row => row.kind === "force_push" ? role === "owner" : role !== "member").map(row => {
     const start = definitions.length
@@ -80,33 +83,64 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   return <View model={model} actions={top.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 
-const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
-  "todo", "todo.new", "todo.retry", "todo.resume", "todo.drop", "branch", "merge", "stack.move", "background.retry", "background.dismiss"
+/** Every control the Home card can render; role and the row's state narrow it further above. */
+export const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
+  "todo", "todo.new", "todo.answer", "todo.retry", "todo.resume", "todo.drop", "branch", "merge", "stack.move",
+  "order.ok", "main.reset-to-github", "background.retry", "background.dismiss", "github"
 ])
-/** Sync Retry shows only once main's sync is not fresh. */
-const HOME_TAGS_SYNC: ReadonlySet<CatalogTag> = new Set<CatalogTag>([...HOME_TAGS, "github"])
+/** A failed `home` provider offers no row or sync control: nothing it shows is a live TODO. */
+const FAILED_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new"])
 
-/** MOCK SEAM: the seeded design world projected to the `home` topic's shape, with the viewer's seeded role. */
-const SeededHomeCard = () => {
-  const controller = useController()
-  const { model, role } = useDesignHome()
-  const [view, setView] = useState<HomeViewProps["view"]>({ maximized: false })
-  const dispatch: CardCommandDispatch = (tag, input) =>
-    controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })
-  return <HomeContainer model={model} role={role} allowed={model.main.health === "fresh" ? HOME_TAGS : HOME_TAGS_SYNC} dispatch={dispatch}
-    View={HomeView} view={view} onView={patch => setView(current => ({ ...current, ...patch }))} />
+/** `/api/live` refusal codes meaning this host serves no `home` topic (the live channel's 404): the seed stands in. */
+const NO_PROVIDER = new Set(["unknown_topic", "unsupported"])
+
+/** The Home model a FAILED provider shows: main's row in its refused or limited state, and no rows at all. */
+export const homeFailureModel = (repository: string, code: string): HomeModel => ({
+  repository,
+  main: code === "forbidden"
+    ? { sha: "", title: "main", last_success_at: new Date(0).toISOString(), health: "refused", cause: "Stack access refused" }
+    : { sha: "", title: "main", last_success_at: new Date(0).toISOString(), health: "limited", cause: "Stack unavailable" },
+  attention: [], items: [],
+  counts: { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 },
+  merged_since_last_look: [], machines: { in_use: 0, capacity: 0, slots: [] }, background_runs: []
+})
+
+/** The `home` topic as the card reads it: served data, a failed provider, or no provider on this host. */
+export const homeSource = (snapshot: { readonly data?: unknown; readonly error?: string } | undefined):
+  { readonly kind: "seed" } | { readonly kind: "served"; readonly model: HomeModel } | { readonly kind: "failed"; readonly code: string } => {
+  if (snapshot?.error !== undefined) return NO_PROVIDER.has(snapshot.error) ? { kind: "seed" } : { kind: "failed", code: snapshot.error }
+  if (snapshot?.data === undefined) return { kind: "seed" }
+  const parsed = HomeCardSchema.safeParse(snapshot.data)
+  return parsed.success ? { kind: "served", model: parsed.data } : { kind: "failed", code: "invalid" }
 }
 
 /**
- * The Home card of `main`'s conversation and `/stack` (T-APP-01). It reads the `home` topic only when the
- * production composition (role, admission, dispatch, view state) is supplied AND the topic serves data;
- * until then the seeded design world stays the fallback, so the mounted card never goes dark.
+ * The card's one dispatch: every press runs as the person through the command registry. Answer pressed
+ * without an answer is the question's door (design Home.tsx): it opens the TODO card, where the answer is typed.
+ */
+export const homeDispatch = (controller: Pick<AppController, "commands">): CardCommandDispatch => (tag, input) => {
+  const payload = (input ?? {}) as Record<string, unknown>
+  if (tag === "todo.answer" && !payload.answer) return controller.commands.submit({ name: "todo", payload: { n: payload.n }, actor: "user" })
+  return controller.commands.submit({ name: tag, payload, actor: "user" })
+}
+
+/**
+ * The Home card of `main`'s conversation and `/stack` (T-APP-01), composed from the controller: the viewer's
+ * role, the Home admission, the registry dispatch and the member's view state. It subscribes to the `home`
+ * topic through the controller's live channel. Served data replaces the seed; a provider that fails shows main's refused or limited row and
+ * no rows; only a host with no `home` provider (or no answer yet) keeps the seeded design world (MOCK SEAM),
+ * so the mounted card never goes dark. `production` overrides any part of that composition.
  */
 export const HomeCard = ({ production }: {
-  readonly production?: Omit<HomeContainerProps, "model" | "View">
+  readonly production?: Partial<Omit<HomeContainerProps, "model" | "View">>
 } = {}) => {
-  const snapshot = useTopic(production === undefined ? undefined : "home")
-  if (!production || snapshot?.error || snapshot?.data === undefined) return <SeededHomeCard />
-  const { role, allowed, dispatch, view, onView } = production
-  return <HomeContainer model={snapshot.data} role={role} allowed={allowed} dispatch={dispatch} view={view} onView={onView} />
+  const controller = useController()
+  const seeded = useDesignHome()
+  const member = useDesignHomeView()
+  const dispatch = useMemo(() => homeDispatch(controller), [controller])
+  const source = homeSource(useTopic(controller.live ? "home" : undefined, controller.live))
+  const model = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(seeded.model.repository, source.code) : seeded.model
+  return <HomeContainer model={model} role={production?.role ?? seeded.role}
+    allowed={source.kind === "failed" ? FAILED_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
+    view={production?.view ?? member.view} onView={production?.onView ?? member.onView} />
 }

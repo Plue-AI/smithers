@@ -47,7 +47,11 @@ describe("T-APP-03 Containers with recording Views", () => {
     const h = harness(); h.renderSettings(); const props = h.settings()!
     expect(SettingsCardSchema.safeParse(props.model).success).toBe(true)
     expect(props.gestures).toEqual({}); expect(props.view).toBe(h.view); props.onView({ tab: "github" }); expect(h.patches).toEqual([{ tab: "github" }])
-    expect(props.actions.map(action => action.tag)).toEqual(["settings.address", "settings.capacity", "settings.parallel", "settings.model-key"])
+    expect(props.actions.map(action => [action.tag, action.args])).toEqual([
+      ["settings.address", { field: "address", listen: "mac" }], ["settings.address", { field: "address", listen: "network" }],
+      ["settings.capacity", { field: "capacity" }], ["settings.parallel", { field: "parallel" }],
+      ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }]
+    ])
     props.onAction("settings.capacity", { capacity: "3" }); props.onAction("settings.parallel", { parallel: "1" })
     expect(h.commands).toEqual([{ tag: "settings.capacity", input: { capacity: 3 } }, { tag: "settings.parallel", input: { parallel: 1 } }])
   })
@@ -58,8 +62,47 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(props.model.address.bind).toBe(model.address.bind)
     expect(props.model.address.failed).toEqual({ from: "http://mini.local:4000", to: "http://refused.test", reason: { class: "user", message: "Address in use" } })
     expect(props.model.address.origins).not.toContain("http://refused.test")
-    props.onAction("settings.address", { listen: "network", bind: "0.0.0.0:4000", origins: "http://one.test\nhttps://two.test" })
+    props.onAction("settings.address", { field: "address", listen: "network", bind: "0.0.0.0:4000", origins: "http://one.test, https://two.test" })
     expect(h.commands).toEqual([{ tag: "settings.address", input: { listen: "network", bind: "0.0.0.0:4000", origins: ["http://one.test", "https://two.test"] } }])
+  })
+  test("a loopback-bound install choosing Network gets Bind and Origins, prefilled for teammates; This Mac only binds loopback", () => {
+    const model = installFixture(); model.address = { listen: "mac", bind: "127.0.0.1:4100", origins: ["http://localhost:4100"] }
+    const h = harness({ model }); h.renderSettings(); const props = h.settings()!
+    const network = props.actions.find(action => action.args?.listen === "network")!
+    expect(network.input).toEqual([
+      { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:4100" },
+      { name: "origins", label: "Origins", kind: "text", required: true, value: "http://localhost:4100" }
+    ])
+    expect(props.actions.find(action => action.args?.listen === "mac")!.input).toBeUndefined()
+    props.onAction("settings.address", { field: "address", listen: "network", bind: "0.0.0.0:4100", origins: "https://maya-mini.tail1234.ts.net" })
+    props.onAction("settings.address", { field: "address", listen: "network", bind: "", origins: "http://mini.local:4100\nhttps://maya-mini.tail1234.ts.net" })
+    props.onAction("settings.address", { field: "address", listen: "mac" })
+    expect(h.commands).toEqual([
+      { tag: "settings.address", input: { listen: "network", bind: "0.0.0.0:4100", origins: ["https://maya-mini.tail1234.ts.net"] } },
+      { tag: "settings.address", input: { listen: "network", bind: "0.0.0.0:4100", origins: ["http://mini.local:4100", "https://maya-mini.tail1234.ts.net"] } },
+      { tag: "settings.address", input: { listen: "mac", bind: "127.0.0.1:4100", origins: ["http://localhost:4100"] } }
+    ])
+  })
+  test("a network-bound install keeps its bind in the Network form", () => {
+    const h = harness(); h.renderSettings()
+    expect(h.settings()!.actions.find(action => action.args?.listen === "network")!.input?.map(field => field.value)).toEqual(["0.0.0.0:4000", "http://localhost:4000, http://mini.local:4000, https://smithers.example.test"])
+  })
+  test("Setup's model access offers one key control per named role, with no raw role choice", () => {
+    const model = installFixture(); model.steps[4]!.state = "pending"
+    const h = harness({ model }); h.renderSetup(); const props = h.setup()!
+    const keys = props.actions.filter(action => action.tag === "settings.model-key")
+    expect(keys.map(action => ({ args: action.args, label: action.label, input: action.input }))).toEqual([
+      { args: { step: "models", role: "fast" }, label: "Save", input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
+      { args: { step: "models", role: "coding" }, label: "Save", input: [
+        { name: "provider", label: "Provider", kind: "choice", required: true, value: "OpenAI", choices: ["OpenAI", "Anthropic", "OpenRouter"] },
+        { name: "value", label: "API key", kind: "secret", required: true }] },
+      { args: { step: "models", role: "jev" }, label: "Save", input: [{ name: "value", label: "AI Gateway key", kind: "secret", required: true }] }
+    ])
+    expect(JSON.stringify(keys.map(action => action.input))).not.toContain("jev")
+    props.onAction("settings.model-key", { step: "models", role: "coding", provider: "Anthropic", value: "coding-key" })
+    props.onAction("settings.model-key", { step: "models", role: "jev", value: "gateway-key" })
+    expect(h.commands).toEqual([{ tag: "settings.model-key", input: { role: "coding", provider: "Anthropic" } }, { tag: "settings.model-key", input: { role: "jev", provider: "AI Gateway" } }])
+    expect(h.keys).toEqual(["coding-key", "gateway-key"])
   })
   test.each([0, 2, 3])("stepper limits remain formula-bound at capacity %i", capacity => {
     const model = installFixture(); model.capacity = capacity; model.parallel = capacity
@@ -111,8 +154,8 @@ describe("T-APP-03 Containers with recording Views", () => {
   test("model key actions strip values and preserve only role/provider for the write-only form", () => {
     const model = installFixture(); model.steps[4]!.state = "pending"
     const h = harness({ model }); h.renderSetup(); h.renderSettings()
-    h.setup()!.onAction("settings.model-key", { role: "jev", provider: "AI Gateway", value: "private-key" })
-    h.settings()!.onAction("settings.model-key", { role: "fast", provider: "Cerebras", value: "private-key" })
+    h.setup()!.onAction("settings.model-key", { step: "models", role: "jev", provider: "AI Gateway", value: "private-key" })
+    h.settings()!.onAction("settings.model-key", { field: "key", role: "fast", provider: "Cerebras", value: "private-key" })
     expect(h.commands).toEqual([{ tag: "settings.model-key", input: { role: "jev", provider: "AI Gateway" } }, { tag: "settings.model-key", input: { role: "fast", provider: "Cerebras" } }])
     expect(h.keys).toEqual(["private-key", "private-key"])
     expect(JSON.stringify(h.setup())).not.toContain("private-key"); expect(JSON.stringify(h.settings())).not.toContain("private-key")

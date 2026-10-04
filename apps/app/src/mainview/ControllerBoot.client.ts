@@ -13,6 +13,7 @@ import type { AppController } from "./state/AppController"
 import { createAppStore } from "./state/AppStore"
 import { canPaintAppBeforeIdentity, loadControllerBootInputs } from "./ControllerBootMemo"
 import { createTurnEraser } from "./runtime/TurnErasure"
+import { liveChannel } from "./runtime/LiveChannel"
 
 const promiseEffect = <A>(label: string, run: () => Promise<A>) =>
   Effect.tryPromise({
@@ -65,6 +66,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         agent,
         {
           fetchImpl: runtime.http,
+          live: liveChannel(),
           // Selection needs a backend that serves it; one that does not advertises no row and turns run on the pinned commands.
           ...(hasCapability(bootstrap, "commands.select") ? { commandSelector: httpCommandSelector(runtime.http, client.baseUrl) } : {}),
           pageLifetime: pageLifetime.signal,

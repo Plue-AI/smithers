@@ -2520,7 +2520,7 @@
 .setup-mark, .setup-key-state, .setup-blocked { color: var(--tone); }
 .setup-body { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
 .setup-models { display: flex; width: 100%; flex-direction: column; gap: 10px; container-type: inline-size; }
-.setup-model { display: grid; grid-template-columns: 112px 100px minmax(80px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
+.setup-model { display: grid; grid-template-columns: 112px 112px minmax(80px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
 .setup-model > .setup-error { grid-column: 2 / -1; }
 .setup-view input, .setup-view select { width: 100%; min-width: 0; height: 30px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; }
 .setup-model[data-state="failed"] input { border-color: var(--danger); }
@@ -2545,6 +2545,10 @@
 @container (max-width: 470px) { .setup-model { grid-template-columns: 112px minmax(0, 1fr) auto; } .setup-model > span:first-child { grid-column: 1 / 3; } .setup-key-state { grid-area: 1 / 3; } .setup-model input { grid-area: 2 / 2 / auto / -1; } .setup-model > .setup-error { grid-column: 1 / -1; } }
 @media (max-width: 480px) { .setup-view { padding: 16px 12px; } .setup-settings { grid-template-columns: minmax(0, 1fr); gap: 6px; } .setup-settings dd { margin-bottom: 10px; } }
 .setup-actions:empty { display: none; }
+.setup-segmented { display: inline-flex; gap: 4px; }
+.setup-view .setup-segmented button[aria-pressed="true"] { border-color: var(--brand-border); background: var(--brand-soft); color: var(--text); }
+.setup-model > .setup-action { flex-wrap: nowrap; }
+.setup-model > .setup-muted { white-space: nowrap; }
 .setup-body > .setup-actions { margin-top: 0; width: 100%; }
 .setup-address-failed { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .setup-address-failed .setup-actions { margin-top: 0; }
@@ -3217,7 +3221,8 @@ from main down to the last item. */
 .design-subject .mvp-mono { font-family: var(--font-mono); font-size: 0.92em; }
 .design-subject .mvp-link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: inherit; font-size: var(--fs-small); text-decoration: none; }
 .design-subject .mvp-link:hover { color: var(--action-primary); text-decoration: underline; text-underline-offset: 3px; }
-.design-subject .mvp-branch-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface-2); color: var(--text); font-family: var(--font-mono); font-size: 11.5px; }
+.design-subject .mvp-branch-chip,
+.mvp-home .mvp-branch-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface-2); color: var(--text); font-family: var(--font-mono); font-size: 11.5px; }
 .design-subject button.mvp-branch-chip:hover { background: var(--hover); }
 .design-subject .mvp-edited-by { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .design-subject .mvp-avatar { box-shadow: none; }

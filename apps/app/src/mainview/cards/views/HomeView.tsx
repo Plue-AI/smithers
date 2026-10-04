@@ -31,8 +31,9 @@ function HomeRow({ item, onAction, now }: { item: HomeItem; now: number } & Pick
   if (clockBase.current.elapsed !== item.elapsed_s || clockBase.current.state !== item.state) clockBase.current = { at: now, elapsed: item.elapsed_s, state: item.state }
   const elapsed = (item.elapsed_s ?? 0) + (item.state === "working" || item.state === "starting" ? Math.max(0, Math.floor((now - clockBase.current.at) / 1000)) : 0)
   const title = item.actions.find(action => action.args?.door === "title")
-  const menu = item.actions.filter(action => action !== title && ORDER.has(action.label))
-  const actions = item.actions.filter(action => action !== title && !ORDER.has(action.label))
+  const branch = item.actions.find(action => action.tag === "branch")
+  const menu = item.actions.filter(action => action !== title && action !== branch && ORDER.has(action.label))
+  const actions = item.actions.filter(action => action !== title && action !== branch && !ORDER.has(action.label))
   const actionControls = []
   for (const [index, action] of actions.entries()) actionControls.push(<HomeAction key={index} action={action} onAction={onAction} />)
   const menuControls = []
@@ -41,7 +42,8 @@ function HomeRow({ item, onAction, now }: { item: HomeItem; now: number } & Pick
     <span className="mvp-stack-node">{item.place}</span>
     <div className="mvp-stack-main"><div className="mvp-stack-title"><span className="mvp-ref">T{item.n}</span>{title ? <button type="button" className="mvp-link" data-flow={title.tag} onClick={() => onAction(title.tag, title.args ?? {})}>{item.title}</button> : <span>{item.title}</span>}{item.amendments > 0 ? <span className="mvp-count-chip">+{item.amendments}</span> : null}</div>
       <div className="mvp-meta"><StateWord state={item.state} step={item.step} />
-        <span className="mvp-where">{item.branch.name}{item.present.map((actor, index) => <ActorChip key={index} actor={actor} size="s" live={item.state === "working"} />)}</span>
+        <span className="mvp-where">{branch ? <button type="button" className="mvp-branch-chip" data-flow={branch.tag} disabled={!!branch.disabled}
+          onClick={() => onAction(branch.tag, branch.args ?? {})}>{item.branch.name}</button> : item.branch.name}{item.present.map((actor, index) => <ActorChip key={index} actor={actor} size="s" live={item.state === "working"} />)}</span>
         {item.pr ? <span>#{item.pr.number}{item.pr.draft ? " · Draft" : ""}</span> : null}
         {item.needs_you ? <span className="mvp-warn-text">{item.needs_you.prompt}</span> : null}
         {item.queue ? <span> {item.queue.reason === "machine" ? `waiting for a machine #${item.queue.position}` : item.queue.reason === "daily_limit" ? "Daily limit reached · starts tomorrow" : item.queue.reason === "rebase" ? "rebase pending" : item.queue.after === undefined ? "merges after" : `merges after T${item.queue.after}`}</span> : null}
@@ -82,14 +84,21 @@ function HomeRow({ item, onAction, now }: { item: HomeItem; now: number } & Pick
 
 export function HomeView({ model, actions, view, onAction, onView }: HomeViewProps) {
   const now = useClock(true, 1000)
+  /* The observer reads the latest callback and view through refs, so a new `onView` identity never re-attaches it. */
+  const latest = useRef({ onView, onScreen: view.on_screen })
+  latest.current = { onView, onScreen: view.on_screen }
   const observe = useCallback((element: HTMLElement | null) => {
     if (!element || typeof IntersectionObserver === "undefined") return
     const observer = new IntersectionObserver(entries => {
-      for (const entry of entries) onView({ on_screen: entry.isIntersecting })
+      const entry = entries.at(-1)
+      // Report only a change: an unchanged visibility never patches the view.
+      if (entry === undefined || entry.isIntersecting === latest.current.onScreen) return
+      latest.current.onScreen = entry.isIntersecting
+      latest.current.onView({ on_screen: entry.isIntersecting })
     })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [onView])
+  }, [])
   const age = Math.max(0, Math.floor((now - Date.parse(model.main.last_success_at)) / 1000))
   const synced = age < 60 ? `synced ${age} s ago` : `synced ${Math.round(age / 60)} min ago`
   const syncActions = actions.filter(action => action.label === "Retry" || action.label === "Fix")

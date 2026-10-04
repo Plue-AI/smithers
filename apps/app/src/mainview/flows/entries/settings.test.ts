@@ -112,6 +112,44 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.controller.design.world().repo[field]).toBe(seeded)
     } finally { await h.controller.dispose() }
   })
+  test("settings.address writes the seed while no install serves a model; nothing reaches /api/install", async () => {
+    const h = await harness(undefined, () => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      expect(h.controller.installSnapshots.get().model).toBeUndefined()
+      const outcome = await h.controller.commands.submit({ name: "settings.address", actor: "user",
+        payload: { listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] } })
+      expect(outcome.status).toBe("executed"); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toEqual([])
+      expect(h.controller.design.world().repo.setup.addresses).toEqual(["https://maya-mini.tail1234.ts.net"])
+      expect(h.controller.design.world().repo.setup.listen).toBe("network")
+    } finally { await h.controller.dispose() }
+  })
+  test("settings.address writes the live install, not the seed, once the card shows it", async () => {
+    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
+    try {
+      await tick()
+      expect(h.controller.installSnapshots.get().model).toBeDefined()
+      const seeded = h.controller.design.world().repo.setup.addresses
+      const address = { listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] }
+      expect((await h.controller.commands.submit({ name: "settings.address", actor: "user", payload: address })).status).toBe("executed"); await tick()
+      expect(h.requests.filter(request => request.path === "/api/install" && request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ address }])
+      expect(h.controller.design.world().repo.setup.addresses).toEqual(seeded)
+    } finally { await h.controller.dispose() }
+  })
+  test("a local host with no install route opens quietly on the seed; an unreachable install shows its failure", async () => {
+    const local: AppBootstrap = { apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } }
+    const missing = await harness(local, () => new Response("Not found", { status: 404 }))
+    try {
+      await tick()
+      expect([...missing.store.collections.toasts.values()].filter(toast => toast.status === "failed")).toEqual([])
+    } finally { await missing.controller.dispose() }
+    const offline = await harness(local, () => { throw new Error("offline") })
+    try {
+      await tick()
+      expect([...offline.store.collections.toasts.values()].map(toast => [toast.title, toast.status, toast.detail])).toEqual([["Setup", "failed", "Could not reach this install"]])
+    } finally { await offline.controller.dispose() }
+  })
   test.each([
     ['{"step":"address"}', ["bind", "origins"]],
     ['{"step":"address","bind":"127.0.0.1:4000"}', ["origins"]],

@@ -6,10 +6,10 @@ import { SettingsModels } from "./SettingsModels"
 import type { Action } from "@smthrs/rpc/CardAction"
 import { SetupActions } from "./SetupActions"
 
-export function SettingsView({ model, actions, onAction }: SettingsViewProps) {
+export function SettingsView({ model, actions, onAction, view, onView }: SettingsViewProps) {
   const addressStep = model.steps.find(step => step.id === "address")
   const addressActions = actions.filter(action => action.args?.step === "address")
-  const rowFor = (action: Action) => action.tag === "settings.model.set" ? `model:${action.args?.role}`
+  const rowFor = (action: Action) => action.tag === "settings.model.set" || (action.tag === "settings.model-key" && action.args?.role) ? `model:${action.args?.role}`
     : action.tag === "github" ? "health"
     : action.tag === "docs" && action.args?.page === "quickstart#put-https-in-front" ? "notifications"
     : action.tag === "settings" ? action.args?.step === "address" ? "address" : action.args?.field
@@ -21,10 +21,15 @@ export function SettingsView({ model, actions, onAction }: SettingsViewProps) {
   const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian", ...model.models.map(role => `model:${role.role}`),
     ...(model.parallel !== undefined ? ["parallel"] : []), ...(model.todo_daily_admissions !== undefined ? ["todo_daily_admissions"] : []),
     ...(model.notifications_need_https ? ["notifications"] : [])].includes(rowFor(action) ?? "")
+  /* mvp.md J1 2.1 / §6.15: This Mac only, or Network with the bind and the addresses teammates use. The choice is member view state. */
+  const reach = actions.filter(action => action.tag === "settings.address" && (action.args?.listen === "mac" || action.args?.listen === "network"))
+  const choice = view.tab === "mac" || view.tab === "network" ? view.tab : model.address.listen
+  const reachForm = reach.filter(action => action.args?.listen === choice && !(choice === "mac" && model.address.listen === "mac"))
   return <section className="setup-view" data-kind="settings" data-keyboard-pane="Settings" aria-label="Settings">
     <h2>Settings</h2>
     <dl className="setup-settings">
-      <dt>This Mac</dt><dd><ThisMac model={model} onAction={onAction} /><span>{model.address.listen === "mac" ? "This Mac only" : "Network"} · {model.address.bind}</span>{model.address.origins.map(origin => <code key={origin}>{origin}</code>)}{addressStep?.error && <span className="setup-error" role="alert">{addressStep.error.message}</span>}{addressStep?.blocked && <a className="setup-blocked" data-tone="attention" href={addressStep.blocked.fix_url}>{addressStep.blocked.line}</a>}{model.address.failed && <div className="setup-address-failed"><span role="alert" className="setup-error">{model.address.failed.reason.message}</span><SetupActions actions={addressActions} onAction={onAction} /><span>In effect: <code>{model.address.failed.from}</code></span></div>}{!model.address.failed && <SetupActions inline actions={rowActions("address")} onAction={onAction} />}</dd>
+      <dt>This Mac</dt><dd><ThisMac model={model} onAction={onAction} />{reach.length === 0 ? <span>{model.address.listen === "mac" ? "This Mac only" : "Network"} · {model.address.bind}</span>
+        : <span className="setup-segmented" role="group" aria-label="Who can reach it">{(["mac", "network"] as const).map(listen => <button key={listen} type="button" aria-pressed={choice === listen} onClick={() => onView({ tab: listen })}>{listen === "mac" ? "This Mac only" : "Network"}</button>)}</span>}{model.address.origins.map(origin => <code key={origin}>{origin}</code>)}{addressStep?.error && <span className="setup-error" role="alert">{addressStep.error.message}</span>}{addressStep?.blocked && <a className="setup-blocked" data-tone="attention" href={addressStep.blocked.fix_url}>{addressStep.blocked.line}</a>}{model.address.failed && <div className="setup-address-failed"><span role="alert" className="setup-error">{model.address.failed.reason.message}</span><SetupActions actions={addressActions} onAction={onAction} /><span>In effect: <code>{model.address.failed.from}</code></span></div>}{!model.address.failed && <SetupActions inline actions={rowActions("address").filter(action => !reach.some(each => each.tag === action.tag && each.args?.listen === action.args?.listen))} onAction={onAction} />}{!model.address.failed && <SetupActions actions={reachForm} onAction={onAction} />}</dd>
       <SettingsModels model={model} actions={actions} onAction={onAction} />
       <dt>GitHub</dt><dd><span>{model.github.app_installed ? "App installed" : "App uninstalled"}</span>{model.repository && <code>{model.repository.owner}/{model.repository.name}</code>}</dd>
       <dt>Machines</dt><dd>{rowActions("capacity", model.capacity).length ? <SetupActions inline actions={rowActions("capacity", model.capacity)} onAction={onAction} /> : model.capacity}</dd>

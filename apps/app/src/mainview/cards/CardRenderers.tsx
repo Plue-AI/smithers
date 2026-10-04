@@ -198,5 +198,5 @@ export const renderConfirmCard = (props: ConfirmViewProps) => <ConfirmView {...p
 
 /** Browser-private setup projection; shared persistence activates in the later phase. */
 export const renderSetupCard = (props: Omit<SetupCardProps, "View">) => <SetupCard {...props} View={SetupView} />
-/** The Home card of `main`'s conversation and `/stack` (T-APP-01). */
+/** The Home card of `main`'s conversation and `/stack` (T-APP-01); HomeCard composes role, admission, dispatch and view state from the controller. */
 export const renderHomeCard = () => <HomeCard />

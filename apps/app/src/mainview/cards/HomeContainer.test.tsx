@@ -6,11 +6,12 @@ import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { HomeCard, HomeContainer } from "./HomeContainer"
+import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource } from "./HomeContainer"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createDesignWorld } from "../state/seams/DesignWorld"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
+import { designHomeView } from "../state/seams/DesignWorld/home"
 import { liveChannel } from "../runtime/LiveChannel"
 const allowed = new Set<CatalogTag>(["todo.new", "github", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
@@ -48,6 +49,34 @@ test("reset is owner-only and binds the actual main revision", () => {
     expect(h.calls).toEqual([])
   }
 })
+test("order OK is a maintainer's: a member sees neither the order row nor its control", () => {
+  const base = Object.values(fixtures)[0]!.model
+  const model = { ...base, attention: [{ kind: "order", text: "T3 merged before T2", todo: 3, actions: [{ tag: "order.ok", label: "OK" }] }] }
+  for (const role of ["owner", "maintainer"] as const) {
+    const h = mount(model, role)
+    expect(h.props.model.attention.map(row => row.actions)).toEqual([[{ tag: "order.ok", label: "OK", args: { n: "3" } }]])
+    h.props.onAction("order.ok", { n: "3" })
+    expect(h.calls).toEqual([{ tag: "order.ok", input: { n: 3 } }])
+  }
+  const member = mount(model, "member")
+  expect(member.props.model.attention).toEqual([])
+  member.props.onAction("order.ok", { n: "3" })
+  expect(member.calls).toEqual([])
+})
+
+test("the mounted Home admission holds Answer, order OK and Reset, so those rows keep their one action", () => {
+  for (const tag of ["todo.answer", "order.ok", "main.reset-to-github", "branch", "merge", "github"] as const) expect(HOME_TAGS.has(tag)).toBe(true)
+})
+
+test("sync Retry is offered only while main's sync is stale", () => {
+  const base = Object.values(fixtures)[0]!.model
+  const tags = (health: string) => mount({ ...base, main: { ...base.main, health } }).props.actions.map(action => action.tag)
+  expect(tags("fresh")).toEqual(["todo.new"])
+  expect(tags("stale")).toEqual(["todo.new", "github"])
+  expect(tags("limited")).toEqual(["todo.new"])
+  expect(tags("refused")).toEqual(["todo.new"])
+})
+
 test("lack of admission removes all controls, and unavailable models never render", () => {
   const h = mount(Object.values(fixtures)[0]!.model, "member", new Set())
   expect(h.props.actions).toEqual([])
@@ -98,50 +127,149 @@ test("Merge is absent for members and for blocked, later or draft rows", () => {
   }
 })
 
-const seeded = (viewer: string) => {
+/** `live` is the page's `/api/live` channel; without it the controller supplies none and Home subscribes to nothing. */
+const seeded = (viewer: string, live = false) => {
   const submitted: unknown[] = []
-  const controller = { design: createDesignWorld({ viewer, timers: { set: () => 0, clear: () => {} } }),
+  const controller = { design: createDesignWorld({ viewer, timers: { set: () => 0, clear: () => {} } }), ...(live ? { live: liveChannel() } : {}),
     commands: { submit: async (command: unknown) => { submitted.push(command); return { status: "executed" } } } } as unknown as AppController
   return { controller, submitted }
 }
 
-test("without the production composition Home renders the seeded stack, never nothing", () => {
+test("with no home provider Home renders the seeded stack, never nothing", () => {
   const h = seeded(MAYA)
   const markup = renderToStaticMarkup(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>)
   for (const title of ["Upgrade the Stripe SDK to v17", "Retry failed webhooks with backoff", "Fix the flaky checkout test", "Log every webhook retry attempt"]) expect(markup).toContain(title)
   expect(markup).toContain('data-flow="merge"')
   expect(markup).toContain('data-flow="todo.new"')
+  expect(markup).toContain('data-flow="todo.answer"')
+  expect(markup.match(/data-flow="branch"/g)).toHaveLength(4)
   // A maintainer sees Merge too; the seeded viewer's role, not a default, decides.
   expect(renderToStaticMarkup(<ControllerTestProvider controller={seeded(BEN).controller}><HomeCard /></ControllerTestProvider>)).toContain('data-flow="merge"')
 })
 
-test("production props alone keep the seed until the home topic serves data; then the topic replaces it", async () => {
+/* A browser with a scripted `/api/live` socket: the card subscribes to `home` on mount. */
+const browser = () => {
   GlobalRegistrator.register()
   const frames: Array<{ t: string; id?: number; topic?: string }> = []
-  let socket!: { readyState: number; onopen: (() => void) | null; onclose: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null }
+  const live: { socket?: { readyState: number; onopen: (() => void) | null; onclose: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null } } = {}
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, WebSocket: class {
     readyState = 0; onopen: (() => void) | null = null; onclose: (() => void) | null = null; onmessage: ((event: { data: unknown }) => void) | null = null
-    constructor() { socket = this }
+    constructor() { live.socket = this }
     send(frame: string) { frames.push(JSON.parse(frame)) }
     close() {}
   } })
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)
+  /** Open the socket and answer the `home` subscription with one frame. */
+  const answer = async (frame: Record<string, unknown>) => {
+    live.socket!.readyState = 1; live.socket!.onopen?.()
+    const sub = frames.find(each => each.t === "sub" && each.topic === "home")!
+    expect(sub).toBeDefined()
+    await act(async () => live.socket!.onmessage?.({ data: JSON.stringify({ ...frame, id: sub.id }) }))
+  }
+  // Unmounting releases the topic, which closes the socket; the channel itself is the tab's singleton.
+  const close = async () => { await act(async () => root.unmount()); expect(liveChannel().getSnapshot("home")).toBeUndefined(); host.remove(); await GlobalRegistrator.unregister() }
+  return { host, root, answer, close }
+}
+const click = async (element: Element | null | undefined) => {
+  expect(element).toBeTruthy()
+  await act(async () => (element as HTMLElement).click())
+}
+const SEEDED_TITLES = ["Upgrade the Stripe SDK to v17", "Retry failed webhooks with backoff", "Fix the flaky checkout test", "Log every webhook retry attempt"]
+
+test("the mounted card composes itself from the controller: Answer opens T9's TODO, the branch chip opens its branch", async () => {
+  const b = browser()
+  const h = seeded(MAYA, true)
+  try {
+    await act(async () => b.root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
+    expect(b.host.querySelectorAll(".mvp-stack-row")).toHaveLength(4)
+    const t9 = [...b.host.querySelectorAll(".mvp-stack-row")].find(row => row.textContent?.includes("T9"))!
+    await click(t9.querySelector('button[data-flow="todo.answer"]'))
+    expect(h.submitted).toEqual([{ name: "todo", payload: { n: 9 }, actor: "user" }])
+    await click(t9.querySelector('button.mvp-branch-chip[data-flow="branch"]'))
+    expect(h.submitted.at(-1)).toEqual({ name: "branch", payload: { name: "retry-webhooks" }, actor: "user" })
+    expect(t9.querySelector("button.mvp-branch-chip")?.textContent).toBe("retry-webhooks")
+  } finally { await b.close() }
+})
+
+test("the filter is the member's view state: it narrows the rows and is what a reload reads back", async () => {
+  const b = browser()
+  const h = seeded(MAYA, true)
+  try {
+    await act(async () => b.root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
+    await click(b.host.querySelector('[data-filter="needs_you"]'))
+    expect(designHomeView(h.controller.design, MAYA)).toEqual({ maximized: false, filter: "needs_you" })
+    expect([...b.host.querySelectorAll(".mvp-stack-row .mvp-ref")].map(ref => ref.textContent)).toEqual(["T9"])
+    expect(b.host.querySelector('[data-filter="needs_you"]')?.getAttribute("aria-pressed")).toBe("true")
+    expect(h.submitted).toEqual([])
+    await click(b.host.querySelector('[data-filter="needs_you"]'))
+    expect(designHomeView(h.controller.design, MAYA)).toEqual({ maximized: false })
+    expect(b.host.querySelectorAll(".mvp-stack-row")).toHaveLength(4)
+  } finally { await b.close() }
+})
+
+test("a host with no home provider keeps the seed; a provider that fails shows main's refused or limited row and no seeded TODO", async () => {
+  expect(homeSource(undefined)).toEqual({ kind: "seed" })
+  expect(homeSource({ error: "unknown_topic" })).toEqual({ kind: "seed" })
+  expect(homeSource({ error: "unsupported" })).toEqual({ kind: "seed" })
+  expect(homeSource({ error: "forbidden" })).toEqual({ kind: "failed", code: "forbidden" })
+  expect(homeSource({ error: "internal" })).toEqual({ kind: "failed", code: "internal" })
+  expect(homeSource({ data: { repository: "acme/api" } })).toEqual({ kind: "failed", code: "invalid" })
+  expect(homeFailureModel("acme/api", "forbidden").main).toEqual({ sha: "", title: "main", last_success_at: "1970-01-01T00:00:00.000Z", health: "refused", cause: "Stack access refused" })
+  expect(homeFailureModel("acme/api", "internal").main).toMatchObject({ health: "limited", cause: "Stack unavailable" })
+  for (const [frame, health, cause] of [
+    [{ t: "err", code: "forbidden" }, "refused", "Stack access refused"],
+    [{ t: "err", code: "internal" }, "limited", "Stack unavailable"],
+    [{ t: "snap", cursor: 1, data: { repository: "acme/api" } }, "limited", "Stack unavailable"]
+  ] as const) {
+    const b = browser()
+    const h = seeded(MAYA, true)
+    try {
+      await act(async () => b.root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
+      await b.answer(frame)
+      const text = b.host.textContent ?? ""
+      for (const title of SEEDED_TITLES) expect(text).not.toContain(title)
+      expect(b.host.querySelectorAll(".mvp-stack-row")).toHaveLength(0)
+      expect(b.host.querySelector(".mvp-sync")?.getAttribute("data-health")).toBe(health)
+      expect(b.host.querySelector(".mvp-sync")?.textContent).toBe(cause)
+      expect([...b.host.querySelectorAll("button[data-flow]")].map(button => button.getAttribute("data-flow"))).toEqual(["todo.new"])
+    } finally { await b.close() }
+  }
+  const b = browser()
+  try {
+    await act(async () => b.root.render(<ControllerTestProvider controller={seeded(MAYA, true).controller}><HomeCard /></ControllerTestProvider>))
+    await b.answer({ t: "err", code: "unknown_topic" })
+    for (const title of SEEDED_TITLES) expect(b.host.textContent).toContain(title)
+  } finally { await b.close() }
+})
+
+test("a controller with no live channel keeps the seed and opens no /api/live socket", async () => {
+  GlobalRegistrator.register()
+  let sockets = 0
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, WebSocket: class { constructor() { sockets += 1 } } })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={seeded(MAYA).controller}><HomeCard /></ControllerTestProvider>))
+    expect(host.querySelectorAll(".mvp-stack-row")).toHaveLength(4)
+    expect(sockets).toBe(0)
+    expect(liveChannel().getSnapshot("home")).toBeUndefined()
+  } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+})
+
+test("production props alone keep the seed until the home topic serves data; then the topic replaces it", async () => {
+  const b = browser()
+  const host = b.host, root = b.root
   const calls: unknown[] = []
   const production = { role: "owner" as const, allowed, dispatch: (tag: string, input: unknown) => { calls.push({ tag, input }) }, view: { maximized: false }, onView: () => {} }
   const live = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
   try {
-    await act(async () => root.render(<ControllerTestProvider controller={seeded(MAYA).controller}><HomeCard production={production} /></ControllerTestProvider>))
+    await act(async () => root.render(<ControllerTestProvider controller={seeded(MAYA, true).controller}><HomeCard production={production} /></ControllerTestProvider>))
     expect(host.textContent).toContain("Upgrade the Stripe SDK to v17")
-    socket.readyState = 1; socket.onopen?.()
-    const sub = frames.find(frame => frame.t === "sub" && frame.topic === "home")!
-    expect(sub).toBeDefined()
-    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: sub.id, cursor: 1, data: live }) }))
+    await b.answer({ t: "snap", cursor: 1, data: live })
     expect(host.textContent).not.toContain("Upgrade the Stripe SDK to v17")
     expect(host.textContent).toContain(live.items[0]!.title)
-  } finally {
-    await act(async () => root.unmount()); host.remove(); liveChannel().dispose(); await GlobalRegistrator.unregister()
-  }
+  } finally { await b.close() }
 })
 
 test("only the first unmerged row can offer one Merge, even with duplicate supplied controls", () => {
