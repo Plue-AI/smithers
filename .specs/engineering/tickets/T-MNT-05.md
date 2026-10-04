@@ -77,6 +77,22 @@ This ticket adds no root step. Upgrade, backup, restore, Homebrew and migrations
 
 Branch-sourced data reaching root blocks enablement/publication until its named validation test passes on the artifact. Root must never install, load or execute branch-built scripts, binaries, interpreters, imports or toolchains; a matching digest does not waive this rule.
 
+## Dark landing evidence (2026-10-04)
+
+The existing npm publisher rejects `releaseStage: "M"` before registry reads or
+writes. `maintainerReleasePlan` records launch/target/availability UTC and both
+versions; it requires literal launch + 604800000 ms and leaves state blocked.
+Missing availability stays null; caller-written passing markers cannot unlock it.
+This reuses the publisher; it adds no upgrader, docs source, UI, timer or root step.
+
+The authenticated Mac lifecycle/artifact evidence provider is unavailable in this
+publisher. The production CLI currently mounts only `host status`; the ported
+upgrade recovery test named above is absent. Publication stays disabled rather
+than qualifying the Docker scripts as Mac lifecycle evidence. C-MNT-05,
+C-MNT-06 and C-REL-03 have not been executed on a released M artifact. Launch UTC,
+Will's publication decision, dependency receipts and the real GitHub journey
+remain required; this ticket is not shipped or ready to close.
+
 ## Ready checklist
 
 1. Dependencies: T-MNT-03/04 cover the maintainer slices and transitive admission/confirmation/runtime contracts; T-INS-07 covers upgrade/recovery, T-REL-01 reference-host qualification, T-DOC-01/03 shared docs, T-SEC-01 root validation and T-MCH-11 user isolation. Unlanded providers build against contracts and land dark under Scope and C-MNT-05 step 7.

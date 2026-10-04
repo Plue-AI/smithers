@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { integrity, preflight, publishCandidate, recordSmokeSuccess } from "./publish-release.mjs"
+import { maintainerReleasePlan, integrity, preflight, publishCandidate, recordSmokeSuccess } from "./publish-release.mjs"
 
 const fixture = async (body) => {
   const directory = await mkdtemp(join(tmpdir(), "smithers-publish-"))
@@ -174,4 +174,58 @@ test("duplicate package names and filenames and unsafe paths are refused before 
     await writeFile(join(directory, "manifest.json"), JSON.stringify(changed.packages))
     await assert.rejects(preflight(directory, changed, { ...options, readRegistry: async () => assert.fail("invalid train queried registry") }), /Invalid release entry/)
   }
+}))
+
+// Literal T-MNT-05 dates and checks; no spec/catalog-derived expectations.
+const maintainerCandidate = () => ({ releaseStage: "M", source: { tag: "v1.1.0" }, maintainerRelease: {
+  launchUtc: "2026-12-28T23:30:00.000Z", targetReleaseUtc: "2027-01-04T23:30:00.000Z",
+  launchVersion: "1.0.0", availableUtc: null
+} })
+
+test("maintainer release records year rollover and stays blocked without availability", () => {
+  assert.deepEqual(maintainerReleasePlan(maintainerCandidate()), {
+    launchUtc: "2026-12-28T23:30:00.000Z", targetReleaseUtc: "2027-01-04T23:30:00.000Z",
+    availableUtc: null, launchVersion: "1.0.0", releaseVersion: "1.1.0", state: "blocked",
+    requiredChecks: ["C-MNT-01", "C-MNT-02", "C-MNT-03", "C-MNT-04", "C-MNT-05", "C-MNT-06", "C-REL-03", "C-SEC-02", "C-SEC-03", "C-COL-04", "C-MCH-06"]
+  })
+})
+
+test("maintainer dates reject normalization, local zones, early and missed publication", () => {
+  for (const [field, value, message] of [
+    ["launchUtc", "2026-02-30T23:30:00.000Z", /Invalid release date/],
+    ["launchUtc", "2026-12-28T23:30:00-08:00", /UTC/],
+    ["launchUtc", null, /UTC/],
+    ["targetReleaseUtc", "2027-01-04T23:29:59.000Z", /seven calendar days/],
+    ["availableUtc", "2027-01-04T23:29:59.000Z", /day seven/],
+    ["availableUtc", "2027-01-05T23:30:00.000Z", /day seven/],
+    ["availableUtc", "2027-01-04", /UTC/],
+    ["launchVersion", "1.1.0", /Distinct/],
+    ["launchVersion", "", /Distinct/]
+  ]) {
+    const candidate = maintainerCandidate()
+    candidate.maintainerRelease[field] = value
+    assert.throws(() => maintainerReleasePlan(candidate), message)
+  }
+  for (const value of ["2027-01-04T23:30:00.000Z", "2027-01-05T23:29:59.000Z"]) {
+    const candidate = maintainerCandidate()
+    candidate.maintainerRelease.availableUtc = value
+    assert.equal(maintainerReleasePlan(candidate).state, "blocked")
+  }
+  assert.throws(() => maintainerReleasePlan({}), /record is required/)
+})
+
+test("M publication fails before registry reads or writes even with claimed passing receipts", () => fixture(async (directory, candidate, options) => {
+  let reads = 0, writes = 0
+  const doors = { ...options, readRegistry: async () => { reads++ }, publish: async () => { writes++ } }
+  for (const availableUtc of [null, "2027-01-04T23:30:00.000Z"]) {
+    const m = { ...candidate, releaseStage: "M", maintainerRelease: {
+      ...maintainerCandidate().maintainerRelease, availableUtc, checks: { "C-MNT-05": "passed" }
+    } }
+    await assert.rejects(publishCandidate(directory, m, doors), /Maintainer publication disabled/)
+  }
+  await assert.rejects(preflight(directory, { ...candidate, releaseStage: "M" }, doors), /record is required/)
+  await assert.rejects(preflight(directory, { ...candidate, maintainerRelease: {} }, doors), /declare stage M/)
+  await assert.rejects(preflight(directory, { ...candidate, releaseStage: "cloud" }, doors), /Unknown release stage/)
+  assert.equal(reads, 0)
+  assert.equal(writes, 0)
 }))
