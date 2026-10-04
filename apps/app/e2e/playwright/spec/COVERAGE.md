@@ -189,3 +189,14 @@ fixtures and do not qualify gate correctness or publication refusal.
 Cycle 22: release install, upgrade/restore and 24-hour login qualification need
 live reference-host fixtures. Docs are not mounted; receipt and scorecard checks
 are engineering-only terminal projections, not passing qualification evidence.
+
+| C-REL-06 | [C-REL-06.spec.ts](C-REL-06.spec.ts) | fixme-before-implementation | T-INS-07 |
+| C-SEC-01 | [C-SEC-01.spec.ts](C-SEC-01.spec.ts) | fixme-before-implementation | T-MCH-12, T-FLW-01 |
+| C-SEC-02 | [C-SEC-02.spec.ts](C-SEC-02.spec.ts) | fixme-before-implementation | T-FLW-01, T-INS-02, T-INS-08, T-FLW-11, T-STK-12, T-MCH-14 |
+| C-SEC-03 | [C-SEC-03.spec.ts](C-SEC-03.spec.ts) | fixme-before-implementation | T-STK-09, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
+| C-SEC-04 | [C-SEC-04.spec.ts](C-SEC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-INS-06, T-INS-08 |
+| C-SEC-05 | [C-SEC-05.spec.ts](C-SEC-05.spec.ts) | fixme-before-implementation | T-TRM-02 |
+
+Cycle 23: cross-Mac backup and production security fixtures remain pending.
+These UI projections do not qualify root scans, process isolation, admission
+transactions, setup-token races or terminal credential boundaries.
