@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -101,6 +102,11 @@ type GitHubMainPullStatus struct {
 }
 
 type GitHubMainPullService struct {
+	// Install consumers stay dark until stream admission, authority, stack
+	// fences, durable rebase/main-moved delivery and machine isolation qualify.
+	install     bool
+	syncStreams GitHubSyncStreams
+
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	readFactory      func(context.Context, string, string, string, string) ([]byte, error)
 	store            GitHubMainPullStore
@@ -174,6 +180,9 @@ func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepo
 // RequestForGitHub requests a pull for every Smithers repository whose
 // recorded GitHub source is owner/repo. The worker decides whether to write.
 func (s *GitHubMainPullService) RequestForGitHub(ctx context.Context, owner, repo string) error {
+	if s != nil && s.install {
+		return githubSyncUnavailable()
+	}
 	if s == nil || s.store == nil {
 		return nil
 	}
@@ -193,6 +202,9 @@ func (s *GitHubMainPullService) RequestForGitHub(ctx context.Context, owner, rep
 func (s *GitHubMainPullService) Request(ctx context.Context, repositoryID int64) (GitHubMainPullStatus, error) {
 	if s == nil || s.store == nil {
 		return GitHubMainPullStatus{}, pkgerrors.Internal("github main pull is not configured")
+	}
+	if s.install {
+		return GitHubMainPullStatus{}, githubSyncUnavailable()
 	}
 	row, err := s.store.RequestGithubMainPull(ctx, repositoryID)
 	if err != nil {
@@ -283,6 +295,9 @@ func gitHubMainPullStatus(row db.GithubMainPull) GitHubMainPullStatus {
 // Start drains due pulls and periodically re-checks and discovers
 // repositories, so a missed webhook or enrollment is caught by the poll.
 func (s *GitHubMainPullService) Start(ctx context.Context) {
+	if s.install {
+		return
+	}
 	lastPoll := time.Time{}
 	for {
 		if s.now().Sub(lastPoll) >= gitHubMainPullPollInterval {
@@ -303,6 +318,9 @@ func (s *GitHubMainPullService) Start(ctx context.Context) {
 // Sweep re-requests stale pull and skipped rows and starts tracking
 // GitHub-sourced repositories that have never been evaluated.
 func (s *GitHubMainPullService) Sweep(ctx context.Context) {
+	if s.install {
+		return
+	}
 	if _, err := s.store.RequestStaleGithubMainPulls(ctx, gitHubMainPullPollInterval.Seconds(), gitHubMainPullSkippedRecheck.Seconds()); err != nil && ctx.Err() == nil {
 		s.logger.Error("github.main_pull.poll_failed", "error", err)
 	}
@@ -315,6 +333,9 @@ func (s *GitHubMainPullService) Sweep(ctx context.Context) {
 // immediately before its run, so the run deadline always ends inside its
 // lease.
 func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
+	if s.install {
+		return githubSyncUnavailable()
+	}
 	for range gitHubMainPullClaimLimit {
 		if ctx.Err() != nil {
 			return nil
@@ -333,6 +354,8 @@ func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
 
 // gitHubMainPullOutcome is what one run records.
 type gitHubMainPullOutcome struct {
+	forcePush *GitHubMainForcePush
+
 	state, githubRepository, branch, policy, policyCommit, githubHead, smithersHead, err string
 	// resetPolicy forgets the recorded source/policy tuple, so a policy is
 	// never reused for a source it was not read from.
@@ -481,6 +504,10 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	}
 	out.smithersHead = smithersHead
 	policy := func(commit string) (string, bool) {
+		if s.install {
+			out.policy, out.policyCommit = gitHubMainPullPolicyPull, commit
+			return gitHubMainPullPolicyPull, true
+		}
 		if row.PolicyCommit == commit && row.Policy != "" && row.GithubRepository == out.githubRepository {
 			out.policy, out.policyCommit = row.Policy, commit
 			return row.Policy, true
@@ -587,6 +614,10 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		return fail("compare histories: " + sanitize(err))
 	}
 	if !ancestor {
+		if s.install {
+			out.forcePush = &GitHubMainForcePush{Old: smithersHead, New: tip}
+			return fail("force_push")
+		}
 		return fail("Smithers " + branch + " (" + smithersHead + ") is not an ancestor of GitHub " + branch + " (" + tip +
 			"); it diverged and is never overwritten. Merge Smithers " + branch + " into GitHub's " + branch + ", then retry")
 	}
@@ -718,15 +749,7 @@ func (g cliGitHubMainPullGit) Fetch(ctx context.Context, dir, smithersURL, githu
 }
 
 func (g cliGitHubMainPullGit) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
-	out, err := gitHubMainPullCommand(ctx, "--git-dir", dir, "merge-base", "--is-ancestor", ancestor, descendant).CombinedOutput()
-	if err == nil {
-		return true, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-		return false, nil
-	}
-	return false, gitHubMainPullCommandError("git merge-base", err, out)
+	return gitutil.IsAncestor(ctx, dir, ancestor, descendant, gitHubMainPullCommand)
 }
 
 // Push is not forced; the bridge also accepts only ref: base -> commit.

@@ -925,6 +925,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repoSyncService := services.NewRepoSyncService("", repoConnectionService)
 	// Smithers main follows GitHub main for `mirror: "pull"` repositories.
 	gitHubMainPullService := services.NewGitHubMainPullService(queries, repoHostClient, repoConnectionService, repoConnectionService)
+	if config.IsSingleOwner(cfg.Auth) {
+		gitHubMainPullService.UseInstallPolicy()
+	}
 	gitHubSyncedRepoService.SetPullMirror(gitHubMainPullService.PullMirror)
 	gitHubWebhookEventWorker.SetMainPull(gitHubMainPullService)
 	// The mythical stack folds every main the pull brings in, admits every

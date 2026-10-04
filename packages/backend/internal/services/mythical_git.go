@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -217,15 +218,7 @@ func (g mythicalGit) firstParentsSince(ctx context.Context, base, tip string, li
 }
 
 func (g mythicalGit) isAncestor(ctx context.Context, ancestor, descendant string) (bool, error) {
-	_, err := g.command(ctx, nil, "merge-base", "--is-ancestor", ancestor, descendant)
-	if err == nil {
-		return true, nil
-	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return false, nil
-	}
-	return false, err
+	return gitutil.IsAncestor(ctx, g.dir, ancestor, descendant, gitHubMainPullCommand)
 }
 
 // merge3 is a three-way tree merge of commits: base's tree, with both ours'

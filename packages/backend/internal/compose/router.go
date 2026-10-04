@@ -879,6 +879,12 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		mountHostStatus(r, extras.HostStatus)
+		if config.IsSingleOwner(cfg.Auth) {
+			// No authority/stream provider is wired until T-GH-07 qualifies activation.
+			sync := &routes.GitHubSyncHandler{}
+			r.Get("/github/sync", sync.Status)
+			r.Post("/github/sync", sync.Retry)
+		}
 		if cfg.Install.QuiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}
 			r.Post("/install/quiesce", h.Handle)
@@ -1125,7 +1131,7 @@ func buildRouter(
 				r.With(readRepo...).Get("/mirror-sync/{run_id}", mirrorSyncHandler.GetMirrorSyncRun)
 				r.With(writeRepo...).Post("/github/reconcile", mirrorSyncHandler.ReconcileGitHub)
 				r.With(writeRepo...).Post("/github/mirror/refs/{ref}/retry", mirrorSyncHandler.RetryMirrorRef)
-				if mirrorSyncHandler != nil && mirrorSyncHandler.MainPull != nil {
+				if !config.IsSingleOwner(cfg.Auth) && mirrorSyncHandler != nil && mirrorSyncHandler.MainPull != nil {
 					r.With(writeRepo...).Post("/github/main-pull", mirrorSyncHandler.MainPull.RequestMainPull)
 					r.With(readRepo...).Get("/github/main-pull", mirrorSyncHandler.MainPull.GetMainPull)
 				}

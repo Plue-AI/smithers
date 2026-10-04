@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -700,13 +701,5 @@ func (s *Server) commitAncestry(w http.ResponseWriter, r *http.Request) error {
 
 // gitIsAncestor compares immutable commits and fails closed on Git errors.
 func gitIsAncestor(ctx context.Context, gitDir, ancestor, descendant string) (bool, error) {
-	err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "merge-base", "--is-ancestor", ancestor, descendant).Run()
-	if err == nil {
-		return true, nil
-	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return false, nil
-	}
-	return false, err
+	return gitutil.IsAncestor(ctx, gitDir, ancestor, descendant, func(ctx context.Context, args ...string) *exec.Cmd { return exec.CommandContext(ctx, "git", args...) })
 }

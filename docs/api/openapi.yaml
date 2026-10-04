@@ -2866,6 +2866,90 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/github/sync:
+    x-composition: install
+    get:
+      summary: Read GitHub sync health
+      operationId: get_api_github_sync
+      tags:
+        - Github
+      responses:
+        '200':
+          description: Aggregate required-stream health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, last_success_at]
+                properties:
+                  state:
+                    type: string
+                    enum: [fresh, stale, refused, limited]
+                  last_success_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  cause:
+                    type: string
+                    enum: [permission, not_installed]
+                  retry_at:
+                    type: string
+                    format: date-time
+        '503':
+          description: Sync dependencies unavailable; no effects
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, class, message]
+                properties:
+                  code:
+                    type: string
+                    enum: [github_sync_unavailable]
+                  class:
+                    type: string
+                    enum: [infra]
+                  message:
+                    type: string
+    post:
+      summary: Retry GitHub sync through github.retry
+      operationId: post_api_github_sync
+      tags:
+        - Github
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: All streams durably admitted, not completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state:
+                    type: string
+                    enum: [accepted]
+        '503':
+          description: Sync dependencies unavailable; no effects
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, class, message]
+                properties:
+                  code:
+                    type: string
+                    enum: [github_sync_unavailable]
+                  class:
+                    type: string
+                    enum: [infra]
+                  message:
+                    type: string
   /api/github/import/{id}:
     get:
       summary: GET /api/github/import/{id}

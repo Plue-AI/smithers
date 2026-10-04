@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -812,8 +813,12 @@ func defaultRunGitMirrorPush(ctx context.Context, sourceURL, targetURL string, c
 		if strings.HasPrefix(change.name, "refs/tags/") && change.from != change.to {
 			return fmt.Errorf("refusing to replace existing tag %s", change.name)
 		}
-		if err := runMirrorGitCommand(ctx, dir, "merge-base", "--is-ancestor", change.from, change.to); err != nil {
-			return fmt.Errorf("refusing non-fast-forward update of %s: %w", change.name, err)
+		ancestor, err := gitutil.IsAncestor(ctx, dir, change.from, change.to, gitHubMainPullCommand)
+		if err != nil {
+			return fmt.Errorf("compare histories for %s: %w", change.name, err)
+		}
+		if !ancestor {
+			return fmt.Errorf("refusing non-fast-forward update of %s", change.name)
 		}
 	}
 	// Recheck after fetching: this also protects planned deletions if the
