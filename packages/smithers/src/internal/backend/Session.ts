@@ -118,10 +118,12 @@ export class Session {
   readonly configPath: string
   readonly authPath: string
   readonly env: Readonly<Record<string, string | undefined>>
+  private readonly tokenFile: string | undefined
   private readonly fileEpochs = new Map<string, CredentialEpoch>()
   private readonly nativeEpochs = new Map<string, CredentialEpoch>()
   constructor(env: Readonly<Record<string, string | undefined>>) {
     this.env = env
+    this.tokenFile = env.SMITHERS_TOKEN_FILE ? resolvePath(env.SMITHERS_TOKEN_FILE) : undefined
     this.home = env.HOME || homedir()
     this.configPath = join(
       env.XDG_CONFIG_HOME ||
@@ -148,8 +150,12 @@ export class Session {
   /** Private cache identity; never a credential or a persisted token cache. */
   credentialIdentity(origin: string): string {
     const target = this.target(origin)
+    this.assertUnmanagedTokenFile()
     const token = this.env.SMITHERS_TOKEN?.trim()
     if (token) return identity([target.api_url, "env", token])
+    if (this.tokenFile) {
+      return identity([target.api_url, "token_file", this.tokenFile, this.fileEpoch(this.tokenFile).revision])
+    }
     const files = [...new Set([this.fileEpoch(this.configPath), this.fileEpoch(this.authPath)])]
     const native = this.env.SMITHERS_DISABLE_SYSTEM_KEYRING === "1" ? undefined : this.nativeEpoch(target.host)
     if (files.some((epoch) => epoch.pending) || native?.pending) {
@@ -170,6 +176,34 @@ export class Session {
       fileIdentity(this.configPath),
       fileIdentity(this.authPath)
     ])
+  }
+  // Managed terminal files remain dark until the issuer and root validation land.
+  private assertUnmanagedTokenFile(): void {
+    if (this.tokenFile?.startsWith("/run/smithers/")) {
+      throw new Refused({
+        fault: "dependency",
+        code: "terminal_auth_unavailable",
+        message: "Terminal sign-in is unavailable"
+      })
+    }
+  }
+  invalidateCredential(origin: string, expected: string): void {
+    if (this.tokenFile && this.credentialIdentity(origin) === expected) this.fileEpoch(this.tokenFile).revision++
+  }
+  private readTokenFile(): string {
+    try {
+      const stat = statSync(this.tokenFile!)
+      if (!stat.isFile() || stat.size > 16384) throw invalidToken()
+      const token = readFileSync(this.tokenFile!, "utf8").trim()
+      if (!tokenPattern.test(token)) throw invalidToken()
+      return token
+    } catch {
+      throw new Refused({
+        fault: "user",
+        code: "token_file_unavailable",
+        message: "Cannot read a valid SMITHERS_TOKEN_FILE"
+      })
+    }
   }
   private fileMutation(): () => void {
     const finishes = [...new Set([this.fileEpoch(this.configPath), this.fileEpoch(this.authPath)])].map(mutate)
@@ -343,8 +377,10 @@ export class Session {
   async resolve(origin?: string, signal?: AbortSignal) {
     checkLookup(signal)
     const target = this.target(origin)
+    this.assertUnmanagedTokenFile()
     const env = this.env.SMITHERS_TOKEN?.trim()
     if (env) return { ...target, token: env, source: "env" }
+    if (this.tokenFile) return { ...target, token: this.readTokenFile(), source: "token_file" }
     // Go stored by hostname. A record binds that existing keychain item to its exact origin.
     const record = this.record(target.api_url)
     const configOrigin = text(this.config(false).api_origin)
@@ -374,7 +410,7 @@ export class Session {
       throw new Refused({
         fault: "user",
         code: "not_signed_in",
-        message: "No Smithers login. Run smithers auth login or set SMITHERS_TOKEN"
+        message: "No Smithers login. Run smithers auth login or set SMITHERS_TOKEN or SMITHERS_TOKEN_FILE"
       })
     }
     return resolved
@@ -410,7 +446,12 @@ export class Session {
       if (record || bound) await this.keyring("delete", target.host)
       if (record) rmSync(this.authPath, { force: true })
       if (config.token && text(config.api_origin) === target.api_url) this.saveConfig({})
-      return { status: "logged_out", host: target.host, cleared: !!record, env_active: !!this.env.SMITHERS_TOKEN }
+      return {
+        status: "logged_out",
+        host: target.host,
+        cleared: !!record,
+        env_active: !!(this.env.SMITHERS_TOKEN || this.tokenFile)
+      }
     } finally {
       finish()
     }

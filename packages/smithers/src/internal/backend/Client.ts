@@ -487,7 +487,10 @@ export class Client {
       response.status === 401 && credential !== undefined &&
       !Object.keys(options.headers ?? {}).some((key) => key.toLowerCase() === "authorization") &&
       this.credentials.get(credential.origin) === credential.entry
-    ) this.credentials.delete(credential.origin)
+    ) {
+      this.credentials.delete(credential.origin)
+      this.session.invalidateCredential(credential.origin, credential.entry.identity)
+    }
     if (!response.ok) {
       let detail: Values = {}
       try {

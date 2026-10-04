@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -607,5 +607,85 @@ describe("per-command authenticated credential reuse (#3396)", () => {
     expect(polls).toBe(2)
     await expect(t.client.request("GET", "/api/no-owner-work")).rejects.toMatchObject({ code: "cancelled" })
     expect(t.received.some((request) => request.path === "/api/no-owner-work")).toBe(false)
+  })
+})
+
+describe("terminal credential files (#3537)", () => {
+  it("prefers environment then file then saved credentials outside managed terminals", async () => {
+    const f = await fixture()
+    const path = join(f.home, "session-token")
+    await writeFile(path, "synthetic-file-value\n")
+    const session = new Session({ ...f.environment, SMITHERS_TOKEN_FILE: path })
+    expect((await session.require()).source).toBe("token_file")
+    expect((await session.require()).token).toBe("synthetic-file-value")
+    expect(
+      (await new Session({ ...f.environment, SMITHERS_TOKEN_FILE: path, SMITHERS_TOKEN: "synthetic-env-value" })
+        .require()).source
+    ).toBe("env")
+    expect(spawn).not.toHaveBeenCalled()
+    expect((await session.clear()).env_active).toBe(true)
+  })
+
+  it("refuses missing, malformed, oversized and directory files without keyring fallback", async () => {
+    const f = await fixture()
+    const path = join(f.home, "session-token")
+    const session = new Session({ ...f.environment, SMITHERS_TOKEN_FILE: path })
+    await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
+    for (const contents of ["", "bad token", "x".repeat(16385)]) {
+      await writeFile(path, contents)
+      await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
+    }
+    await expect(new Session({ ...f.environment, SMITHERS_TOKEN_FILE: f.home }).require()).rejects.toMatchObject({
+      code: "token_file_unavailable"
+    })
+    await writeFile(path, "synthetic-file-value")
+    await chmod(path, 0)
+    try {
+      await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
+    } finally {
+      await chmod(path, 0o600)
+    }
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("keeps managed sign-in dark even with an environment identity override", async () => {
+    const f = await fixture()
+    const session = new Session({
+      ...f.environment,
+      SMITHERS_TOKEN_FILE: "/run/smithers/sessions/A/token",
+      SMITHERS_TOKEN: "synthetic-env-value"
+    })
+    await expect(session.require()).rejects.toMatchObject({ code: "terminal_auth_unavailable" })
+    expect(() => session.credentialIdentity(f.origin)).toThrow(Refused)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("evicts only A on 401, rereads its bound file on an explicit request and never replays a mutation", async () => {
+    const f = await fixture()
+    const pathA = join(f.home, "A"), pathB = join(f.home, "B")
+    await writeFile(pathA, "synthetic-A")
+    await writeFile(pathB, "synthetic-B")
+    f.allow("synthetic-A")
+    f.allow("synthetic-B")
+    const a = new Client({ environment: { ...f.environment, SMITHERS_TOKEN_FILE: pathA } })
+    const b = new Client({ environment: { ...f.environment, SMITHERS_TOKEN_FILE: pathB } })
+    await Promise.all([a.response("GET", "/probe"), b.response("GET", "/probe")])
+    const bIdentity = b.session.credentialIdentity(f.origin)
+    await writeFile(pathB, "synthetic-B-rotated")
+    f.disallow("synthetic-A")
+    const before = f.received.length
+    await expect(a.response("POST", "/probe", {})).rejects.toMatchObject({ status: 401 })
+    expect(f.received.length).toBe(before + 1)
+    expect(b.session.credentialIdentity(f.origin)).toBe(bIdentity)
+    expect((await b.response("GET", "/probe")).status).toBe(200)
+    await writeFile(pathA, "synthetic-A-rotated")
+    f.allow("synthetic-A-rotated")
+    expect((await a.response("GET", "/probe")).status).toBe(200)
+    await rm(pathA)
+    f.disallow("synthetic-A-rotated")
+    await expect(a.response("GET", "/probe")).rejects.toMatchObject({ status: 401 })
+    await expect(a.response("POST", "/probe", {})).rejects.toMatchObject({ code: "token_file_unavailable" })
+    expect(f.received.filter(({ method }) => method === "POST")).toHaveLength(1)
+    expect(spawn).not.toHaveBeenCalled()
   })
 })

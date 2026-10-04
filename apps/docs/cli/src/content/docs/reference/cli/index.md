@@ -53,7 +53,11 @@ integrations, evaluations, and local maintenance reject remote access.
 Set `SMITHERS_API_ORIGIN` or run `smithers config set api_origin https://your-api-host`,
 then `smithers auth login`. One saved login serves backend commands and remote
 control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved login
-for automation. Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
+for automation. `SMITHERS_TOKEN_FILE` reads a token from a fixed file path after
+`SMITHERS_TOKEN` and before saved credentials. Missing or invalid files refuse
+the command. A 401 clears only that file resolution; the next explicit command
+rereads it without replaying the failed request. Managed terminal sign-in remains
+unavailable pending issuer and security validation. Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
 and legacy config token; a new login removes the legacy token. Login and token
 status never print credentials. Local owner installations use `auth local bootstrap`
 and `auth local login`; `auth connect claude --api-key` connects an Anthropic
