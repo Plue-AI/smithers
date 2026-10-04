@@ -313,3 +313,14 @@ API playground and collaborative flow-source editing retain complete pending
 scenarios. Mounted projections cover run opening and reload, Inspect with the
 composer available, seeded sync health and source reads. `/monitor` and
 `/debug-api` are absent; seeded projections do not qualify live providers.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-FLOW-PLAN | [A-FLOW-PLAN.spec.ts](A-FLOW-PLAN.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
+| A-AGENTS | [A-AGENTS.spec.ts](A-AGENTS.spec.ts) | fixme-before-implementation | T-FLW-08 |
+| A-AGENT | [A-AGENT.spec.ts](A-AGENT.spec.ts) | fixme-before-implementation | T-FLW-08 |
+| A-SETTINGS | [A-SETTINGS.spec.ts](A-SETTINGS.spec.ts) | fixme-before-implementation | T-APP-15, T-INS-08 |
+| A-SECRETS | [A-SECRETS.spec.ts](A-SECRETS.spec.ts) | fixme-before-implementation | T-ACC-03, T-APP-04 |
+| A-MEMBERS | [A-MEMBERS.spec.ts](A-MEMBERS.spec.ts) | fixme-before-implementation | T-ACC-02, T-APP-06, T-REL-02 |
+
+Cycle 33: plan preview, factory agent configuration, install settings, secrets and member admission retain full pending scenarios. Mounted Plan missing-input, Settings and Members projections are checked separately; seeded reads do not qualify live providers.
