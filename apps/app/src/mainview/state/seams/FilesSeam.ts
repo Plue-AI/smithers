@@ -11,6 +11,7 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * decodeContent :117). Parsing is defensive: unknown JSON in, typed card
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
+import { FileCardSchema, type FileCard } from "@smthrs/rpc/FileCard"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import type { Card } from "../AppState"
@@ -29,6 +30,8 @@ import { refusalWords,readErrorMessage,unreachableSentence } from "./SeamContext
  * a confabulation waiting to happen.
  */
 export interface FilesSeam {
+  /** Dark S2 operations; production supplies no activation receipts yet. */
+  readonly branchFiles: BranchFileOperations
   readonly listFiles: ViewAction<[path: string, repo?: string]>
   /**
    * `ref` is the revision to read AT.
@@ -219,7 +222,7 @@ export const resolveFileTarget = (store: AppStore, pathArg: string, explicitRepo
   return "error" in target ? target : { kind: "cloud", repo: target.repo, path: normalizePath(path) }
 }
 
-export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
+export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOptions): FilesSeam => {
   const contentsUrl = (repo: string, path: string, ref?: string): string => {
     const [owner = "", name = ""] = repo.split("/")
     const base = `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`
@@ -409,6 +412,7 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
     }
   }
   return {
+    branchFiles: branchFileOperations(ctx, branchOptions),
     listFiles: preparedView(ctx, (path: string, repo?: string) => plan("files", path, repo)),
     readFile: preparedView(ctx, (path: string, repo?: string, anchor?: FileAnchor, ref?: string) => plan("file", path, repo, anchor, ref)),
   }
@@ -450,4 +454,118 @@ export const fileOptions = async (
     }
   }
   return { options }
+}
+
+/** Host-owned activation evidence, never populated from repository or card bytes. */
+export const BRANCH_FILE_PROVIDERS = [
+  "T-COL-04", "T-APP-15", "T-UI-16", "T-APP-22", "T-APP-09", "T-CAT-01",
+  "T-ACC-03", "T-COL-02", "T-MCH-11", "T-STK-12", "T-MCH-08"
+] as const
+export interface BranchFileOptions {
+  readonly ready: (provider: typeof BRANCH_FILE_PROVIDERS[number]) => boolean
+  /** Authenticated host scope; null after removal/sign-out. Sleeping reads require a captured head. */
+  readonly scope: () => { branch: string; member: string; revision: number; sleeping: boolean; capturedHead?: string } | null
+}
+export type BranchFileAnswer<T> = { readonly ok: T } | { readonly error: string }
+export interface BranchFileOperations {
+  readonly read: (branch: string, path: string, digest?: string) => Promise<BranchFileAnswer<FileCard>>
+  readonly reload: (file: FileCard, event: { path: string; post_digest: string; actor: FileCard["last_writer"] }) => Promise<BranchFileAnswer<FileCard> | undefined>
+  readonly restore: (file: FileCard, burst: { version: string; post_digest: string }, deleted?: boolean) => Promise<BranchFileAnswer<FileCard> | { readonly compare: unknown }>
+  readonly compare: (file: FileCard, version: string) => Promise<BranchFileAnswer<unknown>>
+  readonly follow: (file: FileCard) => Promise<BranchFileAnswer<FileCard>>
+}
+
+/* Reuses this seam's fetch, path validation and decoder. No subscription, renderer,
+ * command registration or wake is installed until provider receipts are supplied.
+ * The existing immutable contents reader above remains the pinned-history path. */
+const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): BranchFileOperations => {
+  const generations = new Map<string, number>()
+  let nextGeneration = 0
+  const reloads = new Map<string, { digest: string; answer: Promise<BranchFileAnswer<FileCard>> }>()
+  const scopeFor = (branch: string, path: string, write = false) => {
+    if (!options || BRANCH_FILE_PROVIDERS.some(provider => !options.ready(provider))) return { error: "Branch files are unavailable." } as const
+    const scope = options.scope()
+    if (!scope || scope.branch !== branch || !scope.member || ctx.isDisposed?.()) return { error: "Branch access was removed." } as const
+    if (!path || unsafePath(path) || path.startsWith("/") || path.endsWith("/")) return { error: "File paths must stay inside the repository." } as const
+    if (scope.sleeping && (write || !scope.capturedHead)) return { error: "The branch is asleep." } as const
+    return scope
+  }
+  const current = (scope: Exclude<ReturnType<typeof scopeFor>, { error: string }>) => {
+    const next = options?.scope()
+    return !ctx.isDisposed?.() && next?.branch === scope.branch && next.member === scope.member && next.revision === scope.revision
+      && next.sleeping === scope.sleeping && next.capturedHead === scope.capturedHead
+      && BRANCH_FILE_PROVIDERS.every(provider => options?.ready(provider))
+  }
+  const url = (branch: string, path: string) => `${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}/files/${encodeRepoPath(path)}`
+  const read: BranchFileOperations["read"] = async (branch, path, digest) => {
+    const scope = scopeFor(branch, path)
+    if ("error" in scope) return scope
+    const key = JSON.stringify([scope.member, branch, path])
+    const generation = ++nextGeneration
+    generations.delete(key)
+    generations.set(key, generation)
+    if (generations.size > 30) generations.delete(generations.keys().next().value!)
+    const query = new URLSearchParams()
+    if (digest !== undefined) query.set("digest", digest)
+    if (scope.sleeping) query.set("at", scope.capturedHead!)
+    try {
+      const response = await ctx.http(`${url(branch, path)}${query.size ? `?${query}` : ""}`)
+      if (!current(scope) || generations.get(key) !== generation) return { error: "The file changed while loading." }
+      if (!response.ok) return { error: await readErrorMessage(response, "Could not read the file.") }
+      const parsed = FileCardSchema.safeParse(await response.json())
+      if (!current(scope) || generations.get(key) !== generation) return { error: "The file changed while loading." }
+      if (!parsed.success || parsed.data.branch !== branch || parsed.data.path !== path || (digest !== undefined && parsed.data.digest !== digest)) return { error: "The file response was malformed." }
+      return { ok: { ...parsed.data, mode: "read_only" } }
+    } catch { return { error: "Could not read the file." } }
+  }
+  const compare: BranchFileOperations["compare"] = async (file, version) => {
+    const scope = scopeFor(file.branch, file.path)
+    if ("error" in scope) return scope
+    try {
+      const query = new URLSearchParams({ compare: version })
+      if (scope.sleeping) query.set("at", scope.capturedHead!)
+      const response = await ctx.http(`${url(file.branch, file.path)}?${query}`)
+      if (!response.ok) return { error: await readErrorMessage(response, "Could not compare the file.") }
+      const body: unknown = await response.json()
+      return current(scope) ? { ok: body } : { error: "Branch access was removed." }
+    } catch { return { error: "Could not compare the file." } }
+  }
+  return {
+    read, compare,
+    reload: async (file, event) => {
+      if (event.path !== file.path || event.post_digest === file.digest) return undefined
+      const scope = scopeFor(file.branch, file.path)
+      if ("error" in scope) return scope
+      const key = JSON.stringify([scope.member, scope.revision, scope.sleeping, scope.capturedHead, file.branch, file.path])
+      const previous = reloads.get(key)
+      if (previous?.digest === event.post_digest) return previous.answer
+      const answer = read(file.branch, file.path, event.post_digest).then(result =>
+        "ok" in result ? { ok: { ...result.ok, ...(event.actor === undefined ? {} : { last_writer: event.actor }) } } : result)
+      reloads.set(key, { digest: event.post_digest, answer })
+      // Retain only a bounded set of open-card reloads, as preparedView does.
+      if (reloads.size > 30) reloads.delete(reloads.keys().next().value!)
+      const result = await answer
+      if ("error" in result && reloads.get(key)?.answer === answer) reloads.delete(key)
+      return result
+    },
+    follow: file => file.gone?.kind === "renamed" ? read(file.branch, file.gone.to) : Promise.resolve({ error: "The file was not renamed." }),
+    restore: async (file, burst, deleted = false) => {
+      const scope = scopeFor(file.branch, file.path, true)
+      if ("error" in scope) return scope
+      try {
+        const response = await ctx.http(url(file.branch, file.path), {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: deleted ? "restore-deleted" : "restore", version: burst.version, base_digest: deleted ? "absent" : burst.post_digest })
+        })
+        if (!current(scope)) return { error: "Branch access was removed." }
+        if (response.status === 409) {
+          if (deleted) return read(file.branch, file.path)
+          const compared = await compare(file, burst.version)
+          return "ok" in compared ? { compare: compared.ok } : compared
+        }
+        if (!response.ok) return { error: await readErrorMessage(response, "Could not restore the file.") }
+        return read(file.branch, file.path)
+      } catch { return { error: "Could not restore the file." } }
+    }
+  }
 }
