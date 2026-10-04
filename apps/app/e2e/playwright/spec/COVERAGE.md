@@ -116,3 +116,14 @@ View; full reachability and remaining fixtures await their wiring tickets.
 C-COL-05 also has a passing projection for the mounted Branch Files panel:
 no changed rows before a write, and Alice's presence opens readable file content
 by keyboard and retains it across reload. Watcher faults remain fixme.
+
+| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | fixme-before-implementation | T-CUT-01 |
+| C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | fixme-before-implementation | T-APP-22 |
+| C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
+| C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
+| C-DUR-03 | [C-DUR-03.spec.ts](C-DUR-03.spec.ts) | fixme-before-implementation | T-GH-09, T-FLW-09, T-REL-04 |
+| C-DUR-04 | [C-DUR-04.spec.ts](C-DUR-04.spec.ts) | fixme-before-implementation | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
+
+C-DUR-02 also has a passing projection for the mounted recorded interrupted run:
+its Interrupted state and last edited phase survive reload without duplicate cards.
+Machine-kill recovery and retry version pinning remain fixme.
