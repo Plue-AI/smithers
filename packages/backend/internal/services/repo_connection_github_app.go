@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -474,24 +475,12 @@ func (s *RepoConnectionService) createGitHubInstallationTokenForInstallationID(
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to load github app credentials").WithCause(err)
 	}
 
-	// Serve a still-fresh cached installation token: these are valid ~1h and the
-	// github proxy / repo-list / check-runs all mint one PER REQUEST otherwise (a
-	// live ~200ms GitHub round-trip each). The cache is keyed by installationID —
-	// correct because this mints a FULL-installation token (no per-request
-	// scope-down). Resolution + authorization above still runs on every call.
-	if cached, ok := getCachedInstallationToken(installationID); ok {
-		return GitHubInstallationToken{
-			InstallationID: installationID,
-			Token:          cached.token,
-			ExpiresAt:      cached.expiresAt,
-		}, nil
-	}
 	return s.mintGitHubInstallationToken(ctx, installationID, nil)
 }
 
 // mintGitHubInstallationToken asks GitHub for an installation token. A nil
-// scope mints (and caches) the full-installation token; a scoped token is
-// per-operation and never cached.
+// scope mints the full-installation token. Repository and permission scopes
+// have separate cache entries; caller authorization still precedes this method.
 func (s *RepoConnectionService) mintGitHubInstallationToken(
 	ctx context.Context,
 	installationID int64,
@@ -504,6 +493,15 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 			return GitHubInstallationToken{}, pkgerrors.Internal("failed to encode github token scope").WithCause(err)
 		}
 		requestBody = encoded
+	}
+
+	if _, err := loadGitHubAppCredentials(ctx, s.githubAppCredentials); err != nil {
+		return GitHubInstallationToken{}, pkgerrors.Internal("failed to load github app credentials").WithCause(err)
+	}
+
+	cacheKey := installationTokenKey(installationID, scope)
+	if cached, ok := getCachedInstallationTokenKey(cacheKey); ok {
+		return GitHubInstallationToken{InstallationID: installationID, Token: cached.token, ExpiresAt: cached.expiresAt}, nil
 	}
 
 	jwt, err := githubAppJWT(ctx, s.githubAppCredentials)
@@ -563,9 +561,7 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token response had invalid expiry").WithCause(err)
 	}
 
-	if scope == nil {
-		storeCachedInstallationToken(installationID, token, expiresAt)
-	}
+	storeCachedInstallationTokenKey(cacheKey, token, expiresAt)
 	return GitHubInstallationToken{
 		InstallationID: installationID,
 		Token:          token,
@@ -585,34 +581,62 @@ type cachedInstallationToken struct {
 
 var (
 	installationTokenCacheMu sync.Mutex
-	installationTokenCache   = map[int64]cachedInstallationToken{}
+	installationTokenCache   = map[installationTokenCacheKey]cachedInstallationToken{}
 )
 
-// getCachedInstallationToken returns a cached installation token for the id if
-// one is present and still has more than the early-expiry margin of life.
+// installationTokenCacheKey replaces the installation-only key so a scoped
+// token cannot inherit another repository's or permission set's authority.
+type installationTokenCacheKey struct {
+	installationID int64
+	scope          string
+}
+
+func installationTokenKey(installationID int64, scope *gitHubInstallationTokenScope) installationTokenCacheKey {
+	key := installationTokenCacheKey{installationID: installationID}
+	if scope != nil {
+		repositories := append([]string(nil), scope.Repositories...)
+		sort.Strings(repositories)
+		normalized := gitHubInstallationTokenScope{Repositories: repositories, Permissions: scope.Permissions}
+		raw, _ := json.Marshal(normalized) // strings, slices and maps cannot fail encoding
+		key.scope = string(raw)
+	}
+	return key
+}
+
 func getCachedInstallationToken(installationID int64) (cachedInstallationToken, bool) {
+	return getCachedInstallationTokenKey(installationTokenKey(installationID, nil))
+}
+
+func getCachedInstallationTokenKey(key installationTokenCacheKey) (cachedInstallationToken, bool) {
 	installationTokenCacheMu.Lock()
 	defer installationTokenCacheMu.Unlock()
-	cached, ok := installationTokenCache[installationID]
-	if !ok || time.Until(cached.expiresAt) < installationTokenEarlyExpiry {
+	cached, ok := installationTokenCache[key]
+	if !ok || !time.Now().Add(installationTokenEarlyExpiry).Before(cached.expiresAt) {
+		delete(installationTokenCache, key)
 		return cachedInstallationToken{}, false
 	}
 	return cached, true
 }
 
 func storeCachedInstallationToken(installationID int64, token string, expiresAt time.Time) {
-	installationTokenCacheMu.Lock()
-	defer installationTokenCacheMu.Unlock()
-	installationTokenCache[installationID] = cachedInstallationToken{token: token, expiresAt: expiresAt}
+	storeCachedInstallationTokenKey(installationTokenKey(installationID, nil), token, expiresAt)
 }
 
-// invalidateCachedInstallationToken drops a cached token — call when an
-// installation is deleted/suspended or a consumer sees a 401/403 (so the next
-// call re-mints rather than re-serving a revoked token).
+func storeCachedInstallationTokenKey(key installationTokenCacheKey, token string, expiresAt time.Time) {
+	installationTokenCacheMu.Lock()
+	defer installationTokenCacheMu.Unlock()
+	installationTokenCache[key] = cachedInstallationToken{token: token, expiresAt: expiresAt}
+}
+
+// Invalidation removes every permission/repository scope for the installation.
 func invalidateCachedInstallationToken(installationID int64) {
 	installationTokenCacheMu.Lock()
 	defer installationTokenCacheMu.Unlock()
-	delete(installationTokenCache, installationID)
+	for key := range installationTokenCache {
+		if key.installationID == installationID {
+			delete(installationTokenCache, key)
+		}
+	}
 }
 
 func (s *RepoConnectionService) lookupGitHubInstallationID(
