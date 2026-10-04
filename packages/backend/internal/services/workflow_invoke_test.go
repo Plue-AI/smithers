@@ -75,6 +75,28 @@ func TestInvokeWorkflowBillingDeniedLaunchesNothing(t *testing.T) {
 	assert.Empty(t, invoker.launches, "billing refusal must precede the launch")
 }
 
+func TestInvokeWorkflowReviewCannotUseWorkingCopyAdmission(t *testing.T) {
+	for _, identifier := range []string{"review", "flows/review/flow.ts", " review ", " flows/review/flow.ts "} {
+		t.Run(identifier, func(t *testing.T) {
+			policy := &denyWorkflowDispatchBillingPolicy{}
+			invoker := &recordingFlowInvoker{}
+			svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIBillingPolicy(policy), WithWorkflowAPIFlowInvoker(invoker))
+			result, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
+				RepositoryID: 7, UserID: 3, Identifier: identifier,
+				Input: map[string]interface{}{"pr": 50}, TriggerRef: "alice/cache",
+			})
+			require.Nil(t, result)
+			var refusal *pkgerrors.APIError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, 503, refusal.Status)
+			require.Equal(t, pkgerrors.CodeServiceUnavailable, refusal.Code)
+			require.Equal(t, "Review is unavailable on this host.", refusal.Message)
+			require.Zero(t, policy.dispatchCalls)
+			require.Empty(t, invoker.launches)
+		})
+	}
+}
+
 func TestInvokeWorkflowReadsAFlowNameOrItsPath(t *testing.T) {
 	for identifier, want := range map[string]string{
 		"echo": "echo", "flows/echo/flow.ts": "echo", "ci-2": "ci-2", "7": "7",

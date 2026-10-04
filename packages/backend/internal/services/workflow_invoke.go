@@ -80,6 +80,12 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 	if input.UserID <= 0 {
 		return nil, pkgerrors.Unauthorized("a person must invoke a flow")
 	}
+	// Review requires PR-author membership, confirmation and an Active closure
+	// in a fresh ephemeral machine. The working-copy invoker supplies none of
+	// these; refuse before source reads, billing admission or durable dispatch.
+	if flowID == "review" {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Review is unavailable on this host.")
+	}
 	if s.invoker == nil {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the Flow runtime is not configured on this deployment")
 	}

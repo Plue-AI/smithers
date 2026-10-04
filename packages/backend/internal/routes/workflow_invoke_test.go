@@ -76,6 +76,22 @@ func TestWorkflowHandler_InvokeWorkflow_UnknownFlowIsNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+func TestWorkflowHandler_InvokeReviewRefusesBeforeWorkingCopyDispatch(t *testing.T) {
+	// Use the production service with no store or runtime: review must refuse
+	// before either is consulted, even through the retained generic HTTP door.
+	h := WorkflowHandler{Service: services.NewWorkflowAPIService(nil, nil)}
+	for _, flow := range []string{"review", "flows/review/flow.ts"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/invoke",
+			strings.NewReader(`{"flow":"`+flow+`","input":{"pr":50}}`))
+		req = withRepoContextAndBookmark(req, "alice", "demo", "main")
+		req = withAuth(req, 1, "alice")
+		rec := httptest.NewRecorder()
+		h.InvokeWorkflow(rec, req)
+		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		require.JSONEq(t, `{"code":"service_unavailable","fault":"infra","message":"service unavailable"}`, rec.Body.String())
+	}
+}
+
 func TestWorkflowHandler_InvokeWorkflow_RejectsMalformedBody(t *testing.T) {
 	t.Parallel()
 	h := WorkflowHandler{Service: &mockWorkflowRouteService{}}
