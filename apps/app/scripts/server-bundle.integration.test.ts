@@ -16,7 +16,12 @@ test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production 
   try {
     const relocated = join(destination, "server")
     cpSync(join(root, "apps/app/.native"), relocated, { recursive: true, verbatimSymlinks: true })
-    const paths = ["bin/smithers-server", "bin/smithers-backend", "bin/msb", "bin/node", "bin/git", "bin/jj", "bin/smithers-coding-host", "bin/smithers-model-host", "bin/linux-arm64/smithers-jj-export", "postgres/bin/postgres", "lib/libkrunfw.5.dylib", "views/mainview/index.html", "share/microsandbox/smithers-guest.py", "share/microsandbox/base-image.oci.tar", "share/microsandbox/base-image.json"]
+    // PostgreSQL keeps its build-time prefix under postgres/root; bundle.json names its bin, as the launcher reads it.
+    const postgres = JSON.parse(readFileSync(join(relocated, "postgres/bundle.json"), "utf8"))
+    expect(postgres.version).toBe(1)
+    expect(postgres.bin).toMatch(/^root\/.+\/bin$/)
+    expect(postgres.bin.split("/")).not.toContain("..")
+    const paths = ["bin/smithers-server", "bin/smithers-backend", "bin/msb", "bin/node", "bin/git", "bin/jj", "bin/smithers-coding-host", "bin/smithers-model-host", "bin/linux-arm64/smithers-jj-export", `postgres/${postgres.bin}/postgres`, "lib/libkrunfw.5.dylib", "views/mainview/index.html", "share/microsandbox/smithers-guest.py", "share/microsandbox/base-image.oci.tar", "share/microsandbox/base-image.json"]
     const manifest = JSON.parse(readFileSync(join(relocated, "manifest.json"), "utf8"))
     const files = Object.fromEntries(manifest.files.map((entry: { path: string; sha256: string }) => [entry.path, entry]))
     expect(manifest.platform).toBe("darwin-arm64")
