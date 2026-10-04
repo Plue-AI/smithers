@@ -6,7 +6,7 @@ import { memoryStorage, waitFor } from "../../TestFixtures"
 import type { SeamContext } from "../SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry } from "../TodoSeam"
 import { createDesignWorld, MAYA, type DesignTimers } from "./index"
-import { designAudience, designTodoCard, todoSourceProbe, withDesignTodos, type TodoSource } from "./todo"
+import { designAudience, designTodoCard, todoSourceProbe, withDesignTodos, type TodoSource, type TodoSourceProbe } from "./todo"
 
 /** Timers that never fire: the seed's script stays where the mutation left it. */
 const stillTimers: DesignTimers = { set: () => 0, clear: () => {} }
@@ -125,62 +125,98 @@ const probeContext = (answer: (url: string, init?: RequestInit) => Promise<Respo
 }
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }))
 
+const page = (body: string, type: string) => Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": type } }))
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 describe("todoSourceProbe: the seed stands in only where this host has no TODO provider", () => {
   test("no bootstrap is the seed without a request", async () => {
     const h = probeContext(() => json([]))
-    expect(await todoSourceProbe(h.context, false)()).toBe("seed")
+    const probe = todoSourceProbe(h.context, false)
+    expect(probe.known()).toBe("seed")
+    expect(await probe.ask()).toBe("seed")
     expect(h.calls).toEqual([])
   })
 
-  test("a 404 or a page that is not JSON is the seed; JSON, a refusal or an error is the provider", async () => {
+  test("a 404 or a 200 that is not JSON by content type is the seed for good; a JSON list is the provider for good", async () => {
     const cases: ReadonlyArray<readonly [() => Promise<Response>, TodoSource]> = [
       [() => json({}, 404), "seed"],
+      [() => page("<!doctype html><title>Smithers</title>", "text/html; charset=utf-8"), "seed"],
       [() => Promise.resolve(new Response("<!doctype html><title>Smithers</title>", { status: 200 })), "seed"],
       [() => json([]), "real"],
-      [() => json({ code: "unauthenticated", message: "Sign in" }, 401), "real"],
-      [() => json({ code: "forbidden", class: "permission", message: "No access" }, 403), "real"],
-      [() => json({ code: "internal", class: "infra", message: "Down" }, 500), "real"]
+      [() => page("[]", "application/json; charset=utf-8"), "real"]
     ]
     for (const [answer, expected] of cases) {
       const h = probeContext(answer)
-      expect(await todoSourceProbe(h.context, true)()).toBe(expected)
+      const probe = todoSourceProbe(h.context, true)
+      expect(probe.known()).toBeUndefined()
+      expect([await probe.ask(), await probe.ask(), probe.known()]).toEqual([expected, expected, expected])
       expect(h.calls).toEqual([{ url: "https://install.test/api/todos", method: "GET" }])
     }
   })
 
-  test("the answer is read once; an unreachable provider is real and asked again", async () => {
-    const answered = probeContext(() => json({}, 404))
-    const source = todoSourceProbe(answered.context, true)
-    expect([await source(), await source(), await source()]).toEqual(["seed", "seed", "seed"])
-    expect(answered.calls).toHaveLength(1)
-    let reachable = false
-    const flaky = probeContext(() => reachable ? json({}, 404) : Promise.reject(new TypeError("Failed to fetch")))
-    const retried = todoSourceProbe(flaky.context, true)
-    expect(await retried()).toBe("real")
-    reachable = true
-    expect(await retried()).toBe("seed")
-    expect(await retried()).toBe("seed")
-    expect(flaky.calls).toHaveLength(2)
+  test("declared JSON that does not decode or is not a list, a refusal, an error or no answer is the provider failing, asked again", async () => {
+    const cases: ReadonlyArray<() => Promise<Response>> = [
+      () => page("<!doctype html><title>Smithers</title>", "application/json"),
+      () => json({}),
+      () => json(null),
+      () => json({ code: "unauthenticated", message: "Sign in" }, 401),
+      () => json({ code: "permission", class: "permission", message: "Install owner session required" }, 403),
+      () => json({ code: "internal", class: "infra", message: "Down" }, 500),
+      () => Promise.reject(new TypeError("Failed to fetch"))
+    ]
+    for (const answer of cases) {
+      const h = probeContext(answer)
+      const probe = todoSourceProbe(h.context, true)
+      expect([await probe.ask(), probe.known(), await probe.ask()]).toEqual(["real", "real", "real"])
+      expect(h.calls).toHaveLength(2)
+    }
+  })
+
+  test("one request at a time; a failing provider that comes back without one settles on the seed", async () => {
+    const first = deferred<Response>()
+    let answer: () => Promise<Response> = () => first.promise
+    const h = probeContext(() => answer())
+    const probe = todoSourceProbe(h.context, true)
+    const asked = [probe.ask(), probe.ask()]
+    expect(h.calls).toHaveLength(1)
+    first.resolve(new Response("{}", { status: 503, headers: { "Content-Type": "application/json" } }))
+    expect(await Promise.all(asked)).toEqual(["real", "real"])
+    answer = () => json({}, 404)
+    expect(await probe.ask()).toBe("seed")
+    expect([await probe.ask(), probe.known()]).toEqual(["seed", "seed"])
+    expect(h.calls).toHaveLength(2)
   })
 })
 
 /** The controller's wiring on a configured host, signed in as ben: the real seam beside the seed, `source` deciding. */
-const hostHarness = async (source: () => TodoSource, answer: (url: string, init?: RequestInit) => Promise<Response>) => {
+const hostHarness = async (source: (() => TodoSource) | "probe", answer: (url: string, init?: RequestInit) => Promise<Response>) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const calls: { url: string; method: string; body?: unknown }[] = []
   const subscribed: string[] = []
   const context: SeamContext = {
     http: (url, init) => { calls.push({ url, method: init?.method ?? "GET", ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) }); return answer(url, init) },
-    store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal, isDisposed: () => false
+    store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal, isDisposed: () => false,
+    /* The shared toast stack's quiet door: only a failure shows. */
+    withToast: (async (key: string, title: string, _done: string, work: () => Promise<unknown>) => {
+      const outcome = await work()
+      if (typeof outcome === "string") toasts.push({ key, title, detail: outcome })
+      return outcome
+    }) as SeamContext["withToast"]
   }
+  const toasts: { key: string; title: string; detail: string }[] = []
   const finalizers: (() => void)[] = []
   const design = createDesignWorld({ timers: stillTimers, viewer: MAYA })
   const real = createTodoSeam(context, { debounceMs: 1, onDispose: stop => finalizers.push(stop),
     topics: { subscribe: topic => { subscribed.push(topic); return () => {} } } })
-  const seam = withDesignTodos(real, context, design, () => Promise.resolve(source()))
+  const probe: TodoSourceProbe = source === "probe" ? todoSourceProbe(context, true) : { known: source, ask: () => Promise.resolve(source()) }
+  const seam = withDesignTodos(real, context, design, probe)
   const drafts = (): DraftEntry[] => [...store.collections.cards.values()].flatMap(row => row.kind === "draft" ? [row as DraftEntry] : [])
-  return { store, design, seam, calls, subscribed, drafts, close: () => { for (const stop of finalizers) stop() },
+  return { store, design, seam, calls, subscribed, drafts, toasts, close: () => { for (const stop of finalizers) stop() },
     todo: (n: number) => store.collections.cards.get(`todo:${n}`) as TodoEntry | undefined,
     seeded: (ref: string) => design.world().todos.find(each => each.ref === ref)! }
 }
@@ -268,6 +304,83 @@ describe("withDesignTodos beside the provider: the source picks the seed or the 
       expect(h.seam.dismissTodoDraft(provider.id)).toBe("No such draft")
       expect(h.design.world().drafts.filter(each => each.by === MAYA).map(each => each.title)).toEqual(["Seeded title"])
       expect(h.calls).toEqual([{ url: "https://install.test/api/todos", method: "GET" }])
+    } finally { h.close() }
+  })
+  test("before the host answers, each flow acknowledges at once and runs once, in order, on the seed; a refusal then shows", async () => {
+    const listed = deferred<Response>()
+    const h = await hostHarness("probe", () => listed.promise)
+    try {
+      const before = JSON.stringify(h.design.world().todos)
+      const requested = { value: "Requested" }
+      expect(await h.seam.showTodo(9)).toEqual(requested)
+      expect(await h.seam.answerTodo(9, "Use exponential backoff")).toEqual(requested)
+      expect(await h.seam.answerTodo(9, "Use exponential backoff")).toEqual(requested)
+      expect(await h.seam.answerTodo(9, "Use a fixed delay")).toEqual(requested)
+      expect(await h.seam.controlTodo(10, "stop")).toEqual(requested)
+      expect(await h.seam.controlTodo(10, "resume")).toEqual(requested)
+      expect(await h.seam.steerTodo(99, "nobody")).toEqual(requested)
+      expect(await h.seam.newTodo({ text: "Add a health endpoint" })).toEqual(requested)
+      expect(await h.seam.setTodoFormField("draft:elsewhere", "title", "Elsewhere")).toBeUndefined()
+      // Nothing ran: the host has not answered.
+      expect(JSON.stringify(h.design.world().todos)).toBe(before)
+      expect([h.todo(9), h.drafts()]).toEqual([undefined, []])
+      listed.resolve(await json({}, 404))
+      await waitFor(() => h.toasts.length === 3)
+      expect(h.todo(9)?.payload).toEqual({ n: 9, requests: [] })
+      // The repeated answer ran once; the second, different one met the answered question.
+      expect(h.seeded("T9").question?.answer).toEqual({ by: MAYA, text: "Use exponential backoff" })
+      // Stop ran before resume.
+      expect(h.seeded("T10").state).toBe("queued")
+      expect(h.drafts().map(row => row.title)).toEqual(["Add a health endpoint"])
+      expect(h.toasts.map(toast => toast.title)).toEqual(["T9 Retry failed webhooks with backoff", "TODO", "TODO"])
+      expect(h.toasts.slice(1).map(toast => toast.detail)).toEqual(["No TODO T99", "No such draft"])
+      expect(h.calls).toEqual([{ url: "https://install.test/api/todos", method: "GET" }])
+    } finally { h.close() }
+  })
+
+  test("before the host answers, a provider list sends each waiting flow to the install once, in order, and leaves the seed alone", async () => {
+    const listed = deferred<Response>()
+    const h = await hostHarness("probe", (url, init) => url.endsWith("/api/todos") && !init?.method ? listed.promise : json({ state: "accepted", n: 10 }, 202))
+    try {
+      const before = JSON.stringify(h.design.world().todos)
+      const requested = { value: "Requested" }
+      expect(await h.seam.steerTodo(10, "Keep the old route")).toEqual(requested)
+      expect(await h.seam.steerTodo(10, "Keep the old route")).toEqual(requested)
+      expect(await h.seam.controlTodo(10, "stop")).toEqual(requested)
+      expect(await h.seam.mergeTodo(8, "abc1234")).toEqual(requested)
+      expect(h.calls).toEqual([{ url: "https://install.test/api/todos", method: "GET" }])
+      listed.resolve(await json([]))
+      const posts = () => h.calls.filter(call => call.method === "POST")
+      await waitFor(() => posts().length === 3)
+      expect(posts()).toEqual([
+        { url: "https://install.test/api/todos/10", method: "POST", body: { op: "steer", text: "Keep the old route" } },
+        { url: "https://install.test/api/todos/10", method: "POST", body: { op: "stop" } },
+        { url: "https://install.test/api/todos/8/merge", method: "POST", body: { reviewed_head_sha: "abc1234" } }
+      ])
+      expect(JSON.stringify(h.design.world().todos)).toBe(before)
+      expect(h.toasts).toEqual([])
+      // Answered for good: the next flow goes straight to the install without asking again.
+      expect(await h.seam.steerTodo(10, "Second")).toEqual(requested)
+      expect(posts()).toHaveLength(4)
+      expect(h.calls.filter(call => call.url.endsWith("/api/todos"))).toHaveLength(1)
+    } finally { h.close() }
+  })
+
+  test("a provider whose list declares JSON but does not decode shows its failure, opens and changes no seeded TODO, and is asked again", async () => {
+    const h = await hostHarness("probe", url => url.endsWith("/api/todos")
+      ? Promise.resolve(new Response("<!doctype html><title>Smithers</title>", { status: 200, headers: { "Content-Type": "application/json" } }))
+      : json({ code: "internal", class: "infra", message: "Stack unavailable" }, 500))
+    try {
+      const before = JSON.stringify(h.design.world().todos)
+      const lists = () => h.calls.filter(call => call.url.endsWith("/api/todos")).length
+      expect(await h.seam.showTodo(9)).toEqual({ value: "Requested" })
+      await waitFor(() => h.toasts.length === 1)
+      expect(h.toasts.map(toast => toast.detail)).toEqual(["Could not open the TODO."])
+      expect(await h.seam.showTodo(9)).toBe("Could not open the TODO.")
+      expect(lists()).toBe(2)
+      expect(await h.seam.answerTodo(9, "Use exponential backoff")).toBe("Choose an open wait.")
+      expect(h.todo(9)).toBeUndefined()
+      expect(JSON.stringify(h.design.world().todos)).toBe(before)
     } finally { h.close() }
   })
 })

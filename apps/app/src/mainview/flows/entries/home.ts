@@ -63,20 +63,22 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     confirm: payload => payload.reviewed_head_sha === undefined ? undefined : MERGE_CONFIRM_LABEL,
     confirmArgs: payload => `T${String(payload.n)}`,
     /* Merge bound to a reviewed head merges; a bare Merge (Home row, /merge Tn, the agent) only opens Review & merge (J4.4). */
-    handler: async ({ n, reviewed_head_sha }) => {
-      /* The TODO seam picks the seed or this host's /api/todos/{n}/merge; a bare Merge on a provider opens its TODO. */
+    handler: ({ n, reviewed_head_sha }) => {
+      /* The TODO seam picks the seed or this host's /api/todos/{n}/merge. */
       if (reviewed_head_sha !== undefined) return actions.mergeTodo(n, reviewed_head_sha)
-      if (await actions.todoSource() === "real") return actions.showTodo(n)
-      const design = actions.design
-      const viewer = design.viewer()
-      const world = design.world()
-      const todo = designTodoByNumber(world, n)
-      if (todo === undefined) return `No TODO T${n}`
-      if (!canMerge(world, viewer)) return "A maintainer merges"
-      const readiness = mergeReadiness(world, todo)
-      if (readiness.state === "done") return `${todo.ref} already merged`
-      if (readiness.state !== "ready") return readiness.reason
-      return { value: await actions.presentSubject(mergeCard(todo, viewer)) }
+      /* No Review & merge source serves a provider's TODO yet (T-APP-04): there a bare Merge opens the TODO, whose Merge carries the reviewed head. */
+      return actions.todoRoute(n, ["merge"], async () => {
+        const design = actions.design
+        const viewer = design.viewer()
+        const world = design.world()
+        const todo = designTodoByNumber(world, n)
+        if (todo === undefined) return `No TODO T${n}`
+        if (!canMerge(world, viewer)) return "A maintainer merges"
+        const readiness = mergeReadiness(world, todo)
+        if (readiness.state === "done") return `${todo.ref} already merged`
+        if (readiness.state !== "ready") return readiness.reason
+        return { value: await actions.presentSubject(mergeCard(todo, viewer)) }
+      }, () => actions.showTodo(n))
     } }),
   flow({ name: "background.retry", summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),

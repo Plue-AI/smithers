@@ -17,6 +17,10 @@ for (const host of ["local", "cloud"] as const) for (const install of [false, tr
     expect(requests.filter(path => path.endsWith("/api/install"))).toHaveLength(install ? 1 : 0)
     expect(app.design.world().todos.length).toBe(install ? 0 : 4)
     expect(app.design.world().repo.repo).toBe(install ? "" : "acme/api")
-    expect(await app.todoSource()).toBe(install ? "real" : "seed")
+    // The first TODO flow asks the host who answers; it is acknowledged at once and the next one is routed.
+    const answer = () => app.todoRoute(1, ["who-answers"], () => "seed" as const, () => "real" as const)
+    await answer()
+    await settled()
+    expect(await answer()).toBe(install ? "real" : "seed")
   })
 }

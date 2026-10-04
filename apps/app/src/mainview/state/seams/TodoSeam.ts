@@ -1,5 +1,5 @@
 import { todoActors, type ActorContext } from "../ProductActor"
-import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
+import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
 import { Data, Schema } from "effect"
@@ -78,11 +78,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
     let active = true, published = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    const unsubscribe = options.topics?.subscribe(`todo:${n}`, (model, receipts = []) => {
+    const unsubscribe = options.topics?.subscribe(`todo:${n}`, (value, receipts = []) => {
       if (!active || !current(login, revision)) return
+      let model: TodoCard
+      // Only a publication that validates replaces the REST refresh; malformed live data leaves recovery running.
+      try { model = projection(n, value) } catch (error) { ctx.report?.("todo.projection", error); return }
       published = true
       if (timer) clearTimeout(timer)
-      void applyProjection(n, model, receipts, () => active && current(login, revision)).catch(error => ctx.report?.("todo.projection", error))
+      void applyModel(n, model, receipts, () => active && current(login, revision)).catch(error => ctx.report?.("todo.projection", error))
     })
     // Until this host publishes the topic, refresh persisted source facts through its read route.
     const refresh = async () => {
@@ -98,12 +101,19 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     timer = setTimeout(() => { void refresh() }, 1000)
     shared.watches.set(n, () => { active = false; if (timer) clearTimeout(timer); unsubscribe?.() })
   }
+  /** The todo:<n> model a payload carries; a payload for another TODO is a mismatch. */
+  const projection = (n: number, value: unknown): TodoCard => {
+    const model = TodoCardSchema.parse(todoActors(value, options.actors?.()))
+    if (model.n !== n) throw new TodoTopicMismatch()
+    return model
+  }
   const applyProjection = async (n: number, value: unknown, receipts: readonly TodoReceipt[] = [], stillCurrent?: () => boolean) => {
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
     const live = stillCurrent ?? (() => current(login, revision))
     if (!live()) return
-    const model = TodoCardSchema.parse(todoActors(value, options.actors?.()))
-    if (model.n !== n) throw new TodoTopicMismatch()
+    await applyModel(n, projection(n, value), receipts, live)
+  }
+  const applyModel = async (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => {
     const card = entry(n) ?? blank(n)
     // REST snapshots are durable source facts too: admission alone never clears a Draft or a toast.
     const observed: TodoReceipt[] = card.payload.requests.flatMap<TodoReceipt>(request => {

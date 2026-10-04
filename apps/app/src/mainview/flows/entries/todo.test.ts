@@ -4,7 +4,7 @@ import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, waitFor } from "../../state/TestFixtures"
-import type { DraftEntry } from "../../state/seams/TodoSeam"
+import type { DraftEntry, TodoEntry } from "../../state/seams/TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 import { modelInvocable, nameOf } from "../registry"
 import { TodoNewInput, todoGrammar } from "./todo"
@@ -171,14 +171,15 @@ test("a configured host dispatches Draft, TODO and reviewed Merge to real routes
       const path = new URL(String(input), "https://install.test").pathname
       if (!path.startsWith("/api/todos")) return new Response("{}", { status: 404 })
       calls.push({ path, ...(init?.body ? { body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") } : {}) })
-      return new Response(JSON.stringify(init?.method === "POST" ? { state: "accepted", n: 12 }
-        : path === "/api/todos" ? [fixtures.queued.model] : fixtures.in_review.model), { status: init?.method === "POST" ? 202 : 200 })
+      return Response.json(init?.method === "POST" ? { state: "accepted", n: 12 }
+        : path === "/api/todos" ? [fixtures.queued.model] : fixtures.in_review.model, { status: init?.method === "POST" ? 202 : 200 })
     }
   })
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
     const seedBefore = JSON.stringify(controller.design.world().todos)
     await controller.runCommandForResult("todo.new", "Real prompt")
+    await waitFor(() => [...store.collections.cards.values()].some(row => row.kind === "draft"))
     const draft = [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
     expect(draft.audience_member_id).toBe("ben")
     await controller.submitCommand({ name: "form.set", actor: "user", payload: { cardId: draft.id, field: "acceptance", value: '["Real acceptance"]' } })
@@ -218,8 +219,11 @@ test("signed out on a configured host with no TODO provider, every TODO, Draft a
   const seeded = (ref: string) => controller.design.world().todos.find(each => each.ref === ref)!
   try {
     expect(store.collections.identitySessions.get("identity")?.state).not.toBe("signed-in")
-    expect(await controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "executed", value: "Opened T9" })
+    // The first flow asks the host and is acknowledged at once; it runs on the seed when the host answers.
+    expect(await controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => store.collections.cards.has("todo:9"))
     expect(store.collections.cards.get("todo:9")?.payload).toEqual({ n: 9, requests: [] })
+    expect(await controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "executed", value: "Opened T9" })
     expect(await controller.runCommandForResult("todo.answer", "T9 Switch to exponential backoff")).toMatchObject({ status: "executed", value: "Answered T9" })
     expect(seeded("T9").state).toBe("working")
     expect(await controller.runCommandForResult("todo.steer", "T10 Keep the old route")).toMatchObject({ status: "executed", value: "Steered T10" })
@@ -247,10 +251,82 @@ test("a configured host whose TODO provider fails shows the failure and never op
   try {
     await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
     const before = JSON.stringify(h.controller.design.world().todos)
+    // The first flow asks the host and is acknowledged at once; the provider's failure then shows on the toast stack.
+    expect(await h.controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "executed", value: "Requested" })
+    const routed = () => [...h.store.collections.toasts.values()].filter(toast => toast.key.startsWith("todo.route:"))
+    await waitFor(() => routed().some(toast => toast.status === "failed"))
+    expect(routed().map(toast => [toast.status, toast.detail])).toEqual([["failed", "Could not open the TODO."]])
     expect(await h.controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "failed" })
     expect(h.store.collections.cards.get("todo:9")).toBeUndefined()
     expect(await h.controller.runCommandForResult("todo.answer", "T9 Switch to exponential backoff")).toMatchObject({ status: "failed" })
     expect(JSON.stringify(h.controller.design.world().todos)).toBe(before)
-    expect(h.calls).toEqual([{ path: "/api/todos", method: "GET" }, { path: "/api/todos/9", method: "GET" }])
+    // A failing provider is asked again by the next flow; the only other requests are the TODO reads.
+    expect(h.calls.filter(call => call.path !== "/api/todos")).toEqual([{ path: "/api/todos/9", method: "GET" }, { path: "/api/todos/9", method: "GET" }])
+    expect(h.calls.filter(call => call.path === "/api/todos").length).toBeGreaterThan(1)
+  } finally { await h.controller.dispose() }
+})
+
+/* A configured host whose GET /api/todos has not answered yet (#3466): `answer` settles it. */
+const unansweredHost = async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let answer!: (response: Response) => void
+  const listed = new Promise<Response>(resolve => { answer = resolve })
+  const calls: { path: string; method: string; body?: unknown }[] = []
+  const controller = createAppController(store, unavailable, {
+    bootstrap: { apiVersion: 1, host: "local", version: "design", buildSha: "0".repeat(40), capabilities: [], authFlow: "none", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "https://install.test").pathname
+      if (!path.startsWith("/api/todos")) return new Response("{}", { status: 404 })
+      calls.push({ path, method: init?.method ?? "GET", ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+      if (path === "/api/todos" && !init?.method) return listed
+      return Response.json(init?.method === "POST" ? { state: "accepted", n: 12 } : fixtures.in_review.model, { status: init?.method === "POST" ? 202 : 200 })
+    }
+  })
+  const press = (name: string, payload: Record<string, unknown>) => controller.submitCommand({ name, payload, actor: "user" })
+  return { store, controller, calls, answer, press }
+}
+
+test("before the host answers, TODO presses acknowledge at once, Chat keeps working, and each runs once, in order, on the seed when there is no provider", async () => {
+  const h = await unansweredHost()
+  const seeded = (ref: string) => h.controller.design.world().todos.find(each => each.ref === ref)!
+  try {
+    const before = JSON.stringify(h.controller.design.world().todos)
+    const requested = { status: "executed", value: "Requested" }
+    expect(await h.press("todo.steer", { n: 10, text: "Keep the old route" })).toMatchObject(requested)
+    expect(await h.press("todo.steer", { n: 10, text: "Keep the old route" })).toMatchObject(requested)
+    expect(await h.press("todo.stop", { n: 10 })).toMatchObject(requested)
+    expect(await h.press("todo.resume", { n: 10 })).toMatchObject(requested)
+    expect(await h.press("merge", { n: 8 })).toMatchObject(requested)
+    h.controller.send("switch to dark mode")
+    await waitFor(() => h.store.session().theme === "dark")
+    expect(JSON.stringify(h.controller.design.world().todos)).toBe(before)
+    expect(h.store.collections.cards.has("design:confirm:merge:t-stripe")).toBe(false)
+    h.answer(Response.json({}, { status: 404 }))
+    await waitFor(() => h.store.collections.cards.has("design:confirm:merge:t-stripe"))
+    // One steer for two presses; stop ran before resume.
+    expect(seeded("T10").steers).toEqual([{ by: "maya", text: "Keep the old route" }])
+    expect(seeded("T10").state).toBe("queued")
+    expect(seeded("T8").state).toBe("in-review")
+    expect(h.calls).toEqual([{ path: "/api/todos", method: "GET" }])
+  } finally { await h.controller.dispose() }
+})
+
+test("before the host answers, a press and a bare Merge acknowledge at once and reach the provider once; the bare Merge opens the TODO, never a seeded Review & merge", async () => {
+  const h = await unansweredHost()
+  try {
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    const before = JSON.stringify(h.controller.design.world().todos)
+    const requested = { status: "executed", value: "Requested" }
+    expect(await h.press("todo.steer", { n: 12, text: "Keep the old route" })).toMatchObject(requested)
+    expect(await h.press("todo.steer", { n: 12, text: "Keep the old route" })).toMatchObject(requested)
+    expect(await h.press("merge", { n: 12 })).toMatchObject(requested)
+    expect(h.calls).toEqual([{ path: "/api/todos", method: "GET" }])
+    h.answer(Response.json([fixtures.queued.model]))
+    const todo = () => h.store.collections.cards.get("todo:12") as TodoEntry | undefined
+    await waitFor(() => todo()?.payload.model?.state === "in_review" && h.calls.some(call => call.method === "POST"))
+    expect(h.calls.filter(call => call.method === "POST")).toEqual([{ path: "/api/todos/12", method: "POST", body: { op: "steer", text: "Keep the old route" } }])
+    expect(h.calls.some(call => call.path.endsWith("/merge"))).toBe(false)
+    expect([...h.store.collections.cards.values()].some(card => card.kind === "confirm")).toBe(false)
+    expect(JSON.stringify(h.controller.design.world().todos)).toBe(before)
   } finally { await h.controller.dispose() }
 })

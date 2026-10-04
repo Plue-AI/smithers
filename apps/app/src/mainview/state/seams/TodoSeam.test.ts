@@ -359,3 +359,24 @@ test("REST refresh follows a real TODO without a topic and fences a read after s
     expect(h.outcomes).toEqual([])
   } finally { h.close() }
 })
+
+test("a malformed topic publication leaves the REST refresh running; only a publication that validates stops it", async () => {
+  let reads = 0
+  const h = await harness(async () => json(++reads === 1 ? fixtures.queued.model : fixtures.in_review.model, 200))
+  try {
+    await h.seam.showTodo(12)
+    expect(h.todo().payload.model?.state).toBe("queued")
+    const publish = h.observed.get("todo:12")!
+    publish({ ...fixtures.queued.model, state: "not-a-state" })
+    publish({ ...fixtures.merged.model, n: 13 })
+    expect(h.todo().payload.model?.state).toBe("queued")
+    // The authoritative read still runs and lands.
+    await waitFor(() => h.todo().payload.model?.state === "in_review")
+    publish(fixtures.merged.model)
+    await waitFor(() => h.todo().payload.model?.state === "merged")
+    const settled = reads
+    await new Promise(resolve => setTimeout(resolve, 1_100))
+    expect(reads).toBe(settled)
+    expect(h.todo().payload.model?.state).toBe("merged")
+  } finally { h.close() }
+})

@@ -80,6 +80,7 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 | Chat turn (prompt → flows, reply, context, ask) | DesignWorld/chat.ts `designTurn`; AppController.ts `designSend`, `runDesignTurn` | host turn runner with preflight `context[]` | T-APP-16, T-APP-17 |
 | A✓ acts and Review & merge | DesignWorld/chat.ts `designActCard`, `designMergeCard`, `useDesignAct`; cards/ActCard.tsx | topic `confirmations:<member>`, ConfirmView | T-APP-04 |
 | Act cancel, merge card close | AppController.ts `cancelConfirmation` | topic `confirmations:<member>` | T-APP-04 |
+| Bare Merge on a provider host opens the TODO (its Merge carries the reviewed head), not Review & merge: no `review_merge` source serves a real TODO | flows/entries/home.ts `merge` → `actions.showTodo` | `review_merge` confirmation from `POST /api/confirmations`, topic `confirmations:<member>` | T-APP-04, T-STK-04 |
 
 A real seam may be added beside a seed, but the seed stays the fallback until the real seam serves data; no mounted card goes dark (#3496). Setup reads only InstallSeam. Settings controls are person-only. Legacy Settings replacement and image.add wait for the later T-APP-03 providers.
 

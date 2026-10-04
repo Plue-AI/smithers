@@ -131,7 +131,7 @@ import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type D
 import { designSettings } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
-import { todoSourceProbe, withDesignTodos, type TodoSource } from "./seams/DesignWorld/todo"
+import { todoSourceProbe, withDesignTodos, type TodoRoute } from "./seams/DesignWorld/todo"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
 import { createTriggersSeam } from "./seams/TriggersSeam"
@@ -470,8 +470,8 @@ export interface AppController extends IssueFlowsController {
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
-  /** MOCK SEAM: whether the seed or this host's /api/todos answers TODO flows (DesignWorld/todo.ts). */
-  readonly todoSource: () => Promise<TodoSource>
+  /** MOCK SEAM: run a Tn flow on the seed or on this host's /api/todos, never waiting for the answer (DesignWorld/todo.ts). */
+  readonly todoRoute: TodoRoute
   readonly showTodo: TodoSeam["showTodo"]
   readonly dismissTodoDraft: TodoSeam["dismissTodoDraft"]
   readonly answerTodo: TodoSeam["answerTodo"]
@@ -852,7 +852,7 @@ export const createAppController = (
     return `Opened ${title}`
   }
   /* MOCK SEAM: the seed answers TODO and Draft flows until this host serves /api/todos (todoSourceProbe). */
-  const todoSource = installHost ? () => Promise.resolve("real" as const) : todoSourceProbe(seamCtx, services.bootstrap !== undefined)
+  const todoSource = installHost ? { known: () => "real" as const, ask: () => Promise.resolve("real" as const) } : todoSourceProbe(seamCtx, services.bootstrap !== undefined)
   const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
     const snapshot = services.live!.getSnapshot(topic)
     if (snapshot?.data !== undefined) receive(snapshot.data)
@@ -1737,7 +1737,7 @@ export const createAppController = (
     newTodo: todoSeam.newTodo,
     showTodo: todoSeam.showTodo,
     mergeTodo: todoSeam.mergeTodo,
-    todoSource: todoSeam.todoSource,
+    todoRoute: todoSeam.todoRoute,
     dismissTodoDraft: todoSeam.dismissTodoDraft,
     answerTodo: todoSeam.answerTodo,
     steerTodo: todoSeam.steerTodo,
