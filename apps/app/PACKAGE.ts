@@ -25,10 +25,10 @@ const serverBundle = Smithers.Shell.Build({
     'SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY="$PWD/apps/app/.native-inputs/linux-arm64/smithers-jj-export" ' +
     'bun apps/app/scripts/build-native.ts',
   data: [Smithers.glob("//apps/app/scripts/**/*"), Smithers.glob("//apps/app/src/**/*"),
-    Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),
+    Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),
     Smithers.glob("//packages/backend/microsandbox/**/*"), Smithers.file("//scripts/build-backend.sh"),
     Smithers.file("//package.json"), Smithers.file("//pnpm-lock.yaml"), Smithers.file("//rust-toolchain.toml")],
-  outDirs: ["//apps/app/.native"],
+  outDirs: ["//apps/app/.native", "//apps/app/.native-archive"],
   sandbox: "none",
   timeout: "120m"
 })

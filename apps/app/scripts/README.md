@@ -5,30 +5,32 @@ E2E and live-check scripts. Unless a section says otherwise, run them from
 
 ## Stage-1 service
 
-Run the server as the logged-in user of a Mac account with no Smithers state.
-Both doors below keep everything in `~/Library/Application Support/Smithers`.
-A fresh install needs 72 GiB free on that volume: a 40 GiB floor plus one
-32 GiB machine. With less, the backend exits with `host_capacity_zero` and
-names the missing bytes. No sudo is needed.
+Requires Apple Silicon, macOS 15 or later, Homebrew, and a browser. Use a fresh
+macOS account with no Smithers state and at least 72 GiB free on the home volume
+(40 GiB floor plus one 32 GiB machine). Have GitHub repository admin access,
+a provider key and an AI Gateway key ready. Run as the logged-in user; no sudo.
 
-After `smthrs build //apps/app:serverBundle`, run
-`smthrs host start --bundle <output-directory>` (`pnpm exec smthrs` in a
-checkout). It verifies the manifest, registers a per-user LaunchAgent, waits for
-`http://127.0.0.1:4000/readyz`, and prints the backend's setup links through
-`~/Library/Application Support/Smithers/run/host.sock` (0600).
-Repeat start keeps the token. `smthrs host status` checks launchd, readiness
-and the bundled doctor; `smthrs host stop` retains data.
-
-To run it in the foreground instead, start the launcher. It prints the setup
-links as one JSON line once the server is ready, about 10 seconds:
+Unpack `smithers-server.tar.gz` into an empty directory and open a terminal there.
+Start the per-user service:
 
 ```sh
-apps/app/.native/bin/smithers-server
-# {"setup_urls":["http://localhost:4000/setup?token=...","http://127.0.0.1:4000/setup?token=..."]}
+./bin/smthrs host start --bundle .
 ```
 
-Open the first link in a browser on the Mac. Stop the launcher with Ctrl-C;
-the data stays.
+After readiness it prints one JSON line:
+
+```json
+{"setup_urls":["http://localhost:4000/setup?token=...","http://127.0.0.1:4000/setup?token=..."]}
+```
+
+Open the first link in your browser. Repeat start keeps the token. The service
+restarts after a crash and starts at login. Keep the unpacked directory in place.
+Check or stop it (data stays):
+
+```sh
+./bin/smthrs host status
+./bin/smthrs host stop
+```
 
 ## Declared test runners
 
@@ -185,9 +187,15 @@ inherit no host variables, so the target reads it from that git-ignored path.
 `SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY`. Assembly runs as
 the build user and takes about 5 minutes once Rust and Go caches are warm. It
 downloads the pinned jj source, the msb 0.6.16 package and the 430 MB base
-image, and writes about 1 GiB. The resulting `.native` directory contains `bin/smithers-server`,
+image, and writes about 1 GiB. Python 3 writes deterministic archives.
+The resulting `.native` directory contains `README.md`, `bin/smthrs`, `bin/smithers-server`,
 the backend, packaged hosts and tools, `postgres`, `views/mainview`, `lib/libkrunfw.5.dylib`,
 and `share/microsandbox/{smithers-guest.py,base-image.oci.tar,base-image.json}`.
 `manifest.json` records each file's SHA-256, mode and producing stage; symlinks
-must stay inside the bundle. Copy the entire directory to relocate it and
-verify the manifest again. Launcher environment/readiness is T-INS-02.
+must stay inside the bundle. `.native-archive/smithers-server.tar.gz` contains
+the whole bundle; its sibling `manifest.json` records the archive and README
+digests (an archive cannot contain its own digest). Member order, owners and
+mtimes are normalized, including the OCI archive. Web build stamps use the
+source commit timestamp, and jj uses a fixed Cargo output directory. Unpack to relocate, then
+verify the payload manifest again. The [Stage-1 service](#stage-1-service)
+section is copied into the bundle README at assembly.

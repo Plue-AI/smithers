@@ -47,7 +47,12 @@ export interface BuildStampValues {
 }
 
 /** The two values one build stamps everywhere, resolved once so HTML and asset agree. */
-export const buildStampValues = (): BuildStampValues => ({ gitSha: resolveBuildSha(), builtAt: new Date().toISOString() })
+export const buildStampValues = (): BuildStampValues => {
+  const epoch = process.env.SOURCE_DATE_EPOCH
+  const at = epoch === undefined ? Date.now() : Number(epoch) * 1000
+  if (epoch !== undefined && (!/^\d+$/.test(epoch) || !Number.isSafeInteger(at) || at > 8.64e15)) throw new Error("Invalid SOURCE_DATE_EPOCH")
+  return { gitSha: resolveBuildSha(), builtAt: new Date(at).toISOString() }
+}
 
 /** The `<meta>` tags the served HTML carries; the probe reads the first by name. */
 export const buildStampMetaTags = ({ gitSha, builtAt }: BuildStampValues): ReadonlyArray<{ readonly name: string; readonly content: string }> => [

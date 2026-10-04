@@ -55,3 +55,5 @@ test-results-showcase/
 # The real E2E coverage gate's sources; the root `coverage/` rule (test
 # coverage reports) would hide every new file under it.
 !e2e/real/coverage/
+
+.native-archive/

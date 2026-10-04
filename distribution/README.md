@@ -198,7 +198,10 @@ When the key comes from the environment, `keys rotate` refuses. Set the new key 
 
 `smthrs build //apps/app:serverBundle` restores the non-desktop native assembly
 stages. See [build prerequisites and verification](../apps/app/scripts/README.md#server-bundle).
-The unprivileged assembler emits `apps/app/.native`, including PostgreSQL 18,
+The unprivileged assembler emits `apps/app/.native-archive/smithers-server.tar.gz`,
+with the operator README and bundled host CLI, including PostgreSQL 18,
 MicroSandbox 0.6.16 and the digest-pinned Linux arm64 base image as an OCI
 archive. It never installs a service or boots a guest. Preserve the complete
-directory and its `manifest.json` when relocating it.
+payload and its `manifest.json` when unpacking it. The sibling distribution
+manifest records the archive digest. Operator instructions have one source:
+[Stage-1 service](../apps/app/scripts/README.md#stage-1-service).

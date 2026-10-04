@@ -28,7 +28,8 @@ const inventory = (root: string): Inventory => {
         : key.includes("smithers-coding-host") ? "coding-host"
         : key.includes("smithers-model-host") ? "model-host"
         : key === "bin/node" || key === "licenses/node-LICENSE" ? "node-runtime"
-        : key === "bin/smithers-server" ? "launcher"
+        : key === "README.md" ? "instructions"
+        : key === "bin/smithers-server" || key === "bin/smthrs" ? "launcher"
         : key === "bin/smithers-backend" ? "backend" : "host"
       if (stat.isSymbolicLink()) {
         const target = readlinkSync(path)

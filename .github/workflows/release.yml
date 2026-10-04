@@ -77,12 +77,13 @@ jobs:
           SMITHERS_NODE_BINARY="$(command -v node)" SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" SMITHERS_POSTGRES_BUNDLE_DIR="$(brew --prefix postgresql@18)" bun apps/app/scripts/build-native.ts
       - name: Verify relocated bundle
         run: |
-          mv apps/app/.native "$RUNNER_TEMP/smithers-server"
+          mkdir -p "$RUNNER_TEMP/smithers-server"
+          tar -xzf apps/app/.native-archive/smithers-server.tar.gz -C "$RUNNER_TEMP/smithers-server"
           bun apps/app/scripts/server-bundle-manifest.ts "$RUNNER_TEMP/smithers-server"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: server-bundle-darwin-arm64
-          path: ${{ runner.temp }}/smithers-server
+          path: apps/app/.native-archive/*
           if-no-files-found: error
   native-helper:
     name: native helper (${{ matrix.platform }})

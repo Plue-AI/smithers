@@ -15,6 +15,7 @@ import { bundlePostgres } from "./bundle-postgres"
 import { foreignLibraries } from "./system-linkage"
 import { writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
 import { bundleMicrosandbox } from "./bundle-microsandbox"
+import { archiveBundle, normalizeImageArchive } from "./server-bundle-archive"
 import { validateGitBundle } from "./validate-git-bundle"
 
 const appDir = resolve(import.meta.dir, "..")
@@ -183,7 +184,7 @@ await run(
     "--root", jjInstallRoot, "jj-cli"
   ],
   root,
-  { NIX_JJ_GIT_HASH: jjRevision }
+  { NIX_JJ_GIT_HASH: jjRevision, CARGO_TARGET_DIR: join(cargoTargetDir, `jj-${jjRevision}`) }
 )
 const installedJj = join(jjInstallRoot, "bin", "jj")
 if (output([installedJj, "--version"]) !== jjVersion) throw new Error(`Native releases require ${jjVersion}.`)
@@ -295,11 +296,18 @@ cpSync(ffi, join(nativeDir, "bin", ffiName))
 cpSync(jjExport, join(nativeDir, "bin", "smithers-jj-export"))
 bundlePostgres(postgresBundle, join(nativeDir, "postgres"))
 
-await run("web bundle", [pnpmBinary, "run", "build:web"], appDir, nodeEnvironment)
+await run("web bundle", [pnpmBinary, "run", "build:web"], appDir, { ...nodeEnvironment,
+  SMITHERS_BUILD_SHA: revision, SOURCE_DATE_EPOCH: output([gitBinary, "show", "-s", "--format=%ct", revision], withoutGitOverrides) })
 
 cpSync(join(appDir, "dist"), join(nativeDir, "views", "mainview"), { recursive: true })
 await run("server launcher", ["bun", "build", "--compile", "--target=bun-darwin-arm64", "src/bun/serve.ts", "--outfile", join(nativeDir, "bin", "smithers-server")], appDir)
+await run("bundle host CLI", ["bun", "build", "--compile", "--target=bun-darwin-arm64", "scripts/bundle-cli.ts", "--outfile", join(nativeDir, "bin", "smthrs")], appDir)
+const instructions = readFileSync(join(appDir, "scripts/README.md"), "utf8").split("## Stage-1 service\n")[1]?.split("\n## ")[0]
+if (!instructions) throw new Error("Missing bundle instructions")
+writeFileSync(join(nativeDir, "README.md"), "# Smithers server bundle\n" + instructions)
 await bundleMicrosandbox(root, nativeDir)
+normalizeImageArchive(join(nativeDir, "share/microsandbox/base-image.oci.tar"))
 writeBundleManifest(nativeDir, revision)
 verifyBundleManifest(nativeDir)
-console.log(`[build-native] server bundle ready: ${nativeDir}`)
+const archive = archiveBundle(nativeDir, join(appDir, ".native-archive"))
+console.log(`[build-native] server bundle ready: ${archive}`)
