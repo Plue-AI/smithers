@@ -54,6 +54,7 @@ mod atomic_windows_fs;
 mod atomic_windows_handle;
 pub mod jj_core;
 pub mod tree_export;
+mod document_core;
 mod wiki_document;
 mod wiki_projection;
 pub mod workspace_source;

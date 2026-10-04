@@ -1,0 +1,22 @@
+# Independent module harness while T-COL-03r owns the unlanded crate manifest.
+# Not a production binary, wire codec or dispatcher replacement.
+[package]
+name = "smithers-document-component"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[workspace]
+[lib]
+path = "../../src/doc/mod.rs"
+[dependencies]
+yrs = { version = "=0.27.4", features = ["small-client"] }
+sha2 = "0.10"
+similar = "=2.7.0"
+[dev-dependencies]
+base64 = "0.22"
+serde_json = "1"
+[[test]]
+name = "documents"
+path = "tests.rs"
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "process", "rand"] }

@@ -1,10 +1,11 @@
 //! Yjs-compatible Markdown operations for the existing Go wiki service.
 //! Persistence, authorization, revision ordering and delivery remain in Go.
 
+use crate::document_core;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use serde::{Deserialize, Serialize};
-use yrs::updates::{decoder::Decode, encoder::Encode};
-use yrs::{Doc, GetString, OffsetKind, Options, Out, ReadTxn, StateVector, Text, Transact, Update};
+use yrs::updates::encoder::Encode;
+use yrs::{Doc, GetString, ReadTxn, Text, Transact, Update};
 
 use crate::FfiError;
 
@@ -41,22 +42,18 @@ fn decode(value: &str, limit: usize) -> Result<Update, FfiError> {
     if bytes.len() > limit {
         return Err(invalid("wiki document update exceeds its size limit"));
     }
-    Update::decode_v1(&bytes).map_err(|_| invalid("invalid Yjs v1 wiki document update"))
+    document_core::decode(&bytes).map_err(|_| invalid("invalid Yjs v1 wiki document update"))
 }
 
 fn apply(doc: &Doc, update: Update) -> Result<(), FfiError> {
-    doc.transact_mut()
-        .apply_update(update)
+    document_core::apply(doc, update)
         .map_err(|_| invalid("wiki document update could not be integrated"))
 }
 
 pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
     // Browser editors index strings in UTF-16 code units, including astral
     // characters. A Rust byte offset must never split a browser character.
-    let doc = Doc::with_options(Options {
-        offset_kind: OffsetKind::Utf16,
-        ..Options::default()
-    });
+    let doc = document_core::document(None);
     let text = doc.get_or_insert_text("markdown");
     let replacement = match request {
         Request::Seed { markdown } => Some(markdown),
@@ -83,15 +80,9 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
             text.insert(&mut txn, 0, &markdown);
         }
     }
+    document_core::validate(&doc, "markdown", false)
+        .map_err(|_| invalid("wiki documents may contain only the Markdown text root"))?;
     let txn = doc.transact();
-    if txn
-        .root_refs()
-        .any(|(name, value)| name != "markdown" || !matches!(value, Out::YText(_)))
-    {
-        return Err(invalid(
-            "wiki documents may contain only the Markdown text root",
-        ));
-    }
     let markdown = text.get_string(&txn);
     if markdown.len() > MAX_MARKDOWN_BYTES {
         return Err(invalid("merged wiki Markdown exceeds 1 MiB"));
@@ -99,7 +90,7 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
     // Unlike encode_diff, this preserves pending inserts AND pending deletes.
     // A delayed predecessor must still integrate after process restart or
     // compaction; resetting a Doc from its rendered Markdown would lose that.
-    let state = txn.encode_state_as_update_v1(&StateVector::default());
+    let state = document_core::state(&doc);
     if state.len() > MAX_STATE_BYTES {
         return Err(invalid("merged wiki document state exceeds 8 MiB"));
     }
@@ -113,6 +104,8 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yrs::updates::decoder::Decode;
+    use yrs::{OffsetKind, Options, StateVector};
 
     fn seed(markdown: &str) -> Document {
         execute(Request::Seed {
