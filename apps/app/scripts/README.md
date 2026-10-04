@@ -5,13 +5,30 @@ E2E and live-check scripts. Unless a section says otherwise, run them from
 
 ## Stage-1 service
 
+Run the server as the logged-in user of a Mac account with no Smithers state.
+Both doors below keep everything in `~/Library/Application Support/Smithers`.
+A fresh install needs 72 GiB free on that volume: a 40 GiB floor plus one
+32 GiB machine. With less, the backend exits with `host_capacity_zero` and
+names the missing bytes. No sudo is needed.
+
 After `smthrs build //apps/app:serverBundle`, run
-`smthrs host start --bundle <output-directory>` as the logged-in Mac user.
-It verifies the manifest, registers a per-user LaunchAgent, waits for
+`smthrs host start --bundle <output-directory>` (`pnpm exec smthrs` in a
+checkout). It verifies the manifest, registers a per-user LaunchAgent, waits for
 `http://127.0.0.1:4000/readyz`, and prints the backend's setup links through
 `~/Library/Application Support/Smithers/run/host.sock` (0600).
 Repeat start keeps the token. `smthrs host status` checks launchd, readiness
-and the bundled doctor; `smthrs host stop` retains data. No sudo is needed.
+and the bundled doctor; `smthrs host stop` retains data.
+
+To run it in the foreground instead, start the launcher. It prints the setup
+links as one JSON line once the server is ready, about 10 seconds:
+
+```sh
+apps/app/.native/bin/smithers-server
+# {"setup_urls":["http://localhost:4000/setup?token=...","http://127.0.0.1:4000/setup?token=..."]}
+```
+
+Open the first link in a browser on the Mac. Stop the launcher with Ctrl-C;
+the data stays.
 
 ## Declared test runners
 
@@ -138,8 +155,22 @@ Install the browser with `pnpm exec playwright install chromium`.
 
 ## Server bundle
 
-On darwin-arm64, with Node 26.4+ (official binary and license), the root's
-pinned pnpm, Rust, Go, Xcode Git, PostgreSQL 18 and skopeo installed:
+On darwin-arm64, install the toolchain the assembler checks: Node 26.4+
+from nodejs.org first on `PATH` (the assembler refuses a Node that links
+Homebrew libraries), the root's pinned pnpm, Bun, the pinned Rust and Go, Xcode
+Git, PostgreSQL 18 and skopeo. From the repository root:
+
+```sh
+brew install postgresql@18 skopeo
+pnpm install --frozen-lockfile
+```
+
+The assembler also needs the Linux arm64 guest helper, `smithers-jj-export`.
+Download the `native-helper-linux-arm64` artifact of a Release run built from
+the same commit (`gh run download <run-id> -R smithersai/smithers -n
+native-helper-linux-arm64`), or cross-build it as
+[MicroVM isolation](../../../distribution/README.md#microvm-isolation) shows.
+Then assemble and verify:
 
 ```sh
 mkdir -p apps/app/.native-inputs/linux-arm64
@@ -152,7 +183,9 @@ The helper is the release job's `native-helper-linux-arm64` artifact. Targets
 inherit no host variables, so the target reads it from that git-ignored path.
 `build-native.ts` run directly, as `release.yml` does, takes the path from
 `SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY`. Assembly runs as
-the build user. The resulting `.native` directory contains `bin/smithers-server`,
+the build user and takes about 5 minutes once Rust and Go caches are warm. It
+downloads the pinned jj source, the msb 0.6.16 package and the 430 MB base
+image, and writes about 1 GiB. The resulting `.native` directory contains `bin/smithers-server`,
 the backend, packaged hosts and tools, `postgres`, `views/mainview`, `lib/libkrunfw.5.dylib`,
 and `share/microsandbox/{smithers-guest.py,base-image.oci.tar,base-image.json}`.
 `manifest.json` records each file's SHA-256, mode and producing stage; symlinks
