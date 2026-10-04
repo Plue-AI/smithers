@@ -1146,15 +1146,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		case outcome == "validated":
 			return st.deliver(ctx, item)
 		case strings.HasPrefix(outcome, "declined: "):
-			// The planner's close, with its evidence (or a feature's
-			// questions) said once on the issue. Its author's edit and a
-			// maintainer re-applying todo bring it back.
-			next := item
-			next.State, next.Reason = "declined", strings.TrimPrefix(outcome, "declined: ")
-			checks := mythicalChecksOf(next)
-			checks.notice("declined:"+item.IssueDigest, "Smithers did not plan this TODO: "+next.Reason)
-			next.Checks = checks.encode()
-			return &next, false, nil
+			// Legacy planner results remain readable, but cannot settle a TODO.
+			return mythicalStop(item, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan},
+				strings.TrimPrefix(outcome, "declined: ")), false, nil
 		default:
 			return mythicalFailure(item, "the lane's request ended", mythicalFailPlan, outcome, st.now), false, nil
 		}
@@ -2436,9 +2430,6 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 			if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
 				return MythicalItemView{}, err
 			}
-		}
-		if item.Source != "issue" {
-			return MythicalItemView{}, pkgerrors.Conflict("request a chat change again from its workspace")
 		}
 		next := item
 		next.State, next.Reason, next.Attempt, next.NextAttemptAt = "queued", "", 0, pgtype.Timestamptz{}

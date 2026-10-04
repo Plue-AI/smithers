@@ -43,9 +43,7 @@ func seedMythicalIssue(s *MythicalService, ctx context.Context, repositoryID int
 			// the issue is a TODO again only when a maintainer re-applies it.
 			checks.AutoTodo, checks.Todo, checks.OptedOut = "", false, true
 		}
-		// Each maintainer's application of todo acts once: a replay of the one
-		// already seen neither re-queues the item nor lifts its bounds.
-		freshTodo := appliedByMaintainer(applied, todoLabel) && (applied.EventID == 0 || applied.EventID != checks.TodoEvent)
+		// Retain label event identity; labels never lift failed-attempt bounds.
 		if appliedByMaintainer(applied, todoLabel) && applied.EventID != 0 {
 			checks.TodoEvent = applied.EventID
 		}
@@ -95,20 +93,12 @@ func seedMythicalIssue(s *MythicalService, ctx context.Context, repositoryID int
 		next := existing
 		next.Checks = checks.encode()
 		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled" ||
-			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest) ||
-			// A maintainer re-applying todo resumes a TODO stopped at its bound.
-			(existing.State == "blocked" && mythicalChecksOf(existing).bounded() && freshTodo)
+			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest)
 		switch {
 		case existing.State == "declined" && !notStarted:
 		case state == "cancelled" && (existing.State == "queued" || existing.State == "retrying" || existing.State == "skipped"):
 			next.State, next.Reason = "cancelled", reason
 		case notStarted:
-			if existing.State == "blocked" {
-				// A person resumed it: its bounds count from here.
-				resumed := mythicalChecksOf(next)
-				resumed.resume()
-				next.Checks = resumed.encode()
-			}
 			next.State, next.Reason = state, reason
 			next.IssueTitle, next.IssueURL, next.IssueDigest, next.IssueBody, next.ApprovedDigest = issue.Title, issue.URL, digest, body, approved
 			next.Outsider = outsider

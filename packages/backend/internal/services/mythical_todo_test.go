@@ -253,10 +253,16 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	assert.Equal(t, []string{"#90 Smithers stopped this TODO. It reached its run limit.\nRun: run-11"}, o.github.comments)
 	assert.NotContains(t, o.github.comments[0], "SMITHERS_", "the issue names no operator setting")
 
-	// A run cannot lift the bound; a person can, and a maintainer's todo can.
+	// Only person Retry lifts a typed bound; re-applying the label does not.
 	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
+	o.wake()
+	require.Equal(t, "blocked", o.item(90).State)
+	require.Equal(t, mythicalChecksOf(item).Fault, mythicalChecksOf(o.item(90)).Fault)
+	require.Equal(t, mythicalChecksOf(item).LaunchBase, mythicalChecksOf(o.item(90)).LaunchBase)
+	_, err = o.service.retryItem(ctx, o.repoID, uuidString(item.ID))
+	require.NoError(t, err)
 	o.wake()
 	assert.Equal(t, "running", o.item(90).State)
 	resumed := mythicalChecksOf(o.item(90))
@@ -755,7 +761,7 @@ func TestMythicalReviewLanesCountTowardTheLaneCap(t *testing.T) {
 	assert.Equal(t, "running", o.item(86).State, "the lane is free once the review answers")
 }
 
-// A decline is the planner's close: its evidence is said once on the issue.
+// A legacy decline fails the plan without closing the TODO; said once on the issue.
 // A deferred TODO opens no lane until the label comes off.
 func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
 	o := newMythicalOrchestration(t)
@@ -767,8 +773,8 @@ func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
 		`{"_tag":"coding/Error","code":"declined","message":"Already done: README.md has it."}`)
 	o.wake()
 	o.wake()
-	assert.Equal(t, "declined", o.item(87).State)
-	assert.Equal(t, []string{"#87 Smithers did not plan this TODO: Already done: README.md has it.\nRun: run-87"}, o.github.comments)
+	assert.Equal(t, "blocked", o.item(87).State)
+	assert.Equal(t, []string{"#87 Smithers stopped this TODO. This attempt did not produce a working change.\nRun: run-87"}, o.github.comments)
 	o.wake()
 	assert.Len(t, o.github.comments, 1)
 
@@ -1229,7 +1235,7 @@ func TestMythicalSnapshotShowsATodosMetrics(t *testing.T) {
 	o.project(o.requestOf(383), jobs.StateCompleted, "run-383",
 		strings.Replace(validatedRequest, `"outcome":`, `"route":"close","outcome":`, 1))
 	assert.Equal(t, "close", mythicalChecksOf(o.item(383)).Route, "the result's route is kept")
-	assert.Equal(t, "declined", o.item(384).State)
+	assert.Equal(t, "blocked", o.item(384).State)
 	assert.Equal(t, "implement", mythicalChecksOf(o.item(384)).Route, "a decline keeps its route too")
 
 	// #383's two lanes cost 2 cents settled; a call still pending and a call

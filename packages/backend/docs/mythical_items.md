@@ -51,7 +51,11 @@ Terminal items refuse every control. A merge fence refuses with `409 merging`.
 The historical `/mythical/items/{id}/retry` route and `history.retry` command
 are removed. Old recorded cards remain decodable. The former CAS helper stays
 private in the stack service for the durable-attempt migration; it is not a
-served control. The PR-close primitive uses a narrowly scoped installation
+served control. It accepts chat-origin items through the same version CAS and
+person-only typed-stop guard. Re-applying the TODO label does not lift a failed
+attempt's bounds. Legacy planner declines now block with `factory/no_proposal`
+instead of settling the item as dropped; existing declined records still decode.
+The PR-close primitive uses a narrowly scoped installation
 token and must be called only through persisted outbound intent/recovery after
 cancellation, final capture and the merge fence settle.
 

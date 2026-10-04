@@ -735,13 +735,13 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 		}
 	}
 
-	// #13 is declined by the planner: declined with the reason.
+	// #13 produces no proposal: failed with its retained reason.
 	o.fail(requests[13], "run-13", "user", "coding/Error/declined", `{"_tag":"coding/Error","code":"declined","message":"Already done: README.md has it."}`)
 	// #11 and #12 validate and hand results built on the old tip.
 	o.project(requests[11], jobs.StateCompleted, "run-11", validatedRequest)
 	o.project(requests[12], jobs.StateCompleted, "run-12", validatedRequest)
 	o.wake()
-	assert.Equal(t, "declined", o.item(13).State)
+	assert.Equal(t, "blocked", o.item(13).State)
 	assert.Equal(t, "Already done: README.md has it.", o.item(13).Reason)
 	ws11, ws12 := o.item(11).WorkspaceID, o.item(12).WorkspaceID
 	appended := o.laneResult(ws11, oldTip, map[string]string{"eleven.txt": "11\n"}, "✨ feat: eleven")
@@ -815,7 +815,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Equal(t, "queued", view.State)
 	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))
 	requireRunCredentialRefused(t, err)
-	assert.Equal(t, "declined", o.item(13).State)
+	assert.Equal(t, "blocked", o.item(13).State)
 
 	// Main moves again while #11's PR is open; GitHub reports it behind, so
 	// the proposal is rebuilt on the new tip and verified on a fresh lane.
@@ -847,7 +847,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	for _, row := range snapshot.Items {
 		states[row.Issue.Title] = row.State
 	}
-	assert.Equal(t, map[string]string{"Issue 11": "verifying", "Issue 12": "running", "Issue 13": "declined"}, states)
+	assert.Equal(t, map[string]string{"Issue 11": "verifying", "Issue 12": "running", "Issue 13": "blocked"}, states)
 	busy := map[string]string{}
 	for _, lane := range snapshot.Lanes {
 		if lane.State == "busy" {
@@ -861,9 +861,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	_ = pgtype.UUID{}
 }
 
-// A planner's decline sticks: a backfill, whoever asks for it, keeps the
-// item declined and counts it. Only new issue text or a person's retry
-// queues it again.
+// A failed plan stays blocked through backfill until a person retries it.
 func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
@@ -1167,4 +1165,73 @@ func TestTodoDarkAdmission(t *testing.T) {
 			require.Equal(t, item, *refused, "dark admission preserves the attempt, counters and old receipts")
 		})
 	}
+}
+
+// No proposal is a failed attempt, never a planner-owned terminal settlement.
+// Nil dependencies prove that this boundary neither closes a PR nor launches.
+func TestMythicalDeclineFailsWithoutSettlement(t *testing.T) {
+	for _, source := range []string{"issue", "chat"} {
+		t.Run(source, func(t *testing.T) {
+			item := db.MythicalItem{Source: source, State: "running", RequestOutcome: "declined: Already done.",
+				RequestRunID: "retained-run", CandidateHead: strings.Repeat("a", 40), Attempt: 2,
+				PRNumber: pgtype.Int8{Int64: 9, Valid: true}, PRState: "open",
+				Checks: mythicalChecks{Launches: 7, LaunchBase: 3, Replans: 2}.encode()}
+			step := &mythicalItemStep{}
+			next, saved, err := step.advance(context.Background(), item)
+			require.NoError(t, err)
+			require.False(t, saved)
+			require.NotNil(t, next)
+			require.Equal(t, "blocked", next.State)
+			require.Equal(t, "Already done.", next.Reason)
+			require.Equal(t, item.RequestRunID, next.RequestRunID)
+			require.Equal(t, item.CandidateHead, next.CandidateHead)
+			require.Equal(t, item.Attempt, next.Attempt)
+			require.Equal(t, item.PRNumber, next.PRNumber)
+			require.Equal(t, "open", next.PRState)
+			checks := mythicalChecksOf(*next)
+			require.Equal(t, &mythicalFault{Class: "factory", Tag: "no_proposal", Kind: "plan"}, checks.Fault)
+			require.EqualValues(t, 7, checks.Launches)
+			require.EqualValues(t, 3, checks.LaunchBase)
+			require.EqualValues(t, 2, checks.Replans)
+			unchanged, saved, err := step.advance(context.Background(), *next)
+			require.NoError(t, err)
+			require.False(t, saved)
+			require.Nil(t, unchanged, "failed work stays blocked until Retry")
+		})
+	}
+}
+
+func TestMythicalRetryChatItemRetainsIdentityAndCAS(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	item, inserted, err := o.service.queries().InsertMythicalChatItem(ctx, db.MythicalItem{
+		RepositoryID: o.repoID, IssueTitle: "Chat change", CandidateHead: strings.Repeat("a", 40), RequestRunID: "retained-run"})
+	require.NoError(t, err)
+	require.True(t, inserted)
+	read := func() db.MythicalItem {
+		t.Helper()
+		current, err := o.service.queries().GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		return current
+	}
+	item.State = "blocked"
+	item.Checks = mythicalChecks{Launches: 7, Replans: 2, Fault: &mythicalFault{Class: "factory", Tag: "no_proposal", Kind: "plan"}}.encode()
+	saved, err := o.service.queries().SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
+	requireRunCredentialRefused(t, err)
+	require.Equal(t, saved.Version, read().Version, "refusal does not advance CAS")
+	view, err := o.service.retryItem(ctx, o.repoID, uuidString(item.ID))
+	require.NoError(t, err)
+	require.Equal(t, "queued", view.State)
+	retried := read()
+	require.Equal(t, saved.Version+1, retried.Version)
+	require.Equal(t, saved.ID, retried.ID)
+	require.Equal(t, "chat", retried.Source)
+	require.Equal(t, "retained-run", retried.RequestRunID)
+	checks := mythicalChecksOf(retried)
+	require.EqualValues(t, 7, checks.Launches)
+	require.EqualValues(t, 7, checks.LaunchBase)
+	require.Zero(t, checks.Replans)
+	require.Nil(t, checks.Fault)
 }
