@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -2624,7 +2623,7 @@ func withoutURLPath(out, rawURL string) string {
 }
 
 func gitMirrorProgress(ctx context.Context, gitDir string) (ImportJobCounts, error) {
-	refsOutput, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "for-each-ref", "--format=%(refname)").Output()
+	refsOutput, err := sourceRetentionGitCommand(ctx, nonInteractiveGitEnv(), "--git-dir", gitDir, "for-each-ref", "--format=%(refname)").Output()
 	if err != nil {
 		return ImportJobCounts{}, fmt.Errorf("count mirror refs: %w", err)
 	}
@@ -2635,7 +2634,7 @@ func gitMirrorProgress(ctx context.Context, gitDir string) (ImportJobCounts, err
 		}
 	}
 
-	objectsOutput, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "count-objects", "-v").Output()
+	objectsOutput, err := sourceRetentionGitCommand(ctx, nonInteractiveGitEnv(), "--git-dir", gitDir, "count-objects", "-v").Output()
 	if err != nil {
 		return ImportJobCounts{}, fmt.Errorf("count mirror objects: %w", err)
 	}
@@ -2675,14 +2674,13 @@ func nonPruningPushArgs(gitDir, pushURL string) []string {
 }
 
 func runGitCombinedOutput(ctx context.Context, env []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = env
+	cmd := sourceRetentionGitCommand(ctx, env, args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
 func nonInteractiveGitEnv() []string {
-	return append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	return sourceRetentionGitEnv("", "")
 }
 
 // gitBearerAuthEnv injects a bearer credential via env-based git config
@@ -2747,7 +2745,7 @@ func gitGitHubAuthEnv(token string) []string {
 }
 
 func gitMirrorObjectBytes(ctx context.Context, gitDir string) (int64, error) {
-	out, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "count-objects", "-v").Output()
+	out, err := sourceRetentionGitCommand(ctx, nonInteractiveGitEnv(), "--git-dir", gitDir, "count-objects", "-v").Output()
 	if err != nil {
 		return 0, err
 	}

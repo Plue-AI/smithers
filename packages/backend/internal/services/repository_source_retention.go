@@ -365,8 +365,8 @@ func verifyRetainedRefs(output string, result RepositorySourceRetentionResult) b
 }
 
 func sourceRetentionGitEnv(authURL, credential string) []string {
-	env := []string{"PATH=" + os.Getenv("PATH"), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
-	config := [][2]string{{"core.hooksPath", "/dev/null"}, {"credential.helper", ""}, {"http.followRedirects", "false"}, {"http.lowSpeedLimit", "1"}, {"http.lowSpeedTime", "30"}, {"pack.threads", "1"}, {"fetch.fsckObjects", "true"}, {"protocol.allow", "never"}, {"protocol.https.allow", "always"}, {"protocol.http.allow", "always"}}
+	env := []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	var config [][2]string
 	if authURL != "" && credential != "" {
 		parsed, _ := url.Parse(authURL)
 		config = append(config, [2]string{"http." + parsed.String() + ".extraHeader", "Authorization: " + credential})
@@ -388,9 +388,29 @@ func (b *retentionOutput) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func runSourceRetentionGit(ctx context.Context, env []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+// sourceRetentionGitCommand is shared by host object transfers and their
+// measurements. None of these operations checks out files or runs repository
+// tools; only OS Git and its HTTP transport can execute. Command-line policy
+// overrides repository configuration even when credentials replace env config.
+func sourceRetentionGitCommand(ctx context.Context, env []string, args ...string) *exec.Cmd {
+	policy := []string{
+		"-c", "core.hooksPath=/dev/null", "-c", "credential.helper=",
+		"-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand=",
+		"-c", "diff.external=", "-c", "http.followRedirects=false",
+		"-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30",
+		"-c", "pack.threads=1", "-c", "fetch.fsckObjects=true",
+		"-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+		"-c", "protocol.http.allow=always", "-c", "protocol.file.allow=never",
+		"-c", "protocol.ext.allow=never", "-c", "protocol.ssh.allow=never",
+		"-c", "protocol.git.allow=never",
+	}
+	cmd := exec.CommandContext(ctx, "/usr/bin/git", append(policy, args...)...)
 	cmd.Env = env
+	return cmd
+}
+
+func runSourceRetentionGit(ctx context.Context, env []string, args ...string) (string, error) {
+	cmd := sourceRetentionGitCommand(ctx, env, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
