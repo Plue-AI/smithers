@@ -152,6 +152,7 @@ The port follows [`../engineering/ui-components.md`](../engineering/ui-component
 - Roles are Owner, Maintainer (merges, people, secrets) and Member. A member never gets Merge.
 - There is no sudo on a machine. A missing system package offers "Add to machine image", a reviewed change.
 - Deferred features are listed in the "Not in this release" reel, not hidden by their absence.
+- Machine placement (#3706, flag `remote_sandboxes`): a branch's machine runs on a **computer**, which is This Mac, an SSH computer or Smithers Cloud. The owner adds computers in Settings; cards show `· beaver`; a TODO picks Runs on in its Draft. See [placement.md](placement.md).
 
 ## Real-app changes from this design work
 
