@@ -60,5 +60,12 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | fixme-before-implementation | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
 
+| C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
+| C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
+| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-STK-04 |
+| C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | fixme-before-implementation | T-ACC-02 |
+| C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-ACC-02 |
+| C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
+
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
