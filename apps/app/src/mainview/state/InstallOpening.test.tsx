@@ -34,3 +34,39 @@ test("the install capability opens Setup with a usable composer and no demo worl
   expect(h.host.querySelector('[data-keyboard-pane="Chat controls"]')).not.toBeNull()
   } finally { flushSync(() => root.unmount()); host.remove() }
 })
+
+test("a reload while the GitHub App step runs shows Setup and stays on the page; only the person's press goes to GitHub (#3455)", async () => {
+  const { installFixture } = await import("./seams/InstallFixtures.test-support")
+  const model = installFixture()
+  model.github = { signed_in: false, app_installed: false }
+  delete model.repository; delete model.repositories
+  model.steps = model.steps.map(step => ({ id: step.id, state: step.id === "address" ? "done" : step.id === "app_manifest" ? "running" : "pending" }))
+  const action_url = "https://github.com/settings/apps/new?state=earlier"
+  const submits: string[] = []
+  const submit = HTMLFormElement.prototype.submit
+  HTMLFormElement.prototype.submit = function (this: HTMLFormElement) { submits.push(this.action) }
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "install.requests.changed", actor: "user", requests: [{ id: "earlier", origin: "", step: "app_manifest", body: { owner: "acme" },
+    state: "running", handoff: { action_url, manifest: { name: "Smithers" }, state: "earlier" }, expires_at: new Date(Date.now() + 60_000).toISOString() }] }).isPersisted.promise
+  const posts: string[] = []
+  const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["identity", "install"] },
+    fetchImpl: async (input, init) => {
+      if (init?.method === "POST") posts.push(String(input))
+      return String(input).endsWith("/api/install") ? Response.json(model) : new Response("", { status: 404 })
+    } })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    for (let n = 0; n < 50 && !host.querySelector('[data-step="app_manifest"] form button'); n++) await settled()
+    expect(submits).toEqual([])
+    expect(host.querySelector('[data-step="app_manifest"]')?.getAttribute("data-state")).toBe("running")
+    const button = host.querySelector<HTMLButtonElement>('[data-step="app_manifest"] form button')!
+    expect(button.textContent).toBe("Create GitHub App"); expect(button.disabled).toBe(false)
+    expect(host.querySelector<HTMLInputElement>('[data-step="app_manifest"] form input')?.value).toBe("acme")
+    button.click()
+    for (let n = 0; n < 50 && submits.length === 0; n++) await settled()
+    expect(submits).toEqual([action_url])
+    expect(posts.filter(path => path.endsWith("/api/install/setup/app"))).toEqual([])
+  } finally { HTMLFormElement.prototype.submit = submit; flushSync(() => root.unmount()); host.remove() }
+})

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, setSystemTime, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import type { StorageApi } from "@tanstack/db"
 import type { SeamContext } from "./SeamContext"
@@ -411,4 +411,145 @@ test("setup address crosses real HTTP and polls its operation instead of complet
     expect(h.seam.snapshots.get().model?.steps[0]?.state).toBe("done")
     expect(h.requests.filter(row => row.init?.method !== "POST").length).toBeGreaterThan(1)
   } finally { h.seam.dispose(); server.stop(true) }
+})
+
+/* The App step's browser handoff (#3455): GitHub's manifest form POST leaves the app, so it runs only on a person's press. */
+const until = async (ready: () => boolean) => { for (let n = 0; n < 100 && !ready(); n++) await tick() }
+const appReceipt = (state = "state") => ({ action_url: `https://github.com/settings/apps/new?state=${state}`,
+  manifest: { name: "Smithers", redirect_url: "http://localhost:4000/setup/github/callback" }, state })
+const appModel = (app: "pending" | "running" | "done" | "failed") => {
+  const model = installFixture(); model.github = { signed_in: false, app_installed: false }
+  model.steps[1] = { id: "app_manifest", state: app }; model.steps[2] = { id: "sign_in", state: "pending" }
+  return model
+}
+type Row = NonNullable<ReturnType<Awaited<ReturnType<typeof harness>>["store"]["session"]>["installRequests"]>[number]
+const persist = async (storage: StorageApi, ...rows: Row[]) => {
+  const seed = await harness(() => Response.json(appModel("running")), {}, storage)
+  await seed.store.dispatch({ type: "install.requests.changed", actor: "user", requests: rows }).isPersisted.promise
+  seed.seam.dispose(); await seed.store.settled?.()
+}
+const appRow = (state: Row["state"], expires: number): Row => ({ id: "earlier", origin: "", step: "app_manifest", body: { owner: "acme" }, state,
+  ...(state === "running" ? { handoff: appReceipt("earlier") } : {}), expires_at: new Date(expires).toISOString() })
+/* The person presses Create GitHub App once on a first page, which hands off and leaves its request persisted. */
+const pressedOnce = async (storage: StorageApi, receipt = appReceipt("earlier")) => {
+  const first = await harness((_path, init) => Response.json(init?.method === "POST" ? receipt : appModel("pending")), { handoff: () => {} }, storage)
+  await first.seam.readInstall(); first.seam.setupStep({ step: "app_manifest", owner: "acme" })
+  await until(() => first.store.session().installRequests?.[0]?.handoff !== undefined)
+  expect(first.store.session().installRequests?.[0]).toMatchObject({ state: "running", handoff: receipt })
+  first.seam.dispose(); await first.store.settled?.()
+}
+
+test("a reload while the App step runs restores it without leaving the page; each press continues to GitHub once", async () => {
+  const storage = memoryStorage()
+  await pressedOnce(storage)
+  for (const load of [1, 2]) {
+    const handoffs: unknown[] = []
+    const h = await harness(() => Response.json(appModel("running")), { handoff: value => { handoffs.push(value) } }, storage)
+    h.seam.showSetup(); await until(() => h.presentations.length > 0); await tick(); await tick()
+    expect(handoffs).toEqual([])
+    expect(h.seam.snapshots.get().model?.steps[1]?.state).toBe("running")
+    expect(h.seam.snapshots.get().model?.github.owner).toBe("acme")
+    expect(h.seam.setupStep({ step: "app_manifest", owner: "acme" })).toEqual({ value: "Requested" })
+    expect(handoffs).toEqual([appReceipt("earlier")])
+    if (load === 2) { h.seam.setupStep({ step: "app_manifest", owner: "acme" }); expect(handoffs).toHaveLength(2) }
+    expect(h.requests.filter(row => row.init?.method === "POST")).toHaveLength(0)
+    h.seam.dispose(); await h.store.settled?.()
+  }
+})
+
+test("a lapsed App lease the install still serves as running is retryable; a press starts one new request, never the stale handoff", async () => {
+  const storage = memoryStorage(), start = Date.parse("2026-10-04T12:00:00Z"), gate = deferred<Response>()
+  try {
+    setSystemTime(new Date(start))
+    await pressedOnce(storage)
+    setSystemTime(new Date(start + 11 * 60_000))
+    const handoffs: unknown[] = []
+    const h = await harness((_path, init) => init?.method === "POST" ? gate.promise : Response.json(appModel("running")), { handoff: value => { handoffs.push(value) } }, storage)
+    h.seam.showSetup(); await h.idle()
+    expect(handoffs).toEqual([])
+    expect(h.seam.snapshots.get().model?.steps[1]?.state).toBe("failed")
+    expect(h.store.session().installRequests?.map(row => row.state)).toEqual(["failed"])
+    expect(h.seam.setupStep({ step: "app_manifest", owner: "acme" })).toEqual({ value: "Requested" })
+    expect(h.seam.setupStep({ step: "app_manifest", owner: "acme" })).toEqual({ value: "Requested" })
+    await until(() => h.requests.some(row => row.init?.method === "POST")); await tick(); await tick()
+    expect(h.requests.filter(row => row.init?.method === "POST").map(row => [row.path, JSON.parse(String(row.init!.body))]))
+      .toEqual([["/api/install/setup/app", { owner: "acme" }]])
+    expect(handoffs).toEqual([])
+    gate.resolve(Response.json(appReceipt("fresh"))); await until(() => handoffs.length > 0)
+    expect(handoffs).toEqual([appReceipt("fresh")])
+    expect(h.seam.snapshots.get().model?.steps[1]?.state).toBe("running")
+    h.seam.dispose(); await h.idle()
+  } finally { setSystemTime() }
+})
+
+test("a served failed App step is retryable even while its persisted handoff is inside the lease", async () => {
+  const storage = memoryStorage()
+  await persist(storage, appRow("running", Date.now() + 60_000))
+  const handoffs: unknown[] = []
+  const h = await harness((_path, init) => Response.json(init?.method === "POST" ? appReceipt("fresh") : appModel("failed")), { handoff: value => { handoffs.push(value) } }, storage)
+  h.seam.showSetup(); await h.idle()
+  expect(handoffs).toEqual([])
+  expect(h.store.session().installRequests?.find(row => row.id === "earlier")?.state).toBe("failed")
+  h.seam.setupStep({ step: "app_manifest", owner: "acme" }); await until(() => handoffs.length > 0)
+  expect(handoffs).toEqual([appReceipt("fresh")])
+  expect(h.requests.filter(row => row.init?.method === "POST")).toHaveLength(1)
+  h.seam.dispose(); await h.idle()
+})
+
+test("a persisted request whose step is no longer running on the install is dropped, not replayed", async () => {
+  for (const state of ["requested", "running"] as const) {
+    const storage = memoryStorage()
+    await persist(storage, appRow(state, Date.now() + 60_000), { id: "machine", origin: "", step: "machine", body: {}, state: "running" })
+    const model = appModel("pending"); model.steps[6] = { id: "machine", state: "pending" }
+    const handoffs: unknown[] = []
+    const h = await harness((_path, init) => Response.json(init?.method === "POST" ? appReceipt("fresh") : model), { handoff: value => { handoffs.push(value) } }, storage)
+    h.seam.showSetup(); await until(() => h.store.session().installRequests?.every(row => row.state === "failed") === true); await tick(); await tick()
+    expect(h.store.session().installRequests?.map(row => [row.id, row.state])).toEqual([["earlier", "failed"], ["machine", "failed"]])
+    expect(h.requests.filter(row => row.init?.method === "POST")).toHaveLength(0)
+    expect(handoffs).toEqual([])
+    expect(h.seam.snapshots.get().model?.steps.map(step => step.state)).toEqual(["done", "pending", "pending", "done", "done", "done", "pending"])
+    h.seam.dispose(); await h.idle()
+  }
+})
+
+test("a live App lease asked for another owner starts a new request instead of continuing the old one", async () => {
+  const storage = memoryStorage()
+  await persist(storage, appRow("running", Date.now() + 60_000))
+  const handoffs: unknown[] = []
+  const h = await harness((_path, init) => init?.method === "POST"
+    ? Response.json({ code: "conflict", class: "conflict", message: "GitHub App setup is already running or complete" }, { status: 409 })
+    : Response.json(appModel("running")), { handoff: value => { handoffs.push(value) } }, storage)
+  h.seam.showSetup(); await until(() => h.presentations.length > 0); await tick()
+  h.seam.setupStep({ step: "app_manifest", owner: "other" })
+  await until(() => h.seam.snapshots.get().model?.steps[1]?.state === "failed")
+  expect(handoffs).toEqual([])
+  expect(h.requests.filter(row => row.init?.method === "POST").map(row => JSON.parse(String(row.init!.body)))).toEqual([{ owner: "other" }])
+  expect(h.seam.snapshots.get().model?.steps[1]?.error?.message).toBe("GitHub App setup is already running or complete")
+  h.seam.setupStep({ step: "app_manifest", owner: "acme" })
+  expect(handoffs).toEqual([appReceipt("earlier")])
+  h.seam.dispose(); await h.idle()
+})
+
+test("the return from GitHub completes the App step from the install and hands off nothing", async () => {
+  const storage = memoryStorage()
+  await persist(storage, appRow("running", Date.now() + 60_000))
+  const handoffs: unknown[] = []
+  const h = await harness(() => Response.json(appModel("done")), { handoff: value => { handoffs.push(value) } }, storage)
+  h.seam.showSetup(); await h.idle()
+  expect(handoffs).toEqual([])
+  expect(h.store.session().installRequests?.find(row => row.id === "earlier")?.state).toBe("completed")
+  expect(h.seam.snapshots.get().model?.steps.slice(1, 3).map(step => step.state)).toEqual(["done", "pending"])
+  expect(h.toasts[0]?.outcome).toBe(true)
+})
+
+test("an App receipt that arrives after the step completed elsewhere never leaves the page", async () => {
+  const gate = deferred<Response>(), handoffs: unknown[] = []
+  let served = appModel("pending")
+  const h = await harness((_path, init) => init?.method === "POST" ? gate.promise : Response.json(served), { handoff: value => { handoffs.push(value) } })
+  await h.seam.readInstall(); h.seam.setupStep({ step: "app_manifest", owner: "acme" })
+  await until(() => h.requests.some(row => row.init?.method === "POST"))
+  served = appModel("done"); await h.seam.readInstall()
+  gate.resolve(Response.json(appReceipt())); await h.idle()
+  expect(handoffs).toEqual([])
+  expect(h.seam.snapshots.get().model?.steps[1]?.state).toBe("done")
 })

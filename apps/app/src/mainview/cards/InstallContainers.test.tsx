@@ -185,3 +185,13 @@ test("Setup prints whole free GB and the owner's typed refusal beside the owner 
   expect(markup).toContain("74 GB free"); expect(markup).not.toContain("74.159")
   expect(markup).toContain("GitHub owner not found"); expect(markup).toContain('>Owner</label>')
 })
+
+test("a running App step keeps its own control, prefilled, so the person's press can continue to GitHub", () => {
+  const model = installFixture(); model.github = { owner: "acme", signed_in: false, app_installed: false }
+  model.steps[1] = { id: "app_manifest", state: "running" }; model.steps[2] = { id: "sign_in", state: "pending" }
+  const h = harness({ model }); h.renderSetup(); const props = h.setup()!
+  expect(props.actions.map(({ tag, label, args, input, disabled }) => ({ tag, label, args, input, disabled }))).toEqual([{ tag: "settings.setup", label: "Create GitHub App",
+    args: { step: "app_manifest" }, input: [{ name: "owner", label: "Owner", kind: "text", required: true, value: "acme" }], disabled: undefined }])
+  props.onAction("settings.setup", { step: "app_manifest", owner: "acme" })
+  expect(h.commands).toEqual([{ tag: "settings.setup", input: { step: "app_manifest", owner: "acme" } }])
+})

@@ -43,7 +43,8 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
   if (allowed && model && step) {
     if (step.id === "sign_in") definitions.push({ tag: "sign-in", label: "Sign in", args: { step: step.id }, command_input: undefined })
     else definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
-      disabled: step.state === "running" ? { reason: "Running" } : undefined,
+      // The running App step keeps its control: a press continues to GitHub or starts again (InstallSeam.setupStep).
+      disabled: step.state === "running" && step.id !== "app_manifest" ? { reason: "Running" } : undefined,
       args: { step: step.id },
       input: step.id === "address" ? [
         { name: "bind", label: "Bind", kind: "text", required: true, value: model.address.bind },

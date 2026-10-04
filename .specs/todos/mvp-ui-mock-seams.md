@@ -123,6 +123,7 @@ A real seam may be added beside a seed, but the seed stays the fallback until th
 - FormCardsAgainstMain is red from every lane's new flows (`CUT_FLOW_NAMES`). T-CAT-01
 - Bare Appendix A flows (`flow`, `flows`, `runs`, `run`, `issue`, `issues`, `file`, `files`, `diff`, `review`, `pr`) must join `SURFACE_FLOWS` or be hidden to clear the registry and RepositoryFlows orphan gates. T-CAT-01
 - Persisted search-results cards carry flow `search.open`; apply `currentFlowName` at the read site. T-APP-22
+- InstallSeam stamps the App lease on its own request row (`APP_LEASE_MS`, `expires_at`) because GET /api/install serves no expiry and serves a lapsed lease as running; delete both once the host serves it as failed (crit3-setup-lease). #3455
 - Act card ⏎ press is visual only. T-APP-04
 - `requestFlowConfirmation`'s message should become the Confirm card. T-APP-04
 - mvp.md B.1 keeps `chat.filter`; the mount removed it. product ruling

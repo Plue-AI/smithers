@@ -34,6 +34,12 @@ const error = (code: string, message: string, fault: InstallError["class"] = "in
 const permission = error("owner_required", "Owner access required", "permission")
 /** GET /api/install found no install route on this host (see quietWithoutInstall). */
 export const NO_INSTALL = "no_install"
+/**
+ * The App step's lease (packages/backend github_app_manifest.go Begin: ten minutes, and the state cookie's Max-Age).
+ * GET /api/install serves no expiry and still serves a lapsed lease as running, so the request row carries its own,
+ * stamped before the POST leaves, never later than the host's. Delete it once the host serves a lapsed lease as failed.
+ */
+const APP_LEASE_MS = 10 * 60_000
 
 export const createInstallSeam = (ctx: SeamContext, withToast: FailureController["withToast"], options: InstallSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "install", () => ({
@@ -45,6 +51,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   const requests = () => (ctx.store.session().installRequests ?? []).filter(row => row.origin === ctx.baseUrl)
   const saveRequest = (row: SetupRequest) => ctx.dispatch({ type: "install.requests.changed", actor: ctx.actor(),
     requests: [...(ctx.store.session().installRequests ?? []).filter(each => each.id !== row.id), row].slice(-32) }).isPersisted.promise
+  /** An App request whose lease has run out: its handoff would reach GitHub with a state the host no longer accepts. */
+  const lapsed = (row: SetupRequest) => row.step === "app_manifest" && !(Date.parse(row.expires_at ?? "") > Date.now())
   const current = () => !shared.disposed && ctx.isDisposed?.() !== true
   const publish = (snapshot: InstallSnapshot) => {
     if (!current()) return
@@ -60,14 +68,24 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     shared.stop?.(); shared.stop = undefined
     publish({ error: failure })
   }
+  /**
+   * The served install with this browser's own requests over it: a step it asked for reads running, an App lease
+   * that ran out reads failed (retryable, like the host's own failure), and the App's owner is the one it asked for.
+   */
+  const projection = (served: InstallModel): InstallModel => {
+    const active = requests().filter(row => (row.state === "requested" || row.state === "running") && !lapsed(row))
+    const app = requests().filter(row => row.step === "app_manifest").at(-1)
+    return { ...served,
+      github: served.github.owner === undefined && typeof app?.body.owner === "string" ? { ...served.github, owner: app.body.owner } : served.github,
+      steps: served.steps.map(step => step.state === "pending" && active.some(row => row.step === step.id) ? { ...step, state: "running" }
+        : step.id === "app_manifest" && step.state === "running" && app && lapsed(app) ? { ...step, state: "failed" } : step) }
+  }
   const receive = (data: unknown) => {
     const parsed = InstallModelSchema.safeParse(data)
     if (!parsed.success) { publish({ ...shared.snapshot, error: error("invalid_install", "Install response unavailable") }); return }
     shared.generation++
     shared.authoritative = parsed.data
-    const active = requests().filter(row => row.state === "requested" || row.state === "running")
-    publish({ model: { ...parsed.data, steps: parsed.data.steps.map(step => step.state === "pending" && active.some(row => row.step === step.id)
-      ? { ...step, state: "running" } : step) } })
+    publish({ model: projection(parsed.data) })
     if (parsed.data.github.signed_in && !shared.stop && !shared.subscribing && options.topic) {
       shared.subscribing = true
       try {
@@ -136,33 +154,48 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       publish({ error: permission }); return permission.message
     }
     await options.present?.(kind)
+    // Recovery restores state and never navigates: the GitHub handoff runs only on a person's press (setupStep).
     for (const row of requests().filter(row => row.state === "requested" || row.state === "running")) {
-      const step = shared.snapshot.model.steps.find(step => step.id === row.step)
-      if (step?.state === "done" || step?.state === "failed" || step?.state === "blocked") {
-        await saveRequest({ ...row, state: step.state === "done" ? "completed" : "failed" })
-      } else if (row.state === "requested" && shared.authoritative?.steps.find(step => step.id === row.step)?.state !== "running") {
-        write(`setup:${row.step}`, `/install/setup/${row.step === "app_manifest" ? "app" : row.step}`, row.body, true, row)
-      } else {
-        await saveRequest({ ...row, state: "running" })
-        if (row.handoff) (options.handoff ?? submitGitHubAppManifest)(row.handoff)
-      }
+      const served = shared.authoritative?.steps.find(step => step.id === row.step)?.state
+      if (served === "done") await saveRequest({ ...row, state: "completed" })
+      else if (served === "running" && !lapsed(row)) { if (row.state === "requested") await saveRequest({ ...row, state: "running" }) }
+      // An unsent setup write resumes under its Idempotency-Key. An App request never replays: its answer is a handoff.
+      else if (served === "pending" && row.state === "requested" && row.step !== "app_manifest") write(`setup:${row.step}`, `/install/setup/${row.step}`, row.body, true, row)
+      // Failed, blocked, lapsed or no longer running on the install: dropped, so the step's own control starts again.
+      else await saveRequest({ ...row, state: "failed" })
     }
+    if (!current() || !shared.authoritative) return false
+    publish({ ...shared.snapshot, model: projection(shared.authoritative) })
+    if (!shared.snapshot.model) return false
     const running = shared.snapshot.model.steps.find(step => step.state === "running")
     if (kind === "setup" && running) {
       const outcome = await waitStep(running.id)
+      // A refused write of this browser's own ends the wait, but a request the host still runs stays.
+      const served = shared.authoritative?.steps.find(step => step.id === running.id)?.state
       if (current()) for (const row of requests().filter(row => row.step === running.id && (row.state === "requested" || row.state === "running")))
-        await saveRequest({ ...row, state: outcome === true ? "completed" : "failed" })
+        if (outcome === true || served !== "running" || lapsed(row)) await saveRequest({ ...row, state: outcome === true ? "completed" : "failed" })
       return outcome
     }
     return true
   }, kind === "setup" ? "Setup" : "Settings")
+  /** GitHub's manifest form POST leaves the app, so it runs only as the direct result of a person's press. */
+  const handOff = (receipt: InstallManifest): InstallError | undefined => {
+    try { (options.handoff ?? submitGitHubAppManifest)(receipt); return undefined }
+    catch {
+      const failure = error("handoff_failed", "GitHub App handoff unavailable")
+      publish({ ...shared.snapshot, error: failure, model: shared.snapshot.model && { ...shared.snapshot.model,
+        steps: shared.snapshot.model.steps.map(step => step.id === "app_manifest" ? { ...step, state: "failed", error: failure } : step) } })
+      return failure
+    }
+  }
   const write = (key: string, path: string, body: unknown, setup = false, recovered?: SetupRequest) => {
     const model = shared.snapshot.model
     if (!model || (!setup && !model.github.signed_in)) { publish({ error: permission }); return permission.message }
     if (setup && shared.pending.has(key)) return { value: "Requested" }
     const stepId = (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId
     const row: SetupRequest | undefined = setup ? recovered ?? { id: installRequestId(), origin: ctx.baseUrl, step: stepId,
-      body: body as Record<string, unknown>, state: "requested" } : undefined
+      body: body as Record<string, unknown>, state: "requested",
+      ...(stepId === "app_manifest" ? { expires_at: new Date(Date.now() + APP_LEASE_MS).toISOString() } : {}) } : undefined
     const saved = row ? saveRequest(row) : Promise.resolve()
     if (setup) publish({ model: { ...model, steps: model.steps.map(step => step.id === stepId ? { id: step.id, state: "running" } : step) } })
     return background(setup ? key : key + ":" + JSON.stringify(body), setup ? "Setup" : "Saving", async () => {
@@ -199,12 +232,10 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           if (generation === shared.generation) receive(result)
         } else {
           if (row) await saveRequest({ ...row, state: "running", ...("action_url" in result ? { handoff: result } : {}) })
+          // The answer to the person's own press, unless the step finished meanwhile.
           if ("action_url" in result && shared.snapshot.model?.steps.find(step => step.id === stepId)?.state !== "done") {
-            try { (options.handoff ?? submitGitHubAppManifest)(result) }
-            catch { const failure = error("handoff_failed", "GitHub App handoff unavailable");
-              if (row) await saveRequest({ ...row, state: "failed" })
-              publish({ ...shared.snapshot, error: failure, model: shared.snapshot.model && { ...shared.snapshot.model,
-                steps: shared.snapshot.model.steps.map(step => step.id === stepId ? { ...step, state: "failed", error: failure } : step) } }); return failure.message }
+            const failure = handOff(result)
+            if (failure) { if (row) await saveRequest({ ...row, state: "failed" }); return failure.message }
           }
         }
         release()
@@ -247,7 +278,16 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const index = model?.steps.findIndex(step => step.id === input.step) ?? -1
     const step = model?.steps[index]
     if (!step || model?.steps.slice(0, index).some(step => step.state !== "done")) return "Complete the earlier step"
-    if (step.state === "running" || step.state === "done") return { value: "Requested" }
+    // A press while the host runs this browser's App attempt for the same owner continues it to GitHub.
+    const attempt = input.step === "app_manifest" && shared.authoritative?.steps[index]?.state === "running"
+      ? requests().filter(row => row.step === "app_manifest" && row.state === "running" && row.handoff && !lapsed(row)).at(-1) : undefined
+    if (attempt?.handoff && (input.owner === undefined || input.owner === attempt.body.owner)) {
+      const failure = handOff(attempt.handoff)
+      if (failure) { void saveRequest({ ...attempt, state: "failed" }); return failure.message }
+      return { value: "Requested" }
+    }
+    // Any other press on the running App step starts again; write joins one already in flight and the host refuses a live lease.
+    if ((step.state === "running" && input.step !== "app_manifest") || step.state === "done") return { value: "Requested" }
     const id = input.step
     const body = id === "address" ? { bind: input.bind, origins: input.origins }
       : id === "app_manifest" ? { owner: input.owner }

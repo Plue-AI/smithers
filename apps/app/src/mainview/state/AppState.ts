@@ -789,7 +789,9 @@ export const SessionSchema = z.object({
   installRequests: z.array(z.object({
     id: z.string(), step: SetupStepIdSchema, origin: z.string(), body: z.record(z.string(), z.unknown()),
     state: z.enum(["requested", "running", "completed", "failed"]),
-    handoff: z.object({ action_url: z.string(), manifest: z.record(z.string(), z.unknown()), state: z.string() }).optional()
+    handoff: z.object({ action_url: z.string(), manifest: z.record(z.string(), z.unknown()), state: z.string() }).optional(),
+    /* The App step's lease (InstallSeam APP_LEASE_MS): its handoff is continued only before this instant. */
+    expires_at: z.string().optional()
   })).optional(),
   queuedPrompts: z.array(QueuedPromptSchema).optional(),
   promptQueuePaused: z.boolean().optional(),
