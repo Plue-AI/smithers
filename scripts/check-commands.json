@@ -296,8 +296,10 @@
       "ticket": "T-INS-06"
     },
     "C-J1-04": {
-      "status": "manual",
-      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual"
+      "status": "pending-owner",
+      "reason": "Automation present; awaiting first-merge tickets and smithers-22 approval",
+      "ticket": "T-INS-06",
+      "pendingBinding": { "target": "//apps/app:journeyJ1Activation" }
     },
     "C-J1-05": {
       "status": "pending-owner",

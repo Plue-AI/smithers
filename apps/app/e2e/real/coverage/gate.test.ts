@@ -400,3 +400,17 @@ export const searchFlows = (actions) => [
     expect(unscenarioed.filter((action) => !RELEASE_CRITICAL_ACTIONS.includes(action))).toEqual([])
   }, 60_000)
 })
+
+test("exclusive journey specs belong only to their explicitly selected gate", () => {
+  const { real, flows } = fixture()
+  const ordinary = join(real, "ordinary.spec.ts")
+  const exclusive = join(real, "j1-activation.spec.ts")
+  writeFileSync(ordinary, valid)
+  writeFileSync(exclusive, valid.replaceAll("repo.open.success", "journey.j1-activation"))
+  const defaultGate = checkRealE2E({ realDir: real, flowNameFile: flows, deferred, excludedSpecs: [exclusive] })
+  expect(defaultGate.ok).toBe(true)
+  expect(defaultGate.scenarios.map(value => value.id)).toEqual(["repo.open.success"])
+  const journeyGate = checkRealE2E({ realDir: real, flowNameFile: flows, deferred })
+  expect(journeyGate.ok).toBe(true)
+  expect(journeyGate.scenarios.map(value => value.id).sort()).toEqual(["journey.j1-activation", "repo.open.success"])
+})

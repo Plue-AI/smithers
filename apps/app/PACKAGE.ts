@@ -181,6 +181,18 @@ const browserE2e = Smithers.NodeTest({
   cwd
 })
 
+/** Reference-install activation; omitted from wildcard test/ci selections. */
+const journeyJ1Activation = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["j1-activation.spec.ts"]),
+  timeout: "60m",
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [],
+  exclusive: true,
+  cwd
+})
+
 /**
  * Everything a web host needs to bundle the app as a React island: the
  * mainview tree (AppIsland.tsx and the CSS it imports), the Tailwind config
@@ -336,5 +348,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, webSources, ...securityReview }
+  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, journeyJ1Activation, webSources, ...securityReview }
 })

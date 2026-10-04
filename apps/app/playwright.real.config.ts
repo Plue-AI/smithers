@@ -28,6 +28,7 @@ if (!/^https?:$/.test(parsed.protocol)) throw new Error(`SMITHERS_REAL_BASE_URL 
 export default defineConfig({
   testDir: "e2e/real",
   testMatch: "**/*.spec.ts",
+  testIgnore: process.env.SMITHERS_J1_ACTIVATION === "1" ? [] : ["**/j1-activation.spec.ts"],
   grep: deploymentMode === undefined
     ? hostGrep(expectedHost as RealHost, process.env.SMITHERS_REAL_TEST_GREP)
     : scenarioGrep(matrixScenarioIds, process.env.SMITHERS_REAL_TEST_GREP),

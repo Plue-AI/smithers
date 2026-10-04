@@ -10,6 +10,7 @@ import { admitSourceRevision } from "../e2e/real/coverage/revision"
 import { MODEL_CREDENTIAL_ENV_PREFIX, MODEL_CREDENTIAL_ORIGIN_SUFFIX, MODEL_TEST_DEADLINE_MS } from "@smthrs/rpc/ConfiguredModel"
 import { sourceRevision } from "./mode-matrix/source-revision"
 import { productionBuild } from "./production-preflight"
+import { requireJ1Preconditions } from "../e2e/real/support/j1-preconditions"
 
 const appDir = fileURLToPath(new URL("../", import.meta.url))
 const args = process.argv.slice(2)
@@ -114,6 +115,8 @@ const launchModelProvider = async (): Promise<() => Promise<void>> => {
 if (args[0] === "serve") {
   await serve()
 } else {
+  // Activation must never silently boot a dev host or a loopback provider.
+  if (args.includes("j1-activation.spec.ts")) requireJ1Preconditions()
   const selection = extractRequestedGrep(args)
   if (selection.grep !== undefined) process.env.SMITHERS_REAL_TEST_GREP = selection.grep
   if (process.env.SMITHERS_CHAT_STUB === "1") throw new Error("The real E2E runner refuses SMITHERS_CHAT_STUB=1.")

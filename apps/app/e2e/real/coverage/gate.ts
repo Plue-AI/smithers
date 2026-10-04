@@ -459,6 +459,8 @@ const walkHelpers = (dir: string): string[] => readdirSync(dir, { withFileTypes:
 
 export interface GateOptions {
   readonly realDir: string
+  /** Specs owned by exclusive targets, outside this run's obligation catalog. */
+  readonly excludedSpecs?: readonly string[]
   readonly flowNameFile: string
   readonly resultsFile?: string
   readonly now?: string
@@ -471,8 +473,8 @@ export interface GateOptions {
   readonly releaseCritical?: readonly string[]
 }
 
-export const checkRealE2E = ({ realDir, flowNameFile, resultsFile, now, requireComplete = false, expectedRevision, expectedHost, deferred: ledger = {}, releaseCritical = [] }: GateOptions): GateReport => {
-  const specs = walkSpecs(realDir).filter((file) => !file.includes(`${join("coverage", "fixtures")}`))
+export const checkRealE2E = ({ realDir, excludedSpecs = [], flowNameFile, resultsFile, now, requireComplete = false, expectedRevision, expectedHost, deferred: ledger = {}, releaseCritical = [] }: GateOptions): GateReport => {
+  const specs = walkSpecs(realDir).filter((file) => !file.includes(`${join("coverage", "fixtures")}`) && !excludedSpecs.includes(file))
   const actions = declaredFlowNames(flowNameFile)
   const scenarios = scenarioDeclarations(specs)
   const files = executableImportClosure([...specs, ...walkHelpers(realDir)], resolve(realDir, "../.."))

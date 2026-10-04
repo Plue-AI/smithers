@@ -14,6 +14,7 @@ const value = (flag: string): string | undefined => {
 const reportFile = resolve(value("--report") ?? joinDefault(appRoot, "test-results/real-e2e-coverage.json"))
 const report = checkRealE2E({
   realDir: resolve(value("--real-dir") ?? joinDefault(appRoot, "e2e/real")),
+  excludedSpecs: process.env.SMITHERS_J1_ACTIVATION === "1" ? [] : [resolve(appRoot, "e2e/real/j1-activation.spec.ts")],
   flowNameFile: resolve(value("--flow-names") ?? joinDefault(appRoot, "src/mainview/flows/FlowName.ts")),
   resultsFile: value("--results") ? resolve(value("--results")!) : undefined,
   requireComplete: args.includes("--require-complete"),
