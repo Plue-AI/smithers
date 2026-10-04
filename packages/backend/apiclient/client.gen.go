@@ -1468,10 +1468,16 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
 type PostAPITodosBody struct {
-	Title      string   `json:"title"`
-	Prompt     string   `json:"prompt"`
-	Acceptance []string `json:"acceptance,omitempty"`
-	Place      *string  `json:"place,omitempty"`
+	Title      string                 `json:"title"`
+	Prompt     string                 `json:"prompt"`
+	Acceptance []string               `json:"acceptance,omitempty"`
+	Place      *PostAPITodosBodyPlace `json:"place,omitempty"`
+}
+
+// PostAPITodosBodyPlace is generated from docs/api/openapi.yaml.
+type PostAPITodosBodyPlace struct {
+	Mode string `json:"mode"`
+	N    *int64 `json:"n,omitempty"`
 }
 
 // PostAPITodosResponse is generated from docs/api/openapi.yaml.

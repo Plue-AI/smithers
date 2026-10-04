@@ -4930,7 +4930,10 @@ export type PostApiTodosBody = {
   title: string
   prompt: string
   acceptance?: Array<string>
-  place?: "append"
+  place?: {
+    mode: "append" | "before" | "amend"
+    n?: number
+  }
 }
 
 export type PostApiTodosResponse = {

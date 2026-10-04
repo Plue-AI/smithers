@@ -65,14 +65,30 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 		w := request("POST", "/api/todos", body, "key", owner)
 		require.Equal(t, 400, w.Code, w.Body.String())
 	}
-	body := `{"title":"One","prompt":"Change README","place":"append"}`
+	// The app's Draft sends place as {mode, n?} (packages/rpc/src/DraftCard.ts).
+	body := `{"title":"One","prompt":"Change README","acceptance":[],"place":{"mode":"append"}}`
 	w := request("POST", "/api/todos", body, "", owner)
 	require.Equal(t, 400, w.Code)
+	for place, message := range map[string]string{
+		`{"mode":"before","n":1}`: "T-STK-02", `{"mode":"amend","n":1}`: "T-STK-02",
+		`"append"`: "{mode, n?}", `{"mode":"append","n":1}`: "{mode, n?}", `{"mode":"sideways"}`: "{mode, n?}",
+		`{}`: "{mode, n?}", `null`: "{mode, n?}", `{"mode":"append","extra":true}`: "{mode, n?}", `{"mode":"before","n":1.5}`: "{mode, n?}",
+	} {
+		w = request("POST", "/api/todos", `{"title":"One","prompt":"Change README","place":`+place+`}`, "place "+place, owner)
+		require.Equal(t, 400, w.Code, place)
+		require.Contains(t, w.Body.String(), `"code":"invalid_place"`, place)
+		require.Contains(t, w.Body.String(), message, place)
+	}
 	w = request("POST", "/api/todos", body, "key", owner)
 	require.Equal(t, 202, w.Code, w.Body.String())
-	require.JSONEq(t, `{"state":"accepted","n":1,"rev":1}`, w.Body.String())
+	require.JSONEq(t, `{"state":"accepted","n":1,"rev":1}`, w.Body.String(), "a refused place consumes no number")
 	w = request("POST", "/api/todos", body, "key", owner)
 	require.Equal(t, 202, w.Code)
+	require.JSONEq(t, `{"state":"accepted","n":1,"rev":1}`, w.Body.String())
+	// An absent place appends, so it is the same request as the explicit append.
+	w = request("POST", "/api/todos", `{"title":"One","prompt":"Change README","acceptance":[]}`, "key", owner)
+	require.Equal(t, 202, w.Code, w.Body.String())
+	require.JSONEq(t, `{"state":"accepted","n":1,"rev":1}`, w.Body.String())
 	w = request("POST", "/api/todos", `{"title":"Other","prompt":"Other"}`, "key", owner)
 	require.Equal(t, 409, w.Code)
 	require.Contains(t, w.Body.String(), "idempotency_mismatch")

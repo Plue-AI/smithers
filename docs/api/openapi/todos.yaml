@@ -42,7 +42,14 @@ paths:
                 acceptance:
                   type: array
                   items: {type: string}
-                place: {type: string, enum: [append]}
+                place:
+                  description: Where the TODO goes; absent appends. Before and amend are refused with invalid_place until T-STK-02.
+                  type: object
+                  additionalProperties: false
+                  required: [mode]
+                  properties:
+                    mode: {type: string, enum: [append, before, amend]}
+                    n: {type: integer, minimum: 1}
       responses:
         '202':
           description: Persisted TODO creation; execution has not completed
@@ -56,7 +63,7 @@ paths:
                   n: {type: integer, minimum: 1}
                   rev: {type: integer, minimum: 1}
         '400':
-          description: Invalid TODO or missing Idempotency-Key
+          description: Invalid TODO, missing Idempotency-Key, or invalid_place
         '403':
           description: Install owner session required
         '409':

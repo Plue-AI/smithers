@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,11 +22,36 @@ import (
 // when given, names the filing: the same request again answers the TODO it
 // filed instead of opening another issue.
 type MythicalTodoInput struct {
-	Prompt     string   `json:"prompt"`
-	Acceptance []string `json:"acceptance"`
-	Place      string   `json:"place,omitempty"`
-	Title      string   `json:"title"`
-	Request    string   `json:"-"`
+	Prompt     string            `json:"prompt"`
+	Acceptance []string          `json:"acceptance"`
+	Place      MythicalTodoPlace `json:"place"`
+	Title      string            `json:"title"`
+	Request    string            `json:"-"`
+}
+
+// MythicalTodoPlace is where a new TODO goes on the stack: the Draft's place
+// {mode: append|before|amend, n?}. The zero value (no place) appends.
+type MythicalTodoPlace struct {
+	Mode string `json:"mode"`
+	N    *int64 `json:"n,omitempty"`
+}
+
+func invalidTodoPlace(message string) error {
+	return &TodoControlError{400, "invalid_place", "user", message}
+}
+
+// UnmarshalJSON admits only the object {mode, n?}; any other value is
+// invalid_place, never a generic decode failure.
+func (p *MythicalTodoPlace) UnmarshalJSON(data []byte) error {
+	type plain MythicalTodoPlace
+	var value plain
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil || value.Mode == "" {
+		return invalidTodoPlace("place must be {mode, n?}")
+	}
+	*p = MythicalTodoPlace(value)
+	return nil
 }
 
 // FileTodo appends the person's prompt directly to the existing stack. No
@@ -49,10 +75,13 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || input.Request == "" || len(input.Request) > 256 {
 		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "Title, prompt and Idempotency-Key are required"}
 	}
-	if input.Place != "" && input.Place != "append" {
-		return MythicalItemView{}, &TodoControlError{400, "invalid_place", "user", "Only append is available"}
+	switch place := input.Place; {
+	case place.Mode == "before" || place.Mode == "amend":
+		return MythicalItemView{}, invalidTodoPlace("Only append is available; before and amend arrive with T-STK-02")
+	case place.N != nil || place.Mode != "" && place.Mode != "append":
+		return MythicalItemView{}, invalidTodoPlace("place must be {mode, n?}")
 	}
-	input.Place = "append"
+	input.Place = MythicalTodoPlace{Mode: "append"}
 	if input.Acceptance == nil {
 		input.Acceptance = []string{}
 	}

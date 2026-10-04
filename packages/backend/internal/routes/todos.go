@@ -88,7 +88,11 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
 	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
-		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO request"})
+		var refusal *services.TodoControlError
+		if !errors.As(err, &refusal) {
+			refusal = &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO request"}
+		}
+		todoRouteError(w, refusal)
 		return
 	}
 	input.Request = r.Header.Get("Idempotency-Key")
