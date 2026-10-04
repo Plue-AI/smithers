@@ -10,7 +10,7 @@ import { CodingError, Plan, PlanningInput, RequestInput, RequestResult } from ".
 import { AdmitSource } from "../source-admission.ts"
 import { admitStackBase } from "../stack.ts"
 import { FeedbackReceipt, ReceiveFeedback } from "../steering.ts"
-import { StampRoute, Todo } from "../todo.ts"
+import { RouteRequest, StampRoute } from "../todo-route.ts"
 import { InstallDependencyPages } from "../wiki-refresh.ts"
 
 export const maximumPlanningPasses = 8
@@ -187,7 +187,7 @@ export default Flow.make("coding/Request", {
     const dependencyPages = (input.wiki?.pages ?? []).filter(isDependencyPage)
     return input.base === undefined ? implement(input.feedback ?? "") : admitStackBase(input.base).pipe(
       Node.andThen(InstallDependencyPages.call({ pages: dependencyPages })),
-      Node.andThen(Todo.child({ prompt: input.prompt, feedback: input.feedback ?? "" })),
+      Node.andThen(RouteRequest.child({ prompt: input.prompt, feedback: input.feedback ?? "" })),
       Node.bindPlanned((routed) =>
         Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback) }).pipe(
           Node.map(({ result, routed }) => ({ ...result, route: routed.route })),

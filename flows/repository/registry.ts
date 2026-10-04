@@ -7,7 +7,7 @@ import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as MarkdownFlow from "@smthrs/registry/MarkdownFlow"
 import * as Registry from "@smthrs/registry/Registry"
-import { registryError } from "@smthrs/registry/RegistryError"
+import { type RegistryError, registryError } from "@smthrs/registry/RegistryError"
 import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { fileURLToPath } from "node:url"
 import {
@@ -51,6 +51,8 @@ const policySources = [
   "../coding/dispatch/flow.ts",
   "../coding/implementation/flow.ts",
   "../coding/request/flow.ts",
+  "../coding/todo.ts",
+  "../coding/todo-route.ts",
   "../coding/verify/flow.ts",
   "../coding/vibe/flow.ts",
   "../coding/wiki/flow.ts",
@@ -392,6 +394,9 @@ export const bindRepositoryRegistry = (
   policy: string,
   systemFlows: ReadonlyArray<string>
 ): Registry.Registry => {
+  // TODO activation needs the real pinned-source and current-attempt providers.
+  // Refuse before module import; working-tree discovery cannot supply that pin.
+  const dark = (name: string) => name === "todo"
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)
   // Legacy packaged delegates retain their codecs and policy fence. These
@@ -422,17 +427,25 @@ export const bindRepositoryRegistry = (
       }) :
       descriptor
   }
-  const owned = (name: string) =>
-    bundled(name)
+  const owned = (name: string): Effect.Effect<Registry.Registry, RegistryError> =>
+    dark(name)
+      ? Effect.fail(
+        registryError({
+          code: "body_unavailable",
+          method: "get",
+          description: "TODO pinned-source activation is unavailable"
+        })
+      )
+      : bundled(name)
       ? Effect.succeed(builtins)
       : base.getOption(name).pipe(Effect.map((found) => Option.isSome(found) ? base : builtins))
   const get = (name: string) => owned(name).pipe(Effect.flatMap((registry) => registry.get(name)), Effect.map(derived))
   const list = () =>
     Effect.all([base.list(), builtins.list()]).pipe(Effect.map(([project, defaults]) =>
       [
-        ...project.filter((entry) => !bundled(entry.name)),
+        ...project.filter((entry) => !dark(entry.name) && !bundled(entry.name)),
         ...defaults.filter((entry) =>
-          bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name)
+          !dark(entry.name) && (bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name))
         )
       ].map(derived)
     ))
@@ -473,13 +486,15 @@ export const bindRepositoryRegistry = (
   return Object.assign(registry, {
     [repositoryRefusals]: base.list().pipe(
       Effect.map((entries) =>
-        entries.filter((entry) => bundled(entry.name)).map((entry) =>
+        entries.filter((entry) => dark(entry.name) || bundled(entry.name)).map((entry) =>
           new Executable.ExecutableError({
-            code: "reserved_name",
+            code: dark(entry.name) ? "missing_service" : "reserved_name",
             flow: entry.name,
             path: entry.path,
             available: [],
-            message: `Repository flow "${entry.name}" uses a reserved system name`
+            message: dark(entry.name)
+              ? "TODO pinned-source activation is unavailable"
+              : `Repository flow "${entry.name}" uses a reserved system name`
           })
         )
       )

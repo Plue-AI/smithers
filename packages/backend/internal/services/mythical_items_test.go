@@ -1318,3 +1318,26 @@ func TestForeignPushPollCannotSettleHold(t *testing.T) {
 		})
 	}
 }
+
+// Enters the production admission boundary with no store, host, launcher or
+// lane service: touching any of them before refusal would panic. This is dark
+// admission evidence only, not provider integration or the fresh-install gate.
+func TestTodoDarkAdmission(t *testing.T) {
+	now := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	for _, state := range []string{"queued", "retrying"} {
+		t.Run(state, func(t *testing.T) {
+			item := db.MythicalItem{Source: "issue", State: state, Attempt: 2, Generation: 3,
+				WorkspaceID: "retained-workspace", RequestRunID: "retained-run",
+				CandidateHead: "retained-candidate", Checks: json.RawMessage(`{"launches":4,"outages":1,"replans":2}`)}
+			step := mythicalItemStep{now: now}
+			refused, admitted, err := step.start(context.Background(), item)
+			require.NoError(t, err)
+			require.False(t, admitted)
+			require.NotNil(t, refused)
+			require.Contains(t, refused.Reason, "TODO admission unavailable")
+			require.Equal(t, now.Add(time.Minute), refused.NextAttemptAt.Time)
+			refused.Reason, refused.NextAttemptAt = item.Reason, item.NextAttemptAt
+			require.Equal(t, item, *refused, "dark admission preserves the attempt, counters and old receipts")
+		})
+	}
+}

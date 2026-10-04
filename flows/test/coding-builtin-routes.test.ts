@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url"
 import { missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
+import Todo from "../coding/todo.ts"
 import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "../repository/registry.ts"
 import { RunJob, RunSetup } from "../repository/setup.ts"
 import { RunTrigger } from "../repository/triggers.ts"
@@ -242,3 +243,34 @@ for (const name of ["members.add", "secrets.set", "coding/wiki", "stack.candidat
     await assert.rejects(access(marker), { code: "ENOENT" })
   })
 }
+
+// Composition inspection does not claim the joint guest/Active-source gate.
+// Existing routes remain discoverable exclusively for legacy draining.
+test("the TODO composition reuses the request and delivery children and remains unmounted", async (t) => {
+  assert.equal(Todo._tag, "todo")
+  const graph = Graph.build(Todo, {
+    prompt: "Add a regression test.",
+    base: {
+      commitId: "1111111111111111111111111111111111111111",
+      ref: "refs/smithers/workspaces/11111111-2222-3333-4444-555555555555/sources/1111111111111111111111111111111111111111"
+    }
+  })
+  const calls = graph.nodes.flatMap(({ ast }) =>
+    ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
+  )
+  assert.deepEqual(calls, ["coding/Request", "coding/todo-delivery", "coding/Vibe", "todo"])
+  const { repositoryPath, stateRoot } = await workspace(t)
+  assert.equal((await startup(repositoryPath, stateRoot, "host")).listed.includes("todo"), false)
+})
+
+test("a TODO override is refused before import until pinned-source activation is integrated", async (t) => {
+  const { catalog, write, repositoryPath } = await boundary(t)
+  const marker = join(repositoryPath, "todo-imported")
+  await write("todo", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
+  const { built, registry } = await catalog()
+  assert.deepEqual(built.refused.map(({ flow, code }) => ({ flow, code })), [{ flow: "todo", code: "missing_service" }])
+  assert.equal(built.executables.some((entry) => entry.descriptor.name === "todo"), false)
+  await assert.rejects(Effect.runPromise(registry.loadBody("todo", "b".repeat(64))), /body_unavailable/)
+  assert.equal((await Effect.runPromise(registry.list())).some((entry) => entry.name === "todo"), false)
+  await assert.rejects(access(marker), { code: "ENOENT" })
+})

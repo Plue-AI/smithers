@@ -1672,6 +1672,16 @@ func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalI
 
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
+	// Freeze fresh request admission before placement, capture or publication.
+	// Legacy phase executors below still drain already-admitted attempts. There
+	// is intentionally no enable flag: production provider integration and its
+	// drain/security receipts must replace this refusal (T-FLW-11).
+	if item.Source == "issue" {
+		next := item
+		next.Reason = "TODO admission unavailable"
+		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(time.Minute), Valid: true}
+		return &next, false, nil
+	}
 	if item.Source != "issue" {
 		next := item
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
