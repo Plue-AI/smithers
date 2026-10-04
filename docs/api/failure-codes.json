@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:d78daa3984aa8a1a2b53a795f1f18777345bb824320e089c239c85a53bc43da3",
+  "digest": "sha256:ecf993eea3a26ec2eaf153f4c399e02a09bd3450281ccc41ef4fa5b1c6435c0e",
   "faults": [
     "user",
     "wait",
@@ -451,6 +451,13 @@
       "status": 400,
       "retry_after": 0,
       "doc": "The share listing contains something that scans as a credential; it was not published."
+    },
+    {
+      "code": "machines_disabled",
+      "fault": "infra",
+      "status": 503,
+      "retry_after": 0,
+      "doc": "Machines are off in this preview. Retrying does not help in this build."
     },
     {
       "code": "no_capacity",

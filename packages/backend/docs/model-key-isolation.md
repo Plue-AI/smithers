@@ -20,7 +20,9 @@ model keeps its own credential and fails when that credential is missing.
 
 Every repository uses microVM isolation. The owned backend launcher sets
 `SMITHERS_WORKSPACE_ISOLATION=microvm` explicitly and ignores shell overrides.
-For a direct backend launch, set that value explicitly. The process workspace
+For a direct backend launch, set that value explicitly. Builds tagged
+`smithers_preview` also accept `SMITHERS_WORKSPACE_ISOLATION=off`; machines
+and chat are unavailable in that preview. Install builds reject `off`. The process workspace
 runtime is for tests only; binding an overridable flow requires the explicit
 `flowhost.Config.AllowTrustedProcessForTests` option. No install environment
 variable bypasses that refusal. A process shares the backend owner's permissions

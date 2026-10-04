@@ -17,6 +17,8 @@ import (
 
 type Config struct {
 	StateDir string
+	// StopBudget bounds app drain and PostgreSQL shutdown together; zero uses 15s.
+	StopBudget time.Duration
 	// Release optionally asserts bundle metadata; the binary remains authoritative.
 	Release  Version
 	Postgres postgres.Config
@@ -65,7 +67,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	previous, existed := os.LookupEnv("SMITHERS_DATABASE_URL")
 	if err := os.Setenv("SMITHERS_DATABASE_URL", database.ConnectionString); err != nil {
-		_ = stop(database)
+		_ = stop(database, cfg.StopBudget)
 		return err
 	}
 	defer func() {
@@ -79,10 +81,10 @@ func Run(ctx context.Context, cfg Config) error {
 		if errors.Is(err, product.ErrUnsupportedVersion) {
 			err = &GuardError{Reason: "database schema is newer than this binary; restore a verified backup", Backup: "<backup>", Cause: err}
 		}
-		return errors.Join(fmt.Errorf("migrate owned postgres: %w", err), stop(database))
+		return errors.Join(fmt.Errorf("migrate owned postgres: %w", err), stop(database, cfg.StopBudget))
 	}
 	if err := WriteVersion(root, release); err != nil {
-		return errors.Join(fmt.Errorf("publish state version: %w", err), stop(database))
+		return errors.Join(fmt.Errorf("publish state version: %w", err), stop(database, cfg.StopBudget))
 	}
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -91,7 +93,7 @@ func Run(ctx context.Context, cfg Config) error {
 	select {
 	case appErr := <-appDone:
 		cancel()
-		return errors.Join(appErr, stop(database))
+		return errors.Join(appErr, stop(database, cfg.StopBudget))
 	case <-database.Done():
 		cancel()
 		appErr := <-appDone
@@ -105,8 +107,19 @@ func Run(ctx context.Context, cfg Config) error {
 		return errors.Join(pgErr, appErr)
 	case <-ctx.Done():
 		cancel()
-		appErr := <-appDone
-		stopErr := stop(database)
+		budget := cfg.StopBudget
+		if budget <= 0 {
+			budget = 15 * time.Second
+		}
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), budget)
+		defer stopCancel()
+		var appErr error
+		select {
+		case appErr = <-appDone:
+		case <-stopCtx.Done():
+			appErr = stopCtx.Err()
+		}
+		stopErr := database.Stop(stopCtx)
 		if appErr != nil && !errors.Is(appErr, context.Canceled) {
 			return errors.Join(appErr, stopErr)
 		}
@@ -117,8 +130,11 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func stop(database *postgres.Instance) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func stop(database *postgres.Instance, budget time.Duration) error {
+	if budget <= 0 {
+		budget = 15 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	return database.Stop(ctx)
 }

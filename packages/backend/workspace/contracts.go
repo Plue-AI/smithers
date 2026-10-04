@@ -18,6 +18,7 @@ import (
 type IsolationLevel string
 
 const (
+	IsolationDisabled       IsolationLevel = "disabled"
 	IsolationTrustedProcess IsolationLevel = "trusted_process"
 	IsolationSandboxed      IsolationLevel = "isolated"
 )

@@ -34,6 +34,10 @@ type flowComposition struct {
 }
 
 func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
+	if options.Workspace != nil && options.Workspace.Isolation() == workspace.IsolationDisabled {
+		invoked.SetMachinesDisabled()
+		return nil, nil
+	}
 	if options.FlowHostRegistry == nil {
 		return nil, nil
 	}

@@ -365,6 +365,11 @@ const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
    * Each gets its own sentence because each rules out a DIFFERENT wrong move —
    * waiting, signing in again, changing the request.
    */
+  machines_disabled: {
+    lead: "Machines are off in this preview.",
+    agent: "fault=infra: Machines are off in this preview. Not your fault. Retrying fails identically in this build; do not say Smithers ran out of infra.",
+    doors: ["report"]
+  },
   feature_not_enabled: {
     lead:
       "This deployment of Smithers doesn't have that switched on. Not your fault, and not something you can switch on from here.",

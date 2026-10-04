@@ -24,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	"github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // Config holds the process-level inputs of the shared backend. The product
@@ -71,7 +72,8 @@ type Config struct {
 	RepositoryPlacement    ports.RepositoryPlacement
 	RepositoryProvisioning ports.RepositoryProvisioning
 	// Workspace supplies the common execution boundary. The app closes it after
-	// requests and workers stop. Coding hosts require an isolated runtime;
+	// requests and workers stop. A disabled preview runtime owns no resources.
+	// Coding hosts require an isolated runtime;
 	// trusted process coding hosts require explicit test configuration.
 	Workspace ports.WorkspaceRuntime
 	// FlowHostRegistry is the verified set of packaged canonical Flow hosts.
@@ -238,7 +240,7 @@ func (cfg Config) options() compose.Options {
 }
 
 func closeWorkspace(runtime ports.WorkspaceRuntime, runErr error) error {
-	if runtime == nil {
+	if runtime == nil || runtime.Isolation() == workspace.IsolationDisabled {
 		return runErr
 	}
 	return errors.Join(runErr, runtime.Close())

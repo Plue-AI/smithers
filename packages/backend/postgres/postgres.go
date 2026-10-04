@@ -395,7 +395,13 @@ func (i *Instance) stopProcess(ctx context.Context) error {
 	default:
 	}
 	_ = i.cmd.Process.Signal(immediateShutdownSignal())
-	timer := time.NewTimer(shutdownGrace)
+	// Escalation must fit inside the caller's deadline. A cancelled context
+	// without a deadline retains the usual immediate-shutdown grace.
+	grace := shutdownGrace
+	if deadline, ok := ctx.Deadline(); ok {
+		grace = max(0, min(grace, time.Until(deadline)))
+	}
+	timer := time.NewTimer(grace)
 	defer timer.Stop()
 	select {
 	case <-i.done:
