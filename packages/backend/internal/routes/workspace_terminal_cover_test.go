@@ -224,6 +224,7 @@ func TestWorkspaceTerminal_Cov_PipeWSToTerminalSession(t *testing.T) {
 			return
 		}
 		defer conn.CloseNow()
+		registerTerminalOwnerFixture(sess, conn)
 		(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), r.Context(), conn, sess, "sess-terminal", func() {
 			activity.Add(1)
 		})

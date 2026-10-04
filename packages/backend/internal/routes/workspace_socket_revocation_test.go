@@ -377,6 +377,7 @@ func TestTerminalRelayDropsInputAfterAuthorizationCancellationWithoutClientRead(
 	}()
 	done := make(chan struct{})
 	go func() {
+		registerTerminalOwnerFixture(session, serverWS)
 		(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(ctx, authorizationCtx, serverWS, session, "s1", func() {})
 		close(done)
 	}()

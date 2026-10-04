@@ -453,9 +453,10 @@ func (s *terminalSession) deadErr() error {
 // output drained while the sink is attached, so a reconnected client watching
 // output (not typing) still refreshes last_activity_at. Each attach carries
 // its own callback — the session never holds a stale first-connection one.
-func (s *terminalSession) addSink(_ context.Context, ws *websocket.Conn, touch func()) (*terminalSink, error) {
+func (s *terminalSession) addSink(_ context.Context, ws *websocket.Conn, touch func(), principal revocation.Principal) (*terminalSink, error) {
 	sink := newTerminalSink(ws, defaultTerminalSinkBufferFrames, defaultTerminalSinkWriteTimeout)
 	sink.touch = touch
+	sink.principal = principal
 	s.mu.Lock()
 	if s.dead {
 		err := s.deadErrV
@@ -565,6 +566,21 @@ func (s *terminalSession) destroyIfUnattached(msg string) {
 	s.deadMsg = msg
 	s.mu.Unlock()
 	s.destroy(msg)
+}
+
+// ownsInput resolves authority from the registered attachment and session, never a frame.
+func (s *terminalSession) ownsInput(ws *websocket.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dead || s.principal.UserID <= 0 {
+		return false
+	}
+	for sink := range s.sinks {
+		if sink.ws == ws {
+			return sink.principal.UserID == s.principal.UserID
+		}
+	}
+	return false
 }
 
 func (s *terminalSession) writeStdin(p []byte) error {
@@ -753,6 +769,7 @@ type sinkFrame struct {
 // held across a network write. `out` is bounded; a backed-up client is evicted
 // rather than allowed to block the shared PTY pump.
 type terminalSink struct {
+	principal    revocation.Principal
 	ws           *websocket.Conn
 	out          chan sinkFrame
 	writeTimeout time.Duration
@@ -841,15 +858,33 @@ func (m *TerminalSessionManager) RevokeMatching(event revocation.Event) {
 		}
 	}
 	var doomed []*terminalSession
+	var watchers []struct {
+		session *terminalSession
+		sink    *terminalSink
+	}
 	for _, sess := range m.sessions {
 		sess.mu.Lock()
 		affected := event.Affects(sess.principal)
+		if !affected {
+			for sink := range sess.sinks {
+				if event.Affects(sink.principal) {
+					watchers = append(watchers, struct {
+						session *terminalSession
+						sink    *terminalSink
+					}{sess, sink})
+				}
+			}
+		}
 		sess.mu.Unlock()
 		if affected {
 			doomed = append(doomed, sess)
 		}
 	}
 	m.mu.Unlock()
+	for _, watcher := range watchers {
+		watcher.session.removeSink(watcher.sink)
+		go func(sink *terminalSink) { _ = sink.close(websocket.StatusPolicyViolation, "access revoked") }(watcher.sink)
+	}
 	for _, sess := range doomed {
 		reason := "access revoked"
 		if event.Reason != "" {

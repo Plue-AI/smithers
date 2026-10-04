@@ -222,7 +222,7 @@ func TestTerminalSessionManager_Cov_SinkHelpers(t *testing.T) {
 		sess := newTerminalSession("sess-dead", &terminalSessionManagerCovSSHClient{}, terminalSessionManagerCovNewSSHSession(), &terminalSessionManagerCovWriteCloser{}, bytes.NewBuffer(nil), bytes.NewBuffer(nil), 1024, time.Millisecond, 0, nil)
 		sess.markDead(errors.New("finished"))
 
-		sink, err := sess.addSink(context.Background(), &websocket.Conn{}, nil)
+		sink, err := sess.addSink(context.Background(), &websocket.Conn{}, nil, revocation.Principal{})
 
 		require.Nil(t, sink)
 		require.EqualError(t, err, "finished")

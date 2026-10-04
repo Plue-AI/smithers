@@ -126,6 +126,7 @@ type SmithersMetrics struct {
 
 	// WorkspaceTerminalAttachTotal counts terminal WebSocket attach outcomes.
 	WorkspaceTerminalAttachTotal *prometheus.CounterVec
+	TerminalInputDroppedTotal    prometheus.Counter
 
 	// WorkspaceLSPAttachTotal counts language-server WebSocket attach outcomes (#505).
 	WorkspaceLSPAttachTotal *prometheus.CounterVec
@@ -228,6 +229,7 @@ func NewSmithersMetrics() *SmithersMetrics {
 		Help:    "Duration of workspace-session provisioning in seconds.",
 		Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600},
 	}, []string{"status"})
+	terminalInputDropped := prometheus.NewCounter(prometheus.CounterOpts{Name: "smithers_terminal_input_dropped_total", Help: "Terminal input frames dropped from read-only attachments."})
 	workspaceTerminalAttach := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "smithers_workspace_terminal_attach_total",
 		Help: "Total workspace terminal WebSocket attach attempts by result.",
@@ -270,6 +272,7 @@ func NewSmithersMetrics() *SmithersMetrics {
 		workspaceSessionProvision,
 		workspaceSessionProvisionDuration,
 		workspaceTerminalAttach,
+		terminalInputDropped,
 		workspaceLSPAttach,
 		canaryWebhookLastReceived,
 	)
@@ -287,6 +290,7 @@ func NewSmithersMetrics() *SmithersMetrics {
 		WorkspaceSessionProvisionTotal:            workspaceSessionProvision,
 		WorkspaceSessionProvisionDurationSeconds:  workspaceSessionProvisionDuration,
 		WorkspaceTerminalAttachTotal:              workspaceTerminalAttach,
+		TerminalInputDroppedTotal:                 terminalInputDropped,
 		WorkspaceLSPAttachTotal:                   workspaceLSPAttach,
 		CanaryWebhookLastReceivedTimestampSeconds: canaryWebhookLastReceived,
 

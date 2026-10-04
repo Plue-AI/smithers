@@ -307,7 +307,7 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		}
 		return
 	}
-	sink, err := termSession.addSink(ctx, wsConn, notifyActivity)
+	sink, err := termSession.addSink(ctx, wsConn, notifyActivity, principal)
 	if err != nil {
 		if created {
 			termSession.destroyIfUnattached("terminal attach failed")
@@ -703,6 +703,12 @@ func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization co
 		if authorization.Err() != nil {
 			_ = ws.Close(websocket.StatusPolicyViolation, "access revoked")
 			return
+		}
+		if !sess.ownsInput(ws) {
+			if msgType == websocket.MessageBinary && h.Metrics != nil && h.Metrics.TerminalInputDroppedTotal != nil {
+				h.Metrics.TerminalInputDroppedTotal.Inc()
+			}
+			continue
 		}
 		notifyActivity()
 

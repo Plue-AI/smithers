@@ -36,7 +36,7 @@ func TestReattachReplaysRingBuffer(t *testing.T) {
 
 		sess, _, err := manager.getOrCreate(r.Context(), "sess-1", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.NoError(t, err)
-		sink, err := sess.addSink(r.Context(), ws, func() {})
+		sink, err := sess.addSink(r.Context(), ws, func() {}, revocation.Principal{})
 		require.NoError(t, err)
 		defer sess.removeSink(sink)
 		<-r.Context().Done()
@@ -139,9 +139,9 @@ func TestSlowSinkDoesNotBlockHealthySink(t *testing.T) {
 	defer healthyClient.CloseNow()
 	healthyServerWS := <-healthyReady
 
-	slowSink, err := sess.addSink(ctx, slowServerWS, func() {})
+	slowSink, err := sess.addSink(ctx, slowServerWS, func() {}, revocation.Principal{})
 	require.NoError(t, err)
-	_, err = sess.addSink(ctx, healthyServerWS, func() {})
+	_, err = sess.addSink(ctx, healthyServerWS, func() {}, revocation.Principal{})
 	require.NoError(t, err)
 
 	// Background reader: drains the healthy client and reports each frame it
@@ -276,7 +276,7 @@ func TestIdleExpireStaleGenerationDoesNotKillReattachedSession(t *testing.T) {
 	// generation.
 	serverWS, _, cleanup := terminalSessionManagerHWebsocketPair(t)
 	defer cleanup()
-	reattached, err := sess.addSink(context.Background(), serverWS, nil)
+	reattached, err := sess.addSink(context.Background(), serverWS, nil, revocation.Principal{})
 	require.NoError(t, err)
 	defer sess.removeSink(reattached)
 
@@ -312,7 +312,7 @@ func TestDestroyIfUnattached(t *testing.T) {
 	// With a sink attached, destroyIfUnattached is a no-op.
 	serverWS, _, cleanup := terminalSessionManagerHWebsocketPair(t)
 	defer cleanup()
-	sink, err := sess.addSink(context.Background(), serverWS, nil)
+	sink, err := sess.addSink(context.Background(), serverWS, nil, revocation.Principal{})
 	require.NoError(t, err)
 	sess.destroyIfUnattached("websocket accept failed")
 	assert.False(t, sess.isDead())
@@ -353,7 +353,7 @@ func TestReattachUsesFreshActivityCallback(t *testing.T) {
 
 	firstWS, firstClient, firstCleanup := terminalSessionManagerHWebsocketPair(t)
 	defer firstCleanup()
-	firstSink, err := sess.addSink(context.Background(), firstWS, func() { first.Add(1) })
+	firstSink, err := sess.addSink(context.Background(), firstWS, func() { first.Add(1) }, revocation.Principal{})
 	require.NoError(t, err)
 
 	// First connection drops.
@@ -363,7 +363,7 @@ func TestReattachUsesFreshActivityCallback(t *testing.T) {
 	// Reconnect with a new activity callback.
 	secondWS, secondClient, secondCleanup := terminalSessionManagerHWebsocketPair(t)
 	defer secondCleanup()
-	secondSink, err := sess.addSink(context.Background(), secondWS, func() { second.Add(1) })
+	secondSink, err := sess.addSink(context.Background(), secondWS, func() { second.Add(1) }, revocation.Principal{})
 	require.NoError(t, err)
 	defer sess.removeSink(secondSink)
 

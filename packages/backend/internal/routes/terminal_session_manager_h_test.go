@@ -93,7 +93,7 @@ func TestTerminalSessionManager_H_SessionHelperBranches(t *testing.T) {
 
 		sess.deadMsg = "closed"
 		require.EqualError(t, sess.deadErr(), "closed")
-		sink, err := sess.addSink(context.Background(), nil, nil)
+		sink, err := sess.addSink(context.Background(), nil, nil, revocation.Principal{})
 		require.Nil(t, sink)
 		require.EqualError(t, err, "closed")
 	})
@@ -149,7 +149,7 @@ func TestTerminalSessionManager_H_LiveSinkAndShellBranches(t *testing.T) {
 		sess.ring.Append([]byte("replay"))
 		sess.idle = time.AfterFunc(time.Hour, func() {})
 
-		sink, err := sess.addSink(context.Background(), serverWS, nil)
+		sink, err := sess.addSink(context.Background(), serverWS, nil, revocation.Principal{})
 		require.NoError(t, err)
 		typ, msg, err := clientWS.Read(context.Background())
 		require.NoError(t, err)

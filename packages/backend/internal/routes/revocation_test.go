@@ -84,7 +84,7 @@ func TestTerminalSessionManager_RevokeMatchingClosesAttachedSinkWithPolicyViolat
 
 	serverWS, clientWS, cleanup := terminalSessionManagerHWebsocketPair(t)
 	defer cleanup()
-	sink, err := sess.addSink(context.Background(), serverWS, nil)
+	sink, err := sess.addSink(context.Background(), serverWS, nil, revocation.Principal{})
 	require.NoError(t, err)
 	defer sess.removeSink(sink)
 
