@@ -15,6 +15,23 @@ func (r *Runtime) inUseLocked() int {
 			count++
 		}
 	}
+	for _, h := range r.admission {
+		if !h.held {
+			continue
+		}
+		counted := false
+		if _, ok := r.auxVMs[h.machine]; h.machine != "" && ok {
+			counted = true
+		}
+		for _, ws := range r.workspaces {
+			if h.machine != "" && ws.Machine == h.machine && ws.State != "stopped" && ws.State != "recovery_required" {
+				counted = true
+			}
+		}
+		if !counted {
+			count++
+		}
+	}
 	return count
 }
 
@@ -25,7 +42,7 @@ func (r *Runtime) reserveAuxVM(ctx context.Context, name string) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err := r.admitRunningLocked(maximum); err != nil {
+	if err := r.admitMachineLocked(ctx, maximum, name); err != nil {
 		return err
 	}
 	if r.auxVMs == nil {
@@ -40,6 +57,7 @@ func (r *Runtime) releaseAuxVM(name string) {
 	defer r.mu.Unlock()
 	delete(r.auxVMs, name)
 	delete(r.auxCleanup, name)
+	r.detachAdmissionMachineLocked(name, false)
 }
 
 func (r *Runtime) finishAuxVM(name string) error {

@@ -152,12 +152,14 @@ type Runtime struct {
 	environments *environments
 	codingHelper codingHelperCache
 
-	mu             sync.Mutex
-	closed         bool
-	workspaces     map[string]*workspace
-	auxVMs         map[string]struct{}
-	auxCleanup     map[string]struct{}
-	capacityReader func(context.Context) (int, error)
+	mu                sync.Mutex
+	closed            bool
+	workspaces        map[string]*workspace
+	auxVMs            map[string]struct{}
+	auxCleanup        map[string]struct{}
+	capacityReader    func(context.Context) (int, error)
+	admission         map[string]*admissionHolder
+	admissionSequence uint64
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -493,12 +495,13 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		r.mu.Unlock()
 		return describe(existing), nil
 	}
-	if err := r.admitRunningLocked(maximum); err != nil {
+	if err := r.admitMachineLocked(ctx, maximum, r.machineName(id)); err != nil {
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
 	directory := filepath.Join(r.root, "workspaces", digest(id))
 	if err := os.Mkdir(directory, 0o700); err != nil {
+		r.detachAdmissionMachineLocked(r.machineName(id), false)
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, fmt.Errorf("create microsandbox workspace state: %w", err)
 	}
@@ -513,7 +516,13 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		return workspaceapi.Workspace{}, err
 	}
 	if err := r.createMachine(ctx, ws); err != nil {
-		_ = r.removeMachine(context.Background(), ws.Machine)
+		if cleanupErr := r.removeMachine(context.Background(), ws.Machine); cleanupErr != nil {
+			r.mu.Lock()
+			ws.State = string(workspaceapi.WorkspaceStarting)
+			_ = writeMetadata(ws)
+			r.mu.Unlock()
+			return workspaceapi.Workspace{}, errors.Join(err, cleanupErr)
+		}
 		r.forget(ws)
 		return workspaceapi.Workspace{}, err
 	}
@@ -533,6 +542,7 @@ func (r *Runtime) forget(ws *workspace) {
 	defer r.mu.Unlock()
 	if r.workspaces[ws.ID] == ws {
 		delete(r.workspaces, ws.ID)
+		r.detachAdmissionMachineLocked(ws.Machine, true)
 	}
 	_ = os.RemoveAll(ws.directory)
 }
@@ -542,7 +552,7 @@ func (r *Runtime) forget(ws *workspace) {
 func (r *Runtime) admitRunningLocked(maximum int) error {
 	running := r.inUseLocked()
 	if running >= maximum {
-		return fmt.Errorf("microVM capacity reached: %d of %d machines are in use; stop one first", running, maximum)
+		return &CapacityError{Code: "machine_capacity", Class: "capacity", Message: fmt.Sprintf("microVM capacity reached: %d of %d machines are in use", running, maximum)}
 	}
 	return nil
 }
@@ -705,7 +715,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, fmt.Errorf("workspace is %s", state)
 	}
-	if err := r.admitRunningLocked(maximum); err != nil {
+	if err := r.admitMachineLocked(ctx, maximum, ws.Machine); err != nil {
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
@@ -718,12 +728,24 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 	} else {
 		startErr = r.startMachine(ctx, ws)
 	}
+	// A guest preparation failure can occur after the VM started. Keep its
+	// capacity until stop is confirmed, even if the caller cancelled the boot.
+	var stopErr error
+	if startErr != nil {
+		stopErr = r.stopMachine(context.Background(), ws.Machine)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if startErr != nil {
 		ws.State = string(workspaceapi.WorkspaceStopped)
+		if stopErr == nil {
+			r.detachAdmissionMachineLocked(ws.Machine, true)
+		}
+		if stopErr != nil {
+			ws.State = string(workspaceapi.WorkspaceStarting)
+		}
 		_ = writeMetadata(ws)
-		return workspaceapi.Workspace{}, startErr
+		return workspaceapi.Workspace{}, errors.Join(startErr, stopErr)
 	}
 	ws.Reclaimed = false
 	ws.State = string(workspaceapi.WorkspaceRunning)
@@ -842,6 +864,7 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 		return stopErr
 	}
 	ws.State = string(workspaceapi.WorkspaceStopped)
+	r.detachAdmissionMachineLocked(ws.Machine, true)
 	ws.guestOK = false
 	return writeMetadata(ws)
 }
