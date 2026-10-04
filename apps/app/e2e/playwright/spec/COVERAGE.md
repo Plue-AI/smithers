@@ -65,13 +65,18 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | fixme-before-implementation | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
-
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | fixme-before-implementation | T-STK-03 |
 | C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts) | fixme-before-implementation | T-STK-05 |
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | fixme-before-implementation | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
 | C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | fixme-before-implementation | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
 | C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-STK-08 | [C-STK-08.spec.ts](C-STK-08.spec.ts) | fixme-before-implementation | T-STK-01 |
+| C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | fixme-before-implementation | T-GH-01 |
+| C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
+| C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | fixme-before-implementation | T-GH-02 |
+| C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
