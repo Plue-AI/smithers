@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,14 +61,28 @@ func TestScorecardMissingCoverage(t *testing.T) {
 
 func TestScorecardMissingCoveragePostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
+	tracer := &scorecardSQLTrace{}
+	config := pool.Config()
+	config.ConnConfig.Tracer = tracer
+	observed, err := pgxpool.NewWithConfig(context.Background(), config)
+	require.NoError(t, err)
+	defer observed.Close()
 	ctx := context.Background()
 	// Table presence and even rows are not evidence of the new producer contract.
-	_, err := pool.Exec(ctx, `CREATE TABLE burst_files (id text); INSERT INTO burst_files VALUES ('unqualified');`)
+	_, err = pool.Exec(ctx, `CREATE TABLE burst_files (id text); INSERT INTO burst_files VALUES ('unqualified');`)
 	require.NoError(t, err)
 	from := time.Date(2026, 10, 4, 6, 30, 0, 0, time.UTC)
-	service := &ScorecardService{Pool: pool}
+	service := &ScorecardService{Pool: observed}
 	first, err := service.Summary(ctx, from, from.Add(14*24*time.Hour))
 	require.NoError(t, err)
+	require.Equal(t, "begin isolation level repeatable read read only", tracer.statements[0])
+	require.Equal(t, "commit", tracer.statements[len(tracer.statements)-1])
+	for _, statement := range tracer.statements[1 : len(tracer.statements)-1] {
+		require.True(t, strings.HasPrefix(strings.TrimSpace(statement), "--") || strings.HasPrefix(strings.TrimSpace(statement), "SELECT"), statement)
+		require.NotContains(t, strings.ToUpper(statement), "INSERT ")
+		require.NotContains(t, strings.ToUpper(statement), "UPDATE ")
+		require.NotContains(t, strings.ToUpper(statement), "DELETE ")
+	}
 	require.Len(t, first.Measures, 18)
 	require.Equal(t, ScorecardPersonMinutes{Source: "sampled_alpha_sessions", Verdict: "manual"}, first.PersonMinutes)
 	for name, measure := range first.Measures {
@@ -101,3 +118,12 @@ func TestScorecardMissingCoveragePostgres(t *testing.T) {
 	_, err = service.Summary(ctx, from, from)
 	require.Error(t, err)
 }
+
+// Observes SQL sent to the real PostgreSQL server, without replacing execution.
+type scorecardSQLTrace struct{ statements []string }
+
+func (s *scorecardSQLTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	s.statements = append(s.statements, data.SQL)
+	return ctx
+}
+func (*scorecardSQLTrace) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}

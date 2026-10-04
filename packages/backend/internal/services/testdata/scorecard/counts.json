@@ -1,0 +1,20 @@
+{
+ "install_start": {"value":"2026-10-04T06:30:00Z","verdict":"between"},
+ "first_answer": {"value":"2026-10-04T06:35:00Z","verdict":"between"},
+ "first_merge": {"value":"2026-10-04T07:18:00Z","verdict":"between"},
+ "accepted": {"value":60,"verdict":"between"},
+ "merged": {"value":52,"verdict":"between"},
+ "dropped": {"value":0,"verdict":"between"},
+ "failed": {"value":0,"verdict":"between"},
+ "dogfood": {"value":{"merged":52,"outside_percent":8.8},"verdict":"pass"},
+ "activation": {"value":48,"verdict":"pass"},
+ "core_value": {"value":{"accepted_per_week":[30,30]},"verdict":"pass"},
+ "terminal_edits": {"value":6,"verdict":"between"},
+ "second_member_actions": {"value":9,"verdict":"between"},
+ "no_hand_written_code": {"value":{"todos":43,"merged":52,"percent":82.7},"verdict":"between"},
+ "flow_revisions": {"value":2,"verdict":"between"},
+ "outside_work": {"value":{"commits":5,"total":57,"percent":8.8},"verdict":"between"},
+ "multiplayer": {"value":{"sessions":0,"per_week":[0,0]},"verdict":"kill"},
+ "retention": {"value":null,"verdict":"between"},
+ "self_improvement": {"value":0,"verdict":"kill"}
+}

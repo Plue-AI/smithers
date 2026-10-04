@@ -76,7 +76,7 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 	if _, err := queries.ScorecardSourceRelations(ctx); err != nil {
 		return Scorecard{}, err
 	}
-	out := unavailableScorecard(window)
+	out := aggregateScorecard(window, scorecardFacts{})
 	if err := tx.Commit(ctx); err != nil {
 		return Scorecard{}, err
 	}
