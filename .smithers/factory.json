@@ -1360,7 +1360,7 @@
   "on": [
     {
       "event": "issue.labeled:todo",
-      "flow": "coding/request",
+      "flow": "todo",
       "description": "Implement every TODO"
     },
     {

@@ -1235,3 +1235,21 @@ func TestMythicalRetryChatItemRetainsIdentityAndCAS(t *testing.T) {
 	require.Zero(t, checks.Replans)
 	require.Nil(t, checks.Fault)
 }
+
+// Removing fresh request admission must keep the chat-repair refusal without
+// reading a lane or resetting persisted engine-phase receipts.
+func TestTodoDarkAdmissionChatRepair(t *testing.T) {
+	item := db.MythicalItem{Source: "chat", State: "retrying", Attempt: 2, Generation: 3,
+		WorkspaceID: "retained-workspace", RequestRunID: "retained-request", VibeRunID: "retained-delivery",
+		VerifyRunID: "retained-verify", CandidateHead: "retained-candidate",
+		Checks: json.RawMessage(`{"launches":4,"outages":1,"replans":2}`)}
+	step := mythicalItemStep{}
+	refused, admitted, err := step.start(context.Background(), item)
+	require.NoError(t, err)
+	require.False(t, admitted)
+	require.NotNil(t, refused)
+	require.Equal(t, "blocked", refused.State)
+	require.Equal(t, "a chat result that no longer applies to the tip must be requested again", refused.Reason)
+	refused.State, refused.Reason = item.State, item.Reason
+	require.Equal(t, item, *refused)
+}

@@ -1373,11 +1373,6 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 	}
 }
 
-// start opens a lane for a new attempt: a fresh workspace on the stack, the
-// tip retained into its source ref, and coding/request launched on it. An
-// outage retry runs the same attempt again on the lane it already holds
-// (reusesLane): the request starts a fresh working change on the tip
-// there, so nothing the failed run left is its base.
 // prefix replaces the global folded tip: only a verified candidate on the
 // available prefix contributes. A stale candidate cannot carry obsolete bytes.
 func (st *mythicalItemStep) prefix(item db.MythicalItem) string {
@@ -1406,116 +1401,17 @@ func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalI
 }
 
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
-	s, r := st.s, st.r
-	// Freeze fresh request admission before placement, capture or publication.
-	// Legacy phase executors below still drain already-admitted attempts. There
-	// is intentionally no enable flag: production provider integration and its
-	// drain/security receipts must replace this refusal (T-FLW-11).
-	if item.Source == "issue" {
-		next := item
-		next.Reason = "TODO admission unavailable"
-		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(time.Minute), Valid: true}
-		return &next, false, nil
-	}
+	// T-FLW-11: no fresh request executor remains behind the dark refusal.
+	// Delivery, verify and review still drain already-admitted history. New
+	// composition admission requires the persisted pin and isolated providers.
+	next := item
 	if item.Source != "issue" {
-		next := item
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	if s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
-		return nil, false, nil
-	}
-	if hold := st.launchable(ctx, item); hold != nil {
-		return hold, false, nil
-	}
-	reuse, err := s.reusesLane(ctx, r, item)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "the lane could not be read: "+err.Error(), st.now), false, nil
-	}
-	// A reused lane keeps the machine it was placed on; a new one is placed
-	// before the previous lane is retired, so a refusal changes nothing else.
-	var placement MythicalPlacement
-	if !reuse {
-		var refused *db.MythicalItem
-		if placement, refused = st.place(ctx, item); refused != nil {
-			return refused, false, nil
-		}
-	}
-	if item.WorkspaceID != "" && !reuse {
-		// The previous attempt's lane is retired before a new one opens.
-		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
-			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
-		}
-	}
-	next := item
-	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
-	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
-	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
-	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
-	workspaceID := item.WorkspaceID
-	if !reuse {
-		workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation), placement)
-		if err != nil {
-			return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
-		}
-		placed := mythicalChecksOf(next)
-		placed.Placement = &placement
-		next.Checks = placed.encode()
-	}
-	base := st.prefix(item)
-	next.WorkspaceID, next.BaseCommit = workspaceID, base
-	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
-	// The launch below records the lane's start with the item, atomically.
-	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
-	ref, err := s.retainFor(ctx, r, workspaceID, base)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
-	}
-	request := map[string]any{"prompt": st.prompt(item, next.Attempt), "maxRounds": 3,
-		"base": map[string]string{"commitId": base, "ref": ref}}
-	// The lane plans with the published wiki; it never reviews the pages again.
-	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
-		request["wiki"] = wiki
-	}
-	payload, _ := json.Marshal(request)
-	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
-	saved, err := st.commit(ctx, next, "request", "coding/request", payload)
-	if owner, owned := factoryIssueOwned(err); owned {
-		deferred := item
-		deferred.Reason = owner.reason()
-		deferred.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(10 * time.Second), Valid: true}
-		return &deferred, false, nil
-	}
-	if err == nil {
-		st.held[saved.Lane.Int32] = saved.ID
-	}
-	if err != nil {
-		// The lane stays bound; the sweep retires it once the item provably
-		// does not reference it, so a lost COMMIT acknowledgment never
-		// deletes an admitted lane.
-		return mythicalInfraOutage(item, "launch", "the request could not be launched: "+err.Error(), st.now), false, nil
-	}
-	return &saved, true, nil
-}
-
-// reusesLane reports whether an item retrying after an outage runs
-// its attempt again on the lane it holds instead of provisioning a new one:
-// the lane must still be bound to it, and the outage must not be the
-// infrastructure's (class infra), which may be the lane's own box. A retry
-// after a plan's failure, a stop or a resume always opens a fresh lane.
-func (s *MythicalService) reusesLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) (bool, error) {
-	checks := mythicalChecksOf(item)
-	if item.State != "retrying" || item.WorkspaceID == "" || checks.Outages == 0 || checks.Fault == nil || checks.Fault.Class == "infra" {
-		return false, nil
-	}
-	bound, err := s.queries().GetMythicalLane(ctx, item.WorkspaceID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return !bound.RetiredAt.Valid && bound.RepositoryID == r.row.RepositoryID && bound.ItemID == item.ID, nil
+	next.Reason = "TODO admission unavailable"
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(time.Minute), Valid: true}
+	return &next, false, nil
 }
 
 // prompt is the pinned issue as the planner reads it, with the retry

@@ -30,6 +30,7 @@ import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "..
 import { RunJob, RunSetup } from "../repository/setup.ts"
 import { RunTrigger } from "../repository/triggers.ts"
 import { systemFlows } from "./fixtures/system-flows.ts"
+import { factory } from "../../.smithers/FACTORY.ts"
 
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
 const policy = "a".repeat(64)
@@ -266,6 +267,7 @@ test("the TODO composition reuses the request and delivery children and remains 
 test("a TODO override is refused before import until pinned-source activation is integrated", async (t) => {
   const { catalog, write, repositoryPath } = await boundary(t)
   const marker = join(repositoryPath, "todo-imported")
+  assert.deepEqual(factory.on["issue.labeled:todo"], { flow: "todo", description: "Implement every TODO" })
   await write("todo", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
   const { built, registry } = await catalog()
   assert.deepEqual(built.refused.map(({ flow, code }) => ({ flow, code })), [{ flow: "todo", code: "missing_service" }])

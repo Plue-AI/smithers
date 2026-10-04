@@ -66,7 +66,7 @@ export const factory = S.Factory({
     // history, reviews the pull request each Change opens or updates, and
     // merges it once the review approves a TODO a maintainer also labeled
     // automerge. Anyone else's todo or automerge label is taken off.
-    "issue.labeled:todo": { flow: "coding/request", description: "Implement every TODO" },
+    "issue.labeled:todo": { flow: "todo", description: "Implement every TODO" },
     "change.opened": { flow: "review/change", description: "Review every Change" },
     "change.updated": { flow: "review/change", description: "Review every Change" },
     // The stack service itself folds main into the mythical history after
