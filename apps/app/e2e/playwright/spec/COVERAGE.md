@@ -77,6 +77,14 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
+| C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
+| C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
+| C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | fixme-before-implementation | T-CAT-01 |
+| C-UI-03 | [C-UI-03.spec.ts](C-UI-03.spec.ts) | fixme-before-implementation | T-APP-18 |
+| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | fixme-before-implementation | T-APP-07 |
+| C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
+
+C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
