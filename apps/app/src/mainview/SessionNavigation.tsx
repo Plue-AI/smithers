@@ -2,7 +2,6 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useCallback,type CSSProperties } from "react"
 import { useController } from "./ControllerContext"
 import { KeyboardNavigation } from "./KeyboardNavigation"
-import { LocalAuthPanel } from "./LocalAuthPanel"
 import { WORDMARK } from "./Wordmark"
 import { flowSelector } from "./flows/FlowAction"
 import { SHORTCUT_KEYS } from "./ShortcutButton"
@@ -79,7 +78,6 @@ export function SessionNavigation() {
       <h1 className="guide-wordmark" aria-label="Smithers" style={{ margin: 0 }}><Mark /></h1>
       <Crumbs />
       {/* The header carries no account chrome: signed out, the login screen holds the one door (Will, 2026-10-03); signed in, Account is /account.show. */}
-      {controller.localAuth !== undefined && <LocalAuthPanel auth={controller.localAuth} />}
     </header>
   </>
 }

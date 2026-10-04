@@ -1,13 +1,9 @@
-smthrs history land — Land a proposed TODO's pull request once its review approves and CI is green
+smthrs host stop — Stop the host service
 
-Usage: smthrs history land <issue> [options]
-
-Arguments:
-  issue  Issue number (12 or #12) or item id
+Usage: smthrs host stop [options]
 
 Options:
-  --repo, -R <string>
-  --verbose            Show redacted diagnostic details
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

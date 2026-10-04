@@ -16,7 +16,6 @@ const servicesFor = (mode: "owner" | "bearer" | "github"): AppServices => ({
   ...(mode === "github" ? {} : {
     applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: mode === "owner" ? "web-selfhost" : "web-plue", apiOrigin: "", auth: { kind: mode === "owner" ? "session" : "bearer" }, cors: "same-origin", developerExternal: false }, "https://owner.test"),
     applicationIdentity: { current: async () => null },
-    ...(mode === "owner" ? { localIdentity: { status: async () => ({ enabled: true, initialized: true }), login: async ({ username }: { username: string }) => ({ user: { id: 1, username } }), bootstrap: async ({ username }: { username: string }) => ({ user: { id: 1, username } }) } } : {})
   }),
   fetchImpl: async () => Response.json({}, { status: 404 })
 })
@@ -26,7 +25,7 @@ for (const mode of ["owner", "bearer", "github"] as const) {
     const storage = memoryStorage(), store = await createAppStore({ kind: "localStorage", storage })
     const { agent, requests } = scriptedToolAgent([() => [{ type: "done", reason: "stop" }]])
     const controller = createAppController(store, agent, servicesFor(mode))
-    const provider = mode === "github" ? "github" : "local"
+    const provider = mode === "bearer" ? "local" : "github"
     try {
       await controller.adoptSession(signedOut)
       controller.promptSignIn()
@@ -67,7 +66,7 @@ test("restored sign-in prompts use the observed local provider without rewriting
     const archive = store.collections.branches.get(branchId!)!.snapshot!
     await controller.adoptSession(signedIn)
     await store.dispatch({ type: "frame.navigated", actor: "user", workspaceId: workspaceId!, branchId: branchId!, frameId: frameId! }).isPersisted.promise
-    expect(store.collections.messages.get(prompt.id)?.answeredAction?.answer).toBe("Signed in as @owner.")
+    expect(store.collections.messages.get(prompt.id)?.answeredAction?.answer).toBe("Signed in with GitHub as @owner.")
     expect(store.collections.branches.get(branchId!)!.snapshot).toEqual(archive)
     expect((await store.verifyState()).valid).toBe(true)
   } finally { await controller.dispose(); await store.dispose?.() }

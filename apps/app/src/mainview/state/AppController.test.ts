@@ -165,7 +165,6 @@ describe("the controller's command surface", () => {
       .filter((key): key is string => key !== undefined)
     const compositionRoot = [
       "store",
-      "localAuth",
       "stackSnapshots",
       "installSnapshots",
       "wikiIndexes",

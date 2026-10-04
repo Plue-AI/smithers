@@ -169,3 +169,39 @@ func TestConcurrentSecretCreationKeepsOneIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestRetiredBootstrapTokenIsDecodeOnly(t *testing.T) {
+	clearBootstrapEnvironment(t)
+	root := t.TempDir()
+	_, err := configure(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "config", "secrets.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file secretFile
+	if err = json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := file.Values["SMITHERS_AUTH_BOOTSTRAP_TOKEN"]; exists {
+		t.Fatal("new install persisted retired credential")
+	}
+	file.Values["SMITHERS_AUTH_BOOTSTRAP_TOKEN"] = "old-bootstrap-token"
+	raw, err = json.Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	values, err := readSecrets(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := values["SMITHERS_AUTH_BOOTSTRAP_TOKEN"]; exists {
+		t.Fatal("historical credential was restored")
+	}
+}

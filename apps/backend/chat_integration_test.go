@@ -23,6 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
@@ -150,9 +152,7 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		if token != "" {
 			request.Header.Set("Authorization", "token "+token)
 		}
-		if path == "/api/auth/local/bootstrap" {
-			request.Header.Set("X-Smithers-Bootstrap-Token", "owner-bootstrap-token")
-		}
+
 		response, sendErr := client.Do(request)
 		require.NoError(t, sendErr)
 		defer response.Body.Close()
@@ -167,12 +167,13 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		require.Equal(t, wantStatus, response.StatusCode, string(result))
 		return result
 	}
-	post("/api/auth/local/bootstrap", "", map[string]string{"username": "l3bowner", "email": "l3b@example.test", "password": "owner password for integration"})
-	var tokenResult struct {
-		Token string `json:"token"`
-	}
-	require.NoError(t, json.Unmarshal(post("/api/auth/local/token", "", map[string]string{"username": "l3bowner", "password": "owner password for integration", "name": "chat-integration"}), &tokenResult))
-	require.NotEmpty(t, tokenResult.Token)
+	pool, err := postgresfixture.Open(t.Context(), databaseURL, 0)
+	require.NoError(t, err)
+	defer pool.Close()
+	token, err := seed.OwnerToken(t.Context(), pool, "l3bowner")
+	require.NoError(t, err)
+	tokenResult := struct{ Token string }{Token: token}
+
 	{
 		post("/api/user/repos", tokenResult.Token, map[string]any{
 			"name": "flow-http-integration", "private": true, "auto_init": true, "default_bookmark": "main",

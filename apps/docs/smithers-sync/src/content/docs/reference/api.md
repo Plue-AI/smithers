@@ -119,7 +119,7 @@ subscriber and never grows the process on its behalf. Neither feed is a source
 of truth. `RunCatalog.list` and `BranchPresence.list` are the authoritative
 state, and every reader re-lists on a cadence of its own: a workspace
 subscription reconciles its covered run set against `RunCatalog.list` on every
-round, and a roster watch re-lists once per `BranchPresence` lease. A dropped
+round, and a roster watch re-lists once per `BranchPresence` lease, capped at one second. A dropped
 notification therefore costs latency and never state.
 
 ## Read path
@@ -227,6 +227,9 @@ their durable cursor in their own transaction; the client cursor is in memory.
 
 ## Errors
 
+`ErrorCode` includes `unsupported` (since 1.0.0) for unavailable host
+operations or presence transport; it does not mean an empty roster.
+
 `SyncError` carries a stable `code` from `ErrorCode`, a `message`, an optional
 bounded `cause` string, and a `resync` that is set only on `compacted`.
 `SyncGapError` reports a server interval that starts beyond the client's
@@ -244,6 +247,21 @@ require the prototype, because every value that reaches it has crossed a
 boundary that rebuilds it.
 
 ## Branch collaboration
+
+`BranchPresence.Service.presenceOn(request)` (since 1.0.0) returns
+`"unknown" | "present" | "empty"`, authorizing read access first. It stays
+`unknown` for one configured `leaseMs` after startup so live participants can
+re-announce, and while any required heartbeat source is unavailable. Treat
+`unknown` as present for safe-idle decisions.
+
+`PresenceOptions.sourcesReady(branchId)` (since 1.0.0) supplies an
+`Effect<boolean>` readiness check for authorization, revocation, bridge and
+session sources. It defaults to unavailable.
+
+`BranchPresence.makeNoop()` and `layerNoop` fail announce, leave and list with
+`unsupported`; `presenceOn` returns `unknown`. Consequently
+`BranchServer` roster reads and watches also fail with `unsupported` under
+`layerNoop`, rather than reporting an empty roster.
 
 A branch is one shared live document whose durable state is exactly one journal
 run (`BranchProtocol.branchRunId`), so multiplayer reuses the canonical `seq`,

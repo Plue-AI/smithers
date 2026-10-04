@@ -64,8 +64,7 @@ export interface SelectedBackendIdentity extends ApplicationIdentityClient {
 
 export const createAuthBillingController = (
   ctx: ControllerContext,
-  selectedIdentity?: SelectedBackendIdentity,
-  openLocalAuth?: () => boolean
+  selectedIdentity?: SelectedBackendIdentity
 ): AuthBillingController => {
   const { store, services, baseUrl, boundedFetch: http, errorMessageOf, unref } = ctx
   const balanceAvailable = services.bootstrap?.capabilities.includes("billing.balance") ?? true
@@ -514,7 +513,6 @@ export const createAuthBillingController = (
         action: { flow: "sign-out", label: "Sign out" } })
       return
     }
-    if (openLocalAuth?.() === true) return
     if (identity === undefined || identity.state === "unavailable") {
       toast(
         "auth.sign-in.unavailable",

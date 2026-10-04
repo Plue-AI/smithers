@@ -78,7 +78,11 @@ func (c *GitHubClient) AuthorizationURL(ctx context.Context, state string) (stri
 	}
 	values := url.Values{}
 	values.Set("client_id", clientID)
-	values.Set("redirect_uri", c.redirectURL)
+	redirect := services.GitHubRedirectURI(ctx)
+	if redirect == "" {
+		redirect = c.redirectURL
+	}
+	values.Set("redirect_uri", redirect)
 	values.Set("scope", githubOAuthScope)
 	values.Set("state", strings.TrimSpace(state))
 	return strings.TrimRight(c.oauthBaseURL, "/") + "/login/oauth/authorize?" + values.Encode(), nil
@@ -93,6 +97,9 @@ func (c *GitHubClient) ExchangeCode(ctx context.Context, code string) (services.
 	form.Set("client_id", clientID)
 	form.Set("client_secret", clientSecret)
 	form.Set("code", strings.TrimSpace(code))
+	if redirect := services.GitHubRedirectURI(ctx); redirect != "" {
+		form.Set("redirect_uri", redirect)
+	}
 	form.Set("grant_type", "authorization_code")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.oauthBaseURL, "/")+"/login/oauth/access_token", strings.NewReader(form.Encode()))

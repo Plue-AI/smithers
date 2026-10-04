@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -29,7 +30,10 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
-	authority := &services.InstallSetupSessions{Pool: pool, TokenDigest: sha256.Sum256([]byte("printed-fixture-token"))}
+	digest := sha256.Sum256([]byte("printed-fixture-token"))
+	value, _ := json.Marshal(hex.EncodeToString(digest[:]))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.token", Value: value}))
+	authority := &services.InstallSetupSessions{Pool: pool}
 	setup := &services.InstallSetupService{Pool: pool, Jobs: store}
 	handler := &routes.GitHubAppSetupHandler{Sessions: authority, Owners: q, AllowedOrigins: []string{origin}, Setup: setup}
 	cfg := testConfigAllFlagsOn()

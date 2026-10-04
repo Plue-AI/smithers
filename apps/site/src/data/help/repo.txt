@@ -14,7 +14,6 @@ Commands:
   list         List your repositories
   mirror-sync  Start a GitHub mirror sync run
   push         Push this checkout to your own ref on Smithers Cloud for a workspace to fetch
-  report       Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
   status       Show local repository connection status
   unarchive    Unarchive a repository
   view         View repository details

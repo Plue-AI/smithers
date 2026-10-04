@@ -153,15 +153,12 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	if ok && now().Sub(cached.at) < gitHubMaintainerTTL {
 		return cached.maintainer, nil
 	}
-	var out struct {
-		Permission string `json:"permission"`
+	permission, role, err := g.api.repositoryPermission(ctx, token, owner, repo, login)
+	if err != nil {
+		return false, err
 	}
-	status, err := g.api.request(ctx, token, http.MethodGet,
-		landingGitHubRepoPath(owner, repo)+"/collaborators/"+url.PathEscape(login)+"/permission", nil, &out)
-	if err != nil || gitHubTransient(status) {
-		return false, errGitHubIssueTextUnavailable
-	}
-	maintainer := status == http.StatusOK && (out.Permission == "admin" || out.Permission == "write")
+	maintainer := permission == "admin" || permission == "write" || role == "maintain"
+
 	g.mu.Lock()
 	if g.maintainers == nil {
 		g.maintainers = map[string]gitHubMaintainerAnswer{}
@@ -577,4 +574,18 @@ func (r *gitHubTextStamp) installationToken() (string, error) {
 	}
 	r.token = token.Token
 	return r.token, nil
+}
+
+// repositoryPermission is shared with sign-in; admission never uses the issue cache.
+func (a *landingGitHubAPI) repositoryPermission(ctx context.Context, token, owner, repo, login string) (string, string, error) {
+	var out struct {
+		Permission string `json:"permission"`
+		Role       string `json:"role_name"`
+	}
+	status, err := a.request(ctx, token, http.MethodGet, landingGitHubRepoPath(owner, repo)+"/collaborators/"+url.PathEscape(login)+"/permission", nil, &out)
+	if err != nil || gitHubTransient(status) {
+		return "", "", errGitHubIssueTextUnavailable
+	}
+ if status != http.StatusOK { return "","",nil }
+ return out.Permission, out.Role, nil
 }

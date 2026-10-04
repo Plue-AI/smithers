@@ -26,12 +26,8 @@ for (const provider of ["local", "github"] as const) {
     }, null, "https://owner.test")
     const controller = createController(store, unavailableAgent, {
       ...(provider === "local" ? {
-        applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, "https://owner.test"),
-        localIdentity: {
-          status: async () => ({ enabled: true, initialized: true }),
-          login: async ({ username }: { username: string }) => ({ user: { id: 1, username } }),
-          bootstrap: async ({ username }: { username: string }) => ({ user: { id: 1, username } })
-        }
+        applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-plue", apiOrigin: "", auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false }, "https://owner.test"),
+        applicationIdentity: {current:async()=>null}
       } : { bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: false }), authFlow: "redirect", sandbox: null } }),
       fetchImpl: profile.fetchImpl
     })

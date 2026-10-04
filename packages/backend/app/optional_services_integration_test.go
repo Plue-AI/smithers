@@ -24,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +50,7 @@ func (log *optionalServicesLog) String() string {
 // This acceptance test proves public startup, native repository initialization,
 // and durable chat without optional services. It does not execute an agent Flow.
 func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
-	_, databaseURL := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	require.NotEmpty(t, ffi, "real native repository engine is required")
 	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "optional-repo-token", FFILibraryPath: ffi})
@@ -221,9 +222,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 		if token != "" {
 			req.Header.Set("Authorization", "token "+token)
 		}
-		if path == "/api/auth/local/bootstrap" {
-			req.Header.Set("X-Smithers-Bootstrap-Token", "optional-bootstrap")
-		}
+
 		res, err := client.Do(req)
 		require.NoError(t, err)
 		defer res.Body.Close()
@@ -243,12 +242,10 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	}
 	ready := request("GET", "/readyz", "", nil, 200)
 	require.Contains(t, string(ready), `"database":"ok"`)
-	request("POST", "/api/auth/local/bootstrap", "", map[string]string{"username": "optionalowner", "password": "optional owner password", "email": "optional@example.test"}, 200)
-	var auth struct {
-		Token string `json:"token"`
-	}
-	require.NoError(t, json.Unmarshal(request("POST", "/api/auth/local/token", "", map[string]string{"username": "optionalowner", "password": "optional owner password", "name": "optional-acceptance"}, 200), &auth))
-	require.NotEmpty(t, auth.Token)
+	token, err := seed.OwnerToken(t.Context(), pool, "optionalowner")
+	require.NoError(t, err)
+	auth := struct{ Token string }{Token: token}
+
 	var owner struct {
 		ID int64 `json:"id"`
 	}

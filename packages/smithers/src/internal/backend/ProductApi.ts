@@ -1139,60 +1139,6 @@ export type PostApiAuthSseTicketResponse = MultiSSETicketResponse
 export const postApiAuthSseTicket = (transport: Transport): Promise<PostApiAuthSseTicketResponse> =>
   transport.request("POST", `/api/auth/sse-ticket`) as Promise<PostApiAuthSseTicketResponse>
 
-export type GetApiAuthLocalStatusResponse = AnyJSON
-
-/** GET /api/auth/local/status */
-export const getApiAuthLocalStatus = (transport: Transport): Promise<GetApiAuthLocalStatusResponse> =>
-  transport.request("GET", `/api/auth/local/status`) as Promise<GetApiAuthLocalStatusResponse>
-
-export type PostApiAuthLocalBootstrapBody = AnyJSON
-
-export type PostApiAuthLocalBootstrapResponse = AnyJSON
-
-export interface PostApiAuthLocalBootstrapInput {
-  readonly body?: PostApiAuthLocalBootstrapBody
-}
-
-/** POST /api/auth/local/bootstrap */
-export const postApiAuthLocalBootstrap = (transport: Transport, input?: PostApiAuthLocalBootstrapInput): Promise<PostApiAuthLocalBootstrapResponse> =>
-  transport.request("POST", `/api/auth/local/bootstrap`, input?.body) as Promise<PostApiAuthLocalBootstrapResponse>
-
-export type PostApiAuthLocalLoginBody = AnyJSON
-
-export type PostApiAuthLocalLoginResponse = AnyJSON
-
-export interface PostApiAuthLocalLoginInput {
-  readonly body?: PostApiAuthLocalLoginBody
-}
-
-/** POST /api/auth/local/login */
-export const postApiAuthLocalLogin = (transport: Transport, input?: PostApiAuthLocalLoginInput): Promise<PostApiAuthLocalLoginResponse> =>
-  transport.request("POST", `/api/auth/local/login`, input?.body) as Promise<PostApiAuthLocalLoginResponse>
-
-export type PostApiAuthLocalPasswordBody = AnyJSON
-
-export type PostApiAuthLocalPasswordResponse = AnyJSON
-
-export interface PostApiAuthLocalPasswordInput {
-  readonly body?: PostApiAuthLocalPasswordBody
-}
-
-/** POST /api/auth/local/password */
-export const postApiAuthLocalPassword = (transport: Transport, input?: PostApiAuthLocalPasswordInput): Promise<PostApiAuthLocalPasswordResponse> =>
-  transport.request("POST", `/api/auth/local/password`, input?.body) as Promise<PostApiAuthLocalPasswordResponse>
-
-export type PostApiAuthLocalTokenBody = AnyJSON
-
-export type PostApiAuthLocalTokenResponse = AnyJSON
-
-export interface PostApiAuthLocalTokenInput {
-  readonly body?: PostApiAuthLocalTokenBody
-}
-
-/** POST /api/auth/local/token */
-export const postApiAuthLocalToken = (transport: Transport, input?: PostApiAuthLocalTokenInput): Promise<PostApiAuthLocalTokenResponse> =>
-  transport.request("POST", `/api/auth/local/token`, input?.body) as Promise<PostApiAuthLocalTokenResponse>
-
 export type GetApiBillingResponse = MultiBillingOverview
 
 /** GET /api/billing */

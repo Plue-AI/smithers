@@ -229,62 +229,6 @@ auth["auth token"] = async (c, _a, o) => {
   const { token: _token, ...metadata } = await c.session.require(str(o.hostname))
   return { ...metadata, token_set: true }
 }
-for (const action of ["status", "login", "bootstrap"]) {
-  auth[`auth local ${action}`] = async (c, _a, o) => {
-    const target = c.session.target(str(o.hostname || o.host)), options = { origin: target.api_url, anonymous: true }
-    if (action === "status") {
-      return { ...object(await c.request("GET", "/api/auth/local/status", undefined, options)), host: target.host }
-    }
-    const username = str(o.username || c.env.SMITHERS_AUTH_USERNAME)
-    if (!username) {
-      throw new UsageError({ message: "--username or SMITHERS_AUTH_USERNAME is required" })
-    }
-    const secret = async (name: string, label: string) => {
-      if (c.env[name]?.trim()) return c.env[name].trim()
-      if (!process.stdin.isTTY) {
-        if (name !== "SMITHERS_AUTH_PASSWORD") {
-          throw new UsageError({ message: `${name} is required when stdin is not a TTY` })
-        }
-        return c.stdin(label)
-      }
-      const value = await prompts.password({ message: label })
-      if (prompts.isCancel(value) || !value.trim()) throw refused("user", "cancelled", "Login cancelled")
-      return value.trim()
-    }
-    const password = await secret("SMITHERS_AUTH_PASSWORD", "Password")
-    if (action === "bootstrap") {
-      const token = await secret("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "Bootstrap token")
-      if (!token) throw new UsageError({ message: "SMITHERS_AUTH_BOOTSTRAP_TOKEN is required" })
-      await c.request("POST", "/api/auth/local/bootstrap", { username, password }, {
-        ...options,
-        headers: { "X-Smithers-Bootstrap-Token": token }
-      })
-    }
-    const response = object(
-      await c.request("POST", "/api/auth/local/token", {
-        username,
-        password,
-        name: "smithers-cli",
-        scopes: ["write:user", "write:repository", "write:workspace", "write:approval", "write:agent"]
-      }, options)
-    )
-    const user = object(response.user)
-    if (!response.token || !user.username) {
-      throw refused("infra", "backend_protocol", "Owner token response was incomplete")
-    }
-    await c.session.save(target.api_url, str(response.token), {
-      username: user.username,
-      expires_at: response.expires_at
-    })
-    return {
-      status: "logged_in",
-      host: target.host,
-      user: user.username,
-      expires_at: response.expires_at,
-      token_id: response.token_id
-    }
-  }
-}
 auth["auth connect"] = async (c, a, o) => {
   const provider = str(a.provider).trim().toLowerCase()
   if (provider === "claude") await forgetClaudeToken(c)

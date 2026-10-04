@@ -67,11 +67,6 @@ const webSelfhost = resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhos
 const ownerSeams = (bootstrap: AppBootstrap): AppServices => ({
   bootstrap,
   applicationTarget: webSelfhost,
-  localIdentity: {
-    status: async () => ({ enabled: true, initialized: true, username: "owner" }),
-    login: async () => { throw new Error("not signed in by this test") },
-    bootstrap: async () => { throw new Error("not bootstrapped by this test") }
-  },
   applicationIdentity: { current: async () => null },
   cloudSocketUrl: () => undefined,
   cloudLspSocketUrl: () => undefined
@@ -88,20 +83,20 @@ const openSignedOut = async (bootstrap: AppBootstrap) => {
 describe("a self-host bootstrap never enables native-shell UI", () => {
   test("the sign-in door is the owner's credentials on every web origin that has them, and GitHub only behind the redirect", () => {
     expect(nativeShell(SELF_HOST)).toBe(false)
-    expect(identityProviderFor(ownerSeams(SELF_HOST))).toBe("local")
+    expect(identityProviderFor(ownerSeams(SELF_HOST))).toBe("github")
     // The Worker's page resolves the same default owner target; its redirect is what makes it the hosted GitHub session.
-    expect(identityProviderFor({ ...ownerSeams(WORKER), localIdentity: undefined })).toBe("github")
+    expect(identityProviderFor({ ...ownerSeams(WORKER),})).toBe("github")
     expect(identityProviderFor(ownerSeams(WORKER))).toBe("github")
   })
 
-  test("signed out, the transcript is gated behind the one Sign in door, with no GitHub copy and no signup", async () => {
+  test("signed out, GitHub is the one sign-in door", async () => {
     const controller = await openSignedOut(SELF_HOST)
-    expect(controller.identityProvider).toBe("local")
+    expect(controller.identityProvider).toBe("github")
     const { host, markup } = mount(controller)
-    const door = host.querySelector<HTMLElement>(".smithers-chat-message .message-cta")
-    expect(door?.textContent).toBe("Sign in")
+    const door = host.querySelector<HTMLElement>('[data-flow="sign-in"]')
+    expect(door?.textContent).toBe("Sign in with GitHub")
     expect(door?.dataset.flow).toBe("sign-in")
-    expect(markup()).not.toContain("Sign in with GitHub")
+    expect(markup()).toContain("Sign in with GitHub")
     expect(host.querySelector('[data-testid="signup"]')).toBeNull()
   })
 })

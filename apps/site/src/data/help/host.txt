@@ -1,12 +1,11 @@
-smthrs auth local bootstrap — Create and log in as the installation owner
+smthrs host — Operate this installation’s host
 
-Usage: smthrs auth local bootstrap [options]
+Usage: smthrs host <command>
 
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
+Commands:
+  start   Start the bundled host service
+  status  Show launchd, bundle and process health
+  stop    Stop the host service
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -79,6 +79,7 @@ const (
 	CodeBadRequest            Code = "bad_request"
 	CodeUnauthorized          Code = "unauthorized"
 	CodeSetupClosed           Code = "setup_closed"
+	CodeOwnerUnverified       Code = "owner_unverified"
 	CodeUnknownOrigin         Code = "unknown_origin"
 	CodeUnauthenticated       Code = "unauthenticated"
 	CodeInvalidToken          Code = "invalid_token"
@@ -305,6 +306,7 @@ var registry = map[Code]Entry{
 	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},
 	// The request carried no credential, or one the server could not verify.
 	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Doc: "The request host matches no configured install origin."},
+	CodeOwnerUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Doc: "Owner repository access has not been verified."},
 	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The owner claim invalidated the setup credential."},
 	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The setup credential is missing, expired or invalid."},
 	CodeUnauthorized:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
@@ -689,7 +691,12 @@ func New(code Code, msg string) *APIError {
 	if !ok {
 		entry = Entry{Status: http.StatusInternalServerError, Fault: FaultBug}
 	}
+	class := ""
+	if code == CodeSetupClosed || code == CodeOwnerUnverified || code == CodeUnauthenticated {
+		class = "permission"
+	}
 	return &APIError{
+		Class:      class,
 		Status:     entry.Status,
 		Code:       code,
 		Fault:      entry.Fault,

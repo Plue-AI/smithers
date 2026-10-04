@@ -147,6 +147,8 @@ type oauthAccountTokenHealQuerier interface {
 }
 
 type AuthService struct {
+	Members         *Members
+	InstallSetup    *InstallSetupSessions
 	metrics         AuthMetricsObserver
 	revocations     revocation.Publisher
 	queries         AuthQuerier
@@ -550,11 +552,37 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 		return OAuthCallbackResult{User: user, AdminCLI: adminCLI}, nil
 	}
 
+	claimingOwner := false
+	if config.IsSingleOwner(s.cfg) && s.Members != nil {
+		owner, err := db.New(s.Members.Pool).GetSelfHostOwner(ctx)
+		if err == nil {
+			if owner.ID != user.ID {
+				return OAuthCallbackResult{}, pkgerrors.Forbidden("not a member")
+			}
+			if setting, err := db.New(s.Members.Pool).GetInstallSetting(ctx, "owner.access"); err == nil && len(setting.Value) > 0 {
+				if err := s.Members.VerifyOwner(ctx, user); err != nil {
+					return OAuthCallbackResult{}, err
+				}
+			} else if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+				return OAuthCallbackResult{}, err
+			}
+		} else if !stdErrors.Is(err, pgx.ErrNoRows) {
+			return OAuthCallbackResult{}, err
+		} else {
+			claimingOwner = true
+		}
+	}
 	rawSessionKey, session, err := s.createSession(ctx, user)
 	if err != nil {
+		if config.IsSingleOwner(s.cfg) {
+			return OAuthCallbackResult{}, err
+		}
 		return OAuthCallbackResult{}, pkgerrors.Internal("failed to create session").WithCause(err)
 	}
 
+	if claimingOwner && s.Members != nil {
+		_ = s.Members.VerifyOwner(ctx, user)
+	}
 	return OAuthCallbackResult{
 		User:        user,
 		SessionKey:  rawSessionKey,
@@ -601,28 +629,12 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 		if err != nil {
 			return db.User{}, pkgerrors.Internal("failed to load oauth user").WithCause(err)
 		}
-		if config.IsSingleOwner(s.cfg) {
-			localQueries, localErr := s.localIdentityQueries()
-			if localErr != nil {
-				return db.User{}, localErr
-			}
-			owner, ownerErr := localQueries.GetSelfHostOwner(ctx)
-			if ownerErr != nil || owner.ID != user.ID {
-				return db.User{}, pkgerrors.Forbidden("external identity is not linked to the installation owner")
-			}
-			user = owner
-		}
+
 	} else {
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
 			return db.User{}, pkgerrors.Internal("failed to query oauth account")
 		}
-		if config.IsSingleOwner(s.cfg) {
-			// Never infer that a previously unseen external identity owns this
-			// installation. Provider/repository connections are authorized by an
-			// existing owner session through their dedicated routes; they are not
-			// an alternate self-host account-provisioning path.
-			return db.User{}, pkgerrors.Forbidden("external identity is not linked to the installation owner")
-		} else {
+		{
 			// Only a GitHub-verified address may become users.email: an
 			// unverified one would squat the real owner's address on
 			// uq_users_lower_email and block their signup.
@@ -1102,6 +1114,13 @@ func (s *AuthService) sessionDuration() time.Duration {
 // PostgreSQL stores only its digest.
 func (s *AuthService) createSession(ctx context.Context, user db.User) (string, db.AuthSession, error) {
 	rawSessionKey := s.generateSession()
+	if config.IsSingleOwner(s.cfg) {
+		if s.InstallSetup == nil {
+			return "", db.AuthSession{}, pkgerrors.Internal("setup authority unavailable")
+		}
+		session, err := s.InstallSetup.ClaimOwner(ctx, user, rawSessionKey, s.now().Add(s.sessionDuration()))
+		return rawSessionKey, session, err
+	}
 	session, err := s.queries.CreateAuthSession(ctx, db.CreateAuthSessionParams{
 		SessionKey: sessionStorageKey(rawSessionKey),
 		UserID:     user.ID,

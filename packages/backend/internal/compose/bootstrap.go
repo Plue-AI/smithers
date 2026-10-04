@@ -61,7 +61,7 @@ func newAppBootstrap(features bootstrapFeatures) appBootstrap {
 	if features.identity {
 		result.Capabilities = append(result.Capabilities, "identity")
 		if !features.role.hosted() {
-			result.AuthFlow = "credentials"
+			result.AuthFlow = "redirect"
 		} else if features.redirectAuth {
 			result.AuthFlow = "redirect"
 		}

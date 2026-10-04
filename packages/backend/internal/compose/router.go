@@ -144,9 +144,9 @@ func buildRouter(
 			r.Use(middleware.RejectDeferredCommerce)
 		}
 	}
-	var ownerBoundary identity.OwnerAuthorizer
+	var ownerBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg.Auth) {
-		ownerBoundary = identity.NewSingleOwnerBoundary(queries)
+		ownerBoundary = identity.NewMemberBoundary(queries)
 	}
 	allowedOrigins := apiAllowedOrigins(cfg)
 	if authHandler != nil {
@@ -253,6 +253,9 @@ func buildRouter(
 	}
 
 	// Middleware stack prefix (spec order)
+	if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Sessions != nil {
+		r.Use(middleware.SetupSessionBoundary(extras.GitHubAppSetup.Sessions.Validate))
+	}
 	r.Use(chiMiddleware.RequestID)
 	quiesce := &services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir}
 	routes.MountInstallQuiesce(r, cfg.Install.QuiesceEnabled, quiesce, nil)
@@ -278,7 +281,7 @@ func buildRouter(
 	// Recovery must complete inside the metrics recorder so a panic's 500 is
 	// counted alongside ordinary responses.
 	r.Use(middleware.JSONRecoverer)
-	if authHandler != nil && authHandler.Service != nil {
+	if authHandler != nil && authHandler.Service != nil && !config.IsSingleOwner(cfg.Auth) {
 		r.Use(middleware.CanonicalBrowserAuthOrigin(cfg.Auth.GitHubRedirectURL))
 	}
 
@@ -953,13 +956,7 @@ func buildRouter(
 			r.With(middleware.AuthRateLimit(queries)).Post("/auth/key/verify", authHandler.PostKeyAuthVerify)
 			r.With(middleware.AuthRateLimit(queries)).Post("/auth/key/token", authHandler.PostKeyAuthToken)
 		}
-		if config.IsSingleOwner(cfg.Auth) && authHandler.LocalService != nil {
-			r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/local/status", authHandler.GetLocalIdentityStatus)
-			r.With(middleware.AuthRateLimit(queries)).Post("/auth/local/bootstrap", authHandler.PostLocalBootstrap)
-			r.With(middleware.AuthRateLimit(queries)).Post("/auth/local/login", authHandler.PostLocalLogin)
-			r.With(middleware.AuthRateLimit(queries)).Post("/auth/local/token", authHandler.PostLocalToken)
-			r.With(middleware.AuthRateLimit(queries), middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/auth/local/password", authHandler.PostLocalPassword)
-		}
+
 		// Direct GitHub App OAuth (browser sign-in / connect + CLI login).
 		// These interactive routes use the looser "auth_interactive" scope
 		// (20/min per IP): one sign-in attempt burns two tokens (start +

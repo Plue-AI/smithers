@@ -5,7 +5,7 @@ import { createRepositoryReadiness } from "./controller/repositoryAdmission"
 
 import { createConversationHistoryController } from "./controller/conversationHistory"
 import { createWikiAttachmentStore, type WikiAttachmentStore } from "../wiki/WikiAttachmentStore"
-import { identityProviderFor, ownerCredentials, signInByHandoff } from "./IdentityProvider"
+import { identityProviderFor, signInByHandoff } from "./IdentityProvider"
 import type { IdentityProvider } from "./IdentityProvider"
 import type { ClientErrorReporter } from "./ClientErrors"
 import type { FlowSubmission } from "../flows/Commands"
@@ -26,7 +26,7 @@ import type { SlashItem,SlashRow } from "../flows/registry"
 import { flowRequirements } from "../flows/registry"
 
 import type { AgentPort } from "../runtime/AgentPort"
-import type { ApplicationIdentityClient, LocalIdentityClient } from "../runtime/ApplicationClient"
+import type { ApplicationIdentityClient } from "../runtime/ApplicationClient"
 import type { FrameHistoryPort } from "../runtime/FrameHistory"
 import { localSocketProtocols } from "../runtime/LocalSession"
 import { createActorBindings } from "./ActorBindings"
@@ -43,8 +43,6 @@ import { disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
 import type { KnownRepositories } from "./RepoContext"
 import { activeCatalogRepositoryId,activeRepositoryId,knownRepositories,resolveTargetRepo } from "./RepoContext"
 import type { StorageRecoveryAction,StorageRecoveryHost } from "./StorageRecoveryAction"
-import { createLocalAuthController } from "./LocalAuth"
-import type { LocalAuthController } from "./LocalAuth"
 import type { AccountController } from "./controller/account"
 import { createAccountController } from "./controller/account"
 import type { AgentsController } from "./controller/agents"
@@ -383,7 +381,6 @@ export interface AppController extends IssueFlowsController {
   readonly signIn: (reservedOpen?: (url: string) => Promise<boolean>) => Promise<void> | void
   /** The login screen's email door: what this host can do with an address (auth.email). */
   readonly signInWithEmail: (email: string) => string | void
-  readonly localAuth: LocalAuthController | undefined
   readonly signOut: () => Promise<string | void>
   /**
    * Consume a `?auth=failed` return from a failed OAuth redirect: the failure
@@ -618,8 +615,6 @@ export interface AppServices {
   readonly storageRecoveryHost?: StorageRecoveryHost
   readonly fetchImpl?: FetchLike
   readonly applicationTarget?: ApplicationTarget
-  readonly localIdentity?: LocalIdentityClient
-  readonly localBootstrapToken?: () => Promise<string | undefined>
   readonly applicationIdentity?: ApplicationIdentityClient
   readonly authorizeSocket?: (url: string, signal?: AbortSignal) => Promise<string>
   /**
@@ -957,7 +952,6 @@ export const createAppController = (
   // Every selected backend reads its canonical user API, including hosted
   // cookie sessions. The bootstrap still identifies the GitHub sign-in door.
   const applicationIdentity = services.applicationIdentity
-  let localAuth: LocalAuthController | undefined
   const {
     handleAuthReturn,
     adoptSession,
@@ -976,17 +970,8 @@ export const createAppController = (
         current: applicationIdentity.current,
         signInPath: signInByHandoff(services.bootstrap) ? AUTH_SIGN_IN_PATH : APPLICATION_SIGN_IN_PATH,
         settled: reloadRepositoriesWhenSignedIn
-      },
-    () => {
-      if (localAuth === undefined) return false
-      localAuth.open()
-      return true
-    }
+      }
   ))
-  if (ownerCredentials(services) && services.localIdentity !== undefined) {
-    localAuth = createLocalAuthController(services.localIdentity, loadSession, services.localBootstrapToken)
-    ctx.onDispose(localAuth.dispose)
-  }
     const { storageRecoveryState, promptStorageRecovery, exportStorageRecovery, resetStorageRecovery } = actors.pair(ctx, createStorageRecoveryController)
 
   const {
@@ -2016,7 +2001,6 @@ export const createAppController = (
     features,
     nativeAgentAvailable: agent.available,
     tappedFetch: http,
-    localAuth,
     installSnapshots: installSeam.snapshots,
     design,
     live: services.live,

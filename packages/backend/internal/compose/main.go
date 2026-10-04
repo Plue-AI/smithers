@@ -2,7 +2,6 @@ package compose
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -184,7 +183,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if !options.Duties.valid() {
 		return fmt.Errorf("unsupported backend duties %q", options.Duties)
 	}
-	_ = stdout
 	// `smithers-backend migrate [apply|status]` is a server-free schema
 	// migration path: it applies the embedded product baseline and exits (non-zero on
 	// failure) WITHOUT booting the HTTP server or loading/validating the full
@@ -196,10 +194,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	fs := flag.NewFlagSet("smithers-server", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "Path to config file")
+	setupHandoff := fs.String("setup-handoff", "terminal", "Setup URL output: terminal or socket")
 	if err := fs.Parse(args); err != nil {
 		return &flagParseError{err}
 	}
 
+	if *setupHandoff != "terminal" && *setupHandoff != "socket" {
+		return errors.New("invalid setup handoff")
+	}
+	if *setupHandoff == "socket" && strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")) == "" {
+		return errors.New("socket setup handoff requires SMITHERS_NATIVE_STATE_DIR")
+	}
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		// slog not yet initialized; use a minimal stderr logger for bootstrap failures.
@@ -336,9 +341,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	runtimeStores := resolveProductRuntimeStores(options.RuntimeStores, queries)
-	if err := services.ValidateLocalIdentityStartup(ctx, queries, cfg.Auth); err != nil {
-		return fmt.Errorf("validate local identity startup: %w", err)
-	}
+
 	// One shared broker multiplexes every SSE stream type (notifications,
 	// workspaces, workflow-run logs, agent sessions, releases) over a SINGLE
 	// pooled connection, so SSE clients no longer consume one pgxpool slot each.
@@ -402,7 +405,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	sshAuthzService := services.NewSSHAuthorizationService(queries)
 	var gitHTTPOptions []services.GitHTTPProxyServiceOption
 	if config.IsSingleOwner(cfg.Auth) {
-		gitHTTPOptions = append(gitHTTPOptions, services.WithGitHTTPSingleOwnerBoundary(queries))
+		gitHTTPOptions = append(gitHTTPOptions, services.WithGitHTTPMemberBoundary(queries))
 	}
 	gitHTTPProxyService := services.NewGitHTTPProxyService(queries, sshAuthzService, repoHostClient, gitHTTPOptions...)
 	billingPolicy := options.Admission
@@ -976,9 +979,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Login is a free warm of the per-user GitHub repo listing cache.
 		RepoListingWarmer: gitHubUserReposService,
 	}
-	if config.IsSingleOwner(cfg.Auth) {
-		authHandler.LocalService = authService
-	}
+
 	userHandler := &routes.UserHandler{
 		TokenService:   authService,
 		ProfileService: userService,
@@ -1388,10 +1389,29 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
 	var installSetup *services.InstallSetupService
+	if config.IsSingleOwner(cfg.Auth) {
+		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
+		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials}
+		authHandler.InstallSetup = authService.InstallSetup
+		setupOutput := stdout
+		if *setupHandoff == "socket" {
+			setupOutput = io.Discard
+		}
+		if err := authService.InstallSetup.Mint(ctx, apiAllowedOrigins(cfg), setupOutput); err != nil {
+			return fmt.Errorf("mint setup authority: %w", err)
+		}
+		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
+			closeHandoff, err := services.StartInstallSetupHandoff(ctx, stateDir, authService.InstallSetup.Emit)
+			if err != nil {
+				return fmt.Errorf("start setup handoff: %w", err)
+			}
+			defer closeHandoff()
+		}
+	}
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	if config.IsSingleOwner(cfg.Auth) {
 		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
-		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, gitHubImportService)
+		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, gitHubImportService, authService.Members)
 		installSetup.Capacity = installCapacity
 		if err := installSetup.Initialize(ctx); err != nil {
 			return fmt.Errorf("initialize install setup: %w", err)
@@ -1401,7 +1421,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), apiAllowedOrigins(cfg)),
 			Store:   gitHubAppStore, Owners: queries,
 			AllowedOrigins: apiAllowedOrigins(cfg),
-			Sessions:       &services.InstallSetupSessions{Pool: pool, TokenDigest: sha256.Sum256([]byte(cfg.Auth.BootstrapToken))},
+			Sessions:       authService.InstallSetup,
 		}
 	}
 	router := buildRouter(

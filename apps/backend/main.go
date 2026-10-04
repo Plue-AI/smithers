@@ -89,9 +89,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		if err != nil {
 			return err
 		}
-		if err := requireExternalBootstrapToken(os.Getenv("SMITHERS_DATA_ROOT")); err != nil {
-			return err
-		}
+
 	}
 
 	local, err := localbootstrap.Prepare(os.Getenv("SMITHERS_DATA_ROOT"))
@@ -190,21 +188,4 @@ func externalDatabaseURL() (string, error) {
 		return "", err
 	}
 	return databaseURL, nil
-}
-
-func requireExternalBootstrapToken(dataRoot string) error {
-	if strings.TrimSpace(os.Getenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN")) != "" {
-		return nil
-	}
-	if strings.TrimSpace(dataRoot) == "" {
-		dataRoot = localbootstrap.DefaultDataRoot
-	}
-	secretsPath := filepath.Join(dataRoot, "config", "secrets.json")
-	if _, err := os.Stat(secretsPath); err == nil {
-		// Existing installations reopen their protected, durable setup secret.
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect local secrets: %w", err)
-	}
-	return errors.New("SMITHERS_AUTH_BOOTSTRAP_TOKEN is required for first setup with external PostgreSQL")
 }

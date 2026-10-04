@@ -14,6 +14,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
   --name, -n <string>       Package name supplied to scaffold targets
   --message, -m <string>    Commit message for a Git.Commit target; wins over the declared message
   --sweep                   Let a Git.Commit target with no declared path scope commit the whole working tree

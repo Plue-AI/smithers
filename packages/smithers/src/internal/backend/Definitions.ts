@@ -346,32 +346,6 @@ export const definitions = {
     args: z.object({}),
     options: z.object({ "org": z.string().describe("List an organization's connections").optional() })
   },
-  "auth local bootstrap": {
-    description: "Create and log in as the installation owner",
-    args: z.object({}),
-    options: z.object({
-      "host": z.string().describe("Hostname or API origin (alias for --hostname)").optional(),
-      "hostname": z.string().describe("Hostname or API origin").optional(),
-      "username": z.string().describe("Owner username").optional()
-    })
-  },
-  "auth local login": {
-    description: "Log in to an owner backend",
-    args: z.object({}),
-    options: z.object({
-      "host": z.string().describe("Hostname or API origin (alias for --hostname)").optional(),
-      "hostname": z.string().describe("Hostname or API origin").optional(),
-      "username": z.string().describe("Owner username").optional()
-    })
-  },
-  "auth local status": {
-    description: "Show owner setup status",
-    args: z.object({}),
-    options: z.object({
-      "host": z.string().describe("Hostname or API origin (alias for --hostname)").optional(),
-      "hostname": z.string().describe("Hostname or API origin").optional()
-    })
-  },
   "auth login": {
     description: "Log in to Smithers",
     args: z.object({}),

@@ -20,7 +20,8 @@ type APIError struct {
 	Status int `json:"-"`
 	// Code is the machine-readable verdict. It is always present on the wire:
 	// clients branch on Code, never on Message.
-	Code Code `json:"code"`
+	Code  Code   `json:"code"`
+	Class string `json:"class,omitempty"`
 	// Fault says whose problem this is, so an interface can choose its words
 	// without a table of every code. It is derived from Code, never chosen at
 	// the call site.

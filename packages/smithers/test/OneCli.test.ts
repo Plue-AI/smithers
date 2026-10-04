@@ -260,8 +260,12 @@ describe("migrated command dispatch", () => {
       "changeset list",
       "repo fork",
       "repo transfer",
+      "history backfill",
+      "history land",
       "repo report",
-      "history backfill"
+      "auth local bootstrap",
+      "auth local login",
+      "auth local status"
     ]
     expect(Object.keys(definitions)).toHaveLength(214 - retired.length)
     for (const name of retired) {

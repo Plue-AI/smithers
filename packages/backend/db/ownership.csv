@@ -213,7 +213,6 @@ repository_job_comments,product,product baseline
 repository_job_approvals,product,product baseline
 repository_ci_check_receipts,product,product baseline
 self_host_owners,product,product migration 0004
-local_credentials,product,product migration 0004
 product_job_streams,product,product migration 0005
 product_job_requests,product,product migration 0005
 product_job_dispatches,product,product migration 0005

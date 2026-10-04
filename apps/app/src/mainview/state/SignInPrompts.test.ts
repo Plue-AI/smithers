@@ -137,7 +137,7 @@ test("an OAuth reload answers legacy persisted prompts; the answer survives the 
   expect(again.store.collections.messages.get(prompt.id)).toEqual(answered)
 })
 
-test("an owner backend names its credential door without promising GitHub", async () => {
+test("an owner backend uses GitHub sign-in", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, unavailableAgent, {
     applicationTarget: resolveApplicationTarget({
@@ -147,20 +147,14 @@ test("an owner backend names its credential door without promising GitHub", asyn
       auth: { kind: "session" },
       cors: "same-origin",
       developerExternal: false
-    }, "https://owner.test"),
-    localIdentity: {
-      status: async () => ({ enabled: true, initialized: true }),
-      login: async ({ username }) => ({ user: { id: 1, username } }),
-      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
-    }
-  })
+    }, "https://owner.test"),})
   await controller.adoptSession(signedOut)
 
   controller.promptSignIn()
 
   expect([...store.collections.messages.values()].at(-1)).toMatchObject({
-    text: "Sign in to continue.",
-    action: { flow: "sign-in", label: "Sign in" }
+    text: "Sign in with GitHub to continue.",
+    action: { flow: "sign-in", label: "Sign in with GitHub" }
   })
 })
 
@@ -189,11 +183,6 @@ test("the web-Plue session uses the selected backend identity and canonical OAut
       cors: "same-origin",
       developerExternal: false
     }, "https://smithers.sh"),
-    localIdentity: {
-      status: async () => { localStatusReads += 1; return { enabled: true, initialized: true } },
-      login: async ({ username }) => ({ user: { id: 1, username } }),
-      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
-    },
     applicationIdentity: {
       current: async () => { applicationIdentityReads += 1; return null }
     }
@@ -228,11 +217,6 @@ for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow
     baseUrl: "https://smithers.sh",
     bootstrap: { ...WEB, authFlow },
     applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, "https://smithers.sh"),
-    localIdentity: {
-      status: async () => { localStatusReads++; return { enabled: true, initialized: true } },
-      login: async ({ username }) => ({ user: { id: 1, username } }),
-      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
-    },
     applicationIdentity: { current: async () => claimed ? { username: "handoff-owner", admin: false, scopes: null } : null },
     handoffPollMs: 1,
     fetchImpl: async (input, init) => {

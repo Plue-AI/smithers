@@ -206,7 +206,7 @@ func TestGitHTTPProxyService_SelfhostRejectsForeignUserToken(t *testing.T) {
 		q,
 		&mockGitHTTPAuthorizer{},
 		repoHost,
-		WithGitHTTPSingleOwnerBoundary(q),
+		WithGitHTTPMemberBoundary(q),
 	)
 
 	_, err := svc.ProxyInfoRefs(context.Background(), "owner", "repo", "git-upload-pack", "foreign-token", &bytes.Buffer{})

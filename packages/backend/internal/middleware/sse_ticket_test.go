@@ -22,7 +22,7 @@ type mockSSETicketValidator struct {
 
 type ownerAuthorizerFunc func(context.Context, int64) *errors.APIError
 
-func (f ownerAuthorizerFunc) AuthorizeOwner(ctx context.Context, userID int64) *errors.APIError {
+func (f ownerAuthorizerFunc) AuthorizeMember(ctx context.Context, userID int64) *errors.APIError {
 	return f(ctx, userID)
 }
 

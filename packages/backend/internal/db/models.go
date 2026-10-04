@@ -1418,14 +1418,6 @@ type LinearSyncRun struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 
-type LocalCredential struct {
-	UserID            int64     `json:"user_id"`
-	PasswordHash      string    `json:"password_hash"`
-	PasswordChangedAt time.Time `json:"password_changed_at"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-}
-
 type Mention struct {
 	ID               int64       `json:"id"`
 	RepositoryID     int64       `json:"repository_id"`

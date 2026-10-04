@@ -41,8 +41,8 @@ type SSETicketMetrics struct {
 //
 // If a ticket is present and valid, the user is injected into the request context.
 // If a ticket is present but invalid, a 401 Unauthorized response is returned.
-func SSETicketAuth(validator SSETicketValidator, metrics *SSETicketMetrics, boundaries ...identity.OwnerAuthorizer) func(http.Handler) http.Handler {
-	var ownerBoundary identity.OwnerAuthorizer
+func SSETicketAuth(validator SSETicketValidator, metrics *SSETicketMetrics, boundaries ...identity.MemberAuthorizer) func(http.Handler) http.Handler {
+	var ownerBoundary identity.MemberAuthorizer
 	if len(boundaries) > 0 {
 		ownerBoundary = boundaries[0]
 	}
@@ -77,7 +77,7 @@ func SSETicketAuth(validator SSETicketValidator, metrics *SSETicketMetrics, boun
 				return
 			}
 			if ownerBoundary != nil {
-				if err := ownerBoundary.AuthorizeOwner(r.Context(), principal.User.ID); err != nil {
+				if err := ownerBoundary.AuthorizeMember(r.Context(), principal.User.ID); err != nil {
 					if metrics != nil && metrics.TicketsValidated != nil {
 						metrics.TicketsValidated.WithLabelValues("wrong_owner").Inc()
 					}

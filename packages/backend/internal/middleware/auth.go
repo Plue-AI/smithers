@@ -107,7 +107,7 @@ func RequireAuth(next http.Handler) http.Handler {
 // unrecognized format or no matching token return 401. Route-specific LFS,
 // Worker, OAuth client, and build-cache credentials pass to their own gates.
 // Suspended owners return 403; a credential store outage returns 503.
-func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...identity.OwnerAuthorizer) func(http.Handler) http.Handler {
+func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...identity.MemberAuthorizer) func(http.Handler) http.Handler {
 	sessionCookieName := strings.TrimSpace(cfg.SessionCookieName)
 	if sessionCookieName == "" {
 		sessionCookieName = "smithers_session"
@@ -124,14 +124,14 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 	}
 
 	cookieSecure := cfg.CookieSecure
-	var ownerBoundary identity.OwnerAuthorizer
+	var ownerBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg) {
 		if len(boundaries) > 0 {
 			ownerBoundary = boundaries[0]
 		} else if ownerQueries, ok := queries.(identity.OwnerQuerier); ok {
-			ownerBoundary = identity.NewSingleOwnerBoundary(ownerQueries)
+			ownerBoundary = identity.NewMemberBoundary(ownerQueries)
 		} else {
-			ownerBoundary = identity.NewSingleOwnerBoundary(nil)
+			ownerBoundary = identity.NewMemberBoundary(nil)
 		}
 	}
 
@@ -270,11 +270,15 @@ func writeInvalidToken(w http.ResponseWriter, message string) {
 	errors.WriteError(w, errors.New(errors.CodeInvalidToken, message))
 }
 
-func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo *AuthInfo, boundary identity.OwnerAuthorizer) bool {
+func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo *AuthInfo, boundary identity.MemberAuthorizer) bool {
 	if boundary == nil || authInfo == nil || authInfo.User == nil {
 		return true
 	}
-	if err := boundary.AuthorizeOwner(r.Context(), authInfo.User.ID); err != nil {
+	ctx := r.Context()
+	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" {
+		ctx = identity.WithSetupScope(ctx)
+	}
+	if err := boundary.AuthorizeMember(ctx, authInfo.User.ID); err != nil {
 		errors.WriteError(w, err)
 		return false
 	}

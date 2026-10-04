@@ -27,7 +27,6 @@ var secretNames = []string{
 	"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY",
 	"SMITHERS_REPO_HOST_AUTH_TOKEN",
 	"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN",
-	"SMITHERS_AUTH_BOOTSTRAP_TOKEN",
 }
 
 const (
@@ -289,6 +288,8 @@ func readSecrets(path string) (map[string]string, error) {
 	if data.Version != 1 {
 		return nil, fmt.Errorf("unsupported local secrets version %d", data.Version)
 	}
+	// Decode historical installations without restoring the retired auth door.
+	delete(data.Values, "SMITHERS_AUTH_BOOTSTRAP_TOKEN")
 	expected := len(secretNames)
 	if previous, ok := data.Values[previousOperatorKeysName]; ok {
 		if strings.TrimSpace(previous) == "" {

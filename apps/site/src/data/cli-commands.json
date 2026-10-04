@@ -1360,6 +1360,10 @@
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
               "type": "string"
             },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
+              "type": "string"
+            },
             "base": {
               "default": "HEAD",
               "description": "Git base revision",
@@ -2252,113 +2256,6 @@
       }
     },
     {
-      "name": "auth local bootstrap",
-      "description": "Create and log in as the installation owner",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Hostname or API origin (alias for --hostname)"
-            },
-            "hostname": {
-              "type": "string",
-              "description": "Hostname or API origin"
-            },
-            "username": {
-              "type": "string",
-              "description": "Owner username"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "auth local login",
-      "description": "Log in to an owner backend",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Hostname or API origin (alias for --hostname)"
-            },
-            "hostname": {
-              "type": "string",
-              "description": "Hostname or API origin"
-            },
-            "username": {
-              "type": "string",
-              "description": "Owner username"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "auth local status",
-      "description": "Show owner setup status",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Hostname or API origin (alias for --hostname)"
-            },
-            "hostname": {
-              "type": "string",
-              "description": "Hostname or API origin"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "auth login",
       "description": "Log in to Smithers",
       "schema": {
@@ -2766,6 +2663,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             }
           },
@@ -3542,6 +3443,10 @@
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
               "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
+              "type": "string"
             }
           },
           "required": [
@@ -3618,6 +3523,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             }
           },
@@ -4023,6 +3932,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             },
             "write": {
@@ -5363,78 +5276,12 @@
       }
     },
     {
-      "name": "history backfill",
-      "description": "Admit every open issue to the history now",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Repository (OWNER/REPO)"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "history bootstrap",
       "description": "Create the history from main's commits",
       "schema": {
         "args": {
           "type": "object",
           "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Repository (OWNER/REPO)"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "history land",
-      "description": "Land a proposed TODO's pull request once its review approves and CI is green",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "issue": {
-              "type": "string",
-              "description": "Issue number (12 or #12) or item id"
-            }
-          },
-          "required": [
-            "issue"
-          ],
           "additionalProperties": false
         },
         "options": {
@@ -5631,6 +5478,85 @@
               "type": "string",
               "description": "Repository (OWNER/REPO)"
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "host start",
+      "description": "Start the bundled host service",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "bundle": {
+              "description": "Built server bundle directory",
+              "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "host status",
+      "description": "Show launchd, bundle and process health",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "host stop",
+      "description": "Stop the host service",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
@@ -6819,6 +6745,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             },
             "fix": {
@@ -8614,44 +8544,6 @@
       }
     },
     {
-      "name": "repo report",
-      "description": "Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Public GitHub repository in OWNER/REPO format"
-            }
-          },
-          "required": [
-            "repo"
-          ],
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "workspace": {
-              "type": "string",
-              "description": "ID of one of your workspaces that answers the lookup"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "workspace",
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "repo status",
       "description": "Show local repository connection status",
       "schema": {
@@ -8882,6 +8774,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             },
             "name": {
@@ -11005,6 +10901,10 @@
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
               "type": "string"
             },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
+              "type": "string"
+            },
             "write": {
               "default": false,
               "description": "Apply Diff/Generate/CiGen targets instead of checking drift",
@@ -11151,6 +11051,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             }
           },
@@ -11473,6 +11377,10 @@
             },
             "knownRed": {
               "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
+              "type": "string"
+            },
+            "resultsFile": {
+              "description": "Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged",
               "type": "string"
             },
             "debounceMs": {

@@ -255,7 +255,7 @@ func TestBuildServer_WiresGitHTTPProxyWebhookDependencies(t *testing.T) {
 		if pkgIdent.Name != "services" {
 			return true
 		}
-		if sel.Sel.Name == "WithGitHTTPSingleOwnerBoundary" {
+		if sel.Sel.Name == "WithGitHTTPMemberBoundary" {
 			singleOwnerOption = true
 			return true
 		}
@@ -362,4 +362,18 @@ func hasMiddlewareCall(expr ast.Expr, functionName, argumentName string) bool {
 		return false
 	})
 	return found
+}
+
+func TestSetupHandoffArgumentRefusal(t *testing.T) {
+	t.Setenv("SMITHERS_NATIVE_STATE_DIR", "")
+	for _, tc := range []struct {
+		args    []string
+		message string
+	}{
+		{[]string{"--setup-handoff=other"}, "invalid setup handoff"},
+		{[]string{"--setup-handoff=socket"}, "socket setup handoff requires SMITHERS_NATIVE_STATE_DIR"},
+	} {
+		err := runWithOptions(t.Context(), tc.args, io.Discard, io.Discard, runOptions{})
+		require.EqualError(t, err, tc.message)
+	}
 }

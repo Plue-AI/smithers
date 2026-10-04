@@ -13,7 +13,7 @@ import (
 
 // BindRepositoryProviders reuses the existing OAuth/App verification and the
 // durable importer. Neither provider loads a flow nor prepares a host recipe.
-func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposService, app *GitHubAppCredentialStore, imports *GitHubImportService) {
+func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposService, app *GitHubAppCredentialStore, imports *GitHubImportService, members *Members) {
 	s.Providers = map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error{}
 	s.Providers["repository"] = func(ctx context.Context, lease *jobs.Lease, input InstallSetupInput) error {
 		owner, err := db.New(s.Pool).GetSelfHostOwner(ctx)
@@ -21,7 +21,10 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 			return err
 		}
 		o, n, _ := strings.Cut(input.Repository, "/")
-		if err = access.VerifyUserCanPushToGitHubRepo(ctx, owner.ID, o, n); err != nil {
+		if members == nil {
+			return pkgerrors.Internal("owner verifier unavailable")
+		}
+		if err = members.BindRepository(ctx, owner, o, n, 0); err != nil {
 			return err
 		}
 		diagnosis, err := access.DiagnoseGitHubAccess(ctx, owner.ID, o, n, GitHubRepoMetadataIssues)
@@ -89,6 +92,22 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		if job.Status != "ready" {
 			raw, _ := json.Marshal(receipt)
 			return lease.Defer(ctx, raw, time.Second)
+		}
+		repo, err := db.New(s.Pool).GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: job.RepoOwner, Name: job.RepoName})
+		if err != nil {
+			return err
+		}
+		binding, err := db.New(s.Pool).GetInstallSetting(ctx, "repository")
+		if err != nil {
+			return err
+		}
+		var slug string
+		if err = json.Unmarshal(binding.Value, &slug); err != nil {
+			return err
+		}
+		o, n, _ := strings.Cut(slug, "/")
+		if err = members.BindRepository(ctx, owner, o, n, repo.ID); err != nil {
+			return err
 		}
 		// Import's selected local slug can differ from the GitHub slug. Pin it for
 		// machine preparation rather than guessing a repository-host identity.

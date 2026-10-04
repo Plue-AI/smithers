@@ -2014,41 +2014,6 @@ func (c *Client) PostAPIAuthSSETicket(ctx context.Context) (MultiSSETicketRespon
 	return out, err
 }
 
-// GetAPIAuthLocalStatus calls GET /api/auth/local/status.
-func (c *Client) GetAPIAuthLocalStatus(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/auth/local/status", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalBootstrap calls POST /api/auth/local/bootstrap.
-func (c *Client) PostAPIAuthLocalBootstrap(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/bootstrap", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalLogin calls POST /api/auth/local/login.
-func (c *Client) PostAPIAuthLocalLogin(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/login", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalPassword calls POST /api/auth/local/password.
-func (c *Client) PostAPIAuthLocalPassword(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/password", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAuthLocalToken calls POST /api/auth/local/token.
-func (c *Client) PostAPIAuthLocalToken(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/auth/local/token", nil, body, &out)
-	return out, err
-}
-
 // GetAPIBilling calls GET /api/billing.
 func (c *Client) GetAPIBilling(ctx context.Context) (MultiBillingOverview, error) {
 	var out MultiBillingOverview

@@ -40,8 +40,8 @@ type GitHubRepoListingWarmer interface {
 }
 
 type AuthHandler struct {
+	InstallSetup   *services.InstallSetupSessions
 	Service        AuthService
-	LocalService   LocalIdentityService
 	AuthConfig     config.AuthConfig
 	PublicOrigin   string
 	AllowedOrigins []string
@@ -206,6 +206,38 @@ func consumeOAuth2PendingAuthorizeCookie(w http.ResponseWriter, r *http.Request,
 // GitHub sign-in path). It generates an oauth state verifier, stashes it in a
 // cookie, and redirects to GitHub's authorize endpoint.
 func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if h.InstallSetup != nil {
+		origin, ok := middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+		if !ok {
+			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
+			return
+		}
+		if origin == "http://127.0.0.1:4000" || origin == "http://[::1]:4000" {
+			http.Redirect(w, r, "http://localhost:4000"+r.URL.RequestURI(), http.StatusFound)
+			return
+		}
+
+		if r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
+			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
+			return
+		}
+		local := *h
+		local.AuthConfig.CookieSecure = strings.HasPrefix(origin, "https://")
+		h = &local
+		r = r.WithContext(services.WithGitHubRedirectURI(r.Context(), origin+"/api/auth/github/callback"))
+	}
+
+	if h.InstallSetup != nil {
+		setup := ""
+		if cookie, err := r.Cookie(GitHubAppSetupSessionCookie); err == nil {
+			setup = cookie.Value
+		}
+		if err := h.InstallSetup.AdmitOAuth(r.Context(), setup); err != nil {
+			writeRouteError(w, r, err)
+			return
+		}
+	}
+
 	returnTo := r.URL.Query().Get("return_to")
 	if returnTo != "" && !validBrowserReturn(returnTo) {
 		writeRouteError(w, r, errors.BadRequest("return_to must be a local path"))
@@ -294,6 +326,33 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if h.InstallSetup != nil {
+		origin, ok := middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+		if !ok {
+			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
+			return
+		}
+		if r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
+			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
+			return
+		}
+		local := *h
+		local.AuthConfig.CookieSecure = strings.HasPrefix(origin, "https://")
+		h = &local
+		r = r.WithContext(services.WithGitHubRedirectURI(r.Context(), origin+"/api/auth/github/callback"))
+	}
+
+	if h.InstallSetup != nil {
+		setup := ""
+		if cookie, err := r.Cookie(GitHubAppSetupSessionCookie); err == nil {
+			setup = cookie.Value
+		}
+		if err := h.InstallSetup.AdmitOAuth(r.Context(), setup); err != nil {
+			writeRouteError(w, r, err)
+			return
+		}
+	}
+
 	returnTo := consumeBrowserReturnCookie(w, r, h.AuthConfig.CookieSecure)
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -303,13 +362,20 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	}
 
 	stateVerifier := oauthStateVerifierFromRequest(r)
-	result, err := h.Service.CompleteGitHubOAuth(r.Context(), code, state, stateVerifier)
+	ctx := r.Context()
+	if cookie, err := r.Cookie(GitHubAppSetupSessionCookie); err == nil {
+		ctx = services.WithInstallSetupSession(ctx, cookie.Value)
+	}
+	result, err := h.Service.CompleteGitHubOAuth(ctx, code, state, stateVerifier)
 	if err != nil {
 		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
 		writeRouteError(w, r, err)
 		return
 	}
 
+	if h.InstallSetup != nil {
+		http.SetCookie(w, &http.Cookie{Name: GitHubAppSetupSessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: h.AuthConfig.CookieSecure, MaxAge: -1})
+	}
 	if result.AdminCLI != nil {
 		h.showAdminCLIConsent(w, r, result, state, stateVerifier)
 		return

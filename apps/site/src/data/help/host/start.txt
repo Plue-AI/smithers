@@ -1,10 +1,10 @@
-smthrs history backfill — Admit every open issue to the history now
+smthrs host start — Start the bundled host service
 
-Usage: smthrs history backfill [options]
+Usage: smthrs host start [options]
 
 Options:
-  --repo, -R <string>
-  --verbose            Show redacted diagnostic details
+  --bundle <string>  Built server bundle directory
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

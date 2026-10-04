@@ -74,7 +74,6 @@ export const groups: Record<string, string> = {
   "agent session": "Manage remote conversations",
   "artifact": "List and download files a run produced",
   "auth": "Log in, log out and connect subscriptions",
-  "auth local": "Set up and log in to an owner backend",
   "bookmark": "Manage local jj bookmarks",
   "cache cloud": "Inspect and clear a repository's Cloud caches",
   "cache token": "Manage public read tokens for the build cache",

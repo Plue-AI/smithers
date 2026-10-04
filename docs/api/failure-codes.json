@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa",
+  "digest": "sha256:d78daa3984aa8a1a2b53a795f1f18777345bb824320e089c239c85a53bc43da3",
   "faults": [
     "user",
     "wait",
@@ -500,6 +500,13 @@
       "status": 402,
       "retry_after": 0,
       "doc": "The account's credit balance cannot cover the next model call; upgrade or top up, then retry."
+    },
+    {
+      "code": "owner_unverified",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "Owner repository access has not been verified."
     },
     {
       "code": "peer_identity_denied",

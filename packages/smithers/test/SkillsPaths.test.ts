@@ -6,7 +6,7 @@ import { expect, test } from "vitest"
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 
 const referencedPaths = (markdown: string): Array<string> =>
-  Array.from(markdown.matchAll(/`([^`\n]+)`/g), ([, value]) => value).filter(
+  Array.from(markdown.matchAll(/`([^`\n]+)`/g), ([, value = ""]) => value).filter(
     // Literal relative paths have a slash and an extension or trailing slash; exclude commands, packages, and templates.
     (value) => /^[\w.-]+\/(?:[\w./-]*\.[\w-]+|[\w./-]*\/)?$/.test(value)
   )

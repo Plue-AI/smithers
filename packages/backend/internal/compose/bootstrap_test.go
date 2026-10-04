@@ -18,7 +18,7 @@ func TestAppBootstrapReportsAssembledCapabilities(t *testing.T) {
 	require.Equal(t, "cloud", local.Host)
 	require.Equal(t, []string{"identity", "cloud", "cloud.terminal"}, local.Capabilities)
 	require.NotContains(t, local.Capabilities, "native.shell")
-	require.Equal(t, "credentials", local.AuthFlow)
+	require.Equal(t, "redirect", local.AuthFlow)
 	require.Equal(t, "trusted-only", local.Sandbox.Mode)
 	require.NotEmpty(t, local.Sandbox.Platform)
 

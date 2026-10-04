@@ -73,7 +73,10 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	network := httptest.NewUnstartedServer(nil)
 	origins := []string{"http://" + local.Listener.Addr().String(), "https://" + network.Listener.Addr().String()}
 	store := services.NewGitHubAppCredentialStore(pool, codec)
-	sessions := &services.InstallSetupSessions{Pool: pool, TokenDigest: sha256.Sum256([]byte("setup-token"))}
+	sessions := &services.InstallSetupSessions{Pool: pool}
+	tokenDigest := sha256.Sum256([]byte("setup-token"))
+	tokenValue, _ := json.Marshal(hex.EncodeToString(tokenDigest[:]))
+	require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.token", Value: tokenValue}))
 	h := &routes.GitHubAppSetupHandler{Service: services.NewGitHubAppManifestService(pool, store, fake.URL, origins), Store: store, Owners: q, Sessions: sessions, AllowedOrigins: origins}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"

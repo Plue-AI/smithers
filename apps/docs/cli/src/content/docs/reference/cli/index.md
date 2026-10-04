@@ -60,8 +60,7 @@ the command. A 401 clears only that file resolution; the next explicit command
 rereads it without replaying the failed request. Managed terminal sign-in remains
 unavailable pending issuer and security validation. Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
 and legacy config token; a new login removes the legacy token. Login and token
-status never print credentials. Local owner installations use `auth local bootstrap`
-and `auth local login`; `auth connect claude --api-key` connects an Anthropic
+status never print credentials. Self-hosted installs print a one-use setup URL. Open it and sign in with GitHub; `auth connect claude --api-key` connects an Anthropic
 API key. Vendor subscriptions stay with their own CLIs. Sign into Codex on the
 workspace with `codex login --device-auth`; `auth connect codex` refuses token
 transfer.

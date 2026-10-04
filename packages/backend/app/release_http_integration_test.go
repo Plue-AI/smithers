@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/app"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,9 +79,9 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		}
 		return result, res.Header
 	}
-	request("POST", "/api/auth/local/bootstrap", `{"username":"releaseowner","password":"release-owner-password"}`, 200, map[string]string{"X-Smithers-Bootstrap-Token": "release-audit-bootstrap"})
-	auth, _ := request("POST", "/api/auth/local/token", `{"username":"releaseowner","password":"release-owner-password","name":"audit"}`, 200, nil)
-	token = auth["token"].(string)
+	token, err = seed.OwnerToken(t.Context(), pool, "releaseowner")
+	require.NoError(t, err)
+
 	repo, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, 201, nil)
 	require.Equal(t, true, repo["can_write"], "creator must retain editing access")
 	path := "/api/repos/releaseowner/audit"

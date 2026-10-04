@@ -17,11 +17,6 @@ export const hostedSession = (services: Pick<AppServices, "bootstrap" | "applica
   (services.bootstrap?.authFlow === "redirect" || signInByHandoff(services.bootstrap)) &&
   (services.applicationTarget === undefined || services.applicationTarget.auth.kind === "session")
 
-/** The owner's own backend, signed in with its credentials (`/api/auth/local/*`): self-host and the owned native backend. */
-export const ownerCredentials = (services: Pick<AppServices, "bootstrap" | "applicationTarget" | "localIdentity">): boolean =>
-  !hostedSession(services) && services.localIdentity !== undefined &&
-  services.applicationTarget?.ownership === "owner" && services.applicationTarget.auth.kind === "session"
-
 /**
  * A sign-in that finishes on the identity upstream and is claimed back: the
  * Bun host's proxied identity (`both`) and the shell's handoff. In a browser
@@ -31,8 +26,8 @@ export const signInByHandoff = (bootstrap: Pick<AppBootstrap, "authFlow"> | unde
   bootstrap?.authFlow === "native-handoff" || bootstrap?.authFlow === "both"
 
 /** The selected authentication door, not the spelling of an account's login. */
-export const identityProviderFor = (services: Pick<AppServices, "bootstrap" | "applicationTarget" | "applicationIdentity" | "localIdentity">): IdentityProvider =>
-  ownerCredentials(services) || (!hostedSession(services) && services.applicationIdentity !== undefined) ? "local" : "github"
+export const identityProviderFor = (services: Pick<AppServices, "bootstrap" | "applicationTarget" | "applicationIdentity">): IdentityProvider =>
+  services.applicationTarget?.auth.kind === "bearer" && services.applicationIdentity !== undefined ? "local" : "github"
 
 /** Backend credentials and bearer identities never establish a GitHub connection. */
 export const hasGitHubIdentity = (identity: IdentitySession | undefined, provider: IdentityProvider): boolean =>
