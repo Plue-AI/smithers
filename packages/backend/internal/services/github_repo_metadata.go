@@ -518,26 +518,12 @@ func gitHubRepoMetadataRateLimitError(resp *http.Response, now time.Time) error 
 }
 
 func gitHubRepoMetadataRetryAfter(header http.Header, now time.Time) int {
-	maxSeconds := int(githubRepoMetadataMaxRetryAfter / time.Second)
-	if seconds, err := strconv.Atoi(strings.TrimSpace(header.Get("Retry-After"))); err == nil && seconds > 0 {
-		if seconds > maxSeconds {
-			return maxSeconds
-		}
-		return seconds
+	seconds := GitHubRetryAt(header, now).Sub(now) / time.Second
+	if seconds > githubRepoMetadataMaxRetryAfter/time.Second {
+		seconds = githubRepoMetadataMaxRetryAfter / time.Second
 	}
-
-	if resetUnix, err := strconv.ParseInt(strings.TrimSpace(header.Get("X-RateLimit-Reset")), 10, 64); err == nil && resetUnix > 0 {
-		seconds := resetUnix - now.Unix()
-		if seconds < 1 {
-			seconds = 1
-		}
-		if seconds > int64(maxSeconds) {
-			seconds = int64(maxSeconds)
-		}
-		return int(seconds)
+	if seconds < 1 {
+		seconds = 1
 	}
-
-	// Even a malformed rate-limit response gets a positive, bounded backoff;
-	// Retry-After: 0 would invite a hot retry loop against GitHub.
-	return 1
+	return int(seconds)
 }

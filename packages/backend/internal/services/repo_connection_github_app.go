@@ -389,7 +389,7 @@ func (s *RepoConnectionService) confirmImportedSourceReadable(ctx context.Contex
 		return nil
 	}
 
-	private, err := fetchGitHubRepoPrivate(ctx, installationToken, owner, repo)
+	private, err := s.fetchGitHubRepoPrivate(ctx, installationToken, owner, repo)
 	if err != nil {
 		slog.Warn("github.proxy.imported_source_visibility_unknown", "user_id", userID, "github_owner", owner, "github_repo", repo, "error", err)
 		return err
@@ -419,7 +419,7 @@ func (s *RepoConnectionService) confirmImportedSourceReadable(ctx context.Contex
 }
 
 // fetchGitHubRepoPrivate asks GitHub for a repository's current visibility.
-func fetchGitHubRepoPrivate(ctx context.Context, token, owner, repo string) (bool, error) {
+func (s *RepoConnectionService) fetchGitHubRepoPrivate(ctx context.Context, token, owner, repo string) (bool, error) {
 	endpoint := strings.TrimRight(githubAPIBaseURL(), "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -429,7 +429,7 @@ func fetchGitHubRepoPrivate(ctx context.Context, token, owner, repo string) (boo
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 	req.Header.Set("User-Agent", "smithers-server")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	resp, err := observability.NewHTTPClient(10 * time.Second).Do(req)
+	resp, err := s.gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(10 * time.Second)).Do(req)
 	if err != nil {
 		return false, pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "github repository visibility check failed")
 	}
@@ -501,6 +501,7 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 
 	cacheKey := installationTokenKey(installationID, scope)
 	if cached, ok := getCachedInstallationTokenKey(cacheKey); ok {
+		s.gitHubBudgetTracker.registerToken(cached.token, installationID)
 		return GitHubInstallationToken{InstallationID: installationID, Token: cached.token, ExpiresAt: cached.expiresAt}, nil
 	}
 
@@ -524,7 +525,7 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 	req.Header.Set("User-Agent", "smithers-server")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	httpClient := observability.NewHTTPClient(10 * time.Second)
+	httpClient := s.gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(10 * time.Second))
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token request failed").WithCause(err)
@@ -562,6 +563,7 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 	}
 
 	storeCachedInstallationTokenKey(cacheKey, token, expiresAt)
+	s.gitHubBudgetTracker.registerToken(token, installationID)
 	return GitHubInstallationToken{
 		InstallationID: installationID,
 		Token:          token,
@@ -937,7 +939,7 @@ WHERE NOT (installation_id = ANY($1::bigint[]));
 func (s *RepoConnectionService) listGitHubAppInstallations(ctx context.Context, jwt string) ([]reconcileInstallation, error) {
 	endpoint := fmt.Sprintf("%s/app/installations?per_page=100", strings.TrimRight(githubAPIBaseURL(), "/"))
 	var all []reconcileInstallation
-	httpClient := observability.NewHTTPClient(15 * time.Second)
+	httpClient := s.gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15 * time.Second))
 	for endpoint != "" {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
@@ -975,7 +977,7 @@ func (s *RepoConnectionService) listGitHubAppInstallations(ctx context.Context, 
 func (s *RepoConnectionService) listGitHubInstallationRepositories(ctx context.Context, token string) ([]reconcileRepository, error) {
 	endpoint := fmt.Sprintf("%s/installation/repositories?per_page=100", strings.TrimRight(githubAPIBaseURL(), "/"))
 	var all []reconcileRepository
-	httpClient := observability.NewHTTPClient(15 * time.Second)
+	httpClient := s.gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15 * time.Second))
 	for endpoint != "" {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
@@ -1101,4 +1103,14 @@ func base64URLEncodeJSON(value any) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
+}
+
+// gitHubProviderClient reuses the production issuer's shared install budget.
+// No ambient/global client is installed, so hosted compositions are unchanged.
+func gitHubProviderClient(provider any, timeout time.Duration) *http.Client {
+	client := observability.NewHTTPClient(timeout)
+	if connection, ok := provider.(*RepoConnectionService); ok {
+		return connection.gitHubBudgetTracker.WrapClient(client)
+	}
+	return client
 }

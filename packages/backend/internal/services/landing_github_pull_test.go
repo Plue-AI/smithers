@@ -483,3 +483,35 @@ func (h bookmarkedLandingRepoHost) GetBookmark(ctx context.Context, owner, repo,
 	}
 	return repohost.Bookmark{}, &repohost.StatusError{StatusCode: 404, Code: "bookmark_not_found"}
 }
+
+func TestLandingGitHubConditionalReadPreservesStatusHeadersAndCachedFact(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		require.Equal(t, "Bearer token", r.Header.Get("Authorization"))
+		require.Equal(t, "/repos/acme/app/pulls?state=all&per_page=50", r.URL.RequestURI())
+		w.Header().Set("ETag", `"pulls-v1"`)
+		w.Header().Set("X-RateLimit-Limit", "100")
+		w.Header().Set("X-RateLimit-Remaining", "80")
+		w.Header().Set("X-RateLimit-Reset", "2000")
+		if r.Header.Get("If-None-Match") == `"pulls-v1"` {
+			w.WriteHeader(304)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"number":7}]`))
+	}))
+	defer server.Close()
+	api := &landingGitHubAPI{client: server.Client(), baseURL: func() string { return server.URL }}
+	var out []struct{ Number int }
+	status, header, err := api.requestHeaders(context.Background(), "token", "GET", "/repos/acme/app/pulls?state=all&per_page=50", "", nil, &out)
+	require.NoError(t, err)
+	require.Equal(t, 200, status)
+	require.Equal(t, 7, out[0].Number)
+	require.Equal(t, "80", header.Get("X-RateLimit-Remaining"))
+	status, header, err = api.requestHeaders(context.Background(), "token", "GET", "/repos/acme/app/pulls?state=all&per_page=50", header.Get("ETag"), nil, &out)
+	require.NoError(t, err)
+	require.Equal(t, 304, status)
+	require.Equal(t, 7, out[0].Number)
+	require.Equal(t, "80", header.Get("X-RateLimit-Remaining"))
+	require.Equal(t, 2, calls)
+}

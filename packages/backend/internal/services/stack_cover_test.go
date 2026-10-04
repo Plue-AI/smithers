@@ -165,10 +165,10 @@ func TestStack_Cov_NormalizationDefaultsAndGitHubHelpers(t *testing.T) {
 	var out struct {
 		Message string `json:"message"`
 	}
-	require.NoError(t, callStackGitHubJSON(context.Background(), "token", "/ok", &out))
+	require.NoError(t, callStackGitHubJSON(context.Background(), http.DefaultClient, "token", "/ok", &out))
 	assert.Equal(t, "ok", out.Message)
-	require.NoError(t, callStackGitHubJSON(context.Background(), "token", "/ok", nil))
-	err = callStackGitHubJSON(context.Background(), "token", "/denied", &out)
+	require.NoError(t, callStackGitHubJSON(context.Background(), http.DefaultClient, "token", "/ok", nil))
+	err = callStackGitHubJSON(context.Background(), http.DefaultClient, "token", "/denied", &out)
 	require.ErrorContains(t, err, "denied")
 
 }

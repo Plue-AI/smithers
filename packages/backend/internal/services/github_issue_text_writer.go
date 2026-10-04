@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -371,7 +370,7 @@ type GitHubTextStamper struct {
 // NewGitHubTextStamper reads writers through the GitHub App.
 func NewGitHubTextStamper(tokens gitHubIssueTextTokens) *GitHubTextStamper {
 	return &GitHubTextStamper{tokens: tokens, api: &gitHubIssueTextAPI{
-		api: &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL}}}
+		api: &landingGitHubAPI{client: gitHubProviderClient(tokens, 30*time.Second), baseURL: githubAPIBaseURL}}}
 }
 
 // gitHubStampedKinds are the events a consumer reads text from.

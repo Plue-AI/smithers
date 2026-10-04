@@ -234,7 +234,7 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 	t.Cleanup(server.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
-	state, err := loadStackGitHubState(ctx, "token", "owner", "repo", 12)
+	state, err := loadStackGitHubState(ctx, http.DefaultClient, "token", "owner", "repo", 12)
 	require.NoError(t, err)
 	assert.Equal(t, "open", state.PRState)
 	assert.Equal(t, "approved", state.ReviewStatus)
@@ -246,11 +246,11 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 	t.Cleanup(badJSONServer.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, badJSONServer.URL)
 	var out struct{}
-	err = callStackGitHubJSON(ctx, "token", "/bad-json", &out)
+	err = callStackGitHubJSON(ctx, http.DefaultClient, "token", "/bad-json", &out)
 	require.Error(t, err)
 
 	t.Setenv(envGitHubAppAPIBaseURL, "://bad")
-	err = callStackGitHubJSON(ctx, "token", "/path", &out)
+	err = callStackGitHubJSON(ctx, http.DefaultClient, "token", "/path", &out)
 	require.Error(t, err)
 }
 

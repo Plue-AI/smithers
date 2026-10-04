@@ -523,7 +523,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	gitHubBudgetTracker := services.NewBudgetTracker()
 	repoConnectionService := services.NewRepoConnectionService(pool, gitHubAppCredentials)
 	repoConnectionService.SetGitHubBudgetTracker(gitHubBudgetTracker)
-	gitHubRepoListService := services.NewGitHubRepoListService(pool, repoConnectionService)
+	gitHubRepoListService := services.NewGitHubRepoListService(pool, repoConnectionService,
+		services.WithGitHubRepoListHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))))
 	// The continuously-synced GitHub mirror: registry + issue/PR/comment store.
 	// The metadata proxy serves from it (live GitHub is the fallback), the App
 	// webhooks keep it fresh, and github-sync reads its registry feed instead of
@@ -535,6 +536,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	gitHubUserReposService := services.NewGitHubUserReposService(queries, authService,
 		services.WithGitHubUserReposTokenRefresher(authService),
+		services.WithGitHubUserReposHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),
 		services.WithGitHubUserReposCredentialStore(gitHubAppCredentials),
 		services.WithGitHubUserReposSyncedStore(gitHubSyncedRepoService),
 	)
@@ -587,6 +589,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	landingService := services.NewLandingServiceWithPool(queries, repoHostClient, pool, landingOptions...)
 	stackOptions := []services.StackServiceOption{
 		services.WithStackGitHubInstallationResolver(repoConnectionService),
+		services.WithStackGitHubBudget(gitHubBudgetTracker),
 		services.WithStackGitHubAppCredentialStore(gitHubAppCredentials),
 	}
 	if cfg.FeatureFlags.Workflows {
@@ -849,6 +852,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		authService,
 		publicBaseURL,
 		services.WithGitHubImportOrgs(queries),
+		services.WithGitHubImportHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),
 		services.WithGitHubImportMetrics(smithersMetrics),
 		services.WithGitHubImportBillingPolicy(billingPolicy),
 		services.WithGitHubImportStorageSet(activeStorageSetID),
@@ -1242,6 +1246,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Service: services.NewGitHubProxyService(
 			repoConnectionService,
 			services.WithGitHubProxyBudgetTracker(gitHubBudgetTracker),
+			services.WithGitHubProxyHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(30*time.Second))),
 			services.WithGitHubProxyUserTokens(gitHubUserReposService),
 		),
 	}

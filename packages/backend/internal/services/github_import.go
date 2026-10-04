@@ -2312,7 +2312,7 @@ func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID
 			Status:     http.StatusTooManyRequests,
 			Code:       pkgerrors.CodeRateLimitExceeded,
 			Message:    "github repository request was rate limited",
-			RetryAfter: githubRepoMetadataRetryAfter(responseHeader),
+			RetryAfter: gitHubRepoMetadataRetryAfter(responseHeader, time.Now().UTC()),
 		}
 	}
 	if status == http.StatusUnauthorized {
@@ -2427,29 +2427,6 @@ func githubRepoMetadataRateLimited(header http.Header) bool {
 		}
 	}
 	return strings.TrimSpace(header.Get("X-RateLimit-Remaining")) == "0"
-}
-
-func githubRepoMetadataRetryAfter(header http.Header) int {
-	seconds, err := strconv.Atoi(strings.TrimSpace(header.Get("Retry-After")))
-	if err == nil && seconds > 0 {
-		return seconds
-	}
-	if strings.TrimSpace(header.Get("X-RateLimit-Remaining")) != "0" {
-		return 0
-	}
-	reset, err := strconv.ParseInt(strings.TrimSpace(header.Get("X-RateLimit-Reset")), 10, 64)
-	if err != nil {
-		return 0
-	}
-	remaining := reset - time.Now().Unix()
-	if remaining <= 0 {
-		return 0
-	}
-	const maxInt32 = int64(^uint32(0) >> 1)
-	if remaining > maxInt32 {
-		return int(maxInt32)
-	}
-	return int(remaining)
 }
 
 // refreshUserGitHubToken performs a single reactive refresh of the user's GitHub

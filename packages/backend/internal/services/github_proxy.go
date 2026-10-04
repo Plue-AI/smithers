@@ -192,7 +192,7 @@ func (s *GitHubProxyService) proxyRequest(ctx context.Context, resolved gitHubPr
 		logGitHubProxyRequest(method, requestPath, statusCodeFromError(err), "deny", "failed to create github installation token")
 		return nil, err
 	}
-	if s.gitHubBudgetTracker != nil {
+	if s.gitHubBudgetTracker != nil && !s.gitHubBudgetTracker.headers {
 		allowed, retryAfter, rateLimit := s.gitHubBudgetTracker.AllowWithStatus(installationToken.InstallationID)
 		if !allowed {
 			retryAfterSeconds := gitHubProxyRetryAfterSeconds(retryAfter)

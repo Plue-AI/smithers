@@ -1247,7 +1247,7 @@ func (s *GitHubSyncedRepoService) preferredFetcher(row db.GithubSyncedRepo, fall
 // reconcile keeps the accounting coarse but centralized — the proxy layer
 // charges the same tracker per request.
 func (s *GitHubSyncedRepoService) allowBudget(row db.GithubSyncedRepo) bool {
-	if s.budget == nil || !row.InstallationID.Valid {
+	if s.budget == nil || s.budget.headers || !row.InstallationID.Valid {
 		return true
 	}
 	allowed, retryAfter := s.budget.Allow(row.InstallationID.Int64)

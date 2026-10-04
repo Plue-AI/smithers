@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -128,7 +127,7 @@ type mythicalGitHubAPI struct {
 // dispatch and proves the stack actor's own push access before any write, the
 // credential policy of landing pull requests.
 func NewMythicalGitHub(store MythicalGitHubStore, tokens LandingGitHubPullTokens, prover GitHubRepoPushProver, connections RepoSyncConnectionChecker) *mythicalGitHubAPI {
-	api := &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL}
+	api := &landingGitHubAPI{client: gitHubProviderClient(tokens, 30*time.Second), baseURL: githubAPIBaseURL}
 	var credentials GitHubAppCredentialReader
 	if connections, ok := tokens.(*RepoConnectionService); ok {
 		credentials = connections.githubAppCredentials

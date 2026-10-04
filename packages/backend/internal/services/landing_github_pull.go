@@ -16,7 +16,6 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -147,7 +146,7 @@ func NewLandingGitHubPullService(landings *LandingService, q GitMirrorCredential
 		landings: landings,
 		listRefs: defaultListRemoteRefs,
 		push:     defaultPushLandingCommit,
-		github:   &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL},
+		github:   &landingGitHubAPI{client: gitHubProviderClient(tokens, 30*time.Second), baseURL: githubAPIBaseURL},
 	}
 	s.remotes = func(ctx context.Context, actor *db.User, repository db.Repository, owner, repo string) (landingGitHubRemotes, error) {
 		if q == nil || tokens == nil {
@@ -422,19 +421,29 @@ type landingGitHubAPI struct {
 }
 
 func (a *landingGitHubAPI) request(ctx context.Context, token, method, path string, body any, out any, refusal ...*GitHubRefusal) (int, error) {
+	status, _, err := a.requestHeaders(ctx, token, method, path, "", body, out, refusal...)
+	return status, err
+}
+
+// requestHeaders exposes conditional-read status and headers to the existing
+// pollers. A 304 has no body to decode and must not replace their cached fact.
+func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, path, etag string, body any, out any, refusal ...*GitHubRefusal) (int, http.Header, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			return 0, pkgerrors.Internal("encode GitHub request").WithCause(err)
+			return 0, nil, pkgerrors.Internal("encode GitHub request").WithCause(err)
 		}
 		reader = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.baseURL(), "/")+path, reader)
 	if err != nil {
-		return 0, pkgerrors.Internal("build GitHub request").WithCause(err)
+		return 0, nil, pkgerrors.Internal("build GitHub request").WithCause(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	if method == http.MethodGet && etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "smithers-server")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -443,7 +452,7 @@ func (a *landingGitHubAPI) request(ctx context.Context, token, method, path stri
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return 0, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub did not answer")
+		return 0, nil, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub did not answer")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -454,10 +463,10 @@ func (a *landingGitHubAPI) request(ctx context.Context, token, method, path stri
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
-			return resp.StatusCode, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an unreadable pull request receipt")
+			return resp.StatusCode, resp.Header.Clone(), pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an unreadable pull request receipt")
 		}
 	}
-	return resp.StatusCode, nil
+	return resp.StatusCode, resp.Header.Clone(), nil
 }
 
 func landingGitHubStatusError(status int, owner, repo, action string) error {

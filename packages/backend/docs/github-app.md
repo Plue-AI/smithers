@@ -19,3 +19,11 @@ One App belongs to each install. Its PEM, webhook secret, and OAuth client secre
 TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. A previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait.
 
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
+
+## Polling transport
+
+The existing GitHub callers have shared client wiring for response-header budget admission, including repository lists, visibility checks, installation-token minting and stack decoration. Header-based accounting remains unmounted until the install's production guards and delivery checks qualify it. Scoped tokens for the same installation share its resource budget. GitHub's limit, remaining and reset headers supply capacity; no local hourly request-count cap or linear refill applies. Production compositions retain their existing worker and budget policy until that qualification.
+
+A 403 or 429 with `Retry-After` pauses only its stream. Exhausted primary capacity pauses the resource until its reset. Below 20 percent remaining, the cadence helper doubles issues, issue events and permission reads until reset. Conditional 304 responses consume no local debit. The existing request API also exposes `If-None-Match`, 304 status and response headers without replacing a cached fact.
+
+The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events require an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. These delivery and worker contracts are not activated by the transport increment; it does not establish freshness or recovery acceptance.

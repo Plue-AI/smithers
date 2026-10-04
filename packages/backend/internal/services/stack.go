@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -82,6 +81,13 @@ type StackService struct {
 	submitTxManager      stackSubmitTxManager
 	workflowRunner       StackWorkflowRunDispatcher
 	githubInstallations  StackGitHubInstallationResolver
+	githubBudget         *BudgetTracker
+}
+
+// WithStackGitHubBudget keeps stack decoration and its existing token issuer
+// on the install's shared admission path instead of constructing a bypass.
+func WithStackGitHubBudget(budget *BudgetTracker) StackServiceOption {
+	return func(s *StackService) { s.githubBudget = budget }
 }
 
 func WithStackGitHubAppCredentialStore(store GitHubAppCredentialReader) StackServiceOption {
@@ -708,7 +714,9 @@ func (s *StackService) enrichStackResponseWithGitHub(
 		return nil
 	}
 
-	installation, err := NewRepoConnectionService(nil, s.githubAppCredentials).CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
+	issuer := NewRepoConnectionService(nil, s.githubAppCredentials)
+	issuer.SetGitHubBudgetTracker(s.githubBudget)
+	installation, err := issuer.CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
 	if err != nil {
 		for index := range response.Changes {
 			applyStackChangeDefaults(&response.Changes[index], owner, repo)
@@ -734,7 +742,7 @@ func (s *StackService) enrichStackResponseWithGitHub(
 				return
 			}
 			defer func() { <-sem }()
-			state, err := loadStackGitHubState(enrichCtx, installation.Token, owner, repo, prNumber)
+			state, err := loadStackGitHubState(enrichCtx, gitHubProviderClient(issuer, 10*time.Second), installation.Token, owner, repo, prNumber)
 			if err == nil {
 				states[index] = &state
 			}
@@ -792,6 +800,7 @@ func stackPullRequestURL(owner, repo string, prNumber int64) string {
 
 func loadStackGitHubState(
 	ctx context.Context,
+	client *http.Client,
 	token,
 	owner,
 	repo string,
@@ -804,7 +813,7 @@ func loadStackGitHubState(
 		url.PathEscape(strings.TrimSpace(repo)),
 		prNumber,
 	)
-	if err := callStackGitHubJSON(ctx, token, pullPath, &pull); err != nil {
+	if err := callStackGitHubJSON(ctx, client, token, pullPath, &pull); err != nil {
 		return stackGitHubState{}, err
 	}
 
@@ -816,7 +825,7 @@ func loadStackGitHubState(
 		url.PathEscape(strings.TrimSpace(repo)),
 		prNumber,
 	)
-	if err := callStackGitHubJSON(ctx, token, reviewsPath, &reviews); err == nil {
+	if err := callStackGitHubJSON(ctx, client, token, reviewsPath, &reviews); err == nil {
 		reviewStatus = aggregateStackReviewStatus(reviews)
 	}
 
@@ -830,7 +839,7 @@ func loadStackGitHubState(
 			url.PathEscape(strings.TrimSpace(repo)),
 			url.PathEscape(headSHA),
 		)
-		if err := callStackGitHubJSON(ctx, token, checkRunsPath, &checkRuns); err == nil {
+		if err := callStackGitHubJSON(ctx, client, token, checkRunsPath, &checkRuns); err == nil {
 			ciStatus = aggregateStackCIStatus(checkRuns.CheckRuns)
 		}
 	}
@@ -971,7 +980,7 @@ func normalizeStackPRState(value string) string {
 	return trimmed
 }
 
-func callStackGitHubJSON(ctx context.Context, token, path string, out any) error {
+func callStackGitHubJSON(ctx context.Context, httpClient *http.Client, token, path string, out any) error {
 	base := strings.TrimRight(githubAPIBaseURL(), "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 	if err != nil {
@@ -982,7 +991,6 @@ func callStackGitHubJSON(ctx context.Context, token, path string, out any) error
 	req.Header.Set("User-Agent", "smithers-server")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	httpClient := observability.NewHTTPClient(10 * time.Second)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err

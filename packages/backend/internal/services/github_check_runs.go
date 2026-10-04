@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -89,7 +88,7 @@ type GitHubCheckRunResult struct {
 func NewGitHubCheckRunService(tokenIssuer GitHubCheckRunTokenIssuer) GitHubCheckRunService {
 	return &githubCheckRunService{
 		tokenIssuer: tokenIssuer,
-		httpClient:  observability.NewHTTPClient(10 * time.Second),
+		httpClient:  gitHubProviderClient(tokenIssuer, 10*time.Second),
 	}
 }
 

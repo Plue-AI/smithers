@@ -107,7 +107,7 @@ func TestStack_Z_DirectAccessHelpersAndGitHubState(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
-	_, err = loadStackGitHubState(ctx, "token", "owner", "repo", 12)
+	_, err = loadStackGitHubState(ctx, http.DefaultClient, "token", "owner", "repo", 12)
 	require.ErrorContains(t, err, "missing pull")
 }
 
@@ -118,7 +118,7 @@ func TestStack_Z_GitHubJSONErrorBranches(t *testing.T) {
 	jsonClosedURL := jsonClosed.URL
 	jsonClosed.Close()
 	t.Setenv(envGitHubAppAPIBaseURL, jsonClosedURL)
-	err := callStackGitHubJSON(ctx, "token", "/path", nil)
+	err := callStackGitHubJSON(ctx, http.DefaultClient, "token", "/path", nil)
 	require.Error(t, err)
 
 	jsonEmptyMessage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +127,7 @@ func TestStack_Z_GitHubJSONErrorBranches(t *testing.T) {
 	}))
 	t.Cleanup(jsonEmptyMessage.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, jsonEmptyMessage.URL)
-	err = callStackGitHubJSON(ctx, "token", "/path", nil)
+	err = callStackGitHubJSON(ctx, http.DefaultClient, "token", "/path", nil)
 	require.ErrorContains(t, err, "github request failed: 418")
 }
 

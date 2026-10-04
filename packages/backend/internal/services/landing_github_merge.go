@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/webhooks"
 )
@@ -65,7 +64,7 @@ type LandingGitHubMergeService struct {
 
 func NewLandingGitHubMergeService(store landingGitHubMergeStore, host landingGitHubMergeHost, tokens LandingGitHubPullTokens, dispatcher webhooks.Dispatcher) *LandingGitHubMergeService {
 	return &LandingGitHubMergeService{store: store, host: host, tokens: tokens, dispatcher: dispatcher, logger: slog.Default(),
-		github: &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL}}
+		github: &landingGitHubAPI{client: gitHubProviderClient(tokens, 30*time.Second), baseURL: githubAPIBaseURL}}
 }
 
 // Reconcile runs after a synced main pull of repositoryID from

@@ -474,3 +474,53 @@ func TestInstallationTokenCacheScopeIsolation(t *testing.T) {
 	_, ok = getCachedInstallationTokenKey(key)
 	assert.False(t, ok)
 }
+
+func TestRepoConnectionService_InstallationMintSharesResponseBudget(t *testing.T) {
+	const installationID int64 = 991515
+	invalidateCachedInstallationToken(installationID)
+	defer invalidateCachedInstallationToken(installationID)
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		assert.Equal(t, "POST", r.Method)
+		assert.Equal(t, "/app/installations/991515/access_tokens", r.URL.Path)
+		w.Header().Set("X-RateLimit-Limit", "100")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", "1100")
+		w.WriteHeader(201)
+		_, _ = w.Write([]byte(`{"token":"ghs_budget_scope","expires_at":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"}`))
+	}))
+	defer server.Close()
+	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+	authorizations := 0
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{queryRowFn: func(context.Context, string, ...any) pgx.Row {
+		authorizations++
+		return mockRepoConnectionRow{scanFn: func(dest ...any) error { *(dest[0].(*int64)) = installationID; return nil }}
+	}})
+	tracker := NewGitHubResponseBudgetTracker()
+	tracker.now = func() time.Time { return time.Unix(1000, 0).UTC() }
+	svc.SetGitHubBudgetTracker(tracker)
+	for range 2 {
+		token, err := svc.CreateGitHubInstallationTokenForRepositoryOwner(context.Background(), 11, 0, "acme", "app", map[string]string{"contents": "read"})
+		require.NoError(t, err)
+		require.Equal(t, "ghs_budget_scope", token.Token)
+	}
+	require.Equal(t, 1, calls, "cached scope does not mint or spend capacity")
+	require.Equal(t, 2, authorizations, "cache reuse still checks caller authorization")
+	require.Equal(t, 0, tracker.Status(installationID).Remaining)
+	// A second permission scope cannot bypass the installation's observed limit.
+	_, err := svc.CreateGitHubInstallationTokenForRepositoryOwner(context.Background(), 11, 0, "acme", "app", map[string]string{"contents": "write"})
+	require.Error(t, err)
+	require.Equal(t, 1, calls, "shared admission refuses before minting")
+	// The minted read token is registered with the same principal used for minting.
+	req, err := http.NewRequest("GET", server.URL+"/repos/acme/app/issues", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer ghs_budget_scope")
+	resp, err := tracker.WrapClient(server.Client()).Do(req)
+	require.NoError(t, err)
+	require.Equal(t, 429, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, 1, calls)
+}

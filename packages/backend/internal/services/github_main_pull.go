@@ -19,7 +19,6 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -156,7 +155,7 @@ type gitHubMainPullGit interface {
 }
 
 func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepoHost, tokens GitHubMainPullTokens, connections RepoSyncConnectionChecker) *GitHubMainPullService {
-	client := observability.NewHTTPClient(30 * time.Second)
+	client := gitHubProviderClient(tokens, 30*time.Second)
 	return &GitHubMainPullService{
 		store: store, host: host, tokens: tokens, connections: connections, logger: slog.Default(),
 		gitHubGitBaseURL: func() string {

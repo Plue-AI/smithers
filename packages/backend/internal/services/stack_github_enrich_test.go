@@ -84,3 +84,32 @@ func TestStackGitHubEnrich_ParallelWithDeadline(t *testing.T) {
 	assert.Equal(t, "open", response.Changes[0].PRState, "timed-out change keeps defaults")
 	assert.Equal(t, "closed", response.Changes[1].PRState)
 }
+
+func TestStackGitHubEnrich_SharesMintAndReadBudget(t *testing.T) {
+	const installationID int64 = 991516
+	invalidateCachedInstallationToken(installationID)
+	t.Cleanup(func() { invalidateCachedInstallationToken(installationID) })
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		assert.Equal(t, "/app/installations/991516/access_tokens", r.URL.Path)
+		w.Header().Set("X-RateLimit-Limit", "100")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", "1100")
+		w.WriteHeader(201)
+		_, _ = w.Write([]byte(`{"token":"ghs_stack_budget","expires_at":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"}`))
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+	tracker := NewGitHubResponseBudgetTracker()
+	tracker.now = func() time.Time { return time.Unix(1000, 0).UTC() }
+	resolver := stackInstallationResolverStub(func(context.Context, int64, string, string) (int64, error) { return installationID, nil })
+	pr := int64(9)
+	response := StackResponse{Changes: []StackChangeResponse{{ChangeID: "c1", PRNumber: &pr}}}
+	service := newTestStackService(t, &mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver), WithStackGitHubBudget(tracker))
+	require.NoError(t, service.enrichStackResponseWithGitHub(context.Background(), 1, "acme", "app", &response))
+	require.Equal(t, int32(1), calls.Load(), "mint receipt exhausts capacity before any PR or review read")
+	require.Equal(t, "open", response.Changes[0].PRState, "a refused read preserves existing defaults")
+}

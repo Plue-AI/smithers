@@ -3,13 +3,13 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "7d05c0708281fe0da11c253f75fc2673cf455fd63572dcc988c593ec55cae92b"
+    "digest": "5e580ff5747846842524cbb13897ba953f984e615cfe6fbeb6f2342963f6b3be"
   },
-  "closure": "d4ee09647567d41882e7be5aea7f9d9a7507b5d45fa40fb9ba85fa6467cb1c51",
+  "closure": "323d0ddcf8900e1f25740f8afb4c84032fdf4cef3f98589222f6ab5138a96780",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
-      "digest": "e50a70450882a813ad0b7d0da8d29ad5bd9e4be95aa515e2f01c263b68f39bd8"
+      "digest": "dbc0eacfabb2ff51719e75337fc81cfc4d51ca93840008132e14334740445c85"
     },
     {
       "path": "packages/backend/db/product/migrations/0105_github_app.sql",
