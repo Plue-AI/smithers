@@ -11,7 +11,7 @@ import type { RunStatus } from "@smthrs/control/ControlSchema"
 import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as TestStores from "@smthrs/engine-store/test/TestStores"
-import { Action, FlowRuntime } from "@smthrs/flow"
+import { Action, DurableDeferred, FlowRuntime } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -98,11 +98,18 @@ interface Host {
   readonly sandbox?: AgentSession.Options["sandbox"]
   readonly flows?: ReadonlyArray<FlowBinding.Source>
   /** The agent's run; the default completes at once. */
-  readonly agentRun?: (options: Agent.Options) => Stream.Stream<AgentEvent.AgentEvent, never, never>
+  readonly agentRun?: Agent.Service["run"]
   /** Gives the executor a workspace observer and a checkpoint store, as a native host does. */
   readonly hostTree?: boolean
   /** Waits in the executor's scope before it closes; the default waits for the persisted outcome. */
   readonly settle?: Effect.Effect<void>
+  readonly descriptor?: () => Descriptor.FlowDescriptor
+  readonly afterLaunch?: (
+    executor: ControlExecutor.Service,
+    runtime: FlowRuntime.FlowRuntime["Service"],
+    setStatus: (status: RunStatus) => void
+  ) => Effect.Effect<void, unknown>
+  readonly externallySettled?: boolean
 }
 
 const run = async (
@@ -147,12 +154,19 @@ const run = async (
     pageRunIds: () => Effect.succeed({ ids: [], through: 0 }),
     deliveredSignals: () => Effect.succeed([]),
     getRun: () => Effect.sync(() => controlRun),
-    recordedCode: () => Effect.succeed({}),
+    recordedCode: () =>
+      Effect.sync(() =>
+        host.descriptor === undefined ? {} : { executionDigest: Descriptor.executionDigest(host.descriptor()) }
+      ),
     getPlan: () => Effect.succeed(launchInput.plan),
     registerFiber: () => Effect.void,
     pendingResumes: Effect.succeed([]),
     claimFence: () => Effect.succeed("fence-1"),
-    resume: () => Effect.sync(() => controlRun),
+    resume: () =>
+      Effect.sync(() => {
+        controlRun = { ...controlRun, status: "running" }
+        return controlRun
+      }),
     writeStatus: (currentRunId: string, fence: string, status: RunStatus) =>
       Effect.sync(() => {
         statusWrites.push({ runId: currentRunId, fence, status })
@@ -178,6 +192,11 @@ const run = async (
           payload: { runId, planId }
         }))
         : yield* Effect.exit(executor.launch(launchInput))
+      if (host.afterLaunch !== undefined) {
+        yield* host.afterLaunch(executor, runtime, (status) => {
+          controlRun = { ...controlRun, status }
+        })
+      }
       // A rejected launch has no execution to poll. Old accepted executions
       // cross the persisted typed-failure boundary even though they fail.
       if (host.settle !== undefined) {
@@ -188,7 +207,12 @@ const run = async (
         ? Option.none()
         : yield* runtime.poll(AgentSession.agentFlow, runId).pipe(
           Effect.catchTag("@smthrs/flow/FlowExecutionNotFound", () => Effect.succeed(Option.none())),
-          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced("10 millis") }),
+          Effect.repeat({
+            until: (value) =>
+              Option.isSome(value) &&
+              (host.afterLaunch === undefined || host.externallySettled === true || value.value._tag === "Complete"),
+            schedule: Schedule.spaced("10 millis")
+          }),
           Effect.timeout(Duration.seconds(10))
         )
       const entries = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1_000 })
@@ -210,7 +234,7 @@ const run = async (
         }),
         Layer.succeed(Registry.Registry)(Registry.makeNoop({
           get: () => Effect.succeed(descriptor),
-          getOption: () => Effect.succeed(Option.some(descriptor)),
+          getOption: () => Effect.sync(() => Option.some(host.descriptor?.() ?? descriptor)),
           loadBody: () =>
             Effect.sync(() => {
               bodyLoads++
@@ -509,4 +533,103 @@ describe("AgentSession selected sandbox execution", () => {
     expect(machine.log).toEqual([`acquire sandbox:${runId}`, "body ended", `release sandbox:${runId}`])
     expect(result.statusWrites).toEqual([])
   })
+})
+
+describe("sandbox machines across a durable pause", () => {
+  it.each(["same", "changed", "removed"] as const)(
+    "keeps the acquired machine when selection is %s",
+    async (selectionChange) => {
+      const machine = machines()
+      const deferred = DurableDeferred.make("sandbox-pause")
+      let descriptor = descriptorOf("Prompt", true)
+      let bodies = 0
+      const result = await run("Prompt", true, false, true, {
+        sandbox: machine.sandbox,
+        descriptor: () => descriptor,
+        agentRun: () =>
+          Stream.unwrap(Effect.gen(function*() {
+            bodies++
+            yield* DurableDeferred.await(deferred)
+            return completed
+          })),
+        afterLaunch: (executor, runtime) =>
+          Effect.gen(function*() {
+            const parked = yield* runtime.poll(AgentSession.agentFlow, runId).pipe(
+              Effect.catchTag("@smthrs/flow/FlowExecutionNotFound", () => Effect.succeed(Option.none())),
+              Effect.repeat({
+                until: (value) => Option.isSome(value) && value.value._tag === "Suspended",
+                schedule: Schedule.spaced("10 millis")
+              }),
+              Effect.timeout("10 seconds")
+            )
+            expect(parked).toMatchObject({ _tag: "Some", value: { _tag: "Suspended" } })
+            yield* Effect.sleep("1100 millis")
+            expect(machine.log).toEqual([`acquire sandbox:${runId}`])
+            if (selectionChange !== "same") {
+              const { sandbox: _sandbox, ...unselected } = descriptor
+              descriptor = new Descriptor.FlowDescriptor(
+                selectionChange === "removed"
+                  ? unselected
+                  : { ...descriptor, sandbox: { ...selection, cpus: 3 } }
+              )
+            }
+            yield* runtime.deferredDone(deferred, {
+              flowName: AgentSession.agentFlow._tag,
+              executionId: runId,
+              deferredName: deferred.name,
+              exit: Exit.void
+            })
+            yield* executor.resumeRun({ runId })
+          })
+      })
+      expect(machine.log).toEqual([`acquire sandbox:${runId}`, `release sandbox:${runId}`])
+      expect(result.persisted).toMatchObject({
+        _tag: "Some",
+        value: {
+          _tag: "Complete",
+          exit: {
+            _tag: selectionChange === "same" ? "Success" : "Failure"
+          }
+        }
+      })
+      expect(bodies).toBe(selectionChange === "same" ? 2 : 1)
+    }
+  )
+})
+
+describe("externally settled sandbox machines", () => {
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "releases a paused machine when a peer marks it %s",
+    async (status) => {
+      const machine = machines()
+      const deferred = DurableDeferred.make("external-sandbox-pause")
+      const result = await run("Prompt", true, false, true, {
+        sandbox: machine.sandbox,
+        externallySettled: true,
+        agentRun: () => Stream.unwrap(DurableDeferred.await(deferred).pipe(Effect.as(completed))),
+        afterLaunch: (_executor, runtime, setStatus) =>
+          Effect.gen(function*() {
+            yield* runtime.poll(AgentSession.agentFlow, runId).pipe(
+              Effect.catchTag("@smthrs/flow/FlowExecutionNotFound", () => Effect.succeed(Option.none())),
+              Effect.repeat({
+                until: (value) => Option.isSome(value) && value.value._tag === "Suspended",
+                schedule: Schedule.spaced("10 millis")
+              }),
+              Effect.timeout("10 seconds")
+            )
+            setStatus(status)
+            yield* Effect.sync(() => machine.log).pipe(
+              Effect.repeat({
+                until: (log) => log.includes(`release sandbox:${runId}`),
+                schedule: Schedule.spaced("10 millis")
+              }),
+              Effect.timeout("10 seconds")
+            )
+            expect(machine.log).toEqual([`acquire sandbox:${runId}`, `release sandbox:${runId}`])
+          })
+      })
+      expect(result.controlRun.status).toBe(status)
+      expect(machine.log).toEqual([`acquire sandbox:${runId}`, `release sandbox:${runId}`])
+    }
+  )
 })

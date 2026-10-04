@@ -650,3 +650,81 @@ describe("a timeout park", () => {
     }
   )
 })
+
+describe("historical budget requests", () => {
+  it("stops a denied legacy request using the current incident when none was recorded", async () => {
+    const stopped = await inWorld((world) =>
+      Effect.gen(function*() {
+        const scratch = yield* scratchJournal
+        yield* AgentSession.budgetParking(scratch, world.runtime)(world.runId, latencyEnvelope).park(latency(150))
+        const [proposed] = yield* requests(scratch, world.runId)
+        yield* ControlFacts.commitApprovalRequest(world.journal, world.runtime, {
+          runId: world.runId,
+          requestId: proposed!.requestId,
+          question: proposed!.question,
+          payload: proposed!.payload
+        }, "legacy-host")
+        const [request] = yield* requests(world.journal, world.runId)
+        yield* decide(world, request!, "denied")
+        return yield* Effect.flip(
+          AgentSession.budgetParking(world.journal, world.runtime)(world.runId, latencyEnvelope).park(latency(400))
+        )
+      })
+    )
+    expect(stoppedFacts(stopped)).toEqual(RunawayGuard.incident(latency(400)))
+  })
+
+  it("reuses a concurrent USD request whose registered envelope has no USD allowance", async () => {
+    const observed = await inWorld((world) =>
+      Effect.gen(function*() {
+        let commits = 0
+        const parking = AgentSession.budgetParking(world.journal, {
+          registerApproval: (target) =>
+            Effect.suspend(() => {
+              commits++
+              return commits === 1 ?
+                Effect.fail(
+                  new EnvelopeMismatch({
+                    planId: target.requestId,
+                    expected: JSON.stringify(latencyEnvelope),
+                    actual: JSON.stringify(target.envelope)
+                  })
+                ) :
+                world.runtime.registerApproval(target)
+            })
+        })(world.runId, latencyEnvelope)
+        const parked = yield* parking.park(
+          new Budget.BudgetExceeded({
+            scope: "usd",
+            onExceeded: "park",
+            used: 2,
+            reserved: 0,
+            max: 1,
+            next: 0,
+            message: "USD limit reached"
+          })
+        )
+        return { parked, recorded: yield* requests(world.journal, world.runId) }
+      })
+    )
+    expect(observed.parked.waiting.reason).toBe("budget")
+    expect(observed.recorded[0]!.question).toBe("Raise the USD budget from $1.00 to $0.00?")
+    expect(observed.recorded[0]!.payload.target.envelope).toEqual(latencyEnvelope)
+  })
+
+  it("asks a timeout with no numeric limit using its recorded limit wording", async () => {
+    const observed = await inWorld((world) =>
+      Effect.gen(function*() {
+        const unbounded = new RunawayGuard.Timeout({
+          source: "tool-call",
+          subject: "reader#1",
+          message: "reader expired"
+        })
+        const parking = AgentSession.budgetParking(world.journal, world.runtime)(world.runId, latencyEnvelope)
+        yield* parking.trip(unbounded)
+        return yield* requests(world.journal, world.runId)
+      })
+    )
+    expect(observed[0]!.question).toBe("reader expired Continue runs it again with its limit; Stop fails the run.")
+  })
+})

@@ -39,6 +39,16 @@ describe("USD budget configuration", () => {
 })
 
 describe("USD budget admission", () => {
+  it("does not charge a counted step's still-held reservation against another call", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const budget = yield* Budget.make({ usd: { max: 1 } })
+      yield* budget.reserve("a")
+      yield* budget.record("a", charged(0.4), "any-model")
+      expect(yield* budget.check("b")).toEqual({ _tag: "proceed" })
+      expect(yield* budget.admitReading("reading")).toEqual({ _tag: "proceed" })
+    })))
+  })
+
   it("refuses a call whose forecast would cross the ceiling, with the dollars that broke it", async () => {
     await Effect.runPromise(Effect.gen(function*() {
       const budget = yield* Budget.make({ usd: { max: 1 } })

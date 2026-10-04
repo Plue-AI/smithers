@@ -14,6 +14,7 @@ import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import * as CellCalls from "@smthrs/harness/CellCalls"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import { MemoryError } from "@smthrs/memory/MemoryError"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
@@ -1509,6 +1510,18 @@ describe("the memory plugin", () => {
 })
 
 describe("the repository's thresholds", () => {
+  it("assembles default thresholds without reading a repository outside its authority", async () => {
+    const root = plain({ ".smithers/memory-thresholds.json": "invalid" })
+    const services = servicesOf(scripted(() => 0.9).layer)
+    const bindings = await Effect.runPromise(
+      Memory.source(services, { root }).bindings().pipe(CapabilitySet.attenuate([]))
+    )
+    expect(bindings).toHaveLength(1)
+    expect(bindings[0]!.descriptor).toEqual(
+      Memory.binding(services, { root, thresholds: MemoryCalibration.initial }).descriptor
+    )
+  })
+
   const moved: MemoryCalibration.Thresholds = {
     ...MemoryCalibration.initial,
     decisions: {

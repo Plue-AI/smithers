@@ -18,6 +18,7 @@
  * executor hands it, `authorize` and the composed `ask` flow.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import { ControlFacts } from "@smthrs/control"
 import { ClaimLost, LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
 import type * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
@@ -38,6 +39,7 @@ import { NotificationQueue } from "@smthrs/notifications"
 import { Node } from "@smthrs/plan"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
+import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { RegistryError } from "@smthrs/registry/RegistryError"
 import { Ownership, RunStore } from "@smthrs/run-store"
@@ -2604,4 +2606,309 @@ describe("the executor's terminal ordering", () => {
     expect(observed.status).toBe("completed")
     expect(record.statuses).toEqual(["completed"])
   })
+})
+
+describe("approved descriptor snapshots", () => {
+  // A resume in another process can find no approved snapshot; the body then
+  // reads the registered descriptor, and approvedExecution still checks it.
+  it("reads the registered descriptor when no approved snapshot is found after launch", async () => {
+    const record = recorder()
+    let reads = 0
+    let runs = 0
+    const result = await launched(record, {
+      registry: {
+        getOption: () => Effect.sync(() => reads++ === 0 ? Option.some(seated) : Option.none()),
+        get: () => Effect.succeed(seated)
+      },
+      agent: Agent.makeNoop({
+        run: () => {
+          runs++
+          return completed
+        }
+      })
+    })
+    expect(result.status).toBe("completed")
+    expect(runs).toBe(1)
+  })
+
+  it("keeps the approved plan identity when recorded code cannot be read", async () => {
+    const record = recorder()
+    const result = await launched(record, {
+      runtime: {
+        recordedCode: () => Effect.fail(new PersistenceError({ operation: "get", message: "row unavailable" }))
+      }
+    })
+    expect(result.status).toBe("completed")
+  })
+
+  it.each([false, true])("loads a timed-out module on demand (load refuses: %s)", async (refuses) => {
+    const record = recorder()
+    const descriptor = new Descriptor.FlowDescriptor({
+      ...seated,
+      flows: [],
+      body: new Descriptor.BodyRefModule({
+        path: "/flows/agents/notes/flow.ts",
+        contentDigest: "b".repeat(64)
+      })
+    })
+    const refusal = new Executable.ExecutableError({
+      code: "load_timeout",
+      flow: flowId,
+      path: "/flows/agents/notes/flow.ts",
+      available: [],
+      message: "module load refused"
+    })
+    let loads = 0
+    const outcome = await withExecutor(record, {
+      registry: {
+        getOption: () => Effect.succeed(Option.some(descriptor)),
+        loadBody: () => Effect.succeed(moduleBody)
+      },
+      catalog: {
+        executables: [],
+        refused: [refusal],
+        load: () => {
+          loads++
+          return refuses ? Effect.fail(refusal) : Effect.succeed({
+            descriptor,
+            delegate: undefined,
+            flow: { execute: () => Effect.succeed("done") }
+          } as unknown as Executable.Executable)
+        }
+      }
+    }, (executor) =>
+      Effect.result(executor.launch({
+        ...launchInput,
+        plan: {
+          ...launchInput.plan,
+          card: { ...launchInput.plan.card, executionDigest: Descriptor.executionDigest(descriptor) }
+        }
+      })))
+    expect(loads).toBeGreaterThan(0)
+    expect(outcome).toMatchObject(
+      refuses
+        ? { _tag: "Failure", failure: { _tag: "/control/LaunchFailed", cause: refusal } }
+        : { _tag: "Success", success: "accepted" }
+    )
+  })
+
+  const snapshots = (
+    restore: ExecutionSnapshot.Service["restore"]
+  ): ExecutionSnapshot.Service => ({
+    restore,
+    pin: () => Effect.void,
+    descriptor: () => Effect.succeed(seated),
+    roots: () => Effect.succeed([])
+  })
+  const restored = (descriptor: Descriptor.FlowDescriptor): ExecutionSnapshot.Restored => ({
+    descriptor,
+    entry: "/approved/flow.md",
+    bytes: new Uint8Array(),
+    modules: new Map()
+  })
+
+  it.each(["changed", "absent"] as const)("runs the approved snapshot when live code is %s", async (live) => {
+    const record = recorder()
+    const digests: Array<string> = []
+    const result = await launched(record, {
+      registry: {
+        getOption: () =>
+          Effect.succeed(
+            live === "absent" ? Option.none() : Option.some(
+              new Descriptor.FlowDescriptor({
+                ...seated,
+                body: new Descriptor.BodyRefMarkdown({
+                  ...seated.body,
+                  contentDigest: "e".repeat(64)
+                } as never)
+              })
+            )
+          ),
+        snapshots: snapshots((digest) =>
+          Effect.sync(() => {
+            digests.push(digest)
+            return restored(seated)
+          })
+        )
+      }
+    })
+    expect(result.status).toBe("completed")
+    expect(digests).toEqual([launchInput.plan.card.executionDigest, launchInput.plan.card.executionDigest])
+  })
+
+  it("uses matching live code without restoring its snapshot", async () => {
+    const record = recorder()
+    let restores = 0
+    const result = await launched(record, {
+      registry: {
+        snapshots: snapshots(() =>
+          Effect.sync(() => {
+            restores++
+            return restored(seated)
+          })
+        )
+      }
+    })
+    expect(result.status).toBe("completed")
+    expect(restores).toBe(0)
+  })
+
+  it.each(
+    [
+      { code: "missing", live: false, pending: true },
+      { code: "missing", live: true, pending: false },
+      { code: "corrupt", live: false, pending: false }
+    ] as const
+  )("handles $code snapshot failure with live=$live", async ({ code, live, pending }) => {
+    const record = recorder()
+    const cause = new ExecutionSnapshot.ExecutionSnapshotError({ code, message: "snapshot refused" })
+    const result = await withExecutor(record, {
+      registry: {
+        getOption: () =>
+          Effect.succeed(
+            live ?
+              Option.some(
+                new Descriptor.FlowDescriptor({
+                  ...seated,
+                  body: new Descriptor.BodyRefMarkdown({ ...seated.body, contentDigest: "e".repeat(64) } as never)
+                })
+              ) :
+              Option.none()
+          ),
+        snapshots: snapshots(() => Effect.fail(cause))
+      }
+    }, (executor) => Effect.result(executor.launch(launchInput)))
+    if (pending) expect(result).toMatchObject({ _tag: "Success", success: "pending" })
+    else expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "/control/LaunchFailed", cause } })
+    expect(record.statuses).toEqual([])
+  })
+
+  it("refuses a restored descriptor belonging to another flow", async () => {
+    const record = recorder()
+    const failure = await withExecutor(record, {
+      registry: {
+        getOption: () => Effect.succeed(Option.none()),
+        snapshots: snapshots(() =>
+          Effect.succeed(restored(new Descriptor.FlowDescriptor({ ...seated, name: "other" })))
+        )
+      }
+    }, (executor) => Effect.flip(executor.launch(launchInput)))
+    expect(failure.message).toBe("Approved source belongs to another flow")
+    expect(record.statuses).toEqual([])
+  })
+})
+
+describe("consented resume authorization", () => {
+  it("leaves a consented delegation standing when the workspace guard still refuses", async () => {
+    const record = recorder()
+    const checked = Deferred.makeUnsafe<void>()
+    let resumed = 0
+    let cleared = 0
+    await withExecutor(
+      record,
+      {
+        canExecute: () => Deferred.succeed(checked, void 0).pipe(Effect.as(false)),
+        runtime: {
+          pendingResumes: Effect.succeed([{ runId, sequence: 7, requestedAtMs: 0, consent: 7 }]),
+          clearResume: () =>
+            Effect.sync(() => {
+              cleared++
+            })
+        },
+        engine: (engine) =>
+          ({
+            ...engine,
+            poll: () => Effect.succeed(Option.some({ _tag: "Suspended" })),
+            resume: () =>
+              Effect.sync(() => {
+                resumed++
+              })
+          }) as unknown as EngineService
+      },
+      () =>
+        Deferred.await(checked).pipe(
+          Effect.andThen(Effect.repeat(Effect.yieldNow, { times: 20 })),
+          Effect.timeout("10 seconds")
+        )
+    )
+    expect(resumed).toBe(0)
+    expect(cleared).toBe(0)
+  })
+})
+
+describe("historical stop and cancellation facts", () => {
+  it("does not invent incident facts for a legacy denied budget request", async () => {
+    const record = recorder()
+    const legacyDenied = new JournalEvent.Entry({
+      runId: JournalEvent.RunId.make(runId),
+      seq: JournalEvent.Seq.make(1),
+      eventId: "legacy-denied",
+      sourceId: JournalEvent.SourceId.make("control"),
+      sourceSeq: JournalEvent.SourceSeq.make(1),
+      emittedAtMs: 1,
+      eventType: "control.approval.denied",
+      meta: {},
+      payload: ControlFacts.approvalDecisionFact("legacy-token", {
+        _tag: "Node",
+        runId,
+        requestId: `budget/${runId}/legacy`,
+        digest: "legacy",
+        envelope: launchInput.plan.card.envelope
+      })
+    })
+    const result = await launched(record, {
+      journal: {
+        entries: () => Effect.succeed({ entries: [legacyDenied], hasMore: false })
+      }
+    })
+    expect(result.status).toBe("completed")
+  })
+
+  it.each(["cancelled", "running"] as const)(
+    "handles a lost cancellation fence when the peer row is %s",
+    async (peerStatus) => {
+      const record = recorder()
+      const registered = Deferred.makeUnsafe<Fiber.Fiber<unknown, unknown>>()
+      const logs: Array<string> = []
+      let attempted = false
+      await withExecutor(record, {
+        logs,
+        agent: Agent.makeNoop({ run: () => Stream.fromEffect(Effect.interrupt) }),
+        runs: {
+          get: () =>
+            Effect.succeed({
+              runId,
+              status: "running",
+              owner: null,
+              heartbeatAtMs: null,
+              claim: null,
+              claimedAtMs: null,
+              createdAtMs: 0,
+              startedAtMs: 0,
+              finishedAtMs: null,
+              parentRunId: null,
+              cancelRequestedAtMs: 1,
+              stateJson: "{}"
+            })
+        },
+        runtime: {
+          registerFiber: (_id, fiber) => Deferred.succeed(registered, fiber).pipe(Effect.asVoid),
+          getRun: () => Effect.sync(() => ({ ...launchInput.run, status: attempted ? peerStatus : "running" })),
+          writeStatus: () =>
+            Effect.suspend(() => {
+              attempted = true
+              return Effect.fail(new ClaimLost({ runId }))
+            })
+        }
+      }, (executor) =>
+        Effect.gen(function*() {
+          yield* executor.launch(launchInput)
+          yield* Fiber.await(yield* Deferred.await(registered)).pipe(Effect.timeout("10 seconds"))
+        }))
+      expect(attempted).toBe(true)
+      expect(logs.some((message) => message.includes("terminal control status could not be written"))).toBe(
+        peerStatus !== "cancelled"
+      )
+    }
+  )
 })

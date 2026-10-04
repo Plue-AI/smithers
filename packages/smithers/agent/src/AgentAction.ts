@@ -1033,13 +1033,11 @@ export const implement = <
               Effect.flatMap(({ output, value }) =>
                 StructuredOutput.decode(options.output, output, { corrections: limit, limit }, value).pipe(
                   Effect.tapError((failure) =>
-                    failure._tag === "/harness/StructuredOutputFailure"
-                      ? rejected(failure, limit).pipe(
-                        Effect.andThen(
-                          countOnce(`rejected/${root}#repair`, ObservabilityMetric.structuredOutputRejections)
-                        )
+                    rejected(failure, limit).pipe(
+                      Effect.andThen(
+                        countOnce(`rejected/${root}#repair`, ObservabilityMetric.structuredOutputRejections)
                       )
-                      : Effect.void
+                    )
                   )
                 )
               )
@@ -1135,11 +1133,13 @@ export const implement = <
       )
     })
 
-  return declared.toLayer((payload) => options.timeout === undefined ? execute(payload) : execute(payload).pipe(
-    Effect.interruptible,
-    Effect.timeoutOrElse({
-      duration: typeof options.timeout === "function" ? options.timeout(payload) : options.timeout,
-      orElse: () => Effect.fail(new HarnessError({ code: "model_failed", message: `${tag} timed out.` }))
-    })
-  ))
+  return declared.toLayer((payload) =>
+    options.timeout === undefined ? execute(payload) : execute(payload).pipe(
+      Effect.interruptible,
+      Effect.timeoutOrElse({
+        duration: typeof options.timeout === "function" ? options.timeout(payload) : options.timeout,
+        orElse: () => Effect.fail(new HarnessError({ code: "model_failed", message: `${tag} timed out.` }))
+      })
+    )
+  )
 }

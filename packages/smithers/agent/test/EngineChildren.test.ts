@@ -708,6 +708,7 @@ describe("EngineChildren.await", () => {
       // while this test waits for the child to finish.
       yield* runtime.execute(Parent, { executionId: "await-waiting", payload: {}, discard: true })
       const child = yield* Deferred.await(spawnedChild)
+      yield* untilSuspended(yield* RunStore.RunStore, child)
 
       const polled = yield* Deferred.make<void>()
       const watched = yield* pollingChildren(child, polled).pipe(
@@ -792,6 +793,7 @@ describe("EngineChildren.await", () => {
   it("refuses a round that handed off instead of answering", () =>
     run(Effect.gen(function*() {
       const runtime = yield* engine("children-await-handoff")
+      yield* registerChildren(runtime)
       const store = yield* RunStore.RunStore
       const port = yield* children().pipe(Effect.provideService(FlowRuntime.FlowRuntime, runtime))
       // A trampolining child settles its first execution id with a HANDOFF:
@@ -807,9 +809,9 @@ describe("EngineChildren.await", () => {
         })
       )
 
-      expect(
-        childErrorOf(yield* Effect.exit(port.await({ child: "handed-off-child" })))?.code
-      ).toBe("failed")
+      const failure = childErrorOf(yield* Effect.exit(port.await({ child: "handed-off-child" })))
+      expect(failure?.code).toBe("failed")
+      expect(failure?.message).toContain("handed its lineage")
     })))
 
   it("reports a cancelled child, an unknown child, and a child whose flow is unknown", () =>

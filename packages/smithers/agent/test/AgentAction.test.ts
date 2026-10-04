@@ -186,35 +186,50 @@ describe("AgentAction.make", () => {
       it(`applies ${duration} action timeout during ${stage} through the ordinary implementation layer`, async () => {
         let interrupted = false
         const Timed = AgentAction.make(`agent/test/Timed-${duration}-${stage}`, {
-          payload: { millis: Schema.Number }, output: Review, seat: "anthropic:test-model",
+          payload: { millis: Schema.Number },
+          output: Review,
+          seat: "anthropic:test-model",
           prompt: () => "Review this change",
           timeout: duration === "constant" ? 20 : ({ millis }) => millis
         })
         const TimedFlow = Flow.make(`agent/test/TimedFlow-${duration}-${stage}`, {
-          payload: { millis: Schema.Number }, success: Review, error: AgentAction.AgentFailure,
+          payload: { millis: Schema.Number },
+          success: Review,
+          error: AgentAction.AgentFailure,
           body: (payload) => Timed.call(payload)
         })
-        const result = await Effect.runPromise(Effect.gen(function*() {
-          const entered = yield* Deferred.make<void>()
-          const wait = Deferred.succeed(entered, void 0).pipe(
-            Effect.andThen(Effect.never), Effect.ensuring(Effect.sync(() => { interrupted = true }))
-          )
-          const selected = stage === "resolution"
-            ? SeatResolver.layer({ resolve: () => wait })
-            : seats(Model.make({ stream: () => Stream.fromEffect(wait) }))
-          const layers = Layer.mergeAll(Timed.layer, Interpreter.layer(TimedFlow)).pipe(
-            Layer.provideMerge(AgentAction.layerHost(host)), Layer.provideMerge(selected),
-            Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, scriptedCompletionJudge)),
-            Layer.provideMerge(Safety.layer), Layer.provideMerge(Action.layerImplementations),
-            Layer.provideMerge(FlowEngine.layerMemory), Layer.provideMerge(NodeCrypto.layer)
-          )
-          const fiber = yield* TimedFlow.execute({ millis: 20 }, { executionId: `timeout-${duration}-${stage}` }).pipe(
-            Effect.result, Effect.provide(layers), Effect.forkChild({ startImmediately: true })
-          )
-          yield* Deferred.await(entered)
-          yield* TestClock.adjust("20 millis")
-          return yield* Fiber.join(fiber)
-        }).pipe(Effect.provide(TestClock.layer()), Effect.scoped))
+        const result = await Effect.runPromise(
+          Effect.gen(function*() {
+            const entered = yield* Deferred.make<void>()
+            const wait = Deferred.succeed(entered, void 0).pipe(
+              Effect.andThen(Effect.never),
+              Effect.ensuring(Effect.sync(() => {
+                interrupted = true
+              }))
+            )
+            const selected = stage === "resolution"
+              ? SeatResolver.layer({ resolve: () => wait })
+              : seats(Model.make({ stream: () => Stream.fromEffect(wait) }))
+            const layers = Layer.mergeAll(Timed.layer, Interpreter.layer(TimedFlow)).pipe(
+              Layer.provideMerge(AgentAction.layerHost(host)),
+              Layer.provideMerge(selected),
+              Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, scriptedCompletionJudge)),
+              Layer.provideMerge(Safety.layer),
+              Layer.provideMerge(Action.layerImplementations),
+              Layer.provideMerge(FlowEngine.layerMemory),
+              Layer.provideMerge(NodeCrypto.layer)
+            )
+            const fiber = yield* TimedFlow.execute({ millis: 20 }, { executionId: `timeout-${duration}-${stage}` })
+              .pipe(
+                Effect.result,
+                Effect.provide(layers),
+                Effect.forkChild({ startImmediately: true })
+              )
+            yield* Deferred.await(entered)
+            yield* TestClock.adjust("20 millis")
+            return yield* Fiber.join(fiber)
+          }).pipe(Effect.provide(TestClock.layer()), Effect.scoped)
+        )
         expect(result._tag).toBe("Failure")
         if (result._tag === "Failure") {
           expect(result.failure).toBeInstanceOf(HarnessError)
@@ -767,6 +782,25 @@ const stalling = `var seen = (typeof seen === "number" ? seen : 0) + 1
 console.log("again " + seen)`
 
 describe("AgentAction correction budgets", () => {
+  it("refuses an implementation whose declared error schema is not AgentFailure", () => {
+    const declared = Action.make("agent/test/WrongError", {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: Schema.String
+    })
+    expect(() =>
+      AgentAction.implement(
+        declared as unknown as Action.Declared<
+          "agent/test/WrongError",
+          typeof declared.payloadSchema,
+          typeof Review,
+          typeof AgentAction.AgentFailure
+        >,
+        { seat: "anthropic:test-model", prompt: ({ diff }) => diff }
+      )
+    ).toThrow("AgentAction.implement requires error: AgentAction.AgentFailure")
+  })
+
   it("rejects non-finite, fractional, and negative budgets at declaration time", () => {
     for (const corrections of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5]) {
       expect(() =>
@@ -1961,6 +1995,48 @@ describe("AgentAction seat auto", () => {
     // The repair keeps the routed variant's teaching beside its own.
     expect(requests[2]).toContain("You repair answers.")
     expect(requests[2]).toContain(SeatRouter.defaultVariants.find((variant) => variant.id === "answer")!.system[0]!)
+  })
+
+  it("retains the provider failure when the bounded repair cannot run", async () => {
+    const RepairFailure = AgentAction.make("agent/test/RepairFailure", {
+      payload: { diff: Schema.String },
+      output: Review,
+      seat: Seat.auto,
+      corrections: 0,
+      prompt: ({ diff }) => diff,
+      repair: { prompt: () => "Repair the answer." }
+    })
+    const RepairFailureFlow = Flow.make("agent/test/RepairFailureFlow", {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: ({ diff }) => RepairFailure.call({ diff })
+    })
+    const requests: Array<string> = []
+    const first = scripted([answering("invalid review")], requests)
+    let calls = 0
+    const model = Model.make({
+      stream: (request) =>
+        Stream.suspend(() => {
+          calls++
+          return calls === 1 ? first.stream(request) : Stream.fail(
+            new ModelError({ code: "authentication", message: "repair credential refused" })
+          )
+        })
+    })
+    const failure = await Effect.runPromise(Effect.flip(
+      RepairFailureFlow.execute({ diff: "diff" }, { executionId: "repair-provider-failure" }).pipe(
+        Effect.provide(routedStack(
+          Layer.mergeAll(RepairFailure.layer, Interpreter.layer(RepairFailureFlow)),
+          model,
+          [],
+          judge([toSonnet], [])
+        ))
+      )
+    ))
+    expect(failure).toBeInstanceOf(HarnessError)
+    expect(JSON.stringify(failure)).toContain("repair credential refused")
+    expect(calls).toBe(2)
   })
 
   it("runs an explicit repair seat instead of the routed one", async () => {

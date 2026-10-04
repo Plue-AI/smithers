@@ -1529,6 +1529,26 @@ describe("FlowEngineLike.record", () => {
     expect(completed(outcome)).toMatchObject({ tokens: 107 })
   })
 
+  it("refuses a spent park budget when the host has no approval service", async () => {
+    const readings: Array<string> = []
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        yield* payingBoundary(port, readings, "spent", [{ usage: { inputTokens: 100, outputTokens: 0 } }])
+        return yield* Effect.flip(
+          payingBoundary(port, readings, "refused", [{ usage: { inputTokens: 1, outputTokens: 0 } }])
+        )
+      }).pipe(Effect.provide(Budget.layer({ tokens: { max: 100, onExceeded: "park" } })))
+    )
+    const failure = completed(outcome)
+    expect(failure).toBeInstanceOf(HarnessError)
+    expect(failure).toMatchObject({
+      code: "model_failed",
+      cause: { _tag: "flows/agent/BudgetExceeded", onExceeded: "park" }
+    })
+    expect(readings).toEqual(["spent"])
+  })
+
   it("parks a paid reading refused by a spent park budget, and declares the wait on suspend (#3010)", async () => {
     const readings: Array<string> = []
     const exceeded: Array<Budget.BudgetExceeded> = []

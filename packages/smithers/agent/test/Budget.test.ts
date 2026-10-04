@@ -1459,6 +1459,19 @@ describe("recovering a run's earlier spend", () => {
     expect(observed).toEqual({ tokens: 550, calls: 2, largestCall: 300 })
   })
 
+  it("recovers repeated identical usage records only once", async () => {
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({})
+        return yield* budget.usage
+      }).pipe(Effect.provide(Layer.merge(
+        pagedJournal([[usageEntry(1, { stepKey: "a", spent: 300 }), usageEntry(2, { stepKey: "a", spent: 300 })]]),
+        Layer.succeed(FlowRuntime.FlowInstance)(instanceFor("usage-duplicates"))
+      )))
+    )
+    expect(observed).toEqual({ tokens: 300, calls: 1, largestCall: 300 })
+  })
+
   it("fails closed on a current usage record it cannot decode", async () => {
     const exit = await Effect.runPromise(
       Effect.exit(
