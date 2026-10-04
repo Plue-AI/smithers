@@ -48,6 +48,11 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
     }
     await page.evaluate(() => document.fonts.ready)
+    // Worker highlighting can replace an entering annotation. Audit its settled projection.
+    const flagCount = story.name === "FilePresenceView/live_separate" ? 3
+      : /^FilePresenceView\/(live|no_binding|five_editors)$/.test(story.name) ? 1 : 0
+    await expect.poll(() => page.locator(".code-name-flag").evaluateAll(flags =>
+      flags.map(flag => getComputedStyle(flag).opacity))).toEqual(Array(flagCount).fill("1"))
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.addScriptTag({ path: axePath })
     const violations = await page.evaluate(async () => {
