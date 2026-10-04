@@ -244,6 +244,21 @@ const gathering = async (root: string) => {
   const options = {
     repositoryPath: root,
     pages: specs,
+    wikiCitations: true,
+    wikiProvider: {
+      authorize: () => Effect.void,
+      select: () => Effect.succeed([{ slug: "runtime" }]),
+      read: () =>
+        Effect.succeed({
+          pageID: "runtime-page",
+          slug: "runtime",
+          revision: 3,
+          digest: "1211c318f20749371082cb318ccb7c6eb01b8946e50bc12a0e9da745c28c5d23",
+          title: "Runtime",
+          markdown: "Runtime notes.",
+          generated: { id: "runtime", inputDigest: pages[0]!.inputDigest, sourceRevision: "main@abc" }
+        })
+    },
     implementation: "implement/atoms",
     checks: ["fast", "slow"].map((tier) => ({
       id: tier,
@@ -263,11 +278,11 @@ const gathering = async (root: string) => {
     )
 }
 
-test("gather plans with the wiki pages and files Jev keeps, and nothing it omits", async (t) => {
+test("gather combines shared-selector wiki revisions with the files Jev keeps", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "planning-gather-"))
   t.after(() => rm(root, { force: true, recursive: true }))
   const gathered = await (await gathering(root))(
-    // Jev keeps the runtime page and the two files the task needs; it
+    // The shared selector keeps Runtime; Jev keeps the two files needed and
     // declines every directory and every other candidate.
     Evaluator.layerScripted((request) => {
       const items = (request.state as { readonly items?: ReadonlyArray<{ readonly id?: string }> }).items ?? []
@@ -285,6 +300,12 @@ test("gather plans with the wiki pages and files Jev keeps, and nothing it omits
   assert.deepEqual(context?.memory.map((note) => [note.id, note.sourceRevision, note.markdown]), [
     ["runtime", "main@abc", "Runtime notes."]
   ])
+  assert.deepEqual(context?.wikiCitations, [{
+    pageID: "runtime-page",
+    slug: "runtime",
+    revision: 3,
+    digest: "1211c318f20749371082cb318ccb7c6eb01b8946e50bc12a0e9da745c28c5d23"
+  }])
   assert.deepEqual(context?.sources?.map((source) => source.path).sort(), ["needed.ts", "runtime.ts"])
   assert.deepEqual(context?.checks.map((check) => check.flow), ["checks/fast", "checks/slow"])
 })

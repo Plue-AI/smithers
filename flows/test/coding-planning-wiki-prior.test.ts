@@ -5,6 +5,7 @@ import { Effect, Exit, Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { findPlanningWikiReview } from "../coding/planning-wiki.ts"
+import { PlanningContext } from "../coding/planning.ts"
 import { Receipt, WikiError } from "../wiki/schema.ts"
 
 const config = {
@@ -153,4 +154,34 @@ test("unrelated recent runs can cause an explicit bounded reuse miss", async () 
   assert.deepEqual(f.windows, [256])
   assert.equal(f.reads.length, 256)
   assert.ok(!f.reads.includes("older-wiki"), "a bounded miss does not trigger an unbounded scan")
+})
+
+test("parked planning context without citations still decodes with captured memory", () => {
+  const revision = { changeId: "change", commitId: "commit", treeId: "tree", operationId: "op", parentCommitIds: [] }
+  const context = {
+    head: revision,
+    history: [{ ...revision, description: "Captured" }],
+    memory: [{
+      id: "legacy",
+      title: "Legacy",
+      kind: "intent",
+      markdown: "Captured decision",
+      sourceRevision: "main@old",
+      inputDigest: "old-input"
+    }],
+    memoryRevision: "captured",
+    implementation: "implementation",
+    implementationDigest: "digest",
+    checks: [{ id: "fast", target: "fast", flow: "fast", flowDigest: "digest", tier: "fast", required: true }, {
+      id: "slow",
+      target: "slow",
+      flow: "slow",
+      flowDigest: "digest",
+      tier: "slow",
+      required: true
+    }]
+  }
+  const decoded = Schema.decodeUnknownSync(PlanningContext)(context)
+  assert.deepEqual(decoded, context)
+  assert.equal(decoded.wikiCitations, undefined)
 })

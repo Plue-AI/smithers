@@ -798,6 +798,8 @@ func (s *MythicalService) suppliedWiki(ctx context.Context, repositoryID int64) 
 	}
 	type supplied struct {
 		ID          string `json:"id"`
+		Slug        string `json:"slug,omitempty"`
+		Revision    int64  `json:"revision,omitempty"`
 		Title       string `json:"title"`
 		Kind        string `json:"kind"`
 		Body        string `json:"body"`
@@ -809,7 +811,7 @@ func (s *MythicalService) suppliedWiki(ctx context.Context, repositoryID int64) 
 			continue
 		}
 		total += len(page.Body)
-		out = append(out, supplied{ID: page.ID, Title: page.Title, Kind: page.Kind, Body: page.Body, InputDigest: page.InputDigest})
+		out = append(out, supplied{ID: page.ID, Slug: page.Slug, Revision: page.Revision, Title: page.Title, Kind: page.Kind, Body: page.Body, InputDigest: page.InputDigest})
 	}
 	return map[string]any{"sourceRevision": "main@" + row.PublishedCommit, "pages": out}, true
 }

@@ -82,6 +82,8 @@ export const SuppliedWiki = Schema.Struct({
     title: Text.check(Schema.isMaxLength(512)),
     kind: Schema.Literals(["current", "intent"]),
     body: Text.check(Schema.isMaxLength(64 * 1024)),
+    slug: Schema.optionalKey(Text.check(Schema.isMaxLength(256))),
+    revision: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
     inputDigest: Text.check(Schema.isMaxLength(128))
   })).check(Schema.isMaxLength(30))
 })
@@ -186,6 +188,7 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
     "stale_revision",
     "invalid_receipt",
     "unavailable",
+    "isolation_required",
     "execution",
     "source_missing",
     "source_changed",
@@ -220,6 +223,7 @@ Fault.register(
     check_infra: "infra",
     execution: "infra",
     unavailable: "dependency",
+    isolation_required: "dependency",
     source_unavailable: "dependency"
   } satisfies Fault.Rows<CodingError["code"]>
 )

@@ -259,7 +259,20 @@ func TestMythicalWikiCarriesDependencyPagesToLanes(t *testing.T) {
 	require.True(t, ok)
 	encoded, err := json.Marshal(supplied)
 	require.NoError(t, err)
-	assert.Contains(t, string(encoded), `"pages":[{"id":"dep-effect-readme-md","title":"deps/effect/README.md","kind":"current","body":"# Effect\n"`)
+	var captured struct {
+		Pages []struct {
+			ID       string
+			Slug     string
+			Revision int64
+			Body     string
+		}
+	}
+	require.NoError(t, json.Unmarshal(encoded, &captured))
+	require.NotEmpty(t, captured.Pages)
+	assert.Equal(t, "dep-effect-readme-md", captured.Pages[0].ID)
+	assert.Equal(t, "generated-dep-effect-readme-md", captured.Pages[0].Slug)
+	assert.Equal(t, int64(1), captured.Pages[0].Revision)
+	assert.Equal(t, "# Effect\n", captured.Pages[0].Body)
 	assert.Contains(t, string(encoded), `"id":"runtime"`)
 
 	o.commit("✨ feat: more source", "more.txt", "more\n")

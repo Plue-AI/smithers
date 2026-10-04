@@ -1,15 +1,14 @@
 /** Default gathering uses native JJ history and what `memory` selects for the
- * request: fresh wiki pages and the files a README-guided walk finds, each
- * routed by Jev. Generated Wiki memory participates when a stack request
- * carries the published pages or the operator's own verified snapshot exists,
- * and only while it is fresh. Projects can replace GatherContext's action
+ * request: authorized wiki revisions selected by shared preflight and files
+ * from the existing README-guided Jev walk. Generated pages participate only
+ * while their inputs remain fresh. Projects can replace GatherContext's action
  * layer with their own workflow.
  */
 import * as Memory from "@smthrs/agent/Memory"
 import * as Digest from "@smthrs/core/Digest"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
-import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Effect, FileSystem, Layer, Schema } from "effect"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import { operations as wikiOperations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
@@ -30,6 +29,8 @@ import { type Check, CodingError } from "./schema.ts"
 
 export interface MemoryOptions {
   readonly repositoryPath: string
+  readonly wikiCitations?: boolean
+  readonly wikiProvider?: PlanningWikiProvider
   readonly wiki?: boolean
   readonly wikiOutput?: string
   readonly pages?: ReadonlyArray<PageSpec>
@@ -38,19 +39,6 @@ export interface MemoryOptions {
   readonly historyLimit?: number
   readonly maxMemoryBytes?: number
 }
-const Page = Schema.Struct({
-  id: Schema.NonEmptyString,
-  title: Schema.String,
-  kind: Schema.Literals(["current", "intent"]),
-  body: Schema.NonEmptyString,
-  inputDigest: Schema.NonEmptyString
-})
-const Pointer = Schema.Struct({
-  artifactDigest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
-  sourceRevision: Schema.NonEmptyString,
-  verification: Schema.Literal("verified"),
-  pages: Schema.Array(Page).check(Schema.isMinLength(1), Schema.isMaxLength(30))
-})
 const failure = (message: string) => new CodingError({ code: "stale_revision", message })
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length
 
@@ -84,11 +72,30 @@ const freshWikiPages = (
     return fresh
   })
 
-/**
- * Wiki memory is optional context: planning never generates the wiki and never
- * waits on it. A stack request carries the stack's published pages (or null);
- * any other request reads this host's own verified snapshot when one exists.
- * Either way only pages still fresh against this source are used.
+/** Trusted host adapter: the shared preflight selector and authorized relay
+ * reads. No adapter is installed by default; repository code cannot authorize
+ * itself or substitute local snapshots. Calls belong to the recorded gather.
+ */
+export interface PlanningWikiProvider {
+  readonly authorize: () => Effect.Effect<void, CodingError>
+  readonly select: (
+    request: { readonly prompt: string; readonly kinds: readonly ["wiki"] }
+  ) => Effect.Effect<ReadonlyArray<{ readonly slug: string }>, CodingError>
+  readonly read: (slug: string) => Effect.Effect<{
+    readonly pageID: string
+    readonly slug: string
+    readonly revision: number
+    readonly digest: string
+    readonly title: string
+    readonly markdown: string
+    readonly generated?: { readonly id: string; readonly inputDigest: string; readonly sourceRevision: string }
+  }, CodingError>
+}
+
+/** API reads capture identity and bytes together, after wiki-only selection.
+ * The trusted authorizer refuses missing config/evidence/selector providers,
+ * disabled wiki and run scopes; it refuses non-machine dispatch with
+ * isolation_required. Nothing here opens a host process or a pointer file.
  */
 export const wikiMemory = (
   options: MemoryOptions,
@@ -96,43 +103,54 @@ export const wikiMemory = (
   hostFilesystem?: FileSystem.FileSystem
 ) =>
   Effect.gen(function*() {
-    if (input.wiki === null || !options.pages?.length) return undefined
-    if (input.wiki !== undefined) {
-      const pages = yield* freshWikiPages(options, input.wiki.pages, hostFilesystem)
-      if (pages.length === 0) return undefined
-      return {
-        sourceRevision: input.wiki.sourceRevision,
-        pages,
-        digest: Digest.digest(
-          Digest.canonical(
-            pages.map((page) => ({ id: page.id, inputDigest: page.inputDigest, body: Digest.digest(page.body) }))
-          )
-        )
-      }
+    const provider = options.wikiProvider
+    if (!provider) {
+      return yield* new CodingError({
+        code: "unavailable",
+        message: "Authorized planning wiki provider is unavailable"
+      })
     }
-    if (options.wiki !== true || !options.wikiOutput) return undefined
-    const fs = hostFilesystem ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
-    const pointer = path.resolve(options.wikiOutput, "current.json")
-    if (!(yield* fs.exists(pointer)) || (yield* fs.stat(pointer)).size > BigInt(16 * 1024 * 1024)) return undefined
-    const captured = yield* fs.readFileString(pointer)
-    // Use the owning verifier. Digest equality alone does not prove semantic
-    // review, nor may old generated explanations silently stand in for new code.
-    const checked = yield* Effect.result(
-      wikiOperations({ root: options.repositoryPath, output: options.wikiOutput, fs: hostFilesystem }).check(
-        options.pages,
-        true
-      )
-    )
-    if (checked._tag === "Failure" || (yield* fs.readFileString(pointer)) !== captured) return undefined
-    const wiki = yield* Effect.try({
-      try: () => JSON.parse(captured) as unknown,
-      catch: () => failure("Invalid verified wiki pointer")
-    }).pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(Pointer)),
-      Effect.option
-    )
-    if (wiki._tag === "None") return undefined
-    return { sourceRevision: wiki.value.sourceRevision, pages: wiki.value.pages, digest: wiki.value.artifactDigest }
+    yield* provider.authorize()
+    // An empty pinned declaration is valid for an authored-only vault.
+    if (options.pages === undefined) {
+      return yield* new CodingError({
+        code: "unavailable",
+        message: "Pinned generated-page declaration is unavailable"
+      })
+    }
+    const selected = yield* provider.select({ prompt: input.prompt, kinds: ["wiki"] })
+    const pages: Array<
+      WikiPage & {
+        readonly sourceRevision: string
+        readonly generated: boolean
+        readonly citation: NonNullable<typeof PlanningContext.Type["wikiCitations"]>[number]
+      }
+    > = []
+    for (const { slug } of selected) {
+      if (pages.some((page) => page.citation.slug === slug)) continue
+      const page = yield* provider.read(slug)
+      if (
+        !page.markdown || pages.length >= 30 || page.slug !== slug || !page.pageID ||
+        !Number.isSafeInteger(page.revision) || page.revision < 1 ||
+        !/^[0-9a-f]{64}$/.test(page.digest) || Digest.digest(page.markdown) !== page.digest
+      ) continue
+      const generated = page.generated
+      const captured = {
+        id: generated?.id ?? page.pageID,
+        title: page.title,
+        kind: generated
+          ? (options.pages.find((spec) => spec.id === generated.id)?.kind ?? "current")
+          : "current" as const,
+        body: page.markdown,
+        inputDigest: generated?.inputDigest ?? page.digest,
+        sourceRevision: generated?.sourceRevision ?? `wiki:${page.pageID}:${page.revision}`,
+        generated: generated !== undefined,
+        citation: { slug, pageID: page.pageID, revision: page.revision, digest: page.digest }
+      }
+      if (generated && !(yield* freshWikiPages(options, [captured], hostFilesystem)).length) continue
+      pages.push(captured)
+    }
+    return { pages, digest: Digest.digest(Digest.canonical(pages.map((page) => page.citation))) }
   })
 
 /** The notes whose page inputs no longer hash to this source. */
@@ -142,6 +160,7 @@ export const staleWikiNotes = (
   hostFilesystem?: FileSystem.FileSystem
 ) =>
   Effect.gen(function*() {
+    notes = notes.filter((note) => note.generated !== false)
     if (notes.length === 0) return []
     const pages = notes.map((note) => ({
       id: note.id,
@@ -154,7 +173,7 @@ export const staleWikiNotes = (
     return notes.filter((note) => !fresh.has(note.id)).map((note) => note.id)
   })
 
-/** Jev, through `memory`, selects the wiki pages and files planning reads, so
+/** Shared preflight selects wiki revisions; `memory` selects files, so
  * the gather is nondeterministic: `GatherContext` is a nondeterministic action
  * whose context the journal records and replays. A selection Jev did not judge
  * (unreachable, timed out, or no judge bound) fails `unavailable` rather than
@@ -172,6 +191,9 @@ export const gather = (
     ) {
       return yield* failure("Planning memory requires historyLimit 1..100 and maxMemoryBytes 1024..92160")
     }
+    const wiki = options.wikiCitations === true
+      ? yield* wikiMemory(options, input, hostFilesystem)
+      : { pages: [], digest: null }
     const native = yield* NativeCoding, jj = yield* Jj.Jj
     // The configured Jj captures current bytes in the SAME native atom. It never
     // opens a new change merely because memory needs an immutable code identity.
@@ -185,15 +207,14 @@ export const gather = (
         "Planning requires bounded resolved native history; inspect conflicts or update the installed adapter"
       )
     }
-    const wiki = yield* wikiMemory(options, input, hostFilesystem)
     const wikiDigest = wiki?.digest ?? null
-    // `memory` routes the fresh wiki pages and the README walk's files through
-    // Jev; planning keeps what it chose, whole, under its own byte caps.
+    // File selection retains the existing README-guided Jev walk. Wiki
+    // selection is already captured by the shared preflight provider.
     const selection = yield* Memory.select(
-      { task: `${input.prompt}\n${input.feedback}`, sources: ["wiki", "repo"], maxBytes: Memory.maxMaxBytes },
+      { task: `${input.prompt}\n${input.feedback}`, sources: ["repo"], maxBytes: Memory.maxMaxBytes },
       {
         root: options.repositoryPath,
-        pages: (wiki?.pages ?? []).map((page) => ({ kind: "page", id: page.id, title: page.title, text: page.body }))
+        pages: []
       }
     ).pipe(Effect.mapError((error) => failure(`Planning memory could not be selected: ${error.message}`)))
     // Unjudged, `memory` keeps only the request's own paths and drops every
@@ -206,19 +227,21 @@ export const gather = (
       })
     }
     const memory: Array<typeof PlanningContext.Type["memory"][number]> = []
-    for (const chosen of selection.needed.filter((item) => item.kind === "page")) {
-      const page = wiki!.pages.find((page) => page.id === chosen.id)!
+    const wikiCitations: NonNullable<typeof PlanningContext.Type["wikiCitations"]>[number][] = []
+    for (const page of wiki.pages) {
       const note = {
         id: page.id,
         title: page.title || page.id,
         kind: page.kind,
         markdown: page.body,
-        sourceRevision: wiki!.sourceRevision,
-        inputDigest: page.inputDigest
+        sourceRevision: page.sourceRevision,
+        inputDigest: page.inputDigest,
+        generated: page.generated
       }
-      // Keep complete pages. A truncated quotation or omitted caveat is not an
-      // equivalent explanation; a project can supply a finer-grained gather flow.
-      if (bytes([...memory, note]) <= maximum) memory.push(note)
+      if (bytes([...memory, note]) <= maximum) {
+        memory.push(note)
+        wikiCitations.push(page.citation)
+      }
     }
     // Accepted learnings share the memory budget; the newest are kept when it runs out.
     const accepted = yield* acceptedLearnings.pipe(Effect.mapError((error) =>
@@ -289,6 +312,7 @@ export const gather = (
       head: before.head,
       history,
       memory,
+      ...(options.wikiCitations === true ? { wikiCitations } : {}),
       ...(learnings.length ? { learnings } : {}),
       ...definitions,
       ...collected,
@@ -296,6 +320,7 @@ export const gather = (
         wiki: wikiDigest,
         history,
         memory,
+        wikiCitations,
         ...(learnings.length ? { learnings } : {}),
         definitions,
         sources: collected.sources.map(({ digest, path }) => ({ path, digest })),

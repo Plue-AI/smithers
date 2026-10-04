@@ -1,16 +1,20 @@
 import { NodeServices } from "@effect/platform-node"
-import { Effect } from "effect"
+import { Crypto, Effect, Exit, FileSystem, Path } from "effect"
 import assert from "node:assert/strict"
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { staleWikiNotes, wikiMemory } from "../coding/planning-memory.ts"
+import { type PlanningWikiProvider, staleWikiNotes, wikiMemory } from "../coding/planning-memory.ts"
+import { CodingError } from "../coding/schema.ts"
 import { cloudWikiBody, reviewCounts } from "../coding/wiki-refresh.ts"
 import { operations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
 
-const run = <A, E>(effect: Effect.Effect<A, E, never>) => Effect.runPromise(effect)
+const run = <A, E>(effect: Effect.Effect<A, E, Crypto.Crypto | FileSystem.FileSystem | Path.Path>) =>
+  Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)))
+const exit = <A, E>(effect: Effect.Effect<A, E, Crypto.Crypto | FileSystem.FileSystem | Path.Path>) =>
+  Effect.runPromiseExit(effect.pipe(Effect.provide(NodeServices.layer)))
 const spec: PageSpec = {
   id: "runtime",
   title: "Runtime",
@@ -33,60 +37,140 @@ const repository = async () => {
   return { root, digest }
 }
 
-test("a stack request plans only with supplied wiki pages whose inputs still hash to its source", async () => {
+const authored = {
+  pageID: "page-retry",
+  slug: "retry-policy",
+  revision: 3,
+  title: "Retries",
+  markdown: "Decision: exponential backoff.",
+  digest: "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47"
+}
+const edited = {
+  pageID: "page-fixed",
+  slug: "fixed-policy",
+  revision: 7,
+  title: "Fixed retries",
+  markdown: "Decision: retryFixed(5000).",
+  digest: "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b"
+}
+const input = { prompt: "Retry failed webhook deliveries", feedback: "" }
+const options = { repositoryPath: "/unused", pages: [], implementation: "coding/implementation", checks: [] }
+const fixture = (selected = ["retry-policy", "fixed-policy"]) => {
+  const reads: string[] = []
+  const requests: unknown[] = []
+  const provider: { -readonly [K in keyof PlanningWikiProvider]: PlanningWikiProvider[K] } = {
+    authorize: () => Effect.void,
+    select: (request) => {
+      requests.push(request)
+      return Effect.succeed(selected.map((slug) => ({ slug })))
+    },
+    read: (slug) => {
+      reads.push(slug)
+      return Effect.succeed(slug === "retry-policy" ? authored : edited)
+    }
+  }
+  return { provider, reads, requests, run: () => run(wikiMemory({ ...options, wikiProvider: provider }, input)) }
+}
+
+test("authorized authored-only planning captures exact revision digests without a generated inventory", async () => {
+  const f = fixture()
+  const memory = await f.run()
+  assert.deepEqual(f.requests, [{ prompt: "Retry failed webhook deliveries", kinds: ["wiki"] }])
+  assert.deepEqual(memory.pages.map((p) => p.citation), [
+    {
+      pageID: "page-retry",
+      slug: "retry-policy",
+      revision: 3,
+      digest: "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47"
+    },
+    {
+      pageID: "page-fixed",
+      slug: "fixed-policy",
+      revision: 7,
+      digest: "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b"
+    }
+  ])
+  assert.deepEqual(memory.pages.map((p) => p.body), ["Decision: exponential backoff.", "Decision: retryFixed(5000)."])
+})
+
+test("selector exclusions are never read and duplicates are cited once", async () => {
+  const f = fixture(["retry-policy", "retry-policy"])
+  assert.equal((await f.run()).pages.length, 1)
+  assert.deepEqual(f.reads, ["retry-policy"])
+})
+
+test("read captures the edited revision rather than the selection's earlier identity", async () => {
+  const f = fixture(["retry-policy"])
+  f.provider.read = () => Effect.succeed({ ...edited, pageID: "page-retry", slug: "retry-policy", revision: 4 })
+  const memory = await f.run()
+  assert.equal(memory.pages[0]?.citation.revision, 4)
+  assert.equal(memory.pages[0]?.body, "Decision: retryFixed(5000).")
+  assert.equal(memory.pages[0]?.citation.digest, "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b")
+})
+
+test("invalid identity or content digest excludes both bytes and citation", async () => {
+  for (
+    const patch of [{ markdown: "Forged" }, { slug: "other" }, { revision: 0 }, { pageID: "" }, { digest: "invalid" }]
+  ) {
+    const f = fixture(["retry-policy"])
+    f.provider.read = () => Effect.succeed({ ...authored, ...patch })
+    assert.deepEqual((await f.run()).pages, [])
+  }
+})
+
+test("missing providers, unavailable authority and API failures refuse rather than use supplied or pointer bytes", async () => {
+  const missing = await exit(wikiMemory(options, input))
+  assert.equal(Exit.isFailure(missing), true)
+  for (const code of ["unavailable", "isolation_required"] as const) {
+    const f = fixture()
+    f.provider.authorize = () => Effect.fail(new CodingError({ code, message: "Fixture refusal" }))
+    assert.equal(
+      Exit.isFailure(await exit(wikiMemory({ ...options, wikiProvider: f.provider, wikiOutput: "/pointer" }, input))),
+      true
+    )
+    assert.deepEqual(f.reads, [])
+    assert.deepEqual(f.requests, [])
+  }
+  const f = fixture()
+  f.provider.read = () => Effect.fail(new CodingError({ code: "unavailable", message: "Read denied" }))
+  assert.equal(Exit.isFailure(await exit(wikiMemory({ ...options, wikiProvider: f.provider }, input))), true)
+  const { pages: _, ...unpinned } = options
+  assert.equal(Exit.isFailure(await exit(wikiMemory({ ...unpinned, wikiProvider: f.provider }, input))), true)
+})
+
+test("an authorized empty vault is valid even when the stack has no published wiki", async () => {
+  const f = fixture([])
+  const memory = await run(wikiMemory({ ...options, wikiProvider: f.provider }, { ...input, wiki: null }))
+  assert.deepEqual(memory.pages, [])
+})
+
+test("API generated pages retain source freshness checks; authored pages do not require them", async () => {
   const { root, digest } = await repository()
   try {
-    const options = { repositoryPath: root, pages: [spec], implementation: "coding/implementation", checks: [] }
-    const page = {
-      id: "runtime",
-      title: "Runtime",
-      kind: "current" as const,
-      body: "The runtime starts once.",
-      inputDigest: await digest()
-    }
-    const input = (wiki: unknown) => ({ prompt: "Fix start", feedback: "", wiki } as never)
-    const memory = (wiki: unknown) => run(wikiMemory(options, input(wiki)).pipe(Effect.provide(NodeServices.layer)))
-
-    const fresh = await memory({ sourceRevision: "main@abc", pages: [page, { ...page, id: "unknown" }] })
-    assert.deepEqual(
-      fresh?.pages.map((entry) => entry.id),
-      ["runtime"],
-      "a page outside this host's catalog is never used"
-    )
-    assert.equal(fresh?.sourceRevision, "main@abc")
-    assert.equal(await memory(null), undefined, "null: the stack has no published wiki yet")
-    assert.equal(
-      await memory(undefined),
-      undefined,
-      "without a supplied wiki a host with no local snapshot plans without one"
-    )
-
-    const note = {
-      id: "runtime",
-      title: "Runtime",
-      kind: "current" as const,
-      markdown: page.body,
-      sourceRevision: "main@abc",
-      inputDigest: page.inputDigest
-    }
-    assert.deepEqual(await run(staleWikiNotes(options, [note]).pipe(Effect.provide(NodeServices.layer))), [])
-
+    const f = fixture(["retry-policy"])
+    const inputDigest = await digest()
+    f.provider.read = () =>
+      Effect.succeed({ ...authored, generated: { id: "runtime", inputDigest, sourceRevision: "main@abc" } })
+    const opts = { ...options, repositoryPath: root, pages: [spec], wikiProvider: f.provider }
+    const memory = () => run(wikiMemory(opts, input).pipe(Effect.provide(NodeServices.layer)))
+    assert.equal((await memory()).pages.length, 1)
     await writeFile(join(root, "runtime.ts"), "export const start = () => 2\n")
-    assert.equal(
-      await memory({ sourceRevision: "main@abc", pages: [page] }),
-      undefined,
-      "a page whose source moved is stale"
-    )
-    assert.deepEqual(await run(staleWikiNotes(options, [note]).pipe(Effect.provide(NodeServices.layer))), ["runtime"])
-
-    // A forged digest for other text still has to match this host's own spec and source.
-    const forged = { ...page, inputDigest: await digest(), body: "Anything." }
-    const other = { ...options, pages: [{ ...spec, purpose: "Something else" }] }
-    assert.equal(
+    assert.deepEqual((await memory()).pages, [])
+    f.provider.read = () => Effect.succeed(authored)
+    assert.equal((await memory()).pages.length, 1)
+    assert.deepEqual(
       await run(
-        wikiMemory(other, input({ sourceRevision: "x", pages: [forged] })).pipe(Effect.provide(NodeServices.layer))
+        staleWikiNotes(opts, [{
+          id: "page-retry",
+          title: "Retries",
+          kind: "current",
+          markdown: authored.markdown,
+          sourceRevision: "wiki:page-retry:3",
+          inputDigest: authored.digest,
+          generated: false
+        }]).pipe(Effect.provide(NodeServices.layer))
       ),
-      undefined
+      []
     )
   } finally {
     await rm(root, { recursive: true, force: true })

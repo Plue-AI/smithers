@@ -122,3 +122,24 @@ Required `checks/wiki` entries now run semantic review as ordinary asynchronous
 backpressure after implementation and rewritten-source checks. They capture an
 immutable native export and return owner findings without racing publication;
 see `wiki-check.md` for the source, replay and catalog identity contracts.
+
+## Captured planning citations
+
+Revision citations are disabled until the trusted host supplies
+`MemoryOptions.wikiCitations` and `wikiProvider`. The provider uses the shared
+wiki-only preflight selector and repository-scoped run relay reads. Its
+`authorize` refuses unavailable pinned config, selector, attempt evidence or
+renderer, disabled wiki and invalid run credentials; it refuses non-machine
+execution with `isolation_required`. No production adapter is bound here.
+
+Selected pages are read once, capturing page ID, slug, revision, Markdown and
+SHA-256 together. Digest mismatches are omitted. Generated pages also pass the
+existing source-input freshness check; authored pages need no generated inventory.
+The context budget retains whole pages and their citations together. The old
+`current.json` planning fallback is removed. Supplied legacy pages are not a
+substitute for API reads. Parked contexts without `wikiCitations` remain readable.
+The draft planner treats cited decisions as constraints and names any departure.
+
+Activation still needs attempt-owned evidence publication and TODO revision
+links, plus C-J8-04 and C-J8-05 reference-host receipts. These are not established
+by the component tests.
