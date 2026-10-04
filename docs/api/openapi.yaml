@@ -19159,6 +19159,43 @@ paths:
           description: TODO not found
         '503':
           description: Install repository unavailable
+  /api/todos/{n}/merge:
+    post:
+      x-composition: install
+      summary: Request a session-approved squash merge at the reviewed head
+      operationId: post_api_todos_n_merge
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reviewed_head_sha]
+              properties:
+                reviewed_head_sha: {type: string, pattern: '^[0-9a-fA-F]{40}$'}
+      responses:
+        '202':
+          description: Merge request accepted; completion requires GitHub and main containment
+        '400':
+          description: Invalid TODO number or reviewed head
+        '403':
+          description: Install owner browser session required
+        '404':
+          description: TODO not found
+        '409':
+          description: Stale head or merge facts unavailable; no merge sent
+        '503':
+          description: Install repository unavailable
   /api/user/connections/{id}:
     delete:
       summary: DELETE /api/user/connections/{id}

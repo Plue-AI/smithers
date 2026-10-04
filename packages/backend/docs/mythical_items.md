@@ -90,7 +90,9 @@ to lowercase. The current GitHub maintainer is checked before TODO readiness,
 and `checks.Land` retains the reviewed head, generation and session attribution.
 The request acknowledges persisted approval, never remote completion.
 
-The stack’s existing outbound integration gate remains in force. This request
-does not enable merge dispatch or the install’s numbered `/api/todos/{n}/merge`
-route. Those require the accepted TODO numbering and the production readiness,
-fence and outbound providers; C-J1-04 is not passing evidence for this increment.
+The install mounts `POST /api/todos/{n}/merge` using its persisted repository
+binding and repository-local TODO number. It refuses with `409 rechecking`
+before approval while production readiness, fence and outbound providers are
+unavailable. Stale reviews return `409 stale_head` with `current_head_sha`;
+that value never replaces the reviewed head. Merge recovery waits until GitHub
+reports the merge and main contains its commit. C-J1-04 remains incomplete.

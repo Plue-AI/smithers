@@ -1481,6 +1481,11 @@ type PostAPITodosResponse struct {
 	Rev   int64  `json:"rev"`
 }
 
+// PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.
+type PostAPITodosNMergeBody struct {
+	ReviewedHeadSHA string `json:"reviewed_head_sha"`
+}
+
 // GetAPIUserGithubAppInstallationsResponse is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubAppInstallationsResponse struct {
 	InstallURL string                                              `json:"install_url"`
@@ -4700,6 +4705,11 @@ func (c *Client) PostAPITodos(ctx context.Context, body PostAPITodosBody) (PostA
 // GetAPITodosN calls GET /api/todos/{n}.
 func (c *Client) GetAPITodosN(ctx context.Context, n int64) error {
 	return c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, nil)
+}
+
+// PostAPITodosNMerge calls POST /api/todos/{n}/merge.
+func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, body PostAPITodosNMergeBody) error {
+	return c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, nil)
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

@@ -2104,8 +2104,13 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		return mythicalLater(item, "GitHub did not answer for merge recovery", st.now)
 	}
 	if pull.Merged {
-		next := mythicalLanded(item, pull.MergeCommit, st.now)
-		return &next
+		// Reuse follow’s GitHub fact and OnMain containment decision. A PR
+		// merge receipt alone must never project Merged.
+		next, err := st.follow(ctx, item)
+		if err != nil {
+			return mythicalLater(item, "GitHub did not answer for merge containment", st.now)
+		}
+		return next
 	}
 	return mythicalLater(item, "Waiting for merge readiness integration", st.now)
 }

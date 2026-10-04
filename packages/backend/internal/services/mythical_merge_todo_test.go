@@ -3,10 +3,12 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
@@ -148,7 +150,8 @@ func TestMythicalMergeRefusals(t *testing.T) {
 		_, err := o.service.Merge(ctx, o.repoID, userID, id, input)
 		var code int
 		var text string
-		if refusal, ok := err.(*TodoControlError); ok {
+		var refusal *TodoControlError
+		if errors.As(err, &refusal) {
 			code, text = refusal.Status, refusal.Message
 		} else {
 			code, text = apiCode(t, err)
@@ -233,6 +236,34 @@ func TestMythicalMergeRequestReadiness(t *testing.T) {
 			err := mythicalMergeable(item, head)
 			require.Error(t, err)
 			assert.Equal(t, tc.message, err.Error())
+		})
+	}
+}
+
+// Recovery consumes the real HTTP GitHub fake and its containment endpoint.
+// The same PR receipt remains proposed until main actually includes it.
+func TestMythicalMergeRecoveryWaitsForMain(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		state  string
+		ahead  int
+	}{
+		{"diverged", "proposed", 1}, {"behind", "landed", 0},
+	} {
+		t.Run(tc.status, func(t *testing.T) {
+			gh := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+				"GET /repos/o/r/pulls/19":                    answer(200, map[string]any{"number": 19, "state": "closed", "merged_at": "2026-10-04T12:00:00Z", "merge_commit_sha": "merge-commit", "head": map[string]string{"sha": "head"}}),
+				"GET /repos/o/r/compare/main...merge-commit": answer(200, map[string]any{"status": tc.status, "ahead_by": tc.ahead}),
+			}}
+			st := mythicalItemStep{s: &MythicalService{github: gh.api(t)}, r: &mythicalRun{row: db.MythicalStack{ActorUserID: pgtype.Int8{Int64: 1, Valid: true}}}, gh: &stackRepo, now: time.Unix(100, 0)}
+			item := db.MythicalItem{State: "proposed", PRNumber: pgtype.Int8{Int64: 19, Valid: true}, PRHead: "head"}
+			next := st.merge(context.Background(), item)
+			require.NotNil(t, next)
+			require.Equal(t, tc.state, next.State)
+			require.Len(t, gh.calls, 3)
+			for _, call := range gh.calls {
+				require.True(t, strings.HasPrefix(call, "GET "), call)
+			}
 		})
 	}
 }

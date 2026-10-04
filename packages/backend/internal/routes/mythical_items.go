@@ -261,7 +261,9 @@ func (h *MythicalHandler) Merge(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	item, err := h.Service.Merge(ctx, repoCtx.Repository.ID, user.ID, chi.URLParam(r, "id"), body)
 	if err != nil {
-		if refusal, ok := err.(*services.TodoControlError); ok {
+		if stale, ok := err.(*services.MythicalStaleHeadError); ok {
+			pkgerrors.WriteJSON(w, stale.Status, stale)
+		} else if refusal, ok := err.(*services.TodoControlError); ok {
 			pkgerrors.WriteJSON(w, refusal.Status, refusal)
 		} else {
 			writeRouteError(w, r, err)

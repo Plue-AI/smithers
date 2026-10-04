@@ -893,6 +893,7 @@ func buildRouter(
 			r.Get("/todos", todos.List)
 			r.Post("/todos", todos.Create)
 			r.Get("/todos/{n}", todos.Get)
+			r.Post("/todos/{n}/merge", todos.Merge)
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {

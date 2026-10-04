@@ -4955,6 +4955,19 @@ export interface GetApiTodosNInput {
 export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Promise<void> =>
   transport.request("GET", `/api/todos/${segment(input.path.n)}`).then(() => undefined)
 
+export type PostApiTodosNMergeBody = {
+  reviewed_head_sha: string
+}
+
+export interface PostApiTodosNMergeInput {
+  readonly path: { readonly n: number }
+  readonly body: PostApiTodosNMergeBody
+}
+
+/** POST /api/todos/{n}/merge: Request a session-approved squash merge at the reviewed head */
+export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<void> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body).then(() => undefined)
+
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }
 }

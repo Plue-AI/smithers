@@ -119,7 +119,7 @@ func mythicalMergeable(item db.MythicalItem, head string) error {
 	case len(item.PendingOp) > 0:
 		return &TodoControlError{Status: http.StatusConflict, Code: "merging", Class: "conflict", Message: "A GitHub operation is in flight"}
 	case item.PRHead != head:
-		return &TodoControlError{Status: http.StatusConflict, Code: "stale_head", Class: "conflict", Message: "the pull request changed since you saw it"}
+		return &MythicalStaleHeadError{TodoControlError: TodoControlError{Status: http.StatusConflict, Code: "stale_head", Class: "conflict", Message: "the pull request changed since you saw it"}, CurrentHead: item.PRHead}
 	}
 	return nil
 }
@@ -184,3 +184,41 @@ func RequireMergeSession(ctx context.Context, userID int64) error {
 	}
 	return nil
 }
+
+// MergeTodo resolves a repository-local TODO number, never a GitHub issue
+// number. Missing production dispatch dependencies refuse before approval.
+func (s *MythicalService) MergeTodo(ctx context.Context, repositoryID, userID, number int64, input MythicalMergeInput) (MythicalItemView, error) {
+	if err := RequireMergeSession(ctx, userID); err != nil {
+		return MythicalItemView{}, err
+	}
+	input.Head = strings.ToLower(input.Head)
+	if !mythicalHead.MatchString(input.Head) {
+		return MythicalItemView{}, &TodoControlError{Status: 400, Code: "invalid_reviewed_head_sha", Class: "user", Message: "reviewed_head_sha must be a 40-character hexadecimal commit SHA"}
+	}
+	item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MythicalItemView{}, &TodoControlError{Status: 404, Code: "todo_not_found", Class: "user", Message: "TODO not found"}
+	}
+	if err != nil {
+		return MythicalItemView{}, err
+	}
+	if err := mythicalMergeable(item, input.Head); err != nil {
+		return MythicalItemView{}, err
+	}
+	if err := s.outboundReady(ctx, item, "merge"); err != nil {
+		return MythicalItemView{}, &TodoControlError{Status: 409, Code: "rechecking", Class: "conflict", Message: err.Error()}
+	}
+	if s.outbound.MergeDecision == nil || s.outbound.Lookup == nil || s.outbound.Send == nil || s.outbound.Settle == nil {
+		return MythicalItemView{}, &TodoControlError{Status: 409, Code: "rechecking", Class: "conflict", Message: "Waiting for merge dispatch and reconciliation integration"}
+	}
+	return s.Merge(ctx, repositoryID, userID, uuid.UUID(item.ID.Bytes).String(), input)
+}
+
+// MythicalStaleHeadError supplies the current persisted head without replacing
+// the head the person reviewed. A retry requires another review.
+type MythicalStaleHeadError struct {
+	TodoControlError
+	CurrentHead string `json:"current_head_sha"`
+}
+
+func (e *MythicalStaleHeadError) Unwrap() error { return &e.TodoControlError }

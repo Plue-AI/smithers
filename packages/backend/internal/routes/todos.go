@@ -17,6 +17,7 @@ type TodoRouteService interface {
 	FileTodo(context.Context, int64, int64, services.MythicalTodoInput) (services.MythicalItemView, error)
 	Todo(context.Context, int64, int64) (map[string]any, error)
 	Todos(context.Context, int64) ([]map[string]any, error)
+	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -28,6 +29,13 @@ type TodoHandler struct {
 
 func todoRouteError(w http.ResponseWriter, err error) {
 	failure := &services.TodoControlError{Status: 503, Code: "todo_unavailable", Class: "infra", Message: "TODO service unavailable"}
+	var stale *services.MythicalStaleHeadError
+	if errors.As(err, &stale) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(stale.Status)
+		_ = json.NewEncoder(w).Encode(stale)
+		return
+	}
 	var typed *services.TodoControlError
 	if errors.As(err, &typed) {
 		failure = typed
@@ -125,4 +133,33 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(views)
+}
+
+// Merge resolves the repository number through the same persisted install
+// binding as the card. Approval remains a request, never a merge receipt.
+func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
+	repo, user, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	var input services.MythicalMergeInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_reviewed_head_sha", Class: "user", Message: "reviewed_head_sha must be a 40-character hexadecimal commit SHA"})
+		return
+	}
+	_, err = h.Service.MergeTodo(r.Context(), repo, user, n, input)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
 }
