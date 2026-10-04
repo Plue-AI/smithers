@@ -66,6 +66,8 @@ type Write struct {
 	Path     string          `json:"path"`
 	Body     json.RawMessage `json:"body,omitempty"`
 	Status   int             `json:"status"`
+	// Permissions are those of the installation token that made the write.
+	Permissions map[string]string `json:"permissions,omitempty"`
 }
 
 type Server struct {
@@ -81,12 +83,19 @@ type Server struct {
 	writes    []Write
 	tokens    map[string]int64
 	pulls     map[string]Pull
-	// lostPushes is how many applied pushes still answer 502: a response
-	// lost after GitHub took the write.
-	lostPushes int
+	// grants are each installation token's permissions: those requested
+	// when it was minted, or the installation's when none were.
+	grants map[string]map[string]string
+	// lost counts the writes to a path that still take effect but answer
+	// 502: a response lost after GitHub took the write.
+	lost map[string]int
 	// failures counts the writes to a path that still answer 502 without
-	// taking effect.
+	// taking effect; unread counts the reads that still answer 502.
 	failures map[string]int
+	unread   map[string]int
+	// hooks run once, before GitHub answers the next request for a method
+	// and path.
+	hooks map[string]func()
 	// labels are each issue's or pull request's labels, by repo/number.
 	labels   map[string][]string
 	comments int64
@@ -98,6 +107,9 @@ type Server struct {
 	refusals map[string]Refusal
 	checks   map[string][]CheckRun
 	required []string
+	// protected is whether main has classic branch protection; GitHub
+	// answers 404 for a branch without it.
+	protected bool
 	// accounts are GitHub accounts beyond the owner (id 7), by id; access
 	// is each login's repository permission. The owner is admin unless
 	// SetCollaborator says otherwise; any other login is not a user.
@@ -117,12 +129,50 @@ func (s *Server) FailNextWrites(path string, n int) {
 	s.failures[path] = n
 }
 
-// LoseNextPushResponses makes the next n pushes apply and then answer 502,
-// as a connection lost after GitHub accepted the write would.
-func (s *Server) LoseNextPushResponses(n int) {
+// FailNextReads makes the next n reads (GET) of path answer 502, as GitHub
+// during an outage would.
+func (s *Server) FailNextReads(path string, n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lostPushes = n
+	s.unread[path] = n
+}
+
+// LoseNextResponses makes the next n writes to path (a push's
+// git-receive-pack included) take effect and then answer 502, as a
+// connection lost after GitHub accepted the write would.
+func (s *Server) LoseNextResponses(path string, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lost[path] = n
+}
+
+// OnNextRequest runs fn once, before GitHub answers the next request for
+// method and path: a person acting on GitHub or Smithers while it reads.
+// fn runs outside the fake's lock and may call its controls.
+func (s *Server) OnNextRequest(method, path string, fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hooks[method+" "+path] = fn
+}
+
+// SetInstallationPermission grants every installation the App permission
+// name at level (read or write), or revokes it when level is empty. Tokens
+// minted afterwards may not request more.
+func (s *Server) SetInstallationPermission(name, level string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.config.Installations {
+		granted := map[string]string{}
+		for key, value := range s.config.Installations[i].Permissions {
+			granted[key] = value
+		}
+		if level == "" {
+			delete(granted, name)
+		} else {
+			granted[name] = level
+		}
+		s.config.Installations[i].Permissions = granted
+	}
 }
 
 // Refusal is GitHub's answer to a merge it will not make.
@@ -194,10 +244,12 @@ func (s *Server) SetCheck(repo, sha, name, status, conclusion string) {
 	s.checks[key] = append(runs, run)
 }
 
-// RequireCheck makes main's branch protection require the named check.
+// RequireCheck makes main's branch protection require the named check. Main
+// has no classic protection until RequireCheck or RequireReviews.
 func (s *Server) RequireCheck(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.protected = true
 	s.required = append(s.required, name)
 }
 
@@ -216,6 +268,7 @@ func (s *Server) SetCollaborator(id int64, login, permission string) {
 func (s *Server) RequireReviews(count int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.protected = true
 	s.reviewRule = count
 }
 
@@ -253,23 +306,42 @@ func (s *Server) reviewDecision(p Pull) any {
 	return "REVIEW_REQUIRED"
 }
 
-// view is the PR as GitHub answers it: an open PR main's review rule does
-// not yet allow is blocked, as GitHub computes it.
+// view is the PR as GitHub answers it: an open PR main's protection does
+// not yet allow (a required check, the review rule) is blocked, as GitHub
+// computes it.
 func (s *Server) view(p Pull) Pull {
 	p = p.view()
-	if p.MergeableState == "clean" && s.reviewDecision(p) != nil && s.reviewDecision(p) != "APPROVED" {
+	if p.MergeableState == "clean" && s.protectionRefusal(p.Repository, p) != "" {
 		p.MergeableState = "blocked"
 	}
 	return p
 }
 
-// reviewRefusal is GitHub's refusal of a merge main's review rule does not
-// allow yet.
-func (s *Server) reviewRefusal() string {
-	if s.reviewRule == 1 {
-		return "At least 1 approving review is required by reviewers with write access."
+// protectionRefusal is GitHub's refusal of a merge main's protection does
+// not allow when it is asked: a required check missing or not green on the
+// head, then the review rule; empty when protection allows it.
+func (s *Server) protectionRefusal(repo string, p Pull) string {
+	for _, name := range s.required {
+		var run *CheckRun
+		for _, candidate := range s.checks[repo+"@"+p.Head.SHA] {
+			if candidate.Name == name {
+				run = &candidate
+			}
+		}
+		switch {
+		case run == nil || run.Status != "completed" || run.Conclusion == nil:
+			return fmt.Sprintf("Required status check %q is expected.", name)
+		case *run.Conclusion != "success" && *run.Conclusion != "neutral" && *run.Conclusion != "skipped":
+			return fmt.Sprintf("Required status check %q is failing.", name)
+		}
 	}
-	return fmt.Sprintf("At least %d approving reviews are required by reviewers with write access.", s.reviewRule)
+	if decision := s.reviewDecision(p); decision != nil && decision != "APPROVED" {
+		if s.reviewRule == 1 {
+			return "At least 1 approving review is required by reviewers with write access."
+		}
+		return fmt.Sprintf("At least %d approving reviews are required by reviewers with write access.", s.reviewRule)
+	}
+	return ""
 }
 
 // Handler creates the same fake without opening an httptest listener.
@@ -308,8 +380,8 @@ func Handler(config Config) (*Server, error) {
 	}
 	config.Installations = installations
 	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull),
-		failures: make(map[string]int), labels: make(map[string][]string),
-		main: make(map[string]bool), refusals: make(map[string]Refusal), checks: make(map[string][]CheckRun),
+		grants: make(map[string]map[string]string), lost: make(map[string]int), failures: make(map[string]int), unread: make(map[string]int), hooks: make(map[string]func()),
+		labels: make(map[string][]string), main: make(map[string]bool), refusals: make(map[string]Refusal), checks: make(map[string][]CheckRun),
 		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string)}
 	s.codes = make(map[string]string)
 	if config.OAuthCode != "" {
@@ -341,6 +413,13 @@ func (s *Server) Writes() []Write {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	hook := s.hooks[r.Method+" "+r.URL.Path]
+	delete(s.hooks, r.Method+" "+r.URL.Path)
+	s.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if strings.Contains(r.URL.Path, ".git/") {
 		s.serveGit(w, r)
 		return
@@ -360,14 +439,22 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case write && s.failures[r.URL.Path] > 0:
 		s.failures[r.URL.Path]--
 		status, response = failure(http.StatusBadGateway, "Bad Gateway")
+	case r.Method == http.MethodGet && s.unread[r.URL.Path] > 0:
+		s.unread[r.URL.Path]--
+		status, response = failure(http.StatusBadGateway, "Bad Gateway")
 	default:
 		status, response = s.respond(r, body)
+		if write && s.lost[r.URL.Path] > 0 {
+			s.lost[r.URL.Path]--
+			status, response = failure(http.StatusBadGateway, "Bad Gateway")
+		}
 	}
 	if write {
 		if r.URL.Path == "/login/oauth/access_token" || strings.HasSuffix(r.URL.Path, "/conversions") {
 			body = nil
 		} // OAuth form contains credentials.
-		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status})
+		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status,
+			Permissions: s.grants[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -511,9 +598,24 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		if _, ok := s.installation(id); !ok {
 			return failure(http.StatusNotFound, "installation not found")
 		}
+		installation, _ := s.installation(id)
+		var scope struct {
+			Permissions map[string]string `json:"permissions"`
+		}
+		_ = json.Unmarshal(body, &scope)
+		granted := installation.Permissions
+		if len(scope.Permissions) > 0 {
+			for name, level := range scope.Permissions {
+				if !permits(installation.Permissions, name, level) {
+					return failure(http.StatusUnprocessableEntity, "The permissions requested are not granted to this installation.")
+				}
+			}
+			granted = scope.Permissions
+		}
 		token := fmt.Sprintf("ghs_githubfake_%d_%d", id, len(s.writes)+1)
 		s.tokens[token] = id
-		return http.StatusCreated, map[string]any{"token": token, "expires_at": time.Now().UTC().Add(time.Hour), "permissions": permissions()}
+		s.grants[token] = granted
+		return http.StatusCreated, map[string]any{"token": token, "expires_at": time.Now().UTC().Add(time.Hour), "permissions": granted}
 	}
 	if r.Method == http.MethodGet && len(path) == 4 && path[0] == "repos" && path[3] == "installation" {
 		for _, installation := range s.config.Installations {
@@ -549,6 +651,25 @@ func (s *Server) app() map[string]any {
 		ownerType = "Organization"
 	}
 	return map[string]any{"id": s.config.AppID, "slug": s.config.Slug, "owner": map[string]any{"login": s.config.OwnerLogin, "type": ownerType}, "permissions": permissions(), "events": []string{}, "html_url": "https://github.com/apps/" + s.config.Slug}
+}
+
+// permits reports whether granted holds permission name at level: write
+// covers read.
+func permits(granted map[string]string, name, level string) bool {
+	return granted[name] == level || granted[name] == "write" && level == "read"
+}
+
+// accessible answers GitHub's refusal of an installation token that lacks
+// permission name at level, and ok when the token holds it and its
+// installation still does.
+func (s *Server) accessible(r *http.Request, name, level string) (int, any, bool) {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	installation, _ := s.installation(s.tokens[token])
+	if permits(s.grants[token], name, level) && permits(installation.Permissions, name, level) {
+		return 0, nil, true
+	}
+	status, response := failure(http.StatusForbidden, "Resource not accessible by integration")
+	return status, response, false
 }
 
 func permissions() map[string]string {
@@ -693,6 +814,12 @@ func (p Pull) view() Pull {
 
 func (s *Server) pullRequest(r *http.Request, repo string, path []string, body []byte) (int, any) {
 	if r.Method == http.MethodGet && strings.Join(path, "/") == "branches/main/protection" {
+		if status, response, ok := s.accessible(r, "administration", "read"); !ok {
+			return status, response
+		}
+		if !s.protected {
+			return failure(http.StatusNotFound, "Branch not protected")
+		}
 		protection := map[string]any{"required_status_checks": map[string]any{"contexts": append([]string{}, s.required...), "checks": []any{}}}
 		if s.reviewRule > 0 {
 			protection["required_pull_request_reviews"] = map[string]any{"required_approving_review_count": s.reviewRule}
@@ -798,6 +925,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			return failure(404, "pull request is not merged")
 		}
 		if r.Method == http.MethodPut {
+			if status, response, ok := s.accessible(r, "contents", "write"); !ok {
+				return status, response
+			}
 			var input struct {
 				SHA    string `json:"sha"`
 				Method string `json:"merge_method"`
@@ -815,8 +945,11 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			if p.Draft || (p.State != "open" && !p.Merged) {
 				return failure(405, "Pull request is not mergeable")
 			}
-			if decision := s.reviewDecision(p); !p.Merged && decision != nil && decision != "APPROVED" {
-				return failure(405, s.reviewRefusal())
+			if refusal := s.protectionRefusal(repo, p); !p.Merged && refusal != "" {
+				return failure(405, refusal)
+			}
+			if !p.Merged && p.MergeableState == "dirty" {
+				return failure(405, "Pull Request is not mergeable")
 			}
 			if !p.Merged {
 				now := time.Now().UTC()
@@ -826,9 +959,12 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				digest := sha256.Sum256([]byte("squash/" + key + "/" + p.Head.SHA))
 				p.MergeCommitSHA = fmt.Sprintf("%x", digest)[:40]
 				s.pulls[key] = p
-				if s.holdMain {
+				// GitHub merges into the pull request's base, whatever it is.
+				switch {
+				case p.Base.Ref != "main":
+				case s.holdMain:
 					s.held = append(s.held, p.MergeCommitSHA)
-				} else {
+				default:
 					s.main[p.MergeCommitSHA] = true
 				}
 			}
@@ -1067,8 +1203,8 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(receipt, r)
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		s.mu.Lock()
-		if suffix == "git-receive-pack" && s.lostPushes > 0 {
-			s.lostPushes--
+		if s.lost[r.URL.Path] > 0 {
+			s.lost[r.URL.Path]--
 			receipt = httptest.NewRecorder()
 			receipt.WriteHeader(http.StatusBadGateway)
 		}

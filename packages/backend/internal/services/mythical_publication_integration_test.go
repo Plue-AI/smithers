@@ -305,7 +305,7 @@ func TestTodoPublicationNeverOverwritesForeignHead(t *testing.T) {
 func TestTodoPublicationSettlesLostPushByLookup(t *testing.T) {
 	f := newPublicationFixture(t, false)
 	first := f.todo("Add a greeting to JOURNEY.md", "Say hello", f.main, "JOURNEY.md", "Hello from T1\n")
-	f.fake.LoseNextPushResponses(1)
+	f.fake.LoseNextResponses("/rehearsal-owner/app.git/git-receive-pack", 1)
 	f.wake()
 
 	const branch = "smithers/add-a-greeting-to-journey-md"
@@ -484,7 +484,7 @@ func TestTodoPublicationHoldsForeignPushFoundOnRecovery(t *testing.T) {
 	// The TODO is linked to issue 12, where a person reads its holds.
 	_, err := f.pool.Exec(ctx, `UPDATE mythical_items SET issue_number = 12 WHERE id = $1`, first.ID)
 	require.NoError(t, err)
-	f.fake.LoseNextPushResponses(1)
+	f.fake.LoseNextResponses("/rehearsal-owner/app.git/git-receive-pack", 1)
 	f.wake()
 	const branch = "smithers/add-a-greeting-to-journey-md"
 	require.Len(t, f.githubRef(branch), 40, "GitHub took the push its answer lost")
