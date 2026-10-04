@@ -143,3 +143,15 @@ Machine-kill recovery and retry version pinning remain fixme.
 
 C-MCH-03 also has a passing mounted projection: reading Files and Activity
 keeps the sleeping branch Asleep across reload. Runtime capture and wake counts remain fixme.
+
+| C-MCH-08 | [C-MCH-08.spec.ts](C-MCH-08.spec.ts) | fixme-before-implementation | T-MCH-08 |
+| C-MCH-09 | [C-MCH-09.spec.ts](C-MCH-09.spec.ts) | fixme-before-implementation | T-MCH-11 |
+| C-MCH-10 | [C-MCH-10.spec.ts](C-MCH-10.spec.ts) | fixme-before-implementation | T-MCH-11 |
+| C-MCH-11 | [C-MCH-11.spec.ts](C-MCH-11.spec.ts) | fixme-before-implementation | T-MCH-06 |
+| C-MNT-01 | [C-MNT-01.spec.ts](C-MNT-01.spec.ts) | fixme-before-implementation | T-MNT-01 |
+| C-MNT-02 | [C-MNT-02.spec.ts](C-MNT-02.spec.ts) | fixme-before-implementation | T-MNT-02 |
+
+C-MCH-08 also has a passing mounted fork projection: Fork opens a
+scratch branch with Add to stack and keeps the source Awake. Captured revision
+and boot continuity still require reference-host qualification. Scratch metadata
+is lost on reload in the seeded world; persistence remains tracked by T-MCH-08.
