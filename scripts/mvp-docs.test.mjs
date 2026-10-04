@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, extname, join, resolve } from "node:path"
 import test from "node:test"
@@ -251,4 +251,114 @@ test("fragments cover duplicate headings, punctuation, inline code, setext and e
 test("invalid URL encoding is a visible link failure", (t) => {
   const directory = fixture(t, { "index.md": "[invalid](broken%file.md)\n" })
   assert.deepEqual(linkErrors(join(directory, "index.md")), ["broken%file.md: invalid URL encoding"])
+})
+
+// Replace ad hoc deletion decisions with the same reference checks in fixtures
+// and the repository. Historical evidence is retained pending owner inventory.
+const scanFiles = (directory) => readdirSync(directory, { withFileTypes: true })
+  .filter((entry) => !["node_modules", ".git", "dist", ".astro", ".smithers"].includes(entry.name))
+  .flatMap((entry) => entry.isDirectory() ? scanFiles(join(directory, entry.name))
+    : /\.(?:md|mdx|ts|tsx|js|mjs|html|json|go|rs)$/.test(entry.name) ? [join(directory, entry.name)] : [])
+
+const inboundReferences = (directory, target, files) => {
+  const absolute = join(directory, target)
+  return files.filter((file) => file !== absolute && (
+    readFileSync(file, "utf8").includes(target)
+    || [...links(readFileSync(file, "utf8")),
+      ...[...readFileSync(file, "utf8").matchAll(/(?:src|href)=["']([^"']+)["']/g)].map((match) => match[1])]
+      .some((href) => localTarget(file, href)?.path === absolute)
+  )).map((file) => file.slice(directory.length + 1)).sort()
+}
+
+const retirementErrors = (directory, target, files, { approved, cutLanded, replacement, ids = [] }) => {
+  const file = join(directory, target)
+  let content
+  try { content = readFileSync(file, "utf8") } catch {
+    const references = inboundReferences(directory, target, files)
+    return references.map((source) => `${target}: referenced by ${source}`)
+  }
+  if (!approved || !cutLanded) return content.includes("> Superseded") && content.includes("## ")
+    ? [] : [`${target}: preserve superseded banner and contents until approval and cut landing`]
+  const errors = []
+  if (/five (?:jobs|setups)|Implementation status/.test(content)) errors.push(`${target}: legacy requirements remain`)
+  if (!hasLinkTo(content, file, join(directory, replacement))) errors.push(`${target}: missing approved replacement`)
+  if (!links(content).some((href) => href.startsWith("https://github.com/smithersai/smithers/blob/")))
+    errors.push(`${target}: missing history link`)
+  for (const id of ids) if (!content.includes(`| ${id} |`)) errors.push(`${target}: missing decision ${id}`)
+  return errors
+}
+
+for (const blocker of [{ approved: false, cutLanded: true }, { approved: true, cutLanded: false }]) {
+  test(`retirement preserves legacy contents with blocker ${JSON.stringify(blocker)}`, (t) => {
+    const directory = fixture(t, { "docs/mvp/DESIGN.md": "> Superseded\n\n## Historical design\nOld content\n" })
+    const target = "docs/mvp/DESIGN.md"
+    assert.deepEqual(retirementErrors(directory, target, scanFiles(directory), blocker), [])
+    writeFileSync(join(directory, target), "[Design](../../.specs/design/README.md)\n")
+    assert.deepEqual(retirementErrors(directory, target, scanFiles(directory), blocker), [
+      "docs/mvp/DESIGN.md: preserve superseded banner and contents until approval and cut landing"
+    ])
+  })
+}
+
+for (const [source, content] of [
+  ["flows/example.ts", "// docs/mvp/REGISTRATION.md"],
+  ["docs/index.md", "[Register](mvp/REGISTRATION.md)"],
+  ["apps/example.tsx", 'const image = "docs/mvp/mockups/start.html"'],
+  ["docs/mvp/example.html", '<img src="mockups/start.html">']
+]) {
+  test(`surviving reference in ${source} blocks deletion`, (t) => {
+    const target = (source.startsWith("apps/") || source.endsWith(".html")) ? "docs/mvp/mockups/start.html" : "docs/mvp/REGISTRATION.md"
+    const directory = fixture(t, { [source]: content })
+    assert.deepEqual(retirementErrors(directory, target, scanFiles(directory), {}), [`${target}: referenced by ${source}`])
+  })
+}
+
+test("approved pointer retains replacement, cited IDs and history", (t) => {
+  const target = "docs/mvp/ENGINEERING.md"
+  const directory = fixture(t, {
+    [target]: "[Engineering](../../.specs/engineering/README.md)\n[History](https://github.com/smithersai/smithers/blob/abc/docs/mvp/ENGINEERING.md)\n| E-01 | Retained |\n",
+    ".specs/engineering/README.md": "# Engineering\n"
+  })
+  const options = { approved: true, cutLanded: true, replacement: ".specs/engineering/README.md", ids: ["E-01"] }
+  assert.deepEqual(retirementErrors(directory, target, scanFiles(directory), options), [])
+  assert.deepEqual(linkErrors(join(directory, target)), [])
+  writeFileSync(join(directory, target), "# Pointer\n")
+  assert.deepEqual(retirementErrors(directory, target, scanFiles(directory), options), [
+    "docs/mvp/ENGINEERING.md: missing approved replacement", "docs/mvp/ENGINEERING.md: missing history link",
+    "docs/mvp/ENGINEERING.md: missing decision E-01"
+  ])
+})
+
+test("unapproved repository records retain superseded banners and contents", () => {
+  for (const target of ["docs/mvp/ENGINEERING.md", "docs/mvp/DESIGN.md"])
+    assert.deepEqual(retirementErrors(root, target, [], { approved: false, cutLanded: false }), [])
+  for (const [target, replacement] of [
+    ["docs/mvp/ENGINEERING.md", ".specs/engineering/README.md"],
+    ["docs/mvp/DESIGN.md", ".specs/design/README.md"]
+  ]) assert.ok(hasLinkTo(readFileSync(join(root, target), "utf8"), join(root, target), join(root, replacement)))
+  assert.ok(statSync(join(root, "docs/mvp/implementation/release-20260916.md")).isFile())
+  assert.ok(readFileSync(join(root, "scripts/check-release-evidence-tags.mjs"), "utf8").includes("release-20260916.md"))
+})
+
+test("product index preserves every decision cited by source", () => {
+  const index = readFileSync(join(root, "docs/mvp/PRODUCT.md"), "utf8")
+  const rows = new Set([...index.matchAll(/^\| (D-\d+[a-z]?)(?: |\()/gm)].map((match) => match[1]))
+  for (const id of ["D-09a", "D-16", "D-25"]) assert.ok(rows.has(id), id)
+  const missing = new Set()
+  for (const tree of ["apps", "packages", "flows"]) for (const file of scanFiles(join(root, tree))) {
+    for (const [id] of readFileSync(file, "utf8").matchAll(/\bD-\d{2}[a-z]?\b/g)) if (!rows.has(id)) missing.add(id)
+  }
+  assert.deepEqual([...missing].sort(), [])
+})
+
+test("repository documentation relative links resolve", () => {
+  const files = [join(root, "AGENTS.md"), ...scanFiles(join(root, "docs")), ...scanFiles(join(root, "apps/site/docs"))]
+    .filter((file) => /\.mdx?$/.test(file))
+  const errors = files.flatMap((file) => linkErrors(file).map((error) => `${file.slice(root.length)}: ${error}`))
+  assert.deepEqual(errors, [])
+})
+
+test("reference-free cut document may be removed", (t) => {
+  const directory = fixture(t, { "docs/index.md": "# Index\n" })
+  assert.deepEqual(retirementErrors(directory, "docs/mvp/REGISTRATION.md", scanFiles(directory), {}), [])
 })

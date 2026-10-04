@@ -309,7 +309,15 @@ const mvpDocs = Smithers.NodeTest({
     Smithers.file("//docs/architecture/0001-shared-product.md"),
     Smithers.file("//docs/architecture/0002-mac-install.md"),
     Smithers.file("//docs/architecture/self-host-implementation.md"),
-    Smithers.file("//.specs/product/mvp.md")
+    Smithers.file("//.specs/product/mvp.md"),
+    Smithers.glob("//docs/**/*"),
+    Smithers.glob("//apps/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
+    Smithers.glob("//packages/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
+    Smithers.glob("//flows/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
+    Smithers.file("//scripts/check-release-evidence-tags.mjs"),
+    Smithers.file("//.specs/engineering/README.md"),
+    Smithers.file("//.specs/design/README.md"),
+    Smithers.file("//.specs/engineering/spec.md")
   ],
   deps: []
 })
