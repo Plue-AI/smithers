@@ -48,7 +48,7 @@ type Config struct {
 	AppID                                                int64
 	Slug, OwnerLogin, OwnerKind                          string
 	PrivateKeyPEM, ClientID, ClientSecret, WebhookSecret string
-	ConversionCode                                       string
+	ConversionCode, OAuthCode                            string
 	GitRoot                                              string
 	Installations                                        []Installation
 }
@@ -63,17 +63,21 @@ type Write struct {
 
 type Server struct {
 	*httptest.Server
+	URL       string
 	mu        sync.Mutex
 	config    Config
 	key       *rsa.PublicKey
 	converted bool
 	oauthUsed bool
+	callbacks []string
+	codes     map[string]string
 	writes    []Write
 	tokens    map[string]int64
 	pulls     map[string]Pull
 }
 
-func New(config Config) (*Server, error) {
+// Handler creates the same fake without opening an httptest listener.
+func Handler(config Config) (*Server, error) {
 	block, _ := pem.Decode([]byte(config.PrivateKeyPEM))
 	if block == nil {
 		return nil, fmt.Errorf("GitHub fake requires an RSA private key")
@@ -108,9 +112,24 @@ func New(config Config) (*Server, error) {
 	}
 	config.Installations = installations
 	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull)}
-	s.Server = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
+	s.codes = make(map[string]string)
+	if config.OAuthCode != "" {
+		s.codes[config.OAuthCode] = ""
+	}
 	return s, nil
 }
+
+func New(config Config) (*Server, error) {
+	s, err := Handler(config)
+	if err != nil {
+		return nil, err
+	}
+	s.Server = httptest.NewServer(s.Handler())
+	s.URL = s.Server.URL
+	return s, nil
+}
+
+func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.serveHTTP) }
 
 func (s *Server) Writes() []Write {
 	s.mu.Lock()
@@ -129,6 +148,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.web(w, r) {
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	var status int
 	var response any
@@ -138,7 +160,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		status, response = s.respond(r, body)
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		if r.URL.Path == "/login/oauth/access_token" {
+		if r.URL.Path == "/login/oauth/access_token" || strings.HasSuffix(r.URL.Path, "/conversions") {
 			body = nil
 		} // OAuth form contains credentials.
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status})
@@ -175,9 +197,11 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 	// Setup uses the App's own OAuth client; no local session is manufactured.
 	if r.Method == http.MethodPost && r.URL.Path == "/login/oauth/access_token" {
 		form, err := url.ParseQuery(string(body))
-		if err != nil || !s.converted || s.oauthUsed || form.Get("code") != "owner-code" || form.Get("client_id") != s.config.ClientID || form.Get("client_secret") != s.config.ClientSecret || form.Get("redirect_uri") == "" {
+		callback, exists := s.codes[form.Get("code")]
+		if err != nil || !s.converted || !exists || (callback != "" && callback != form.Get("redirect_uri")) || form.Get("client_id") != s.config.ClientID || form.Get("client_secret") != s.config.ClientSecret || form.Get("redirect_uri") == "" {
 			return failure(401, "OAuth exchange refused")
 		}
+		delete(s.codes, form.Get("code"))
 		s.oauthUsed = true
 		return 200, map[string]string{"access_token": "ghu_githubfake_owner", "token_type": "bearer"}
 	}

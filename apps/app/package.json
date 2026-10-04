@@ -21,7 +21,9 @@
     "test:e2e:auth": "bun test e2e/native/CloudAuthFragment.test.ts",
     "test:e2e:probes": "bun test e2e/probes",
     "test:e2e:graph-lifecycle": "bun test e2e/graph/lifecycle",
-    "proof:gateway": "tsx scripts/gateway-run-proof.ts"
+    "proof:gateway": "tsx scripts/gateway-run-proof.ts",
+    "local:no-github": "bun scripts/run-local-no-github.ts",
+    "test:e2e:local": "playwright test --config playwright.local.config.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "5.3.0",

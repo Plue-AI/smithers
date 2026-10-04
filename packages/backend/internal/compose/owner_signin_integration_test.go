@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"html"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -19,10 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type ownerOAuthCredentials struct{}
+type ownerOAuthCredentials struct{ client, secret string }
 
-func (ownerOAuthCredentials) OAuthClient(context.Context) (string, string, error) {
-	return "client", "secret", nil
+func (c ownerOAuthCredentials) OAuthClient(context.Context) (string, string, error) {
+	return c.client, c.secret, nil
 }
 
 func TestOwnerSignInHTTPPostgres(t *testing.T) {
@@ -32,22 +36,17 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			q := db.New(pool)
 			ctx := t.Context()
 			// The external provider is an HTTP fixture; identity, state and session storage are real.
-			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				switch r.URL.Path {
-				case "/login/oauth/access_token":
-					require.NoError(t, r.ParseForm())
-					require.Equal(t, origin+"/api/auth/github/callback", r.Form.Get("redirect_uri"))
-					w.Write([]byte(`{"access_token":"provider-token","token_type":"bearer"}`))
-				case "/user":
-					w.Write([]byte(`{"id":7,"login":"owner","name":"Owner"}`))
-				case "/user/emails":
-					w.Write([]byte(`[{"email":"owner@example.test","primary":true,"verified":true}]`))
-				default:
-					t.Errorf("unexpected provider call %s", r.URL.Path)
-					w.WriteHeader(404)
-				}
-			}))
+			seed, err := githubfake.LocalSeed()
+			require.NoError(t, err)
+			provider, err := githubfake.New(seed)
+			require.NoError(t, err)
+			manifest := url.Values{"manifest": {`{"redirect_url":"` + origin + `/setup/github/callback","callback_urls":["` + origin + `/api/auth/github/callback"]}`}}
+			response, err := http.PostForm(provider.URL+"/settings/apps/new", manifest)
+			require.NoError(t, err)
+			response.Body.Close()
+			response, err = http.Post(provider.URL+"/app-manifests/"+seed.ConversionCode+"/conversions", "application/json", nil)
+			require.NoError(t, err)
+			response.Body.Close()
 			defer provider.Close()
 			setup := &services.InstallSetupSessions{Pool: pool}
 			var output bytes.Buffer
@@ -61,7 +60,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			credential, err := setup.Exchange(ctx, u.Query().Get("token"))
 			require.NoError(t, err)
 			cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
-			svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{}, "", provider.URL, provider.URL))
+			svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
 			svc.InstallSetup = setup
 			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, AllowedOrigins: []string{origin}, InstallSetup: setup}
 			request := func(path string, cookies ...*http.Cookie) *http.Request {
@@ -83,13 +82,21 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			require.Equal(t, origin+"/api/auth/github/callback", redirect.Query().Get("redirect_uri"))
 			cookies := start.Result().Cookies()
 			cookies = append(cookies, &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: credential})
-			callback := request("/api/auth/github/callback?code=code&state="+redirect.Query().Get("state"), cookies...)
+			response, err = http.Get(redirect.String())
+			require.NoError(t, err)
+			page, err := io.ReadAll(response.Body)
+			response.Body.Close()
+			require.NoError(t, err)
+			target := html.UnescapeString(strings.Split(strings.Split(string(page), `href="`)[1], `"`)[0])
+			callbackURL, err := url.Parse(target)
+			require.NoError(t, err)
+			callback := request(callbackURL.RequestURI(), cookies...)
 			result := httptest.NewRecorder()
 			handler.GetGitHubOAuthCallback(result, callback)
 			require.Equal(t, 302, result.Code, result.Body.String())
 			owner, err := q.GetSelfHostOwner(ctx)
 			require.NoError(t, err)
-			require.Equal(t, "owner", owner.Username)
+			require.Equal(t, "local-owner", owner.Username)
 			boundary := identity.NewMemberBoundary(q)
 			require.Equal(t, 403, boundary.AuthorizeMember(ctx, owner.ID).Status)
 			require.Equal(t, "owner_unverified", string(boundary.AuthorizeMember(ctx, owner.ID).Code))

@@ -9,6 +9,7 @@ import type { PlaywrightTestConfig } from "@playwright/test"
 import playwright from "../../playwright.config"
 import playwrightSite from "../../playwright.site.config"
 import playwrightReal from "../../playwright.real.config"
+import playwrightLocal from "../../playwright.local.config"
 import playwrightGraph from "../../playwright.graph.config"
 import playwrightShowcase from "../../playwright.showcase.config"
 
@@ -32,6 +33,9 @@ const inspectTarget = (body: string) => JSON.parse(execFileSync("node", ["--inpu
 
 const bunPaths = (command: string | undefined): string[] => command?.startsWith("bun test ")
   ? command.slice("bun test ".length).split(/\s+/) : []
+// The package now delegates to the target runner; read that authority once.
+const unitPaths: string[] = scripts.test === "smthrs test //apps/app:unitTests"
+  ? inspectTarget('console.log(JSON.stringify(unit.attrs.runner.paths))') : bunPaths(scripts.test)
 const selected = (path: string, paths: readonly string[]) => paths.some((entry) => path === entry || path.startsWith(`${entry}/`))
 
 // The real lane is a directly executable script; `test:e2e:real` only names it.
@@ -162,12 +166,12 @@ const isolatedTestPaths = (text: string): string[] => {
   return paths
 }
 const isolatedUnitOwns = (child: string, wrapper: string, source: string): boolean =>
-  selected(wrapper, bunPaths(scripts.test)) && isolatedTestPaths(source).some(path =>
+  selected(wrapper, unitPaths) && isolatedTestPaths(source).some(path =>
     relative(app, resolve(app, dirname(wrapper), path)).replaceAll("\\", "/") === child)
 
 const owners = (path: string): string[] => {
   const result: string[] = []
-  if (selected(path, bunPaths(scripts.test))) result.push("unit")
+  if (selected(path, unitPaths)) result.push("unit")
   const wrapper = isolatedWrappers[path]
   if (wrapper && isolatedUnitOwns(path, wrapper, read(wrapper))) result.push("isolated unit child")
   if (selected(path, bunPaths(scripts["lint:conformance"]))) result.push("conformance lint")
@@ -177,6 +181,7 @@ const owners = (path: string): string[] => {
   if (runsStep(prSteps, playwrightStep) && playwrightOwns(path, playwright)) result.push("Playwright")
   if (runsStep(prSteps, siteStep) && playwrightOwns(path, playwrightSite)) result.push("Playwright site")
   if (realRunner && playwrightOwns(path, playwrightReal)) result.push("Playwright real")
+  if (scripts["test:e2e:local"] === "playwright test --config playwright.local.config.ts" && playwrightOwns(path, playwrightLocal)) result.push("Playwright local")
   if (runsStep(prSteps, graphStep) && playwrightOwns(path, playwrightGraph)) result.push("Playwright graph")
   if (runsStep(prSteps, showcaseStep) && playwrightOwns(path, playwrightShowcase)) result.push("Playwright showcase")
   return result
@@ -196,6 +201,7 @@ test("every app test belongs to an executable runner", () => {
   expect(owners("e2e/site/landing-start.spec.ts")).toEqual(["Playwright site"])
   expect(owners("e2e/real/chat-tools.spec.ts")).toEqual(["Playwright real"])
   expect(owners("e2e/real/models.spec.ts")).toEqual(["Playwright real"])
+  expect(owners("e2e/local/setup-no-github.spec.ts")).toEqual(["Playwright local"])
   // The real tier's coverage gate is its own source, tested by Bun rather than
   // driven by Playwright, so the unit suite owns it.
   expect(owners("e2e/real/coverage/gate.test.ts")).toEqual(["unit"])
@@ -257,7 +263,7 @@ test("CI browser ownership comes from the PR runner's argv, not an alias or pros
 
 test("the target unit gate matches package discovery and CI executes the browser OAuth, probe and graph lifecycle lanes", () => {
   const paths = inspectTarget('console.log(JSON.stringify(unit.attrs.runner.paths))')
-  expect(paths).toEqual(bunPaths(scripts.test))
+  expect(paths).toEqual(unitPaths)
   expect(paths).toContain("scripts")
   expect(scripts["test:e2e:auth"]).toBe("bun test e2e/native/CloudAuthFragment.test.ts")
   expect(scripts["test:e2e:probes"]).toBe("bun test e2e/probes")

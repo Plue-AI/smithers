@@ -32,7 +32,7 @@ func fixture(t *testing.T) (*Server, Config, *rsa.PrivateKey) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	config := Config{AppID: 42, Slug: "smithers-test", OwnerLogin: "acme", OwnerKind: "org", ClientID: "Iv1.fake", ClientSecret: "client-secret-fixture", WebhookSecret: "webhook-secret-fixture", ConversionCode: "one-use-code", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), Installations: []Installation{{ID: 91, Repositories: []Repository{{ID: 100, FullName: "acme/app"}}}}}
+	config := Config{OAuthCode: "owner-code", AppID: 42, Slug: "smithers-test", OwnerLogin: "acme", OwnerKind: "org", ClientID: "Iv1.fake", ClientSecret: "client-secret-fixture", WebhookSecret: "webhook-secret-fixture", ConversionCode: "one-use-code", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), Installations: []Installation{{ID: 91, Repositories: []Repository{{ID: 100, FullName: "acme/app"}}}}}
 	server, err := New(config)
 	require.NoError(t, err)
 	t.Cleanup(server.Close)

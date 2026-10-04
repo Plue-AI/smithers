@@ -467,3 +467,46 @@ readable for upgrades; they do not expose a desktop launch door.
 ## Client scope recovery
 
 Model experiment cards, request composers, model CRUD/tests, per-run model/effort/tool controls, and manual frame forks are retired for the MVP ([#3387](https://github.com/smithersai/smithers/issues/3387)). The pre-removal source is commit `8c3d1e7c0260c3f78d6bbcb7de339880dffe95cb`. Model configuration and credentials remain host concerns. Recorded histories and existing branch snapshots still decode; ordinary navigation, log inspection, and automatic recovery remain available.
+
+## Setup without a GitHub account
+
+On an Apple Silicon Mac with at least **72 GiB free disk**, build the server
+bundle at the checkout's HEAD, then start a disposable local install:
+
+```bash
+pnpm exec smthrs build //apps/app:serverBundle
+pnpm --filter smithers-app local:no-github
+```
+
+The command starts the existing GitHub stand-in and the real server bundle as
+your logged-in user, prints the setup URL, and opens Chromium. Enter
+`local-owner` as Owner. The stand-in has one private repository,
+`local-owner/demo`, and fresh credentials on each start. Ports 4000, 4001 and
+2222 must be free. Ctrl-C stops all three processes and deletes the install's
+state, including PostgreSQL. `--no-browser` starts just the two servers.
+
+Address and Create GitHub App work through the Setup card. Sign-in, repository
+selection and model access currently have browser blockers owned by
+`crit3-setup-steps`. Source ready and Machine ready belong to `w-source-machine`;
+TODO start, PR and merge remain with their owning lanes. Source import and
+retention still hard-code `https://github.com/<repo>.git`, and their Git process
+drops the refusing proxy, so Source ready can reach real GitHub. This rehearsal
+does not replace models, machines, Git objects or later journey steps.
+
+```bash
+pnpm --filter smithers-app test:e2e:local
+```
+
+The unattended headless walk uses the same command and writes
+`apps/app/test-results/local-no-github/steps.tsv`, `writes.json` (method, path
+and status only) and `github-requests.json`. Each missing step runs its real
+browser walk as an expected failure with its owner recorded; a newly working
+step fails the test as “expected to fail but passed” until its annotation is
+removed. Later rows remain blocked by the first unfinished step.
+
+Only the browser's manifest form POST to GitHub is carried to the stand-in;
+other GitHub browser requests are aborted and fail the walk. The test launcher
+injects the three existing GitHub base variables through its spawn hook and
+uses a refusing HTTPS proxy for backend HTTP calls. The production launcher's
+passthrough list is unchanged. Existing configuration-file overrides for auth
+bases remain outside this environment-filter guarantee.

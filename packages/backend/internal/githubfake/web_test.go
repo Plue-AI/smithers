@@ -1,0 +1,122 @@
+package githubfake
+
+import (
+	"encoding/json"
+	"html"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+)
+
+func TestBrowserPages(t *testing.T) {
+	cfg, err := LocalSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := LocalSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PrivateKeyPEM == other.PrivateKeyPEM || cfg.ClientID == other.ClientID || cfg.ConversionCode == other.ConversionCode {
+		t.Fatal("credentials reused")
+	}
+	if cfg.OwnerLogin != "local-owner" || cfg.Slug != "smithers-local" || cfg.Installations[0].Repositories[0].FullName != "local-owner/demo" || !cfg.Installations[0].Repositories[0].Private {
+		t.Fatal("invalid local seed")
+	}
+	handler, err := Handler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handler.Server != nil {
+		t.Fatal("Handler opened a listener")
+	}
+	fake, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fake.Close()
+	post := func(path string, form url.Values, status int) string {
+		t.Helper()
+		r, err := http.PostForm(fake.URL+path, form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		if r.StatusCode != status {
+			t.Fatalf("%s: %d %s", path, r.StatusCode, body)
+		}
+		return string(body)
+	}
+	get := func(path string, status int) string {
+		t.Helper()
+		r, err := http.Get(fake.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		if r.StatusCode != status {
+			t.Fatalf("%s: %d %s", path, r.StatusCode, body)
+		}
+		return string(body)
+	}
+	target := func(page string) *url.URL {
+		t.Helper()
+		raw := html.UnescapeString(strings.Split(strings.Split(page, `href="`)[1], `"`)[0])
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	for _, path := range []string{"/settings/apps/new", "/organizations/local/settings/apps/new"} {
+		for _, manifest := range []string{"{", `{"redirect_url":"file:///tmp/x"}`, `{"redirect_url":"https:"}`, `{"redirect_url":"//localhost/callback"}`} {
+			post(path, url.Values{"manifest": {manifest}}, 422)
+		}
+		u := target(post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback?keep=yes","callback_urls":["http://localhost:4000/api/auth/github/callback"]}`}, "state": {"state&one"}}, 200))
+		if u.Query().Get("state") != "state&one" || u.Query().Get("code") != cfg.ConversionCode || u.Query().Get("keep") != "yes" {
+			t.Fatal(u)
+		}
+	}
+	get("/login/oauth/authorize?client_id=wrong&redirect_uri=http://localhost:4000/api/auth/github/callback", 400)
+	get("/login/oauth/authorize?client_id="+cfg.ClientID+"&redirect_uri=https://attacker.invalid", 400)
+	response, err := http.Post(fake.URL+"/app-manifests/"+cfg.ConversionCode+"/conversions", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	var previous string
+	for range 2 {
+		query := url.Values{"client_id": {cfg.ClientID}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}, "state": {"state&two"}}
+		u := target(get("/login/oauth/authorize?"+query.Encode(), 200))
+		code := u.Query().Get("code")
+		if code == previous || code == "" || u.Query().Get("state") != "state&two" {
+			t.Fatal(u)
+		}
+		previous = code
+		form := url.Values{"client_id": {cfg.ClientID}, "client_secret": {cfg.ClientSecret}, "code": {code}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}}
+		form.Set("redirect_uri", "https://attacker.invalid")
+		post("/login/oauth/access_token", form, 401)
+		form.Set("redirect_uri", "http://localhost:4000/api/auth/github/callback")
+		post("/login/oauth/access_token", form, 200)
+		post("/login/oauth/access_token", form, 401)
+	}
+	raw := get("/_fake/writes", 200)
+	var rows []map[string]any
+	if json.Unmarshal([]byte(raw), &rows) != nil || len(rows) == 0 {
+		t.Fatal(raw)
+	}
+	for _, row := range rows {
+		if len(row) != 3 || row["method"] == nil || row["path"] == nil || row["status"] == nil {
+			t.Fatal(row)
+		}
+	}
+	for _, secret := range []string{cfg.ClientSecret, cfg.PrivateKeyPEM, cfg.WebhookSecret, "client_secret", "body"} {
+		if strings.Contains(raw, secret) {
+			t.Fatalf("receipt leaked %s", secret)
+		}
+	}
+}

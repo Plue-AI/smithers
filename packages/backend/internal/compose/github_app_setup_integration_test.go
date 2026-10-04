@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -229,10 +230,22 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	status, _, _ = request(network, "GET", callback, live, false)
 	require.Equal(t, 403, status)
 	require.Empty(t, fake.Writes())
+	// Follow the provider manifest page rather than manufacturing its callback.
+	manifest, err := json.Marshal(attempt.Manifest)
+	require.NoError(t, err)
+	providerPage, err := http.PostForm(fake.URL+"/organizations/acme/settings/apps/new", url.Values{"manifest": {string(manifest)}, "state": {attempt.State}})
+	require.NoError(t, err)
+	require.Equal(t, 200, providerPage.StatusCode)
+	page, err := io.ReadAll(providerPage.Body)
+	providerPage.Body.Close()
+	require.NoError(t, err)
+	target, err := url.Parse(html.UnescapeString(strings.Split(strings.Split(string(page), `href="`)[1], `"`)[0]))
+	require.NoError(t, err)
+	callback = target.RequestURI()
 	// One conversion completes all durable local projections; replay never exchanges.
 	status, _, _ = request(local, "GET", callback, live, false)
 	require.Equal(t, 303, status)
-	require.Len(t, fake.Writes(), 1)
+	require.Len(t, fake.Writes(), 2)
 	for _, key := range []string{"setup.step.app_manifest", "setup.projection.app_manifest"} {
 		var state string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'status' FROM install_settings WHERE key=$1`, key).Scan(&state))
@@ -240,7 +253,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	}
 	status, _, _ = request(local, "GET", callback, live, false)
 	require.Equal(t, 409, status)
-	require.Len(t, fake.Writes(), 1)
+	require.Len(t, fake.Writes(), 2)
 	// Installation uses the committed repository, with no conversion cookie/state,
 	// even after the conversion attempt expired and redirect supplied a foreign id.
 	_, err = pool.Exec(ctx, `UPDATE github_app_manifest_states SET expires_at=now()-interval '1 second'`)
@@ -256,7 +269,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, _, _ = request(local, "GET", callback, live, false)
 	require.Equal(t, 401, status)
-	require.Len(t, fake.Writes(), 1)
+	require.Len(t, fake.Writes(), 2)
 	require.NotContains(t, logs.String(), attempt.State)
 	require.NotContains(t, logs.String(), "manifest-code")
 	require.NotContains(t, logs.String(), "setup-token")
