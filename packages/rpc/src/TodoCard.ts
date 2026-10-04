@@ -151,6 +151,8 @@ export type TodoCardCallbacks = CardCallbacks<
   | "branch.fork"
   | "branch.add-to-stack"
   | "branch.rebase"
+  | "branch.bring-in"
+  | "branch.discard-foreign"
   | "todo.return-to-item"
   | "todo.keep-moved"
   | "todo.retry-current-flow"

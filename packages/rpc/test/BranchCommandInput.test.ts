@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { BranchAddToStackInputSchema, BranchForkInputSchema, TodoNewInputSchema } from "../src/CardAction.ts"
+import { BranchForeignAnswerInputSchema, BranchAddToStackInputSchema, BranchForkInputSchema, TodoNewInputSchema } from "../src/CardAction.ts"
 
 describe("branch command payloads", () => {
   test.each(["main", "T2", "T123"])("forks %s with a required source", (from) => {
@@ -26,4 +26,19 @@ describe("branch command payloads", () => {
       expect(BranchAddToStackInputSchema.safeParse(input).success).toBe(false)
     }
   )
+})
+
+// Both in-card answers use the same wire shape; legacy sha-only inputs cannot identify a wait.
+describe("foreign-push answer payloads", () => {
+  test("retains the displayed wait and revision", () => {
+    const input = { branch: "smithers/retry-webhooks", id: "foreign-1", revision: "a3" }
+    expect(BranchForeignAnswerInputSchema.parse(input)).toEqual(input)
+  })
+  test.each([
+    { branch: "b", revision: "a3" }, { branch: "b", id: "w", sha: "a3" },
+    { branch: "b", id: "", revision: "a3" }, { branch: "b", id: "w", revision: "" },
+    { branch: "", id: "w", revision: "a3" }, { branch: "b", id: "w", revision: "a3", sha: "a2" }
+  ])("refuses an unbound or alternate payload %j", input => {
+    expect(BranchForeignAnswerInputSchema.safeParse(input).success).toBe(false)
+  })
 })

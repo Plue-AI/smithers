@@ -117,6 +117,17 @@ export const BranchForkInputSchema = z.strictObject({
 export const BranchAddToStackInputSchema = TodoNewInputSchema.strict()
 
 /**
+ * An outside-push answer binds the displayed wait and sha; branch is the dispatch subject.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const BranchForeignAnswerInputSchema = z.strictObject({
+  branch: z.string().min(1),
+  id: z.string().min(1),
+  revision: z.string().min(1)
+})
+
+/**
  * Provisional typed inputs from Appendix A arguments and component form fields; T-CAT-01 replaces these with descriptor inference.
  * @since 1.0.0
  * @category models
@@ -191,8 +202,8 @@ export interface CardCommandInput {
   readonly "debug-api": undefined
   readonly "todo.return-to-item": { readonly n: number }
   readonly "todo.keep-moved": { readonly n: number }
-  readonly "branch.bring-in": { readonly branch: string; readonly revision: string }
-  readonly "branch.discard-foreign": { readonly branch: string; readonly revision: string }
+  readonly "branch.bring-in": z.infer<typeof BranchForeignAnswerInputSchema>
+  readonly "branch.discard-foreign": z.infer<typeof BranchForeignAnswerInputSchema>
   readonly "file.restore": { readonly path: string; readonly revision: string }
   readonly "file.compare": { readonly path: string }
   readonly "file.reapply": { readonly path: string }

@@ -76,13 +76,36 @@ describe("TODO Container", () => {
     late.props.onAction("todo.steer")
     expect(late.dispatches).toEqual([{ tag: "todo.steer", input: { n: 12, text: "My late answer" } }])
   })
+  test("foreign answers bind their own wait beside a question and retain the displayed snapshot", () => {
+    const question = fixtures.needs_you.model.waits[0]!
+    const foreign = fixtures.foreign_push.model.waits[0]!
+    const h = mount({ ...fixtures.foreign_push.model, waits: [question, foreign] })
+    for (const tag of ["branch.bring-in", "branch.discard-foreign"] as const) h.props.onAction(tag)
+    expect(h.dispatches.map(({ input }) => input)).toEqual([
+      { branch: "todo/12", id: "wait-foreign-push-1", revision: foreign.sha },
+      { branch: "todo/12", id: "wait-foreign-push-1", revision: foreign.sha }
+    ])
+    expect(h.props.model.waits.map(wait => wait.id)).toEqual([question.id, "wait-foreign-push-1"])
+    const newer = mount({ ...fixtures.foreign_push.model, waits: [question, { ...foreign, sha: "newer-head" }] })
+    newer.props.onAction("branch.bring-in")
+    expect(newer.dispatches[0]?.input).toEqual({ branch: "todo/12", id: "wait-foreign-push-1", revision: "newer-head" })
+  })
+  test("unbound and non-foreign waits cannot dispatch foreign answers", () => {
+    const foreign = fixtures.foreign_push.model.waits[0]!
+    for (const wait of [{ ...foreign, sha: undefined }, { ...foreign, id: "" }, { ...foreign, kind: "question" as const }]) {
+      const h = mount({ ...fixtures.foreign_push.model, waits: [wait] })
+      h.props.onAction("branch.bring-in")
+      h.props.onAction("branch.discard-foreign")
+      expect(h.dispatches).toEqual([])
+    }
+  })
   test("foreign push binds its revision; conflict preserves its supplied repair action and paths", () => {
     const foreign = mount(fixtures.foreign_push.model)
     foreign.props.onAction("branch.bring-in")
     foreign.props.onAction("branch.discard-foreign")
     expect(foreign.dispatches).toEqual([
-      { tag: "branch.bring-in", input: { branch: "todo/12", revision: fixtures.foreign_push.model.waits[0]!.sha } },
-      { tag: "branch.discard-foreign", input: { branch: "todo/12", revision: fixtures.foreign_push.model.waits[0]!.sha } }
+      { tag: "branch.bring-in", input: { branch: "todo/12", id: "wait-foreign-push-1", revision: fixtures.foreign_push.model.waits[0]!.sha } },
+      { tag: "branch.discard-foreign", input: { branch: "todo/12", id: "wait-foreign-push-1", revision: fixtures.foreign_push.model.waits[0]!.sha } }
     ])
     const conflict = mount(fixtures.conflict.model)
     expect(conflict.props.model.waits[0]?.paths).toEqual(["packages/rpc/src/TodoCard.ts", "packages/rpc/src/CardPrimitives.ts"])

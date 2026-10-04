@@ -52,7 +52,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
         case "branch":
           if (model.branch) definitions.push({ ...action, tag: "branch", args: { ...action.args, wait: wait.id }, command_input: { name: model.branch.name } }); break
         case "branch.bring-in": case "branch.discard-foreign":
-          if (wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, revision: wait.sha } })
+          if (wait.kind === "foreign_push" && wait.id && wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, id: wait.id, revision: wait.sha } })
           break
         case "todo.return-to-item": case "todo.keep-moved":
           definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { n } }); break
