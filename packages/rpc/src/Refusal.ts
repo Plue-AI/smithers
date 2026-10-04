@@ -40,6 +40,11 @@ import type { PlueFailureCode, PlueFault } from "./PlueFailureCodes.ts"
 import { WORKER_FAILURES, workerFailureCode } from "./WorkerFailureCodes.ts"
 import type { WorkerFailureCode, WorkerFailureEntry } from "./WorkerFailureCodes.ts"
 
+/**
+ * The failure codes and fault classes shared by refusal boundaries.
+ * @since 1.0.0
+ * @category models
+ */
 export type { NativeFailureCode, NativeRouteCode, PlueFailureCode, PlueFault, WorkerFailureCode }
 
 /**

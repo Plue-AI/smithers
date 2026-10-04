@@ -5,7 +5,11 @@
 
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 
-/** Bundled page projection; loading and persisted-card decoding belong to the container. */
+/**
+ * Bundled page projection; loading and persisted-card decoding belong to the container.
+ * @since 1.0.0
+ * @category models
+ */
 export type DocsCard = {
   toc: { slug: string; title: string }[]
   page: { slug: string; title: string; summary: string; markdown: string }

@@ -59,5 +59,9 @@ export type LessonsReceipt = z.infer<typeof LessonsReceiptSchema>
  */
 export type ProposalCardCallbacks = CardCallbacks<"learning.accept" | "learning.dismiss">
 
-/** Props for lesson page and proposal navigation supplied by the container. */
+/**
+ * Props for lesson page and proposal navigation supplied by the container.
+ * @since 1.0.0
+ * @category models
+ */
 export type LessonsReceiptViewProps = CardProps<LessonsReceipt, {}, string>

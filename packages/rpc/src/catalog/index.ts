@@ -77,9 +77,9 @@ export const APPENDIX_A_TAGS = [
  * `draft.discard`, `confirm.cancel` and `settings.model.set` (mvp.md Appendix B.4).
  * @since 1.0.0
  * @category constants
+ * MVP Appendix B.4 controls, B.1 Members/Secrets row actions and card gestures; T-CAT-01
+ * replaces this placeholder at the same import path with catalog inference.
  */
-// MVP Appendix B.4 controls, B.1 Members/Secrets row actions and card gestures; T-CAT-01
-// replaces this placeholder at the same import path with catalog inference.
 export const IN_CARD_TAGS = [
   "github.retry",
   "settings.address",

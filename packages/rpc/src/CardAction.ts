@@ -10,6 +10,11 @@ import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
 import type { SetupStepId } from "./SetupCard.ts"
+/**
+ * The failure codes and fault classes shared by refusal boundaries.
+ * @since 1.0.0
+ * @category models
+ */
 export type { CatalogTag } from "./catalog/index.ts"
 
 /**

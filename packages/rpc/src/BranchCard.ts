@@ -2,7 +2,11 @@
 import type { Action, CardCallbacks, CardProps } from "./CardAction.ts"
 import type { Actor, MachineState, TodoState } from "./CardPrimitives.ts"
 
-/** Branch facts supplied by the container (spec §14.3). */
+/**
+ * Branch facts supplied by the container (spec §14.3).
+ * @since 1.0.0
+ * @category models
+ */
 export interface BranchCard {
   id: string
   name: string
@@ -36,7 +40,11 @@ export interface BranchCard {
   ssh_line: string
 }
 
-/** Supplied actions and per-member tabs; no runtime or presence state. */
+/**
+ * Supplied actions and per-member tabs; no runtime or presence state.
+ * @since 1.0.0
+ * @category models
+ */
 export type BranchViewProps = CardProps<BranchCard, {}, "item" | "file" | "terminal">
 
 /**

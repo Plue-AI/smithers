@@ -1,7 +1,17 @@
 /** Debug API browser projection shared by its View and Container. */
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 
+/**
+ * The HTTP methods offered by the Debug API browser.
+ * @since 1.0.0
+ * @category models
+ */
 export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE"
+/**
+ * Operations and the current exchange supplied by the Debug API container.
+ * @since 1.0.0
+ * @category models
+ */
 export type DebugApiCard = {
   operations: { id: string; method: HttpMethod; path: string; summary: string; group: string }[]
   selected?: string

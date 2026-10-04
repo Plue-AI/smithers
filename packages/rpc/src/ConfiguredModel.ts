@@ -513,8 +513,8 @@ export type DecisionModelId = z.infer<typeof DecisionModelIdSchema>
  *
  * @since 1.0.0
  * @category constants
+ * Historical assignment ids remain decodable; MODEL_SEATS lists only active seats.
  */
-// Historical assignment ids remain decodable; MODEL_SEATS lists only active seats.
 export const MODEL_SEAT_IDS = ["chat", "explainer", "recommend"] as const
 /**
  * Validates a seat id at the RPC boundary.
