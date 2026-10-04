@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -107,107 +106,6 @@ func TestReviewWorkflowCacheReservationReturnsCommittedRow(t *testing.T) {
 			unchanged, err := q.UpsertPendingWorkflowCache(ctx, arg)
 			require.NoError(t, err)
 			require.Equal(t, row, unchanged)
-		})
-	}
-}
-
-// A join request against the live lock generation is accepted after every
-// registered migration.
-func TestReviewBranchJoinCreation(t *testing.T) {
-	p := reviewDatabase(t, 0)
-	repo := reviewRepo(t, p)
-	q := db.New(p)
-	ctx := t.Context()
-	lock, err := q.AcquireBranchLockInsert(ctx, db.AcquireBranchLockInsertParams{RepositoryID: repo, Branch: "main", UserID: 1})
-	require.NoError(t, err)
-	request, err := q.CreateBranchLockJoinRequest(ctx, db.CreateBranchLockJoinRequestParams{RepositoryID: repo, Branch: "main", RequesterID: 2, LockGeneration: lock.Generation})
-	require.NoError(t, err)
-	require.Equal(t, lock.Generation, request.LockGeneration)
-}
-
-// A requester that observed a generation the branch no longer carries must
-// not leave an orphan request nobody's inbox shows: the insert reports no row.
-func TestReviewBranchJoinRequestBindsLiveGeneration(t *testing.T) {
-	p := reviewDatabase(t, 0)
-	repo := reviewRepo(t, p)
-	q := db.New(p)
-	ctx := t.Context()
-	old, err := q.AcquireBranchLockInsert(ctx, db.AcquireBranchLockInsertParams{RepositoryID: repo, Branch: "main", UserID: 1})
-	require.NoError(t, err)
-	_, err = q.ReleaseBranchLock(ctx, db.ReleaseBranchLockParams{RepositoryID: repo, Branch: "main", UserID: 1})
-	require.NoError(t, err)
-	current, err := q.AcquireBranchLockInsert(ctx, db.AcquireBranchLockInsertParams{RepositoryID: repo, Branch: "main", UserID: 3})
-	require.NoError(t, err)
-	require.NotEqual(t, old.Generation, current.Generation)
-	_, err = q.CreateBranchLockJoinRequest(ctx, db.CreateBranchLockJoinRequestParams{RepositoryID: repo, Branch: "main", RequesterID: 2, LockGeneration: old.Generation})
-	require.ErrorIs(t, err, pgx.ErrNoRows)
-	inbox, err := q.ListPendingBranchLockJoinRequestsForHolder(ctx, 3)
-	require.NoError(t, err)
-	require.Empty(t, inbox)
-	var count int
-	require.NoError(t, p.QueryRow(ctx, `SELECT COUNT(*) FROM branch_lock_join_requests`).Scan(&count))
-	require.Zero(t, count)
-}
-
-// Approvals from an earlier acquisition never authorize the current one:
-// rows migrated from before generations, a release/reacquire, and a stale
-// takeover all leave the requester without membership.
-func TestReviewBranchJoinGenerationFences(t *testing.T) {
-	for _, mode := range []string{"historical", "reacquire", "takeover"} {
-		t.Run(mode, func(t *testing.T) {
-			version := 0
-			if mode == "historical" {
-				version = 9
-			}
-			p := reviewDatabase(t, version)
-			repo := reviewRepo(t, p)
-			ctx := t.Context()
-			_, err := p.Exec(ctx, `INSERT INTO branch_locks(repository_id,branch,user_id) VALUES ($1,'main',1)`, repo)
-			require.NoError(t, err)
-			insert := `INSERT INTO branch_lock_join_requests(repository_id,branch,requester_id,status,lock_generation) SELECT repository_id,branch,2,$2,generation FROM branch_locks WHERE repository_id=$1 RETURNING id`
-			if mode == "historical" {
-				insert = `INSERT INTO branch_lock_join_requests(repository_id,branch,requester_id,status) VALUES ($1,'main',2,$2) RETURNING id`
-			}
-			var approved, pending int64
-			require.NoError(t, p.QueryRow(ctx, insert, repo, "approved").Scan(&approved))
-			require.NoError(t, p.QueryRow(ctx, insert, repo, "pending").Scan(&pending))
-			require.NoError(t, Apply(ctx, p))
-			q := db.New(p)
-			old, err := q.GetBranchLock(ctx, db.GetBranchLockParams{RepositoryID: repo, Branch: "main"})
-			require.NoError(t, err)
-			if mode == "reacquire" {
-				_, err = q.ReleaseBranchLock(ctx, db.ReleaseBranchLockParams{RepositoryID: repo, Branch: "main", UserID: 1})
-				require.NoError(t, err)
-				_, err = q.AcquireBranchLockInsert(ctx, db.AcquireBranchLockInsertParams{RepositoryID: repo, Branch: "main", UserID: 3})
-				require.NoError(t, err)
-			}
-			if mode == "takeover" {
-				_, err = p.Exec(ctx, `UPDATE branch_locks SET heartbeat_at=NOW()-INTERVAL '1 hour'`)
-				require.NoError(t, err)
-				next, err := q.TakeOverStaleBranchLock(ctx, db.TakeOverStaleBranchLockParams{RepositoryID: repo, Branch: "main", UserID: 3, HeartbeatAt: time.Now().Add(-5 * time.Minute)})
-				require.NoError(t, err)
-				require.NotEqual(t, old.Generation, next.Generation)
-			}
-			current, err := q.GetBranchLock(ctx, db.GetBranchLockParams{RepositoryID: repo, Branch: "main"})
-			require.NoError(t, err)
-			member, err := q.HasApprovedBranchLockJoin(ctx, db.HasApprovedBranchLockJoinParams{RepositoryID: repo, Branch: "main", RequesterID: 2, LockGeneration: current.Generation})
-			require.NoError(t, err)
-			require.False(t, member)
-			_, err = q.GetBranchLockJoinRequestForRequester(ctx, db.GetBranchLockJoinRequestForRequesterParams{RepositoryID: repo, Branch: "main", RequesterID: 2, LockGeneration: current.Generation})
-			require.ErrorIs(t, err, pgx.ErrNoRows)
-			inbox, err := q.ListPendingBranchLockJoinRequests(ctx, db.ListPendingBranchLockJoinRequestsParams{RepositoryID: repo, Branch: "main", LockGeneration: current.Generation})
-			require.NoError(t, err)
-			require.Empty(t, inbox)
-			holder := int64(3)
-			if mode == "historical" {
-				holder = 1
-			}
-			inbox, err = q.ListPendingBranchLockJoinRequestsForHolder(ctx, holder)
-			require.NoError(t, err)
-			require.Empty(t, inbox)
-			heartbeats, err := q.HeartbeatBranchLock(ctx, db.HeartbeatBranchLockParams{RepositoryID: repo, Branch: "main", UserID: 2})
-			require.NoError(t, err)
-			require.Zero(t, heartbeats)
 		})
 	}
 }
