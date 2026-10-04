@@ -39,6 +39,7 @@ type snapshotLostWorkerRuntime struct {
 	forked   int
 	deleted  int
 	stopped  int
+	started  int
 }
 
 // Isolation is read on every repository readiness path (354eeaab05); the
@@ -61,6 +62,7 @@ func (r *snapshotLostWorkerRuntime) StopWorkspace(context.Context, string) error
 }
 
 func (r *snapshotLostWorkerRuntime) StartWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	r.started++
 	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
 }
 
@@ -148,36 +150,28 @@ func TestRuntimeRestoreLostWorkerIsInfra(t *testing.T) {
 	require.Equal(t, []string{string(pkgerrors.CodeHostLeaseLost)}, q.failedCodes)
 }
 
-func TestRuntimeForkLostWorkerKeepsTypedFailureOnRow(t *testing.T) {
+// No legacy runtime caller can reach the removed stop/snapshot/resume path,
+// even if the provider would fail during snapshot creation or disk cloning.
+func TestRuntimeForkRefusesBeforeSnapshotOrMutation(t *testing.T) {
 	for _, phase := range []string{"create", "fork"} {
 		t.Run(phase, func(t *testing.T) {
 			source := sampleDBWorkspace("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-			created := sampleDBWorkspace("11111111-2222-3333-4444-555555555555")
-			created.Status = "starting"
-			created.VmID = ""
 			q := &lostWorkerRuntimeQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{
-				getWorkspaceFn: func(_ context.Context, id string) (db.Workspace, error) {
-					if id == source.ID {
-						return source, nil
-					}
-					return created, nil
-				},
 				getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) { return source, nil },
-				createWorkspaceFn:    func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) { return created, nil },
+				getWorkspaceFn:       func(context.Context, string) (db.Workspace, error) { return source, nil },
+				createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
+					t.Fatal("refused fork created a workspace")
+					return db.Workspace{}, nil
+				},
 			}}
 			runtime := &snapshotLostWorkerRuntime{lost: lostWorkerRuntimeCause(), fail: phase}
 			service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
 			_, err := service.ForkWorkspace(context.Background(), ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: source.ID, Name: "branch"})
-			requireLostWorkerRuntimeFailure(t, err)
-			require.Equal(t, []string{string(pkgerrors.CodeHostLeaseLost)}, q.failedCodes)
-			require.Equal(t, 1, runtime.created)
-			if phase == "fork" {
-				require.Equal(t, 1, runtime.forked)
-				require.Equal(t, 1, runtime.deleted, "temporary fork snapshot must be cleaned up")
-			} else {
-				require.Zero(t, runtime.forked)
-				require.Zero(t, runtime.deleted)
-			}
+			var typed *pkgerrors.APIError
+			require.ErrorAs(t, err, &typed)
+			require.Equal(t, pkgerrors.CodeServiceUnavailable, typed.Code)
+			require.Empty(t, q.failedCodes)
+			require.Zero(t, runtime.created+runtime.forked+runtime.deleted)
 		})
 	}
 }

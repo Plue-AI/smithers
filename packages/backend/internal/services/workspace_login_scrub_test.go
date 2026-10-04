@@ -373,9 +373,9 @@ func (r *loginRuntime) ExecuteCommand(ctx context.Context, workspaceID string, c
 	return workspaceapi.CommandResult{}, nil
 }
 
-// A fork and a snapshot restore — including a write-share user's restore of
-// the owner's snapshot — start signed out, while the owner's own workspace
-// keeps its logins. Real PostgreSQL holds identity, shares and snapshots.
+// A runtime fork refuses without touching the owner's logins. Snapshot
+// restores, including a write-share user's restore, start signed out. Real
+// PostgreSQL holds identity, shares and snapshots.
 func TestDerivedWorkspacesStartSignedOut(t *testing.T) {
 	pool := newProductTestPool(t)
 	owner, repo := setupTestUserAndRepo(t, pool)
@@ -393,10 +393,8 @@ func TestDerivedWorkspacesStartSignedOut(t *testing.T) {
 	require.Equal(t, "running", parent.Status)
 	writeSyntheticLogins(t, runtime.home(parent.ID))
 
-	fork, err := svc.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: owner, WorkspaceID: parent.ID, Name: "child"})
-	require.NoError(t, err)
-	require.Equal(t, "running", fork.Status)
-	requireSignedOut(t, runtime.home(fork.ID))
+	_, err = svc.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: owner, WorkspaceID: parent.ID, Name: "child"})
+	require.ErrorContains(t, err, "revision-based fork unavailable")
 	requireSignedIn(t, runtime.home(parent.ID))
 
 	snapshot, err := svc.CreateWorkspaceSnapshot(ctx, CreateWorkspaceSnapshotInput{RepositoryID: repo, UserID: owner, WorkspaceID: parent.ID, Name: "checkpoint"})

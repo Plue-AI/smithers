@@ -196,7 +196,7 @@ func TestRuntimeForkOfSizedWorkspaceRefusesBeforeSideEffects(t *testing.T) {
 	runtime := &forkQuotaRuntime{}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
 	_, err := svc.ForkWorkspace(context.Background(), ForkWorkspaceInput{RepositoryID: source.RepositoryID, UserID: source.UserID, WorkspaceID: source.ID, Name: "fork"})
-	assert.ErrorContains(t, err, "this workspace runtime does not accept resources")
+	assert.ErrorContains(t, err, "revision-based fork unavailable")
 	assert.Zero(t, runtime.starts+runtime.creates+runtime.snapshots+runtime.forks)
 }
 

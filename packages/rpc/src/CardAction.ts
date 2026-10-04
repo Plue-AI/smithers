@@ -81,6 +81,42 @@ export const ConfirmCancelInputSchema = z.object({ confirmation: z.string().min(
 export const SettingsModelSetInputSchema = z.object({ role: ModelRoleIdSchema, model: ModelIdSchema })
 
 /**
+ * Shared TODO placement; omission lets the stack choose the source-based default.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const TodoPlacementSchema = z.object({
+  after: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  before: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
+}).refine((input) => input.after === undefined || input.before === undefined, {
+  message: "Choose after or before"
+})
+
+/**
+ * The TODO creation and scratch adoption commands share one placement contract.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const TodoNewInputSchema = TodoPlacementSchema.safeExtend({ text: z.string().trim().min(1) })
+
+/**
+ * S1 forks accept main or an item; scratch sources require S2 capture.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const BranchForkInputSchema = z.strictObject({
+  from: z.union([z.literal("main"), z.string().regex(/^T[1-9][0-9]*$/)]),
+  name: z.string().min(1).optional()
+})
+
+/**
+ * Adoption has no replace mode. The subject branch comes from the dispatch context.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const BranchAddToStackInputSchema = TodoNewInputSchema.strict()
+
+/**
  * Provisional typed inputs from Appendix A arguments and component form fields; T-CAT-01 replaces these with descriptor inference.
  * @since 1.0.0
  * @category models
@@ -99,7 +135,7 @@ export interface CardCommandInput {
   readonly "stop": undefined
   readonly "search": { readonly query?: string }
   readonly "stack": undefined
-  readonly "todo.new": { readonly text: string; readonly after?: number; readonly before?: number }
+  readonly "todo.new": z.infer<typeof TodoNewInputSchema>
   readonly "todo.from-issue": { readonly number: number }
   readonly "todo": { readonly n: number }
   readonly "todo.answer": { readonly n: number; readonly answer: string; readonly wait?: string }
@@ -113,8 +149,8 @@ export interface CardCommandInput {
   readonly "merge": { readonly n: number }
   readonly "branches": undefined
   readonly "branch": { readonly name: string }
-  readonly "branch.fork": { readonly name?: string }
-  readonly "branch.add-to-stack": { readonly text: string }
+  readonly "branch.fork": z.infer<typeof BranchForkInputSchema>
+  readonly "branch.add-to-stack": z.infer<typeof BranchAddToStackInputSchema>
   readonly "branch.rebase": undefined
   readonly "terminal": undefined
   readonly "file": { readonly path: string }
