@@ -56,10 +56,9 @@ test("a Cloud issue launches its workspace flow without waiting for a background
   await store.dispose?.()
 })
 
-test("the Fix an issue app implements an issue picked on the home, read without a card, and the Review a PR app carries the pull request's context", async () => {
+test("the Fix an issue app implements an issue picked on the home, read without a card", async () => {
   const { store, ctx } = await setup()
   const calls: unknown[] = []
-  const readRepos: Array<string | undefined> = []
   const workspaceId = "11111111-1111-4111-8111-111111111111"
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: REPO, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO + "#workspace:" + workspaceId }).isPersisted.promise
@@ -67,13 +66,6 @@ test("the Fix an issue app implements an issue picked on the home, read without 
     requireBox: () => undefined,
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
-  }, {
-    readLandingContext: async (number, repo) => {
-      readRepos.push(repo)
-      return number === 4
-        ? { repo: repo ?? REPO, number, title: "Review", body: "Changes", state: "open", author: "ada", files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@" }] }
-        : `Pull request #${number} on ${repo} couldn't be read.`
-    }
   })
   // No issue card is open: the issue is read from the tracker and the run card is what follows.
   expect([...store.collections.cards.values()].some(card => card.kind === "issue")).toBe(false)
@@ -86,60 +78,25 @@ test("the Fix an issue app implements an issue picked on the home, read without 
   // An issue the tracker does not have is that refusal, never a launch.
   expect(await flows.runIssueImplementation(99)).toContain("Issue #99")
   expect(calls).toHaveLength(1)
-  // Review a PR: the flow's args are the pull request as data.
-  expect(await flows.triagePullRequest(4)).toEqual({ value: "launched" })
-  expect(readRepos).toEqual([REPO])
-  const [flow, target, triage] = calls[1] as [string, string, { args: string }]
-  expect([flow, target]).toEqual(["pr-triage", REPO])
-  expect(JSON.parse(triage.args)).toEqual({ kind: "pr", repo: REPO, number: 4, title: "Review", body: "Changes", state: "open", author: "ada",
-    files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@" }] })
-  expect(await flows.triagePullRequest(5)).toContain("couldn't be read")
-  expect(calls).toHaveLength(2)
   await store.dispose?.()
 })
 
-test("a GitHub pull's source and diff reach the Cloud repository's pr-triage flow", async () => {
+test("review refuses every browser door without reads, selection or launch", async () => {
   const { store, ctx } = await setup()
-  await loadBox(store, REPO, TEST_BOX)
-  const calls: unknown[] = []
-  const flows = createIssueFlowsController(ctx, {
-    requireBox: () => undefined,
-    listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
-    runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
-  }, {
-    readLandingContext: async (number, repo) => ({
-      repo: repo ?? REPO, sourceRepo: "upstream/project", number,
-      title: "Upstream PR", body: "Change summary", state: "open", author: "writer",
-      diff: "diff --git a/a.ts b/a.ts\n+new line\n"
-    })
-  })
-  expect(await flows.triagePullRequest(17, REPO)).toEqual({ value: "launched" })
-  const [flow, target, input] = calls[0] as [string, string, { args: string }]
-  expect([flow, target]).toEqual(["pr-triage", REPO])
-  expect(JSON.parse(input.args)).toEqual({
-    kind: "pr", repo: REPO, sourceRepo: "upstream/project", number: 17,
-    title: "Upstream PR", body: "Change summary", state: "open", author: "writer",
-    diff: "diff --git a/a.ts b/a.ts\n+new line\n"
-  })
-  await store.dispose?.()
-})
-
-test("Review a PR retains its original command while asking for a box", async () => {
-  const { store, ctx } = await setup()
-  const offers: unknown[] = []
-  let reads = 0
-  const flows = createIssueFlowsController(ctx, {
-    requireBox: (repo, act, title) => { offers.push({ repo, act, title }); return { value: "Choose a box" } },
-    listWorkspaceWorkflows: async () => { throw Error("No catalog read before box selection") },
-    runWorkflow: async () => { throw Error("No launch before box selection") }
-  }, {
-    readLandingContext: async (number, repo) => { reads++; return { repo: repo ?? REPO, number, title: "Review", body: "Changes", state: "open", author: "ada", files: [] } }
-  })
-  expect(await flows.triagePullRequest(4, REPO)).toContain("Open a box")
-  expect(offers).toEqual([])
-  expect(reads).toBe(1)
-  expect(await flows.triagePullRequest(4, REPO, true)).toEqual({ value: "Choose a box" })
-  expect(reads).toBe(1)
-  expect(offers).toEqual([{ repo: REPO, act: { flow: "prs.triage", args: `4 ${REPO}`, afterBox: { kind: "prs.triage", number: 4 } }, title: "Open a box to review pull request #4" }])
+  let effects = 0
+  const unexpected = async () => { effects++; throw Error("Review must not execute in the browser") }
+  for (const actor of ["user", "smithers"] as const) {
+    const review = createIssueFlowsController({ ...ctx, actor: () => actor, http: unexpected }, { requireBox: () => { effects++; throw Error("No working copy") }, listWorkspaceWorkflows: unexpected, runWorkflow: unexpected })
+    for (const selected of [false, true]) {
+      if (selected) await loadBox(store, REPO, TEST_BOX)
+      for (const humanDoor of [false, true]) {
+        for (const number of [50, 51]) {
+          expect(await review.triagePullRequest(number, REPO, humanDoor)).toBe("Review is unavailable on this host.")
+        }
+      }
+    }
+  }
+  expect(effects).toBe(0)
+  expect([...store.collections.cards.values()]).toEqual([])
   await store.dispose?.()
 })

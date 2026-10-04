@@ -163,6 +163,7 @@ export const FLOW_NAMES = [
   "prs.review",
   "prs.tab",
   "prs.triage",
+  "review",
   "prs.view",
   "repo.choose",
   "repo.create",

@@ -5,7 +5,6 @@ import { gatewayBindingFor,resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "../seams/SeamContext"
 import { readResult } from "../seams/SeamContext"
 import { fetchIssuePayload } from "../seams/IssuesSeam"
-import type { LandingsSeam } from "../seams/LandingsSeam"
 import type { WorkflowController } from "./workflows"
 import { flowArgs } from "../../flows/FlowArgs"
 
@@ -16,18 +15,17 @@ export interface IssueFlowsController {
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
   readonly runIssueFlow: (name: "repro" | "poc", number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly runIssueImplementation: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
-  /** `prs.triage`: the repository's pr-triage flow over one pull request's context (the Review a PR app). */
-  readonly triagePullRequest: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
+  /** Review remains dark until the host can authorize and dispatch an isolated run. */
+  readonly triagePullRequest: (number: number, repo?: string, humanDoor?: boolean) => Promise<string>
 }
 
 export const createIssueFlowsController = (
   ctx: SeamContext,
-  flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">,
-  landings?: Pick<LandingsSeam, "readLandingContext">
+  flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">
 ): IssueFlowsController => {
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
-  const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean, reviewNumber?: number): string | { readonly value: string } | undefined => {
-    if (humanDoor) return flows.requireBox(repo, { flow, args, ...(reviewNumber === undefined ? {} : { afterBox: { kind: "prs.triage" as const, number: reviewNumber } }) }, title)
+  const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean): string | { readonly value: string } | undefined => {
+    if (humanDoor) return flows.requireBox(repo, { flow, args }, title)
     const binding = gatewayBindingFor(ctx.store, repo)
     return "error" in binding ? binding.error : undefined
   }
@@ -88,27 +86,9 @@ export const createIssueFlowsController = (
       if (input.prompt.length > CONTEXT_LIMIT) return "This issue's context exceeds the coding request limit. Use /flow.run coding/request with a focused prompt in this workspace."
       return flows.runWorkflow("coding/request", repo, input)
     },
-    triagePullRequest: async (number, explicit, humanDoor = false) => {
-      if (landings === undefined) return "Pull requests are not readable on this host."
-      const selected = resolveTargetRepo(ctx.store, explicit)
-      if ("error" in selected) return selected.error
-      // Keep the direct caller's read-before-refusal behavior; a human's
-      // explicit Review act can choose a box before fetching PR context.
-      if (humanDoor) {
-        const prerequisite = requireBox(selected.repo, "prs.triage", flowArgs("prs.triage", { number, repo: selected.repo }), `Open a box to review pull request #${number}`, true, number)
-        if (prerequisite !== undefined) return prerequisite
-      }
-      const context = await landings.readLandingContext(number, selected.repo)
-      if (typeof context === "string") return context
-      // The flow reads its context as untrusted data; the pull request's own words never become instructions here.
-      const args = JSON.stringify({ kind: "pr", ...context })
-      if (args.length > CONTEXT_LIMIT) return "This pull request's context exceeds the flow input limit. Use /flow.run pr-triage with a focused context in this workspace."
-      if (!humanDoor) {
-        const prerequisite = requireBox(context.repo, "prs.triage", flowArgs("prs.triage", { number, repo: context.repo }), `Open a box to review pull request #${number}`, false)
-        if (prerequisite !== undefined) return prerequisite
-      }
-      return flows.runWorkflow("pr-triage", context.repo, { args })
-    },
+    // No browser launch can establish host-bound authorization, membership,
+    // confirmation, Active closure, pinned loading, delivery or microVM safety.
+    triagePullRequest: async () => "Review is unavailable on this host.",
     runIssueFlow: async (name, number, explicit, humanDoor = false) => {
       const selected = target(number, explicit)
       if ("error" in selected) return selected.error

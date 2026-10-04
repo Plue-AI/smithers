@@ -87,6 +87,7 @@ export interface FlowInput {
   readonly "issue.poc": { readonly number: number; readonly repo?: string }
   readonly "issue.implement": { readonly number: number; readonly repo?: string }
   readonly "prs.triage": { readonly number: number; readonly repo?: string }
+  readonly "review": { readonly number: number; readonly repo?: string }
   readonly "issue.add-flow": { readonly number: number; readonly repo?: string; readonly description?: string }
   /** Carried as JSON: a Markdown comment holds newlines, indentation and fences, and its repository need not be loaded. */
   readonly "issues.comment": { readonly number: number; readonly text: string; readonly repo?: string }
@@ -245,6 +246,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "issue.poc": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.implement": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "prs.triage": (payload) => line(token(payload, "number"), token(payload, "repo")),
+  "review": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.add-flow": (payload) => JSON.stringify(payload),
   "issues.comment": (payload) => JSON.stringify(payload),
   "flow.run": (payload) => line(keyed(payload, "sourceCard"), token(payload, "name"), token(payload, "repo"),

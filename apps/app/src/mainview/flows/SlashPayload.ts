@@ -666,6 +666,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "issue.poc": (args, known) => numbered(args, "An issue number is required", known),
   "issue.implement": (args, known) => numbered(args, "An issue number is required", known),
   "prs.triage": (args, known) => numbered(args, "A pull request number is required", known),
+  "review": (args, known) => numbered(args, "A pull request number is required", known),
   "issue.add-flow": (args) => {
     try {
       const value: unknown = JSON.parse(trimmed(args))

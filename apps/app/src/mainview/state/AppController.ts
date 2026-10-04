@@ -1016,7 +1016,7 @@ export const createAppController = (
     if (!workflowController.retryWorkflowRequest(cardId)) return retryObservedRun(cardId)
   }
   const issueFlows = actors.pair(seamCtx, (context, select) =>
-    createIssueFlowsController(context, select(workflowController), select(landingsSeam)))
+    createIssueFlowsController(context, select(workflowController)))
   const {
     createWorkflow,
     listWorkspaceWorkflows,
