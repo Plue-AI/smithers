@@ -509,7 +509,7 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("sandbox.workspace_lease_delete_after", 86400)
 	v.SetDefault("sandbox.workspace_persistence", "persistent")
 	v.SetDefault("sandbox.workspace_ssh_host", "ssh.smithers.sh")
-	v.SetDefault("ssh.addr", ":2222")
+	v.SetDefault("ssh.addr", "127.0.0.1:2222")
 	v.SetDefault("ssh.host_key_dir", "./data/ssh")
 	v.SetDefault("ssh.max_connections", 100)
 	v.SetDefault("ssh.max_connections_per_ip", 10)

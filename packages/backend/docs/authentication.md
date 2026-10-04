@@ -23,3 +23,22 @@ authenticate as a user. Legacy
 
 LFS grants, Worker exchange credentials, OAuth client Basic credentials, and
 build-cache read tokens are checked by their own route gates.
+
+## SSH gateway
+
+The SSH configuration defaults to `127.0.0.1:2222`. An explicit `ssh.addr`
+override remains available to deployments. Network access is configured by the
+owner; Smithers provisions no network or TLS service.
+
+Branch logins are an unmounted integration boundary. A composition selecting
+`BranchLogins` must supply both an active-member/branch identity resolver and
+a daemon-backed workspace bridge. Missing providers refuse authentication
+before wake or execution. Branch logins accept member public keys only and
+reject passwords, deploy keys and legacy workspace grants. Every new session
+rechecks its member and branch identity.
+
+Branch resolution prefers `smithers/<slug>` over `scratch/*/<slug>` and reports
+ambiguous scratch matches on stderr. Full item and scratch names resolve
+exactly; `main` has no machine. Plue retains its existing grant login parser.
+The install listener, admitted daemon sessions, forwarding and remote-editor
+acceptance are not enabled by this boundary.

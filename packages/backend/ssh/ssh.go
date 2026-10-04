@@ -21,6 +21,12 @@ import (
 
 type WorkspaceAccess = transport.WorkspaceAccess
 type WorkspaceBridge = transport.WorkspaceBridge
+type BranchResolver = transport.BranchResolver
+type AmbiguousBranchError = transport.AmbiguousBranchError
+
+func ResolveBranchName(login string, branches []string) (string, error) {
+	return transport.ResolveBranchName(login, branches)
+}
 
 var ErrWorkspaceAccessDenied = transport.ErrWorkspaceAccessDenied
 var ErrWorkspaceUnavailable = transport.ErrWorkspaceUnavailable
@@ -32,6 +38,8 @@ type Config struct {
 	Database        *pgxpool.Pool
 	Repository      *repository.Client
 	WorkspaceBridge WorkspaceBridge
+	BranchLogins    bool
+	BranchResolver  BranchResolver
 	// Admission caps each push at its owner's remaining storage.
 	Admission                admission.Policy
 	Metrics                  prometheus.Registerer
@@ -70,6 +78,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.Admission == nil {
 		return nil, errors.New("ssh: admission policy is required")
 	}
+	if cfg.Addr == "" {
+		cfg.Addr = "127.0.0.1:2222"
+	}
 	bridge, err := lfsauth.NewBridge(lfsauth.BridgeConfig{Secret: cfg.LFSSigningSecret, PublicBaseURL: cfg.PublicAPIOrigin})
 	if err != nil {
 		return nil, fmt.Errorf("ssh: LFS authentication: %w", err)
@@ -91,6 +102,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		UploadPackTimeout: cfg.UploadPackTimeout, IdleTimeout: cfg.IdleTimeout,
 		MaxTimeout: cfg.MaxTimeout, WorkspaceMaxTimeout: cfg.WorkspaceMaxTimeout,
 		MaxSessionsPerConn: cfg.MaxSessionsPerConn, WorkspaceBridge: cfg.WorkspaceBridge,
+		BranchLogins: cfg.BranchLogins, BranchResolver: cfg.BranchResolver,
 	}
 	busCtx, cancel := context.WithCancel(ctx)
 	bus := revocation.NewBus(cfg.Database, queries)

@@ -80,6 +80,9 @@ type Server struct {
 	// establishes a second, authenticated SSH connection through the private
 	// workspace control plane. Nil preserves the repository-only server.
 	WorkspaceBridge WorkspaceBridge
+	// BranchLogins selects the install parser; false preserves Plue grants.
+	BranchLogins   bool
+	BranchResolver BranchResolver
 
 	// drainTimeout overrides defaultReceivePackDrainTimeout in tests.
 	drainTimeout time.Duration
@@ -350,6 +353,13 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	}
 
 	workspace, workspaceLogin := parseWorkspacePublicKeyLogin(ctx.User())
+	if s.BranchLogins {
+		if ctx.User() != "git" && !validBranchLogin(ctx.User()) {
+			return false
+		}
+		workspaceLogin = ctx.User() != "git"
+		workspace = WorkspaceAccess{}
+	}
 
 	// Server faults below (no querier, lookup errors) are never recorded as
 	// credential failures: a ban must mean the client presented a bad credential.
@@ -397,12 +407,38 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 			s.auditAuthFailure(ctx, fingerprint, remoteIP)
 			return false
 		}
-		// The key already proved who the user is. Any workspace refusal is
-		// reported in the session instead of as an auth denial, and never
-		// counts toward a ban: the controller answers 403 for a deleted or
-		// re-placed VM too, so it cannot tell a stale grant from a bad one.
+		if s.BranchLogins {
+			// No legacy grant or repository-command fallback for a branch login.
+			// Missing providers refuse before resolution, admission or execution.
+			if s.BranchResolver == nil || s.WorkspaceBridge == nil {
+				return false
+			}
+			var resolveErr error
+			workspace, resolveErr = s.BranchResolver.ResolveBranch(ctx, principal.UserID, ctx.User())
+			if resolveErr != nil {
+				var ambiguous *AmbiguousBranchError
+				if !stdErrors.As(resolveErr, &ambiguous) {
+					return false
+				}
+				ctx.SetValue(workspaceAccessKey, WorkspaceAccess{})
+				ctx.SetValue(workspaceErrorKey, ambiguous)
+				ctx.SetValue(principalKey, principal)
+				return true // permit a session only to print authorized candidates
+			}
+			if workspace.SandboxID == "" || !validMemberLogin(workspace.User) || workspace.Token != "" {
+				return false
+			}
+			ctx.SetValue(principalKey, principal)
+			if err := s.validateWorkspace(ctx, workspace, remoteIP); err != nil {
+				return false
+			}
+		}
+		// Legacy grant controller faults are reported in the session; install
+		// membership and provider refusals have already failed authentication.
 		ctx.SetValue(workspaceAccessKey, workspace)
-		ctx.SetValue(workspaceErrorKey, s.validateWorkspace(ctx, workspace, remoteIP))
+		if !s.BranchLogins {
+			ctx.SetValue(workspaceErrorKey, s.validateWorkspace(ctx, workspace, remoteIP))
+		}
 	}
 
 	ctx.SetValue(principalKey, principal)
@@ -448,6 +484,9 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 // access grant is the password and is validated by the private controller; the
 // gateway never persists it or writes it to logs.
 func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
+	if s.BranchLogins {
+		return false
+	}
 	workspace, ok := parseWorkspacePasswordLogin(ctx.User(), password)
 	if !ok || s.WorkspaceBridge == nil {
 		return false
@@ -592,6 +631,20 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 			_, _ = fmt.Fprintln(sess.Stderr(), message)
 			_ = sess.Exit(1)
 			return
+		}
+		if s.BranchLogins {
+			p, ok := sess.Context().Value(principalKey).(sshPrincipal)
+			if !ok || p.IsDeployKey || s.BranchResolver == nil {
+				_, _ = fmt.Fprintln(sess.Stderr(), "ERROR: workspace unavailable, retry")
+				_ = sess.Exit(1)
+				return
+			}
+			current, err := s.BranchResolver.ResolveBranch(sess.Context(), p.UserID, sess.User())
+			if err != nil || current != workspace || s.validateWorkspace(sess.Context(), current, remoteIP) != nil {
+				_, _ = fmt.Fprintln(sess.Stderr(), "ERROR: workspace access denied")
+				_ = sess.Exit(1)
+				return
+			}
 		}
 		if sender, ok := sess.Context().Value(ssh.ContextKeyConn).(KeepaliveSender); ok {
 			stop := startWorkspaceKeepalive(sess.Context(), sender, workspaceKeepaliveInterval)
@@ -1626,6 +1679,10 @@ func isSafeRepoComponent(component string) bool {
 
 func workspaceErrorMessage(ctx context.Context, bridgeMissing bool) string {
 	err, _ := ctx.Value(workspaceErrorKey).(error)
+	var ambiguous *AmbiguousBranchError
+	if stdErrors.As(err, &ambiguous) {
+		return "ERROR: " + ambiguous.Error()
+	}
 	switch {
 	case stdErrors.Is(err, ErrWorkspaceAccessDenied):
 		return "ERROR: workspace access denied or expired; request new access and retry"

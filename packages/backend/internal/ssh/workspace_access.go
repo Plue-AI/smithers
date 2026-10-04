@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	gliderssh "github.com/gliderlabs/ssh"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -72,4 +73,86 @@ func safeSSHIdentifier(value string) bool {
 		}
 	}
 	return true
+}
+
+// BranchResolver checks active roster membership, branch authorization and the
+// member's provisioned identity without waking or executing anything. The
+// install must supply this and a daemon-backed WorkspaceBridge together; a
+// Plue grant bridge is not a branch execution provider.
+type BranchResolver interface {
+	ResolveBranch(context.Context, int64, string) (WorkspaceAccess, error)
+}
+
+// ResolveBranchName selects from an already-authorized repository branch list.
+// It replaces grant-login parsing for the install; no branch name is a path.
+func ResolveBranchName(login string, branches []string) (string, error) {
+	if login == "main" || !validBranchLogin(login) {
+		return "", ErrWorkspaceAccessDenied
+	}
+	for _, branch := range branches {
+		if branch == login {
+			return branch, nil
+		}
+	}
+	if strings.Contains(login, "/") {
+		return "", ErrWorkspaceAccessDenied
+	}
+	for _, branch := range branches {
+		if branch == "smithers/"+login {
+			return branch, nil
+		}
+	}
+	candidates := make([]string, 0)
+	for _, branch := range branches {
+		parts := strings.Split(branch, "/")
+		if len(parts) == 3 && parts[0] == "scratch" && parts[2] == login && validBranchLogin(branch) {
+			candidates = append(candidates, branch)
+		}
+	}
+	slices.Sort(candidates)
+	candidates = slices.Compact(candidates)
+	switch len(candidates) {
+	case 0:
+		return "", ErrWorkspaceAccessDenied
+	case 1:
+		return candidates[0], nil
+	default:
+		return "", &AmbiguousBranchError{Candidates: candidates}
+	}
+}
+
+// AmbiguousBranchError contains only validated, authorized branch names.
+type AmbiguousBranchError struct{ Candidates []string }
+
+func (e *AmbiguousBranchError) Error() string {
+	return "ambiguous branch: " + strings.Join(e.Candidates, ", ")
+}
+
+func validBranchLogin(login string) bool {
+	if len(login) == 0 || len(login) > 128 {
+		return false
+	}
+	parts := strings.Split(login, "/")
+	if len(parts) != 1 && !(len(parts) == 2 && parts[0] == "smithers") && !(len(parts) == 3 && parts[0] == "scratch") {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || len(part) > 48 {
+			return false
+		}
+		for _, c := range part {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validMemberLogin(login string) bool {
+	switch login {
+	case "root", "developer", "agent", "machined":
+		return false
+	}
+	return len(login) <= 32 && !strings.Contains(login, "/") && validBranchLogin(login)
 }

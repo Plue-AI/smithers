@@ -387,7 +387,7 @@ func TestLoad_SSHConfigDefaults(t *testing.T) {
 	cfg, err := Load("")
 	require.NoError(t, err)
 
-	assert.Equal(t, ":2222", cfg.SSH.Addr)
+	assert.Equal(t, "127.0.0.1:2222", cfg.SSH.Addr)
 	assert.Equal(t, "./data/ssh", cfg.SSH.HostKeyDir)
 	assert.Equal(t, 100, cfg.SSH.MaxConnections)
 	assert.Equal(t, 10, cfg.SSH.MaxConnectionsPerIP)
@@ -699,7 +699,7 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			WorkspaceSSHDialHost:      "",
 		},
 		SSH: SSHConfig{
-			Addr:                     ":2222",
+			Addr:                     "127.0.0.1:2222",
 			HostKeyDir:               "./data/ssh",
 			MaxConnections:           100,
 			MaxConnectionsPerIP:      10,
@@ -1399,14 +1399,14 @@ func TestLoad_SpecCompliance_SessionCookieName(t *testing.T) {
 }
 
 // TestLoad_SpecCompliance_SSHDefaultPort verifies the SSH server default port
-// is :2222 (development mode — spec says production is :22).
+// is loopback port 2222; explicit deployment overrides remain supported.
 func TestLoad_SpecCompliance_SSHDefaultPort(t *testing.T) {
 	clearConfigEnv(t)
 	cfg, err := Load("")
 	require.NoError(t, err)
 
-	assert.Equal(t, ":2222", cfg.SSH.Addr,
-		"spec: SSH dev default is :2222, production overridden to :22 via SMITHERS_SSH_ADDR")
+	assert.Equal(t, "127.0.0.1:2222", cfg.SSH.Addr,
+		"SSH binds loopback unless explicitly configured")
 }
 
 // TestLoad_SpecCompliance_SSHConfigShape verifies the SSH config fields match
@@ -1420,7 +1420,7 @@ func TestLoad_SpecCompliance_SSHConfigShape(t *testing.T) {
 	assert.Equal(t, 13, sshType.NumField(),
 		"SSHConfig should have 13 fields")
 
-	assert.Equal(t, ":2222", cfg.SSH.Addr)
+	assert.Equal(t, "127.0.0.1:2222", cfg.SSH.Addr)
 	assert.Equal(t, "./data/ssh", cfg.SSH.HostKeyDir)
 	assert.Equal(t, 100, cfg.SSH.MaxConnections)
 	assert.Equal(t, 10, cfg.SSH.MaxConnectionsPerIP)
