@@ -14,6 +14,24 @@ import (
 // shared install dispatcher. No local authorization or confirmation policy is
 // substituted; even a valid request refuses before any subject/effect access.
 func (h *MythicalHandler) TodoControl(w http.ResponseWriter, r *http.Request) {
+	var input services.TodoControlInput
+	h.todoMutation(w, r, &input, func(number int64) error {
+		var service *services.MythicalService
+		return service.ControlTodo(r.Context(), number, input)
+	})
+}
+
+// TodoAmend shares the dark control boundary; it is not mounted or authorized
+// by this handler. No revision or confirmation is fabricated while unavailable.
+func (h *MythicalHandler) TodoAmend(w http.ResponseWriter, r *http.Request) {
+	var input services.TodoAmendInput
+	h.todoMutation(w, r, &input, func(number int64) error {
+		var service *services.MythicalService
+		return service.AmendTodo(r.Context(), number, input)
+	})
+}
+
+func (h *MythicalHandler) todoMutation(w http.ResponseWriter, r *http.Request, input any, refuse func(int64) error) {
 	fail := func(status int, code, class, message string) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -24,10 +42,9 @@ func (h *MythicalHandler) TodoControl(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number")
 		return
 	}
-	var input services.TodoControlInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
+	if err := decoder.Decode(input); err != nil {
 		fail(http.StatusBadRequest, "invalid_control", "user", "Invalid TODO control")
 		return
 	}
@@ -40,10 +57,6 @@ func (h *MythicalHandler) TodoControl(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "idempotency_key_required", "user", "Idempotency-Key is required")
 		return
 	}
-	// A nil service deliberately refuses too; neither a route nor a launcher
-	// can bypass the absent shared dispatcher. No fabricated accepted receipt.
-	var service *services.MythicalService
-	err = service.ControlTodo(r.Context(), number, input)
-	refusal := err.(*services.TodoControlError)
+	refusal := refuse(number).(*services.TodoControlError)
 	fail(refusal.Status, refusal.Code, refusal.Class, refusal.Message)
 }

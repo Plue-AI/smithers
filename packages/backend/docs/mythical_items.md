@@ -62,3 +62,20 @@ cancellation, final capture and the merge fence settle.
 No root operation or host-process execution fallback is added. Full
 Stop/Resume, attempt creation, Drop/fold/removal and restored-input execution
 remain disabled pending their production PostgreSQL/microVM boundary receipts.
+
+## Steer and Amend refusal boundary
+
+The same unmounted control handler recognizes `POST /api/todos/{n}` with
+`{steer}`; the unmounted Amend handler accepts `PATCH /api/todos/{n}` with
+`{prompt, acceptance}`. Both reuse the existing control decoder, request size
+limit, number validation, idempotency-key requirement and error envelope.
+Valid direct requests return `503 infra/todo_control_unavailable` before subject
+reads or effects, including repeated keys. Neither accepts actor or `via`
+from JSON. Attribution must come from the shared bound authorization decision.
+
+Amend cannot allocate a revision, create a confirmation or send a signal here.
+Once the shared authority exists, delegated Amend must refuse
+`503 infra/confirmation_unavailable` if its confirmation consumer is absent.
+There is no local credential or confirmation substitute. Future activation
+requires the served install router, catalog dispatcher and pinned guest-host
+checks; these direct-handler refusal tests are supplemental evidence only.

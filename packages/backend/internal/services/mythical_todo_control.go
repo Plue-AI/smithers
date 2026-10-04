@@ -35,8 +35,13 @@ func (input TodoControlInput) validate() error {
 	switch input.Op {
 	case "stop", "resume", "drop":
 		if input.Steer != nil {
-			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "Only Retry accepts a steer"}
+			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "This control does not accept a steer"}
 		}
+	case "":
+		if input.Steer == nil {
+			return &TodoControlError{http.StatusBadRequest, "invalid_steer", "user", "A steer is required"}
+		}
+		fallthrough
 	case "retry", "retry-current-flow":
 		if input.Steer != nil && (!utf8.ValidString(*input.Steer) || len(*input.Steer) > mythicalPromptBytes || strings.TrimSpace(*input.Steer) == "") {
 			return &TodoControlError{http.StatusBadRequest, "invalid_steer", "user", "Invalid steer"}
@@ -100,6 +105,26 @@ func (s *MythicalService) ControlTodo(_ context.Context, number int64, input Tod
 	}
 	if err := input.validate(); err != nil {
 		return err
+	}
+	return &TodoControlError{http.StatusServiceUnavailable, "todo_control_unavailable", "infra", "TODO controls are unavailable"}
+}
+
+// TodoAmendInput is the revised prompt and acceptance of the same TODO.
+// It carries no actor/via: only the bound install authorization supplies them.
+type TodoAmendInput struct {
+	Prompt     string `json:"prompt"`
+	Acceptance string `json:"acceptance"`
+}
+
+// AmendTodo stays disabled before subject reads, revision allocation, events or
+// signals. Confirmation creation belongs to the shared dispatcher, never this
+// direct service boundary; no caller-provided attribution can enable it.
+func (s *MythicalService) AmendTodo(_ context.Context, number int64, input TodoAmendInput) error {
+	if number <= 0 {
+		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
+	}
+	if strings.TrimSpace(input.Prompt) == "" || !utf8.ValidString(input.Prompt) || !utf8.ValidString(input.Acceptance) || len(input.Prompt)+len(input.Acceptance) > mythicalPromptBytes {
+		return &TodoControlError{http.StatusBadRequest, "invalid_amendment", "user", "Invalid amendment"}
 	}
 	return &TodoControlError{http.StatusServiceUnavailable, "todo_control_unavailable", "infra", "TODO controls are unavailable"}
 }
