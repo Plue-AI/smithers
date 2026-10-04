@@ -129,6 +129,15 @@ const drainOf = (receipt: NotificationQueue.DrainReceipt): Steering.Drain => {
   }
 }
 
+// T-COL-12 stays dark: generic notification rendering cannot authenticate a
+// watcher burst, select its pinned coding run, or enforce fresh machine reads.
+// Refuse the reserved payload before it can become an operator message.
+const outsideChange = (notification: Notification): boolean => {
+  const payload = notification.payload
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+    (payload as Readonly<Record<string, unknown>>)["kind"] === "outside_change"
+}
+
 const mapFailure = (cause: unknown): HarnessError =>
   new HarnessError({
     code: "engine_failed",
@@ -158,8 +167,19 @@ export const make = (
           boundary: input.boundary,
           wouldIdle: input.wouldIdle
         }).pipe(
-          Effect.map(drainOf),
-          Effect.mapError(mapFailure)
+          Effect.mapError(mapFailure),
+          Effect.flatMap((receipt) =>
+            receipt.notifications.some(outsideChange)
+              ? Effect.fail(
+                new HarnessError({
+                  code: "engine_failed",
+                  message:
+                    "Outside-change delivery requires authenticated committed watcher facts, pinned durable delivery, "
+                    + "and production stale-write enforcement"
+                })
+              )
+              : Effect.succeed(drainOf(receipt))
+          )
         )
     })
   })
