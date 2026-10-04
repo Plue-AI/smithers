@@ -120,6 +120,13 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-MCH-09](C-MCH-09.md) | Homes are per machine, created at first session (also for a member added while awake), never shared, kept across sleep | integration | S2 | T-MCH-11 |
 | [C-MCH-10](C-MCH-10.md) | Tool logins persist per machine across sleep and wake; Smithers never stores or copies tokens between machines | integration | S2 | T-MCH-11 |
 | [C-MCH-11](C-MCH-11.md) | Folded into T-MCH-06's tests | integration | S2 | T-MCH-06 |
+| **Remote machines (#3706)** | | | | |
+| [C-RMT-01](C-RMT-01.md) | Folded into T-RMT-01's tests | spike | W0 | T-RMT-01 |
+| [C-RMT-02](C-RMT-02.md) | Folded into T-RMT-02's tests | integration | S1 | T-RMT-02 |
+| [C-RMT-03](C-RMT-03.md) | Folded into T-RMT-03's tests | integration | S1 | T-RMT-03 |
+| [C-RMT-04](C-RMT-04.md) | Folded into T-RMT-04's tests | integration | S1 | T-RMT-04 |
+| [C-RMT-05](C-RMT-05.md) | Folded into T-RMT-05's tests | integration | S2 | T-RMT-05 |
+| [C-RMT-06](C-RMT-06.md) | Journey: the coordinator wakes a TODO on a remote host from the app (product falsifier) | e2e | S1 | T-RMT-04 |
 | **Stack** | | | | |
 | [C-STK-01](C-STK-01.md) | Folded into T-STK-01's tests | unit | S1 | T-STK-01|
 | [C-STK-02](C-STK-02.md) | Folded into T-STK-03's tests | integration | S2 | T-STK-03 |

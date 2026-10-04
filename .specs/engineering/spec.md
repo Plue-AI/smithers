@@ -60,7 +60,7 @@ Conventions. **MUST** and **MUST NOT** are requirements that a check in [checks/
 
 1.2 Processes. launchd starts the host launcher, which supervises the host service and PostgreSQL. A crash of either restarts both under the existing supervisor contract. No Docker, Kubernetes, Electron or Electrobun process exists on the MVP install.
 
-1.3 Execution boundary (M-29, M-30). Repository code MUST execute only inside a branch machine. Repository code means overridable flows, the coding agent, checks, terminals, SSH sessions and services. The host executes only code shipped in the install package. The install MUST refuse to start without working microVM isolation and MUST NOT fall back to host processes.
+1.3 Execution boundary (M-29, M-30). Repository code MUST execute only inside a branch machine. Repository code means overridable flows, the coding agent, checks, terminals, SSH sessions and services. The host executes only code shipped in the install package. The install MUST refuse to start without working microVM isolation and MUST NOT fall back to host processes. A machine may run on a registered remote host under the same microVM isolation, behind the `remoteSandboxes` flag (§8.13).
 
 1.4 Network [S1]. The install is origin-agnostic:
 - By default every listener binds loopback: HTTP on `127.0.0.1:4000`, SSH on `127.0.0.1:2222`, PostgreSQL.
@@ -552,7 +552,7 @@ Terminals keep their existing WebSocket and are not on `/api/live` [S2]. Kind 4 
 
 ### 8.2 Capacity
 
-8.2.1 Every limit derives from the host the install detects at start (M-06). The install never assumes a Mac model. Host profile: `hw.memsize`, `hw.perflevel0.physicalcpu` (performance cores) plus `hw.physicalcpu`, free disk on the `$STATE` volume, the macOS version, and Hypervisor.framework availability. The ticket touching detection collapses the three host-profile readers to one; the check runner stops parsing the ops health line. Check: C-MCH-01.
+8.2.1 Every limit derives from the host the install detects at start (M-06). With registered remote hosts, each host has its own limits and install capacity is their sum (§8.13.4). The install never assumes a Mac model. Host profile: `hw.memsize`, `hw.perflevel0.physicalcpu` (performance cores) plus `hw.physicalcpu`, free disk on the `$STATE` volume, the macOS version, and Hypervisor.framework availability. The ticket touching detection collapses the three host-profile readers to one; the check runner stops parsing the ops health line. Check: C-MCH-01.
 
 | Limit | Formula | 24 GB / 8 P-cores / 200 GiB free | 32 GB / 10 / 400 | 64 GB / 12 / 1 TiB |
 | --- | --- | --- | --- | --- |
@@ -685,6 +685,37 @@ Exit status, exit signals, window changes, signals, EOF and flow-control windows
 ### 8.12 Cleanup
 
 A machine's VM and disk are deleted only when four things hold: its TODO is merged or dropped (or its scratch branch is archived), a final capture succeeded and the head ref equals the captured head, no terminal or service is active, and 24 h have passed. Services still running on a settled branch are stopped after those 24 h. History, activity and evidence remain in PostgreSQL and the repository store.
+
+### 8.13 Placement and remote machines [S1; branch machines S2; Cloud boxes S2] (M-40)
+
+Will's ruling (2026-10-04, product position on #3706, M-40 pending in mvp.md): sandboxes run on this machine or on remote machines, behind one flag. This section amends §1.3, §8.2 and §10.3. "Machine" below means a TODO's workspace in stage 1 (T-MCH-14) and a branch machine from stage 2 (§8.1.2). Both run on one `WorkspaceRuntime` (`packages/backend/workspace/contracts.go`).
+
+8.13.1 **Placements.** A machine runs on a **machine host**: `this-mac`, the install's own host, or a **remote host** the owner registered. `this-mac` always exists and is the default. Only the machine moves. The engine, the stack service, the journal (PostgreSQL), the repository store, merge, the model proxy and every provider key stay on the install. A remote host holds only the VMs placed on it and their disks. Check: C-RMT-03.
+
+8.13.2 **The flag.** `remoteSandboxes` (Go `feature_flags.remote_sandboxes`, environment `SMITHERS_REMOTE_SANDBOXES`, app `AppFeatures.remoteSandboxes`) is off by default and gates every remote placement, Cloud included. It is a separate flag from the existing `remote_sandbox_enabled` (iOS and desktop remote clients); a config test asserts the two are distinct keys. While it is off:
+- the install places every machine on `this-mac`;
+- `PUT /api/install` refuses a `machines` write with class `disabled`, and Settings and the TODO card show no placement control;
+- registered hosts are kept but unused, and a machine whose disk is on a remote host can't wake; it shows "Remote machines are off" with **Move to this Mac** (§8.13.6).
+Check: C-RMT-02.
+
+8.13.3 **Registering a remote host.** Owner only (§5.2), in Settings. A remote host is a Linux machine (arm64 or x86_64) reachable by SSH, with `/dev/kvm`, where the install runs the same pinned `msb` and guest image it runs locally. Registration stores `{name, ssh: user@host[:port], host_key, state_dir}` under the `install_settings` key `machines`.
+1. The install generates one ed25519 key pair per install, seals the private key in `install_settings`, and shows the public key for the owner to add to `authorized_keys`.
+2. The first connection pins the host key. Settings shows its fingerprint, and the owner confirms it. A later mismatch refuses every connection to that host with class `security` until the owner re-confirms.
+3. A probe over SSH reads the profile (§8.13.4), checks `/dev/kvm`, installs or verifies the pinned `msb` and pulls the guest image for the host's architecture. A host without KVM is refused naming the fix ("needs /dev/kvm"). Repository code never runs on a remote host outside a microVM: no plain-SSH or container execution path exists (§1.3, M-29, M-30).
+A remote host is trusted like the install's own host for the machines placed on it: its root can read their disks. Settings says so beside **Add machine**. Check: C-RMT-02. Security review: smithers-3f must approve before this lands.
+
+8.13.4 **Capacity.** Each host has its own profile and its own §8.2.1 limits. On a remote host the profile comes from `/proc/meminfo`, physical cores (the core term uses physical cores where macOS uses performance cores) and free disk under `state_dir`, re-read before every grant as in §8.2.1b. Install capacity is the sum over reachable hosts. The owner may lower any host's capacity, never raise it. An unreachable host contributes 0 and keeps the slots of machines it holds until they are confirmed stopped or moved. `parallel` (§10.3.1) defaults from the summed capacity. Check: C-RMT-04.
+
+8.13.5 **Placement at wake.** The admission scheduler (§8.3) grants a slot on a specific host. A machine with no disk yet goes to the TODO's placement: `auto` (default) or a host name. `auto` picks the host with the most free slots; ties go to `this-mac`. A machine that has a disk wakes on the host that holds it. Main-only secret machines (§8.8.2) and layer-prepare VMs for `this-mac` run on `this-mac`; a remote host builds its own layers. The TODO card shows where its machine runs ("on beaver"). Check: C-RMT-04.
+
+8.13.6 **Moving and failure.** When a host is unreachable for 60 s, its machines show "beaver is unreachable" with **Retry** and **Move** (to `auto`, or to this Mac while the flag is off). Move creates the machine again on another host from the last head the install holds (the TODO's last candidate in stage 1; the captured head ref from stage 2). Uncaptured work and homes on the old host are not carried; the confirmation says so. The old disk is deleted when the host is next reachable (§8.12). Check: C-RMT-04.
+
+8.13.7 **Reaching the install.** The install always dials; a remote host never needs inbound access to it, so loopback-only installs (§1.4) work. Per remote host, the install keeps one SSH connection that runs `msb` and carries reverse forwards for the endpoints a guest uses on `this-mac`: the host-relay port (§8.9, §9.1) and the endpoints the in-guest Flow host uses today (its journal database and the model proxy, `flowhost/journal_database.go`, `flowhost/model_credential.go`). The forwards bind the remote loopback only. Guest egress leaves through the install's egress relay over the same connection, so audit and host-bound secret substitution (§8.8.0) are unchanged. The connection reconnects with backoff from 250 ms to 5 s, like §9.1.1. T-RMT-01 measures whether this path meets C-PERF budgets for package installs. Check: C-RMT-03.
+
+8.13.8 **Cloud boxes** [S2]. Smithers Cloud is a remote host kind. If spike T-RMT-01 shows that a Cloud box runs `msb` under nested KVM, a Cloud box registers like any remote host, through `CloudSandbox`'s SSH grant (`packages/smithers/src/CloudSandbox.ts`) instead of a stored key. Otherwise T-RMT-05 adds a second `WorkspaceRuntime` adapter in which the Cloud box itself is the machine. Cloud billing stays out of the MVP (M-09). Check: C-RMT-05.
+
+8.13.9 **Flows that select a sandbox.** A prompt flow's `sandbox:` frontmatter selects a provider from `Application.Config.sandboxProviders`. That path is unchanged. Registered hosts are not added to it in the MVP: TODO work is placed by §8.13.5, and the install's flows run inside the machine. [D] Exposing registered hosts as `command` providers to `sandbox:` flows.
+
 
 ---
 

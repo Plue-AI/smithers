@@ -1,6 +1,6 @@
 # T-INS-02 Preserve backend setup output and force bundled microVM isolation
 
-Stage S1 · Size M · Depends on first merge: T-INS-01, T-ACC-01, T-SEC-01; rest of S1: — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T-APP-05, T-APP-15, T-APP-16, T-COL-03, T-FLW-01, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-08, T-FLW-09, T-FLW-11, T-GH-01, T-GH-02, T-GH-03, T-GH-04, T-GH-07, T-INS-04, T-INS-05, T-INS-06, T-INS-08, T-MCH-01, T-MCH-14, T-MNT-01, T-REL-02, T-REL-04, T-STK-02, T-STK-03, T-STK-04, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-TRM-01, T-TRM-02, T-TRM-03 · Issue: [#3521](https://github.com/smithersai/smithers/issues/3521)
+Stage S1 · Size M · Depends on first merge: T-INS-01, T-ACC-01, T-SEC-01; rest of S1: — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T-APP-05, T-APP-15, T-APP-16, T-COL-03, T-FLW-01, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-08, T-FLW-09, T-FLW-11, T-GH-01, T-GH-02, T-GH-03, T-GH-04, T-GH-07, T-INS-04, T-INS-05, T-INS-06, T-INS-08, T-MCH-01, T-MCH-14, T-MNT-01, T-REL-02, T-REL-04, T-RMT-03, T-STK-02, T-STK-03, T-STK-04, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-TRM-01, T-TRM-02, T-TRM-03 · Issue: [#3521](https://github.com/smithersai/smithers/issues/3521)
 Spec: spec.md §1.1–§1.4, §3 (`install_settings`), §5.1.0, §8.2.1, §12.1.1, §17.3, §17.4 · Delta: delta.md §1 (Modify [S1] `NativeBackendProcess.ts`; Modify `isolation.go`) · Product: mvp.md §6.1, §9 Isolation, M-28, M-29, M-30
 Ready: 2026-10-03 smithers-8a sha256:290af6548bad
 

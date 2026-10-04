@@ -1,6 +1,6 @@
 # T-MCH-01 Qualify machine sizing on 24 and 32 GB hosts; one host-profile reader
 
-Stage W0, S2 · Size S · Depends on W0: — · S2: T-INS-06, T-INS-08, T-INS-02, T-ACC-03, T-APP-03, T-APP-01, T-MCH-10, T-SEC-01, T-PRC-03 · Unblocks T-MCH-06, T-STK-03 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
+Stage W0, S2 · Size S · Depends on W0: — · S2: T-INS-06, T-INS-08, T-INS-02, T-ACC-03, T-APP-03, T-APP-01, T-MCH-10, T-SEC-01, T-PRC-03 · Unblocks T-MCH-06, T-RMT-04, T-STK-03 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
 Spec: spec.md §8.2.1, §8.2.2, §14.3 (Settings), §20.2 · Delta: delta.md §1 (host profile row), §3 (capacity row) · Product: mvp.md §6.7, §9, M-06
 Ready: 2026-10-03 smithers-8a sha256:aedc2e74b21f
 
