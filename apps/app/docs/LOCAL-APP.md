@@ -485,9 +485,11 @@ your logged-in user, prints the setup URL, and opens Chromium. Enter
 2222 must be free. Ctrl-C stops all three processes and deletes the install's
 state, including PostgreSQL. `--no-browser` starts just the two servers.
 
-Address, Create GitHub App and sign-in work through the Setup card. Repository
-selection and model access currently have browser blockers owned by
-`crit3-setup-steps`. Source ready and Machine ready belong to `w-source-machine`;
+Address, Create GitHub App, sign-in, repository selection and model access work
+through the Setup card. The model row uses real provider keys; the unattended
+walk reads `OPENAI_API_KEY` and `AI_GATEWAY_API_KEY` from its environment and
+never substitutes a model server. Source ready and Machine ready remain with
+`w-source-machine`;
 TODO start, PR and merge remain with their owning lanes. Source import and
 retention still hard-code `https://github.com/<repo>.git`, and their Git process
 drops the refusing proxy, so Source ready can reach real GitHub. This rehearsal
