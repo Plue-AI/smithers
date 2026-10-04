@@ -88,6 +88,7 @@ type Product interface {
 	GetLFSObjectByOID(ctx context.Context, arg db.GetLFSObjectByOIDParams) (db.LfsObject, error)
 	GetLFSUploadReservation(ctx context.Context, arg db.GetLFSUploadReservationParams) (db.LfsUploadReservation, error)
 	GetMythicalStack(ctx context.Context, repositoryID int64) (db.MythicalStack, error)
+	GetMythicalLane(ctx context.Context, workspaceID string) (db.MythicalLane, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
 	GetOrgCredentialOwnerID(ctx context.Context, organizationID int64) (int64, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)

@@ -80,6 +80,8 @@ type RuntimeCheckpoint struct {
 	FailureClass        string                          `json:"failureClass,omitempty"`
 	FailureCode         string                          `json:"failureCode,omitempty"`
 	FailureObservedAt   int64                           `json:"failureObservedAt,omitempty"`
+	FailureStep         string                          `json:"failureStep,omitempty"`
+	WakeStartedAt       int64                           `json:"wakeStartedAt,omitempty"`
 	// IdlePolls counts consecutive polls without progress. It stops growing
 	// once the backoff reaches its limit, so idle polls stop changing the
 	// checkpoint.
@@ -158,5 +160,6 @@ type terminalReceipt struct {
 	Cursor     string                          `json:"cursor,omitempty"`
 	ErrorClass string                          `json:"errorClass,omitempty"`
 	ErrorCode  string                          `json:"errorCode,omitempty"`
+	ErrorStep  string                          `json:"errorStep,omitempty"`
 	Projection json.RawMessage                 `json:"projection"`
 }

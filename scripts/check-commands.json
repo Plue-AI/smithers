@@ -965,7 +965,7 @@
     },
     "C-STK-05": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_long_wait_integration_test.go",
+      "reason": "Retention/replay fixtures present; real machine, stack delivery and approved provenance receipts pending",
       "ticket": "T-MCH-14"
     },
     "C-STK-06": {

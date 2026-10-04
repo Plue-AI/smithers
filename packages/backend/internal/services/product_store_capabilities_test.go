@@ -66,6 +66,9 @@ var productStoreCapabilities = map[string]func(any) bool{
 	"interface{GetRepoByID}": storeImplements[interface {
 		GetRepoByID(context.Context, int64) (db.Repository, error)
 	}],
+	"interface{GetMythicalLane}": storeImplements[interface {
+		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+	}],
 	"interface{GetWorkspaceIncludingDeleted}": storeImplements[interface {
 		GetWorkspaceIncludingDeleted(context.Context, string) (db.Workspace, error)
 	}],

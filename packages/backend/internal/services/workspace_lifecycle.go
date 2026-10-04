@@ -218,13 +218,25 @@ func (s *WorkspaceService) teardownWorkspaceVM(ctx context.Context, workspace db
 
 func (s *WorkspaceService) destroyWorkspace(ctx context.Context, workspace db.Workspace) (retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("stop", retErr) }()
+	unlock := s.lockRuntimeWorkspace(workspace.ID)
+	defer unlock()
+	current := workspace
 	if s.runtime != nil {
-		unlock := s.lockRuntimeWorkspace(workspace.ID)
-		defer unlock()
-		current, err := s.currentRuntimeWorkspaceLocked(ctx, workspace)
+		var err error
+		current, err = s.currentRuntimeWorkspaceLocked(ctx, workspace)
 		if err != nil {
 			return err
 		}
+	}
+	keep, err := s.keepTodoWorkspace(ctx, current)
+	if err != nil {
+		return err
+	}
+	if keep {
+		return errTodoWorkspaceRetained
+	}
+	workspace = current
+	if s.runtime != nil {
 		s.revokeWorkspaceHeadToken(ctx, current)
 		s.retireBoxHostCredentials(ctx, current)
 		if err := s.deleteRuntimeWorkspaceLocked(ctx, current, current.UserID); err != nil {

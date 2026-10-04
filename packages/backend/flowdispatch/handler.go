@@ -268,13 +268,61 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	if checkpoint.Target != payload.Target || checkpoint.FlowID != payload.FlowID || checkpoint.RunID != payload.RunID {
 		return service.fail(lease, "checkpoint_request_mismatch", checkpoint)
 	}
-	runtime, identity, err := service.resolve(ctx, checkpoint.Target, checkpoint.Identity)
+	if payload.FlowID == "todo" {
+		// Checkpoint before the resolver's existing start/verification path.
+		// Outages and process restarts cannot restart this wake allowance.
+		if checkpoint.WakeStartedAt == 0 {
+			checkpoint.WakeStartedAt = time.Now().UnixMilli()
+		}
+		if err := lease.StartExternal(ctx, mustJSON(checkpoint)); err != nil {
+			return err
+		}
+		if _, err := lease.Checkpoint(ctx, mustJSON(checkpoint)); err != nil {
+			return err
+		}
+		if todoWakeExpired(checkpoint, time.Now()) {
+			checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
+			return service.fail(lease, "wake_timeout", checkpoint)
+		}
+	}
+	resolveContext := ctx
+	if payload.FlowID == "todo" {
+		var cancel context.CancelFunc
+		resolveContext, cancel = context.WithDeadline(ctx, time.UnixMilli(checkpoint.WakeStartedAt).Add(15*time.Minute))
+		defer cancel()
+	}
+	runtime, identity, err := service.resolve(resolveContext, checkpoint.Target, checkpoint.Identity)
 	if err != nil {
+		if payload.FlowID == "todo" {
+			code, retryable := runtimeFailure(err)
+			if retryable || code == "runtime_host_not_running" {
+				checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
+				checkpoint.FailureCode, checkpoint.FailureObservedAt = code, time.Now().UnixMilli()
+				if todoWakeExpired(checkpoint, time.Now()) {
+					return service.fail(lease, "wake_timeout", checkpoint)
+				}
+				if err := service.project(ctx, lease, jobs.StateWaiting, checkpoint); err != nil {
+					return err
+				}
+				return lease.Park(ctx, mustJSON(checkpoint), todoWakeBackoff(lease.Claim().Attempt))
+			}
+		}
 		return service.runtimeError(lease, err, checkpoint)
 	}
+	if payload.FlowID == "todo" && todoWakeExpired(checkpoint, time.Now()) {
+		checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
+		return service.fail(lease, "wake_timeout", checkpoint)
+	}
+	checkpoint.WakeStartedAt = 0
+	checkpoint.FailureStep, checkpoint.FailureCode, checkpoint.FailureClass = "", "", ""
 	checkpoint.Identity = identity
 	if err := lease.StartExternal(ctx, mustJSON(checkpoint)); err != nil {
 		return err
+	}
+	if payload.FlowID == "todo" {
+		if _, err := lease.Checkpoint(ctx, mustJSON(checkpoint)); err != nil {
+			return err
+		}
 	}
 
 	// Observation verifies the requested run's Flow identity. Its terminal
@@ -324,6 +372,14 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 		Kind: "runtime-signal", Runtime: identity, Receipt: &result.Receipt,
 		Run: checkpoint.Run, Projection: checkpoint.Projection,
 	}))
+}
+
+func todoWakeExpired(checkpoint RuntimeCheckpoint, now time.Time) bool {
+	return checkpoint.WakeStartedAt > 0 && !now.Before(time.UnixMilli(checkpoint.WakeStartedAt).Add(15*time.Minute))
+}
+
+func todoWakeBackoff(attempt int) time.Duration {
+	return time.Second << min(max(attempt-1, 0), 5)
 }
 
 func (service *Service) resolve(
@@ -558,7 +614,7 @@ func (service *Service) fail(lease *jobs.Lease, code string, checkpoint RuntimeC
 	}
 	receipt := terminalReceipt{
 		Kind: "bridge-refused", Runtime: checkpoint.Identity, Receipt: checkpoint.Receipt,
-		Run: checkpoint.Run, Cursor: checkpoint.Cursor, ErrorCode: code, ErrorClass: checkpoint.FailureClass, Projection: checkpoint.Projection,
+		Run: checkpoint.Run, Cursor: checkpoint.Cursor, ErrorCode: code, ErrorClass: checkpoint.FailureClass, ErrorStep: checkpoint.FailureStep, Projection: checkpoint.Projection,
 	}
 	settleContext, cancel := context.WithTimeout(context.Background(), service.runtimeCallTimeout)
 	defer cancel()

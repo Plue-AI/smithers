@@ -8,15 +8,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// defaultAgentWorkspaceDiskReclaimAfter bounds how long a stopped agent
-// workspace keeps its machine disk (#2275). An agent's work lives on its
-// bookmark in the repository, so a later resume boots a fresh machine and
-// checks the repository out again; a follow-up within the day resumes the
-// kept disk instantly.
+// Age makes a stopped disk eligible, never sufficient for TODO cleanup.
 const defaultAgentWorkspaceDiskReclaimAfter = 24 * time.Hour
 
 // stoppedAgentWorkspaceLister is the store surface of the disk reclaim.
@@ -84,6 +81,10 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, reclai
 	if row.Kind != "agent" || row.Status != "suspended" || row.DeletedAt.Valid {
 		return nil
 	}
+	keep, err := s.keepTodoWorkspace(ctx, row)
+	if err != nil || keep {
+		return err
+	}
 	operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "reclaim-disk"))
 	if err != nil {
 		return err
@@ -95,4 +96,23 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, reclai
 		return err
 	}
 	return nil
+}
+
+// keepTodoWorkspace is called under the runtime lock, after re-reading the
+// workspace. Reuse the durable lane binding, including retired lanes: retirement
+// is not proof of settlement or a retained final capture. Until the branch
+// settlement/capture and quiet-service contracts land, all bound disks stay.
+// Missing binding authority fails closed rather than treating it as no TODO.
+func (s *WorkspaceService) keepTodoWorkspace(ctx context.Context, row db.Workspace) (bool, error) {
+	store, ok := s.q.(interface {
+		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+	})
+	if !ok {
+		return row.Kind == "agent", nil
+	}
+	_, err := store.GetMythicalLane(ctx, row.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return true, err
 }

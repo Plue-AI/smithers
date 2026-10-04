@@ -512,12 +512,21 @@ func (s *WorkspaceService) FailAgentWorkspace(ctx context.Context, workspaceID s
 	if s.q == nil {
 		return pkgerrors.Internal("workspace store unavailable")
 	}
+	unlock := s.lockRuntimeWorkspace(workspaceID)
+	defer unlock()
 	workspace, err := s.q.GetWorkspace(ctx, strings.TrimSpace(workspaceID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return pkgerrors.Internal("load agent workspace: " + err.Error())
+	}
+	keep, err := s.keepTodoWorkspace(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	if keep {
+		return errTodoWorkspaceRetained
 	}
 	s.revokeWorkspaceHeadToken(ctx, workspace)
 	if strings.TrimSpace(workspace.VmID) != "" {

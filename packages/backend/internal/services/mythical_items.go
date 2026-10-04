@@ -956,12 +956,6 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 		return item
 	}
 	if item.Source != "issue" {
-		// A chat item's workspace is its author's own; the stack never retires it.
-		next := item
-		next.WorkspaceID = ""
-		if saved, err := s.queries().SaveMythicalItem(ctx, next); err == nil {
-			return saved
-		}
 		return item
 	}
 	if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
@@ -2366,13 +2360,14 @@ func (l *workspaceMythicalLanes) Delete(ctx context.Context, repositoryID, actor
 	if l == nil || l.workspaces == nil {
 		return nil
 	}
-	err := l.workspaces.DeleteWorkspace(ctx, workspaceID, repositoryID, actorUserID)
-	var api *pkgerrors.APIError
-	if errors.As(err, &api) && api.Status == 404 {
-		return nil
-	}
-	return err
+	// Every retirement caller comes here. Idle lifecycle suspension already
+	// retains the disk. A stale sweep must not stop a lane resumed since its
+	// list, or report retirement and clear its binding. Final-capture and
+	// quiet-service authority are unavailable in S1: retain without effects.
+	return errTodoWorkspaceRetained
 }
+
+var errTodoWorkspaceRetained = errors.New("TODO workspace retained until verified final capture and settlement")
 
 // SetMaxParallel sets how many lanes work at once (1..8).
 func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error {
