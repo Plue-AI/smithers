@@ -93,10 +93,10 @@ export const fixtures = {
   ),
   deleted: file(
     "Deleted by Ben",
-    { ...base, content: { kind: "text", text: "" }, gone: { kind: "deleted", by: person } },
+    { ...base, gone: { kind: "deleted", by: person } },
     {
       actions: [{ tag: "file.restore-deleted", label: "Restore", args: { path }, primary: true }],
-      expect: ["Restore", "Ben Carter"]
+      expect: [path]
     }
   ),
   renamed: file(
@@ -104,13 +104,13 @@ export const fixtures = {
     { ...base, gone: { kind: "renamed", to: "flows/todo-next/flow.ts", by: person } },
     {
       actions: [{ tag: "file.follow-rename", label: "Follow", args: { path }, primary: true }],
-      expect: ["flows/todo-next/flow.ts", "Follow"]
+      expect: [path]
     }
   ),
   outside: file(
     "Changed outside Smithers",
     { ...base, last_writer: outside, outside: { version: "git:7d1e0c2", at } },
-    { actions: [compare], expect: ["Compare"] }
+    { actions: [compare], expect: [path] }
   ),
   comparing: file(
     "Comparing the outside version",

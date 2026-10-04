@@ -608,3 +608,7 @@ BranchView is pending T-APP-10/T-COL-05/T-REL-02 and remains unmounted.
 Named gestures are `item`, `file` and `terminal`. Each optional supplied action
 opens the TODO, file (path and optional line) or terminal (id); bound args are
 retained. No gesture means plain text. Renamed files open renamed_to.
+
+### T-UI-16 File live states (S2)
+
+`CodeSurface` reuses the File props and existing CodeFileView. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. Compare needs the outside text; contract pending (T-UI-16 report: Issues to file). `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.

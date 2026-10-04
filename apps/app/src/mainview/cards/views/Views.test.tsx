@@ -1419,3 +1419,64 @@ test("Branch place, plain branch presence and unknown terminal use product copy"
     expect(host.querySelector(".branch-spin")!.getAttribute("aria-hidden")).toBe("true")
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+// T-UI-16: live updates retain the surface; gone states retain their snapshot.
+import { CodeSurface } from "../CodeSurface"
+import { fixtures as liveFileFixtures } from "@smthrs/rpc/fixtures/File"
+test("File live notices, snapshot and Compare use supplied data", async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
+  const render = async (fixture: typeof liveFileFixtures.text) => act(async () => root.render(<CodeSurface {...fixture} onAction={onAction} onView={onView} />))
+  try {
+    await render(liveFileFixtures.text)
+    const liveEditor = host.querySelector(".sui-code-view")!
+    await render(liveFileFixtures.deleted)
+    expect(host.querySelector(".sui-code-view")).toBe(liveEditor)
+    expect(host.querySelector(".code-file-editor")!.hasAttribute("data-snapshot")).toBe(true)
+    expect(host.querySelector(".code-writer")).toBeNull()
+    expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Deleted by Ben")
+    expect(host.querySelector(".code-snapshot-cap")!.textContent).toBe("Snapshot")
+    expect(host.querySelector(".sui-code-view-plain")!.textContent).toContain("Complete one TODO")
+    await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
+    expect(onAction.mock.calls).toEqual([["file.restore-deleted", { path: "flows/todo/flow.ts" }]])
+    await render(liveFileFixtures.renamed)
+    expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Renamed to flow.ts by Ben")
+    expect(host.querySelector(".code-file-notice code")!.getAttribute("title")).toBe("flows/todo-next/flow.ts")
+    await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
+    expect(onAction.mock.calls[1]).toEqual(["file.follow-rename", { path: "flows/todo/flow.ts" }])
+    await render(liveFileFixtures.comparing)
+    expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Changed outside Smithers")
+    expect(host.querySelector(".code-compare")).toBeNull()
+    expect(host.querySelector(".code-snapshot-cap")).toBeNull()
+    await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
+    expect(onAction.mock.calls[2]).toEqual(["file.compare", { path: "flows/todo/flow.ts" }])
+    await render({ ...liveFileFixtures.comparing, model: { ...liveFileFixtures.comparing.model, gone: liveFileFixtures.deleted.model.gone }, actions: [] })
+    expect(host.querySelector(".code-compare")).toBeNull()
+    expect(host.querySelector("button[data-flow]")).toBeNull()
+    expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Deleted by Ben")
+    const editor = host.querySelector(".sui-code-view")!
+    const scroller = host.querySelector(".sui-code-view")!; scroller.scrollTop = 40
+    await render({ ...liveFileFixtures.text, model: { ...liveFileFixtures.text.model, digest: "sha256:next", content: { kind: "text", text: "export const updated = true\n" } } })
+    expect(host.querySelector(".sui-code-view")).toBe(editor)
+    expect(host.querySelector(".sui-code-view")).toBe(scroller)
+    expect(scroller.scrollTop).toBe(40)
+    expect(host.querySelector(".sui-code-view-plain")!.textContent).toContain("export const updated = true")
+    expect(host.querySelector(".code-compare")).toBeNull()
+    expect(onView).toHaveBeenCalledTimes(0)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("File disabled and unavailable controls cannot dispatch", async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), onAction = mock(() => {})
+  try {
+    await act(async () => root.render(<CodeSurface {...liveFileFixtures.deleted} actions={liveFileFixtures.deleted.actions.map(action => ({ ...action, disabled: { reason: "Waiting for a machine" } }))} onAction={onAction} onView={() => {}} />))
+    const button = host.querySelector<HTMLButtonElement>("button")!
+    expect(button.disabled).toBe(true)
+    expect(host.querySelector(".code-action-reason")!.textContent).toBe("Waiting for a machine")
+    button.click(); expect(onAction).toHaveBeenCalledTimes(0)
+    await act(async () => root.render(<CodeSurface {...liveFileFixtures.deleted} actions={[]} onAction={onAction} onView={() => {}} />))
+    expect(host.querySelector("button")).toBeNull()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})

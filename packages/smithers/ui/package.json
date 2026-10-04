@@ -9,6 +9,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./markdown": { "types": "./src/primitives/markdown.tsx", "default": "./src/primitives/markdown.tsx" },
+    "./button": { "types": "./src/button.tsx", "default": "./src/button.tsx" },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",

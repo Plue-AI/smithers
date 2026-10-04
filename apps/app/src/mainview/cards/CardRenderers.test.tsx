@@ -9,7 +9,7 @@ import type { RepositoryHome } from "@smthrs/rpc/RepositoryHome"
 import { CardView } from "../ChatCards"
 import { FlowGraphSurface } from "../ViewModules"
 import { defaultPill } from "./CardFamily"
-import { CARD_FAMILIES, CARD_RENDERERS, PENDING_CARD_KINDS, RETIRED_CARD_KINDS, pillStatus } from "./CardRenderers"
+import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, PENDING_CARD_KINDS, RETIRED_CARD_KINDS, pillStatus } from "./CardRenderers"
 import { lastRunOf, RepositoryHomeCard, stripHomeHtml } from "./RepositoryHomeCard"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
@@ -435,5 +435,34 @@ test("repository chooser exposes one keyboard stop and the highlighted repositor
     expect(list.getAttribute("aria-activedescendant")).toBe(options[1]!.id)
     await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })) })
     expect(selected).toEqual(["b/two"])
+  } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+})
+
+// T-UI-16: production family entries grant no S2 execution authority.
+test("legacy File and Diff render with live controls dark", async () => {
+  GlobalRegistrator.register()
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), calls: unknown[] = []
+  const cards: Card[] = [
+    { ...base, kind: "file", status: "active", payload: { repo: "o/r", path: "src/a.ts", content: "export const value = 1\n", truncated: false } },
+    { ...base, kind: "diff", status: "active", payload: { repo: "o/r", changeId: "change-1", from: "base", to: "next", pin: { changeId: "change-1", commitId: null, seq: null }, files: [] } },
+  ]
+  try {
+    for (const card of cards) {
+      await act(async () => root.render(renderCardBody(card, { ...handlers, onRunCommand: (...args) => { calls.push(args) } })))
+      if (card.kind === "file") {
+        for (let tick = 0; tick < 300 && !host.querySelector(".code-surface"); tick++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+        expect(host.querySelector(".code-surface")).not.toBeNull()
+      }
+      expect(host.querySelector(".code-file-notice")).toBeNull()
+      expect(host.querySelector('button[data-flow^="file."]')).toBeNull()
+      const region = host.querySelector(".code-surface") ?? host
+      await act(async () => {
+        region.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }))
+        region.dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }))
+        region.dispatchEvent(new KeyboardEvent("keydown", { key: "F12", bubbles: true }))
+      })
+      expect(calls).toEqual([])
+    }
   } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
 })

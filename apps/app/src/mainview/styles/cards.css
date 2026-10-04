@@ -2784,7 +2784,6 @@
 .code-diff-base { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); margin-bottom: 8px; }
 .code-diff-base time { margin-left: auto; }
 .code-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.code-actions button { border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); color: var(--text); padding: 5px 10px; font: inherit; cursor: pointer; }
 .code-diff-view .sui-pierre-diff-frame { max-width: 100%; overflow: hidden; }
 .code-diff-view { box-sizing: border-box; }
 /* Pierre's inherited override seam keeps diff chrome on Paper's accessible tokens. */
@@ -2915,3 +2914,18 @@
 .branch-view .flow-control { align-items: flex-start; }
 .branch-view .branch-activity .flow-control { margin-top: 4px; }
 .branch-view .branch-actions:empty { display: none; }
+
+/* CodeSurface (T-UI-16): live file notices, snapshots and outside comparison. */
+.code-file-view .code-file-state { display: inline-flex; align-items: center; gap: 5px; color: var(--attention-text); font-size: var(--fs-caption); font-weight: 600; white-space: nowrap; }
+.code-file-view .code-file-notice { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); padding: 6px 6px 6px 10px; border: 1px solid color-mix(in srgb, var(--attention) 40%, transparent); border-radius: var(--r-1); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-small); font-weight: 500; }
+.code-file-view .code-file-notice > svg { flex-shrink: 0; }
+.code-file-view .code-file-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.code-file-view .code-file-notice code { font-family: var(--font-mono); font-size: 12px; padding: 0 4px; border-radius: 4px; background: var(--inline-code-bg); }
+.code-file-view .code-file-notice[data-tone="outside"] { border-color: var(--border-strong); background: var(--surface-2); color: var(--text); }
+.code-file-view .code-snapshot-cap { display: flex; align-items: center; gap: 5px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.code-file-view .code-actions { margin-bottom: var(--sp-2); }
+.code-file-view .code-file-notice .code-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 0 auto; flex-shrink: 0; }
+.code-file-view .code-file-editor[data-snapshot] .sui-code-view { border: 1px dashed var(--border-strong); }
+@media (max-width: 480px) { .code-file-view .code-file-notice { flex-wrap: wrap; } .code-file-view .code-file-notice .code-actions { flex-basis: 100%; justify-content: flex-end; } }
+.code-actions .code-action-reason { color: var(--text-muted); font-size: var(--fs-caption); }
+.code-file-view .code-file-editor:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }

@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, extname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+// T-UI-16: CodeSurface is already reachable; T-APP-11 wires its live props. No new View.
 // Existing views awaiting their owning wiring tickets; this list must only shrink.
 const PENDING_WIRING: Record<string, string> = {
   "BranchView.tsx": "T-APP-10",

@@ -57,7 +57,8 @@ test("unavailable capability binds no gesture, even with live mode or persisted 
   const surface = host.querySelector<HTMLElement>(".code-surface")!
   surface.dispatchEvent(new KeyboardEvent("keydown", { key: "F12", bubbles: true }))
   expect(calls).toEqual([])
-  expect(surface.hasAttribute("tabindex")).toBe(false)
+  // axe scrollable-region-focusable: scrolling remains keyboard accessible without gestures.
+  expect(surface.getAttribute("tabindex")).toBe("0")
   expect(surface.hasAttribute("data-flow")).toBe(false)
   expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
 })
