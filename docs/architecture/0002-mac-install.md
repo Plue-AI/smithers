@@ -13,15 +13,15 @@ This record captures `.specs/engineering/overview.md` decisions E-01, E-02, E-03
 
 ### Install a Homebrew package supervised by launchd
 
-A Homebrew tap installs the host service, PostgreSQL 18, packaged Flow runtimes, web assets and the microVM runtime with its pinned guest base image. A launchd daemon runs as the installing macOS user and starts before login. The host launcher supervises the backend and PostgreSQL. Durable data lives in `~/Library/Application Support/Smithers`.
+A Homebrew tap installs the host service, PostgreSQL 18, packaged Flow runtimes, web assets and the microVM runtime with its pinned guest base image. S1 uses a per-user LaunchAgent under `gui/<uid>` as the installing macOS user, who must be logged in. Startup uses no privilege escalation. The host launcher supervises the backend and PostgreSQL. Durable data lives in `~/Library/Application Support/Smithers`.
 
-The browser is the product surface. The install has no Electrobun app or Docker container. T-INS-05 ships the chosen launchd path and deletes the Docker self-host image, which cannot host the required microVMs on macOS. A notarized `.pkg` would require an Apple Developer identity and delay launch. T-INS-03 must confirm Hypervisor.framework works from the daemon; the specified fallback is a launchd agent with macOS automatic login.
+The browser is the product surface. The install has no Electrobun app or Docker container. T-INS-02 owns the S1 host launcher; T-INS-08 owns the per-user LaunchAgent. T-INS-05 owns release distribution and deletes the Docker self-host image, which cannot host the required microVMs on macOS. A notarized `.pkg` would require an Apple Developer identity and delay launch. T-INS-03 supplies measured release evidence, not an S1 prerequisite. Before-login daemon support is unproven; this record makes no release-support claim without that evidence.
 
 Sources: E-01; engineering spec §1.1, §1.2 and §16.1; product M-10 and §6.1.
 
 ### Run repository code only inside microVMs
 
-Repository code runs only inside machines: overridable TODO, learning, review and repository flows, coding agents, checks, terminals, SSH sessions and services. Repository flows run in the branch's coding host or an ephemeral background machine. The Mac host runs only code shipped in the install package and never loads repository flows into its process. The install refuses to start without working microVM isolation and never falls back to host processes.
+Repository code runs only inside machines: overridable TODO, learning, review and repository flows, coding agents, checks, terminals, SSH sessions and services. Repository flows run in the branch's coding host or an ephemeral background machine. The Mac host runs only code shipped in the install package and never loads repository flows into its process. The install refuses to start without working microVM isolation and never falls back to host processes or `trusted_process`.
 
 This boundary keeps agents steered by untrusted text away from host secrets. ADR 0001's `trusted_process` executor cannot provide it. Stack operations, merge, members and settings remain system flows that the repository cannot override.
 
@@ -33,9 +33,9 @@ Each awake branch has one machine shared by members and the coding agent. Branch
 
 The install has a roster with Owner, Maintainer and Member roles. Access requires a place on the roster and live GitHub write access, checked at sign-in and hourly. Losing write access suspends the member. This replaces issue 1667's single-owner model. M-17 restores shared workspace access and presence, while the rest of Pair stays removed.
 
-Each member has a stable Unix uid and a private home persisted across machines. Members and agents have no `sudo`. A shared Unix login would share personal tool credentials; elevated privileges would defeat their separation.
+Each member has a stable Unix uid and a private home on each machine. Members and agents have no `sudo`. Tool logins persist in that machine’s home across sleep and wake. Tokens, tool history, caches and databases never copy between machines; a recreated machine starts with empty homes and requires fresh tool logins. The synced per-member credential store is deferred because machines compete to refresh the same token. A shared Unix login would share personal tool credentials; elevated privileges would defeat their separation. Shared homes across machines lost data in T-MCH-02.
 
-Sources: E-03 and E-10; engineering spec §5.1, §5.5 and §8.1; product M-05, M-17, M-18 and M-29.
+Sources: E-03 and E-10; engineering spec §5.1, §5.5, §8.1 and §8.7.1–§8.7.3a; product M-05, M-17, M-18 and M-29.
 
 ### Reserve approval and merge for browser sessions
 
@@ -51,7 +51,7 @@ The install is origin-agnostic. HTTP and SSH always listen on loopback, on ports
 
 First startup prints a one-time setup URL for each listener. A request must carry that setup token and complete GitHub sign-in to claim the install. Only the token's digest is stored, and a successful claim deletes it. The owner can finish setup from the Mac or a laptop using a configured listener.
 
-The app works on plain HTTP without secure-context-only browser APIs. Clipboard operations have a fallback. The install creates no certificate authority. The team supplies HTTPS and remote access through whatever it puts in front, such as Tailscale serve or a reverse proxy. No code depends on either. Plain HTTP sends session cookies unencrypted; the quickstart recommends HTTPS in front.
+The app works on plain HTTP without secure-context-only browser APIs. Clipboard operations have a fallback. Optional browser notifications require a secure origin (§14.6); core app use does not. The install creates no certificate authority. The team supplies HTTPS and remote access through whatever it puts in front, such as Tailscale serve or a reverse proxy. No code depends on either. Plain HTTP sends session cookies unencrypted; the quickstart recommends HTTPS in front.
 
 Tailscale-only serving would tie the product to one vendor. An install certificate authority with `smthrs connect` would require certificate setup for every teammate. Neither is part of the install.
 

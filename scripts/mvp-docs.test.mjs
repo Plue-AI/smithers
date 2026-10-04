@@ -112,6 +112,39 @@ test("ADR 0002 remains proposed until Will approves the engineering spec", () =>
   assert.match(document, /^This record becomes accepted when Will approves the MVP engineering spec\.$/m)
 })
 
+// Literal contracts replace the untested daemon and cross-machine-home claims.
+for (const [name, requirements] of [
+  ["machine-only execution", ["Repository code runs only inside machines:", "The Mac host runs only code shipped in the install package", "never loads repository flows into its process", "refuses to start without working microVM isolation", "never falls back to host processes or `trusted_process`", "Members and agents have no `sudo`"]],
+  ["person-session approval", ["Only a signed-in person's browser `session` credential can approve or merge", "receive `delegated` credentials with `via` attribution", "The coding agent's `run` credential and a machine's credential cannot approve or merge"]],
+  ["per-machine homes and logins", ["a private home on each machine", "Tool logins persist in that machine’s home across sleep and wake", "Tokens, tool history, caches and databases never copy between machines", "a recreated machine starts with empty homes", "The synced per-member credential store is deferred"]],
+  ["logged-in S1 LaunchAgent", ["per-user LaunchAgent under `gui/<uid>`", "who must be logged in", "Startup uses no privilege escalation", "T-INS-02 owns the S1 host launcher; T-INS-08 owns the per-user LaunchAgent", "T-INS-03 supplies measured release evidence, not an S1 prerequisite", "Before-login daemon support is unproven"]],
+  ["shared multi-member branch", ["one machine shared by members and the coding agent", "Branch locks are removed", "Owner, Maintainer and Member roles", "live GitHub write access", "replaces issue 1667's single-owner model"]],
+  ["origin-agnostic core app", ["HTTP and SSH always listen on loopback", "The owner can add a bind address and public origins", "PostgreSQL stays on loopback", "one-time setup URL", "The app works on plain HTTP", "Optional browser notifications require a secure origin", "The install creates no certificate authority", "No code depends on either", "Tailscale-only serving would tie the product to one vendor"]],
+  ["host-derived limits", ["Capacity, machine memory, vCPUs and the layer budget derive from the host profile detected at startup", "memory, performance cores, free disk, macOS version and Hypervisor.framework availability", "Fixed defaults per Mac model cannot account"]],
+  ["retained shared-product authority", ["Plue composes the public backend", "PostgreSQL remains the authority", "`@smthrs/flow` remains the sole Flow model"]]
+]) {
+  test(`ADR 0002 records ${name}`, () => {
+    const document = prose(readFileSync(join(root, documents[1]), "utf8"))
+    for (const requirement of requirements) assert.ok(document.includes(requirement), requirement)
+  })
+}
+
+test("ADR 0001 marks both replaced Mac assemblies superseded", () => {
+  const document = readFileSync(join(root, documents[0]), "utf8")
+  const paragraphs = document.split("\n\n").filter((paragraph) => paragraph.startsWith("**Superseded for the Mac install"))
+  assert.equal(paragraphs.length, 2)
+  assert.ok(paragraphs[0].includes("`trusted_process`"))
+  assert.ok(paragraphs[1].includes("native app"))
+  for (const paragraph of paragraphs) assert.ok(hasLinkTo(paragraph, join(root, documents[0]), join(root, documents[1])))
+})
+
+test("implementation ledger requires the logged-in LaunchAgent without certifying support", () => {
+  const document = readFileSync(join(root, documents[2]), "utf8")
+  for (const requirement of ["tracks implementation and required proof, not completion", "per-user LaunchAgent under `gui/<uid>`", "logged-in installing user", "no privilege escalation", "before-login daemon support is unproven", "| mac-install |", "| web-plue |"])
+    assert.ok(document.includes(requirement), requirement)
+  assert.doesNotMatch(document, /\|\s*`?native-(?:own|plue)`?\s*\|/)
+})
+
 test("ADR 0001 links ADR 0002 from its status line", () => {
   const document = join(root, documents[0])
   const status = readFileSync(document, "utf8").split("\n").find((line) => line.startsWith("Status:"))
@@ -124,11 +157,6 @@ test("self-host implementation ledger links ADR 0002", () => {
   assert.ok(hasLinkTo(readFileSync(document, "utf8"), document, join(root, documents[1])), "The ledger must link ADR 0002")
 })
 
-test("self-host implementation matrix has no native-own row", () => {
-  const rows = readFileSync(join(root, documents[2]), "utf8").split("\n")
-    .filter((line) => /^\s*\|\s*`?native-own`?\s*\|/.test(line))
-  assert.deepEqual(rows, [], "The Mac install replaces the native-own matrix row")
-})
 
 for (const name of documents) {
   test(`${name}: all relative Markdown links resolve`, () => {
