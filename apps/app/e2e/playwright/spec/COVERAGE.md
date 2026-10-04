@@ -200,3 +200,16 @@ are engineering-only terminal projections, not passing qualification evidence.
 Cycle 23: cross-Mac backup and production security fixtures remain pending.
 These UI projections do not qualify root scans, process isolation, admission
 transactions, setup-token races or terminal credential boundaries.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| C-SPK-02 | [C-SPK-02.spec.ts](C-SPK-02.spec.ts) | fixme-before-implementation | T-MCH-02 |
+| C-SPK-03 | [C-SPK-03.spec.ts](C-SPK-03.spec.ts) | fixme-before-implementation | T-COL-01, T-COL-11 |
+| C-SPK-05 | [C-SPK-05.spec.ts](C-SPK-05.spec.ts) | fixme-before-implementation | T-MCH-01 |
+| C-SPK-06 | [C-SPK-06.spec.ts](C-SPK-06.spec.ts) | fixme-before-implementation | T-INS-03 |
+| C-SPK-07 | [C-SPK-07.spec.ts](C-SPK-07.spec.ts) | fixme-before-implementation | T-COL-01, T-COL-11 |
+| C-SPK-08 | [C-SPK-08.spec.ts](C-SPK-08.spec.ts) | fixme-before-implementation | T-TRM-06 |
+
+Cycle 24: spike terminal projections await disposable reference-host fixtures.
+C-SPK-02 retains the accepted NO decision; shared homes are not a pending feature.
+Transport, memory, signing, co-editing and remote-session qualification require raw live evidence.
