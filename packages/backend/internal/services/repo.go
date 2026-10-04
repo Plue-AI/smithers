@@ -1459,6 +1459,34 @@ func (s *RepoService) ListRepoContents(ctx context.Context, viewer *db.User, own
 	return entries, nil
 }
 
+// fileAt reads one file at a change or commit on the repository host. An
+// absent path, or one that names no regular file, is not found.
+func (s *RepoService) fileAt(ctx context.Context, owner, repo, revision, filePath string) (repohost.FileContent, error) {
+	file, err := s.repoHost.GetFileAtChange(ctx, owner, repo, revision, filePath)
+	if err != nil {
+		if isRepoHostStatus(err, 404) {
+			return repohost.FileContent{}, errors.NotFound("content not found")
+		}
+		return repohost.FileContent{}, errors.Internal("failed to load repository content").WithCause(err)
+	}
+	return file, nil
+}
+
+// defaultBookmarkFile reads one file at the commit the repository's default
+// bookmark names on the repository host and returns that commit with it.
+func (s *RepoService) defaultBookmarkFile(ctx context.Context, owner string, repository db.Repository, filePath string) (string, repohost.FileContent, error) {
+	bookmark, found, err := repohost.LookupBookmark(ctx, s.repoHost, owner, repository.Name, repository.DefaultBookmark)
+	if err != nil {
+		return "", repohost.FileContent{}, errors.Internal("failed to resolve bookmark").WithCause(err)
+	}
+	commit := strings.TrimSpace(bookmark.TargetCommitID)
+	if !found || commit == "" {
+		return "", repohost.FileContent{}, errors.NotFound("default bookmark not found")
+	}
+	file, err := s.fileAt(ctx, owner, repository.Name, commit, filePath)
+	return commit, file, err
+}
+
 func (s *RepoService) GetRepoContents(ctx context.Context, viewer *db.User, owner, repo, ref, filePath string) (RepoContent, error) {
 	repository, err := s.resolveReadableRepo(ctx, viewer, owner, repo)
 	if err != nil {
@@ -1480,12 +1508,9 @@ func (s *RepoService) GetRepoContents(ctx context.Context, viewer *db.User, owne
 		return RepoContent{}, err
 	}
 
-	file, err := s.repoHost.GetFileAtChange(ctx, trimmedOwner, repository.Name, changeRef, filePath)
+	file, err := s.fileAt(ctx, trimmedOwner, repository.Name, changeRef, filePath)
 	if err != nil {
-		if isRepoHostStatus(err, 404) {
-			return RepoContent{}, errors.NotFound("content not found")
-		}
-		return RepoContent{}, errors.Internal("failed to load repository content").WithCause(err)
+		return RepoContent{}, err
 	}
 
 	if file.Path != "" {
