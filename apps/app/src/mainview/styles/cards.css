@@ -2595,10 +2595,10 @@
 .setup-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .setup-action { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
 .setup-action .setup-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
-.setup-view button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
-.setup-view button:hover:not(:disabled) { background: var(--hover); }
-.setup-view button:disabled { opacity: .6; cursor: default; }
-.setup-view button[data-primary] { color: var(--on-action-primary); background: var(--action-primary); border-color: var(--action-primary); }
+:is(.setup-view, .mvp-debug-api .setup-action) button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+:is(.setup-view, .mvp-debug-api .setup-action) button:hover:not(:disabled) { background: var(--hover); }
+:is(.setup-view, .mvp-debug-api .setup-action) button:disabled { opacity: .6; cursor: default; }
+:is(.setup-view, .mvp-debug-api .setup-action) button[data-primary] { color: var(--on-action-primary); background: var(--action-primary); border-color: var(--action-primary); }
 .setup-view :is(input, select, button, a):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .setup-copy { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--code-bg); }
 .setup-copy code { flex: 1; min-width: 0; }
@@ -3049,26 +3049,24 @@
 .mvp-debug-api { box-sizing: border-box; }
 .mvp-debug-api .debug-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 20px; }
 .mvp-debug-api .debug-detail, .mvp-debug-api nav { min-width: 0; }
-.mvp-debug-api h2 { margin: 0; }
 .mvp-debug-api h3 { margin: 12px 0 8px; font-size: var(--fs-body); font-weight: 600; }
 .mvp-debug-api nav button { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px; text-align: left; border: 1px solid transparent; border-radius: var(--r-2); background: transparent; color: var(--text); }
 .mvp-debug-api nav button[aria-pressed="true"] { background: var(--surface-2); border-color: var(--border-strong); }
 .mvp-debug-api nav button span, .mvp-debug-api h3 span { color: var(--text-muted); font-weight: 400; }
 .mvp-debug-api code, .mvp-debug-api dt, .mvp-debug-api dd { overflow-wrap: anywhere; }
-.mvp-debug-api .setup-action { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
-.mvp-debug-api .setup-field { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.mvp-debug-api .setup-action { flex-direction: column; align-items: stretch; }
 .mvp-debug-api input, .mvp-debug-api textarea, .mvp-debug-api select { box-sizing: border-box; width: 100%; padding: 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-2); font: inherit; }
 .mvp-debug-api textarea { min-height: 120px; resize: vertical; font-family: var(--font-mono); }
-.mvp-debug-api .setup-action button { padding: 7px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
-.mvp-debug-api .setup-action button[data-primary] { background: var(--text); color: var(--surface); }
-.mvp-debug-api .setup-action button:disabled { opacity: .6; }
-.mvp-debug-api .setup-reason { color: var(--text-muted); }
-.mvp-debug-api .debug-pending { padding: 10px; margin-bottom: 12px; color: var(--attention); background: var(--attention-wash); border-radius: var(--r-2); }
-.mvp-debug-api .debug-failure { color: var(--danger); margin-top: 12px; }
+.mvp-debug-api .debug-pending { margin-bottom: 12px; --tone: var(--attention-text); }
+.mvp-debug-api :is(.debug-pending, .debug-failure) { color: var(--tone); background: color-mix(in srgb, var(--tone) 10%, var(--surface)); padding: 10px; border-radius: var(--r-2); }
+.mvp-debug-api .debug-failure { margin-top: 12px; }
 .mvp-debug-api .debug-failure p { margin: 4px 0; }
 .mvp-debug-api .debug-headers { font-family: var(--font-mono); font-size: var(--fs-small); }
-.mvp-debug-api .debug-headers div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.mvp-debug-api .debug-headers div { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 16px; }
 .mvp-debug-api dd { margin: 0; }
 .mvp-debug-api pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--surface-2); border-radius: var(--r-2); }
 .mvp-debug-api :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 @media (max-width: 600px) { .mvp-debug-api .debug-layout { grid-template-columns: minmax(0, 1fr); } }
+
+.mvp-debug-api nav h3 { margin: 0 0 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-debug-api :is(code, pre) { font-family: var(--font-mono); font-size: var(--fs-small); }

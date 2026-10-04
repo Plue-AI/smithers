@@ -648,9 +648,10 @@ above the page. No router, loader or authorization belongs to this View.
 
 ### T-UI-22 Debug API
 
+`DebugApiCard` and `HttpMethod` are plain TypeScript browser projection types.
 `DebugApiView` consumes `DebugApiViewProps` from `@smthrs/rpc/DebugApiCard`.
 Operations are grouped in supplied order; selection emits `onView({ selected })`.
 Send renders its supplied `input` through the shared action form, including multiline
-JSON bodies. Pending mutations show method and path beside supplied confirmation
-actions. The exchange shows request, response status, headers, body and duration;
+JSON bodies. The detail pane names the selected operation. Pending mutations place
+supplied confirmation actions inside an attention inset. The exchange shows request, response status, headers, body and duration;
 typed failures use ember. The View makes no request and decides no authorization.

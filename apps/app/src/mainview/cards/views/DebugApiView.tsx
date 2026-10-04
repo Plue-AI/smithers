@@ -3,6 +3,7 @@ import { SetupActions } from "./SetupActions"
 
 export function DebugApiView({ model, view, actions, onAction, onView }: DebugApiViewProps) {
   const selected = view.selected ?? model.selected
+  const op = model.operations.find(operation => operation.id === selected)
   return <article className="smithers-card mvp-debug-api" aria-label="Debug API" data-keyboard-pane="Debug API">
     <header className="smithers-card-header"><h2 className="smithers-card-title">Debug API</h2></header>
     <div className="debug-layout">
@@ -12,15 +13,15 @@ export function DebugApiView({ model, view, actions, onAction, onView }: DebugAp
         </button>)}
       </section>)}</nav>
       <div className="debug-detail">
-        {model.pending && <div className="debug-pending"><code>{model.pending.method} {model.pending.path}</code></div>}
-        <SetupActions key={selected} actions={actions} onAction={onAction} />
+        {op && <h3><code>{op.method} {op.path}</code></h3>}
+        {model.pending ? <div className="debug-pending" data-tone="attention"><SetupActions key={selected} actions={actions} onAction={onAction} /></div> : <SetupActions key={selected} actions={actions} onAction={onAction} />}
         {model.exchange && <section aria-label="Exchange">
           <h3>Request</h3><code>{model.exchange.request.method} {model.exchange.request.url}</code>
           <HeaderRows headers={model.exchange.request.headers} />
           {model.exchange.request.body !== undefined && <pre>{model.exchange.request.body}</pre>}
           {model.exchange.response && <><h3>Response <span>{model.exchange.response.status} · {model.exchange.response.duration_ms} ms</span></h3>
-            <HeaderRows headers={model.exchange.response.headers} /><pre>{model.exchange.response.body}</pre></>}
-          {model.exchange.failure && <div className="debug-failure" role="status"><code>{model.exchange.failure.class}{model.exchange.failure.status !== undefined && ` · ${model.exchange.failure.status}`}</code><p>{model.exchange.failure.message}</p></div>}
+            <HeaderRows headers={model.exchange.response.headers} />{model.exchange.response.body !== "" && <pre>{model.exchange.response.body}</pre>}</>}
+          {model.exchange.failure && <div className="debug-failure" data-tone="failed" role="status"><code>{model.exchange.failure.class}{model.exchange.failure.status !== undefined && ` · ${model.exchange.failure.status}`}</code><p>{model.exchange.failure.message}</p></div>}
         </section>}
       </div>
     </div>

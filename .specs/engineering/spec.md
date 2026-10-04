@@ -1236,7 +1236,7 @@ The seam is one zod schema per card in `packages/rpc`, exported through per-modu
 | Agent | `agents` | S1 | Name, instructions path, role (shown as "Fast model", "Coding model" or "Decisions"), model and the owner's choices, runs it took part in |
 | Confirm | `confirmations:<member>` | S1 | Kind (`one_click` or `review_merge`), action, a one-line summary, subject `{kind: todo|branch|flow|agent|wiki, ref, revision?}`, the exact text the command sends (one_click), who asked, and for review_merge `{title, place, pr, evidence, approved_revision?, merge}` with each check of the subject revision; a receipt `{by, result: done|cancelled|expired, at, text?}` |
 | Docs | none: pages bundled in the app (`apps/app/src/docs/`) | S2 | toc[] `{slug, title}`, page `{slug, title, summary, markdown}`, anchor?, not_found? (M-35, T-APP-20) |
-| Debug API | none: `docs/api/openapi.yaml`, bundled | S2 | operations[] `{id, method, path, summary, group}`; selected?; pending `{method, path}`? (a mutation waiting for its in-card confirmation); exchange `{request {method, url, headers, body?}, response? {status, headers, body, duration_ms}, failure? {class, message, status?}}`; the Send action's form comes from the operation's parameters and body schema (M-36, T-APP-21) |
+| Debug API | none: `docs/api/openapi.yaml`, bundled | S2 | TypeScript browser projection: operations[] `{id, method, path, summary, group}`; selected?; pending `{method, path}`? (a mutation waiting for its in-card confirmation); exchange `{request {method, url, headers, body?}, response? {status, headers, body, duration_ms}, failure? {class, message, status?}}`; the Send action's form comes from the operation's parameters and body schema (M-36, T-APP-21) |
 
 ### 14.4 Toasts
 

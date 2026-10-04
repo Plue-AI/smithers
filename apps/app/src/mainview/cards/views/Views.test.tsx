@@ -61,47 +61,6 @@ for (const path of paths) {
           } else expect([...displays, host.querySelector("diffs-container")?.shadowRoot?.textContent ?? "", ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password]),textarea")].map(input => input.value)].join("\n")).toContain(text)
         }
         // Layout and virtualized hunk controls are covered by the production Chromium stories.
-        if (path === "DebugApiView.stories.tsx") {
-          const operationIds = ["getHealth", "getTodo", "dropTodo", "headTodo", "putSecret", "deleteSecret", "patchSettings"]
-          for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("nav button")].entries()) {
-            onView.mockClear()
-            await act(async () => button.click())
-            expect(onView.mock.calls).toEqual([[{ selected: operationIds[index] }]])
-            expect(onAction).toHaveBeenCalledTimes(0)
-          }
-          // Restore the fixture before testing its form; selection clears local drafts.
-          const fresh = await mounted(story)
-          try {
-            if (story.name === "disabled") {
-              expect(fresh.host.textContent).toContain("Sign in again")
-              expect(fresh.host.querySelector<HTMLButtonElement>("button[data-flow]")!.disabled).toBe(true)
-              expect(fresh.host.querySelector<HTMLInputElement>("input")!.disabled).toBe(true)
-              await act(async () => fresh.host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
-              expect(fresh.onAction).toHaveBeenCalledTimes(0)
-            }
-            for (const form of story.name === "disabled" ? [] : fresh.host.querySelectorAll<HTMLFormElement>("form")) {
-              await act(async () => {
-                for (const field of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input,textarea")) {
-                  const prototype = field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-                  Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(field, field.tagName === "TEXTAREA" ? '{"capacity":2}' : "12")
-                  field.dispatchEvent(new Event("change", { bubbles: true }))
-                  field.dispatchEvent(new Event("input", { bubbles: true }))
-                }
-              })
-              await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
-              expect(fresh.onAction).toHaveBeenCalledTimes(1)
-              const expected: Record<string, string> = story.name === "pending_mutation" ? { operation: "dropTodo", confirm: "true" } : story.name === "patch_body" ? { operation: "patchSettings", body: '{"capacity":2}' } : { operation: "getTodo", n: "12" }
-              expect(fresh.onAction.mock.calls[0]).toEqual(["debug-api", expected])
-            }
-            if (story.name === "get_200") expect(fresh.host.textContent).toContain("200 · 18 ms")
-            if (story.name === "patch_body") expect(fresh.host.querySelector("textarea")).not.toBeNull()
-            if (story.name === "pending_mutation") expect(fresh.host.querySelector('[aria-label="Exchange"]')).toBeNull()
-          } finally { await fresh.close() }
-          const removed = await mounted(story, true)
-          try { expect(removed.host.querySelector("button[data-flow]")).toBeNull() }
-          finally { await removed.close() }
-          return
-        }
         if (story.interactionSuite === "TODO") {
           const fixture = todoStories[story.name as keyof typeof todoStories]
           const supplied = [...fixture.actions, ...fixture.model.waits.flatMap(wait => wait.actions)]
@@ -213,15 +172,28 @@ for (const path of paths) {
             expect(control.disabled).toBe(true)
             expect(host.textContent).toContain(action.disabled.reason)
           }
+          const form = control.closest("form.setup-action")
+          const inputArgs: Record<string, string> = {}
+          await act(async () => {
+            for (const field of form?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input,textarea") ?? []) {
+              const name = field.id.split("-").at(-1)!
+              const value = field.tagName === "TEXTAREA" ? '{"capacity":2}' : "12"
+              inputArgs[name] = value
+              Object.getOwnPropertyDescriptor(field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!.call(field, value)
+              field.dispatchEvent(new Event("input", { bubbles: true }))
+              field.dispatchEvent(new Event("change", { bubbles: true }))
+            }
+          })
           await act(async () => control.click())
           expect(onView).toHaveBeenCalledTimes(0)
           if (action.disabled) expect(onAction).toHaveBeenCalledTimes(0)
           else {
             expect(onAction).toHaveBeenCalledTimes(1)
-            expect(onAction.mock.calls[0]).toEqual([action.tag, action.args ?? {}])
+            expect(onAction.mock.calls[0]).toEqual([action.tag, { ...action.args, ...inputArgs }])
           }
         }
-        const covered = new Set(controls)
+        const covered = new Set<Element>(controls)
+        for (const control of controls) for (const field of control.closest("form")?.querySelectorAll("input,textarea") ?? []) covered.add(field)
         for (const interaction of interactions) {
           const control = host.querySelector<HTMLElement>(interaction.selector)
           expect(control).not.toBeNull()
@@ -1704,5 +1676,55 @@ describe("DocsView", () => {
       expect(rendered.host.querySelector("h2")?.textContent).toBe("Quickstart")
       expect(rendered.host.querySelector('[aria-current="page"]')?.textContent).toBe("Quickstart")
     } finally { await rendered.close() }
+  })
+})
+
+import { fixtures as debugFixtures } from "@smthrs/rpc/fixtures/DebugApi"
+import { stories as debugStories } from "./DebugApiView.stories"
+describe("DebugApiView", () => {
+  for (const story of debugStories) test(story.name, async () => {
+    const { host, onView, onAction, close } = await mounted(story)
+    try {
+      const operations = debugFixtures.operations.model.operations
+      const operationIds = [...new Set(operations.map(operation => operation.group))].flatMap(group => operations.filter(operation => operation.group === group).map(operation => operation.id))
+      for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("nav button")].entries()) {
+        onView.mockClear()
+        await act(async () => button.click())
+        expect(onView.mock.calls).toEqual([[{ selected: operationIds[index] }]])
+        expect(onAction).toHaveBeenCalledTimes(0)
+      }
+      // Restore the fixture before testing its form; selection clears local drafts.
+      const fresh = await mounted(story)
+      try {
+        if (story.name === "disabled") {
+          expect(fresh.host.textContent).toContain("Sign in again")
+          expect(fresh.host.querySelector<HTMLButtonElement>("button[data-flow]")!.disabled).toBe(true)
+          expect(fresh.host.querySelector<HTMLInputElement>("input")!.disabled).toBe(true)
+          await act(async () => fresh.host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
+          expect(fresh.onAction).toHaveBeenCalledTimes(0)
+        }
+        for (const form of story.name === "disabled" ? [] : fresh.host.querySelectorAll<HTMLFormElement>("form")) {
+          await act(async () => {
+            for (const field of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input,textarea")) {
+              const prototype = field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+              Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(field, field.tagName === "TEXTAREA" ? '{"capacity":2}' : "12")
+              field.dispatchEvent(new Event("change", { bubbles: true }))
+              field.dispatchEvent(new Event("input", { bubbles: true }))
+            }
+          })
+          await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+          expect(fresh.onAction).toHaveBeenCalledTimes(1)
+          const expected: Record<string, string> = story.name === "pending_mutation" ? { operation: "dropTodo", confirm: "true" } : story.name === "patch_body" ? { operation: "patchSettings", body: '{"capacity":2}' } : { operation: "getTodo", n: "12" }
+          expect(fresh.onAction.mock.calls[0]).toEqual(["debug-api", expected])
+        }
+        if (story.name === "get_200") expect(fresh.host.textContent).toContain("200 · 18 ms")
+        if (story.name === "patch_body") expect(fresh.host.querySelector("textarea")).not.toBeNull()
+        if (story.name === "pending_mutation") expect(fresh.host.querySelector('[aria-label="Exchange"]')).toBeNull()
+      } finally { await fresh.close() }
+      const removed = await mounted(story, true)
+      try { expect(removed.host.querySelector("button[data-flow]")).toBeNull() }
+      finally { await removed.close() }
+
+    } finally { await close() }
   })
 })

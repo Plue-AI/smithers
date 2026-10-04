@@ -39,7 +39,7 @@ recorded cards; view models do not replace that history decoder.
 | TerminalCard       | TerminalCardSchema, TerminalCard             | Owner, agents, watchers, command and frozen state                         |
 | SecretsCard        | SecretsCardSchema, SecretsCard               | Secret names, scopes, bound hosts and row actions; no values              |
 | DocsCard           | DocsCardSchema, DocsCard                     | Bundled table of contents, page, anchor and not-found state               |
-| DebugApiCard       | DebugApiCardSchema, DebugApiCard             | API operations, the selection, a pending mutation and the exchange        |
+| DebugApiCard       | DebugApiCard (TypeScript props)             | API operations, the selection, a pending mutation and the exchange        |
 | ProposalCard       | ProposalCardSchema, ProposalCard             | Evidence, references, state and the TODO it became                        |
 
 Each module also exports its View's props type, such as `TodoViewProps` or
