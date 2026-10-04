@@ -388,9 +388,10 @@ describe("host parity — the web and native catalogs against the servers' own c
       expect(host.querySelector('[data-kind="file"]')).not.toBeNull()
       expect(rendered).toContain("box.session.destroy")
       expect(rendered.filter((name) => !webNames.has(name))).toEqual([])
-      // The tunnel is open here, so the code-intel gesture is a live web binding — never developer copy about a missing host.
+      // Code-intel flows stay out of the catalog until isolated execution lands (#3461); an open tunnel grants no
+      // execution authority, and the file card still shows no developer copy about a missing host.
       const file = host.querySelector('[data-kind="file"]')!
-      expect(webNames.has("code.hover")).toBe(true)
+      expect(webNames.has("code.hover")).toBe(false)
       expect(file.textContent).not.toContain("needs the native app")
     } finally {
       flushSync(() => root.unmount())
