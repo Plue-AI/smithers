@@ -34,7 +34,7 @@ import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Jj from "@smthrs/jj"
-import { Migrations, SqlJournal } from "@smthrs/journal"
+import { Journal, JournalEvent, Migrations, SqlJournal } from "@smthrs/journal"
 import * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
@@ -198,6 +198,7 @@ const host = (
   engineHost = "engine-park-host",
   options: {
     readonly beforeEngineResume?: (runId: string) => Effect.Effect<void>
+    readonly engineJournal?: Deferred.Deferred<Journal.Service>
     readonly authorizeReleasedChildren?: AgentSession.Options["authorizeReleasedChildren"]
     readonly canExecute?: AgentSession.Options["canExecute"]
     readonly resumed?: Deferred.Deferred<void>
@@ -277,7 +278,16 @@ const host = (
     },
     options.boundary ?? StepBoundary.layer,
     WorkspaceSandbox.layerFileSystem(),
-    registration
+    Layer.merge(
+      registration,
+      Layer.effectDiscard(
+        Effect.gen(function*() {
+          if (options.engineJournal !== undefined) {
+            yield* Deferred.succeed(options.engineJournal, yield* Journal.Journal)
+          }
+        })
+      )
+    )
   ).pipe(Layer.provide([AtomicFileSystem.layer, NodeCrypto.layer, jj]))
   // `provideMerge` rather than `provide`: a case may drive the engine itself,
   // which is what a heartbeat sweep or a peer's poll is to the executor.
@@ -485,6 +495,7 @@ describe("an agent execution quarantined by the durable engine", () => {
   it("fences a delegated resume when a peer quarantines after its wait precheck", async () => {
     const root = makeRoot()
     const resumed = Deferred.makeUnsafe<void>()
+    const engineJournal = Deferred.makeUnsafe<Journal.Service>()
     // The peer's quarantine lands inside the window this case is about: after
     // the executor read the park as a timer and claimed the control row, and
     // before the engine is asked to re-drive the execution.
@@ -507,6 +518,20 @@ describe("an agent execution quarantined by the durable engine", () => {
         const id = yield* launch
         const runtime = yield* ControlRuntime.ControlRuntime
         yield* awaitStatus(runtime, id, "parked")
+        // The control park is written by the body's exit handler, before the
+        // engine commits its wait classification. Replay and follow the engine
+        // journal so the timer precondition is durable before injecting the peer.
+        const journal = yield* Deferred.await(engineJournal)
+        yield* journal.stream({ runId: JournalEvent.RunId.make(id) }).pipe(
+          Stream.filter((entry) =>
+            entry.eventType === "flows.engine.run-decision" &&
+            typeof entry.payload === "object" && entry.payload !== null &&
+            "decision" in entry.payload && entry.payload.decision === "transitioned" &&
+            "status" in entry.payload && entry.payload.status === "suspended"
+          ),
+          Stream.take(1),
+          Stream.runDrain
+        )
         expect(readEngineRun(root, id)?.waiting_reason).toBe("timer")
         const wakesBefore = operatorWakes(id)
         quarantineOnResume = true
@@ -518,6 +543,7 @@ describe("an agent execution quarantined by the durable engine", () => {
         return { id, uptake, wakesBefore, parkedBy: (yield* runtime.getRun(id)).parkedBy }
       }).pipe(
         Effect.provide(host(root, hostOwner, "quarantine-race", {
+          engineJournal,
           resumed,
           beforeEngineResume: (id) =>
             Effect.sync(() => {
