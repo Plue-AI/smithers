@@ -14,7 +14,7 @@ func TestIssue1793OnlyActivatedEmailIsUniqueAcrossAccounts(t *testing.T) {
 	require.NoError(t, Apply(ctx, pool))
 
 	_, err := pool.Exec(ctx, `INSERT INTO users (id, username, lower_username) VALUES
-		(1, 'alice', 'alice'), (2, 'bob', 'bob'), (3, 'carol', 'carol')`)
+		(1001, 'alice', 'alice'), (2, 'bob', 'bob'), (3, 'carol', 'carol')`)
 	require.NoError(t, err)
 
 	insert := func(userID int64) int64 {
@@ -24,11 +24,11 @@ func TestIssue1793OnlyActivatedEmailIsUniqueAcrossAccounts(t *testing.T) {
 			VALUES ($1, 'Shared@Example.com', 'shared@example.com') RETURNING id`, userID).Scan(&id))
 		return id
 	}
-	first := insert(1)
+	first := insert(1001)
 	second := insert(2)
 
 	_, err = pool.Exec(ctx, `INSERT INTO email_addresses (user_id, email, lower_email)
-		VALUES (1, 'Shared@Example.com', 'shared@example.com')`)
+		VALUES (1001, 'Shared@Example.com', 'shared@example.com')`)
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "email_addresses_user_id_lower_email_key", pgErr.ConstraintName)

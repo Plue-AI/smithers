@@ -84,7 +84,7 @@ func newPoolFixture(t *testing.T) poolFixture {
 	repoID := servicesBRepo(t, p)
 	ref := &poolRefresher{}
 	q := db.New(p)
-	return poolFixture{pool: p, q: q, svc: services.NewProviderConnectionService(q, poolCodec{}, ref, services.WithSubscriptionConnectionsEnabled(true)), ref: ref, repoID: repoID, alice: &db.User{ID: 1, Username: "alice"}}
+	return poolFixture{pool: p, q: q, svc: services.NewProviderConnectionService(q, poolCodec{}, ref, services.WithSubscriptionConnectionsEnabled(true)), ref: ref, repoID: repoID, alice: &db.User{ID: 1001, Username: "alice"}}
 }
 
 func (f poolFixture) connect(t *testing.T, label string) string {
@@ -98,7 +98,7 @@ func (f poolFixture) pickLabels(t *testing.T, n int) []string {
 	t.Helper()
 	var out []string
 	for range n {
-		pick, err := f.svc.PickForModelCall(context.Background(), 1, f.repoID, "claude", nil)
+		pick, err := f.svc.PickForModelCall(context.Background(), 1001, f.repoID, "claude", nil)
 		require.NoError(t, err)
 		require.True(t, pick.Pooled)
 		if pick.Connection == nil {
@@ -131,7 +131,7 @@ func TestProviderPoolRotatesSkipsLimitedAndResets(t *testing.T) {
 
 	require.NoError(t, f.svc.MarkLimited(ctx, a, time.Now().Add(30*time.Minute)))
 	require.NoError(t, f.svc.MarkLimited(ctx, c, time.Now().Add(2*time.Hour)))
-	pick, err := f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err := f.svc.PickForModelCall(ctx, 1001, f.repoID, "claude", nil)
 	require.NoError(t, err)
 	require.True(t, pick.Pooled)
 	require.Nil(t, pick.Connection, "every account is limited")
@@ -142,7 +142,7 @@ func TestProviderPoolRotatesSkipsLimitedAndResets(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"b", "b"}, f.pickLabels(t, 2), "an account is usable again once its limit resets")
 
-	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", []string{b})
+	pick, err = f.svc.PickForModelCall(ctx, 1001, f.repoID, "claude", []string{b})
 	require.NoError(t, err)
 	require.Nil(t, pick.Connection, "a request never retries an account it already tried")
 }
@@ -166,7 +166,7 @@ func TestProviderPoolConcurrentPicksSpreadAcrossAccounts(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 30 {
 		wg.Go(func() {
-			pick, err := f.svc.PickForModelCall(context.Background(), 1, f.repoID, "claude", nil)
+			pick, err := f.svc.PickForModelCall(context.Background(), 1001, f.repoID, "claude", nil)
 			if err != nil || pick.Connection == nil {
 				mu.Lock()
 				counts["error"]++
@@ -197,7 +197,7 @@ func TestProviderPoolSkipsFailedRefreshAndFencesRejection(t *testing.T) {
 	require.NoError(t, err)
 	b := fresh.ID
 	f.ref.err = services.ErrProviderRefreshInvalidGrant
-	pick, err := f.svc.PickForModelCall(ctx, 1, f.repoID, "codex", nil)
+	pick, err := f.svc.PickForModelCall(ctx, 1001, f.repoID, "codex", nil)
 	require.NoError(t, err)
 	require.Equal(t, b, pick.Connection.ConnectionID, "an account whose refresh fails is skipped")
 	current, err := f.q.GetProviderConnection(ctx, oauth.ID)
@@ -209,7 +209,7 @@ func TestProviderPoolSkipsFailedRefreshAndFencesRejection(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "active", current.State, "a refusal of an older token generation is ignored")
 	require.NoError(t, f.svc.MarkRejected(ctx, b, pick.Connection.RefreshGeneration, "401"))
-	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "codex", nil)
+	pick, err = f.svc.PickForModelCall(ctx, 1001, f.repoID, "codex", nil)
 	require.NoError(t, err)
 	require.True(t, pick.Pooled)
 	require.True(t, pick.Reconnect, "every remaining account needs a reconnect")
@@ -219,38 +219,38 @@ func TestProviderPoolSkipsFailedRefreshAndFencesRejection(t *testing.T) {
 func TestProviderPoolScope(t *testing.T) {
 	f := newPoolFixture(t)
 	ctx := context.Background()
-	pick, err := f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err := f.svc.PickForModelCall(ctx, 1001, f.repoID, "claude", nil)
 	require.NoError(t, err)
 	require.False(t, pick.Pooled, "no connections: platform credentials")
-	has, err := f.svc.HasPool(ctx, 1, f.repoID, "claude")
+	has, err := f.svc.HasPool(ctx, 1001, f.repoID, "claude")
 	require.NoError(t, err)
 	require.False(t, has)
 	f.connect(t, "a")
-	has, err = f.svc.HasPool(ctx, 1, f.repoID, "claude")
+	has, err = f.svc.HasPool(ctx, 1001, f.repoID, "claude")
 	require.NoError(t, err)
 	require.True(t, has)
 	pick, err = f.svc.PickForModelCall(ctx, 2, f.repoID, "claude", nil)
 	require.NoError(t, err)
 	require.False(t, pick.Pooled, "another user's run never spends alice's account without a grant")
-	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "codex", nil)
+	pick, err = f.svc.PickForModelCall(ctx, 1001, f.repoID, "codex", nil)
 	require.NoError(t, err)
 	require.False(t, pick.Pooled, "pools never cross providers")
 	// With the deployment flag off (the hosted default) the stored account is
 	// inert: no pool, no pick.
 	disabled := services.NewProviderConnectionService(f.q, poolCodec{}, f.ref)
-	has, err = disabled.HasPool(ctx, 1, f.repoID, "claude")
+	has, err = disabled.HasPool(ctx, 1001, f.repoID, "claude")
 	require.NoError(t, err)
 	require.False(t, has, "subscription connections disabled")
-	pick, err = disabled.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err = disabled.PickForModelCall(ctx, 1001, f.repoID, "claude", nil)
 	require.NoError(t, err)
 	require.False(t, pick.Pooled, "subscription connections disabled")
 	// A subscription serves only its account holder's own runs.
 	require.NoError(t, f.svc.SetRepositoryPreference(ctx, f.repoID, services.ProviderConnectionPreferenceOrgOnly))
-	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err = f.svc.PickForModelCall(ctx, 1001, f.repoID, "claude", nil)
 	require.NoError(t, err)
 	require.False(t, pick.Pooled, "org_only never draws on a user's subscription")
 	require.NoError(t, f.svc.SetRepositoryPreference(ctx, f.repoID, services.ProviderConnectionPreferencePlatformOnly))
-	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err = f.svc.PickForModelCall(ctx, 1001, f.repoID, "claude", nil)
 	require.NoError(t, err)
 	require.False(t, pick.Pooled, "platform_only")
 }
@@ -323,7 +323,7 @@ func TestProviderAccountReplacementOnlyRevokesOlderConnections(t *testing.T) {
 	require.NoError(t, err)
 	newer, err := f.svc.ConnectForUser(ctx, f.alice, services.ConnectProviderInput{Provider: "codex", Kind: "oauth", Label: "newer", AccessToken: "a2", RefreshToken: "r2", AccountID: "acct"})
 	require.NoError(t, err)
-	user := pgtypeUser(1)
+	user := pgtypeUser(1001)
 	n, err := f.q.RevokeOtherUserProviderAccountConnections(ctx, db.RevokeOtherUserProviderAccountConnectionsParams{UserID: user, Provider: "codex", AccountID: "acct", KeepID: older.ID})
 	require.NoError(t, err)
 	require.Zero(t, n, "an older sign-in never revokes a newer one")
@@ -354,12 +354,12 @@ func TestProviderWebConnectionServesEveryRepositoryOfItsOwner(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO organizations(name, lower_name) VALUES('acme','acme') RETURNING id`).Scan(new(int64)))
 	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO repositories(org_id,name,lower_name) VALUES((SELECT id FROM organizations WHERE lower_name='acme'),'app','app') RETURNING id`).Scan(&orgRepo))
 	f.connect(t, "cli")
-	has, err := f.svc.HasPool(ctx, 1, orgRepo, "claude")
+	has, err := f.svc.HasPool(ctx, 1001, orgRepo, "claude")
 	require.NoError(t, err)
 	require.False(t, has, "a connection without a grant serves only the owner's repositories")
 	_, err = f.svc.ConnectForUser(ctx, f.alice, services.ConnectProviderInput{Provider: "claude", Label: "web-00000000-0000-0000-0000-000000000001", AccessToken: "sk-ant-api03-key"})
 	require.NoError(t, err)
-	pick, err := f.svc.PickForModelCall(ctx, 1, orgRepo, "claude", nil)
+	pick, err := f.svc.PickForModelCall(ctx, 1001, orgRepo, "claude", nil)
 	require.NoError(t, err)
 	require.NotNil(t, pick.Connection)
 	require.Equal(t, "api_key", pick.Connection.Kind)

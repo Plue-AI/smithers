@@ -139,9 +139,17 @@ describe("backend consumer gate", () => {
     const commands = shell.split(/;\s*/)
     const gate = commands.indexOf("sh scripts/test-backend-consumer.sh || exit $?")
     assert.ok(gate >= 0, "backendGo must run the consumer script and stop on its failure")
-    assert.ok(gate < commands.findIndex((command) => command.startsWith("go test ")), "the gate runs before the Go suites")
+    assert.ok(gate < commands.findIndex((command) => command.startsWith("go test -count=1 ")), "the gate runs before the Go suites")
     assert.ok(target.includes('Smithers.file("//scripts/test-backend-consumer.sh")'), "the script is a declared input")
     assert.match(declaration, /pattern: "\/\/:backendGo"/, "a CI job selects backendGo")
+  })
+
+  it("compiles product tests before gates that can hide their compiler errors", () => {
+    const compile = shell.indexOf("go test -run '^$' ./packages/backend/db/product || exit $?")
+    assert.ok(compile >= 0, "product tests must compile even before the consumer gate")
+    assert.ok(compile < shell.indexOf("python3 -B -m unittest"))
+    assert.match(shell, /go vet \.\/packages\/backend\/\.\.\./)
+    assert.match(shell, /go test -count=1 \.\/packages\/backend\/\.\.\./)
   })
 
   it("keeps the consumer script failing on a compile error", () => {

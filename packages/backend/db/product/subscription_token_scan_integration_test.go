@@ -33,11 +33,11 @@ func newScanFixture(t *testing.T) scanFixture {
 	require.NoError(t, err)
 	f := scanFixture{pool: pool, codec: codec}
 	chatgpt := `{"auth_mode":"chatgpt","tokens":{"refresh_token":"r"}}`
-	f.exec(t, `INSERT INTO users(id,username,lower_username) VALUES(1,'alice','alice')`)
+	f.exec(t, `INSERT INTO users(id,username,lower_username) VALUES(1001,'alice','alice')`)
 	f.exec(t, `INSERT INTO organizations(id,name,lower_name) VALUES(9,'acme','acme')`)
 	// 1 repo secret tokens, 2 org secret tokens (via org 9), 3 clean,
 	// 4 agent setup script token, 5 agent secret tokens, 6 variable tokens.
-	f.exec(t, `INSERT INTO repositories(id,user_id,name,lower_name) VALUES(1,1,'r1','r1'),(3,1,'r3','r3'),(4,1,'r4','r4'),(5,1,'r5','r5'),(6,1,'r6','r6')`)
+	f.exec(t, `INSERT INTO repositories(id,user_id,name,lower_name) VALUES(1,1001,'r1','r1'),(3,1001,'r3','r3'),(4,1001,'r4','r4'),(5,1001,'r5','r5'),(6,1001,'r6','r6')`)
 	f.exec(t, `INSERT INTO repositories(id,org_id,name,lower_name) VALUES(2,9,'r2','r2')`)
 	// The variable tokens sit past the first page of 500 clean rows.
 	f.exec(t, `INSERT INTO repository_variables(id,repository_id,name,value) SELECT n,3,'V'||n,'clean' FROM generate_series(1,600) n`)
@@ -51,21 +51,21 @@ func newScanFixture(t *testing.T) scanFixture {
 		f.seal(t, chatgpt), f.seal(t, "sk-ant-ort01-refresh"), f.seal(t, "fine"))
 	// Model credentials belong to the account: nothing to mark. The tokens
 	// sort after a first page of 500 clean credentials.
-	f.exec(t, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) SELECT 1,'K'||lpad(n::text,4,'0'),'https://models.example',$1 FROM generate_series(1,600) n`, string(f.seal(t, "sk-proj-fine")))
-	f.exec(t, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) VALUES(1,'Y_KEY','https://models.example',$1),(1,'Z_KEY','https://models.example',$2),(1,'CUSTOM_KEY','https://models.example',NULL)`,
+	f.exec(t, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) SELECT 1001,'K'||lpad(n::text,4,'0'),'https://models.example',$1 FROM generate_series(1,600) n`, string(f.seal(t, "sk-proj-fine")))
+	f.exec(t, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) VALUES(1001,'Y_KEY','https://models.example',$1),(1001,'Z_KEY','https://models.example',$2),(1001,'CUSTOM_KEY','https://models.example',NULL)`,
 		string(f.seal(t, chatgpt)), string(f.seal(t, "sk-ant-oat01-model")))
 	// Provider connections: a Claude token under a codex label, in either
 	// field, is removed; a Codex sign-in and an Anthropic API key stay.
 	f.exec(t, `INSERT INTO provider_connections(id,owner_type,user_id,provider,kind,label,access_token_encrypted,refresh_token_encrypted) VALUES
-		('00000000-0000-0000-0000-000000000001','user',1,'codex','oauth','claude-refresh',$1,$2),
-		('00000000-0000-0000-0000-000000000002','user',1,'codex','oauth','claude-access',$3,$4),
-		('00000000-0000-0000-0000-000000000003','user',1,'codex','oauth','codex',$5,$6),
-		('00000000-0000-0000-0000-000000000004','user',1,'claude','api_key','key',$7,NULL)`,
+		('00000000-0000-0000-0000-000000000001','user',1001,'codex','oauth','claude-refresh',$1,$2),
+		('00000000-0000-0000-0000-000000000002','user',1001,'codex','oauth','claude-access',$3,$4),
+		('00000000-0000-0000-0000-000000000003','user',1001,'codex','oauth','codex',$5,$6),
+		('00000000-0000-0000-0000-000000000004','user',1001,'claude','api_key','key',$7,NULL)`,
 		f.seal(t, "at"), f.seal(t, "sk-ant-ort01-refresh"), f.seal(t, "sk-ant-oat01-access"), f.seal(t, "rt"),
 		f.seal(t, "codex-at"), f.seal(t, "codex-rt"), f.seal(t, "sk-ant-api03-key"))
-	f.exec(t, `INSERT INTO workspaces(repository_id,user_id,status) VALUES(1,1,'running'),(2,1,'suspended'),(3,1,'running'),(4,1,'running'),(5,1,'failed'),(6,1,'suspended')`)
-	f.exec(t, `INSERT INTO workspaces(repository_id,user_id,status,deleted_at) VALUES(1,1,'stopped',now())`)
-	f.exec(t, `INSERT INTO workspace_snapshots(repository_id,user_id,name) VALUES(1,1,'s1'),(3,1,'s3')`)
+	f.exec(t, `INSERT INTO workspaces(repository_id,user_id,status) VALUES(1,1001,'running'),(2,1001,'suspended'),(3,1001,'running'),(4,1001,'running'),(5,1001,'failed'),(6,1001,'suspended')`)
+	f.exec(t, `INSERT INTO workspaces(repository_id,user_id,status,deleted_at) VALUES(1,1001,'stopped',now())`)
+	f.exec(t, `INSERT INTO workspace_snapshots(repository_id,user_id,name) VALUES(1,1001,'s1'),(3,1001,'s3')`)
 	return f
 }
 
@@ -155,9 +155,9 @@ func TestStoredSubscriptionTokenScanRemovesClaudeEveryStartAndFlagsTheRestOnce(t
 		"table=repository_agent_environment_secrets owner_id=5 entry=CLAUDE",
 		"table=repository_variables owner_id=6 entry=ANTHROPIC_AUTH_TOKEN",
 		`table=repository_agent_environments owner_id=4 entry="setup script and variables"`,
-		"table=owner_model_credentials owner_id=1 entry=Z_KEY",
-		`table=provider_connections owner_id=1 entry="user codex connection 00000000-0000-0000-0000-000000000001"`,
-		`table=provider_connections owner_id=1 entry="user codex connection 00000000-0000-0000-0000-000000000002"`,
+		"table=owner_model_credentials owner_id=1001 entry=Z_KEY",
+		`table=provider_connections owner_id=1001 entry="user codex connection 00000000-0000-0000-0000-000000000001"`,
+		`table=provider_connections owner_id=1001 entry="user codex connection 00000000-0000-0000-0000-000000000002"`,
 	} {
 		assert.Contains(t, logs.String(), removed)
 	}

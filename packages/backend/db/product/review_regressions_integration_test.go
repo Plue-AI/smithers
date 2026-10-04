@@ -28,10 +28,10 @@ func reviewDatabase(t *testing.T, version int) *pgxpool.Pool {
 
 func reviewRepo(t *testing.T, p *pgxpool.Pool) int64 {
 	t.Helper()
-	_, err := p.Exec(t.Context(), `INSERT INTO users (id, username, lower_username) VALUES (1,'alice','alice'),(2,'bob','bob'),(3,'carol','carol')`)
+	_, err := p.Exec(t.Context(), `INSERT INTO users (id, username, lower_username) VALUES (1001,'alice','alice'),(2,'bob','bob'),(3,'carol','carol')`)
 	require.NoError(t, err)
 	var repo int64
-	err = p.QueryRow(t.Context(), `INSERT INTO repositories (user_id,name,lower_name) VALUES (1,'review','review') RETURNING id`).Scan(&repo)
+	err = p.QueryRow(t.Context(), `INSERT INTO repositories (user_id,name,lower_name) VALUES (1001,'review','review') RETURNING id`).Scan(&repo)
 	require.NoError(t, err)
 	return repo
 }

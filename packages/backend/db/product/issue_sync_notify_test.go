@@ -18,11 +18,11 @@ func TestIssueSyncDeliveryNotifiesAfterCommit(t *testing.T) {
 		_, err = pool.Exec(ctx, m.sql, pgx.QueryExecModeSimpleProtocol)
 		require.NoError(t, err)
 	}
-	_, err = pool.Exec(ctx, `INSERT INTO users(id,username,lower_username) VALUES(1,'notify-owner','notify-owner');
- INSERT INTO repositories(id,name,lower_name,user_id) VALUES(1,'notify-repo','notify-repo',1);
- INSERT INTO issues(id,repository_id,number,title,author_id,kind) VALUES(1,1,1,'chat',1,'chat');
- INSERT INTO issue_sync_threads(issue_id,owner_id,provider,connection_id,scope_id,conversation_id) VALUES(1,1,'slack','conn','T001','C001');
- INSERT INTO issue_events(id,issue_id,actor_id,event_type,payload) VALUES(1,1,1,'comment.reaction','{}');`, pgx.QueryExecModeSimpleProtocol)
+	_, err = pool.Exec(ctx, `INSERT INTO users(id,username,lower_username) VALUES(1001,'notify-owner','notify-owner');
+ INSERT INTO repositories(id,name,lower_name,user_id) VALUES(1,'notify-repo','notify-repo',1001);
+ INSERT INTO issues(id,repository_id,number,title,author_id,kind) VALUES(1,1,1,'chat',1001,'chat');
+ INSERT INTO issue_sync_threads(issue_id,owner_id,provider,connection_id,scope_id,conversation_id) VALUES(1,1001,'slack','conn','T001','C001');
+ INSERT INTO issue_events(id,issue_id,actor_id,event_type,payload) VALUES(1,1,1001,'comment.reaction','{}');`, pgx.QueryExecModeSimpleProtocol)
 	require.NoError(t, err)
 	listener, err := pool.Acquire(ctx)
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestIssueSyncDeliveryNotifiesAfterCommit(t *testing.T) {
 		defer cancel()
 		notification, err := listener.Conn().WaitForNotification(ctx)
 		require.NoError(t, err)
-		require.Equal(t, "sync:1", notification.Payload)
+		require.Equal(t, "sync:1001", notification.Payload)
 	}
 	wait()
 	_, err = pool.Exec(ctx, `UPDATE issue_sync_deliveries SET state='failed'; UPDATE issue_sync_deliveries SET state='pending';`, pgx.QueryExecModeSimpleProtocol)

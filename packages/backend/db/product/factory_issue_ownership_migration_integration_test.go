@@ -22,9 +22,9 @@ func TestFactoryIssueOwnershipMigrationPreservesAmbiguousOwnersAndFollowers(t *t
 	ctx := context.Background()
 	repo := reviewRepo(t, pool)
 	workspace := uuid.NewString()
-	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,1,'running')`, workspace, repo)
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,1001,'running')`, workspace, repo)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,1,'active')`, repo)
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,1001,'active')`, repo)
 	require.NoError(t, err)
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
@@ -32,18 +32,18 @@ func TestFactoryIssueOwnershipMigrationPreservesAmbiguousOwnersAndFollowers(t *t
 		return nil, errors.New("migration must never start runtime")
 	})})
 	require.NoError(t, err)
-	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: "user:1"}
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: "user:1001"}
 	role := func(number int, job string, admit bool) string {
 		t.Helper()
 		registration, dispatch := uuid.NewString(), uuid.NewString()
-		_, e := pool.Exec(ctx, `INSERT INTO repository_job_registrations(id,repository_id,workspace_id,user_id,job,mode,revision,digest,source_revision,flow_id,configuration,enabled) VALUES($1,$2,$3,1,$4,'enabled',1,'owner-digest',$5,'engineering','{"label":"todo"}',true)`, registration, repo, workspace, job, strings.Repeat("a", 40))
+		_, e := pool.Exec(ctx, `INSERT INTO repository_job_registrations(id,repository_id,workspace_id,user_id,job,mode,revision,digest,source_revision,flow_id,configuration,enabled) VALUES($1,$2,$3,1001,$4,'enabled',1,'owner-digest',$5,'engineering','{"label":"todo"}',true)`, registration, repo, workspace, job, strings.Repeat("a", 40))
 		require.NoError(t, e)
 		_, e = pool.Exec(ctx, `INSERT INTO repository_job_dispatches(id,registration_id,revision,digest,delivery_key,source,event_type,event_action,issue_number,payload,status) VALUES($1::uuid,$2::uuid,1,'owner-digest',$1::text,'github','issues','labeled',$3,'{"issue":{"title":"issue","body":"approved"}}','queued')`, dispatch, registration, number)
 		require.NoError(t, e)
 		if !admit {
 			return ""
 		}
-		auth, _ := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1, "workspaceId": workspace, "registrationId": registration, "dispatchId": dispatch, "revision": 1, "digest": "owner-digest"})
+		auth, _ := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1001, "workspaceId": workspace, "registrationId": registration, "dispatchId": dispatch, "revision": 1, "digest": "owner-digest"})
 		receipt, e := dispatcher.Admit(ctx, flowdispatch.LaunchRequest{Scope: scope, RequestID: dispatch, Target: flowruntime.Target{WorkspaceID: workspace, BindingKind: "repository-job-dispatch", BindingID: dispatch}, FlowID: "engineering", Payload: json.RawMessage(`{}`), AuthorizationContext: auth})
 		require.NoError(t, e)
 		return receipt.OperationID
@@ -53,7 +53,7 @@ func TestFactoryIssueOwnershipMigrationPreservesAmbiguousOwnersAndFollowers(t *t
 		item := uuid.NewString()
 		_, e := pool.Exec(ctx, `INSERT INTO mythical_items(id,repository_id,issue_number,source,state,workspace_id,generation,issue_digest,approved_digest) VALUES($1,$2,$3,'issue','running',$4,1,'original-approved-text','original-approved-text')`, item, repo, number, workspace)
 		require.NoError(t, e)
-		auth, _ := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1, "workspaceId": workspace, "itemId": item, "generation": 1})
+		auth, _ := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1001, "workspaceId": workspace, "itemId": item, "generation": 1})
 		receipt, e := dispatcher.Admit(ctx, flowdispatch.LaunchRequest{Scope: scope, RequestID: item, Target: flowruntime.Target{WorkspaceID: workspace, BindingKind: "mythical-item", BindingID: item}, FlowID: "coding/request", Payload: json.RawMessage(`{}`), AuthorizationContext: auth})
 		require.NoError(t, e)
 		if terminalPhase {
@@ -101,7 +101,7 @@ func TestFactoryIssueOwnershipMigrationPreservesAmbiguousOwnersAndFollowers(t *t
 	require.Equal(t, operation.ID, receipt.OperationID)
 	var originalItem string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM mythical_items WHERE repository_id=$1 AND issue_number=100`, repo).Scan(&originalItem))
-	auth, _ := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1, "workspaceId": workspace, "itemId": originalItem, "generation": 1})
+	auth, _ := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1001, "workspaceId": workspace, "itemId": originalItem, "generation": 1})
 	_, err = dispatcher.Admit(ctx, flowdispatch.LaunchRequest{Scope: scope, RequestID: "later-phase", Target: flowruntime.Target{WorkspaceID: workspace, BindingKind: "mythical-item", BindingID: originalItem}, FlowID: "coding/request", Payload: json.RawMessage(`{}`), AuthorizationContext: auth})
 	var pgerr *pgconn.PgError
 	require.ErrorAs(t, err, &pgerr)
@@ -118,9 +118,9 @@ func TestFactoryIssueOwnershipMigrationWaitsForInFlightAdmission(t *testing.T) {
 	defer cancel()
 	repo := reviewRepo(t, pool)
 	workspace, item := uuid.NewString(), uuid.NewString()
-	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,1,'running')`, workspace, repo)
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,1001,'running')`, workspace, repo)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,1,'active')`, repo)
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,1001,'active')`, repo)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(id,repository_id,issue_number,source,state,workspace_id,generation,issue_digest,approved_digest) VALUES($1,$2,100,'issue','running',$3,1,'approved-text','approved-text')`, item, repo, workspace)
 	require.NoError(t, err)
@@ -133,8 +133,8 @@ func TestFactoryIssueOwnershipMigrationWaitsForInFlightAdmission(t *testing.T) {
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(context.Background())
-	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: "user:1"}
-	auth, err := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1, "workspaceId": workspace, "itemId": item, "generation": 1})
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: "user:1001"}
+	auth, err := json.Marshal(map[string]any{"repositoryId": repo, "userId": 1001, "workspaceId": workspace, "itemId": item, "generation": 1})
 	require.NoError(t, err)
 	receipt, err := dispatcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{Scope: scope, RequestID: item, Target: flowruntime.Target{WorkspaceID: workspace, BindingKind: "mythical-item", BindingID: item}, FlowID: "coding/request", Payload: json.RawMessage(`{}`), AuthorizationContext: auth})
 	require.NoError(t, err)

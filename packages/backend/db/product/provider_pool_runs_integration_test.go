@@ -25,8 +25,9 @@ import (
 func startRun(t *testing.T, f poolFixture, repositoryID, userID int64) string {
 	t.Helper()
 	ctx := context.Background()
+	// Each independent coding host needs its own branch machine (M-17).
 	var workspaceID string
-	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id) VALUES ($1, $2) RETURNING id::text`, repositoryID, userID).Scan(&workspaceID))
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id, target_bookmark) VALUES ($1, $2, $3) RETURNING id::text`, repositoryID, userID, "pool-run/"+uuid.NewString()).Scan(&workspaceID))
 	bindingID := uuid.NewString()
 	control := "control-" + bindingID
 	controlHash := sha256.Sum256([]byte(control))

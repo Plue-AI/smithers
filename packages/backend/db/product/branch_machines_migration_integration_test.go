@@ -19,9 +19,9 @@ func TestBranchMachineMigration(t *testing.T) {
 			repo := reviewRepo(t, pool)
 			ctx := t.Context()
 			q := db.New(pool)
-			source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: 1, Name: "main", TargetBookmark: "main", Kind: "container", Status: "running"})
+			source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: 1001, Name: "main", TargetBookmark: "main", Kind: "container", Status: "running"})
 			require.NoError(t, err)
-			snapshot, err := q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: repo, UserID: 1, WorkspaceID: source.ID, Name: "saved", SnapshotID: "retained-snapshot"})
+			snapshot, err := q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: repo, UserID: 1001, WorkspaceID: source.ID, Name: "saved", SnapshotID: "retained-snapshot"})
 			require.NoError(t, err)
 			for _, kind := range []string{"named", "fork", "snapshot", "pushed-ref", "agent"} {
 				arg := db.CreateWorkspaceParams{RepositoryID: repo, UserID: 2, Name: kind, TargetBookmark: "scratch/bob/" + kind, Kind: "container", Status: "running"}
@@ -66,7 +66,7 @@ func TestBranchMachineMigration(t *testing.T) {
 			require.NoError(t, err)
 			owner, err := q.GetBranchMachineOwner(ctx)
 			require.NoError(t, err)
-			require.NotEqualValues(t, 1, owner)
+			require.NotEqualValues(t, 1001, owner)
 			require.NotEqualValues(t, 2, owner)
 			var snapshotOwner int64
 			require.NoError(t, pool.QueryRow(ctx, `SELECT user_id FROM workspace_snapshots WHERE id=$1`, snapshot.ID).Scan(&snapshotOwner))
