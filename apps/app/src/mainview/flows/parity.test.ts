@@ -1589,8 +1589,8 @@ test("deferred surfaces are absent from slash, palette/help and agent discovery"
   const forbidden = ["billing.balance", "billing.plans", "billing.upgrade", "billing.portal",
     "cloud.prompt", "cloud.sign-in", "cloud.sign-out", "repo.choose", "repo.create", "repo.select",
     "repo.overview", "repo.update", "repos.import", "repos.import.retry", "flow.repo.choose",
-    "triggers.list", "triggers.register", "triggers.pause", "triggers.run", "sync.ops.show-more",
-    "box.egress", "box.services", "box.images", "egress.allow", "egress.session", "runs.signal",
+    "triggers.list", "triggers.register", "triggers.pause", "triggers.run", "triggers.approve", "triggers.resume", "sync.ops.show-more",
+    "box.facet", "box.egress", "box.services", "box.images", "egress.allow", "egress.session", "runs.signal",
     "prs.review", "review.request", "review.unrequest", "review.since-mine", "review.done", "review.ack",
     "review.reopen", "issue.repro", "issue.poc", "issue.add-flow", "issue.flows"]
   for (const bootstrap of [undefined, { apiVersion: 1 as const, host: "cloud" as const, version: "test", buildSha: "test",
