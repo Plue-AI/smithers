@@ -2849,7 +2849,7 @@ test("repository home schema decodes every resolution and refuses unsafe paths",
 })
 
 /* mvp.md §8: old Cut cards decode inertly; retained kinds keep their schema audits. */
-const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent"] satisfies readonly (keyof typeof FIXTURES)[]
+const CUT_KINDS = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm"] satisfies readonly (keyof typeof FIXTURES)[]
 const kinds = CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !(CUT_KINDS as readonly string[]).includes(kind))
 const card = (kind: string, payload: unknown): unknown => ({ ...base, kind, payload, ...(kind === "draft" || kind === "confirm" ? { audience_member_id: "ben" } : {}) })
 

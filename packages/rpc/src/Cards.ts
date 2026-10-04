@@ -3049,6 +3049,7 @@ const retiredFlows = new Set([
 /* `history` is the retired narrative History card: the stack card is the one history view (D-20). */
 /* `experimental` was the one kind for the flag-gated mocks over invented data; the mocks are gone (NO INVENTION). */
 const retiredKinds = new Set([
+  "grant-confirm",
   "repository-setup",
   "agent",
   "admin-health",

@@ -181,8 +181,7 @@ test("restored titled tombstones render literal text only through the transcript
 
 for (const [kind, payload] of [
   ["balance", { totalUsd: "25", state: "ok", allowedToStartWork: true, lifetimeChargedUsd: "0", chargeCount: 0, introUsd: null }],
-  ["billing-plans", { planKey: "pro", sandbox: null, plans: [], checkout: true }],
-  ["grant-confirm", { login: "alice", amountUsd: 25, phase: "confirm" }]
+  ["billing-plans", { planKey: "pro", sandbox: null, plans: [], checkout: true }]
 ] as const) test(`saved ${kind} is a titled read-only legacy card`, () => {
   const card = CardSchema.parse({ id: kind, kind, title: "Saved billing", status: "active", createdAt: 1, ordinal: 1, payload })
   const { host, render } = mount({ card })
@@ -192,4 +191,14 @@ for (const [kind, payload] of [
   render({ maximized: true })
   expect(host.textContent).toBe("Saved billing")
   expect(host.querySelector('button, a, input, [data-flow]')).toBeNull()
+})
+
+// Grant confirmation is Cut, unlike the retained deferred billing rows above.
+test("saved grant confirmation remains unavailable before title-preserving decoding lands", () => {
+  const card = CardSchema.parse({ id: "grant", kind: "grant-confirm", title: "Saved grant", status: "active",
+    createdAt: 1, ordinal: 1, payload: { login: "alice", amountUsd: 25, phase: "confirm" } })
+  const { host, render } = mount({ card })
+  expect(host.firstElementChild!.children).toHaveLength(0)
+  render({ maximized: true })
+  expect(host.firstElementChild!.children).toHaveLength(0)
 })

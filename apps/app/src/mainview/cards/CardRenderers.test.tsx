@@ -63,6 +63,18 @@ describe("CardRenderers", () => {
     }
   })
 
+  test.each(["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"])(
+    "%s stays unavailable before the archive shell is wired", kind => {
+      expect(CARD_RENDERERS).not.toHaveProperty(kind)
+      expect(CARD_FAMILIES.flatMap(family => Object.keys(family))).not.toContain(kind)
+      const stored = { ...base, kind, status: "active", title: "Old action", body: "Private old markup",
+        payload: { secret: "Private old payload", action: { flow: "signup.finish" } } }
+      // Raw rows and restored rows both refuse the old body and its controls.
+      expect(renderToStaticMarkup(<CardView card={stored as unknown as Card} {...handlers} />)).toBe("")
+      expect(renderToStaticMarkup(<CardView card={CardSchema.parse(stored)} {...handlers} />)).toBe("")
+    }
+  )
+
   test("an error card wears failed before its family is asked", () => {
     const completed: Card = {
       ...base,

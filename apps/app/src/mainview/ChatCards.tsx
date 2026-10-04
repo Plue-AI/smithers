@@ -154,7 +154,7 @@ export const CardView = memo(function CardView({
   if (card.kind === "retired") return card.title === "" ? null :
     <EntryRow kind="card" author={{ kind: "system", color_index: 7 }} tone="quiet"
       title={card.title} tombstone onAction={() => {}} />
-  if (["balance", "billing-plans", "grant-confirm"].includes(card.kind)) return (
+  if (["balance", "billing-plans"].includes(card.kind)) return (
     <section className="smithers-card" data-kind={card.kind} data-testid={`card-${card.id}`} aria-label={card.title}>
       <header className="smithers-card-header"><span className="smithers-card-title">{card.title}</span></header>
     </section>

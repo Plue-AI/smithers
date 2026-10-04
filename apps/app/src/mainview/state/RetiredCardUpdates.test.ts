@@ -9,9 +9,11 @@ import type { AppTransition } from "./AppState"
 import { validateAppTransition } from "./AppTransitionValidation"
 import { cardAvailable } from "./CardAvailability"
 import { canonicalEventValue, decodeEventValue, encodeEventValue } from "./EventValue"
-import { memoryStorage } from "./TestFixtures"
+import { memoryStorage, waitFor } from "./TestFixtures"
+import { createAppController } from "./AppController"
+import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
-const kinds = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "flow-form"] as const
+const kinds = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm", "flow-form"] as const
 const opened: AppStore[] = []
 afterEach(async () => { for (const store of opened.splice(0)) await store.dispose?.() })
 const open = async (storage: ReturnType<typeof memoryStorage>) => {
@@ -80,6 +82,26 @@ for (const kind of kinds) test(`a version 32 ${kind} checkpoint and original upd
   inert(reopened.collections.cards.get("saved-cut-card"))
   expect((await reopened.eventHistory()).head.streamId).toBe(rotated.head.streamId)
   expect((await reopened.verifyState()).valid).toBe(true)
+  const requests: StartAgentTurnRequest[] = []
+  // Fake only the model transport: persisted recovery and command dispatch are real.
+  const controller = createAppController(reopened, { available: true,
+    startTurn: async request => { requests.push(request); return { status: "error", message: "Captured" } },
+    cancelTurn: async () => {}, subscribe: () => () => {}
+  }, { fetchImpl: async () => Response.json({}, { status: 404 }) })
+  try {
+    expect((await controller.runCommandForResult("card.maximize", "saved-cut-card")).status).toBe("failed")
+    expect((await controller.runCommandForResult("tab.open", "saved-cut-card")).status).toBe("unknown-command")
+    expect(reopened.session().maximizedCardId).toBeNull()
+    controller.send("Read the current conversation")
+    await waitFor(() => requests.length === 1)
+    expect(JSON.stringify(requests[0])).not.toContain("Private old")
+    expect(JSON.stringify(requests[0])).not.toContain("Private updated")
+    expect(JSON.stringify(requests[0])).not.toContain("signup.finish")
+    expect(requests[0]!.context?.recentCards ?? []).toEqual([])
+  } finally {
+    await controller.dispose()
+    opened.splice(opened.indexOf(reopened), 1)
+  }
 })
 
 test("a Cut flow-form update stays inert after its upsert already decoded as retired", async () => {
