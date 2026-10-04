@@ -9,6 +9,7 @@ import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 import { modelInvocable, nameOf } from "../registry"
 import { TodoNewInput, todoGrammar } from "./todo"
 import { answerActions } from "../AnswerActions"
+import { designTodoCard } from "../../state/seams/DesignWorld/todo"
 
 const unavailable: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
 const boot = async () => {
@@ -194,4 +195,62 @@ test("a configured host dispatches Draft, TODO and reviewed Merge to real routes
     expect(calls.find(call => call.path.endsWith("/merge"))?.body).toEqual({ reviewed_head_sha: fixtures.in_review.model.pr!.head })
     expect(JSON.stringify(controller.design.world().todos)).toBe(seedBefore)
   } finally { await controller.dispose() }
+})
+
+/* The hosted site and local dev (#3466 regression): /api/bootstrap answers, every other route is a 404. */
+const noProviderHost = async (status = 404) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const calls: { path: string; method: string }[] = []
+  const controller = createAppController(store, unavailable, {
+    bootstrap: { apiVersion: 1, host: "local", version: "design", buildSha: "0".repeat(40), capabilities: [], authFlow: "none", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "https://install.test").pathname
+      if (path.startsWith("/api/todos")) calls.push({ path, method: init?.method ?? "GET" })
+      return new Response(JSON.stringify(status === 404 ? {} : { code: "internal", class: "infra", message: "Stack unavailable" }), { status, headers: { "Content-Type": "application/json" } })
+    }
+  })
+  return { store, controller, calls }
+}
+
+test("signed out on a configured host with no TODO provider, every TODO, Draft and Merge flow runs on the seed", async () => {
+  const h = await noProviderHost()
+  const { controller, store } = h
+  const seeded = (ref: string) => controller.design.world().todos.find(each => each.ref === ref)!
+  try {
+    expect(store.collections.identitySessions.get("identity")?.state).not.toBe("signed-in")
+    expect(await controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "executed", value: "Opened T9" })
+    expect(store.collections.cards.get("todo:9")?.payload).toEqual({ n: 9, requests: [] })
+    expect(await controller.runCommandForResult("todo.answer", "T9 Switch to exponential backoff")).toMatchObject({ status: "executed", value: "Answered T9" })
+    expect(seeded("T9").state).toBe("working")
+    expect(await controller.runCommandForResult("todo.steer", "T10 Keep the old route")).toMatchObject({ status: "executed", value: "Steered T10" })
+    expect(await controller.runCommandForResult("todo.stop", "T10")).toMatchObject({ status: "executed", value: "Stopped T10" })
+    expect(await controller.runCommandForResult("todo.resume", "T10")).toMatchObject({ status: "executed", value: "Resumed T10" })
+    expect(await controller.runCommandForResult("todo.retry", "T10")).toMatchObject({ status: "failed" })
+    expect(seeded("T10").state).toBe("queued")
+    await controller.runCommandForResult("todo.new")
+    const draft = [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
+    for (const [field, value] of [["title", "Add a health endpoint"], ["prompt", "Serve GET /health."], ["acceptance", '["curl /health returns 200"]']] as const)
+      expect(await controller.submitCommand({ name: "form.set", actor: "user", payload: { cardId: draft.id, field, value } })).toMatchObject({ status: "executed" })
+    expect(await controller.submitCommand({ name: "todo.new", actor: "user", payload: { cardId: draft.id } })).toMatchObject({ status: "executed", value: "Committed as T12" })
+    expect(seeded("T12").title).toBe("Add a health endpoint")
+    expect(store.collections.cards.get("todo:12")?.payload).toEqual({ n: 12, requests: [] })
+    const pr = designTodoCard(controller.design.world(), seeded("T8")).pr!
+    expect(await controller.submitCommand({ name: "merge", actor: "user", payload: { n: 8, reviewed_head_sha: pr.head } })).toMatchObject({ status: "executed", value: `Merged #${pr.number}` })
+    expect(seeded("T8").state).toBe("merged")
+    expect(await controller.runCommandForResult("todo.drop", "T11")).toMatchObject({ status: "executed", value: "Dropped T11" })
+    expect(h.calls).toEqual([{ path: "/api/todos", method: "GET" }])
+  } finally { await controller.dispose() }
+})
+
+test("a configured host whose TODO provider fails shows the failure and never opens the seeded TODO", async () => {
+  const h = await noProviderHost(500)
+  try {
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    const before = JSON.stringify(h.controller.design.world().todos)
+    expect(await h.controller.runCommandForResult("todo", "T9")).toMatchObject({ status: "failed" })
+    expect(h.store.collections.cards.get("todo:9")).toBeUndefined()
+    expect(await h.controller.runCommandForResult("todo.answer", "T9 Switch to exponential backoff")).toMatchObject({ status: "failed" })
+    expect(JSON.stringify(h.controller.design.world().todos)).toBe(before)
+    expect(h.calls).toEqual([{ path: "/api/todos", method: "GET" }, { path: "/api/todos/9", method: "GET" }])
+  } finally { await h.controller.dispose() }
 })

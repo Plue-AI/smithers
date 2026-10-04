@@ -20,7 +20,8 @@ const setup = async (available = true) => {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   const requests: StartAgentTurnRequest[] = []
   const controller = createAppController(store, { ...silentAgent, available, startTurn: async request => { requests.push(request); return { status: "started" } } },
-    { bootstrap: cloud, fetchImpl: async () => Response.json({}) })
+    /* A configured host with no TODO provider (/api/todos is a 404): the seed answers TODO flows. */
+    { bootstrap: cloud, fetchImpl: async input => new URL(String(input), "https://cloud.test").pathname.startsWith("/api/todos") ? Response.json({}, { status: 404 }) : Response.json({}) })
   const messages = () => [...store.collections.messages.values()].sort((a, b) => a.ordinal - b.ordinal)
   const answered = async () => {
     await waitFor(() => store.session().phase === "idle" && messages().some(message => message.role === "smithers"))

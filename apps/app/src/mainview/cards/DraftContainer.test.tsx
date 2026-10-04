@@ -3,7 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { DraftCard } from "@smthrs/rpc/DraftCard"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Draft"
-import { DraftContainer, type DraftViewProps } from "./DraftCard"
+import { DraftContainer, draftCardFamily, type DraftViewProps } from "./DraftCard"
+import { ControllerTestProvider } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage } from "../state/TestFixtures"
+import { BEN, MAYA, createDesignWorld } from "../state/seams/DesignWorld"
+import { designAudience } from "../state/seams/DesignWorld/todo"
 import type { DraftEntry } from "../state/seams/TodoSeam"
 
 const mount = (model: DraftCard, request?: DraftEntry["payload"]["request"], memberId = "ben") => {
@@ -71,4 +77,19 @@ test("private drafts do not project to other members; incomplete placement disab
   const h = mount({ ...fixtures.before.model, place: { mode: "before", options: fixtures.before.model.place.options, n: 99 } })
   h.props!.onAction("todo.new")
   expect(h.dispatches).toEqual([])
+})
+
+test("the Draft card shows a seeded Draft to its design viewer and a provider Draft to its signed-in author only", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: MAYA })
+  const controller = { store, design, commands: { submit: () => Promise.resolve({ status: "executed" }) } } as unknown as AppController
+  const render = (audience: string | null) => renderToStaticMarkup(<ControllerTestProvider controller={controller}>{draftCardFamily.draft.render(
+    { id: "draft:1", kind: "draft", title: "Add a health endpoint", status: "active", createdAt: 1, ordinal: 1, audience_member_id: audience,
+      payload: { ...fixtures.append.model, title: "Add a health endpoint", idempotencyKey: "commit-1" } }, { presentation: "embedded" } as never)}</ControllerTestProvider>)
+  expect(render(designAudience(MAYA))).toContain("Add a health endpoint")
+  expect(render(designAudience(BEN))).toBe("")
+  expect(render("ben")).toBe("")
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  expect(render("ben")).toContain("Add a health endpoint")
+  expect(render(designAudience(MAYA))).toContain("Add a health endpoint")
 })

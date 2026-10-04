@@ -2,11 +2,12 @@
  * MOCK SEAM, TODO and Draft lane (delete with ./index.ts). Projects the seeded
  * design world into the real rpc models (TodoCard, DraftCard) so the real
  * TodoContainer and DraftContainer render it, and routes every todo.* and
- * draft.* flow handler to the world's stub mutations while the seed is
- * mounted, whoever is signed in (the design build has no backend to answer).
+ * draft.* flow handler to the world's stub mutations wherever this host has no
+ * TODO provider, whoever is signed in. A host that serves /api/todos takes
+ * over through the real TodoSeam beside it, the way HomeCard's homeSource
+ * hands the `home` topic to a served provider (mvp.md §6.3, §7.2).
  * AppController wraps createTodoSeam with withDesignTodos; deleting this
- * directory unwraps it, and the server's `todo:<n>` topic (TodoSeam watch)
- * and the /api/todos routes answer instead (mvp.md §6.3, §7.2).
+ * directory unwraps it.
  */
 import { useMemo } from "react"
 import { PlaceholderAvatarUrl, type Actor, type EvidenceItem, type PersonRef } from "@smthrs/rpc/CardPrimitives"
@@ -176,15 +177,40 @@ export const useDesignTodoCard = (n: number): { readonly model: TodoCard; readon
 
 const result = (outcome: DesignResult): string | { readonly value: string } => outcome.ok ? { value: outcome.ack } : outcome.refusal
 
+/** Who answers TODO and Draft flows on this host: the seeded world (no provider) or the install's /api/todos. */
+export type TodoSource = "seed" | "real"
+
 /**
- * The design-only TodoSeam. Configured hosts use the real seam; design builds keep
- * their seeded mutations and projection fallback until a server model arrives.
- * `todo:<n>` rows carry only `n` (TodoBody reads the model live from the seed); draft rows carry the
- * DraftCard the seed projects, rewritten after each edit.
+ * The TODO provider on this host, read once from GET /api/todos. No bootstrap, a 404, or a page that is not
+ * JSON (the hosted site's HTML fallback) means no provider: the seed stands in. A provider that answers, refuses
+ * or errors is real, so its failure shows; an unreachable one is asked again on the next flow.
  */
-export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: DesignWorld, live = false): TodoSeam => {
-  // A configured host owns TODOs; the seeded world remains the design-only fallback.
-  if (live) return real
+export const todoSourceProbe = (ctx: SeamContext, configured: boolean): (() => Promise<TodoSource>) => {
+  if (!configured) return () => Promise.resolve("seed")
+  let known: Promise<TodoSource> | undefined
+  return () => known ??= (async (): Promise<TodoSource> => {
+    try {
+      const response = await ctx.http(`${ctx.baseUrl}/api/todos`, { credentials: "include" })
+      const body: unknown = await response.json().catch(() => undefined)
+      return response.status === 404 || response.ok && body === undefined ? "seed" : "real"
+    } catch {
+      known = undefined
+      return "real"
+    }
+  })()
+}
+
+/**
+ * The TodoSeam the controller exposes: every todo.* and draft.* flow lands on the design world while `source`
+ * says this host has no TODO provider, signed in or not, and on the real seam where one exists. A seeded Draft
+ * stays on the seed whatever the source, so its edits, Commit and Discard never reach a provider that did not
+ * draft it. `todo:<n>` rows the seed opens carry only `n` (TodoBody reads the model live from the seed); draft
+ * rows carry the DraftCard the seed projects, rewritten after each edit.
+ */
+export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: DesignWorld,
+  source: () => Promise<TodoSource> = () => Promise.resolve("seed")): TodoSeam & { readonly todoSource: () => Promise<TodoSource> } => {
+  let settled: TodoSource | undefined
+  const seedHere = async (): Promise<boolean> => (settled = await source()) === "seed"
   const acceptance = new Map<string, ReadonlyArray<string>>()
   const me = (): ActorId => design.viewer()
   /* The app agent acts with the member's authority; what it does reads "<member> via Smithers" (ctx.actor is the binding's principal). */
@@ -233,16 +259,55 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
       case "drop": return design.drop(todo.id, by())
     }
   }
+  const setSeedField = async (id: string, field: string, value: string): Promise<string | void> => {
+    let outcome: DesignResult = { ok: true, ack: "Saved" }
+    switch (field) {
+      case "title": case "prompt": outcome = design.setDraft(id, { [field]: value }); break
+      case "fixes": outcome = design.setDraft(id, { fixes: value === "true" }); break
+      case "acceptance": {
+        let lines: ReadonlyArray<string>
+        try { const parsed: unknown = JSON.parse(value); lines = Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : value.split("\n").filter(Boolean) }
+        catch { lines = value.split("\n").filter(Boolean) }
+        acceptance.set(id, lines)
+        break
+      }
+      case "place": {
+        let place: { readonly mode?: string; readonly n?: number }
+        try { place = JSON.parse(value) as typeof place } catch { return "Invalid draft value." }
+        const target = place.n === undefined ? undefined : designTodoByN(design.world(), place.n)
+        outcome = design.setDraft(id, { place: place.mode === "append" || target === undefined ? { kind: "append" }
+          : { kind: place.mode === "amend" ? "amend" : "before", id: target.id } })
+        break
+      }
+      default: return "Unknown draft field."
+    }
+    if (!outcome.ok) return outcome.refusal
+    await writeDraft(id)
+  }
+  /** A card-scoped Draft flow: the seed's own Draft stays on the seed; another goes to the provider, if this host has one. */
+  const onDraft = async <T>(cardId: string, seeded: (id: string) => T | Promise<T>, provider: () => T | Promise<T>): Promise<T | string> => {
+    const id = draftId(cardId)
+    if (id !== undefined) return seeded(id)
+    return await seedHere() ? "No such draft" : provider()
+  }
   return {
     ...real,
+    todoSource: source,
     showTodo: async (n: number) => {
+      if (!await seedHere()) return real.showTodo(n)
       const todo = byN(n)
       if (todo === undefined) return missing(n)
       await openTodo(todo)
       return { value: `Opened ${todo.ref}` }
     },
+    mergeTodo: async (n: number, head: string) => {
+      if (!await seedHere()) return real.mergeTodo(n, head)
+      const todo = byN(n)
+      return todo === undefined ? missing(n) : result(design.merge(todo.id, me(), head))
+    },
     newTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>) => {
-      if (input.cardId !== undefined) return commit(input.cardId)
+      if (input.cardId !== undefined) return onDraft(input.cardId, () => commit(input.cardId!), () => real.newTodo(input))
+      if (!await seedHere()) return real.newTodo(input)
       const world = design.world()
       const text = input.text ?? ""
       const before = input.before === undefined ? undefined : designTodoByN(world, input.before)
@@ -254,54 +319,34 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
       return { value: "Drafted" }
     },
     amendTodo: async (input: Schema.Schema.Type<typeof TodoAmendInput>) => {
-      if (input.cardId !== undefined) return commit(input.cardId)
+      if (input.cardId !== undefined) return onDraft(input.cardId, () => commit(input.cardId!), () => real.amendTodo(input))
+      if (!await seedHere()) return real.amendTodo(input)
       const todo = byN(input.n)
       return todo === undefined ? missing(input.n) : result(design.amend(todo.id, input.text, by()))
     },
-    setTodoFormField: async (cardId: string, field: string, value: string) => {
-      const id = draftId(cardId)
-      if (id === undefined) return "No such draft"
-      let outcome: DesignResult = { ok: true, ack: "Saved" }
-      switch (field) {
-        case "title": case "prompt": outcome = design.setDraft(id, { [field]: value }); break
-        case "fixes": outcome = design.setDraft(id, { fixes: value === "true" }); break
-        case "acceptance": {
-          let lines: ReadonlyArray<string>
-          try { const parsed: unknown = JSON.parse(value); lines = Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : value.split("\n").filter(Boolean) }
-          catch { lines = value.split("\n").filter(Boolean) }
-          acceptance.set(id, lines)
-          break
-        }
-        case "place": {
-          let place: { readonly mode?: string; readonly n?: number }
-          try { place = JSON.parse(value) as typeof place } catch { return "Invalid draft value." }
-          const target = place.n === undefined ? undefined : designTodoByN(design.world(), place.n)
-          outcome = design.setDraft(id, { place: place.mode === "append" || target === undefined ? { kind: "append" }
-            : { kind: place.mode === "amend" ? "amend" : "before", id: target.id } })
-          break
-        }
-        default: return "Unknown draft field."
-      }
-      if (!outcome.ok) return outcome.refusal
-      await writeDraft(id)
-    },
+    setTodoFormField: (cardId: string, field: string, value: string) =>
+      onDraft(cardId, id => setSeedField(id, field, value), () => real.setTodoFormField(cardId, field, value)),
     dismissTodoDraft: (cardId: string) => {
       const id = draftId(cardId)
-      if (id === undefined) return "No such draft"
+      // Synchronous, so it reads the last answer: a Draft the seed does not hold is the provider's, unless the seed answers here.
+      if (id === undefined) return settled !== "seed" && ctx.store.collections.cards.get(cardId)?.kind === "draft" ? real.dismissTodoDraft(cardId) : "No such draft"
       const outcome = design.discardDraft(id)
       if (!outcome.ok) return outcome.refusal
       acceptance.delete(id)
       ctx.dispatch({ type: "card.removed", actor: ctx.actor(), id: `draft:${id}` })
     },
-    answerTodo: async (n: number, answer: string) => {
+    answerTodo: async (n: number, answer: string, wait?: string) => {
+      if (!await seedHere()) return real.answerTodo(n, answer, wait)
       const todo = byN(n)
       return todo === undefined ? missing(n) : result(design.answer(todo.id, answer, by()))
     },
     steerTodo: async (n: number, text: string) => {
+      if (!await seedHere()) return real.steerTodo(n, text)
       const todo = byN(n)
       return todo === undefined ? missing(n) : result(design.steer(todo.id, text, by()))
     },
     controlTodo: async (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string) => {
+      if (!await seedHere()) return real.controlTodo(n, operation, text)
       const todo = byN(n)
       return todo === undefined ? missing(n) : result(control(todo, operation, text))
     }

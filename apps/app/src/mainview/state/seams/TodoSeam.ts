@@ -336,7 +336,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (signedIn()) return
     for (const row of ctx.store.collections.cards.values()) {
       if (row.kind === "todo") {
-        watch(row.payload.n)
+        // Follow only TODOs this seam fetched or requested; a row without either is the design seed's (MOCK SEAM).
+        if (row.payload.model || row.payload.requests.length > 0) watch(row.payload.n)
         for (const pending of row.payload.requests) {
           if (pending.owner === owner() && pending.state !== "failed") { showNotice(pending, row.title); send(row.id, pending) }
         }

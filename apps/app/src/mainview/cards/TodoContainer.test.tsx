@@ -176,3 +176,18 @@ test("no required checks and failed optional checks still permit a server-ready 
   const h = mount({ ...model, evidence: [{ ...model.evidence.at(-1)!, items: [{ kind: "github_check", name: "Optional", state: "failed", required: false, url: "https://github.com/smithersai/smithers/actions/runs/1" }] }] })
   expect(h.props.actions.find(action => action.tag === "merge")?.disabled).toBeUndefined()
 })
+
+test("a row the seed opened (no projection, no request) renders the seeded TODO; a pending request never does", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const design = createDesignWorld({ timers: { set: () => 0, clear: () => {} }, viewer: BEN })
+  const snapshot = {}
+  const controller = { store, design, installSnapshots: { get: () => snapshot, subscribe: () => () => {} }, commands: { submit: () => {} } } as unknown as AppController
+  const seededTitle = design.world().todos.find(todo => todo.ref === "T9")!.title
+  const render = (payload: TodoEntry["payload"]) => renderToStaticMarkup(<ControllerTestProvider controller={controller}>{todoCardFamily.todo.render(
+    { id: "todo:9", kind: "todo", title: "T9", status: "active", createdAt: 1, ordinal: 1, payload }, { presentation: "embedded" } as never)}</ControllerTestProvider>)
+  const seeded = render({ n: 9, requests: [] })
+  expect(seeded).toContain('aria-label="TODO T9"')
+  expect(seeded).toContain(seededTitle)
+  const requested = render({ n: 9, requests: [{ key: "k", owner: "ben", operation: "steer", n: 9, body: { text: "x" }, state: "failed", error: "Stack unavailable" }] })
+  expect(requested).not.toContain(seededTitle)
+})
