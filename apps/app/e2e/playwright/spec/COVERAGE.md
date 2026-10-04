@@ -24,5 +24,12 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts) | fixme-before-implementation | T-GH-06 |
 | C-J10-04 | [C-J10-04.spec.ts](C-J10-04.spec.ts) | fixme-before-implementation | T-STK-08 |
 
+| C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | fixme-before-implementation | T-GH-03 |
+| C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | fixme-before-implementation | T-GH-07 |
+| C-J10-07 | [C-J10-07.spec.ts](C-J10-07.spec.ts) | fixme-before-implementation | T-GH-07, T-ACC-03 |
+| C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | fixme-before-implementation | T-GH-03, T-STK-05, T-MCH-14 |
+| C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts) | fixme-before-implementation | T-FLW-13, T-MCH-06, T-REL-02 |
+| C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | fixme-before-implementation | T-COL-06, T-APP-10, T-REL-02 |
+
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
