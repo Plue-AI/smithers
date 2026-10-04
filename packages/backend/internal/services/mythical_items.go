@@ -932,6 +932,7 @@ type mythicalItemStep struct {
 	ghErr    error
 	launches int
 	issues   []string              // other open issue titles, for duplicate detection
+	items    []db.MythicalItem     // ordered prefix under the existing stack claim
 	held     map[int32]pgtype.UUID // lane index -> the unsettled item holding it
 	// busy counts the lanes running work holds, against the stack's
 	// maxParallel: every launch that takes a new lane asks slot first.
@@ -1115,6 +1116,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		}
 		return a.IssueNumber.Int64 < b.IssueNumber.Int64
 	})
+	step.items = items
 	defer s.sweepLanes(ctx, r)
 	for _, item := range items {
 		if ctx.Err() != nil {
@@ -1152,6 +1154,12 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			if result, err = q.SaveMythicalItem(ctx, *next); err != nil {
 				s.logger.Warn("mythical.item_save_failed", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "error", err)
 				continue
+			}
+		}
+		for i := range step.items {
+			if step.items[i].ID == result.ID {
+				step.items[i] = result
+				break
 			}
 		}
 		s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(result.ID))
@@ -1404,6 +1412,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		case outcome == "":
 			return nil, false, nil
 		case outcome == "passed":
+			if item.CandidateBase != st.prefix(item) {
+				return st.invalidatePrefix(item), false, nil
+			}
 			next := item
 			next.CandidateVerified, next.State, next.Reason = true, "proposing", ""
 			return &next, false, nil
@@ -1615,6 +1626,33 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 // outage retry runs the same attempt again on the lane it already holds
 // (reusesLane): the request starts a fresh working change on the tip
 // there, so nothing the failed run left is its base.
+// prefix replaces the global folded tip: only a verified candidate on the
+// available prefix contributes. A stale candidate cannot carry obsolete bytes.
+func (st *mythicalItemStep) prefix(item db.MythicalItem) string {
+	base := st.r.mainTip
+	for _, earlier := range st.items {
+		if earlier.ID == item.ID {
+			break
+		}
+		if mythicalSettledStates[earlier.State] {
+			continue
+		}
+		if earlier.CandidateVerified && earlier.CandidateHead != "" && earlier.CandidateBase == base {
+			base = earlier.CandidateHead
+		}
+	}
+	return base
+}
+
+// invalidatePrefix preserves captured bytes and the last PR while refusing a
+// fresh publication. Guest rebase must produce and check the next generation.
+func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalItem {
+	next := item
+	next.CandidateVerified = false
+	next.State, next.Reason = "integrating", "rebase_pending"
+	return &next
+}
+
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
 	if item.Source != "issue" {
@@ -1662,16 +1700,17 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		placed.Placement = &placement
 		next.Checks = placed.encode()
 	}
-	next.WorkspaceID, next.BaseCommit = workspaceID, r.row.TipCommit
+	base := st.prefix(item)
+	next.WorkspaceID, next.BaseCommit = workspaceID, base
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	// The launch below records the lane's start with the item, atomically.
 	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
-	ref, err := s.retainFor(ctx, r, workspaceID, r.row.TipCommit)
+	ref, err := s.retainFor(ctx, r, workspaceID, base)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
 	}
 	request := map[string]any{"prompt": st.prompt(item, next.Attempt), "maxRounds": 3,
-		"base": map[string]string{"commitId": r.row.TipCommit, "ref": ref}}
+		"base": map[string]string{"commitId": base, "ref": ref}}
 	// The lane plans with the published wiki; it never reviews the pages again.
 	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
 		request["wiki"] = wiki
@@ -1816,7 +1855,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	}
 	// T-STK-08: the legacy host path cannot validate the guest or freeze
 	// writers. Keep the candidate pending before fetching, pinning or rewriting.
-	if item.CandidateBase != r.row.TipCommit {
+	if item.CandidateBase != st.prefix(item) {
 		return nil, false, branchRebaseUnavailable()
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
@@ -1874,7 +1913,7 @@ type mythicalProposalOp struct {
 
 // propose opens (or finds, or updates) the item's pull request: one commit
 // on main whose tree is exactly the verified candidate built on the current,
-// folded tip. The intended branch head is recorded and pinned before the
+// available prefix. The intended branch head is recorded and pinned before the
 // push; a recorded push is settled before anything new is computed.
 func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
 	if err := mythicalPublicationAuthority(); err != nil {
@@ -1887,6 +1926,9 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	next := item
 	if !item.CandidateVerified {
 		return mythicalRetry(item, "the candidate was never verified", nil, st.now), nil
+	}
+	if len(item.PendingOp) == 0 && item.CandidateBase != st.prefix(item) {
+		return st.invalidatePrefix(item), nil
 	}
 	if s.github == nil || !r.row.ActorUserID.Valid {
 		return nil, nil
@@ -1933,10 +1975,6 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 			next.State, next.Reason = "blocked", "the pull request branch "+op.Branch+" moved outside Smithers"
 			return &next, nil
 		}
-	}
-	if item.CandidateBase != r.row.TipCommit {
-		next.State, next.Reason = "integrating", ""
-		return &next, nil
 	}
 	if r.mainTip != r.row.LandedMain {
 		if item.State == "waiting" {
