@@ -362,6 +362,14 @@ export const select = (
   }
 }
 
+/** Whether a green-base request must run the full gate rather than accept an empty verdict.
+ * Pull-request parent comparisons identify changes but supply no successful-job receipt.
+ * @category selection
+ * @since 1.0.0
+ */
+export const needsFullGate = (base: string | undefined, files: ReadonlyArray<string>, selected: number, vouched: boolean): boolean =>
+  base === undefined || files.length === 0 || (selected === 0 && !vouched)
+
 /**
  * Whether changed files meet a pattern that names no target: an empty graph
  * or a renamed package, which would otherwise gate a real diff with nothing

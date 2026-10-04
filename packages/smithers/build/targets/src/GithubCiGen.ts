@@ -393,6 +393,8 @@ export const Attrs = Schema.Struct({
    * status from that artifact, never from the log.
    */
   results: Schema.optional(Schema.Boolean),
+  /** Restrict non-matrix gates to changes since this job last passed. @default false */
+  affected: Schema.optional(Schema.Boolean),
   mode: OutputMode
 })
 
@@ -701,8 +703,13 @@ export const stepCommand = (attrs: Attrs, step: TargetStep, nix?: CiToolchain.Ni
   }
   return [
     ...developPrefix(nix),
-    ...PackageManager.exec(attrs.packageManager, ["smthrs", Verb.command(step.verb)]),
+    ...PackageManager.exec(attrs.packageManager, [
+      "smthrs",
+      ...(attrs.affected === true ? ["affected"] : []),
+      Verb.command(step.verb)
+    ]),
     shellArgument(step.pattern),
+    ...(attrs.affected === true ? ["--base-green"] : []),
     ...(step.parallelism === undefined ? [] : ["--jobs", String(step.parallelism)]),
     ...(attrs.knownRed === undefined ? [] : ["--known-red", shellArgument(attrs.knownRed)]),
     // GITHUB_ACTION is unique per step within a job, so no two steps share a file.
@@ -849,7 +856,15 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
   // before this map existed.
   const checkoutWith: Record<string, string> = {
     ...(needs.submodules ? { submodules: "recursive" } : {}),
-    ...(needs.fetchDepth === undefined ? {} : { "fetch-depth": String(needs.fetchDepth) })
+    ...(needs.fetchDepth === undefined && !(attrs.affected && attrs.pullRequest)
+      ? {}
+      : {
+        "fetch-depth": String(
+          attrs.affected && attrs.pullRequest && needs.fetchDepth !== 0
+            ? Math.max(2, needs.fetchDepth ?? 2)
+            : needs.fetchDepth
+        )
+      })
   }
   const steps: Array<RenderedStep> = [{
     uses: actions.checkout,
@@ -1120,7 +1135,12 @@ export const artifactSteps = (upload: CiToolchain.ArtifactUpload): ReadonlyArray
   })
   return [
     { name: `Collect ${upload.artifact}`, condition: "always()", run: [`mkdir -p ${root}`, ...copies].join("\n") },
-    uploadStep(`Upload ${upload.artifact}`, artifact, artifact, upload.sources.some((source) => source.required === true) ? "error" : "ignore")
+    uploadStep(
+      `Upload ${upload.artifact}`,
+      artifact,
+      artifact,
+      upload.sources.some((source) => source.required === true) ? "error" : "ignore"
+    )
   ]
 }
 
@@ -1128,7 +1148,12 @@ export const artifactSteps = (upload: CiToolchain.ArtifactUpload): ReadonlyArray
 const resultsDirectory = "smthrs-results"
 
 /** The always-run upload of `$RUNNER_TEMP/<directory>` as the artifact `name`; one shape for every upload. */
-const uploadStep = (stepName: string, name: string, directory: string, ifNoFiles: "error" | "ignore"): RenderedStep => ({
+const uploadStep = (
+  stepName: string,
+  name: string,
+  directory: string,
+  ifNoFiles: "error" | "ignore"
+): RenderedStep => ({
   name: stepName,
   condition: "always()",
   uses: actions.uploadArtifact,
@@ -1152,7 +1177,8 @@ const resultsUpload = (jobId: string, matrix: boolean): RenderedStep =>
 const resultsMarker: RenderedStep = {
   name: "Start smthrs results",
   shell: "bash",
-  run: `mkdir -p "$RUNNER_TEMP/${resultsDirectory}" && printf '%s\\n' '{"version":1,"results":[]}' > "$RUNNER_TEMP/${resultsDirectory}/attempt.json"`
+  run:
+    `mkdir -p "$RUNNER_TEMP/${resultsDirectory}" && printf '%s\\n' '{"version":1,"results":[]}' > "$RUNNER_TEMP/${resultsDirectory}/attempt.json"`
 }
 
 /** GitHub's own job-id shape: a letter or `_`, then letters, digits, `-`, `_`. */
@@ -1535,6 +1561,7 @@ export const render = (attrs: Attrs): string => {
     // only through its declared step environment.
     "permissions:",
     "  contents: read",
+    ...(attrs.affected === true ? ["  actions: read"] : []),
     "jobs:"
   ]
   const cacheEnv = cacheEnvironment(attrs)
@@ -1605,8 +1632,17 @@ export const render = (attrs: Attrs): string => {
       rendered.push({
         ...(step.name === undefined ? {} : { name: step.name }),
         condition: independentGate,
-        run: stepCommand(attrs, step, job.toolchain.nix),
-        ...(hasJobEnv ? { env: jobEnv } : {})
+        run: stepCommand(job.matrix === undefined ? attrs : { ...attrs, affected: false }, step, job.toolchain.nix),
+        ...(hasJobEnv || (attrs.affected && job.matrix === undefined)
+          ? {
+            env: {
+              ...jobEnv,
+              ...(attrs.affected && job.matrix === undefined
+                ? { GITHUB_TOKEN: "${{ github.token }}", SMTHRS_CI_JOB: job.name ?? job.id }
+                : {})
+            }
+          }
+          : {})
       })
     }
     if (job.toolchain.artifacts !== undefined) rendered.push(...artifactSteps(job.toolchain.artifacts))

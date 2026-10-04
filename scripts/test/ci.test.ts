@@ -1,8 +1,8 @@
-import * as Yaml from "yaml"
 import assert from "node:assert/strict"
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, it } from "node:test"
+import * as Yaml from "yaml"
 import { readWorkspaceInventory } from "../readWorkspaceInventory.ts"
 
 /** The workflow fields whose values form the CI contract. */
@@ -40,7 +40,7 @@ describe("ci conformance", () => {
     const owners = commands.map((command) => {
       const matches = Object.entries(ci.jobs).flatMap(([id, job]) =>
         job.steps
-          .filter((step) => step.run?.startsWith(command))
+          .filter((step) => step.run?.replace("smthrs affected ", "smthrs ").startsWith(command))
           .map((step) => ({ id, job, step }))
       )
       assert.equal(matches.length, 1, `${command} must run exactly once`)
@@ -82,7 +82,10 @@ describe("ci conformance", () => {
       for (const step of job.steps) {
         if (!step.run?.startsWith("pnpm exec smthrs")) continue
         assert.equal(step.env?.SMITHERS_CACHE_READ_TOKEN, "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}")
-        assert.equal(step.env?.SMITHERS_CACHE_NAMESPACE, "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}")
+        assert.equal(
+          step.env?.SMITHERS_CACHE_NAMESPACE,
+          "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+        )
       }
     }
     const release = readFileSync(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8")
@@ -339,20 +342,29 @@ describe("ci conformance", () => {
   it("pins the CI steps that reach the target graph and the jj install (issue #166)", () => {
     const ci = readCi()
     const steps = Object.values(ci.jobs).flatMap((job) => job.steps)
-    const commands = steps.map((step) => step.run)
+    const commands = steps.map((step) =>
+      step.run?.replace("smthrs affected ", "smthrs ").replace(/ --base-green/g, "").replace(
+        / --results-file "[^"\n]+"/g,
+        ""
+      )
+    )
     assert.ok(steps.some((step) => step.uses === "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"))
-    for (const command of [
-      "pnpm install --frozen-lockfile --ignore-scripts",
-      "pnpm exec smthrs ci '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//scripts/...' --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//scripts:webBundleContract' --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --known-red '.github/ci-known-red.json' --verbose",
-      "jj git init --colocate"
-    ]) assert.ok(commands.includes(command), command)
+    for (
+      const command of [
+        "pnpm install --frozen-lockfile --ignore-scripts",
+        "pnpm exec smthrs ci '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --verbose",
+        "pnpm exec smthrs test '//scripts/...' --known-red '.github/ci-known-red.json' --verbose",
+        "pnpm exec smthrs test '//scripts:webBundleContract' --known-red '.github/ci-known-red.json' --verbose",
+        "pnpm exec smthrs test '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --verbose",
+        "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --known-red '.github/ci-known-red.json' --verbose",
+        "jj git init --colocate"
+      ]
+    ) assert.ok(commands.includes(command), command)
     assert.doesNotMatch(JSON.stringify(ci), /\/\/(?:ci\/|e2e:)/)
     for (const id of ["test", "packages"]) {
-      assert.ok(ci.jobs[id]!.steps.some((step) => step.uses === "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"))
+      assert.ok(
+        ci.jobs[id]!.steps.some((step) => step.uses === "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
+      )
     }
     const faults = ci.jobs["e2e-faults"]!
     assert.ok(faults.steps.some((step) => step.run?.includes("//packages/...:faults")))
@@ -383,18 +395,23 @@ describe("ci conformance", () => {
     assert.notEqual(declared, undefined)
     assert.equal(job["timeout-minutes"], Number(declared))
     assert.equal(job["continue-on-error"], "${{ matrix.advisory }}")
-    assert.equal(Object.values(ci.jobs).flatMap((row) => row.steps)
-      .filter((step) => step.run?.startsWith("pnpm exec smthrs test '//packages/...'")).length, 1)
+    assert.equal(
+      Object.values(ci.jobs).flatMap((row) => row.steps)
+        .filter((step) => step.run?.startsWith("pnpm exec smthrs test '//packages/...'")).length,
+      1
+    )
     assert.ok(!Object.hasOwn(ci.jobs, "node-macos"))
     assert.ok(!Object.hasOwn(ci.jobs, "node-windows"))
   })
 
   it("keeps every CI step a target invocation, never a hand-written command", () => {
     const commands = Object.values(readCi().jobs).flatMap((job) => job.steps)
-      .flatMap((step) => step.run === undefined || step.run.includes("\n") ? [] : [step.run])
+      .flatMap((step) =>
+        step.run === undefined || step.run.includes("\n") || step.name === "Start smthrs results" ? [] : [step.run]
+      )
     assert.ok(commands.length > 0)
     const derived = [
-      /^pnpm exec smthrs (?:build|test|lint|docs|review|ci) '\/\/[^']*'( --jobs \d+)?( --known-red '\.github\/ci-known-red\.json')? --verbose$/,
+      /^pnpm exec smthrs (?:affected )?(?:build|test|lint|docs|review|ci) '\/\/[^']*'( --base-green)?( --jobs \d+)?( --known-red '\.github\/ci-known-red\.json')?( --results-file "\$RUNNER_TEMP\/smthrs-results\/\$GITHUB_ACTION\.json")? --verbose$/,
       /^pnpm install --frozen-lockfile --ignore-scripts$/,
       /^rustup toolchain install$/,
       /^jj git init --colocate$/
@@ -414,7 +431,11 @@ describe("ci conformance", () => {
         const gate = step.run?.startsWith("pnpm exec smthrs ") === true
         assert.equal(
           step.if,
-          artifact ? "always()" : gate ? "${{ !cancelled() && steps.setup.conclusion == 'success' }}" : undefined
+          (artifact || step.name === "Upload smthrs results")
+            ? "always()"
+            : gate
+            ? "${{ !cancelled() && steps.setup.conclusion == 'success' }}"
+            : undefined
         )
       }
     }

@@ -1029,20 +1029,14 @@ describe("toolchain variants", () => {
     }
   })
 
-  it("refuses affected: true rather than rendering a flag the CLI cannot parse", () => {
+  it("renders affected gates with a green base and a step-scoped API token", () => {
     const run = anyTarget()
     const workflow = S.Github.Workflow({ name: "ci", on: { pullRequest: true }, affected: true, run: [run] })
     const ciGen = S.Github.CiGen({ workflows: [workflow] })
-    expect(
-      thrownCode(() =>
-        GithubRender.render({
-          ciGen,
-          workspace: unitWorkspace,
-          resolve: resolver([[ciGen, "//.github:github"], [run, "//:build"]]),
-          packageDir: ".github"
-        })
-      )
-    ).toBe("unsupported_affected")
+    const outputs = GithubRender.render({ ciGen, workspace: unitWorkspace,
+      resolve: resolver([[ciGen, "//.github:github"], [run, "//:build"]]), packageDir: ".github" })
+    expect(JSON.stringify(outputs)).toContain("affected ci '//:build' --base-green")
+    expect(JSON.stringify(outputs)).toContain("GITHUB_TOKEN: ${{ github.token }}")
   })
 })
 

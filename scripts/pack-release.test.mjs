@@ -295,7 +295,9 @@ test("every gate in ci.yml also runs in release.yml", () => {
   // ci.yml passes the known-red list; the release does not, so every target a
   // release mirrors must be green there, including those main tolerates.
   const expected = mirrored.flatMap((job) => jobSteps(ci, job)).filter(isGate)
-    .map((step) => step.replace(/ --known-red '[^']+'/g, ""))
+    .map((step) => step.replace(/ --known-red '[^']+'/g, "").replace(/ --results-file "[^"\n]+"/g, "")
+      .replace(/smthrs affected /g, "smthrs ").replace(/ --base-green/g, "")
+      .replace(/\n        GITHUB_TOKEN:.*(?=\n|$)/g, ""))
   const actual = jobSteps(workflow("release.yml"), "publish").filter(isGate)
 
   // The gates the release adds on top of the mirrored jobs, pinned so an
