@@ -294,18 +294,7 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	runtime, identity, err := service.resolve(resolveContext, checkpoint.Target, checkpoint.Identity)
 	if err != nil {
 		if payload.FlowID == "todo" {
-			code, retryable := runtimeFailure(err)
-			if retryable || code == "runtime_host_not_running" {
-				checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
-				checkpoint.FailureCode, checkpoint.FailureObservedAt = code, time.Now().UnixMilli()
-				if todoWakeExpired(checkpoint, time.Now()) {
-					return service.fail(lease, "wake_timeout", checkpoint)
-				}
-				if err := service.project(ctx, lease, jobs.StateWaiting, checkpoint); err != nil {
-					return err
-				}
-				return lease.Park(ctx, mustJSON(checkpoint), todoWakeBackoff(lease.Claim().Attempt))
-			}
+			return service.todoWakeError(ctx, lease, err, checkpoint)
 		}
 		return service.runtimeError(lease, err, checkpoint)
 	}
@@ -313,8 +302,6 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 		checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
 		return service.fail(lease, "wake_timeout", checkpoint)
 	}
-	checkpoint.WakeStartedAt = 0
-	checkpoint.FailureStep, checkpoint.FailureCode, checkpoint.FailureClass = "", "", ""
 	checkpoint.Identity = identity
 	if err := lease.StartExternal(ctx, mustJSON(checkpoint)); err != nil {
 		return err
@@ -328,10 +315,15 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	// Observation verifies the requested run's Flow identity. Its terminal
 	// state cannot distinguish a lost acknowledgment for a delivered signal
 	// from a run that never took it; only Control's mutation receipt can.
-	callContext, cancel := context.WithTimeout(ctx, service.runtimeCallTimeout)
+	// A verified host is not yet proof that this run has reattached. Keep the
+	// original wake allowance through Observe, including its durable retries.
+	callContext, cancel := context.WithTimeout(resolveContext, service.runtimeCallTimeout)
 	observation, err := runtime.Observe(callContext, checkpoint.RunID, "", 1)
 	cancel()
 	if err != nil {
+		if payload.FlowID == "todo" {
+			return service.todoWakeError(ctx, lease, err, checkpoint)
+		}
 		return service.runtimeError(lease, err, checkpoint)
 	}
 	if observation.Run.RunID != checkpoint.RunID || observation.Run.FlowID != checkpoint.FlowID ||
@@ -339,6 +331,17 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 		return service.fail(lease, "invalid_runtime_observation", checkpoint)
 	}
 	checkpoint.Run = &observation.Run
+	if payload.FlowID == "todo" && todoWakeExpired(checkpoint, time.Now()) {
+		checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
+		return service.fail(lease, "wake_timeout", checkpoint)
+	}
+	checkpoint.WakeStartedAt = 0
+	checkpoint.FailureStep, checkpoint.FailureCode, checkpoint.FailureClass = "", "", ""
+	if payload.FlowID == "todo" {
+		if _, err := lease.Checkpoint(ctx, mustJSON(checkpoint)); err != nil {
+			return err
+		}
+	}
 
 	callContext, cancel = context.WithTimeout(ctx, service.runtimeCallTimeout)
 	result, err := runtime.Signal(callContext, flowruntime.FlowRuntimeSignal{
@@ -372,6 +375,22 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 		Kind: "runtime-signal", Runtime: identity, Receipt: &result.Receipt,
 		Run: checkpoint.Run, Projection: checkpoint.Projection,
 	}))
+}
+
+func (service *Service) todoWakeError(ctx context.Context, lease *jobs.Lease, err error, checkpoint RuntimeCheckpoint) error {
+	code, retryable := runtimeFailure(err)
+	if retryable || code == "runtime_host_not_running" {
+		checkpoint.FailureStep, checkpoint.FailureClass = "wake", "infra"
+		checkpoint.FailureCode, checkpoint.FailureObservedAt = code, time.Now().UnixMilli()
+		if todoWakeExpired(checkpoint, time.Now()) {
+			return service.fail(lease, "wake_timeout", checkpoint)
+		}
+		if err := service.project(ctx, lease, jobs.StateWaiting, checkpoint); err != nil {
+			return err
+		}
+		return lease.Park(ctx, mustJSON(checkpoint), todoWakeBackoff(lease.Claim().Attempt))
+	}
+	return service.runtimeError(lease, err, checkpoint)
 }
 
 func todoWakeExpired(checkpoint RuntimeCheckpoint, now time.Time) bool {
