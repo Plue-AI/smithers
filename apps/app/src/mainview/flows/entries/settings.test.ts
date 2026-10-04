@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { SettingsContainer } from "../../cards/SettingsContainer"
+import { SettingsView } from "../../cards/views/SettingsView"
+import type { SettingsViewProps } from "@smthrs/rpc/SettingsCard"
 import type { StorageApi } from "@tanstack/db"
 import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../../state/AppController"
@@ -47,7 +52,7 @@ describe("T-APP-03 settings command doors", () => {
   test("hidden owner controls refuse agents and remain absent from slash suggestions", async () => {
     const h = await harness()
     try {
-      for (const name of ["settings.address", "settings.capacity", "settings.parallel", "settings.model-key", "settings.setup"]) {
+      for (const name of ["settings.address", "settings.capacity", "settings.parallel", "settings.obsidian", "settings.model-key", "settings.setup"]) {
         const entry = h.controller.commands.find(name)!
         expect(nameOf(entry)).toBe(name); expect(entry.metadata.hidden).toBe(true); expect(modelInvocable(entry)).toBe(false)
       }
@@ -158,6 +163,48 @@ describe("T-APP-03 settings command doors", () => {
       expect(JSON.stringify([...h.store.collections.cards.values()])).not.toContain("private-key")
       expect(JSON.stringify([...h.store.collections.commandIntents.values()])).not.toContain("private-key")
       expect(JSON.stringify(h.controller.installSnapshots.get())).not.toContain("private-key")
+    } finally { await h.controller.dispose() }
+  })
+})
+
+
+describe("T-FLW-12 Obsidian control", () => {
+  test("one owner PUT preserves the literal folder contract and projects sync status", async () => {
+    const fixture = { ...installFixture(), wiki_sync: { obsidian: { path: "/Users/owner/Vault", last_sync_at: "2026-10-04T12:00:00Z", error: "Folder unavailable" } } }
+    const h = await harness(undefined, () => Response.json(fixture))
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      let onAction!: SettingsViewProps["onAction"]
+      const html = renderToStaticMarkup(createElement(SettingsContainer, {
+        View: props => { onAction = props.onAction; return createElement(SettingsView, props) },
+        install: h.controller.installSnapshots, owner: true, origin: "http://localhost", view: { maximized: false }, onView: () => {},
+        dispatch: (name, payload, gesture) => h.controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
+      }))
+      expect(html).toContain('data-flow="settings.obsidian"')
+      onAction("settings.obsidian", { path: "/Users/owner/Notes" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toEqual([{ path: "/api/install", method: "PUT", body: '{"wiki_sync.obsidian":{"path":"/Users/owner/Notes"}}' }])
+      expect(h.controller.installSnapshots.get().model?.wiki_sync).toEqual({ obsidian: { path: "/Users/owner/Vault", last_sync_at: "2026-10-04T12:00:00Z", error: "Folder unavailable" } })
+      await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: "/Users/owner/Agent" }, actor: "agent" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toHaveLength(1)
+    } finally { await h.controller.dispose() }
+  })
+  test.each(["missing", "non-owner", "relative", "nul"])("%s refuses without PUT or seed mutation", async kind => {
+    const fixture = { ...installFixture(), ...(kind === "missing" ? {} : { wiki_sync: {} }), github: { ...installFixture().github, signed_in: kind !== "non-owner" } }
+    const h = await harness(undefined, () => Response.json(fixture))
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: kind === "relative" ? "Vault" : kind === "nul" ? "/Vault\0bad" : "/Vault" }, actor: "user" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toEqual([])
+    } finally { await h.controller.dispose() }
+  })
+  test("rejected changes retain the active folder and show the refusal", async () => {
+    let reads = 0
+    const h = await harness(undefined, () => ++reads === 1 ? Response.json({ ...installFixture(), wiki_sync: { obsidian: { path: "/Vault" } } })
+      : Response.json({ code: "folder_refused", class: "user", message: "Obsidian folder refused" }, { status: 400 }))
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: "/state" }, actor: "user" }); await tick()
+      expect(h.controller.installSnapshots.get().model?.wiki_sync?.obsidian).toEqual({ path: "/Vault", error: "Obsidian folder refused" })
     } finally { await h.controller.dispose() }
   })
 })

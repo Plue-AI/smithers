@@ -84,6 +84,7 @@ export const IN_CARD_TAGS = [
   "settings.address",
   "settings.capacity",
   "settings.parallel",
+  "settings.obsidian",
   "settings.model-key",
   "settings.setup",
   "form.set",

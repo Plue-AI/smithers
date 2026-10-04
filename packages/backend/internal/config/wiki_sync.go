@@ -8,7 +8,7 @@ import (
 )
 
 // WikiSyncConfig lists trusted host folders reconciled with wiki scopes. It is
-// read from the config file only; folders are never accepted over HTTP.
+// a hosted deployment port only; Mac installs use authorized install settings.
 type WikiSyncConfig struct {
 	// IntervalSeconds between passes, at most one day. Zero selects one minute.
 	IntervalSeconds int                    `mapstructure:"interval_seconds"`

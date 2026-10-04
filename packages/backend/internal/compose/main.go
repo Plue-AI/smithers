@@ -121,6 +121,7 @@ type Options struct {
 	TraceExporter          trace.SpanExporter
 	Blobs                  blob.Store
 	AgentLogs              services.AgentLogStore
+	InstallWikiSync        services.InstallWikiFolderSource
 	Repository             *repohost.Client
 	RepositoryPlacement    services.RepoPlacementLookup
 	RepositoryProvisioning services.RepositoryProvisioningStore
@@ -215,6 +216,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return err
 	}
 	options.topology = topology{multitenant: config.IsMultitenant(cfg.Auth), duties: options.Duties}
+	if !options.topology.hosted() {
+		cfg.FeatureFlags.Wiki = true
+	}
 	if options.Workspace != nil {
 		switch isolation := options.Workspace.Isolation(); isolation {
 		case workspace.IsolationTrustedProcess:
@@ -1612,7 +1616,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.workers() && cfg.FeatureFlags.Wiki {
 		wikiHistoryWorker = startJoinedBackgroundWorker(func() { services.RunWikiHistory(workerCtx, pool, repoHostClient) })
 	}
-	if options.topology.workers() && len(cfg.WikiSync.Obsidian) > 0 {
+	if !options.topology.hosted() && options.topology.workers() && options.InstallWikiSync != nil {
+		launchWorker(func() {
+			services.RunInstallWikiFolderSync(workerCtx, wikiService, options.InstallWikiSync, cfg.WikiSync.Interval())
+		})
+	}
+	// Host-config folders remain a hosted deployment port only. The Mac refuses
+	// sync until persisted install settings and owner authority are composed.
+	if options.topology.hosted() && options.topology.workers() && len(cfg.WikiSync.Obsidian) > 0 {
 		folders := make([]services.WikiFolderSync, len(cfg.WikiSync.Obsidian))
 		for i, folder := range cfg.WikiSync.Obsidian {
 			folders[i] = services.WikiFolderSync(folder)

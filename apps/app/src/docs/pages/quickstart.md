@@ -14,3 +14,7 @@ Find an app command. You do not need the CLI to use the app.
 See [Flows reference](flows.md#find-a-command) to filter the command menu.
 
 See the [install page](https://smithers.sh/docs/installation/).
+
+## Open the wiki in Obsidian
+
+In Settings, set **Obsidian folder** to a folder on the install’s Mac, then open that folder in Obsidian. Folder edits become wiki revisions; wiki edits return to the folder.

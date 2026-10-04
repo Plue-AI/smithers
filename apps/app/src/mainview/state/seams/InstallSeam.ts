@@ -141,6 +141,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
             const failedStep = setup ? (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId : undefined
             publish({ ...shared.snapshot, error: result, model: model && address ? { ...model, address: { ...model.address,
               change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: result.message } } }
+              : model && path === "/install" && typeof body === "object" && body !== null && "wiki_sync.obsidian" in body
+                ? { ...model, wiki_sync: { obsidian: { ...model.wiki_sync?.obsidian, path: model.wiki_sync?.obsidian?.path ?? "", error: result.message } } }
               : model && failedStep ? { ...model, steps: model.steps.map(step => step.id === failedStep
                 ? { ...step, state: "failed", error: result } : step) } : model })
           }
@@ -203,6 +205,12 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (!Number.isInteger(parallel) || parallel < 0 || (model && parallel > model.capacity)) return "At once exceeds Machines"
     return write("parallel", "/install", { parallel })
   }
+  // T-FLW-12: no seed or host-config mutation; an authoritative setting enables this door.
+  const setInstallObsidian = (path: string) => {
+    if (!shared.snapshot.model?.wiki_sync) return "Obsidian settings unavailable"
+    if (!path.startsWith("/") || path.includes("\0")) return "Choose an absolute folder path"
+    return write("obsidian", "/install", { "wiki_sync.obsidian": { path } })
+  }
   const saveInstallModelKey = (input: ModelKeyInput, gesture?: CommandGesture) => {
     let value = gesture?.takeWriteOnly?.("value")
     gesture?.release()
@@ -252,7 +260,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   return {
     snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
     setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { address: input }),
-    setInstallCapacity, setInstallParallel, saveInstallModelKey,
+    setInstallCapacity, setInstallParallel, setInstallObsidian, saveInstallModelKey,
     dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined;
       for (const cancel of shared.cancel) cancel()
       shared.listeners.clear() }

@@ -41,6 +41,7 @@ export const FLOW_NAMES = [
   "settings.address",
   "settings.capacity",
   "settings.parallel",
+  "settings.obsidian",
   "settings.model-key",
   "settings.setup",
   "members",

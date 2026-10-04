@@ -39,6 +39,10 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
     ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel" }, command_input: { parallel: model.parallel },
       input: [{ name: "value", label: "TODOs at once", kind: "text" as const, required: true, value: String(model.parallel) }],
       resolve_input: (input: Record<string, string>) => ({ parallel: Number(input.value ?? input.parallel ?? model.parallel) }) }]),
+    ...(model.wiki_sync === undefined ? [] : [{ tag: "settings.obsidian" as const, label: "Change", args: { field: "obsidian" },
+      command_input: { path: model.wiki_sync.obsidian?.path ?? "" },
+      input: [{ name: "path", label: "Obsidian folder", kind: "text" as const, required: true, value: model.wiki_sync.obsidian?.path ?? "" }],
+      resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) }]),
     key!.definition
   ] : []
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
