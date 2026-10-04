@@ -93,21 +93,28 @@ func crashReached(point string, detail ...string) {
 }
 
 type crashChild struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	lines  chan string
-	stderr *strings.Builder
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	lines   chan string
+	stderr  *strings.Builder
+	point   string
+	reached bool
 }
 
 func startCrashChild(t *testing.T, subject, point, databaseURL string, args ...string) *crashChild {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDurableCrashRestartChildProcess$", "-test.count=1")
+	return startCrashProcess(t, "TestDurableCrashRestartChildProcess", subject, point, databaseURL, args...)
+}
+
+func startCrashProcess(t *testing.T, test, subject, point, databaseURL string, args ...string) *crashChild {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^"+test+"$", "-test.count=1")
 	cmd.Env = append(os.Environ(), crashChildEnv+"="+subject, crashPointEnv+"="+point, crashDBEnv+"="+databaseURL, crashArgsEnv+"="+strings.Join(args, "|"))
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	stdin, err := cmd.StdinPipe()
 	require.NoError(t, err)
-	child := &crashChild{cmd: cmd, stdin: stdin, lines: make(chan string, 64), stderr: &strings.Builder{}}
+	child := &crashChild{cmd: cmd, stdin: stdin, lines: make(chan string, 64), stderr: &strings.Builder{}, point: point}
 	cmd.Stderr = child.stderr
 	require.NoError(t, cmd.Start())
 	go func() {
@@ -135,8 +142,11 @@ func (c *crashChild) await(t *testing.T, prefix string) []string {
 			if !ok {
 				t.Fatalf("crash child exited before %q: %s", prefix, c.stderr.String())
 			}
-			if rest, found := strings.CutPrefix(line, prefix); found {
-				return strings.Fields(rest)
+			if rest, found := crashLineFields(line, prefix); found {
+				if prefix == crashMarker+c.point {
+					c.reached = true
+				}
+				return rest
 			}
 		case <-timeout:
 			t.Fatalf("crash child never reached %q: %s", prefix, c.stderr.String())
@@ -144,9 +154,20 @@ func (c *crashChild) await(t *testing.T, prefix string) []string {
 	}
 }
 
+// Match a complete marker token, never a point with the requested point as
+// its prefix. Outcome lines use the same whitespace-delimited protocol.
+func crashLineFields(line, prefix string) ([]string, bool) {
+	rest, found := strings.CutPrefix(line, prefix)
+	if !found || (!strings.HasSuffix(prefix, " ") && rest != "" && rest[0] != ' ' && rest[0] != '\t') {
+		return nil, false
+	}
+	return strings.Fields(rest), true
+}
+
 // kill ends the child as a crash would: no deferred cleanup, no release.
 func (c *crashChild) kill(t *testing.T) {
 	t.Helper()
+	require.True(t, c.reached, "refusing crash without exact %s%s marker", crashMarker, c.point)
 	require.NoError(t, c.cmd.Process.Signal(syscall.SIGKILL))
 	err := c.cmd.Wait()
 	var exit *exec.ExitError
