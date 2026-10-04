@@ -80,7 +80,9 @@ A workspace with a `Source` boots from content-addressed snapshots
 | toolchain    | pinned image + main's committed index's `Environment.Toolchain` row or the detected tool versions, pinned artifact URLs and SHA-256, plus `main`'s `.smithers/machine.json` packages |
 | dependencies | toolchain key + the index's install nodes or the detected install commands and their input contents, including lockfiles and member manifests                                     |
 
-The committed `.smithers/target-index.json` takes precedence. Without an index,
+Indexed rows and detected evidence use the same toolchain and dependency recipe
+builders, artifact validation and content-addressed cache. The committed
+`.smithers/target-index.json` takes precedence. Without an index,
 detection reads the Node version files, `package.json`, package-manager
 lockfiles, `go.mod`, Rust manifests, Python manifests and requirements files.
 It never runs repository code during detection. Tool versions

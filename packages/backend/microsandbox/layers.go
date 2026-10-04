@@ -287,18 +287,18 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	if targets == nil {
 		detected, err = DetectRecipe(read)
 		if err == nil {
-			toolchain, err = detectedToolchainRecipe(e.config.Image, detected, machine.Packages)
+			toolchain, err = toolchainRecipe(e.config.Image, nil, detected)
 		}
 		if err == nil && len(detected.Tools) == 0 && len(machine.Packages) == 0 {
 			return Layer{}, nil
 		}
 	} else {
 		toolchain, err = toolchainRecipe(e.config.Image, targets)
-		toolchain.Packages = machine.Packages
 	}
 	if err != nil {
 		return Layer{}, err
 	}
+	toolchain.Packages = sortedCopy(machine.Packages)
 	toolchainKey, _, err := recipeKey("", toolchain)
 	if err != nil {
 		return Layer{}, err
@@ -316,7 +316,7 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	var dependencies dependencyLayer
 	var inputs map[string][]byte
 	if targets == nil {
-		dependencies, inputs, err = detectedDependencyRecipe(toolchainLayer.Key, detected, read)
+		dependencies, inputs, err = dependencyRecipe(toolchainLayer.Key, nil, read, detected)
 	} else {
 		dependencies, inputs, err = dependencyRecipe(toolchainLayer.Key, targets, read)
 	}
@@ -845,15 +845,46 @@ var (
 	postgresPattern = regexp.MustCompile(`^[0-9]+$`)
 )
 
-// toolchainRecipe reads the one Environment.Toolchain row of the index: its
-// pinned artifacts, their digests, and the hosts they are fetched from.
-func toolchainRecipe(image string, targets []indexTarget) (toolchainLayer, error) {
+// toolchainRecipe normalizes detected evidence or the authoritative index row
+// into one pinned-artifact validator and layer identity.
+func toolchainRecipe(image string, targets []indexTarget, evidence ...Recipe) (toolchainLayer, error) {
 	var rows []indexTarget
 	for _, target := range targets {
 		if target.Rule == "Environment.Toolchain" {
 			rows = append(rows, target)
 		}
 	}
+	var detectorVersion string
+	required := append([]string(nil), requiredTools...)
+	if targets == nil && len(evidence) > 0 {
+		detected := evidence[0]
+		detectorVersion = detected.DetectorVersion
+		pins := map[string]download{}
+		hosts := map[string]bool{}
+		for tool, requested := range detected.Tools {
+			pinned, err := resolveDetectedTool(tool, requested)
+			if err != nil {
+				return toolchainLayer{}, err
+			}
+			pins[tool] = pinned
+			host, err := httpsHost(pinned.URL)
+			if err != nil {
+				return toolchainLayer{}, err
+			}
+			hosts[host] = true
+			if host == "go.dev" {
+				hosts["dl.google.com"] = true
+			}
+			if host == "github.com" {
+				hosts["release-assets.githubusercontent.com"] = true
+				hosts["objects.githubusercontent.com"] = true
+			}
+		}
+		destinations := sortedKeys(hosts)
+		rows = []indexTarget{{Label: "detected", Destinations: &destinations, Toolchain: &indexToolchain{Downloads: pins}}}
+		required = sortedDownloadKeys(pins)
+	}
+
 	if len(rows) != 1 {
 		return toolchainLayer{}, fmt.Errorf("%s declares %d Environment.Toolchain targets; a prepared environment needs exactly one", targetIndexPath, len(rows))
 	}
@@ -864,12 +895,11 @@ func toolchainRecipe(image string, targets []indexTarget) (toolchainLayer, error
 	if row.Destinations == nil {
 		return toolchainLayer{}, fmt.Errorf("%s declares no network destinations", row.Label)
 	}
-	layer := toolchainLayer{Image: image, Label: row.Label, Downloads: map[string]download{}, Postgres: row.Toolchain.Postgres}
+	layer := toolchainLayer{Image: image, DetectorVersion: detectorVersion, Label: row.Label, Downloads: map[string]download{}, Postgres: row.Toolchain.Postgres}
 	destinations, err := destinationSet(row.Label, *row.Destinations)
 	if err != nil {
 		return toolchainLayer{}, err
 	}
-	required := append([]string(nil), requiredTools...)
 	if rust := row.Toolchain.Rust; rust != nil {
 		if strings.TrimSpace(rust.Channel) == "" {
 			return toolchainLayer{}, fmt.Errorf("%s declares a Rust toolchain with no channel", row.Label)
@@ -1289,8 +1319,170 @@ func declaredDestinations(target indexTarget) ([]string, error) {
 	return sortedKeys(set), nil
 }
 
-// dependencyRecipe derives the install nodes from the committed target index.
-func dependencyRecipe(toolchainKey string, targets []indexTarget, read func(string) ([]byte, bool, error)) (dependencyLayer, map[string][]byte, error) {
+// dependencyRecipe assembles one content-addressed layer from detected installs
+// or the authoritative committed target index.
+func dependencyRecipe(toolchainKey string, targets []indexTarget, read func(string) ([]byte, bool, error), evidence ...Recipe) (dependencyLayer, map[string][]byte, error) {
+	if targets == nil && len(evidence) > 0 {
+		detected := evidence[0]
+		layer := dependencyLayer{Toolchain: toolchainKey, DetectorVersion: detected.DetectorVersion, Installs: detected.Installs}
+		inputs := map[string][]byte{}
+		for i, install := range detected.Installs {
+			hosts, err := destinationSet("detected dependency install", install.Destinations)
+			if err != nil {
+				return dependencyLayer{}, nil, err
+			}
+			node := dependencyNode{Label: fmt.Sprintf("detected:%d", i), Rule: "Detected.Install", Files: map[string]string{}, Destinations: sortedKeys(hosts)}
+			store := func(name string, data []byte) error {
+				if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "..") || strings.ContainsAny(name, "\\\x00") {
+					return fmt.Errorf("invalid detected dependency input %q", name)
+				}
+				node.Files[name] = digest(string(data))
+				inputs[name] = data
+				return nil
+			}
+			add := func(name string) error {
+				if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "..") || strings.ContainsAny(name, "\\\x00") {
+					return fmt.Errorf("invalid detected dependency input %q", name)
+				}
+				data, ok, err := read(name)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					node.Files[name] = "absent"
+					return nil
+				}
+				if strings.ContainsAny(name, "*?[") {
+					var listing map[string]string
+					if err := json.Unmarshal(data, &listing); err != nil {
+						return fmt.Errorf("decode dependency input listing %s: %w", name, err)
+					}
+					for filename, contents := range listing {
+						matched, err := path.Match(name, filename)
+						if err != nil || !matched {
+							return fmt.Errorf("dependency input %q does not match %q", filename, name)
+						}
+						if err := store(filename, []byte(contents)); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+				return store(name, data)
+			}
+			for _, name := range install.Files {
+				if name == "requirements*.txt" {
+					data, ok, err := read(name)
+					if err != nil {
+						return dependencyLayer{}, nil, err
+					}
+					if !ok {
+						continue
+					}
+					var requirements map[string]string
+					if err := json.Unmarshal(data, &requirements); err != nil {
+						return dependencyLayer{}, nil, fmt.Errorf("decode requirements file listing: %w", err)
+					}
+					for name, data := range requirements {
+						if path.Base(name) != name || !strings.HasPrefix(name, "requirements") || !strings.HasSuffix(name, ".txt") {
+							return dependencyLayer{}, nil, fmt.Errorf("invalid requirements filename %q", name)
+						}
+						node.Files[name] = digest(data)
+						inputs[name] = []byte(data)
+					}
+				} else if err := add(name); err != nil {
+					return dependencyLayer{}, nil, err
+				}
+			}
+			if len(install.Command) > 0 {
+				switch install.Command[0] {
+				case "uv":
+					var manifest struct {
+						BuildSystem struct {
+							Requires []string `toml:"requires"`
+						} `toml:"build-system"`
+					}
+					if err := toml.Unmarshal(inputs["pyproject.toml"], &manifest); err != nil {
+						return dependencyLayer{}, nil, fmt.Errorf("decode pyproject.toml: %w", err)
+					}
+					layer.UVBuildRequirements = sortedCopy(manifest.BuildSystem.Requires)
+				case "go":
+					if err := add("go.sum"); err != nil {
+						return dependencyLayer{}, nil, err
+					}
+				case "cargo":
+					if err := add("Cargo.lock"); err != nil {
+						return dependencyLayer{}, nil, err
+					}
+					var manifest struct {
+						Workspace struct {
+							Members []string `toml:"members"`
+						} `toml:"workspace"`
+						Dependencies      map[string]any `toml:"dependencies"`
+						DevDependencies   map[string]any `toml:"dev-dependencies"`
+						BuildDependencies map[string]any `toml:"build-dependencies"`
+					}
+					if err := toml.Unmarshal(inputs["Cargo.toml"], &manifest); err != nil {
+						return dependencyLayer{}, nil, fmt.Errorf("decode Cargo.toml: %w", err)
+					}
+					for _, member := range manifest.Workspace.Members {
+						if err := add(member + "/Cargo.toml"); err != nil {
+							return dependencyLayer{}, nil, err
+						}
+					}
+					for _, dependencies := range []map[string]any{manifest.Dependencies, manifest.DevDependencies, manifest.BuildDependencies} {
+						for _, dependency := range dependencies {
+							row, _ := dependency.(map[string]any)
+							localPath, _ := row["path"].(string)
+							if localPath != "" {
+								if err := add(localPath + "/Cargo.toml"); err != nil {
+									return dependencyLayer{}, nil, err
+								}
+							}
+						}
+					}
+				case "pnpm":
+					if err := add("pnpm-workspace.yaml"); err != nil {
+						return dependencyLayer{}, nil, err
+					}
+					for _, importer := range lockImporters(inputs["pnpm-lock.yaml"]) {
+						if importer != "." {
+							if err := add(importer + "/package.json"); err != nil {
+								return dependencyLayer{}, nil, err
+							}
+						}
+					}
+				case "npm", "yarn", "bun":
+					var manifest struct {
+						Workspaces json.RawMessage `json:"workspaces"`
+					}
+					if err := json.Unmarshal(inputs["package.json"], &manifest); err != nil {
+						return dependencyLayer{}, nil, fmt.Errorf("decode package.json: %w", err)
+					}
+					if len(manifest.Workspaces) > 0 {
+						var members []string
+						if json.Unmarshal(manifest.Workspaces, &members) != nil {
+							var object struct {
+								Packages []string `json:"packages"`
+							}
+							if err := json.Unmarshal(manifest.Workspaces, &object); err != nil {
+								return dependencyLayer{}, nil, fmt.Errorf("decode package.json workspaces: %w", err)
+							}
+							members = object.Packages
+						}
+						for _, member := range members {
+							if err := add(member + "/package.json"); err != nil {
+								return dependencyLayer{}, nil, err
+							}
+						}
+					}
+				}
+			}
+			layer.Nodes = append(layer.Nodes, node)
+		}
+		return layer, inputs, nil
+	}
+
 	layer := dependencyLayer{Toolchain: toolchainKey}
 	inputs := map[string][]byte{}
 	nodes := map[string]*dependencyNode{}
@@ -1619,34 +1811,6 @@ var (
 	_ workspaceapi.WorkspaceEnvironmentLinker = (*Runtime)(nil)
 )
 
-// Detected and indexed recipes share the same content-addressed layer backend.
-func detectedToolchainRecipe(image string, detected Recipe, packages []string) (toolchainLayer, error) {
-	layer := toolchainLayer{Image: image, DetectorVersion: detected.DetectorVersion, Label: "detected", Downloads: map[string]download{}, Packages: sortedCopy(packages)}
-	hosts := map[string]bool{}
-	for tool, requested := range detected.Tools {
-		pinned, err := resolveDetectedTool(tool, requested)
-		if err != nil {
-			return toolchainLayer{}, err
-		}
-		host, err := httpsHost(pinned.URL)
-		if err != nil || !versionPattern.MatchString(pinned.Version) || !sha256Pattern.MatchString(pinned.SHA256) {
-			return toolchainLayer{}, fmt.Errorf("invalid pinned %s artifact", tool)
-		}
-		hosts[host] = true
-		// Domain egress checks also see the official artifact's redirect targets.
-		if host == "go.dev" {
-			hosts["dl.google.com"] = true
-		}
-		if host == "github.com" {
-			hosts["release-assets.githubusercontent.com"] = true
-			hosts["objects.githubusercontent.com"] = true
-		}
-		layer.Downloads[tool] = pinned
-	}
-	layer.Destinations = sortedKeys(hosts)
-	return layer, nil
-}
-
 func withAptDestinations(hosts []string) []string {
 	set := map[string]bool{}
 	for _, host := range hosts {
@@ -1673,164 +1837,4 @@ func shellArgv(argv []string) string {
 		quoted[i] = shellQuote(arg)
 	}
 	return strings.Join(quoted, " ")
-}
-
-func detectedDependencyRecipe(toolchainKey string, detected Recipe, read func(string) ([]byte, bool, error)) (dependencyLayer, map[string][]byte, error) {
-	layer := dependencyLayer{Toolchain: toolchainKey, DetectorVersion: detected.DetectorVersion, Installs: detected.Installs}
-	inputs := map[string][]byte{}
-	for i, install := range detected.Installs {
-		hosts, err := destinationSet("detected dependency install", install.Destinations)
-		if err != nil {
-			return dependencyLayer{}, nil, err
-		}
-		node := dependencyNode{Label: fmt.Sprintf("detected:%d", i), Rule: "Detected.Install", Files: map[string]string{}, Destinations: sortedKeys(hosts)}
-		store := func(name string, data []byte) error {
-			if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "..") || strings.ContainsAny(name, "\\\x00") {
-				return fmt.Errorf("invalid detected dependency input %q", name)
-			}
-			node.Files[name] = digest(string(data))
-			inputs[name] = data
-			return nil
-		}
-		add := func(name string) error {
-			if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "..") || strings.ContainsAny(name, "\\\x00") {
-				return fmt.Errorf("invalid detected dependency input %q", name)
-			}
-			data, ok, err := read(name)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				node.Files[name] = "absent"
-				return nil
-			}
-			if strings.ContainsAny(name, "*?[") {
-				var listing map[string]string
-				if err := json.Unmarshal(data, &listing); err != nil {
-					return fmt.Errorf("decode dependency input listing %s: %w", name, err)
-				}
-				for filename, contents := range listing {
-					matched, err := path.Match(name, filename)
-					if err != nil || !matched {
-						return fmt.Errorf("dependency input %q does not match %q", filename, name)
-					}
-					if err := store(filename, []byte(contents)); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
-			return store(name, data)
-		}
-		for _, name := range install.Files {
-			if name == "requirements*.txt" {
-				data, ok, err := read(name)
-				if err != nil {
-					return dependencyLayer{}, nil, err
-				}
-				if !ok {
-					continue
-				}
-				var requirements map[string]string
-				if err := json.Unmarshal(data, &requirements); err != nil {
-					return dependencyLayer{}, nil, fmt.Errorf("decode requirements file listing: %w", err)
-				}
-				for name, data := range requirements {
-					if path.Base(name) != name || !strings.HasPrefix(name, "requirements") || !strings.HasSuffix(name, ".txt") {
-						return dependencyLayer{}, nil, fmt.Errorf("invalid requirements filename %q", name)
-					}
-					node.Files[name] = digest(data)
-					inputs[name] = []byte(data)
-				}
-			} else if err := add(name); err != nil {
-				return dependencyLayer{}, nil, err
-			}
-		}
-		if len(install.Command) > 0 {
-			switch install.Command[0] {
-			case "uv":
-				var manifest struct {
-					BuildSystem struct {
-						Requires []string `toml:"requires"`
-					} `toml:"build-system"`
-				}
-				if err := toml.Unmarshal(inputs["pyproject.toml"], &manifest); err != nil {
-					return dependencyLayer{}, nil, fmt.Errorf("decode pyproject.toml: %w", err)
-				}
-				layer.UVBuildRequirements = sortedCopy(manifest.BuildSystem.Requires)
-			case "go":
-				if err := add("go.sum"); err != nil {
-					return dependencyLayer{}, nil, err
-				}
-			case "cargo":
-				if err := add("Cargo.lock"); err != nil {
-					return dependencyLayer{}, nil, err
-				}
-				var manifest struct {
-					Workspace struct {
-						Members []string `toml:"members"`
-					} `toml:"workspace"`
-					Dependencies      map[string]any `toml:"dependencies"`
-					DevDependencies   map[string]any `toml:"dev-dependencies"`
-					BuildDependencies map[string]any `toml:"build-dependencies"`
-				}
-				if err := toml.Unmarshal(inputs["Cargo.toml"], &manifest); err != nil {
-					return dependencyLayer{}, nil, fmt.Errorf("decode Cargo.toml: %w", err)
-				}
-				for _, member := range manifest.Workspace.Members {
-					if err := add(member + "/Cargo.toml"); err != nil {
-						return dependencyLayer{}, nil, err
-					}
-				}
-				for _, dependencies := range []map[string]any{manifest.Dependencies, manifest.DevDependencies, manifest.BuildDependencies} {
-					for _, dependency := range dependencies {
-						row, _ := dependency.(map[string]any)
-						localPath, _ := row["path"].(string)
-						if localPath != "" {
-							if err := add(localPath + "/Cargo.toml"); err != nil {
-								return dependencyLayer{}, nil, err
-							}
-						}
-					}
-				}
-			case "pnpm":
-				if err := add("pnpm-workspace.yaml"); err != nil {
-					return dependencyLayer{}, nil, err
-				}
-				for _, importer := range lockImporters(inputs["pnpm-lock.yaml"]) {
-					if importer != "." {
-						if err := add(importer + "/package.json"); err != nil {
-							return dependencyLayer{}, nil, err
-						}
-					}
-				}
-			case "npm", "yarn", "bun":
-				var manifest struct {
-					Workspaces json.RawMessage `json:"workspaces"`
-				}
-				if err := json.Unmarshal(inputs["package.json"], &manifest); err != nil {
-					return dependencyLayer{}, nil, fmt.Errorf("decode package.json: %w", err)
-				}
-				if len(manifest.Workspaces) > 0 {
-					var members []string
-					if json.Unmarshal(manifest.Workspaces, &members) != nil {
-						var object struct {
-							Packages []string `json:"packages"`
-						}
-						if err := json.Unmarshal(manifest.Workspaces, &object); err != nil {
-							return dependencyLayer{}, nil, fmt.Errorf("decode package.json workspaces: %w", err)
-						}
-						members = object.Packages
-					}
-					for _, member := range members {
-						if err := add(member + "/package.json"); err != nil {
-							return dependencyLayer{}, nil, err
-						}
-					}
-				}
-			}
-		}
-		layer.Nodes = append(layer.Nodes, node)
-	}
-	return layer, inputs, nil
 }

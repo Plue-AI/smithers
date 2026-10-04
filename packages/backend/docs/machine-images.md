@@ -6,7 +6,8 @@ description: "Detected toolchains, reviewed image packages, and Source ready and
 ## Repositories without declarations
 
 The machine layer builder uses main’s committed `.smithers/target-index.json` when
-present. An invalid index fails; it never silently switches to detection.
+present. An invalid index fails; it never silently switches to detection. Indexed and
+detected inputs share the toolchain and dependency recipe builders.
 Without an index, `microsandbox.DetectRecipe` reads only:
 
 | Files                                                                       | Recipe                                        |
@@ -73,3 +74,14 @@ to a Debian snapshot.
 | Dependency script                                    | `guestUser` (`agent`) | Runs repository-selected dependency commands at a nonzero uid.                                                           |
 | npm, pnpm, yarn and bun installs                     | `guestUser` (`agent`) | Use `--ignore-scripts` during preparation. Lifecycle scripts run only at workspace link time, at a nonzero uid.          |
 | pip wheel builds (`setup.py`) and `toolNode` entries | `guestUser` (`agent`) | Run repository code during preparation. Their effects are baked into a shared layer keyed by the digests of every input. |
+
+## Setup readiness seam
+
+The retained `InstallMachineReadyService` commits Source ready after resolving
+`main` to an immutable mirror revision, before starting machine preparation.
+Machine ready commits only after the layer builder returns verified layers.
+Failures retain the recipe error and its fix; attempt fencing rejects stale
+completion after a retry. Step completion serializes as `done` (§14.3).
+
+The service remains unmounted. T-INS-06 supplies durable persistence and invokes
+it from the setup runner; this service owns no HTTP route or install topic.
