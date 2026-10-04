@@ -19,7 +19,7 @@ Design for #3706 (Will, 2026-10-04: sandboxes on this machine and on remote boxe
 | Word | Meaning | Copy |
 | --- | --- | --- |
 | **Machine** | A branch's isolated place to run (unchanged). | "Machine awake", "Waiting for a machine · #2" |
-| **Computer** | Where machines run: This Mac, an SSH computer such as `beaver`, or Smithers Cloud. New word. | "This Mac", "beaver", "Smithers Cloud" |
+| **Computer** | Where machines run: This Mac, a Linux computer such as `beaver`, or Smithers Cloud. New word. | "This Mac", "beaver", "Smithers Cloud" |
 | **Auto** | Smithers picks the computer with free capacity when the branch first wakes. | "Runs on: Auto" |
 
 "Computer" was chosen over three alternatives:
@@ -37,13 +37,13 @@ Settings is the owner's card (mvp.md Appendix A `/settings`). When the flag is o
  Computers                                    9 machines
  ─────────────────────────────────────────────────────────
  ● This Mac        macOS              3 machines   2 in use   ⋯
- ○ beaver          Linux · SSH        4 machines   0 in use   ⋯
+ ○ beaver          Linux              1 machine    0 in use   ⋯
  ● Smithers Cloud  Smithers Cloud     2 machines   1 in use   ⋯
  ● mini-2          Unreachable · connection refused   Retry   ⋯
                                                  [ Add computer ]
 ```
 
-- Each row has a dot, the name, a kind chip ("macOS", "Linux · SSH", "Smithers Cloud"), capacity and in-use count.
+- Each row has a dot, the name, a kind chip ("macOS", "Linux", "Smithers Cloud"), capacity and in-use count.
   - **Dot:** teal when machines are in use; neutral when online and idle; quiet when paused; ember when unreachable; gold when signed out.
   - **Capacity:** comes from each computer's own memory and disk (M-06 per computer). The title count sums online computers only; paused, unreachable and signed-out capacity isn't counted. It is the same number Home shows.
 - **This Mac** is always first. It can be paused (all work goes elsewhere) but never removed. It keeps today's "No machine fits" line, with its limiting term and fix link.
@@ -59,28 +59,31 @@ Settings is the owner's card (mvp.md Appendix A `/settings`). When the flag is o
 
 ### Add computer
 
-**Add computer** opens a form in the card. It uses Setup's step pattern: one control per step, enabled when the step before it is done.
+**Add computer** opens a form in the card. The computer joins by running the Smithers worker, which registers itself with the install (8a §8.13.0; Will, 2026-10-04: reuse the Smithers Cloud controller and worker). It uses Setup's step pattern: each step shows when the step before it is done.
 
 ```
  Add computer
- Kind      ( SSH computer | Smithers Cloud )
+ Kind      ( Linux computer | Smithers Cloud )
  Name      beaver
- Key       ssh-ed25519 AAAA… smithers@maya-mini   [ Copy ]
- Address   will@beaver.local                      [ Connect ]
+ Run on beaver:
+   curl -fsSL https://maya-mini.tail1234.ts.net/join/7Kq2… | sh   [ Copy ]
  ─────────────────────────────────────────────
- ✓ Reached     ✓ Linux x86_64     ✕ Runtime     ○ Machine image
+ ◐ Waiting for beaver…
+ ✓ Joined     ✓ Linux x86_64     ✕ Runtime     ○ Machine image
    Virtualization is off · turn on VT-x in firmware ↗   [ Retry ]
- Capacity  4 machines (15 GB, 8 threads)
+ Capacity  1 machine (15 GB, 4 cores)
                                          [ Add beaver ]
 ```
 
-- **SSH computer:**
-  - It shows the key line first, with Copy (copyText), because the key goes into `beaver`'s `authorized_keys` before Connect can work.
-  - **Connect** runs **Reached**, then the OS and architecture, then **Runtime**: what `beaver` needs to run isolated machines. A missing runtime fails with its name and a docs link, as toolchain detection does. On `beaver` today that line is "Virtualization is off · turn on VT-x in firmware ↗" (no `/dev/kvm`, #3706 13:20 facts); Retry reruns the probe after a person fixes it at the keyboard. Then comes **Machine image**, the same progress as Setup step 6.
+- **Linux computer:**
+  - Naming it creates a one-time join line, with Copy (copyText). The line expires after 1 hour, and **New line** replaces it.
+  - The owner runs it on the computer. Until the worker checks in, the form reads "Waiting for beaver…". No address, key or port is typed into Smithers.
+  - Once the worker joins, the steps run: **Joined**, then the OS and architecture, then **Runtime** (the computer can run isolated machines), then **Machine image**, the same progress as Setup step 6.
+  - Runtime fails with its fix, as toolchain detection does. On `beaver` today that line is "Virtualization is off · turn on VT-x in firmware ↗" (no `/dev/kvm`, #3706 13:20 facts). Retry reruns the probe after a person fixes it at the keyboard.
 - **Smithers Cloud:** shows Sign in, then a Machines limit stepper.
-- Other providers stay engineering-only until a person needs one.
-- Each step fails in place, with its reason and Retry.
-- The primary button stays disabled until the image is ready, and names the computer: "Add beaver".
+- Each step fails in place with its reason and Retry. The primary button stays disabled until the image is ready, and names the computer: "Add beaver".
+- Capacity is the install's rule applied to that computer (§8.2.1). `beaver` gets 1.
+- Open with 8a until §8.13 is rewritten: the join line's exact command, and whether the computer must reach the install's address (§1.4 keeps it on loopback by default). If it must, the form shows that requirement as a blocked step with its fix link, the same way Setup shows address problems.
 
 ## 2. Seeing where a machine runs
 
@@ -126,11 +129,11 @@ The override lives where a TODO is shaped: the **Draft** card's place row, and *
 These are additions only. Every one is optional, so the flag-off props are unchanged.
 
 ```ts
-type ComputerStep = Omit<SetupStep, "id"> & { id: "reached" | "os" | "runtime" | "image" }
+type ComputerStep = Omit<SetupStep, "id"> & { id: "joined" | "os" | "runtime" | "image" }
 type Computer = {
   id: string; name: string                                   // "This Mac", "beaver"
-  kind: "this_mac" | "ssh" | "cloud"
-  label: string                                              // the chip: "macOS", "Linux · SSH", "Smithers Cloud"
+  kind: "this_mac" | "linux" | "cloud"
+  label: string                                              // the chip: "macOS", "Linux", "Smithers Cloud"
   capacity: number; in_use: number; limit?: number           // limit: the per-computer Machines stepper
   state: "online" | "paused" | "unreachable" | "signed_out"
   error?: { class: string; message: string }                 // unreachable: the provider's reason
@@ -138,7 +141,7 @@ type Computer = {
   queued_pinned: number                                      // named in the Remove two-step
 }
 // SettingsModel: computers?: Computer[]            present when the flag is on, or any non-This-Mac computer holds branches
-//                adding?: { kind: "ssh" | "cloud"; steps: ComputerStep[]; key_line?: string; capacity?: number }
+//                adding?: { kind: "linux" | "cloud"; steps: ComputerStep[]; join_line?: string; join_expires_at?: string; capacity?: number }
 // MachineState (all variants): computer?: string   the name; present only when 2+ computers exist
 //   "failed" with error.class "unreachable" | "signed_out" renders the section 2 copy
 // DraftModel:    runs_on?: { value: "auto" | string; options: { id: string; name: string; disabled?: { reason: string } }[] }
@@ -147,7 +150,7 @@ type Computer = {
 //                queue.computer?: string; queue.paused?: boolean
 // HomeModel:     machines.slots[].computer?: string
 // gestures.computer { id } on Branch, TODO and Home: owner only; absent means plain text
-// Actions: computer.add, computer.connect, computer.pause, computer.resume, computer.remove, computer.retry,
+// Actions: computer.add, computer.join_line, computer.pause, computer.resume, computer.remove, computer.retry,
 //          computer.limit. All are Owner, person only (agents: never), so 98 adds them to Appendix B.2 and B.4.
 ```
 
@@ -164,4 +167,4 @@ This page lands as proposed and becomes the design when 98's M-40 commit lands. 
 
 ## Falsifier
 
-This design fails if the owner can't add `beaver` from Settings and then see `Machine awake · beaver` on a branch card, within one session, with no CLI step except pasting the key line on `beaver`.
+This design fails if the owner can't add `beaver` from Settings and then see `Machine awake · beaver` on a branch card, within one session, with no step except running the join line on `beaver`.
