@@ -756,3 +756,31 @@ fn shared_stream_allocator_is_required_and_invalid_or_reused_ids_never_open() {
     assert_eq!(shared.open("a.rs", [1; 16], 0), Err(Error::Invalid));
     assert_eq!(shared.disk.log.len(), reads);
 }
+
+#[test]
+fn insertions_at_replacement_edges_merge_but_inside_deleted_lines_conflict() {
+    for (ours, theirs, expected) in [
+        ("A\nb\n", "a\nx\nb\n", "A\nx\nb\n"),
+        ("A\nb\n", "x\na\nb\n", "x\nA\nb\n"),
+        ("a\nx\nb\n", "A\nb\n", "A\nx\nb\n"),
+        ("x\na\nb\n", "A\nb\n", "x\nA\nb\n"),
+    ] {
+        let merged = merge::merge("a\nb\n", ours, theirs);
+        assert!(!merged.overlap);
+        assert_eq!(merged.text, expected);
+    }
+    let merged = merge::merge("a\nb\nc\n", "A\nc\n", "a\nx\nb\nc\n");
+    assert!(merged.overlap);
+    assert_eq!(merged.text, "A\nc\n");
+    assert_eq!(merged.outside, "a\nx\nb\nc\n");
+}
+
+#[test]
+fn ordinary_and_sticky_permissions_are_preserved_and_set_id_modes_refuse() {
+    use smithers_document_component::disk::saved_mode;
+    assert_eq!(saved_mode(0o100664), Ok(0o664));
+    assert_eq!(saved_mode(0o101644), Ok(0o1644));
+    for mode in [0o104644, 0o102644, 0o106644] {
+        assert_eq!(saved_mode(mode), Err(Error::Unsupported));
+    }
+}

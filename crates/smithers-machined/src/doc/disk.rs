@@ -52,3 +52,12 @@ pub fn valid_path(path: &str) -> bool {
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{LinuxDisk, Versions};
+
+/// Preserve all ordinary mode bits, including sticky, without transferring a
+/// set-id file to machined's identity. This is policy, not a filesystem fallback.
+pub fn saved_mode(mode: u32) -> super::Result<u32> {
+    if mode & 0o6000 != 0 {
+        return Err(super::Error::Unsupported);
+    }
+    Ok(mode & 0o1777)
+}

@@ -7,10 +7,11 @@ pub struct Merge {
     pub outside: String,
 }
 fn overlaps(a: &Hunk, b: &Hunk) -> bool {
-    if a.start == a.end || b.start == b.end {
-        a.start <= b.end && b.start <= a.end
-    } else {
-        a.start < b.end && b.start < a.end
+    match (a.start == a.end, b.start == b.end) {
+        (true, true) => a.start == b.start,
+        (true, false) => b.start < a.start && a.start < b.end,
+        (false, true) => a.start < b.start && b.start < a.end,
+        (false, false) => a.start < b.end && b.start < a.end,
     }
 }
 pub fn merge(base: &str, ours: &str, theirs: &str) -> Merge {

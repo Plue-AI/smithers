@@ -211,11 +211,7 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         let mode = if let Some(old) = &old {
             regular(old)?;
             let metadata = old.metadata()?;
-            // Transferring set-id bits to machined would grant its authority.
-            if metadata.mode() & 0o6000 != 0 {
-                return Err(Error::Unsupported);
-            }
-            metadata.mode() & 0o777
+            super::saved_mode(metadata.mode())?
         } else {
             0o664
         };
