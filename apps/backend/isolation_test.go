@@ -287,3 +287,14 @@ func TestMicroVMIsolationRefusesWrongVersion(t *testing.T) {
 		t.Fatalf("version refusal = %v", err)
 	}
 }
+
+func TestInstallIsolationRejectsOff(t *testing.T) {
+	if workspaceapi.PreviewBuild {
+		t.Skip("install build guard")
+	}
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "off")
+	_, err := workspaceIsolation(false)
+	if err == nil || !strings.Contains(err.Error(), `must be "microvm"; process isolation is tests-only`) {
+		t.Fatalf("off accepted: %v", err)
+	}
+}

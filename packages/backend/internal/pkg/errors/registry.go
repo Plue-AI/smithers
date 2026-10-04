@@ -116,6 +116,7 @@ const (
 // Deployment shape: this build of plue is running somewhere that has not been
 // given everything an endpoint needs.
 const (
+	CodeMachinesDisabled           Code = "machines_disabled"
 	CodeFeatureNotEnabled          Code = "feature_not_enabled"
 	CodeCodingGatewayNotConfigured Code = "coding_gateway_not_configured"
 )
@@ -359,6 +360,7 @@ var registry = map[Code]Entry{
 	// The endpoint's storage is not provisioned on this deployment, so the
 	// feature is switched off here. Nothing the caller sent is wrong, and no
 	// retry helps until the deployment is migrated.
+	CodeMachinesDisabled:  {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Machines are off in this preview. Retrying does not help in this build."},
 	CodeFeatureNotEnabled: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The endpoint's storage is not provisioned on this deployment, so the feature is switched off here. Retrying does not help until the deployment is migrated."},
 	// This deployment has no workspace-gateway health probe configured, so it
 	// cannot verify a box's coding gateway and refuses rather than answer for
