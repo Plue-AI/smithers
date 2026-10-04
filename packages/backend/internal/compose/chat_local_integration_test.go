@@ -393,7 +393,9 @@ func (b *lockedBuffer) String() string {
 	return b.buffer.String()
 }
 
-// Reuse the same model HTTP fixture for composed journeys.
+// Reuse the same model HTTP fixture for composed journeys. Offered the host's
+// source tool and asked about one of fileQuestions, it calls the tool; given a
+// tool result, it answers by quoting it, so an answer shows what was read.
 func localChatProvider(receivedKey chan string, fileQuestions ...string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -405,29 +407,49 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 				Role    string          `json:"role"`
 				Content json.RawMessage `json:"content"`
 			} `json:"messages"`
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
 		}
 		if json.NewDecoder(r.Body).Decode(&body) != nil {
 			http.Error(w, "invalid model request", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		hasResult := false
+		answer := func(text string) {
+			chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": text}, "finish_reason": nil}}})
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+			_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		}
+		var result *string
 		for _, message := range body.Messages {
-			hasResult = hasResult || message.Role == "tool"
+			var text string
+			if message.Role == "tool" && json.Unmarshal(message.Content, &text) == nil {
+				result = &text
+			}
+		}
+		if result != nil {
+			answer("From the source: " + *result)
+			return
+		}
+		offered := false
+		for _, tool := range body.Tools {
+			offered = offered || tool.Function.Name == "files_read"
 		}
 		for _, path := range fileQuestions {
 			for _, message := range body.Messages {
-				if !hasResult && message.Role == "user" && strings.Contains(string(message.Content), path) {
+				if offered && message.Role == "user" && strings.Contains(string(message.Content), path) {
 					arguments, _ := json.Marshal(map[string]string{"path": path})
-					chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "read-source", "type": "function", "function": map[string]string{"name": "files.read", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
+					chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "read-source", "type": "function", "function": map[string]string{"name": "files_read", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
 					_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 					return
 				}
 			}
 		}
-		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello from provider\"},\"finish_reason\":null}]}\n\n")
-		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-local\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
-		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		answer("hello from provider")
 	}))
 }
 
@@ -446,15 +468,20 @@ func TestLocalChatProviderSourceQuestion(t *testing.T) {
 		require.NoError(t, err)
 		return string(data)
 	}
-	question := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"}]}`)
-	require.Contains(t, question, `"name":"files.read"`)
+	offered := `"tools":[{"type":"function","function":{"name":"files_read","parameters":{"type":"object"}}}]`
+	question := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"}],` + offered + `}`)
+	require.Contains(t, question, `"name":"files_read"`)
 	require.Contains(t, question, `"finish_reason":"tool_calls"`)
 	require.Contains(t, question, `\"path\":\"JOURNEY.md\"`)
 	require.NotContains(t, question, `"kind":"file"`)
-	continuation := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"},{"role":"tool","content":"Add a greeting to JOURNEY.md\n"}]}`)
-	require.Contains(t, continuation, "hello from provider")
+	// Without the host's tool on offer the provider cannot call it.
+	unoffered := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"}]}`)
+	require.Contains(t, unoffered, "hello from provider")
+	require.NotContains(t, unoffered, "tool_calls")
+	continuation := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"},{"role":"tool","content":"JOURNEY.md in acme/app:\nAdd a greeting to JOURNEY.md\n"}],` + offered + `}`)
+	require.Contains(t, continuation, `From the source: JOURNEY.md in acme/app:\nAdd a greeting to JOURNEY.md\n`)
 	require.NotContains(t, continuation, "tool_calls")
-	ordinary := request(`{"messages":[{"role":"user","content":"hello"}]}`)
+	ordinary := request(`{"messages":[{"role":"user","content":"hello"}],` + offered + `}`)
 	require.Contains(t, ordinary, "hello from provider")
 	require.NotContains(t, ordinary, "tool_calls")
 }

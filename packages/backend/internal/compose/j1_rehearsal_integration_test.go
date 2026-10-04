@@ -74,6 +74,9 @@ func TestJ1Rehearsal(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "JOURNEY.md"), []byte("Add a greeting to JOURNEY.md\n"), 0600))
 	git("-C", seed, "add", "JOURNEY.md")
 	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")
+	seedHead, err := exec.Command("/usr/bin/git", "-C", seed, "rev-parse", "HEAD").Output()
+	require.NoError(t, err)
+	mainCommit := strings.TrimSpace(string(seedHead))
 	require.NoError(t, os.MkdirAll(filepath.Join(gitRoot, "rehearsal-owner"), 0700))
 	git("clone", "--bare", seed, filepath.Join(gitRoot, "rehearsal-owner/app.git"))
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -109,7 +112,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	} {
 		t.Setenv(name, value)
 	}
-	provider := localChatProvider(make(chan string, 16), "JOURNEY.md")
+	provider := localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
 	t.Cleanup(provider.Close)
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
@@ -129,6 +132,8 @@ func TestJ1Rehearsal(t *testing.T) {
 	require.NoError(t, err)
 	host, err := modelhost.New(resolver, launcher)
 	require.NoError(t, err)
+	// The question before Machine ready must start no machine.
+	compute := sandboxfake.New()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	ready := make(chan http.Handler, 1)
@@ -136,7 +141,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	logs := &lockedBuffer{}
 	stdout := &lockedBuffer{}
 	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo")}}, ComputeProvider: sandboxfake.New(), ChatHost: host, FlowHostProductAPIURL: origin}, func(h http.Handler) { ready <- h })
+		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo")}}, ComputeProvider: compute, ChatHost: host, FlowHostProductAPIURL: origin}, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:
@@ -408,54 +413,101 @@ func TestJ1Rehearsal(t *testing.T) {
 		return
 	}
 	if !step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
-		body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": "What is in JOURNEY.md? Show the file."}}})
-		data, err := expect("POST", chat.TurnPath, string(body), 200)
+		type turnFrame struct {
+			Type    string `json:"type"`
+			Name    string `json:"name"`
+			Text    string `json:"text"`
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+			Card    struct {
+				Kind    string `json:"kind"`
+				Payload struct {
+					Path    string `json:"path"`
+					Content string `json:"content"`
+					ReadAt  struct {
+						CommitID string `json:"commitId"`
+					} `json:"readAt"`
+				} `json:"payload"`
+			} `json:"card"`
+		}
+		// ask posts one question from the composer's wire: no tools of its
+		// own, so the host runs the turn's reads.
+		ask := func(question string) (string, []turnFrame, bool, error) {
+			body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": question}}})
+			data, err := expect("POST", chat.TurnPath, string(body), 200)
+			if err != nil {
+				return "", nil, false, err
+			}
+			var answer strings.Builder
+			var frames []turnFrame
+			terminal := false
+			scanner := bufio.NewScanner(strings.NewReader(string(data)))
+			scanner.Buffer(make([]byte, 4096), 1<<20)
+			for scanner.Scan() {
+				var delivery chat.Delivery
+				if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
+					return "", nil, false, err
+				}
+				if delivery.Terminal != nil {
+					terminal = *delivery.Terminal
+				}
+				if delivery.Batch == nil {
+					continue
+				}
+				for _, raw := range delivery.Batch.Frames {
+					var frame turnFrame
+					if err = json.Unmarshal(raw, &frame); err != nil {
+						return "", nil, false, err
+					}
+					if frame.Type == "delta" && frame.Kind == "text" {
+						answer.WriteString(frame.Text)
+					}
+					frames = append(frames, frame)
+				}
+			}
+			return answer.String(), frames, terminal, scanner.Err()
+		}
+		creates, live := len(compute.Creates()), len(compute.Live())
+		answer, frames, terminal, err := ask("What is in JOURNEY.md? Show the file.")
 		if err != nil {
 			return err
 		}
 		if !sourceReady {
 			return fmt.Errorf("Source ready absent before the answer; file-card journey remains blocked")
 		}
-		var answer strings.Builder
-		fileCard, terminal, fileRead := false, false, false
-		scanner := bufio.NewScanner(strings.NewReader(string(data)))
-		scanner.Buffer(make([]byte, 4096), 1<<20)
-		for scanner.Scan() {
-			var delivery chat.Delivery
-			if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
-				return err
-			}
-			if delivery.Terminal != nil {
-				terminal = *delivery.Terminal
-			}
-			if delivery.Batch == nil {
-				continue
-			}
-			for _, raw := range delivery.Batch.Frames {
-				var frame struct {
-					Type string `json:"type"`
-					Name string `json:"name"`
-					Text string `json:"text"`
-					Card struct {
-						Kind    string `json:"kind"`
-						Payload struct {
-							Path string `json:"path"`
-						} `json:"payload"`
-					} `json:"card"`
+		fileRead, fileCard, toolCall := false, false, false
+		for _, frame := range frames {
+			fileRead = fileRead || (frame.Type == "call.settled" && frame.Name == "files.read")
+			toolCall = toolCall || frame.Type == "tool_call"
+			if frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" {
+				// The card holds main's bytes at the mirrored commit.
+				if frame.Card.Payload.Content != "Add a greeting to JOURNEY.md\n" || frame.Card.Payload.ReadAt.CommitID != mainCommit {
+					return fmt.Errorf("file card is not main at %s: %q at %q", mainCommit, frame.Card.Payload.Content, frame.Card.Payload.ReadAt.CommitID)
 				}
-				if err = json.Unmarshal(raw, &frame); err != nil {
-					return err
-				}
-				answer.WriteString(frame.Text)
-				fileRead = fileRead || (frame.Type == "tool_call" && frame.Name == "files.read")
-				fileCard = fileCard || (frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md")
+				fileCard = true
 			}
 		}
-		if err = scanner.Err(); err != nil {
+		// The answer quotes the file, which only the host's read put in its context.
+		if !terminal || !fileRead || !fileCard || toolCall || !strings.Contains(answer, "Add a greeting to JOURNEY.md") {
+			return fmt.Errorf("answer/file card missing (terminal=%t file_read=%t file_card=%t renderer_tool_call=%t) answer=%q", terminal, fileRead, fileCard, toolCall, answer)
+		}
+		// A path out of the repository is refused, stated and answered; no card.
+		answer, frames, terminal, err = ask("Show ../../etc/passwd")
+		if err != nil {
 			return err
 		}
-		if !terminal || !strings.Contains(answer.String(), "hello from provider") || !fileCard {
-			return fmt.Errorf("answer/file card missing (terminal=%t file_read=%t file_card=%t)", terminal, fileRead, fileCard)
+		refused := false
+		for _, frame := range frames {
+			if frame.Type == "card" {
+				return fmt.Errorf("traversal read rendered a %s card", frame.Card.Kind)
+			}
+			refused = refused || (frame.Type == "gate.rejected" && frame.Kind == "call_failed" && strings.Contains(frame.Message, "is not a path inside this repository"))
+		}
+		if !terminal || !refused || !strings.Contains(answer, "failed: ../../etc/passwd is not a path inside this repository") {
+			return fmt.Errorf("traversal refusal missing (terminal=%t refused=%t) answer=%q", terminal, refused, answer)
+		}
+		if len(compute.Creates()) != creates || len(compute.Live()) != live {
+			return fmt.Errorf("a question started a machine: creates %d→%d, live %d→%d", creates, len(compute.Creates()), live, len(compute.Live()))
 		}
 		return nil
 	}) {
