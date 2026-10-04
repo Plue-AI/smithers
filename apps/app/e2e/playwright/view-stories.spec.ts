@@ -495,3 +495,18 @@ test("T-UI-17 watched and frozen terminals never take input focus", async ({ pag
   await page.locator('.xterm-helper-textarea').focus()
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused()
 })
+
+// T-UI-16 / R6: bind the light syntax override to the rendered adapter, not its CSS text.
+test("File light syntax resolves to Paper ink", async ({ page }) => {
+  await page.goto("/view-stories.html?story=CodeSurface/deleted_readonly&theme=light")
+  const keyword = page.locator('diffs-container [data-line] span').filter({ hasText: /^make$/ }).first()
+  await expect(keyword).toBeVisible()
+  await expect.poll(async () => keyword.evaluate(element => {
+    const probe = document.createElement("span")
+    probe.style.color = "var(--lane-1)"
+    document.body.append(probe)
+    const matches = getComputedStyle(element).color === getComputedStyle(probe).color
+    probe.remove()
+    return matches
+  })).toBe(true)
+})

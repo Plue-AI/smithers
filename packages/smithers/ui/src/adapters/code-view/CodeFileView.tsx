@@ -242,6 +242,8 @@ export function CodeFileView({
       theme,
       themeType: resolvedMode,
       disableFileHeader: true,
+      // Paper ink keeps Night Owl Light tokens above AA contrast.
+      unsafeCSS: resolvedMode === "light" ? 'span[style*="color:#4876D6"] { color: var(--lane-1, var(--diffs-light)) !important; } span[style*="color:#C96765"] { color: var(--danger, var(--diffs-light)) !important; }' : undefined,
       overflow: "wrap",
       enableLineSelection: false,
       onPostRender,
