@@ -333,3 +333,19 @@ Cycle 33: plan preview, factory agent configuration, install settings, secrets a
 | A-THEME | [A-THEME.spec.ts](A-THEME.spec.ts) | passing | T-REL-02 |
 
 Cycle 34: the final four Appendix A commands exhaust the unwritten catalog. SSH command parity awaits implementation; the mounted branch copy button is checked with keyboard and clipboard assertions. Sign-in and sign-out retain pending live GitHub/session qualification; mocked browser handoffs are checked separately. Theme covers explicit light, bare toggle, reload and repeated explicit selection. All engineering check IDs and Appendix A commands now have specs; fixmes remain outstanding evidence.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| C-RMT-01 | [C-RMT-01.spec.ts](C-RMT-01.spec.ts) | fixme-before-implementation | T-RMT-01 |
+| C-RMT-02 | [C-RMT-02.spec.ts](C-RMT-02.spec.ts) | fixme-before-implementation | T-RMT-02 |
+| C-RMT-03 | [C-RMT-03.spec.ts](C-RMT-03.spec.ts) | fixme-before-implementation | T-RMT-03 |
+| C-RMT-04 | [C-RMT-04.spec.ts](C-RMT-04.spec.ts) | fixme-before-implementation | T-RMT-04 |
+| C-RMT-05 | [C-RMT-05.spec.ts](C-RMT-05.spec.ts) | fixme-before-implementation | T-RMT-05 |
+| C-RMT-06 | [C-RMT-06.spec.ts](C-RMT-06.spec.ts) | fixme-before-implementation | T-RMT-04 |
+
+Cycle 7 standing lane: six new remote-computer checks retain pending UI
+scenarios. Computers, worker admission and Runs on are absent. The old SSH
+mechanism is superseded pending controller/worker reconciliation (§8.13.0);
+reference-rig, isolation, transport, capacity and credential receipts remain
+required. Cloud qualification stays in stage 2. C-RMT-06 also needs VT-x enabled
+on beaver and a rig fixture for the configuration-only flag transition.
