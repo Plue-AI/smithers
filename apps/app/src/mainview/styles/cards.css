@@ -3,6 +3,7 @@
    (avatar, hover actions). Tokens from tokens.css. */
 
 .smithers-card {
+	box-sizing: border-box;
 	width: 100%;
 	padding: var(--sp-2) var(--sp-3) var(--sp-3);
 	align-self: stretch;
