@@ -29,6 +29,9 @@ const errorCodes = [
 /**
  * Stable error codes returned by sync operations.
  *
+ * `unsupported` reports an unavailable host operation or presence transport
+ * (since 1.0.0). It never implies an empty roster.
+ *
  * `compacted` reports that the request's cursor for one run starts below that
  * run's compaction floor, so the entries it asks for have been deleted. It is
  * its own code rather than an `unknown` because it is RECOVERABLE and nothing

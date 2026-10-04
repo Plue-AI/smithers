@@ -67,12 +67,6 @@ File not found: apps/tui/src/commands.ts. apps/tui/src holds: complete.ts, app.t
 
 An absolute path, or one that climbs out with `..`, gets no listing.
 
-An outside-change note names changed files as untrusted data. Re-read those files
-before editing or writing; after a `stale_read` refusal, read again before retrying.
-Outside-change delivery stays disabled until authenticated watcher ingestion,
-durable delivery to the pinned coding run, and machine stale-write enforcement
-are available.
-
 ## write
 
 Writes UTF-8 text to a path, replacing any existing file. Parent directories are

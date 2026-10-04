@@ -51,7 +51,12 @@ export interface Service {
    * cursors. Reading drops expired leases and advances a cross-branch sweep.
    */
   readonly list: (request: RosterRequest) => Effect.Effect<ReadonlyArray<Participant>, SyncError>
-  /** Fail closed while the host or any required heartbeat source is unavailable. */
+  /**
+   * Returns `unknown` for one lease after host startup or while a required
+   * heartbeat source is unavailable; otherwise reports `present` or `empty`.
+   *
+   * @since 1.0.0
+   */
   readonly presenceOn: (request: RosterRequest) => Effect.Effect<"unknown" | "present" | "empty", SyncError>
   readonly changes: Stream.Stream<BranchId>
   /**
@@ -133,7 +138,12 @@ export interface PresenceOptions {
    * {@link defaultMaxParticipants}.
    */
   readonly maxParticipants?: number | undefined
-  /** Host readiness, including authorization, revocation, bridge and session sources. Defaults to unavailable. */
+  /**
+   * Host readiness, including authorization, revocation, bridge and session
+   * sources. Defaults to unavailable.
+   *
+   * @since 1.0.0
+   */
   readonly sourcesReady?: ((branchId: BranchId) => Effect.Effect<boolean>) | undefined
 }
 
@@ -426,7 +436,7 @@ const makeResolved = (
       const request = detachRoster(supplied)
       yield* share.verify(request.capability, { branchId: request.branchId, access: "read" })
       const nowMs = yield* Clock.currentTimeMillis
-      if (nowMs - startedAtMs < 30_000 || !(yield* sourcesReady(request.branchId))) return "unknown" as const
+      if (nowMs - startedAtMs < leaseMs || !(yield* sourcesReady(request.branchId))) return "unknown" as const
       return live(request.branchId, nowMs).length === 0 ? "empty" as const : "present" as const
     })
 

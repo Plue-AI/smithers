@@ -45,3 +45,9 @@ Card URLs a renderer links, embeds or opens decode through `@smthrs/rpc/WebUrl`.
 URLs. A desktop `streamUrl` must be an origin-relative path (`/…`, never `//`).
 A browser card may record a refused `url` of any scheme, but a `frameable` card
 must embed an http(s) page. A row that breaks these rules fails validation.
+
+## Document binary failures
+
+`LiveDocBinaryRejected` from `@smthrs/rpc/LiveDoc` carries the tag
+`LiveDocBinaryRejected` and code `malformed` or `frame_too_large`.
+Encoding and decoding refuse invalid frame kinds and frames over 2 MiB.

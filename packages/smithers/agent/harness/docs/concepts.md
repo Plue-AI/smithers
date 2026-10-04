@@ -186,6 +186,16 @@ pending in the durable queue for the host to carry forward.
 
 Enforced by `Notifications` and `Steering`.
 
+An outside-change note names changed files as untrusted data. Re-read those files
+before editing or writing; after a `stale_read` refusal, read again before retrying.
+Outside-change delivery stays disabled until authenticated watcher ingestion,
+durable delivery to the pinned coding run, and machine stale-write enforcement
+are available.
+
+Reserved `outside_change` payloads fail queue admission with
+`NotificationError.code = "notification_refused"`. They never enter the journal;
+other steers at the same boundary still deliver and replay.
+
 ## Step keys and the model layer
 
 A sealed model step is keyed on the exact wire request plus the declared key

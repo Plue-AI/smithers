@@ -138,3 +138,7 @@ capacity bound belongs to `admit` alone. `applyAdmission` retains what a record
 admitted without consulting it, so a deployment that raised the capacity replays
 in full through `Projection.derive`. See
 [the journal records](./journal-records.md).
+
+Reserved `outside_change` payloads fail admission with the typed
+`NotificationError` code `notification_refused` before any journal write.
+They consume no pending capacity and cannot poison another notification’s drain.

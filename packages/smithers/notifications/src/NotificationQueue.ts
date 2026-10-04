@@ -28,6 +28,7 @@ import * as NotificationState from "./NotificationState.ts"
  * start a new request; `notification_full` means nothing was retained and the
  * same notification may be retried after pending work drains. Neither the
  * message nor `path` ever carries the offending value.
+ * `notification_refused` rejects reserved outside-change payloads before admission.
  *
  * @category errors
  * @since 0.1.0
@@ -40,7 +41,8 @@ export class NotificationError extends Schema.TaggedError<NotificationError>()(
       "notification_closed",
       "notification_full",
       "notification_id_reused",
-      "notification_invalid"
+      "notification_invalid",
+      "notification_refused"
     ]).pipe(
       Schema.withConstructorDefault(Effect.succeed("notification_unavailable" as const))
     ),
@@ -631,6 +633,20 @@ export const layerWith = (
         admit: Effect.fn("NotificationQueue.admit")((rawRunId, notification) =>
           Effect.gen(function*() {
             const admitted = yield* validated(notification)
+            // T-COL-12 stays dark: nothing yet authenticates a watcher burst, pins
+            // its coding run or enforces fresh machine reads. Refusing here, before
+            // the journal, keeps co-admitted steers deliverable on every replay.
+            const payload = admitted.payload
+            if (
+              typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+              (payload as Readonly<Record<string, unknown>>)["kind"] === "outside_change"
+            ) {
+              return yield* new NotificationError({
+                code: "notification_refused",
+                notificationId: admitted.id,
+                message: "Outside-change delivery requires authenticated watcher facts and stale-write enforcement"
+              })
+            }
             const admittedFingerprint = yield* fingerprint(admitted)
             return yield* journal.transact(
               operations.withPermits(1)(

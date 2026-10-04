@@ -1302,3 +1302,24 @@ describe("NotificationQueue", () => {
     expect(observed.ancient.notifications.map(({ id }) => id)).toEqual(["n-0"])
   })
 })
+
+it("refuses outside-change admission without journaling or consuming pending capacity", async () => {
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const queue = yield* NotificationQueue.NotificationQueue
+      const journal = yield* Journal.Journal
+      const runId = JournalEvent.RunId.make("reserved")
+      const reserved = { ...item("burst", "steer"), payload: { kind: "outside_change" } }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const refusal = yield* Effect.flip(queue.admit(runId, reserved))
+        expect(refusal).toMatchObject({ _tag: "/notifications/NotificationError", code: "notification_refused" })
+      }
+      expect((yield* journal.entries({ runId, limit: 512 })).entries).toEqual([])
+      expect(yield* queue.pending(runId)).toEqual([])
+      yield* queue.admit(runId, item("say", "steer"))
+      const boundary = { runId, targetLineageId: "run/root", boundary: "turn-1", wouldIdle: true }
+      expect((yield* queue.drain(boundary)).notifications.map((note) => note.id)).toEqual(["say"])
+      expect((yield* queue.drain(boundary)).duplicate).toBe(true)
+    }).pipe(Effect.provide(NotificationQueue.layer), Effect.provide(TestJournal.layer()), Effect.scoped)
+  )
+})

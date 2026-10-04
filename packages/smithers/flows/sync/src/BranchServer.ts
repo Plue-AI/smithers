@@ -65,6 +65,9 @@ const sameRoster = (
 /**
  * Provides the branch RPC handlers over the branch services.
  *
+ * With {@link BranchPresence.layerNoop}, roster reads and watches fail with
+ * `unsupported`: unavailable presence cannot establish an empty roster.
+ *
  * A roster watch emits the roster as of subscription, then re-lists on every
  * presence change for the branch AND at least once per second, emitting
  * only when the roster it read differs from the one it last sent.

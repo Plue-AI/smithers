@@ -253,7 +253,11 @@ export const shell = (
   container: Container.Container = Container.makeCommand(),
   options?: {
     readonly sealedTo?: string | undefined
-    /** T-TRM-05: unavailable until the registered daemon PTY and card checks pass. */
+    /**
+     * T-TRM-05: unavailable until the registered daemon PTY and card checks pass.
+     *
+     * @since 1.0.0
+     */
     readonly terminal?: "agent" | undefined
   }
 ): FlowBinding.Source =>
@@ -264,11 +268,17 @@ export const shell = (
         // Never route the coding terminal binding through Exec or Container.
         // No existing transport proves registered-run PTY ownership/framing.
         handler: options?.terminal === "agent"
-          ? () => Effect.fail(new StdError({
-            code: "provider_unavailable",
-            message: "Agent terminal unavailable: registered machine dispatch, PTY lifecycle, owner-only input, participant and card providers require C-J3-10 and C-COL-04."
-          }))
-          : options?.sealedTo === undefined ? Bash.run : Bash.sealed(options.sealedTo),
+          ? () =>
+            Effect.fail(
+              new StdError({
+                code: "provider_unavailable",
+                message:
+                  "Agent terminal unavailable: registered machine dispatch, PTY lifecycle, owner-only input, participant and card providers require C-J3-10 and C-COL-04."
+              })
+            )
+          : options?.sealedTo === undefined
+          ? Bash.run
+          : Bash.sealed(options.sealedTo),
         publicError: publicExecutionError,
         timedOut: commandTimedOut,
         presentation: Bash.presentation

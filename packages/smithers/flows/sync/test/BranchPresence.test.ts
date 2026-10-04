@@ -561,6 +561,24 @@ describe("BranchPresence request detachment", () => {
 })
 
 describe("PresenceOn host readiness", () => {
+  it.effect("waits a full configured lease for participants to re-announce after restart", () =>
+    run(Effect.gen(function*() {
+      const presence = yield* BranchPresence.makeMemory({ leaseMs: 60_000, sourcesReady: () => Effect.succeed(true) })
+      const capability = yield* capabilityFor(branchId, "write")
+      const request = { capability, branchId }
+      yield* TestClock.adjust(30_000)
+      expect(yield* presence.presenceOn(request)).toBe("unknown")
+      yield* TestClock.adjust(29_999)
+      expect(yield* presence.presenceOn(request)).toBe("unknown")
+      yield* presence.announce({ ...request, participantId: participant("alice"), displayName: "Alice", cursor: null })
+      yield* TestClock.adjust(1)
+      expect(yield* presence.presenceOn(request)).toBe("present")
+      const otherCapability = yield* capabilityFor(otherBranchId, "read")
+      expect(yield* presence.presenceOn({ capability: otherCapability, branchId: otherBranchId })).toBe("empty")
+      yield* TestClock.adjust(59_999)
+      expect(yield* presence.presenceOn(request)).toBe("empty")
+    })))
+
   it.effect("stays unknown through startup and source loss, then distinguishes live and expired leases", () =>
     run(Effect.gen(function*() {
       let ready = true
