@@ -66,7 +66,7 @@ import * as PortableSearch from "@smthrs/std/PortableSearch"
 import * as Read from "@smthrs/std/Read"
 import * as Search from "@smthrs/std/Search"
 import * as SearchContract from "@smthrs/std/SearchContract"
-import type { StdError } from "@smthrs/std/StdError"
+import { StdError } from "@smthrs/std/StdError"
 import * as TestRun from "@smthrs/std/TestRun"
 import type * as TestRunner from "@smthrs/std/TestRunner"
 import * as Write from "@smthrs/std/Write"
@@ -241,19 +241,34 @@ export const filesystem = (
  * including one with no container that would run on this host, is refused
  * with `outside_container` (`Bash.sealed`).
  *
+ * `terminal: "agent"` selects the dark T-TRM-05 binding. It refuses before
+ * either transport is reached until registered PTY execution and card evidence
+ * are available; this option cannot enable execution with a container fallback.
+ *
  * @category constructors
  * @since 0.1.0
  */
 export const shell = (
   services: Context.Context<ChildProcessSpawner.ChildProcessSpawner | Path.Path>,
   container: Container.Container = Container.makeCommand(),
-  options?: { readonly sealedTo?: string | undefined }
+  options?: {
+    readonly sealedTo?: string | undefined
+    /** T-TRM-05: unavailable until the registered daemon PTY and card checks pass. */
+    readonly terminal?: "agent" | undefined
+  }
 ): FlowBinding.Source =>
   FlowBinding.source(shellSource, [
     FlowBinding.provide(
       FlowBinding.make({
         flow: Bash.flow,
-        handler: options?.sealedTo === undefined ? Bash.run : Bash.sealed(options.sealedTo),
+        // Never route the coding terminal binding through Exec or Container.
+        // No existing transport proves registered-run PTY ownership/framing.
+        handler: options?.terminal === "agent"
+          ? () => Effect.fail(new StdError({
+            code: "provider_unavailable",
+            message: "Agent terminal unavailable: registered machine dispatch, PTY lifecycle, owner-only input, participant and card providers require C-J3-10 and C-COL-04."
+          }))
+          : options?.sealedTo === undefined ? Bash.run : Bash.sealed(options.sealedTo),
         publicError: publicExecutionError,
         timedOut: commandTimedOut,
         presentation: Bash.presentation

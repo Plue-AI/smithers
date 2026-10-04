@@ -141,6 +141,33 @@ const callOf = (flowName: string, input: unknown): Cell.Call =>
     }
   }) as unknown as Cell.Call
 
+describe("the dark coding terminal binding", () => {
+  it.each([
+    { command: "printf terminal-fixture", mode: "unhermetic" },
+    { command: "printf terminal-fixture", mode: "hermetic", reads: ["**"], writes: ["**"] },
+    { script: "print('terminal-fixture')", interpreter: "python3", mode: "unhermetic" },
+    { command: "printf terminal-fixture", container: "branch", mode: "unhermetic" }
+  ])("refuses before any host or container effect: %j", async (input) => {
+    let spawns = 0
+    let routes = 0
+    const services = Context.merge(pathServices, Context.make(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.makeNoop({ spawn: () => { spawns++; return Effect.die("host execution") } })
+    ))
+    const source = StandardFlows.shell(services, {
+      exec: () => { routes++; return Effect.die("container execution") }
+    }, { terminal: "agent", sealedTo: "branch" })
+    const [binding] = await Effect.runPromise(source.bindings())
+    expect(binding!.descriptor.name).toBe("bash")
+    const result = await Effect.runPromise(binding!.run(callOf("bash", input)))
+    expect(result).toMatchObject({ outcome: "failure", code: "flow_failed", value: null })
+    expect(result.message).toContain("Agent terminal unavailable")
+    expect(result.message).toContain("C-J3-10 and C-COL-04")
+    expect(spawns).toBe(0)
+    expect(routes).toBe(0)
+  })
+})
+
 describe("the standard capability catalog", () => {
   for (
     const fixture of [
