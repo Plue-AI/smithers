@@ -27,6 +27,22 @@ func TestInstallAddressValidation(t *testing.T) {
 		{"IDN alias", "", []string{"http://bücher.example", "https://xn--bcher-kva.example"}, "origins"},
 		{"leading-zero default port", "", []string{"http://box:00080", "https://box"}, "origins"},
 		{"invalid IPv6", "", []string{"http://[invalid]"}, "origins"},
+		{"IPv6 alias", "", []string{"http://[2001:0DB8:0:0:0:0:0:1]", "https://[2001:db8::1]"}, "origins"},
+		{"mapped IPv6 alias", "", []string{"http://[::ffff:127.0.0.1]", "https://[::ffff:7f00:1]"}, "origins"},
+		{"short IPv4 alias", "", []string{"http://127.1", "https://127.0.0.1"}, "origins"},
+		{"octal IPv4 alias", "", []string{"http://0177.0.0.1", "https://127.0.0.1"}, "origins"},
+		{"hex IPv4 alias", "", []string{"http://0x7f000001", "https://127.0.0.1"}, "origins"},
+		{"trailing-dot IPv4 alias", "", []string{"http://127.0.0.1.", "https://127.0.0.1"}, "origins"},
+		{"invalid octal", "", []string{"http://08"}, "origins"},
+		{"numeric DNS suffix", "", []string{"http://box.1"}, "origins"},
+		{"long IPv4", "", []string{"http://1.2.3.4.5"}, "origins"},
+		{"large IPv4 part", "", []string{"http://256.0.0.1"}, "origins"},
+		{"large IPv4 tail", "", []string{"http://1.2.65536"}, "origins"},
+		{"large hex IPv4", "", []string{"http://0x100000000"}, "origins"},
+		{"empty IPv4 part", "", []string{"http://1..1"}, "origins"},
+		{"localhost scheme collision", "", []string{"https://localhost:4000"}, "origins"},
+		{"IPv4 loopback scheme collision", "", []string{"https://127.1:4000"}, "origins"},
+		{"IPv6 loopback scheme collision", "", []string{"https://[0:0:0:0:0:0:0:1]:4000"}, "origins"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := NewInstallAddress(tc.bind, tc.origins)
@@ -42,6 +58,30 @@ func TestInstallAddressValidation(t *testing.T) {
 	require.Equal(t, "mac", local.Listen)
 	require.NotNil(t, local.Origins)
 	require.Equal(t, "ssh -p 2222 T12@localhost", local.SSHLine("T12"))
+}
+
+func TestInstallAddressIPv4BrowserHostsAndLoopback(t *testing.T) {
+	// §16.3.3 keys origins by the Host browsers send; §1.4 keeps HTTP loopback.
+	for _, tc := range []struct{ raw, want string }{
+		{"http://127.1:4000", "http://127.0.0.1:4000"},
+		{"http://0177.0.0.1:4000", "http://127.0.0.1:4000"},
+		{"http://0x7f000001:4000", "http://127.0.0.1:4000"},
+		{"http://127.0.0.1.:4000", "http://127.0.0.1:4000"},
+		{"http://1.2.65535", "http://1.2.255.255"},
+		{"http://1.16777215", "http://1.255.255.255"},
+		{"http://4294967295", "http://255.255.255.255"},
+		{"http://0x", "http://0.0.0.0"},
+		{"http://0x100000000z", "http://0x100000000z"},
+	} {
+		a, err := NewInstallAddress("", []string{tc.raw})
+		require.NoError(t, err)
+		require.Equal(t, []string{tc.want}, a.Origins)
+	}
+	for _, raw := range []string{"http://localhost:4000", "http://[::1]:4000"} {
+		a, err := NewInstallAddress("", []string{raw})
+		require.NoError(t, err)
+		require.Equal(t, []string{raw}, a.Origins)
+	}
 }
 func TestInstallServingUnavailableProvidersBeforeEffects(t *testing.T) {
 	// Nil providers deliberately model the parallel ticket contracts. No mock DB
@@ -72,7 +112,7 @@ func (unusedInstallPublication) PublishInstall(context.Context, pgx.Tx, InstallA
 func TestInstallAddressUsesBrowserHostSerialization(t *testing.T) {
 	// §16.3.3 uniqueness is over the Host a browser sends, including IDNA and
 	// normalized numeric/default ports, not the owner's original spelling.
-	a, err := NewInstallAddress("", []string{"http://bücher.example:00080", "HTTP://LAN-A:04000"})
+	a, err := NewInstallAddress("", []string{"http://bücher.example:00080", "HTTP://LAN-A:04000", "http://[2001:0DB8:0:0:0:0:0:1]", "https://[::ffff:127.0.0.1]"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"http://xn--bcher-kva.example", "http://lan-a:4000"}, a.Origins)
+	require.Equal(t, []string{"http://xn--bcher-kva.example", "http://lan-a:4000", "http://[2001:db8::1]", "https://[::ffff:7f00:1]"}, a.Origins)
 }

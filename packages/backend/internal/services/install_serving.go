@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"golang.org/x/net/idna"
 	"net"
 	"net/url"
@@ -56,9 +57,22 @@ func NewInstallAddress(bind string, origins []string) (InstallAddress, error) {
 		if strings.HasPrefix(u.Host, "[") && net.ParseIP(host) == nil {
 			return InstallAddress{}, addressError("origins")
 		}
-		if net.ParseIP(host) == nil {
+		if ip := net.ParseIP(host); ip != nil {
+			if v4 := ip.To4(); v4 != nil && strings.Contains(host, ":") {
+				// Browsers serialize mapped IPv6 as hexadecimal groups, while
+				// net.IP.String uses a dotted IPv4 suffix.
+				host = fmt.Sprintf("::ffff:%x:%x", uint16(v4[0])<<8|uint16(v4[1]), uint16(v4[2])<<8|uint16(v4[3]))
+			} else {
+				host = ip.String()
+			}
+		} else {
 			host, err = idna.Lookup.ToASCII(host)
 			if err != nil {
+				return InstallAddress{}, addressError("origins")
+			}
+			var valid bool
+			host, valid = browserIPv4Host(host)
+			if !valid {
 				return InstallAddress{}, addressError("origins")
 			}
 		}
@@ -80,6 +94,11 @@ func NewInstallAddress(bind string, origins []string) (InstallAddress, error) {
 			host = "[" + host + "]"
 		}
 		u.Host = host
+		// The permanent HTTP loopback origins cannot share a Host with HTTPS
+		// (§1.4 / §16.3.3), which would make the owner's control origin ambiguous.
+		if u.Scheme == "https" && (host == "localhost:4000" || host == "127.0.0.1:4000" || host == "[::1]:4000") {
+			return InstallAddress{}, addressError("origins")
+		}
 
 		if hosts[u.Host] {
 			return InstallAddress{}, addressError("origins")
@@ -88,6 +107,63 @@ func NewInstallAddress(bind string, origins []string) (InstallAddress, error) {
 		a.Origins = append(a.Origins, u.Scheme+"://"+u.Host)
 	}
 	return a, nil
+}
+
+// browserIPv4Host implements numeric-host normalization from URL Standard §3.5.
+// Non-numeric domains pass through; invalid numeric hosts refuse rather than
+// becoming unreachable origins or aliases with different configured schemes.
+func browserIPv4Host(host string) (string, bool) {
+	parts := strings.Split(host, ".")
+	if len(parts) > 1 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	parse := func(part string) (uint64, error) {
+		if part == "" || strings.HasPrefix(part, "+") {
+			return 0, strconv.ErrSyntax
+		}
+		base := 10
+		if strings.HasPrefix(strings.ToLower(part), "0x") {
+			base, part = 16, part[2:]
+		} else if len(part) > 1 && part[0] == '0' {
+			base, part = 8, part[1:]
+		}
+		if part == "" {
+			return 0, nil
+		}
+		part = strings.ToLower(part)
+		for _, digit := range []byte(part) {
+			value := strings.IndexByte("0123456789abcdef", digit)
+			if value < 0 || value >= base {
+				return 0, strconv.ErrSyntax
+			}
+		}
+		return strconv.ParseUint(part, base, 32)
+	}
+	last := parts[len(parts)-1]
+	_, err := parse(last)
+	digits := last != "" && strings.IndexFunc(last, func(r rune) bool { return r < '0' || r > '9' }) == -1
+	if err != nil && !errors.Is(err, strconv.ErrRange) && !digits {
+		return host, true
+	}
+	if len(parts) > 4 {
+		return "", false
+	}
+	numbers := make([]uint64, len(parts))
+	for i, part := range parts {
+		n, err := parse(part)
+		if err != nil || (i < len(parts)-1 && n > 255) {
+			return "", false
+		}
+		numbers[i] = n
+	}
+	if numbers[len(parts)-1] >= uint64(1)<<uint(8*(5-len(parts))) {
+		return "", false
+	}
+	ip := uint32(numbers[len(parts)-1])
+	for i, n := range numbers[:len(parts)-1] {
+		ip |= uint32(n) << uint(8*(3-i))
+	}
+	return net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)).String(), true
 }
 func (a InstallAddress) SSHLine(branch string) string {
 	host := "localhost"

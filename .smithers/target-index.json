@@ -23689,6 +23689,14 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/install_serving.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/compose/install_listeners.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/routes/github_app_setup.go"
       },
       {

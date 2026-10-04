@@ -61,28 +61,49 @@ func TestInstallServingProviderRefusalPostgres(t *testing.T) {
 	for _, tc := range []struct {
 		name, body, origin, csrf, host string
 		status                         int
-		code                           string
+		code, class                    string
 	}{
-		{"unknown before auth", `{"address":{"bind":"0.0.0.0","origins":["http://lan-a:4000"]}}`, "", "", "evil.example", 421, "unknown_origin"},
-		{"origin", `{"address":{"bind":"0.0.0.0"}}`, "http://evil.example", "csrf", "localhost:4000", 403, "origin"},
-		{"missing Origin", `{"address":{"bind":"0.0.0.0"}}`, "", "csrf", "localhost:4000", 403, "origin"},
-		{"csrf", `{"address":{"bind":"0.0.0.0"}}`, "http://localhost:4000", "", "localhost:4000", 403, "csrf"},
-		{"invalid bind", `{"address":{"bind":"bad"}}`, "http://localhost:4000", "csrf", "localhost:4000", 422, "validation_failed"},
-		{"invalid origin", `{"address":{"origins":["ftp://box"]}}`, "http://localhost:4000", "csrf", "localhost:4000", 422, "validation_failed"},
-		{"missing launcher", `{"address":{"bind":"0.0.0.0","origins":["http://lan-a:4000"]}}`, "http://localhost:4000", "csrf", "localhost:4000", 503, "service_unavailable"},
+		// Literal classes and codes: T-INS-04 C-INS-03 / spec §6.2.3.
+		{"unknown before auth", `{"address":{"bind":"0.0.0.0","origins":["http://lan-a:4000"]}}`, "", "", "evil.example", 421, "unknown_origin", "user"},
+		{"origin", `{"address":{"bind":"0.0.0.0"}}`, "http://evil.example", "csrf", "localhost:4000", 403, "origin", "permission"},
+		{"missing Origin", `{"address":{"bind":"0.0.0.0"}}`, "", "csrf", "localhost:4000", 403, "origin", "permission"},
+		{"csrf", `{"address":{"bind":"0.0.0.0"}}`, "http://localhost:4000", "", "localhost:4000", 403, "csrf", "permission"},
+		{"invalid bind", `{"address":{"bind":"bad"}}`, "http://localhost:4000", "csrf", "localhost:4000", 422, "validation_failed", "user"},
+		{"invalid origin", `{"address":{"origins":["ftp://box"]}}`, "http://localhost:4000", "csrf", "localhost:4000", 422, "validation_failed", "user"},
+		{"missing launcher", `{"address":{"bind":"0.0.0.0","origins":["http://lan-a:4000"]}}`, "http://localhost:4000", "csrf", "localhost:4000", 503, "service_unavailable", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status, value, headers := request(tc.body, tc.origin, tc.csrf, tc.host)
 			require.Equal(t, tc.status, status)
 			require.Equal(t, tc.code, value["code"])
-			require.Empty(t, headers.Get("Access-Control-Allow-Origin"))
+			if tc.class != "" {
+				require.Equal(t, tc.class, value["class"])
+			}
+			for name := range headers {
+				require.False(t, strings.HasPrefix(strings.ToLower(name), "access-control-allow-"))
+			}
 			var n int
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM install_settings WHERE key='address'").Scan(&n))
 			require.Zero(t, n)
 		})
 	}
-	h.Owners = nil
+	// C-INS-03 step 1: a real member session cannot reach any serving provider.
+	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "serving-member", LowerUsername: "serving-member"})
+	require.NoError(t, err)
+	memberSession := "serving-member-session"
+	memberHash := sha256.Sum256([]byte(memberSession))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(memberHash[:]), UserID: member.ID, Username: member.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	ownerSession := session
+	session = memberSession
 	status, _, _ := request(`{"address":{"bind":"0.0.0.0","origins":["http://lan-a:4000"]}}`, "http://localhost:4000", "csrf", "localhost:4000")
+	require.Equal(t, 403, status)
+	session = ownerSession
+	var n int
+	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM install_settings WHERE key='address'").Scan(&n))
+	require.Zero(t, n)
+	h.Owners = nil
+	status, _, _ = request(`{"address":{"bind":"0.0.0.0","origins":["http://lan-a:4000"]}}`, "http://localhost:4000", "csrf", "localhost:4000")
 	require.Equal(t, 503, status)
 	h.Owners = q
 

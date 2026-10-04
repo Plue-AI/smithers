@@ -12,6 +12,8 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/github_app_manifest.go"),
     Smithers.file("internal/services/github_app_credentials.go"),
     Smithers.file("internal/services/install_setup_session.go"),
+    Smithers.file("internal/services/install_serving.go"),
+    Smithers.file("internal/compose/install_listeners.go"),
     Smithers.file("internal/routes/github_app_setup.go"),
     Smithers.file("internal/middleware/effective_origin.go"),
     Smithers.file("db/product/queries/github_app.sql"),
