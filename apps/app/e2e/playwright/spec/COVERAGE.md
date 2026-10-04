@@ -254,3 +254,14 @@ All six also exercise mounted command projections: Stop hides during a question,
 Resume retains the attempt, Retry refuses a working TODO, Drop removes it,
 Move preserves refs, and Merge opens the person's review before merging.
 Full durable journey scenarios retain fixmes.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-BRANCHES | [A-BRANCHES.spec.ts](A-BRANCHES.spec.ts) | fixme-before-implementation | T-APP-10, T-COL-06 |
+| A-BRANCH | [A-BRANCH.spec.ts](A-BRANCH.spec.ts) | fixme-before-implementation | T-APP-10, T-COL-06 |
+| A-BRANCH-FORK | [A-BRANCH-FORK.spec.ts](A-BRANCH-FORK.spec.ts) | fixme-before-implementation | T-MCH-08 |
+| A-BRANCH-ADD-TO-STACK | [A-BRANCH-ADD-TO-STACK.spec.ts](A-BRANCH-ADD-TO-STACK.spec.ts) | fixme-before-implementation | T-MCH-08, T-STK-05 |
+| A-BRANCH-REBASE | [A-BRANCH-REBASE.spec.ts](A-BRANCH-REBASE.spec.ts) | fixme-before-implementation | T-STK-08 |
+| A-TERMINAL | [A-TERMINAL.spec.ts](A-TERMINAL.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
+
+Cycle 28: six branch and terminal command scenarios await live providers and durable recovery. Mounted tests cover the branch tree (the `/branches` handler is absent), ref opening, fork, scratch placement, rebase activity, and owned versus watched terminal controls. Seeded projections do not replace reference-host receipts.
