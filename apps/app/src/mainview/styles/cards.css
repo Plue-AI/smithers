@@ -3017,7 +3017,7 @@
 .mvp-docs { display: grid; grid-template-columns: 160px minmax(0, 1fr); color: var(--text); font-family: var(--font-ui); }
 .mvp-docs nav { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-5) var(--sp-3); border-right: 1px solid var(--border); }
 .mvp-docs nav a, .mvp-docs nav > span:not(.mvp-docs-reason) { text-align: left; padding: var(--sp-2) var(--sp-2); border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-muted); font: inherit; font-size: var(--fs-small); text-decoration: none; cursor: pointer; overflow-wrap: anywhere; }
-.mvp-docs nav [aria-current] { color: var(--text); background: var(--surface-2); font-weight: 600; }
+.mvp-docs nav > [aria-current="page"]:not(.mvp-docs-reason) { color: var(--text); background: var(--surface-2); font-weight: 600; }
 .mvp-docs button:focus-visible, .mvp-docs nav a:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .mvp-docs nav a[aria-disabled="true"] { cursor: default; color: var(--text-muted); opacity: .6; }
 .mvp-docs .mvp-docs-reason { flex-basis: 100%; padding: 0 var(--sp-2); font-size: var(--fs-caption); color: var(--text-muted); }

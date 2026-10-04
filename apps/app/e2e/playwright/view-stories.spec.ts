@@ -47,7 +47,34 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
       const text = diffExpected[story.name.split("/")[1]!]
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
     }
-    if (story.name.startsWith("DocsView/")) await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+    if (story.name.startsWith("DocsView/")) {
+      await expect(page.locator(".mvp-docs .ProseMirror")).toBeVisible()
+      if (story.name.endsWith("No navigation gesture")) {
+        const current = page.locator('.mvp-docs nav [aria-current="page"]')
+        await expect(current).toHaveText("Quickstart")
+        await expect(current).toHaveCSS("font-weight", "600")
+        expect(await current.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)")
+      }
+      if (story.name.endsWith("Inert HTML")) {
+        await expect(page.locator(".mvp-docs .ProseMirror")).not.toContainText("[r]")
+        await expect(page.locator(".mvp-docs .milkdown-code-block .tools")).toBeHidden()
+        const contrast = await page.locator(".mvp-docs .cm-gutterElement").first().evaluate(node => {
+          const rgb = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+          const luminance = (values: number[]) => values.map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4 }).reduce((sum, value, i) => sum + value * [ .2126, .7152, .0722 ][i]!, 0)
+          let parent: Element | null = node
+          while (parent && getComputedStyle(parent).backgroundColor === "rgba(0, 0, 0, 0)") parent = parent.parentElement
+          const foreground = luminance(rgb(getComputedStyle(node).color))
+          const background = luminance(rgb(getComputedStyle(parent!).backgroundColor))
+          return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
+        })
+        expect(contrast).toBeGreaterThanOrEqual(4.5)
+      }
+      if (story.name.endsWith("Scrolled to a heading")) {
+        const top = await page.locator(".mvp-docs .ProseMirror h2").evaluate(node => node.getBoundingClientRect().top)
+        expect(top).toBeGreaterThanOrEqual(0)
+        expect(top).toBeLessThan(width === 390 ? 844 : 800)
+      }
+    }
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
     const flagCount = story.name === "FilePresenceView/live_separate" ? 3
@@ -583,6 +610,8 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
   await expect(page.locator(".mvp-docs script,.mvp-docs img,.mvp-docs iframe,.mvp-docs a[href^=\"javascript:\"]")).toHaveCount(0)
   await expect(page.locator(".mvp-docs .ProseMirror")).toContainText("<script>alert(1)</script>")
   await expect(page.locator(".mvp-docs .cm-content")).toContainText("<div>")
+  await expect(page.locator(".mvp-docs .ProseMirror")).not.toContainText("[r]")
+  await expect(page.getByRole("textbox", { name: "Code", exact: true })).toHaveAttribute("aria-readonly", "true")
   await page.evaluate(() => {
     const receipts: unknown[] = []
     Object.assign(window, { docsReceipts: receipts })
@@ -611,9 +640,11 @@ test("Docs document links are gestures and HTML remains inert", async ({ page })
   await expect(page.locator('.mvp-docs .ProseMirror h2')).toHaveText("Put HTTPS in front")
   await expect(page.getByRole("heading", { name: "Quickstart", exact: true })).toHaveCount(1)
   const scroll = page.locator('.mvp-docs .sui-markdown-editor')
-  await scroll.evaluate(node => { node.style.height = "40px"; node.scrollTop = 20 })
-  const position = await scroll.evaluate(node => node.scrollTop)
-  expect(position).toBeGreaterThan(0)
+  const headingTop = await page.locator(".mvp-docs .ProseMirror h2").evaluate(node => node.getBoundingClientRect().top)
+  expect(headingTop).toBeGreaterThanOrEqual(0)
+  expect(headingTop).toBeLessThan(page.viewportSize()!.height)
+  const position = await scroll.evaluate(node => ({ editor: node.scrollTop, window: window.scrollY }))
+  expect(position.editor + position.window).toBeGreaterThan(0)
   await page.waitForTimeout(500)
-  expect(await scroll.evaluate(node => node.scrollTop)).toBe(position)
+  expect(await scroll.evaluate(node => ({ editor: node.scrollTop, window: window.scrollY }))).toEqual(position)
 })

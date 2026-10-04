@@ -22,7 +22,7 @@ export const fixtures = {
   }),
   anchor: story<DocsCard, {}, "open">(
     "Scrolled to a heading",
-    { toc, page: quickstart, anchor: "put-https-in-front" },
+    { toc, page: { ...quickstart, markdown: "# Quickstart\n\n" + Array.from({ length: 24 }, (_, index) => `Setup ${index + 1}. Prepare the Mac and repository.\n\n`).join("") + quickstart.markdown.split("\n").slice(2).join("\n") }, anchor: "put-https-in-front" },
     {
       gestures: { open: open("quickstart#put-https-in-front") },
       expect: ["Put HTTPS in front"]

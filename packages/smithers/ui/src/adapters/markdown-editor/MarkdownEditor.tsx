@@ -167,6 +167,8 @@ const hostCss = `
 .sui-markdown-editor-fallback { display:block; box-sizing:border-box; width:100%; min-height:180px; height:100%; padding:16px 20px; border:0; outline:none; resize:none; background:transparent; color:inherit; font:inherit; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:13px; line-height:1.6; tab-size:2; }
 .sui-markdown-editor-fallback:read-only { cursor:default; }
 .sui-markdown-editor[data-readonly] .cm-editor, .sui-markdown-editor[data-readonly] .cm-gutters, .sui-markdown-editor[data-readonly] .cm-activeLine { background:transparent; color:inherit; }
+.sui-markdown-editor[data-readonly] .cm-gutter, .sui-markdown-editor[data-readonly] .cm-gutterElement { background:transparent; color:var(--text-muted, inherit); }
+.sui-markdown-editor[data-readonly] .milkdown-code-block .tools { display:none; }
 .sui-markdown-editor[data-readonly] .cm-content, .sui-markdown-editor[data-readonly] .cm-content * { color:inherit; }
 `.trim();
 
@@ -556,7 +558,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         readyRef.current = true;
         const labelContent = () => {
           for (const content of host.querySelectorAll<HTMLElement>('.ProseMirror,[role="textbox"]')) {
-            if (ariaLabel && content.getAttribute("aria-label") !== ariaLabel) content.setAttribute("aria-label", ariaLabel);
+            const label = content.classList.contains("ProseMirror") ? ariaLabel : "Code";
+            if (label && content.getAttribute("aria-label") !== label) content.setAttribute("aria-label", label);
             if (content.getAttribute("aria-readonly") !== String(readOnly)) content.setAttribute("aria-readonly", String(readOnly));
           }
         };

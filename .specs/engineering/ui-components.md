@@ -638,7 +638,7 @@ Rows show names and scope, without a Hosts count or Bind control.
 ### T-UI-21 Docs (bundled pages)
 
 `DocsViewProps = CardProps<DocsCard, {}, "open">` from `@smthrs/rpc/DocsCard`.
-`DocsCard` is a TypeScript projection: `toc[] {slug, title}`, `page {slug, title,
+`DocsCard` is decoded by `DocsCardSchema`: `toc[] {slug, title}`, `page {slug, title,
 summary, markdown}`, `anchor?`, `not_found?`. The missing slug appears above the
 supplied fallback page. The read-only wiki Markdown adapter renders inert
 HTML. TOC and document links dispatch the supplied `open` gesture with

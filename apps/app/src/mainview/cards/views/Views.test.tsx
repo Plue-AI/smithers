@@ -1619,6 +1619,8 @@ describe("DocsView", () => {
       expect(source.value).not.toContain("# Quickstart")
       expect([...rendered.host.querySelectorAll("h1,h2")].filter(h => h.textContent === "Quickstart")).toHaveLength(1)
       expect(source.value).not.toContain("javascript:")
+      expect(source.value).toContain("Reference")
+      expect(source.value).not.toContain("[r]")
       expect(source.value).toContain("<script>alert(1)</script>")
       expect(source.value).toContain("<img src=x onerror=alert(1)>")
       expect(source.value).toContain("`a < b`")

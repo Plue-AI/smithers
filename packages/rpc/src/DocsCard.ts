@@ -3,14 +3,28 @@
  * @since 1.0.0
  */
 
+import { z } from "zod"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
-/** Bundled docs projection. @since 1.0.0 */
-export type DocsCard = {
-  toc: { slug: string; title: string }[]
-  page: { slug: string; title: string; summary: string; markdown: string }
-  anchor?: string
-  not_found?: string
-}
+
+/**
+ * The bundled docs page card (ui-components.md T-UI-21, spec §14.3 Docs, M-35): the table of contents in order,
+ * the open page, an anchor to scroll to, and the requested slug when no page has it.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const DocsCardSchema = z.object({
+  toc: z.array(z.object({ slug: z.string(), title: z.string() })),
+  page: z.object({ slug: z.string(), title: z.string(), summary: z.string(), markdown: z.string() }),
+  anchor: z.string().optional(),
+  not_found: z.string().optional()
+})
+
+/**
+ * The value decoded by {@link DocsCardSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type DocsCard = z.infer<typeof DocsCardSchema>
 
 /**
  * The Docs View's props. `gestures.open`: a toc entry or an in-page `.md` link raises
