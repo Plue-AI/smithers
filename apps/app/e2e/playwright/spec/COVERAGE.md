@@ -84,6 +84,13 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | fixme-before-implementation | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
+| C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
+| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
+| C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
+| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts) | fixme-before-implementation | T-APP-20 |
+| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | fixme-before-implementation | T-APP-21 |
+| C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
+
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
 
