@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -12,7 +11,7 @@ import (
 )
 
 // Runtime recording is deliberate: these guards must refuse before any machine
-// effect. Real PostgreSQL coverage remains in the reclaim integration suite.
+// effect. The composed retention case below uses real PostgreSQL.
 type todoRetentionStore struct {
 	*mockWorkspaceQuerier
 	lane   db.MythicalLane
@@ -36,7 +35,7 @@ func TestTodoLongWaitRetainsDiskAndBinding(t *testing.T) {
 	}{
 		{name: "unmerged"}, {name: "retired_without_capture", retired: true},
 		{name: "binding_unavailable", err: errors.New("database unavailable")},
-		{name: "ordinary_agent", err: pgx.ErrNoRows, reclaimed: true},
+		{name: "ordinary_agent", err: pgx.ErrNoRows},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			row := db.Workspace{ID: "todo-machine", Kind: "agent", Status: "suspended"}
@@ -45,12 +44,8 @@ func TestTodoLongWaitRetainsDiskAndBinding(t *testing.T) {
 			q.lane.RetiredAt.Valid = tc.retired
 			runtime := &diskReclaimRuntime{}
 			svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
-			err := svc.reclaimAgentWorkspaceDisk(context.Background(), runtime, row.ID)
-			if tc.err != nil && !errors.Is(tc.err, pgx.ErrNoRows) {
-				require.ErrorIs(t, err, tc.err)
-			} else {
-				require.NoError(t, err)
-			}
+			err := svc.CleanupStoppedAgentWorkspaceDisks(context.Background())
+			require.NoError(t, err)
 			require.Equal(t, tc.reclaimed, len(runtime.reclaimed) == 1)
 			if !tc.reclaimed {
 				lanes := &workspaceMythicalLanes{workspaces: svc}
@@ -71,7 +66,7 @@ func TestTodoLongWaitMissingBindingAuthorityRetainsDisk(t *testing.T) {
 		return db.Workspace{ID: "waiting", Kind: "agent", Status: "suspended"}, nil
 	}}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
-	require.NoError(t, svc.reclaimAgentWorkspaceDisk(context.Background(), runtime, "waiting"))
+	require.NoError(t, svc.CleanupStoppedAgentWorkspaceDisks(context.Background()))
 	require.Empty(t, runtime.reclaimed)
 }
 
@@ -80,17 +75,9 @@ func TestTodoLongWaitStaleSweepReReadsAfterResume(t *testing.T) {
 	q := &todoRetentionStore{mockWorkspaceQuerier: &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }}, lookup: func() { t.Fatal("resumed row must not reach binding lookup") }}
 	runtime := &diskReclaimRuntime{}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
-	unlock := svc.lockRuntimeWorkspace(row.ID)
-	done := make(chan error, 1)
-	go func() { done <- svc.reclaimAgentWorkspaceDisk(context.Background(), runtime, row.ID) }()
-	select {
-	case <-done:
-		t.Fatal("reclaim escaped lifecycle lock")
-	case <-time.After(20 * time.Millisecond):
-	}
+	// Dark cleanup needs no lifecycle authority and cannot race a resume.
 	row.Status = "running"
-	unlock()
-	require.NoError(t, <-done)
+	require.NoError(t, svc.CleanupStoppedAgentWorkspaceDisks(context.Background()))
 	require.Empty(t, runtime.reclaimed)
 	require.ErrorIs(t, (&workspaceMythicalLanes{workspaces: svc}).Delete(context.Background(), 0, 0, row.ID), errTodoWorkspaceRetained)
 	require.Equal(t, "running", row.Status, "a stale retirement must not suspend resumed work")

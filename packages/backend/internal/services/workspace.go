@@ -627,9 +627,6 @@ type WorkspaceService struct {
 	agentVCPUCount     int32
 	resourceLimits     workspaceResourceLimits
 	// desktop observations. See WithWorkspaceDesktopObserveText.
-	// agentDiskReclaimAfter is how long an agent workspace stays stopped
-	// before its runtime disk is reclaimed. See WithWorkspaceAgentDiskReclaimAfter.
-	agentDiskReclaimAfter time.Duration
 	// leaseDeleteAfter is how long after a client lease lapses the abandon
 	// reaper deletes the workspace. See WithWorkspaceLeaseDeleteAfter.
 	leaseDeleteAfter time.Duration
@@ -819,7 +816,6 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		workspaceVCPUCount:           defaultWorkspaceVCPUCount,
 		agentMemoryMB:                4096,
 		agentVCPUCount:               2,
-		agentDiskReclaimAfter:        defaultAgentWorkspaceDiskReclaimAfter,
 		leaseDeleteAfter:             defaultWorkspaceLeaseDeleteAfter,
 		runtimeLocks:                 &workspaceRuntimeLockRegistry{entries: make(map[string]*workspaceRuntimeLock)},
 	}

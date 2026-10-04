@@ -137,7 +137,6 @@ type Product interface {
 	ListStaleActiveSessions(ctx context.Context, startedAt pgtype.Timestamptz) ([]db.AgentSession, error)
 	ListStalePendingWorkspaces(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
 	ListStaleStartingWorkspacesWithVM(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
-	ListStoppedAgentWorkspaceIDs(ctx context.Context, stoppedFor time.Duration) ([]string, error)
 	ListTaskStepInfoForRun(ctx context.Context, workflowRunID int64) ([]db.ListTaskStepInfoForRunRow, error)
 	ListUserWorkspacesAcrossRepos(ctx context.Context, arg db.ListUserWorkspacesAcrossReposParams) ([]db.ListUserWorkspacesAcrossReposRow, error)
 	ListWorkflowArtifactsByRun(ctx context.Context, workflowRunID int64) ([]db.WorkflowArtifact, error)

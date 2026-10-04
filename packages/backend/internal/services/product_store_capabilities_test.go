@@ -40,7 +40,6 @@ var productStoreCapabilities = map[string]func(any) bool{
 	"providerPoolTokenLister":              storeImplements[providerPoolTokenLister],
 	"repositoryDefaultBookmarkResolver":    storeImplements[repositoryDefaultBookmarkResolver],
 	"sandboxUsageQuerier":                  storeImplements[sandboxUsageQuerier],
-	"stoppedAgentWorkspaceLister":          storeImplements[stoppedAgentWorkspaceLister],
 	"gitHubDestinationStore":               storeImplements[gitHubDestinationStore],
 	"workflowRunCheckRunUpdater":           storeImplements[workflowRunCheckRunUpdater],
 	"workflowRunCredentialRevoker":         storeImplements[workflowRunCredentialRevoker],

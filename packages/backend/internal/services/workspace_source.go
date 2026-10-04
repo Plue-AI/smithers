@@ -73,6 +73,13 @@ func WithWorkspaceRefDeleter(deleter WorkspaceRefDeleter) WorkspaceServiceOption
 // (#1990). It runs once the workspace can no longer run or push, and before
 // its row is tombstoned, so a failure leaves the delete retryable.
 func (s *WorkspaceService) deleteWorkspaceRefs(ctx context.Context, workspace db.Workspace) error {
+	keep, err := s.keepTodoWorkspace(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	if keep {
+		return errTodoWorkspaceRetained
+	}
 	if s.refDeleter == nil {
 		return nil
 	}
