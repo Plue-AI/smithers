@@ -86,5 +86,6 @@ export const HomeCard = ({ production }: {
 } = {}) => {
   const snapshot = useTopic("home")
   if (!production || snapshot?.error || snapshot?.data === undefined) return null
-  return <HomeContainer {...production} model={snapshot.data} />
+  const { role, allowed, dispatch, view, onView } = production
+  return <HomeContainer model={snapshot.data} role={role} allowed={allowed} dispatch={dispatch} view={view} onView={onView} />
 }
