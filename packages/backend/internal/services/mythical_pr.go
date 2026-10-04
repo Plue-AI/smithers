@@ -216,11 +216,16 @@ func (g *mythicalGitHubAPI) HeadCheckFacts(ctx context.Context, gh mythicalGitHu
 			} `json:"checks"`
 		} `json:"required_status_checks"`
 	}
-	status, err := g.api.request(ctx, token, http.MethodGet, repo+"/branches/main/protection", nil, &protection)
+	var absent GitHubRefusal
+	status, err := g.api.request(ctx, token, http.MethodGet, repo+"/branches/main/protection", nil, &protection, &absent)
 	if err != nil {
 		return nil, err
 	}
-	if status != http.StatusOK {
+	// GitHub answers 404 "Branch not protected" for a main without classic
+	// protection, a new repository's or one ruled by rulesets alone, which
+	// are read next. Any other answer (403: the App may not read it) leaves
+	// protection unknown, never absent.
+	if status != http.StatusOK && (status != http.StatusNotFound || absent.Message != "Branch not protected") {
 		return nil, landingGitHubStatusError(status, gh.Owner, gh.Name, "read main protection")
 	}
 	for _, n := range protection.Required.Contexts {

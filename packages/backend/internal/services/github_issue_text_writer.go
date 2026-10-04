@@ -153,11 +153,10 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	if ok && now().Sub(cached.at) < gitHubMaintainerTTL {
 		return cached.maintainer, nil
 	}
-	permission, role, err := g.api.repositoryPermission(ctx, token, owner, repo, login)
+	maintainer, err := g.MaintainerNow(ctx, token, owner, repo, login)
 	if err != nil {
 		return false, err
 	}
-	maintainer := permission == "admin" || permission == "write" || role == "maintain"
 
 	g.mu.Lock()
 	if g.maintainers == nil {
@@ -172,6 +171,17 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	g.maintainers[key] = gitHubMaintainerAnswer{maintainer: maintainer, at: at}
 	g.mu.Unlock()
 	return maintainer, nil
+}
+
+// MaintainerNow is the maintainer rule on login's permission as GitHub
+// answers it now, never a remembered answer: authority that acts on it
+// cannot trail a demotion.
+func (g *gitHubIssueTextAPI) MaintainerNow(ctx context.Context, token, owner, repo, login string) (bool, error) {
+	permission, role, err := g.api.repositoryPermission(ctx, token, owner, repo, login)
+	if err != nil {
+		return false, err
+	}
+	return permission == "admin" || permission == "write" || role == "maintain", nil
 }
 
 // forget drops the cached answers for owner's repositories, or every answer
@@ -285,10 +295,16 @@ func (g *gitHubIssueTextAPI) PullCreatedViaApp(ctx context.Context, token, owner
 	return status != http.StatusOK || (issue.ViaApp != nil && string(*issue.ViaApp) != "null"), nil
 }
 
+// gitHubPerson reports an account the maintainer rule can name: a user,
+// never an app, bot or organization.
+func gitHubPerson(actor *gitHubActor) bool {
+	return actor != nil && actor.Type == "User" && strings.TrimSpace(actor.Login) != ""
+}
+
 // personIsMaintainer applies the maintainer rule to one account: a user
 // (never an app, bot or organization) with write access.
 func (g *gitHubIssueTextAPI) personIsMaintainer(ctx context.Context, token, owner, repo string, actor *gitHubActor) (bool, error) {
-	if actor == nil || actor.Type != "User" || strings.TrimSpace(actor.Login) == "" {
+	if !gitHubPerson(actor) {
 		return false, nil
 	}
 	return g.Maintainer(ctx, token, owner, repo, actor.Login)
@@ -586,6 +602,8 @@ func (a *landingGitHubAPI) repositoryPermission(ctx context.Context, token, owne
 	if err != nil || gitHubTransient(status) {
 		return "", "", errGitHubIssueTextUnavailable
 	}
- if status != http.StatusOK { return "","",nil }
- return out.Permission, out.Role, nil
+	if status != http.StatusOK {
+		return "", "", nil
+	}
+	return out.Permission, out.Role, nil
 }

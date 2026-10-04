@@ -4649,9 +4649,9 @@ func (c *Client) GetAPIReposOwnerRepoMythicalItemsRef(ctx context.Context, owner
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDMerge calls POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge.
-func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDMerge(ctx context.Context, owner string, repo string, id string, body PostAPIReposOwnerRepoMythicalItemsIDMergeBody) (AnyJSON, error) {
+func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDMerge(ctx context.Context, owner string, repo string, id string, idempotencyKey string, body PostAPIReposOwnerRepoMythicalItemsIDMergeBody) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/merge", nil, body, &out)
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/merge", nil, body, &out)
 	return out, err
 }
 
@@ -4836,8 +4836,8 @@ func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
 }
 
 // PostAPITodosNMerge calls POST /api/todos/{n}/merge.
-func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, body PostAPITodosNMergeBody) error {
-	return c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, nil)
+func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNMergeBody) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, nil)
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

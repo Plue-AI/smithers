@@ -4691,12 +4691,13 @@ export type PostApiReposOwnerRepoMythicalItemsIdMergeResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoMythicalItemsIdMergeInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiReposOwnerRepoMythicalItemsIdMergeBody
 }
 
 /** POST /api/repos/{owner}/{repo}/mythical/items/{id}/merge */
 export const postApiReposOwnerRepoMythicalItemsIdMerge = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdMergeInput): Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/merge`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiReposOwnerRepoMythicalItemsIdMergeResponse>
 
 export type PostApiReposOwnerRepoMythicalWikiBody = AnyJSON
 
@@ -5040,12 +5041,13 @@ export type PostApiTodosNMergeBody = {
 
 export interface PostApiTodosNMergeInput {
   readonly path: { readonly n: number }
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiTodosNMergeBody
 }
 
 /** POST /api/todos/{n}/merge: Request a session-approved squash merge at the reviewed head */
 export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<void> =>
-  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body).then(() => undefined)
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }

@@ -92,10 +92,11 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
 			return err
 		}
-		existing, err := q.GetMythicalTodoRequest(ctx, repositoryID, info.SessionHash, input.Request)
+		existing, err := q.GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request)
 		if err == nil {
+			// The same key may have approved a merge instead: a different request.
 			held := mythicalChecksOf(existing)
-			if held.CreationPayload != string(canonical) {
+			if held.FiledRequest != input.Request || held.CreationSession != info.SessionHash || held.CreationPayload != string(canonical) {
 				return &TodoControlError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
 			}
 			item = existing

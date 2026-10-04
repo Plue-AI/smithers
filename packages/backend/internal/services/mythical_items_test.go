@@ -75,7 +75,7 @@ type fakeMythicalGitHub struct {
 
 // Merge squash-merges like GitHub: only while the pull request is open and
 // its branch head is still head.
-func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, number int64, head string) (string, error) {
+func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, number int64, head string, _ mythicalMergeCommitText) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	pull, ok := g.pulls[number]
@@ -198,6 +198,11 @@ func (g *fakeMythicalGitHub) Maintainer(_ context.Context, _ mythicalGitHubRepo,
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return !g.readOnly[account.Login], nil
+}
+
+// MaintainerNow answers as Maintainer: this fake remembers nothing.
+func (g *fakeMythicalGitHub) MaintainerNow(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error) {
+	return g.Maintainer(ctx, gh, account)
 }
 
 // IssueTextByMaintainer reads a listed issue's TextByMaintainer as its

@@ -613,8 +613,14 @@ func (q *Queries) GetMythicalItemByNumber(ctx context.Context, repositoryID, num
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND number=$2`, repositoryID, number))
 }
 
-func (q *Queries) GetMythicalTodoRequest(ctx context.Context, repositoryID int64, session, request string) (MythicalItem, error) {
-	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND checks->>'creation_session'=$2 AND checks->>'filedRequest'=$3`, repositoryID, session, request))
+// GetMythicalRequest is the item a browser session's request with this
+// Idempotency-Key made (a filed TODO) or approved (a Review & merge), the
+// one record of the repository's request identities.
+func (q *Queries) GetMythicalRequest(ctx context.Context, repositoryID int64, session, request string) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1
+		AND (checks->>'creation_session'=$2 AND checks->>'filedRequest'=$3
+		  OR checks->'mergeRequests' @> jsonb_build_array(jsonb_build_object('session', $2::text, 'request', $3::text)))
+		ORDER BY id LIMIT 1`, repositoryID, session, request))
 }
 func (q *Queries) InsertMythicalTodo(ctx context.Context, repositoryID, userID int64, title, prompt string, revisions, checks json.RawMessage) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,issue_body,created_by,owner_id,revisions,checks)

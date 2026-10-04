@@ -218,6 +218,7 @@ func TestMythicalMergeRoute(t *testing.T) {
 	handler := &MythicalHandler{Service: service}
 	request := func(body string, user bool) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		r.Header.Set("Idempotency-Key", "press-1")
 		routeCtx := chi.NewRouteContext()
 		routeCtx.URLParams.Add("id", "item-9")
 		ctx := context.WithValue(r.Context(), chi.RouteCtxKey, routeCtx)
@@ -244,7 +245,7 @@ func TestMythicalMergeRoute(t *testing.T) {
 	rec = httptest.NewRecorder()
 	handler.Merge(rec, request(`{"reviewed_head_sha":"`+head+`"}`, true))
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	assert.Equal(t, []services.MythicalMergeInput{{Head: head}}, service.lands)
+	assert.Equal(t, []services.MythicalMergeInput{{Head: head, Request: "press-1"}}, service.lands, "the Idempotency-Key reaches the service")
 	assert.Equal(t, []string{"item-9"}, service.landItems)
 	assert.Equal(t, []int64{7}, service.todoUsers)
 	assert.Contains(t, rec.Body.String(), `"automerge":true`)

@@ -141,8 +141,9 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Merge resolves the repository number through the same persisted install
 // binding as the card. Any credential but a browser session is refused
-// before a read. 202 records the approval and the merge fence; the TODO is
-// Merged only once GitHub reports the merge and main contains it.
+// before a read. 202 records the approval and the merge fence, or answers
+// the same Idempotency-Key's earlier request again; the TODO is Merged only
+// once GitHub reports the merge and main contains it.
 func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 	if err := services.MergeCredential(r.Context()); err != nil {
 		todoRouteError(w, err)
@@ -164,6 +165,7 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_reviewed_head_sha", Class: "user", Message: "reviewed_head_sha must be a 40-character hexadecimal commit SHA"})
 		return
 	}
+	input.Request = r.Header.Get("Idempotency-Key")
 	_, err = h.Service.MergeTodo(r.Context(), repo, user, n, input)
 	if err != nil {
 		todoRouteError(w, err)

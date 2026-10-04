@@ -23,22 +23,36 @@ import (
 
 // MythicalMergeInput is a person's press of Merge on a TODO in review: Head
 // is the pull request head their card displayed, so a head that moved since
-// is refused instead of merged unseen.
+// is refused instead of merged unseen. Request is the press's
+// Idempotency-Key (§6.2.1): the same request again answers its receipt.
 type MythicalMergeInput struct {
-	Head string `json:"reviewed_head_sha"`
+	Head    string `json:"reviewed_head_sha"`
+	Request string `json:"-"`
 }
 
 // mythicalLand is one Review & merge approval (spec §10.6.2c): a browser
-// session's press for one generation at one PR head. Refused is the
-// definitive refusal that cleared its merge fence; the approval stays as
-// that receipt and is never retried until another press replaces it.
+// session's press for one generation at one PR head, at At. Refused is the
+// refusal that cleared its merge fence; the approval stays as that receipt
+// and is never retried until another press replaces it.
 type mythicalLand struct {
 	By         string                `json:"by"`
 	Account    int64                 `json:"account"`
 	Generation int64                 `json:"generation,omitempty"`
 	Session    string                `json:"session,omitempty"`
 	Head       string                `json:"head"`
+	At         time.Time             `json:"at"`
 	Refused    *mythicalMergeRefusal `json:"refused,omitempty"`
+}
+
+// mythicalMergeRequest is one accepted press's identity (§6.2.1), kept on
+// the TODO it approved: the session's Idempotency-Key, the generation and
+// the reviewed head. A retry of it answers its receipt and never records
+// another approval; a renewed approval needs a new key.
+type mythicalMergeRequest struct {
+	Session    string `json:"session"`
+	Request    string `json:"request"`
+	Generation int64  `json:"generation"`
+	Head       string `json:"head"`
 }
 
 // mythicalMergeRefusal is the receipt of a refusal that cleared a merge
@@ -55,6 +69,16 @@ var mythicalHead = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // mythicalMergeabilityReread is how long dispatch waits before reading a PR
 // GitHub is still computing mergeability for a second time (§10.6.2b).
 const mythicalMergeabilityReread = 2 * time.Second
+
+// mythicalMergeExpiry bounds a merge that neither completes nor is refused:
+// once this long has passed since its approval, a merge GitHub has not
+// received is not sent; its fence clears with a receipt asking for another
+// press.
+const mythicalMergeExpiry = 10 * time.Minute
+
+// errMythicalMergedOnGitHub is GitHub reporting the pull request merged
+// while a merge is decided: lookup settles it, never a second merge.
+var errMythicalMergedOnGitHub = errors.New("GitHub reports the pull request merged; settling it")
 
 // mythicalTerminalStates are the items that are merged or dropped: no later
 // TODO waits on them (MergeReady row 2).
@@ -113,49 +137,56 @@ func RequireMergeSession(ctx context.Context, userID int64) error {
 // MergeTodo resolves a repository-local TODO number, never a GitHub issue
 // number, and requests its merge.
 func (s *MythicalService) MergeTodo(ctx context.Context, repositoryID, userID, number int64, input MythicalMergeInput) (MythicalItemView, error) {
-	if err := RequireMergeSession(ctx, userID); err != nil {
-		return MythicalItemView{}, err
-	}
-	head, err := mythicalReviewedHead(input.Head)
-	if err != nil {
-		return MythicalItemView{}, err
-	}
-	item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return MythicalItemView{}, &TodoControlError{Status: http.StatusNotFound, Code: "todo_not_found", Class: "user", Message: "TODO not found"}
-	}
-	if err != nil {
-		return MythicalItemView{}, err
-	}
-	return s.merge(ctx, repositoryID, userID, item.ID, head)
+	return s.requestMerge(ctx, repositoryID, userID, input, func(q *db.Queries) (db.MythicalItem, error) {
+		return q.GetMythicalItemByNumber(ctx, repositoryID, number)
+	})
 }
 
 // Merge is the same request for the item the repository door names.
 func (s *MythicalService) Merge(ctx context.Context, repositoryID, userID int64, itemID string, input MythicalMergeInput) (MythicalItemView, error) {
+	return s.requestMerge(ctx, repositoryID, userID, input, func(q *db.Queries) (db.MythicalItem, error) {
+		id, err := uuid.Parse(itemID)
+		if err != nil {
+			return db.MythicalItem{}, pkgerrors.BadRequest("invalid item id")
+		}
+		item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
+		if err == nil && item.RepositoryID != repositoryID {
+			return db.MythicalItem{}, pgx.ErrNoRows
+		}
+		return item, err
+	})
+}
+
+// requestMerge records a person's Review & merge (§10.6.2b step 1) behind
+// both doors, in one order: the browser-session credential; the person's
+// standing (a live session, the install owner) before the request's fields
+// or the TODO are read; the reviewed head and Idempotency-Key; the TODO; a
+// repeat of an accepted request, answered with its receipt; the person's
+// whole authority (mergeApprover, the rule dispatch applies again);
+// MergeReady's PostgreSQL rows; GitHub's live pull request (row 8); then one
+// transaction that locks the stack, decides the repeat and the rows again,
+// requires every dispatch provider, and records the approval, its request
+// identity and the merge fence. The claimed stack worker rechecks live facts
+// and sends the one squash merge; this request never calls GitHub's merge.
+func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID int64, input MythicalMergeInput, find func(*db.Queries) (db.MythicalItem, error)) (MythicalItemView, error) {
 	if err := RequireMergeSession(ctx, userID); err != nil {
 		return MythicalItemView{}, err
+	}
+	session := middleware.AuthInfoFromContext(ctx).SessionHash
+	if person, err := s.mergePerson(ctx, session); err != nil {
+		return MythicalItemView{}, err
+	} else if person.ID != userID {
+		return MythicalItemView{}, mythicalMergeForbidden()
 	}
 	head, err := mythicalReviewedHead(input.Head)
 	if err != nil {
 		return MythicalItemView{}, err
 	}
-	id, err := uuid.Parse(itemID)
-	if err != nil {
-		return MythicalItemView{}, pkgerrors.BadRequest("invalid item id")
+	if input.Request == "" || len(input.Request) > 256 {
+		return MythicalItemView{}, &TodoControlError{Status: http.StatusBadRequest, Code: "idempotency_key_required", Class: "user", Message: "Idempotency-Key is required"}
 	}
-	return s.merge(ctx, repositoryID, userID, pgtype.UUID{Bytes: id, Valid: true}, head)
-}
-
-// merge records a person's Review & merge (§10.6.2b step 1): their current
-// authority (mergeApprover, the rule dispatch applies again), MergeReady's
-// PostgreSQL rows, then one transaction that locks the stack and records the
-// approval with the merge fence, an intended outbound merge. The claimed
-// stack worker rechecks live facts and sends the one squash merge; this
-// request never calls GitHub's merge.
-func (s *MythicalService) merge(ctx context.Context, repositoryID, userID int64, id pgtype.UUID, head string) (MythicalItemView, error) {
-	session := middleware.AuthInfoFromContext(ctx).SessionHash
-	item, err := s.queries().GetMythicalItem(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && item.RepositoryID != repositoryID {
+	item, err := find(s.queries())
+	if errors.Is(err, pgx.ErrNoRows) {
 		return MythicalItemView{}, &TodoControlError{Status: http.StatusNotFound, Code: "todo_not_found", Class: "user", Message: "TODO not found"}
 	}
 	if err != nil {
@@ -164,15 +195,20 @@ func (s *MythicalService) merge(ctx context.Context, repositoryID, userID int64,
 	if s.github == nil {
 		return MythicalItemView{}, &TodoControlError{Status: http.StatusServiceUnavailable, Code: "github_unavailable", Class: "infra", Message: "GitHub is not configured for this repository"}
 	}
-	approver, account, err := s.mergeApprover(ctx, repositoryID, session)
+	approver, account, gh, err := s.mergeApprover(ctx, repositoryID, session)
 	if err != nil {
 		return MythicalItemView{}, err
 	}
 	if approver.ID != userID {
 		return MythicalItemView{}, mythicalMergeForbidden()
 	}
-	if mythicalMergeReplay(item, head, session) {
-		return mythicalItemView(item), nil
+	if prior, err := s.queries().GetMythicalRequest(ctx, repositoryID, session, input.Request); err == nil {
+		if err := mythicalMergeRepeat(prior, item.ID, session, input.Request, head); err != nil {
+			return MythicalItemView{}, err
+		}
+		return mythicalItemView(prior), nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return MythicalItemView{}, err
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
@@ -181,11 +217,22 @@ func (s *MythicalService) merge(ctx context.Context, repositoryID, userID int64,
 	if err := mythicalMergeReady(item, before, head, false); err != nil {
 		return MythicalItemView{}, err
 	}
-	if err := s.mergeDispatchReady(ctx, item); err != nil {
+	pull, err := s.github.Pull(ctx, gh, item.PRNumber.Int64)
+	if err != nil {
+		return MythicalItemView{}, mythicalMergeConflict("rechecking", "Waiting for fresh GitHub merge facts")
+	}
+	if err := mythicalMergeOnGitHub(pull, head); errors.Is(err, errMythicalMergedOnGitHub) {
+		return MythicalItemView{}, mythicalMergeConflict("rechecking", "GitHub reports the pull request merged; waiting for main to contain it")
+	} else if err != nil {
 		return MythicalItemView{}, err
 	}
 	var saved db.MythicalItem
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		// The repository's request lock (FileTodo's) orders presses that
+		// share an Idempotency-Key; the stack row lock orders stack changes.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
+			return err
+		}
 		var locked int64
 		err := tx.QueryRow(ctx, `SELECT repository_id FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID).Scan(&locked)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -195,13 +242,15 @@ func (s *MythicalService) merge(ctx context.Context, repositoryID, userID int64,
 			return err
 		}
 		q := db.New(tx)
-		current, err := q.GetMythicalItem(ctx, id)
-		if err != nil {
+		if prior, err := q.GetMythicalRequest(ctx, repositoryID, session, input.Request); err == nil {
+			saved = prior
+			return mythicalMergeRepeat(prior, item.ID, session, input.Request, head)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if mythicalMergeReplay(current, head, session) {
-			saved = current
-			return nil
+		current, err := q.GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return err
 		}
 		before, err := mythicalMergeAfter(ctx, tx, current)
 		if err != nil {
@@ -210,9 +259,13 @@ func (s *MythicalService) merge(ctx context.Context, repositoryID, userID int64,
 		if err := mythicalMergeReady(current, before, head, false); err != nil {
 			return err
 		}
+		if err := s.mergeDispatchReady(ctx, current); err != nil {
+			return err
+		}
 		next := current
 		checks := mythicalChecksOf(next)
-		checks.Land = &mythicalLand{By: account.Login, Account: account.ID, Generation: current.Generation, Session: session, Head: head}
+		checks.Land = &mythicalLand{By: account.Login, Account: account.ID, Generation: current.Generation, Session: session, Head: head, At: s.now().UTC()}
+		checks.MergeRequests = append(checks.MergeRequests, mythicalMergeRequest{Session: session, Request: input.Request, Generation: current.Generation, Head: head})
 		next.Checks = checks.encode()
 		next.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "merge", Target: strconv.FormatInt(current.PRNumber.Int64, 10), Desired: head, Precondition: "open", State: "intended"})
 		next.NextAttemptAt = pgtype.Timestamptz{}
@@ -231,14 +284,17 @@ func (s *MythicalService) merge(ctx context.Context, repositoryID, userID int64,
 	return mythicalItemView(saved), nil
 }
 
-// mythicalMergeReplay reports a repeat of the press the fence already
-// carries: the same session at the same head and generation. It answers
-// that request again instead of a second fence.
-func mythicalMergeReplay(item db.MythicalItem, head, session string) bool {
-	land := mythicalChecksOf(item).Land
-	op, _ := decodeMythicalOutbound(item.PendingOp)
-	return mythicalMergeFenced(item) && op.Desired == head && land != nil && land.Refused == nil &&
-		land.Session == session && land.Head == head && land.Generation == item.Generation
+// mythicalMergeRepeat decides a press whose Idempotency-Key this session
+// already used (prior is the TODO carrying that request): the same TODO at
+// the same reviewed head is the same request, answered with its receipt
+// whatever became of its approval; anything else is a different request.
+func mythicalMergeRepeat(prior db.MythicalItem, id pgtype.UUID, session, request, head string) error {
+	for _, accepted := range mythicalChecksOf(prior).MergeRequests {
+		if accepted.Session == session && accepted.Request == request && prior.ID == id && accepted.Head == head {
+			return nil
+		}
+	}
+	return &TodoControlError{Status: http.StatusConflict, Code: "idempotency_mismatch", Class: "conflict", Message: "Idempotency-Key was already used for a different request"}
 }
 
 // mergeDispatchReady refuses a request no worker could act on: dispatch
@@ -408,17 +464,16 @@ func (s *MythicalService) mergeGitHub(ctx context.Context, item db.MythicalItem,
 
 // MergeDecision is DecideMerge at dispatch and recovery (§10.6.2b step 2),
 // installed as the outbound MergeDecision provider: the approval the fence
-// carries, its person's current authority, MergeReady's PostgreSQL rows under
-// the item's own fence, then GitHub's live head, checks and mergeability. A
-// *TodoControlError is definitive: the worker clears the fence and keeps it
-// on the approval. Any other error keeps the fence for the next pass.
+// carries, MergeReady's PostgreSQL rows under the item's own fence, GitHub's
+// live head, base, checks, reviews and mergeability, then, after those
+// reads and immediately before the claim, its person's current authority
+// with GitHub's permission read now. A *TodoControlError is definitive: the
+// worker clears the fence and keeps it on the approval. Any other error
+// keeps the fence for the next pass.
 func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) error {
 	land := mythicalChecksOf(item).Land
 	if op.Kind != "merge" || land == nil || land.Session == "" || land.Refused != nil || land.Head != op.Desired || land.Generation != item.Generation {
 		return mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
-	}
-	if err := s.mergeAuthority(ctx, item, *land); err != nil {
-		return err
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
@@ -431,14 +486,17 @@ func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalIte
 	if err != nil {
 		return err
 	}
-	return s.mergeLive(ctx, gh, number, op.Desired)
+	if err := s.mergeLive(ctx, gh, number, op.Desired); err != nil {
+		return err
+	}
+	return s.mergeAuthority(ctx, item, *land)
 }
 
 // mergeAuthority rechecks the approving person now (§10.6.2b) with the rule
 // the press applied, and that their GitHub account is still the one that
 // approved. A stored approval is never current authorization by itself.
 func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalItem, land mythicalLand) error {
-	_, account, err := s.mergeApprover(ctx, item.RepositoryID, land.Session)
+	_, account, _, err := s.mergeApprover(ctx, item.RepositoryID, land.Session)
 	if err != nil {
 		return err
 	}
@@ -450,64 +508,93 @@ func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalIt
 
 // mergeApprover is the one authority rule for a merge, applied at the press
 // and again at dispatch, so a press is never accepted that dispatch must
-// refuse: the browser session stored under sessionKey is live, its person is
-// the install's owner (the only member a self-hosted install has before
-// M-17), and GitHub and the factory's policy count their account a
-// maintainer now. A session filed before keys were hashed at rest is not
-// found under its digest, at the press as at dispatch: it signs in again.
-func (s *MythicalService) mergeApprover(ctx context.Context, repositoryID int64, sessionKey string) (db.User, gitHubActor, error) {
+// refuse: the person's standing (mergePerson), then GitHub and the
+// factory's policy counting their account a maintainer, read now and never
+// remembered, then their standing again, so a sign-out, suspension or
+// ownership change committed while GitHub answered is seen. It answers the
+// stack's GitHub destination with them.
+func (s *MythicalService) mergeApprover(ctx context.Context, repositoryID int64, sessionKey string) (db.User, gitHubActor, mythicalGitHubRepo, error) {
+	user, err := s.mergePerson(ctx, sessionKey)
+	if err != nil {
+		return db.User{}, gitHubActor{}, mythicalGitHubRepo{}, err
+	}
+	gh, account, err := s.maintainerPerson(ctx, repositoryID, user.ID, "merge a TODO")
+	if err != nil {
+		return db.User{}, gitHubActor{}, mythicalGitHubRepo{}, mythicalAuthorityRefusal(err)
+	}
+	if _, err := s.mergePerson(ctx, sessionKey); err != nil {
+		return db.User{}, gitHubActor{}, mythicalGitHubRepo{}, err
+	}
+	return user, account, gh, nil
+}
+
+// mergePerson is the person whose browser session is stored under
+// sessionKey, while the session is live, the person may sign in and is the
+// install's owner (the only member a self-hosted install has before M-17).
+// A session filed before keys were hashed at rest is not found under its
+// digest, at the press as at dispatch: it signs in again.
+func (s *MythicalService) mergePerson(ctx context.Context, sessionKey string) (db.User, error) {
 	q := s.queries()
 	ended := &TodoControlError{Status: http.StatusUnauthorized, Code: "unauthenticated", Class: "permission", Message: "The approving browser session has ended; sign in again to merge"}
 	if sessionKey == "" {
-		return db.User{}, gitHubActor{}, ended
+		return db.User{}, ended
 	}
 	session, err := q.GetAuthSessionBySessionKey(ctx, sessionKey)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return db.User{}, gitHubActor{}, ended
+		return db.User{}, ended
 	}
 	if err != nil {
-		return db.User{}, gitHubActor{}, err
+		return db.User{}, err
 	}
 	user, err := q.GetUserByID(ctx, session.UserID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && (!session.ExpiresAt.After(s.now()) || !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid) {
-		return db.User{}, gitHubActor{}, ended
+		return db.User{}, ended
 	}
 	if err != nil {
-		return db.User{}, gitHubActor{}, err
+		return db.User{}, err
 	}
 	owner, err := q.GetSelfHostOwner(ctx)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && owner.ID != user.ID {
-		return db.User{}, gitHubActor{}, mythicalMergeForbidden()
+		return db.User{}, mythicalMergeForbidden()
 	}
 	if err != nil {
-		return db.User{}, gitHubActor{}, err
+		return db.User{}, err
 	}
-	_, account, err := s.maintainerPerson(ctx, repositoryID, user.ID, "merge a TODO")
-	if err != nil {
-		return db.User{}, gitHubActor{}, mythicalAuthorityRefusal(err)
-	}
-	return user, account, nil
+	return user, nil
 }
 
-// mergeLive is MergeReady rows 8-9 on GitHub's live facts: the PR is open at
-// the reviewed head, its required checks pass there, main's required reviews
-// are satisfied, it is not draft and GitHub affirmatively reports it
-// mergeable. GitHub still computing mergeability is read once more after two
-// seconds, and rows 8-9 are evaluated again against that read.
+// mythicalMergeOnGitHub is row 8 on GitHub's own pull request: open, based
+// on main and at the reviewed head. GitHub merges into whatever base the
+// pull request has, so one retargeted away from main is refused. A pull
+// request GitHub reports merged is settled by lookup, never merged again.
+func mythicalMergeOnGitHub(pull mythicalPull, head string) error {
+	switch {
+	case pull.Merged:
+		return errMythicalMergedOnGitHub
+	case pull.State != "open":
+		return mythicalMergeConflict("state", "PR is closed on GitHub")
+	case pull.BaseRef != "main":
+		return mythicalMergeConflict("state", "PR no longer targets main on GitHub")
+	case pull.HeadSHA != head:
+		return &MythicalStaleHeadError{TodoControlError: *mythicalMergeConflict("stale_head", "the pull request changed since you saw it"), CurrentHead: pull.HeadSHA}
+	}
+	return nil
+}
+
+// mergeLive is MergeReady rows 8-9 on GitHub's live facts: the PR is open,
+// based on main, at the reviewed head, its required checks pass there,
+// main's required reviews are satisfied, it is not draft and GitHub
+// affirmatively reports it mergeable. GitHub still computing mergeability is
+// read once more after two seconds, and rows 8-9 are evaluated again against
+// that read.
 func (s *MythicalService) mergeLive(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) error {
 	pull, err := s.github.Pull(ctx, gh, number)
 	if err != nil {
 		return err
 	}
 	for reread := false; ; reread = true {
-		switch {
-		case pull.Merged:
-			// Lookup settles a PR GitHub reports merged; never a second PUT.
-			return errors.New("GitHub reports the pull request merged; settling it")
-		case pull.State != "open":
-			return mythicalMergeConflict("state", "PR is closed on GitHub")
-		case pull.HeadSHA != head:
-			return &MythicalStaleHeadError{TodoControlError: *mythicalMergeConflict("stale_head", "the pull request changed since you saw it"), CurrentHead: pull.HeadSHA}
+		if err := mythicalMergeOnGitHub(pull, head); err != nil {
+			return err
 		}
 		if err := s.mergeChecks(ctx, gh, head); err != nil {
 			return err
@@ -588,16 +675,17 @@ func (s *MythicalService) mergeLookup(ctx context.Context, gh mythicalGitHubRepo
 }
 
 // mergeSend is appSend's merge kind: GitHub's squash merge with sha = the
-// reviewed head through the install's App. A refusal GitHub states (405,
-// 409, 422) is definitive with GitHub's text verbatim, unless the PR turns
-// out to be merged already; any other failure is unknown, and lookup decides
-// on the next pass.
+// reviewed head through the install's App, its commit title and message
+// rendered by mythicalMergeCommit. A refusal GitHub states (401, 403, 404,
+// 405, 409, 422) is definitive with GitHub's text verbatim, unless the PR
+// turns out to be merged already; any other failure is unknown, and lookup
+// decides on the next pass.
 func (s *MythicalService) mergeSend(ctx context.Context, gh mythicalGitHubRepo, item db.MythicalItem, op MythicalOutboundOp) error {
 	number, err := mythicalMergeNumber(item, op)
 	if err != nil {
 		return err
 	}
-	_, err = s.github.Merge(ctx, gh, number, op.Desired)
+	_, err = s.github.Merge(ctx, gh, number, op.Desired, mythicalMergeCommit(item, number, op.Desired))
 	var refusal *GitHubRefusal
 	if errors.As(err, &refusal) {
 		pull, lookup := s.github.Pull(ctx, gh, number)
@@ -642,13 +730,49 @@ func (s *MythicalService) mergeSettle(ctx context.Context, gh mythicalGitHubRepo
 	return mythicalLanded(item, pull.MergeCommit, s.now()), nil
 }
 
-// refuseMerge settles a definitive refusal (§10.6.2b-c): the fence clears,
-// the approval stays with the refusal as its receipt and the card shows it
-// until another press. Any other error leaves the fence for lookup.
-func (st *mythicalItemStep) refuseMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, err error) (*db.MythicalItem, error) {
+// mythicalMergeCommit is the squash commit's title and message, rendered
+// from what Smithers holds for the reviewed TODO: its title, its number and
+// its pull request's. Never the live pull request's title or body, which
+// anyone who can write on GitHub may edit after the review; a closing
+// keyword in the title is made a plain reference.
+func mythicalMergeCommit(item db.MythicalItem, number int64, head string) mythicalMergeCommitText {
+	title := strings.Join(strings.Fields(mythicalNoClosingKeywords(mythicalTodoTitle(item))), " ")
+	return mythicalMergeCommitText{Title: fmt.Sprintf("%s (#%d)", title, number),
+		Message: fmt.Sprintf("TODO T%d, reviewed at %s.", mythicalItemNumber(item), head)}
+}
+
+// mythicalMergeExpired reports a merge approval older than
+// mythicalMergeExpiry, or one recorded before approvals carried their time.
+// A fence with no approval is MergeDecision's to refuse.
+func mythicalMergeExpired(item db.MythicalItem, now time.Time) bool {
+	land := mythicalChecksOf(item).Land
+	return land != nil && (land.At.IsZero() || now.Sub(land.At) >= mythicalMergeExpiry)
+}
+
+// mythicalMergeUnfinished is the receipt of a merge mythicalMergeExpiry
+// ended without GitHub merging it.
+func mythicalMergeUnfinished() *TodoControlError {
+	return mythicalGitHubBlock("The merge did not complete within 10 minutes; press Merge again")
+}
+
+// refuseMerge settles a refused merge (§10.6.2b-c): the fence clears, the
+// approval stays with the refusal as its receipt and the card shows it
+// until another press. Before any send (unsent: lookup proved GitHub has not
+// merged it), a failure that settles nothing is a refusal when the
+// approver's standing is gone: a revoked session, a suspended or removed
+// person ends the fence at once. Any other failure leaves the fence for the
+// next pass, which looks a sent merge up and which mythicalMergeExpiry
+// bounds.
+func (st *mythicalItemStep) refuseMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, err error, unsent bool) (*db.MythicalItem, error) {
 	var refusal *TodoControlError
 	if !errors.As(err, &refusal) {
-		return nil, err
+		land := mythicalChecksOf(item).Land
+		if !unsent || land == nil || errors.Is(err, errMythicalMergedOnGitHub) {
+			return nil, err
+		}
+		if _, standing := st.s.mergePerson(ctx, land.Session); !errors.As(standing, &refusal) {
+			return nil, err
+		}
 	}
 	next := item
 	checks := mythicalChecksOf(next)
@@ -667,7 +791,8 @@ func (st *mythicalItemStep) refuseMerge(ctx context.Context, item db.MythicalIte
 
 // maintainerPerson is the person userID as GitHub knows them now, when the
 // repository's policy names them (or names no one) and GitHub counts them a
-// maintainer; anything else is refused before GitHub is written.
+// maintainer, read from GitHub now; anything else is refused before GitHub is
+// written.
 func (s *MythicalService) maintainerPerson(ctx context.Context, repositoryID, userID int64, act string) (mythicalGitHubRepo, gitHubActor, error) {
 	accountID, err := s.personGitHubID(ctx, userID, act)
 	if err != nil {
@@ -688,7 +813,7 @@ func (s *MythicalService) maintainerPerson(ctx context.Context, repositoryID, us
 	if account.ID != accountID || !policy.maintains(account.Login) {
 		return mythicalGitHubRepo{}, gitHubActor{}, pkgerrors.Forbidden("only a maintainer the factory's policy names may " + act)
 	}
-	if maintainer, err := s.github.Maintainer(ctx, gh, account); err != nil {
+	if maintainer, err := s.github.MaintainerNow(ctx, gh, account); err != nil {
 		return mythicalGitHubRepo{}, gitHubActor{}, err
 	} else if !maintainer {
 		return mythicalGitHubRepo{}, gitHubActor{}, pkgerrors.Forbidden("only a maintainer of " + gh.Owner + "/" + gh.Name + " on GitHub may " + act)
