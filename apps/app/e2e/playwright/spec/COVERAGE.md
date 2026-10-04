@@ -238,3 +238,19 @@ they do not qualify live answer cancellation or repository-grounded answers.
 | A-TODO-AMEND | [A-TODO-AMEND.spec.ts](A-TODO-AMEND.spec.ts) | fixme-before-implementation | T-STK-02, T-STK-06 |
 
 Cycle 26: production TODO admission, issue drafts, question answers, steers and amendments remain pending. A-TODO-NEW also verifies mounted private draft opening and discard. Draft editing lost fields after blur and values after reload in Chromium; the retained persistence regression awaits T-APP-02.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-TODO-STOP | [A-TODO-STOP.spec.ts](A-TODO-STOP.spec.ts) | fixme-before-implementation | T-STK-05 |
+| A-TODO-RESUME | [A-TODO-RESUME.spec.ts](A-TODO-RESUME.spec.ts) | fixme-before-implementation | T-STK-05 |
+| A-TODO-RETRY | [A-TODO-RETRY.spec.ts](A-TODO-RETRY.spec.ts) | fixme-before-implementation | T-STK-05 |
+| A-TODO-DROP | [A-TODO-DROP.spec.ts](A-TODO-DROP.spec.ts) | fixme-before-implementation | T-STK-05 |
+| A-STACK-MOVE | [A-STACK-MOVE.spec.ts](A-STACK-MOVE.spec.ts) | fixme-before-implementation | T-STK-02 |
+| A-MERGE | [A-MERGE.spec.ts](A-MERGE.spec.ts) | fixme-before-implementation | T-STK-04 |
+
+Cycle 27: TODO pause, resume, retry, drop, stack reorder and merge await durable production journey projections. Hermetic scenarios do not replace machine, GitHub or reference-host receipts.
+
+All six also exercise mounted command projections: Stop hides during a question,
+Resume retains the attempt, Retry refuses a working TODO, Drop removes it,
+Move preserves refs, and Merge opens the person's review before merging.
+Full durable journey scenarios retain fixmes.
