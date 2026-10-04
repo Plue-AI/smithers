@@ -1807,12 +1807,17 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 }
 
 // integrate puts a submitted candidate onto the current tip: as is when it
-// was built on the tip, else rebased (appended candidates only) and sent to
-// coding/verify. The candidate is pinned so it outlives its lane.
+// was built on the current tip. Moved-base candidates remain pending until
+// validated branch execution is composed (T-STK-08).
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
 	if item.CandidateHead == "" {
 		return nil, false, nil
+	}
+	// T-STK-08: the legacy host path cannot validate the guest or freeze
+	// writers. Keep the candidate pending before fetching, pinning or rewriting.
+	if item.CandidateBase != r.row.TipCommit {
+		return nil, false, branchRebaseUnavailable()
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
@@ -1827,89 +1832,12 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	next := item
-	if item.CandidateBase == r.row.TipCommit {
-		if !item.CandidateVerified {
-			return mythicalRetry(item, "the candidate on the tip was never verified", nil, st.now), false, nil
-		}
-		integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
-		next.Integration, next.State, next.Reason = integration, "proposing", ""
-		return &next, false, nil
+	if !item.CandidateVerified {
+		return mythicalRetry(item, "the candidate on the tip was never verified", nil, st.now), false, nil
 	}
-	rebased, err := r.g.rebaseCandidate(ctx, r.row.TipCommit, mythicalCandidate{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64,
-		Base: item.CandidateBase, Head: item.CandidateHead}, mythicalChainLimit)
-	var conflict *errMythicalConflict
-	switch {
-	case errors.Is(err, errMythicalRewrite):
-		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
-	case errors.As(err, &conflict):
-		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths}})
-		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
-		retried.Integration = integration
-		return retried, false, nil
-	case err != nil:
-		return nil, false, err
-	}
-	var plan struct {
-		Checks []json.RawMessage `json:"checks"`
-	}
-	if item.Source != "issue" || json.Unmarshal(item.Plan, &plan) != nil || len(plan.Checks) == 0 {
-		if item.Source != "issue" {
-			next.State, next.Reason = "blocked", "the stack moved; request this change again on the current tip"
-			return &next, false, nil
-		}
-		return mythicalRetry(item, "the rebased result has no checks to run; re-planning on the new tip", nil, st.now), false, nil
-	}
-	// Every path the rebased candidate changes on the tip, so an affected
-	// check (checks/affected-*) selects the targets those paths reach.
-	writes, err := r.g.changedPaths(ctx, r.row.TipCommit, rebased)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "the rebased candidate's paths could not be read: "+err.Error(), st.now), false, nil
-	}
-	if err := s.pin(ctx, r, rebased); err != nil {
-		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
-	}
-	if hold := st.launchable(ctx, item); hold != nil {
-		return hold, false, nil
-	}
-	workspaceID := item.WorkspaceID
-	if !st.slot(item) {
-		// A verification waits for a lane under the cap, a kept workspace
-		// traded in for its own (the cap may have been lowered meanwhile).
-		return nil, false, nil
-	}
-	if workspaceID == "" {
-		// A proposal refreshed after its lane was retired verifies on a fresh one.
-		placement, refused := st.place(ctx, item)
-		if refused != nil {
-			return refused, false, nil
-		}
-		if workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d verify %d", item.IssueNumber.Int64, item.Generation+1), placement); err != nil {
-			return mythicalInfraOutage(item, "launch", "no lane workspace to verify on: "+err.Error(), st.now), false, nil
-		}
-		placed := mythicalChecksOf(next)
-		placed.Placement = &placement
-		next.Checks = placed.encode()
-		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
-		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
-	}
-	ref, err := s.retainFor(ctx, r, workspaceID, rebased)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
-	}
-	next.Generation++
-	next.WorkspaceID = workspaceID
-	next.CandidateBase, next.CandidateHead, next.CandidateVerified, next.VerifyOutcome, next.VerifyRunID = r.row.TipCommit, rebased, false, "", ""
-	integration, _ := json.Marshal(map[string]any{"kind": "rebased"})
-	next.Integration, next.State, next.Reason = integration, "verifying", ""
-	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
-	saved, err := st.commit(ctx, next, "verify", "coding/verify", payload)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "verification could not be launched: "+err.Error(), st.now), false, nil
-	}
-	if saved.Lane.Valid {
-		st.held[saved.Lane.Int32] = saved.ID
-	}
-	return &saved, true, nil
+	integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
+	next.Integration, next.State, next.Reason = integration, "proposing", ""
+	return &next, false, nil
 }
 
 func (st *mythicalItemStep) fetchCandidate(ctx context.Context, item db.MythicalItem) error {
