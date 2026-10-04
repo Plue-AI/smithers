@@ -66,7 +66,7 @@ const sameRoster = (
  * Provides the branch RPC handlers over the branch services.
  *
  * A roster watch emits the roster as of subscription, then re-lists on every
- * presence change for the branch AND once per `presence.leaseMs`, emitting
+ * presence change for the branch AND at least once per second, emitting
  * only when the roster it read differs from the one it last sent.
  *
  * All three of those are triggers into ONE sequential reader. The roster is
@@ -81,7 +81,7 @@ const sameRoster = (
  * watch driven by change events alone never saw the LAST participant leave,
  * and a burst of announcements on unrelated branches could slide the one
  * notification this watch needed out of the shared feed. Both are bounded by
- * one lease now: a departure is visible within `leaseMs` of it happening,
+ * one second: a departure is visible within 1 s of lease expiry,
  * whether or not a survivor reports it.
  *
  * @category layers
@@ -172,10 +172,9 @@ export const layerHandlers: Layer.Layer<
             // A lapsed lease publishes nothing, so a watch driven only by
             // change events never observes the LAST participant leaving, and
             // an unrelated branch's burst can slide the one notification this
-            // watch needed out of the shared feed. Re-listing on the lease
-            // cadence bounds both: a departure is visible within one lease of
-            // it happening, whether or not anyone reports it.
-            Stream.fromEffectRepeat(Effect.sleep(presence.leaseMs)).pipe(Stream.map(() => undefined))
+            // watch needed out of the shared feed. Re-listing at least once per second
+            // bounds both: a departure is visible within 1 s of expiry, whether or not anyone reports it.
+            Stream.fromEffectRepeat(Effect.sleep(Math.min(presence.leaseMs, 1_000))).pipe(Stream.map(() => undefined))
           )
         ).pipe(
           // ONE reader, sequential by default, so a roster is read in the

@@ -102,7 +102,7 @@ describe("Branch.WatchRoster lease propagation", () => {
     Effect.gen(function*() {
       const rosters = yield* program(
         Effect.gen(function*() {
-          const presence = yield* BranchPresence.makeMemory({ leaseMs })
+          const presence = yield* BranchPresence.makeMemory({ leaseMs: 30_000 })
           const pair = yield* TestSocket.makePair()
           const client = yield* connect(pair, { presence })
           const share = yield* BranchShare.BranchShare
@@ -121,6 +121,8 @@ describe("Branch.WatchRoster lease propagation", () => {
             cursor: null
           })
 
+          // Offset subscription from announcement: a lease-length poll would miss expiry for almost another lease.
+          yield* TestClock.adjust(900)
           const initial = yield* Deferred.make<void>()
           let emissions = 0
           const watched = yield* Stream.runCollect(
@@ -136,7 +138,9 @@ describe("Branch.WatchRoster lease propagation", () => {
           ).pipe(Effect.forkChild({ startImmediately: true }))
           yield* Deferred.await(initial)
           // Nobody announces, nobody leaves: the lease simply runs out.
-          yield* TestClock.adjust(leaseMs)
+          yield* TestClock.adjust(29_000)
+          expect(emissions).toBe(1)
+          yield* TestClock.adjust(1_000)
           return Array.from(
             yield* Fiber.join(watched),
             (frame) => frame.participants.map((participant) => participant.participantId)

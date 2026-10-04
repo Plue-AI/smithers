@@ -51,6 +51,8 @@ export interface Service {
    * cursors. Reading drops expired leases and advances a cross-branch sweep.
    */
   readonly list: (request: RosterRequest) => Effect.Effect<ReadonlyArray<Participant>, SyncError>
+  /** Fail closed while the host or any required heartbeat source is unavailable. */
+  readonly presenceOn: (request: RosterRequest) => Effect.Effect<"unknown" | "present" | "empty", SyncError>
   readonly changes: Stream.Stream<BranchId>
   /**
    * How long one announcement keeps a participant on the roster, in
@@ -59,7 +61,7 @@ export interface Service {
    * A lease lapses without anyone reporting it, and nothing publishes on
    * `changes` when it does, so a watcher cannot learn of the last
    * participant's departure from the change feed alone. It re-lists on this
-   * cadence instead, which is the longest a lapsed lease can stay visible.
+   * cadence capped at one second, bounding how long an expired lease stays visible.
    */
   readonly leaseMs: number
 }
@@ -72,7 +74,7 @@ export interface Service {
  */
 export class BranchPresence extends Context.Service<BranchPresence, Service>()("@smthrs/sync/BranchPresence") {}
 
-const unavailable = new SyncError({ code: "closed", message: "Branch presence is unavailable" })
+const unavailable = new SyncError({ code: "unsupported", message: "Branch presence is unavailable" })
 
 /**
  * The lease {@link makeNoop} reports. It holds no one, so the value only has
@@ -84,7 +86,7 @@ const unavailable = new SyncError({ code: "closed", message: "Branch presence is
 export const defaultLeaseMs = 30_000
 
 /**
- * Constructs a presence registry that holds no one.
+ * Constructs an unavailable presence registry.
  *
  * @category constructors
  * @since 0.1.0
@@ -93,14 +95,15 @@ export const makeNoop = (overrides: Partial<Service> = {}): Service =>
   BranchPresence.of({
     announce: () => Effect.fail(unavailable),
     leave: () => Effect.fail(unavailable),
-    list: () => Effect.succeed([]),
+    list: () => Effect.fail(unavailable),
+    presenceOn: () => Effect.succeed("unknown"),
     changes: Stream.empty,
     leaseMs: defaultLeaseMs,
     ...overrides
   })
 
 /**
- * Provides a presence registry that holds no one.
+ * Provides an unavailable presence registry.
  *
  * @category layers
  * @since 0.1.0
@@ -130,6 +133,8 @@ export interface PresenceOptions {
    * {@link defaultMaxParticipants}.
    */
   readonly maxParticipants?: number | undefined
+  /** Host readiness, including authorization, revocation, bridge and session sources. Defaults to unavailable. */
+  readonly sourcesReady?: ((branchId: BranchId) => Effect.Effect<boolean>) | undefined
 }
 
 /**
@@ -157,6 +162,7 @@ interface Resolved {
   readonly leaseMs: number
   readonly changesCapacity: number
   readonly maxParticipants: number
+  readonly sourcesReady: (branchId: BranchId) => Effect.Effect<boolean>
 }
 
 /**
@@ -195,7 +201,8 @@ export const defaultMaxParticipants = 256
 const defaults: Resolved = {
   leaseMs: defaultLeaseMs,
   changesCapacity: defaultChangesCapacity,
-  maxParticipants: defaultMaxParticipants
+  maxParticipants: defaultMaxParticipants,
+  sourcesReady: () => Effect.succeed(false)
 }
 
 /**
@@ -238,14 +245,15 @@ export const makeMemory = (
         defaults.maxParticipants
       )
     }),
-    makeResolved
+    (resolved) => makeResolved({ ...resolved, sourcesReady: options.sourcesReady ?? defaults.sourcesReady })
   )
 
 /** The registry over an already-validated policy. */
 const makeResolved = (
-  { changesCapacity, leaseMs, maxParticipants }: Resolved
+  { changesCapacity, leaseMs, maxParticipants, sourcesReady }: Resolved
 ): Effect.Effect<Service, never, BranchShare.BranchShare> =>
   Effect.gen(function*() {
+    const startedAtMs = yield* Clock.currentTimeMillis
     const share = yield* BranchShare.BranchShare
     const roster = new Map<BranchId, Map<ParticipantId, Seat>>()
     const changes = yield* PubSub.sliding<BranchId>(changesCapacity)
@@ -414,7 +422,15 @@ const makeResolved = (
       return live(request.branchId, yield* Clock.currentTimeMillis)
     })
 
-    return BranchPresence.of({ announce, leave, list, changes: Stream.fromPubSub(changes), leaseMs })
+    const presenceOn = Effect.fn("BranchPresence.presenceOn")(function*(supplied: RosterRequest) {
+      const request = detachRoster(supplied)
+      yield* share.verify(request.capability, { branchId: request.branchId, access: "read" })
+      const nowMs = yield* Clock.currentTimeMillis
+      if (nowMs - startedAtMs < 30_000 || !(yield* sourcesReady(request.branchId))) return "unknown" as const
+      return live(request.branchId, nowMs).length === 0 ? "empty" as const : "present" as const
+    })
+
+    return BranchPresence.of({ announce, leave, list, presenceOn, changes: Stream.fromPubSub(changes), leaseMs })
   })
 
 /**

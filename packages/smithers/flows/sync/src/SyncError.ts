@@ -12,6 +12,7 @@ import { Resync } from "./SyncProtocol.ts"
 /** The literals behind {@link ErrorCode}, also read by {@link SyncError.is}. */
 const errorCodes = [
   "invalid_request",
+  "unsupported",
   "unauthorized",
   "not_found",
   "backpressure",

@@ -315,7 +315,7 @@ describe("BranchPresence", () => {
       expect(roster.map((entry) => entry.displayName)).toEqual(["Alice"])
     }))
 
-  it.effect("holds no one through the noop layer, and honours overrides", () =>
+  it.effect("refuses unavailable operations through the noop layer, and honours overrides", () =>
     Effect.gen(function*() {
       const noop = BranchPresence.makeNoop()
       const capability = new BranchProtocol.ShareCapability({
@@ -337,20 +337,21 @@ describe("BranchPresence", () => {
         cursor: null
       }
 
-      expect((yield* (Effect.flip(noop.announce(announcement)))).code).toBe("closed")
+      expect((yield* (Effect.flip(noop.announce(announcement)))).code).toBe("unsupported")
       expect(
         (yield* (Effect.flip(noop.leave({ capability, branchId, participantId: participant("a") }))))
           .code
-      ).toBe("closed")
-      expect(yield* (noop.list({ capability, branchId }))).toEqual([])
+      ).toBe("unsupported")
+      expect((yield* Effect.flip(noop.list({ capability, branchId }))).code).toBe("unsupported")
+      expect(yield* noop.presenceOn({ capability, branchId })).toBe("unknown")
       expect(Array.from(yield* (Stream.runCollect(noop.changes)))).toEqual([])
       expect(
         yield* (
-          Effect.flatMap(BranchPresence.BranchPresence, (service) => service.list({ capability, branchId })).pipe(
+          Effect.flatMap(BranchPresence.BranchPresence, (service) => service.presenceOn({ capability, branchId })).pipe(
             Effect.provide(BranchPresence.layerNoop)
           )
         )
-      ).toEqual([])
+      ).toEqual("unknown")
       expect(
         (yield* (
           Effect.flip(
@@ -557,4 +558,33 @@ describe("BranchPresence request detachment", () => {
       expect((yield* presence.list({ capability, branchId: otherBranchId })).map((entry) => entry.participantId))
         .toEqual(["victim"])
     }))
+})
+
+describe("PresenceOn host readiness", () => {
+  it.effect("stays unknown through startup and source loss, then distinguishes live and expired leases", () =>
+    run(Effect.gen(function*() {
+      let ready = true
+      const presence = yield* BranchPresence.makeMemory({ sourcesReady: () => Effect.sync(() => ready) })
+      const capability = yield* capabilityFor(branchId, "write")
+      const request = { capability, branchId }
+      expect(yield* presence.presenceOn(request)).toBe("unknown")
+      yield* TestClock.adjust(29_900)
+      expect(yield* presence.presenceOn(request)).toBe("unknown")
+      yield* TestClock.adjust(100)
+      expect(yield* presence.presenceOn(request)).toBe("empty")
+      yield* presence.announce({ ...request, participantId: participant("alice"), displayName: "Alice", cursor: null })
+      expect(yield* presence.presenceOn(request)).toBe("present")
+      ready = false
+      expect(yield* presence.presenceOn(request)).toBe("unknown")
+      ready = true
+      yield* TestClock.adjust(29_900)
+      expect(yield* presence.presenceOn(request)).toBe("present")
+      yield* TestClock.adjust(100)
+      expect(yield* presence.presenceOn(request)).toBe("empty")
+      const unavailable = yield* BranchPresence.makeMemory()
+      yield* TestClock.adjust(30_000)
+      expect(yield* unavailable.presenceOn(request)).toBe("unknown")
+      const foreign = yield* capabilityFor(otherBranchId, "write")
+      expect((yield* Effect.flip(presence.presenceOn({ capability: foreign, branchId }))).code).toBe("unauthorized")
+    })))
 })
