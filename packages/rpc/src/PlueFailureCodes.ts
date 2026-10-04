@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:ea18e05bd1ebb3fab740b155dcf833bfc11f607243e556c776e950345aa8d6d3"
+export const PLUE_FAILURE_DIGEST = "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -81,7 +81,6 @@ export const PLUE_FAILURE_CODES = [
   "authentication_not_configured",
   "bad_gateway",
   "bad_request",
-  "branch_lock_held",
   "build_cache_busy",
   "coding_file_conflict",
   "coding_file_recovery_required",
@@ -164,6 +163,7 @@ export const PLUE_FAILURE_CODES = [
   "sandbox_control_busy",
   "secret_delivery_unavailable",
   "service_unavailable",
+  "setup_closed",
   "setup_request_reused",
   "snapshot_in_use",
   "snapshot_not_found",
@@ -171,7 +171,9 @@ export const PLUE_FAILURE_CODES = [
   "sse_unavailable",
   "stale_generation",
   "token_generation_failed",
+  "unauthenticated",
   "unauthorized",
+  "unknown_origin",
   "unprocessable_entity",
   "unsupported_media_type",
   "user_ref_missing",
@@ -254,8 +256,6 @@ export const PLUE_FAILURES = {
   "bad_gateway": { fault: "dependency", status: 502, retryAfter: 0 },
   /** The request was malformed or carried a value the endpoint cannot accept. */
   "bad_request": { fault: "user", status: 400, retryAfter: 0 },
-  /** Another person or agent holds the branch lock; details carry the holder and whether the caller may ask to join. */
-  "branch_lock_held": { fault: "user", status: 409, retryAfter: 0 },
   /** The build cache is at its own concurrency ceiling; the caller is inside its budget and the identical request works once a slot frees. */
   "build_cache_busy": { fault: "wait", status: 429, retryAfter: 1 },
   /** A file preimage, installed file or native snapshot changed during application. Displaced bytes remain in the private recovery directory; no rollback overwrites newer content. */
@@ -420,6 +420,8 @@ export const PLUE_FAILURES = {
   "secret_delivery_unavailable": { fault: "infra", status: 501, retryAfter: 0 },
   /** plue is up but a component it needs is not answering. */
   "service_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
+  /** The owner claim invalidated the setup credential. */
+  "setup_closed": { fault: "user", status: 401, retryAfter: 0 },
   /** The setup request identity was already admitted with different input. */
   "setup_request_reused": { fault: "infra", status: 409, retryAfter: 0 },
   /** The snapshot backs a live sandbox and cannot be changed or deleted. */
@@ -434,8 +436,12 @@ export const PLUE_FAILURES = {
   "stale_generation": { fault: "user", status: 409, retryAfter: 0 },
   /** The controller could not mint the token the operation needs. */
   "token_generation_failed": { fault: "bug", status: 500, retryAfter: 0 },
+  /** The setup credential is missing, expired or invalid. */
+  "unauthenticated": { fault: "user", status: 401, retryAfter: 0 },
   /** The request carried no credential, or one the server could not verify. */
   "unauthorized": { fault: "user", status: 401, retryAfter: 0 },
+  /** The request host matches no configured install origin. */
+  "unknown_origin": { fault: "user", status: 421, retryAfter: 0 },
   /** The request parsed but its meaning cannot be acted on. */
   "unprocessable_entity": { fault: "user", status: 422, retryAfter: 0 },
   /** The request's Content-Type is not one this endpoint reads. */

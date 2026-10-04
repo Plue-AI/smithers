@@ -171,7 +171,7 @@ func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *rou
 		nil, nil, nil, nil, nil, nil, nil, nil, // webhook, secret, provider, variable, billing, protected, status, lfs
 		nil, // jjVCSHandler
 		&routes.AgentInternalHandler{},
-		nil, nil, nil, nil, nil, // agent sessions/stream, approvals, branch lock, push hook
+		nil, nil, nil, nil, // agent sessions/stream, approvals, branch lock, push hook
 		workflow,
 		nil, nil, // workflow cache, artifacts
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,

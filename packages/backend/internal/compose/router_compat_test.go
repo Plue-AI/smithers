@@ -78,11 +78,10 @@ func buildRouterCompat(
 	featureFlagHandler *routes.FeatureFlagHandler,
 	oauth2Handler *routes.OAuth2Handler,
 	smithersMetrics *routes.SmithersMetrics,
-	optional ...any, // *routes.GitHubImportHandler, *routes.ProviderConnectionHandler, *routes.BranchLockHandler, routerExtras
+	optional ...any, // *routes.GitHubImportHandler, *routes.ProviderConnectionHandler, routerExtras
 ) http.Handler {
 	var importHandler *routes.GitHubImportHandler
 	var providerConnectionHandler *routes.ProviderConnectionHandler
-	var branchLockHandler *routes.BranchLockHandler
 	var gitHubWebhookHandler *routes.GitHubWebhookHandler
 	var extras []any
 	for _, handler := range optional {
@@ -93,8 +92,6 @@ func buildRouterCompat(
 			importHandler = h
 		case *routes.ProviderConnectionHandler:
 			providerConnectionHandler = h
-		case *routes.BranchLockHandler:
-			branchLockHandler = h
 		case *routes.GitHubWebhookHandler:
 			gitHubWebhookHandler = h
 		}
@@ -137,8 +134,7 @@ func buildRouterCompat(
 		agentInternalHandler,
 		agentSessionHandler,
 		agentSessionStreamHandler,
-		nil, // approvalsHandler
-		branchLockHandler,
+		nil,             // approvalsHandler
 		pushHookHandler, // canaryReportHandler
 		workflowHandler,
 		nil, // workflowCacheHandler

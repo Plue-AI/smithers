@@ -143,7 +143,7 @@ func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, f
 		&routes.AgentInternalHandler{},
 		nil, nil,
 		&routes.ApprovalsHandler{Enabled: true},
-		nil, nil,
+		nil,
 		nil, nil, nil,
 		nil, nil, nil,
 		&routes.RepositoryJobHandler{},

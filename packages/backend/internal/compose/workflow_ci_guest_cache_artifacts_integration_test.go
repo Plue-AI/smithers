@@ -441,7 +441,7 @@ func buildWorkflowCIRouter(q *db.Queries, pool *pgxpool.Pool, cache *routes.Work
 		nil, nil, nil, nil, nil, nil, nil, nil, // webhook, secret, provider, variable, billing, protected, status, lfs
 		nil, // jjVCSHandler
 		&routes.AgentInternalHandler{},
-		nil, nil, nil, nil, nil, nil, // agent sessions/stream, approvals, branch lock, push hook, workflow
+		nil, nil, nil, nil, nil, // agent sessions/stream, approvals, branch lock, push hook, workflow
 		cache, artifacts,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)

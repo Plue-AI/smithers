@@ -1883,6 +1883,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/key/nonce:
     get:
+      x-composition: plue
       summary: GET /api/auth/key/nonce
       operationId: get_api_auth_key_nonce
       tags:
@@ -1943,6 +1944,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/key/token:
     post:
+      x-composition: plue
       summary: POST /api/auth/key/token
       operationId: post_api_auth_key_token
       tags:
@@ -1971,6 +1973,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/key/verify:
     post:
+      x-composition: plue
       summary: POST /api/auth/key/verify
       operationId: post_api_auth_key_verify
       tags:
@@ -2060,6 +2063,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/status:
     get:
+      x-composition: install
       summary: GET /api/auth/local/status
       operationId: get_api_auth_local_status
       tags:
@@ -2088,6 +2092,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/bootstrap:
     post:
+      x-composition: install
       summary: POST /api/auth/local/bootstrap
       operationId: post_api_auth_local_bootstrap
       tags:
@@ -2122,6 +2127,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/login:
     post:
+      x-composition: install
       summary: POST /api/auth/local/login
       operationId: post_api_auth_local_login
       tags:
@@ -2156,6 +2162,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/password:
     post:
+      x-composition: install
       summary: POST /api/auth/local/password
       operationId: post_api_auth_local_password
       tags:
@@ -2194,6 +2201,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/token:
     post:
+      x-composition: install
       summary: POST /api/auth/local/token
       operationId: post_api_auth_local_token
       tags:
@@ -8753,89 +8761,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/branch-locks/join-requests:
-    get:
-      summary: GET /api/repos/{owner}/{repo}/branch-locks/join-requests
-      operationId: get_api_repos_owner_repo_branch_locks_join_requests
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    post:
-      summary: POST /api/repos/{owner}/{repo}/branch-locks/join-requests
-      operationId: post_api_repos_owner_repo_branch_locks_join_requests
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/build-cache/cas/{digest}:
     get:
       summary: GET /api/repos/{owner}/{repo}/build-cache/cas/{digest}
@@ -14367,179 +14292,6 @@ paths:
     post:
       summary: POST /api/repos/{owner}/{repo}/archive
       operationId: post_api_repos_owner_repo_archive
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/branch-locks/acquire:
-    post:
-      summary: POST /api/repos/{owner}/{repo}/branch-locks/acquire
-      operationId: post_api_repos_owner_repo_branch_locks_acquire
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/branch-locks/heartbeat:
-    post:
-      summary: POST /api/repos/{owner}/{repo}/branch-locks/heartbeat
-      operationId: post_api_repos_owner_repo_branch_locks_heartbeat
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide:
-    post:
-      summary: POST /api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide
-      operationId: post_api_repos_owner_repo_branch_locks_join_requests_id_decide
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/branch-locks/release:
-    post:
-      summary: POST /api/repos/{owner}/{repo}/branch-locks/release
-      operationId: post_api_repos_owner_repo_branch_locks_release
       tags:
         - Repositories
       parameters:

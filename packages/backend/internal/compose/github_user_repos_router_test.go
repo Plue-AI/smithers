@@ -103,7 +103,6 @@ func githubUserReposSecurityRouter(service routes.GitHubUserReposRouteService) h
 		nil, // agentSessionHandler
 		nil, // agentSessionStreamHandler
 		nil, // approvalsHandler
-		nil, // branchLockHandler
 		nil, // canaryReportHandler
 		nil, // workflowHandler
 		nil, // workflowCacheHandler

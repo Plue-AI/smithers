@@ -142,8 +142,6 @@ func (*UnlimitedBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, 
 	return nil
 }
 
-func (*UnlimitedBillingPolicy) AuthorizeBranchLockJoin(context.Context, int64) error { return nil }
-
 func (*UnlimitedBillingPolicy) AuthorizePrivateRepoCommitted(
 	ctx context.Context,
 	_ string,

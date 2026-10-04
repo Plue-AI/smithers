@@ -2651,26 +2651,6 @@ export interface PostApiReposOwnerRepoBookmarksInput {
 export const postApiReposOwnerRepoBookmarks = (transport: Transport, input: PostApiReposOwnerRepoBookmarksInput): Promise<PostApiReposOwnerRepoBookmarksResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/bookmarks`) as Promise<PostApiReposOwnerRepoBookmarksResponse>
 
-export type GetApiReposOwnerRepoBranchLocksJoinRequestsResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoBranchLocksJoinRequestsInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/branch-locks/join-requests */
-export const getApiReposOwnerRepoBranchLocksJoinRequests = (transport: Transport, input: GetApiReposOwnerRepoBranchLocksJoinRequestsInput): Promise<GetApiReposOwnerRepoBranchLocksJoinRequestsResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/branch-locks/join-requests`) as Promise<GetApiReposOwnerRepoBranchLocksJoinRequestsResponse>
-
-export type PostApiReposOwnerRepoBranchLocksJoinRequestsResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoBranchLocksJoinRequestsInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/branch-locks/join-requests */
-export const postApiReposOwnerRepoBranchLocksJoinRequests = (transport: Transport, input: PostApiReposOwnerRepoBranchLocksJoinRequestsInput): Promise<PostApiReposOwnerRepoBranchLocksJoinRequestsResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/branch-locks/join-requests`) as Promise<PostApiReposOwnerRepoBranchLocksJoinRequestsResponse>
-
 export type GetApiReposOwnerRepoBuildCacheCasDigestResponse = AnyJSON
 
 export interface GetApiReposOwnerRepoBuildCacheCasDigestInput {
@@ -3866,46 +3846,6 @@ export interface PostApiReposOwnerRepoArchiveInput {
 /** POST /api/repos/{owner}/{repo}/archive */
 export const postApiReposOwnerRepoArchive = (transport: Transport, input: PostApiReposOwnerRepoArchiveInput): Promise<PostApiReposOwnerRepoArchiveResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/archive`) as Promise<PostApiReposOwnerRepoArchiveResponse>
-
-export type PostApiReposOwnerRepoBranchLocksAcquireResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoBranchLocksAcquireInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/branch-locks/acquire */
-export const postApiReposOwnerRepoBranchLocksAcquire = (transport: Transport, input: PostApiReposOwnerRepoBranchLocksAcquireInput): Promise<PostApiReposOwnerRepoBranchLocksAcquireResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/branch-locks/acquire`) as Promise<PostApiReposOwnerRepoBranchLocksAcquireResponse>
-
-export type PostApiReposOwnerRepoBranchLocksHeartbeatResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoBranchLocksHeartbeatInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/branch-locks/heartbeat */
-export const postApiReposOwnerRepoBranchLocksHeartbeat = (transport: Transport, input: PostApiReposOwnerRepoBranchLocksHeartbeatInput): Promise<PostApiReposOwnerRepoBranchLocksHeartbeatResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/branch-locks/heartbeat`) as Promise<PostApiReposOwnerRepoBranchLocksHeartbeatResponse>
-
-export type PostApiReposOwnerRepoBranchLocksJoinRequestsIdDecideResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoBranchLocksJoinRequestsIdDecideInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide */
-export const postApiReposOwnerRepoBranchLocksJoinRequestsIdDecide = (transport: Transport, input: PostApiReposOwnerRepoBranchLocksJoinRequestsIdDecideInput): Promise<PostApiReposOwnerRepoBranchLocksJoinRequestsIdDecideResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/branch-locks/join-requests/${segment(input.path.id)}/decide`) as Promise<PostApiReposOwnerRepoBranchLocksJoinRequestsIdDecideResponse>
-
-export type PostApiReposOwnerRepoBranchLocksReleaseResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoBranchLocksReleaseInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/branch-locks/release */
-export const postApiReposOwnerRepoBranchLocksRelease = (transport: Transport, input: PostApiReposOwnerRepoBranchLocksReleaseInput): Promise<PostApiReposOwnerRepoBranchLocksReleaseResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/branch-locks/release`) as Promise<PostApiReposOwnerRepoBranchLocksReleaseResponse>
 
 export type PostApiReposOwnerRepoBuildCacheCasFindmissingResponse = AnyJSON
 

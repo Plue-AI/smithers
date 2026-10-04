@@ -2,6 +2,8 @@ package compose
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
@@ -26,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
 // openAPIPath is the published product API every client is generated from.
@@ -130,7 +134,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
 		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, &routes.BillingHandler{},
 		&routes.ProtectedBookmarkHandler{}, &routes.CommitStatusHandler{}, &routes.LFSHandler{}, &routes.JJVCSHandler{}, &routes.AgentInternalHandler{},
-		&routes.AgentSessionHandler{}, &routes.AgentSessionStreamHandler{}, &routes.ApprovalsHandler{}, &routes.BranchLockHandler{}, &routes.InternalPushHookHandler{},
+		&routes.AgentSessionHandler{}, &routes.AgentSessionStreamHandler{}, &routes.ApprovalsHandler{}, &routes.InternalPushHookHandler{},
 		&routes.WorkflowHandler{}, &routes.WorkflowCacheHandler{}, &routes.WorkflowArtifactHandler{},
 		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, &routes.RepositoryJobHandler{}, &routes.GitHubProxyHandler{},
 		&routes.GitHubRepoListHandler{}, &routes.GitHubUserReposHandler{}, &routes.GitHubSyncedReposHandler{}, &routes.GitHubImportHandler{},
@@ -138,6 +142,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
 		routerExtras{
 			HostStatus:          host,
+			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},
 			BillingCapabilities: services.BillingCapabilities{Overview: true, Plans: true, Checkout: true, Portal: true, Webhook: true},
 			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: &routes.MythicalHandler{},
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
@@ -157,17 +162,17 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 // servedAPIRoutes is the union of the self-hosted and multitenant compositions,
 // plus the bootstrap document withAppBootstrap serves in front of the router.
 func servedAPIRoutes(t *testing.T) map[string]servedRoute {
-	t.Helper()
-	selfHosted := testConfigAllFlagsOn()
-	selfHosted.Auth.Mode = config.AuthModeSelfHosted
-	selfHosted.FeatureFlags.Integrations = true
-	multitenant := testConfigAllFlagsOn()
-	multitenant.Auth.Mode = config.AuthModeMultitenant
-	multitenant.Auth.EnableKeyAuth = true
-	multitenant.FeatureFlags.Integrations = true
+	return servedCompositionRoutes(t, config.AuthModeSelfHosted, config.AuthModeMultitenant)
+}
 
+func servedCompositionRoutes(t *testing.T, modes ...string) map[string]servedRoute {
+	t.Helper()
 	served := map[string]servedRoute{}
-	for _, cfg := range []*config.Config{selfHosted, multitenant} {
+	for _, mode := range modes {
+		cfg := testConfigAllFlagsOn()
+		cfg.Auth.Mode = mode
+		cfg.Auth.EnableKeyAuth = config.IsMultitenant(cfg.Auth)
+		cfg.FeatureFlags.Integrations = true
 		walkServedRoutes(t, openAPIConformanceRouter(cfg), served)
 	}
 	// A pattern mounted for every method (chi also lists CONNECT for it) is
@@ -229,35 +234,55 @@ func documentedOperations(paths *yaml.Node) map[string]bool {
 // TestOpenAPIDescribesEveryServedRoute fails when docs/api/openapi.yaml and
 // the composed router disagree, in either direction.
 func TestOpenAPIDescribesEveryServedRoute(t *testing.T) {
-	served := servedAPIRoutes(t)
-	paths := loadOpenAPIPaths(t)
-	documented := documentedOperations(paths)
+	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
+		t.Run(mode, func(t *testing.T) {
+			served := servedCompositionRoutes(t, mode)
+			paths := loadOpenAPIPaths(t)
+			documented := documentedOperations(paths)
+			for i := 0; i+1 < len(paths.Content); i += 2 {
+				path, item := paths.Content[i].Value, paths.Content[i+1]
+				for _, method := range openAPIMethods {
+					operation := mappingValue(item, method)
+					if operation == nil {
+						continue
+					}
+					composition := mappingValue(operation, "x-composition")
+					if composition == nil {
+						composition = mappingValue(item, "x-composition")
+					}
+					if composition != nil && ((composition.Value == "plue" && mode == config.AuthModeSelfHosted) || (composition.Value == "install" && mode == config.AuthModeMultitenant)) {
+						delete(documented, method+" "+path)
+					}
+				}
+			}
 
-	var missing []servedRoute
-	for key, route := range served {
-		if !documented[key] {
-			missing = append(missing, route)
-		}
-	}
-	sort.Slice(missing, func(i, j int) bool { return missing[i].key() < missing[j].key() })
-	if len(missing) > 0 && os.Getenv(openAPIUpdateEnv) == "1" {
-		for _, file := range appendOpenAPISkeletons(t, openAPISources, paths, missing) {
-			t.Errorf("appended skeletons to docs/api/openapi/%s; run `pnpm exec smithers-build run '//:openapiBundle'` to re-bundle", file)
-		}
-		missing = nil
-	}
-	for _, route := range missing {
-		t.Errorf("served but undocumented: %s (%s=1 go test -run %s appends a skeleton)", route.key(), openAPIUpdateEnv, t.Name())
-	}
-	var stale []string
-	for key := range documented {
-		if _, ok := served[key]; !ok {
-			stale = append(stale, key)
-		}
-	}
-	sort.Strings(stale)
-	for _, key := range stale {
-		t.Errorf("documented but not served: %s", key)
+			var missing []servedRoute
+			for key, route := range served {
+				if !documented[key] {
+					missing = append(missing, route)
+				}
+			}
+			sort.Slice(missing, func(i, j int) bool { return missing[i].key() < missing[j].key() })
+			if len(missing) > 0 && os.Getenv(openAPIUpdateEnv) == "1" {
+				for _, file := range appendOpenAPISkeletons(t, openAPISources, paths, missing) {
+					t.Errorf("appended skeletons to docs/api/openapi/%s; run `pnpm exec smithers-build run '//:openapiBundle'` to re-bundle", file)
+				}
+				missing = nil
+			}
+			for _, route := range missing {
+				t.Errorf("served but undocumented: %s (%s=1 go test -run %s appends a skeleton)", route.key(), openAPIUpdateEnv, t.Name())
+			}
+			var stale []string
+			for key := range documented {
+				if _, ok := served[key]; !ok {
+					stale = append(stale, key)
+				}
+			}
+			sort.Strings(stale)
+			for _, key := range stale {
+				t.Errorf("documented but not served: %s", key)
+			}
+		})
 	}
 }
 
@@ -433,14 +458,37 @@ func openAPITag(paths *yaml.Node, path string) string {
 // The Mac composition keeps owner health while hosted operations remain mounted
 // for Plue. Walk the production router so optional handlers cannot hide a route.
 func TestCutBackendCompositionRoutes(t *testing.T) {
-	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
+	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant, "unknown"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = mode
 			served := map[string]servedRoute{}
 			walkServedRoutes(t, openAPIConformanceRouter(cfg), served)
-			require.Contains(t, served, "get /api/admin/system/health")
+			_, health := served["get /api/admin/system/health"]
+			require.Equal(t, mode != "unknown", health)
+			for _, key := range []string{
+				"post /api/repos/{owner}/{repo}/branch-locks/acquire",
+				"post /api/repos/{owner}/{repo}/branch-locks/heartbeat",
+				"post /api/repos/{owner}/{repo}/branch-locks/release",
+				"post /api/repos/{owner}/{repo}/branch-locks/join-requests",
+				"get /api/repos/{owner}/{repo}/branch-locks/join-requests",
+				"post /api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide",
+			} {
+				require.NotContains(t, served, key)
+				require.NotContains(t, documentedOperations(loadOpenAPIPaths(t)), key)
+			}
 			hosted := mode == config.AuthModeMultitenant
+
+			router := hostStatusProductionRouter(cfg, nil, &routes.HostStatusHandler{})
+			request := httptest.NewRequest("GET", "/api/admin/users", nil)
+			request = withRouterAdminTokenAuth(request, false, middleware.TokenSourcePersonalAccessToken, middleware.ScopeReadRepository)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if hosted {
+				require.Equal(t, 403, response.Code)
+			} else {
+				require.Equal(t, 404, response.Code)
+			}
 			_, split := served["post /api/repos/{owner}/{repo}/changes/{change_id}/split"]
 			require.Equal(t, hosted, split)
 			admins := 0
@@ -454,6 +502,81 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 				require.Positive(t, admins)
 			} else {
 				require.Zero(t, admins)
+			}
+		})
+	}
+}
+
+// Production HTTP boundaries, with populated route families and real identity
+// queries: nil optional handlers cannot provide a false absence result.
+func TestCutBackendHTTPPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	u, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "cutowner", LowerUsername: "cutowner"})
+	require.NoError(t, err)
+	_, err = q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: u.ID, Valid: true}, Name: "repo", LowerName: "repo", IsPublic: true, DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES ($1)`, u.ID)
+	require.NoError(t, err)
+	token := "smithers_0123456789012345678901234567890123456789"
+	digest := sha256.Sum256([]byte(token))
+	hash := hex.EncodeToString(digest[:])
+	_, err = q.CreateAccessToken(t.Context(), db.CreateAccessTokenParams{UserID: u.ID, Name: "cuts", TokenHash: hash, TokenLastEight: hash[56:], Scopes: "read:repository,write:repository"})
+	require.NoError(t, err)
+	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = mode
+			router := hostStatusProductionRouter(cfg, q, &routes.HostStatusHandler{})
+			dispatcher := &browserFlowRecordingDispatcher{}
+			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
+			mountBrowserFlow(router, cfg, q, &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher})
+			for _, body := range []string{
+				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Registration.Report","payload":{}}`,
+				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Registration.Reviews","payload":{}}`,
+				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Signal","payload":{"signal":{"name":"register-repository/review#old"}}}`,
+				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Approval.Submit","payload":{"target":{"requestId":"register-repository/decline-note#old"}}}`,
+			} {
+				req := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
+				req.Header.Set("Authorization", "token "+token)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+				require.Equal(t, 404, rec.Code, rec.Body.String())
+				require.JSONEq(t, `{"code":"registration_retired","class":"user","message":"Registration is unavailable."}`, rec.Body.String())
+				require.Empty(t, dispatcher.calls)
+				require.Empty(t, deps.lookups)
+			}
+
+			for _, tc := range []struct {
+				method, path  string
+				install, plue int
+			}{
+				{"POST", "/api/repos/cutowner/repo/branch-locks/acquire", 404, 404},
+				{"POST", "/api/repos/cutowner/repo/branch-locks/heartbeat", 404, 404},
+				{"POST", "/api/repos/cutowner/repo/branch-locks/release", 404, 404},
+				{"POST", "/api/repos/cutowner/repo/branch-locks/join-requests", 404, 404},
+				{"GET", "/api/repos/cutowner/repo/branch-locks/join-requests", 404, 404},
+				{"POST", "/api/repos/cutowner/repo/branch-locks/join-requests/1/decide", 404, 404},
+				{"GET", "/api/repository-setup/old", 404, 404},
+				{"POST", "/api/repository-setup/old", 404, 404},
+				{"GET", "/api/admin/users", 404, 403},
+				{"GET", "/api/admin/system/health", 403, 403},
+				{"GET", "/api/health", 200, 200},
+			} {
+				req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
+				req.Header.Set("Authorization", "token "+token)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+				want := tc.install
+				if mode == config.AuthModeMultitenant {
+					want = tc.plue
+				}
+				require.Equal(t, want, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
+				if tc.path == "/api/health" {
+					require.Equal(t, "ok", rec.Body.String())
+				}
 			}
 		})
 	}

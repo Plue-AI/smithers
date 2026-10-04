@@ -38,23 +38,6 @@ repositories["repo list"] = (c, _a, o) =>
   c.request("GET", "/api/user/repos" + query({ page: o.page, per_page: o.limit }))
 repositories["repo view"] = (c, a, o) => c.request("GET", c.repoPath(o.repo || a.repo))
 repositories["repo home"] = (c, a, o) => c.request("GET", c.repoPath(o.repo || a.repo) + "/home")
-// The cached registration result (Registration.Report, #3239): another account's finished report of a
-// public repository at its current commit, or none; nothing is launched and no model runs.
-repositories["repo report"] = async (c, a, o) => {
-  const repo = c.repo(a.repo)
-  const answer = object(
-    await c.request("POST", "/api/workflow/rpc", {
-      repo,
-      procedure: "Registration.Report",
-      payload: { repo: repo.toLowerCase() },
-      workspaceId: str(o.workspace)
-    })
-  )
-  const shared = object(object(answer.payload).report)
-  return typeof shared.commit === "string" && shared.report
-    ? { cached: true, repo, commit: shared.commit, recordedAt: shared.recordedAt, report: shared.report }
-    : { cached: false, repo }
-}
 repositories["repo edit"] = (c, a, o) =>
   c.request("PATCH", c.repoPath(a.repo), pick(o, ["name", "description", "private"]))
 repositories["repo mirror-sync"] = (c, _a, o) => c.request("POST", c.repoPath(o.repo) + "/mirror-sync")

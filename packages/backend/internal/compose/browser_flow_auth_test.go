@@ -51,3 +51,48 @@ func TestBrowserFlowRejectsRunCredentialForControlProcedures(t *testing.T) {
 		}
 	}
 }
+
+// Restore the old exact-key classifier, but every retired wait now refuses
+// before a box lookup, wake, admission, signal or approval relay.
+func TestBrowserFlowRetiredRegistration(t *testing.T) {
+	for _, tc := range []struct {
+		procedure, payload string
+		retired            bool
+	}{
+		{"Registration.Report", `{}`, true},
+		{"Registration.Reviews", `{}`, true},
+		{"Approval.Submit", `{"target":{"requestId":"register-repository/review"}}`, true},
+		{"Approval.Submit", `{"target":{"requestId":"register-repository/decline-note#42"}}`, true},
+		{"Signal", `{"signal":{"name":"register-repository/review#42"}}`, true},
+		{"Signal", `{"signal":{"name":"register-repository/decline-note"}}`, true},
+		{"Signal", `{"signal":{"name":"register-repository/review"},"Signal":{"name":"kept"}}`, true},
+		{"Approval.Submit", `{"target":{"requestId":"register-repository/review"},"Target":{"requestId":"kept"}}`, true},
+		{"Signal", `{"signal":{"name":"register-repository/review-extra"}}`, false},
+		{"Approval.Submit", `{"target":{"requestId":"todo/review#42"}}`, false},
+		{"Signal", `{"Signal":{"name":"register-repository/review"}}`, false},
+		{"List", `{}`, false},
+		{"Signal", `{"signal":null}`, false},
+		{"Signal", `{"signal":{"name":7}}`, false},
+		{"Signal", `[]`, false},
+	} {
+		t.Run(tc.procedure+tc.payload, func(t *testing.T) {
+			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
+			dispatcher := &browserFlowRecordingDispatcher{}
+			api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
+			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + tc.procedure + `","payload":` + tc.payload + `}`
+			request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
+			request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: 17, UserType: "user"}, IsTokenAuth: true}))
+			writer := httptest.NewRecorder()
+			api.rpc(writer, request)
+			if tc.retired {
+				require.Equal(t, 404, writer.Code)
+				require.JSONEq(t, `{"code":"registration_retired","class":"user","message":"Registration is unavailable."}`, writer.Body.String())
+				require.Empty(t, deps.lookups)
+				require.Empty(t, dispatcher.calls)
+			} else {
+				require.Equal(t, 200, writer.Code, writer.Body.String())
+				require.Len(t, dispatcher.calls, 1)
+			}
+		})
+	}
+}

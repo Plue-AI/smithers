@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:ea18e05bd1ebb3fab740b155dcf833bfc11f607243e556c776e950345aa8d6d3",
+  "digest": "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa",
   "faults": [
     "user",
     "wait",
@@ -94,13 +94,6 @@
       "status": 400,
       "retry_after": 0,
       "doc": "The request was malformed or carried a value the endpoint cannot accept."
-    },
-    {
-      "code": "branch_lock_held",
-      "fault": "user",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "Another person or agent holds the branch lock; details carry the holder and whether the caller may ask to join."
     },
     {
       "code": "build_cache_busy",
@@ -677,6 +670,13 @@
       "doc": "plue is up but a component it needs is not answering."
     },
     {
+      "code": "setup_closed",
+      "fault": "user",
+      "status": 401,
+      "retry_after": 0,
+      "doc": "The owner claim invalidated the setup credential."
+    },
+    {
       "code": "setup_request_reused",
       "fault": "infra",
       "status": 409,
@@ -726,11 +726,25 @@
       "doc": "The controller could not mint the token the operation needs."
     },
     {
+      "code": "unauthenticated",
+      "fault": "user",
+      "status": 401,
+      "retry_after": 0,
+      "doc": "The setup credential is missing, expired or invalid."
+    },
+    {
       "code": "unauthorized",
       "fault": "user",
       "status": 401,
       "retry_after": 0,
       "doc": "The request carried no credential, or one the server could not verify."
+    },
+    {
+      "code": "unknown_origin",
+      "fault": "user",
+      "status": 421,
+      "retry_after": 0,
+      "doc": "The request host matches no configured install origin."
     },
     {
       "code": "unprocessable_entity",

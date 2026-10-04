@@ -186,7 +186,6 @@ const (
 
 // Repositories, landings, imports and sharing.
 const (
-	CodeBranchLockHeld            Code = "branch_lock_held"
 	CodeForkNotNeeded             Code = "fork_not_needed"
 	CodeLandingBlocked            Code = "landing_blocked"
 	CodeAppendTaskMissing         Code = "append_task_missing"
@@ -482,7 +481,6 @@ var registry = map[Code]Entry{
 	CodeCodingReporterUpgradeRequired: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The box's reporter is older than the operation requires; it upgrades on the next boot."},
 	// Another person or agent holds the branch lock; details carry the
 	// holder and whether the caller may ask to join.
-	CodeBranchLockHeld: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "Another person or agent holds the branch lock; details carry the holder and whether the caller may ask to join."},
 	// The caller can already write to this repository, so forking it would
 	// only fragment the history. Forks exist to give a reader a namespace they
 	// can write in; a writer already has one.

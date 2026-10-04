@@ -53,7 +53,6 @@ func allFlagsRouterForTest() http.Handler {
 		nil, // agentSessionHandler
 		nil, // agentSessionStreamHandler
 		nil, // approvalsHandler
-		nil, // branchLockHandler
 		nil, // canaryReportHandler
 		nil, // workflowHandler
 		nil, // workflowCacheHandler

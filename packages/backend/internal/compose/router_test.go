@@ -566,7 +566,6 @@ func longTimeoutJSONCSRFCoverageRouter() http.Handler {
 		nil, // agentSessionHandler
 		nil, // agentSessionStreamHandler
 		nil, // approvalsHandler
-		nil, // branchLockHandler
 		nil, // canaryReportHandler
 		nil, // workflowHandler
 		nil, // workflowCacheHandler
@@ -632,7 +631,6 @@ func buildCacheCSRFCoverageRouter() http.Handler {
 		nil, // agentSessionHandler
 		nil, // agentSessionStreamHandler
 		nil, // approvalsHandler
-		nil, // branchLockHandler
 		nil, // canaryReportHandler
 		nil, // workflowHandler
 		nil, // workflowCacheHandler
@@ -2552,7 +2550,7 @@ func TestServerRouter_AdminRoutes_RequireAdminScopeForTokenAuth(t *testing.T) {
 
 	adminUserHandler := &routes.AdminUserHandler{Service: &mockAdminUserRouteService{}}
 	router := buildRouterCompat(
-		&config.Config{},
+		&config.Config{Auth: config.AuthConfig{Mode: config.AuthModeMultitenant}},
 		nil,
 		nil,
 		&routes.RepoHandler{},
@@ -2607,7 +2605,7 @@ func TestServerRouter_AdminRoutes_ReadOnlyScopeCannotMutate(t *testing.T) {
 	adminUserSvc := &mockAdminUserRouteService{}
 	adminUserHandler := &routes.AdminUserHandler{Service: adminUserSvc}
 	router := buildRouterCompat(
-		&config.Config{},
+		&config.Config{Auth: config.AuthConfig{Mode: config.AuthModeMultitenant}},
 		nil,
 		nil,
 		&routes.RepoHandler{},

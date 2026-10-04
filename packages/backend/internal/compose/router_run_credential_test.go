@@ -108,7 +108,7 @@ func TestServerRouter_RepositoryJobPauseRequiresPerson(t *testing.T) {
 				nil, nil, nil, nil, nil, nil, // admin routes
 				nil, nil, nil, nil, nil, nil, nil, nil, // webhook through LFS
 				nil, // JJVCS
-				&routes.AgentInternalHandler{}, nil, nil, nil, nil, nil,
+				&routes.AgentInternalHandler{}, nil, nil, nil, nil,
 				nil, nil, nil, nil, nil, nil,
 				&routes.RepositoryJobHandler{RepositoryJobs: spy},
 				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,

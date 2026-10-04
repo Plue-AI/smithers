@@ -106,7 +106,6 @@ func buildRouter(
 	agentSessionHandler *routes.AgentSessionHandler,
 	agentSessionStreamHandler *routes.AgentSessionStreamHandler,
 	approvalsHandler *routes.ApprovalsHandler,
-	branchLockHandler *routes.BranchLockHandler,
 	pushHookHandler *routes.InternalPushHookHandler,
 	workflowHandler *routes.WorkflowHandler,
 	workflowCacheHandler *routes.WorkflowCacheHandler,
@@ -1168,7 +1167,7 @@ func buildRouter(
 				r.With(writeRepo...).Post("/bookmarks", jjVCSHandler.CreateBookmark)
 				r.With(writeRepo...).Delete("/bookmarks/{name}", jjVCSHandler.DeleteBookmark)
 				r.With(writeRepo...).Post("/changes/{change_id}/revert", jjVCSHandler.RevertChange)
-				if !config.IsSingleOwner(cfg.Auth) {
+				if config.IsMultitenant(cfg.Auth) {
 					r.With(writeRepo...).Post("/changes/{change_id}/split", jjVCSHandler.SplitChange)
 				}
 				r.With(writeRepo...).Put("/changes/{change_id}/walkthrough", jjVCSHandler.PutChangeWalkthrough)
@@ -1409,24 +1408,6 @@ func buildRouter(
 						),
 					)...).
 						Post("/approvals/{id}/decide", approvalsHandler.Decide)
-				}
-
-				// Branch locks: one person checks out a branch at a time.
-				// Acquire/heartbeat/release drive the client's open flow;
-				// join requests + decide are the holder's multiplayer inbox.
-				if branchLockHandler != nil {
-					r.With(writeRepo...).
-						Post("/branch-locks/acquire", branchLockHandler.AcquireBranchLock)
-					r.With(writeRepo...).
-						Post("/branch-locks/heartbeat", branchLockHandler.HeartbeatBranchLock)
-					r.With(writeRepo...).
-						Post("/branch-locks/release", branchLockHandler.ReleaseBranchLock)
-					r.With(writeRepo...).
-						Post("/branch-locks/join-requests", branchLockHandler.RequestBranchLockJoin)
-					r.With(readRepo...).
-						Get("/branch-locks/join-requests", branchLockHandler.ListBranchLockJoinRequests)
-					r.With(writeRepo...).
-						Post("/branch-locks/join-requests/{id}/decide", branchLockHandler.DecideBranchLockJoin)
 				}
 
 				// Workspace routes: scoped to the repository.
@@ -1804,77 +1785,80 @@ func buildRouter(
 				r.With(middleware.RequireTokenScope(middleware.ScopeReadRepository)).Get("/code", searchHandler.SearchCode)
 			})
 
-			// Admin endpoints: require authenticated admin user (is_admin flag).
-			r.Route("/admin", func(r chi.Router) {
-				r.Use(middleware.RequireAdmin)
-				readAdmin := []func(http.Handler) http.Handler{
-					middleware.RequireScope(middleware.ScopeReadAdmin),
-				}
-				writeAdmin := []func(http.Handler) http.Handler{
-					middleware.RequireScope(middleware.ScopeWriteAdmin),
-				}
-				if extras.AdminSystemHealth != nil {
-					r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
-				}
-				if !config.IsSingleOwner(cfg.Auth) {
-					if extras.AdminGrant != nil {
-						r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
+			if config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth) {
+				// Admin endpoints: require authenticated admin user (is_admin flag).
+				r.Route("/admin", func(r chi.Router) {
+					readAdmin := []func(http.Handler) http.Handler{
+						middleware.RequireAdmin,
+						middleware.RequireScope(middleware.ScopeReadAdmin),
 					}
-					if workspaceHandler != nil && workspaceHandler.EnvironmentImages != nil {
-						// Platform base NixOS images (repository_id NULL) for kind=vm.
-						r.With(readAdmin...).Get("/sandbox/environment-images", workspaceHandler.EnvironmentImages.ListBaseImages)
-						r.With(writeAdmin...).Post("/sandbox/environment-images", workspaceHandler.EnvironmentImages.RegisterBaseImage)
+					writeAdmin := []func(http.Handler) http.Handler{
+						middleware.RequireAdmin,
+						middleware.RequireScope(middleware.ScopeWriteAdmin),
 					}
-					if adminUserHandler != nil {
-						r.With(readAdmin...).Get("/users", adminUserHandler.ListUsers)
-						r.With(writeAdmin...).Post("/users", adminUserHandler.CreateUser)
-						r.With(writeAdmin...).Delete("/users/{username}", adminUserHandler.DeleteUser)
-						r.With(writeAdmin...).Post("/users/{username}/erase", adminUserHandler.EraseUser)
-						r.With(writeAdmin...).Post("/users/{username}/export", adminUserHandler.ExportUser)
-						r.With(writeAdmin...).Patch("/users/{username}", adminUserHandler.PatchUser)
-						r.With(writeAdmin...).Patch("/users/{username}/admin", adminUserHandler.PatchUserAdmin)
-						r.With(writeAdmin...).Post("/users/{username}/tokens", adminUserHandler.PostUserToken)
-						r.With(writeAdmin...).Delete("/users/{username}/tokens/{token_id}", adminUserHandler.DeleteUserToken)
+					if extras.AdminSystemHealth != nil && (config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth)) {
+						r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
 					}
-					if adminOrgHandler != nil {
-						r.With(readAdmin...).Get("/orgs", adminOrgHandler.ListOrgs)
-					}
-					if adminRepoHandler != nil {
-						r.With(readAdmin...).Get("/repos", adminRepoHandler.ListRepos)
-					}
-					if adminGitHubAppHandler != nil {
-						r.With(writeAdmin...).Post("/github-app/reconcile", adminGitHubAppHandler.Reconcile)
-					}
-					if adminAuditHandler != nil {
-						r.With(readAdmin...).Get("/audit-logs", adminAuditHandler.ListAuditLogs)
-					}
-					if extras.AdminSystemStatus != nil {
-						r.With(readAdmin...).Get("/system/status", extras.AdminSystemStatus.SystemStatus)
-					}
-					if extras.AdminAnalytics != nil {
-						r.With(readAdmin...).Get("/analytics/summary", extras.AdminAnalytics.Summary)
-					}
-					if extras.AdminAgentSessions != nil {
-						r.With(readAdmin...).Get("/agent-sessions", extras.AdminAgentSessions.List)
-						r.With(writeAdmin...).Post("/agent-sessions/{id}/cancel", extras.AdminAgentSessions.Cancel)
-					}
-					if extras.AdminWorkspaces != nil {
-						r.With(readAdmin...).Get("/workspaces", extras.AdminWorkspaces.List)
-						r.With(writeAdmin...).Post("/workspaces/{id}/stop", extras.AdminWorkspaces.Stop)
-						r.With(writeAdmin...).Post("/workspaces/{id}/suspend", extras.AdminWorkspaces.Suspend)
-					}
-					if extras.AdminTokens != nil {
-						r.With(readAdmin...).Get("/tokens", extras.AdminTokens.List)
-					}
-					for _, route := range extras.DeploymentAdmin {
-						scope := readAdmin
-						if route.Write {
-							scope = writeAdmin
+					if config.IsMultitenant(cfg.Auth) {
+						if extras.AdminGrant != nil {
+							r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
 						}
-						r.With(scope...).Method(route.Method, route.Pattern, withAdminAuditActor(route.Handler))
+						if workspaceHandler != nil && workspaceHandler.EnvironmentImages != nil {
+							// Platform base NixOS images (repository_id NULL) for kind=vm.
+							r.With(readAdmin...).Get("/sandbox/environment-images", workspaceHandler.EnvironmentImages.ListBaseImages)
+							r.With(writeAdmin...).Post("/sandbox/environment-images", workspaceHandler.EnvironmentImages.RegisterBaseImage)
+						}
+						if adminUserHandler != nil {
+							r.With(readAdmin...).Get("/users", adminUserHandler.ListUsers)
+							r.With(writeAdmin...).Post("/users", adminUserHandler.CreateUser)
+							r.With(writeAdmin...).Delete("/users/{username}", adminUserHandler.DeleteUser)
+							r.With(writeAdmin...).Post("/users/{username}/erase", adminUserHandler.EraseUser)
+							r.With(writeAdmin...).Post("/users/{username}/export", adminUserHandler.ExportUser)
+							r.With(writeAdmin...).Patch("/users/{username}", adminUserHandler.PatchUser)
+							r.With(writeAdmin...).Patch("/users/{username}/admin", adminUserHandler.PatchUserAdmin)
+							r.With(writeAdmin...).Post("/users/{username}/tokens", adminUserHandler.PostUserToken)
+							r.With(writeAdmin...).Delete("/users/{username}/tokens/{token_id}", adminUserHandler.DeleteUserToken)
+						}
+						if adminOrgHandler != nil {
+							r.With(readAdmin...).Get("/orgs", adminOrgHandler.ListOrgs)
+						}
+						if adminRepoHandler != nil {
+							r.With(readAdmin...).Get("/repos", adminRepoHandler.ListRepos)
+						}
+						if adminGitHubAppHandler != nil {
+							r.With(writeAdmin...).Post("/github-app/reconcile", adminGitHubAppHandler.Reconcile)
+						}
+						if adminAuditHandler != nil {
+							r.With(readAdmin...).Get("/audit-logs", adminAuditHandler.ListAuditLogs)
+						}
+						if extras.AdminSystemStatus != nil {
+							r.With(readAdmin...).Get("/system/status", extras.AdminSystemStatus.SystemStatus)
+						}
+						if extras.AdminAnalytics != nil {
+							r.With(readAdmin...).Get("/analytics/summary", extras.AdminAnalytics.Summary)
+						}
+						if extras.AdminAgentSessions != nil {
+							r.With(readAdmin...).Get("/agent-sessions", extras.AdminAgentSessions.List)
+							r.With(writeAdmin...).Post("/agent-sessions/{id}/cancel", extras.AdminAgentSessions.Cancel)
+						}
+						if extras.AdminWorkspaces != nil {
+							r.With(readAdmin...).Get("/workspaces", extras.AdminWorkspaces.List)
+							r.With(writeAdmin...).Post("/workspaces/{id}/stop", extras.AdminWorkspaces.Stop)
+							r.With(writeAdmin...).Post("/workspaces/{id}/suspend", extras.AdminWorkspaces.Suspend)
+						}
+						if extras.AdminTokens != nil {
+							r.With(readAdmin...).Get("/tokens", extras.AdminTokens.List)
+						}
+						for _, route := range extras.DeploymentAdmin {
+							scope := readAdmin
+							if route.Write {
+								scope = writeAdmin
+							}
+							r.With(scope...).Method(route.Method, route.Pattern, withAdminAuditActor(route.Handler))
+						}
 					}
-				}
-			})
+				})
+			}
 		})
 	})
 

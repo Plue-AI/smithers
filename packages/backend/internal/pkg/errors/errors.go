@@ -43,8 +43,7 @@ type APIError struct {
 	ResetAt        *time.Time   `json:"reset_at,omitempty"`
 	Errors         []FieldError `json:"errors,omitempty"`
 	// Details carries a structured, code-specific payload for clients that
-	// branch on Code (e.g. branch_lock_held carries the holder and whether the
-	// caller may request to join). Nil for most error flavors.
+	// branch on Code. Nil for most error flavors.
 	Details any `json:"details,omitempty"`
 	// cause is the underlying error, kept for the server log only. It is
 	// unexported so encoding/json never serializes it and the wire body

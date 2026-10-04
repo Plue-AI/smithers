@@ -1124,17 +1124,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Service: approvalsService,
 		Enabled: cfg.FeatureFlags.ApprovalsFlowEnabled,
 	}
-	branchJoinAuthorizer, ok := billingPolicy.(services.BranchLockJoinAuthorizer)
-	if !ok {
-		return errors.New("billing policy does not authorize branch-lock joins")
-	}
-	branchLockHandler := &routes.BranchLockHandler{
-		Service: services.NewBranchLockService(
-			queries,
-			services.WithBranchLockJoinAuthorizer(branchJoinAuthorizer),
-			services.WithBranchLockNotifier(notificationService),
-		),
-	}
 	agentSessionStreamHandler := &routes.AgentSessionStreamHandler{
 		Service: agentService,
 		Broker:  sseBroker,
@@ -1438,7 +1427,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		agentSessionHandler,
 		agentSessionStreamHandler,
 		approvalsHandler,
-		branchLockHandler,
 		pushHookHandler,
 		workflowHandler,
 		workflowCacheHandler,

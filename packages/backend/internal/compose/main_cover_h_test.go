@@ -185,7 +185,6 @@ func sseIdentityRouterForTest() http.Handler {
 		nil,                       // agentSessionHandler
 		nil,                       // agentSessionStreamHandler
 		nil,                       // approvalsHandler
-		nil,                       // branchLockHandler
 		nil,                       // canaryReportHandler
 		&routes.WorkflowHandler{}, // workflowHandler -> registers sseTicketAuth group
 		nil,                       // workflowCacheHandler
@@ -260,7 +259,6 @@ func featureGateRouterForTest(cfg *config.Config) http.Handler {
 		nil,                                // agentSessionHandler
 		nil,                                // agentSessionStreamHandler
 		nil,                                // approvalsHandler
-		nil,                                // branchLockHandler
 		nil,                                // canaryReportHandler
 		&routes.WorkflowHandler{Service: &mockRouterWorkflowService{}}, // workflowHandler
 		nil, // workflowCacheHandler

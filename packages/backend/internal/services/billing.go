@@ -1107,23 +1107,6 @@ func billingPlanRank(planKey string) int {
 	}
 }
 
-// AuthorizeBranchLockJoin gates asking to JOIN a branch another user holds.
-// Joining an occupied branch is multiplayer participation, so it uses the
-// paid floor (Hobby/'personal' or above; trialing counts).
-// Free or lapsed users are Forbidden — the client turns that into the
-// request-upgrade path.
-func (s *BillingService) AuthorizeBranchLockJoin(ctx context.Context, userID int64) error {
-	owner := billingOwnerRef{OwnerType: BillingOwnerTypeUser, OwnerID: userID}
-	plan, err := s.resolvePlan(ctx, owner)
-	if err != nil {
-		return err
-	}
-	if billingPlanRank(plan.Key) < billingPlanRank(BillingPlanPersonal) {
-		return pkgerrors.Forbidden("joining an occupied branch requires a paid plan (Hobby or above)")
-	}
-	return nil
-}
-
 // resolvePlan resolves ONLY the effective plan for an owner (account -> latest
 // live subscription -> plan tier/key), skipping the usage recompute+persist that
 // resolveLocalState performs. Trialing counts as paid. Used by plan-gate checks

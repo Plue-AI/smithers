@@ -247,6 +247,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/key/nonce:
     get:
+      x-composition: plue
       summary: GET /api/auth/key/nonce
       operationId: get_api_auth_key_nonce
       tags:
@@ -307,6 +308,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/key/token:
     post:
+      x-composition: plue
       summary: POST /api/auth/key/token
       operationId: post_api_auth_key_token
       tags:
@@ -335,6 +337,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/key/verify:
     post:
+      x-composition: plue
       summary: POST /api/auth/key/verify
       operationId: post_api_auth_key_verify
       tags:
@@ -424,6 +427,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/status:
     get:
+      x-composition: install
       summary: GET /api/auth/local/status
       operationId: get_api_auth_local_status
       tags:
@@ -452,6 +456,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/bootstrap:
     post:
+      x-composition: install
       summary: POST /api/auth/local/bootstrap
       operationId: post_api_auth_local_bootstrap
       tags:
@@ -486,6 +491,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/login:
     post:
+      x-composition: install
       summary: POST /api/auth/local/login
       operationId: post_api_auth_local_login
       tags:
@@ -520,6 +526,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/password:
     post:
+      x-composition: install
       summary: POST /api/auth/local/password
       operationId: post_api_auth_local_password
       tags:
@@ -558,6 +565,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/auth/local/token:
     post:
+      x-composition: install
       summary: POST /api/auth/local/token
       operationId: post_api_auth_local_token
       tags:

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:3f3599bfe182d7e7525b764f3e91d2acd1414e0c69822023adbb349597e86eef",
+  "digest": "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa",
   "faults": [
     "user",
     "wait",
@@ -94,13 +94,6 @@
       "status": 400,
       "retry_after": 0,
       "doc": "The request was malformed or carried a value the endpoint cannot accept."
-    },
-    {
-      "code": "branch_lock_held",
-      "fault": "user",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "Another person or agent holds the branch lock; details carry the holder and whether the caller may ask to join."
     },
     {
       "code": "build_cache_busy",

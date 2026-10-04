@@ -1088,60 +1088,14 @@ describe("workspace create over local HTTP (#2939)", () => {
   })
 })
 
-describe("repo report over local HTTP server", () => {
-  const WORKSPACE = "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90"
-  const serve = (report: unknown) => {
-    const requests: Array<{ method: string | undefined; url: string | undefined; body: unknown }> = []
-    const fixture = homeFixture(async (req, res) => {
-      const chunks: Buffer[] = []
-      for await (const chunk of req) chunks.push(Buffer.from(chunk))
-      requests.push({ method: req.method, url: req.url, body: JSON.parse(Buffer.concat(chunks).toString() || "null") })
-      res.setHeader("content-type", "application/json")
-      res.end(JSON.stringify({ ok: true, payload: { report } }))
-    })
-    return { requests, fixture }
-  }
-
-  it("prints the recorded report with its source commit and launches nothing", async () => {
-    const shared = {
-      repo: "acme/widgets",
-      commit: "fc3f257b643b",
-      report: { repo: "acme/widgets" },
-      recordedAt: "2026-09-30T00:00:00Z"
-    }
-    const { requests, fixture } = serve(shared)
-    const f = await fixture
+describe("retired repository registration report", () => {
+  it("has no CLI door and sends no request", async () => {
+    let requests = 0
+    const f = await homeFixture((_req, res) => { requests++; res.end("{}") })
     try {
-      const result = await f.run(["repo", "report", "Acme/Widgets", "--workspace", WORKSPACE, "--format", "json"])
-      expect(result.code, result.output + result.error).toBe(0)
-      expect(requests).toEqual([{
-        method: "POST",
-        url: "/api/workflow/rpc",
-        body: {
-          repo: "Acme/Widgets",
-          procedure: "Registration.Report",
-          payload: { repo: "acme/widgets" },
-          workspaceId: WORKSPACE
-        }
-      }])
-      expect(JSON.parse(result.output)).toMatchObject({
-        cached: true,
-        commit: "fc3f257b643b",
-        report: { repo: "acme/widgets" }
-      })
-    } finally {
-      await f.close()
-    }
-  })
-
-  it("says there is no cached report when the backend has none", async () => {
-    const { requests, fixture } = serve(null)
-    const f = await fixture
-    try {
-      const result = await f.run(["repo", "report", "acme/widgets", "--workspace", WORKSPACE, "--format", "json"])
-      expect(result.code, result.output + result.error).toBe(0)
-      expect(requests).toHaveLength(1)
-      expect(JSON.parse(result.output)).toEqual({ cached: false, repo: "acme/widgets" })
+      const result = await f.run(["repo", "report", "acme/widgets", "--workspace", "old"])
+      expect(result.code).not.toBe(0)
+      expect(requests).toBe(0)
     } finally {
       await f.close()
     }

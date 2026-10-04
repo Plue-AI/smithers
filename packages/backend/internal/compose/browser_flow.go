@@ -107,6 +107,10 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		browserFlowRefusal(w, http.StatusBadRequest, "Body must name a repository and a box (workspaceId).")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
+	if !provision && (strings.HasPrefix(request.Procedure, "Registration.") || retiredRegistrationDecision(request.Payload, request.Procedure)) {
+		browserFlowJSON(w, http.StatusNotFound, map[string]string{"code": "registration_retired", "class": "user", "message": "Registration is unavailable."})
+		return request, flowruntime.Target{}, db.Workspace{}, false
+	}
 	if !provision && !browserFlowProcedures[request.Procedure] {
 		browserFlowRefusal(w, http.StatusBadRequest, "The workflow seam does not relay this procedure.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
@@ -331,4 +335,28 @@ func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries
 	// The seam takes the API budget itself: a run's progress polls (a
 	// snapshot every two seconds per run) stay out of it (browserFlowAPI.limit).
 	router.With(access(false)...).Post("/api/workflow/rpc", browser.rpc)
+}
+
+// retiredRegistrationDecision preserves the old wait classifier so persisted
+// registration waits cannot regain a write door through the generic relay.
+func retiredRegistrationDecision(payload json.RawMessage, procedure string) bool {
+	var field, name string
+	switch procedure {
+	case "Approval.Submit":
+		field, name = "target", "requestId"
+	case "Signal":
+		field, name = "signal", "name"
+	default:
+		return false
+	}
+	var input, target map[string]json.RawMessage
+	if json.Unmarshal(payload, &input) != nil || json.Unmarshal(input[field], &target) != nil {
+		return false
+	}
+	var wait string
+	if json.Unmarshal(target[name], &wait) != nil {
+		return false
+	}
+	wait, _, _ = strings.Cut(wait, "#")
+	return wait == "register-repository/review" || wait == "register-repository/decline-note"
 }

@@ -92,7 +92,7 @@ func TestRunCredentialCannotAdministerRepositoryPostgres(t *testing.T) {
 		nil, nil,
 		&routes.JJVCSHandler{RepoHost: repohost.NewClient(staticRepoHostURL(repoHostServer.URL), "test"), RepoResolver: q},
 		&routes.AgentInternalHandler{},
-		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil,
 		nil,
 		nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,

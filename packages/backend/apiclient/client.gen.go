@@ -3100,20 +3100,6 @@ func (c *Client) PostAPIReposOwnerRepoBookmarks(ctx context.Context, owner strin
 	return out, err
 }
 
-// GetAPIReposOwnerRepoBranchLocksJoinRequests calls GET /api/repos/{owner}/{repo}/branch-locks/join-requests.
-func (c *Client) GetAPIReposOwnerRepoBranchLocksJoinRequests(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branch-locks/join-requests", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoBranchLocksJoinRequests calls POST /api/repos/{owner}/{repo}/branch-locks/join-requests.
-func (c *Client) PostAPIReposOwnerRepoBranchLocksJoinRequests(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branch-locks/join-requests", nil, nil, &out)
-	return out, err
-}
-
 // GetAPIReposOwnerRepoBuildCacheCasDigest calls GET /api/repos/{owner}/{repo}/build-cache/cas/{digest}.
 func (c *Client) GetAPIReposOwnerRepoBuildCacheCasDigest(ctx context.Context, owner string, repo string, digest string) (AnyJSON, error) {
 	var out AnyJSON
@@ -3986,34 +3972,6 @@ func (c *Client) PostAPIReposOwnerRepoApprovalsIDDecide(ctx context.Context, own
 func (c *Client) PostAPIReposOwnerRepoArchive(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/archive", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoBranchLocksAcquire calls POST /api/repos/{owner}/{repo}/branch-locks/acquire.
-func (c *Client) PostAPIReposOwnerRepoBranchLocksAcquire(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branch-locks/acquire", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoBranchLocksHeartbeat calls POST /api/repos/{owner}/{repo}/branch-locks/heartbeat.
-func (c *Client) PostAPIReposOwnerRepoBranchLocksHeartbeat(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branch-locks/heartbeat", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoBranchLocksJoinRequestsIDDecide calls POST /api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide.
-func (c *Client) PostAPIReposOwnerRepoBranchLocksJoinRequestsIDDecide(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branch-locks/join-requests/"+url.PathEscape(id)+"/decide", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoBranchLocksRelease calls POST /api/repos/{owner}/{repo}/branch-locks/release.
-func (c *Client) PostAPIReposOwnerRepoBranchLocksRelease(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branch-locks/release", nil, nil, &out)
 	return out, err
 }
 

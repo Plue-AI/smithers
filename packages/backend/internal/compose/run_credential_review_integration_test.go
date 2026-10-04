@@ -108,7 +108,7 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 		&routes.AgentInternalHandler{},
 		nil, nil,
 		&routes.ApprovalsHandler{Enabled: true},
-		nil, nil,
+		nil,
 		nil, nil, nil,
 		nil, nil, nil,
 		&routes.RepositoryJobHandler{},

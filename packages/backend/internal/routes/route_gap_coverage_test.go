@@ -169,43 +169,6 @@ func TestPutLandingRequest_Route(t *testing.T) {
 
 // ---- branch lock release ----
 
-func TestReleaseBranchLock_Route(t *testing.T) {
-	const target = "/api/repos/alice/app/branch-locks/release"
-
-	t.Run("requires auth", func(t *testing.T) {
-		called := false
-		h := &BranchLockHandler{Service: mockBranchLockRouteService{releaseFn: func(context.Context, services.AcquireBranchLockInput) error {
-			called = true
-			return nil
-		}}}
-		rec := httptest.NewRecorder()
-		h.ReleaseBranchLock(rec, httptest.NewRequest(http.MethodPost, target, strings.NewReader(`{"branch":"b"}`)))
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-		assert.False(t, called)
-	})
-
-	t.Run("releases the caller's lock", func(t *testing.T) {
-		var got services.AcquireBranchLockInput
-		h := &BranchLockHandler{Service: mockBranchLockRouteService{releaseFn: func(_ context.Context, in services.AcquireBranchLockInput) error {
-			got = in
-			return nil
-		}}}
-		rec := httptest.NewRecorder()
-		h.ReleaseBranchLock(rec, branchLockAuthedRequest(http.MethodPost, target, `{"branch":"landing/app/main"}`))
-		require.Equal(t, http.StatusNoContent, rec.Code)
-		assert.Equal(t, services.AcquireBranchLockInput{RepositoryID: 1, Branch: "landing/app/main", UserID: 7}, got)
-	})
-
-	t.Run("keeps service error status", func(t *testing.T) {
-		h := &BranchLockHandler{Service: mockBranchLockRouteService{releaseFn: func(context.Context, services.AcquireBranchLockInput) error {
-			return pkgerrors.Forbidden("lock held by another user")
-		}}}
-		rec := httptest.NewRecorder()
-		h.ReleaseBranchLock(rec, branchLockAuthedRequest(http.MethodPost, target, `{"branch":"b"}`))
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	})
-}
-
 // ---- org provider connections ----
 
 type orgProviderConnectionRecorder struct {

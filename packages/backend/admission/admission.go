@@ -26,7 +26,6 @@ type SandboxEntitlement = services.SandboxEntitlement
 // would silently lose lock-through-commit and counted-resume behavior.
 type Policy interface {
 	services.BillingPolicy
-	services.BranchLockJoinAuthorizer
 	services.PrivateRepoCommitAuthorizer
 	services.RepoCreateAuthorizer
 	services.OrgCreateAuthorizer

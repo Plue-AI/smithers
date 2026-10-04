@@ -89,7 +89,7 @@ func TestRouterPrivateOrganizationRoutesMatchMissingPostgres(t *testing.T) {
 		&routes.ProviderConnectionHandler{Service: services.NewProviderConnectionService(q, nil, nil, services.WithSubscriptionConnectionsEnabled(true))},
 		&routes.VariableHandler{Service: variables},
 		&routes.BillingHandler{Service: services.NewBillingService(q, nil, services.BillingServiceConfig{})},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil,
 		routerExtras{BillingCapabilities: services.BillingCapabilities{Overview: true, Checkout: true, Portal: true}},
 	)
