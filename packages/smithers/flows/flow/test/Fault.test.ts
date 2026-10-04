@@ -4,7 +4,7 @@
  * `respond` is the one ladder over the classes.
  */
 import { describe, expect, it } from "@effect/vitest"
-import { Action, Fault, Flow, HumanTask } from "@smthrs/flow"
+import { Action, ExternalJob, Fault, Flow, HumanTask } from "@smthrs/flow"
 
 const tagged = (tag: string, fields: Record<string, unknown> = {}) => ({ _tag: tag, ...fields })
 
@@ -100,6 +100,16 @@ describe("the flow's own rows", () => {
     expect(Fault.of(failed("rejected"))).toEqual({ class: "user", tag: "@smthrs/flow/HumanTaskFailed/rejected" })
     expect(Fault.of(failed("timeout")).class).toBe("factory")
     expect(Fault.of(failed("request_invalid")).class).toBe("bug")
+    expect(Fault.of(new ExternalJob.Again({ message: "replacement needed" })).class).toBe("dependency")
+    expect(Fault.of(
+      new Flow.DeadlineExceeded({
+        flowName: "bounded",
+        executionId: "expired",
+        deadlineMs: 10,
+        startedAtMs: 0,
+        message: "deadline elapsed"
+      })
+    )).toEqual({ class: "policy", tag: "@smthrs/flow/DeadlineExceeded/deadline_exceeded" })
   })
 
   it("classifies an attempt that outlived its bound as a dependency fault", () => {

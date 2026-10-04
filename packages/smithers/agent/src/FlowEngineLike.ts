@@ -54,7 +54,7 @@
 import * as Permission from "@smthrs/capability/Permission"
 import * as Digest from "@smthrs/core/Digest"
 import type * as KeyMaterial from "@smthrs/core/KeyMaterial"
-import { Action, Flow, FlowRuntime } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import type { FileBoundary } from "@smthrs/flow/FileBoundary"
 import * as Cell from "@smthrs/harness/Cell"
 import * as EngineLike from "@smthrs/harness/EngineLike"
@@ -90,6 +90,10 @@ import * as QuotaPolicy from "./QuotaPolicy.ts"
 import * as RunawayGuard from "./RunawayGuard.ts"
 import * as WorkspaceObservation from "./WorkspaceObservation.ts"
 import type * as WorkspaceSandbox from "./WorkspaceSandbox.ts"
+
+// #3369 retries keyed actions by default. A model step and a cell call are keyed,
+// but their failures belong to the controller and the cell, which retry on their own terms.
+const singleAttempt = RetryPolicy.make({ initialMs: 1, factor: 1, maxMs: 1, maxAttempts: 1 })
 
 export { defaultModelIdleMs, defaultModelOverruns } from "./internal/FlowEngineLike.ts"
 
@@ -1045,6 +1049,9 @@ export const make = (
           const correction = yield* Correction
           const recorded = yield* Action.make({
             name: sealStepActivityName,
+            // Provider retries belong to recordModelStep. A port failure must
+            // reach the controller rather than silently starting another call.
+            retryPolicy: singleAttempt,
             success: RecordedModelStep,
             error: ModelFailure,
             tier: "sealed",
@@ -1211,6 +1218,8 @@ export const make = (
         const key = yield* callKey(decoded, scope, continuedCalls.get(EngineLike.callSubject(decoded.identity)) ?? 0)
         return yield* Action.make({
           name: cellCallActivityName(decoded.flowName),
+          // The cell receives typed failures and decides its next action.
+          retryPolicy: singleAttempt,
           success: Cell.CallResult,
           error: HarnessError.HarnessError,
           tier: decoded.effects.tier,

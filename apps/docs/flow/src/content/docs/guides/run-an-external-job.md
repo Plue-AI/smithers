@@ -73,6 +73,8 @@ Status returns `Running`, `Exited` with `exitCode`, or `Lost`. `Exited` calls
 `collect`. A collected exit can fail with `ExternalJob.Again` to request a
 replacement. Both Lost and Again complete Cancel before a durable backoff and
 the next Start. A failed cancellation cannot launch another worker.
+`Again` is a dependency fault if it escapes the replacement boundary. A flow's
+own `DeadlineExceeded` is a policy fault: its elapsed deadline is terminal.
 
 Exhaustion fails with `ExternalJobLost` (`infra`). Timeout completes Cancel and
 fails with `ExternalJobTimedOut` (`dependency`). `restarts: 0`, the default,

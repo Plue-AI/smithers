@@ -72,6 +72,7 @@ export class ExternalJobTimedOut extends Schema.TaggedError<ExternalJobTimedOut>
 }) {}
 Fault.register("@smthrs/flow/ExternalJobLost", "infra")
 Fault.register("@smthrs/flow/ExternalJobTimedOut", "dependency")
+Fault.register("@smthrs/flow/ExternalJobAgain", "dependency")
 
 const millis = (value: Duration.Input, field: string): number => {
   const parsed = Duration.fromInput(value)

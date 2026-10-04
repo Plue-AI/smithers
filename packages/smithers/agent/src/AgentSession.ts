@@ -138,6 +138,8 @@ export class SandboxRefused extends Schema.TaggedError<SandboxRefused>()(
   }
 ) {}
 
+Fault.register("@smthrs/agent/AgentSession/SandboxRefused", "user")
+
 /**
  * What a sandbox-selected run executes with: its tool sources, bound to the
  * machine its session acquired. They replace {@link Options.flows} for that run.

@@ -207,7 +207,8 @@
           "_tag": "settled",
           "transition": {
             "_tag": "complete",
-            "output": "1:about /repo/alpha.md"
+            "output": "1:about /repo/alpha.md",
+            "value": "1:about /repo/alpha.md"
           }
         },
         "at": 1100
@@ -235,7 +236,8 @@
       "payload": {
         "transition": {
           "_tag": "complete",
-          "output": "1:about /repo/alpha.md"
+          "output": "1:about /repo/alpha.md",
+          "value": "1:about /repo/alpha.md"
         },
         "at": 1300
       }
@@ -565,7 +567,8 @@
           "_tag": "settled",
           "transition": {
             "_tag": "complete",
-            "output": "about /repo/alpha.md|about /repo/alpha.md"
+            "output": "about /repo/alpha.md|about /repo/alpha.md",
+            "value": "about /repo/alpha.md|about /repo/alpha.md"
           }
         },
         "at": 1100
@@ -593,7 +596,8 @@
       "payload": {
         "transition": {
           "_tag": "complete",
-          "output": "about /repo/alpha.md|about /repo/alpha.md"
+          "output": "about /repo/alpha.md|about /repo/alpha.md",
+          "value": "about /repo/alpha.md|about /repo/alpha.md"
         },
         "at": 1300
       }

@@ -634,6 +634,11 @@ describe("the executor's control-store seam", () => {
     let reads = 0
     const result = await launched(record, {
       runtime: {
+        recordedCode: () =>
+          Effect.succeed({
+            executionDigest: launchInput.run.executionDigest,
+            engineVersion: launchInput.run.engineVersion
+          }),
         getRun: () =>
           Effect.suspend(() => {
             reads = reads + 1
@@ -850,10 +855,12 @@ describe("the executor's registry seam", () => {
 
   it("fails the run when the registry loses the flow's seat between the launch and the body", async () => {
     const record = recorder()
-    // The launch reads `getOption` and the body reads `get`, so a registry
-    // that answers them differently is exactly the race the body re-validates
-    // against.
-    const result = await launched(record, { registry: { get: () => Effect.succeed(descriptorOf(Option.none())) } })
+    let reads = 0
+    const result = await launched(record, {
+      registry: {
+        getOption: () => Effect.sync(() => Option.some(reads++ === 0 ? seated : descriptorOf(Option.none())))
+      }
+    })
 
     expect(result.acceptance).toBe("accepted")
     expect(result.status).toBe("failed")
@@ -908,10 +915,14 @@ describe("the executor's registry seam", () => {
     expect(adopted.executionDigest).not.toBe(launchInput.plan.card.executionDigest)
     const run = (recorded: typeof launchInput.run) => {
       const record = recorder()
-      // The launch reads `getOption` (the code the plan approved); the body
-      // reads `get`, the code on disk after the edit.
+      let reads = 0
       return launched(record, {
-        registry: { get: () => Effect.succeed(edited) },
+        registry: {
+          getOption: () =>
+            Effect.sync(() =>
+              Option.some(recorded.executionDigest === adopted.executionDigest || reads++ > 0 ? edited : seated)
+            )
+        },
         runtime: { getRun: () => Effect.succeed(recorded) }
       }).then((result) => ({ ...result, cause: causeOf(record) }))
     }
@@ -938,7 +949,7 @@ describe("the executor's registry seam", () => {
     })
     const record = recorder()
     const result = await launched(record, {
-      registry: { get: () => Effect.succeed(edited) },
+      registry: { getOption: () => Effect.succeed(Option.some(edited)) },
       runtime: {
         getRun: () => Effect.succeed({ ...launchInput.run, executionDigest: undefined }),
         recordedCode: () =>

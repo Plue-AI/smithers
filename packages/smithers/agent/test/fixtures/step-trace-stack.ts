@@ -52,7 +52,7 @@ export const cell = (source: string) =>
     ModelEvent.ModelEvent.TextEnd({ type: "text-end", id: "cell" }),
     ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop" })
   ])
-export const answer = () => cell("ctx.done(\"\\\"done\\\"\")")
+export const answer = () => cell("ctx.done(\"done\")")
 export const records = (runId: string) =>
   Effect.gen(function*() {
     const journal = yield* Journal.Journal

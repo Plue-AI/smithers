@@ -6,6 +6,7 @@
 
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as Fault from "../Fault.ts"
 
 /**
  * An execution was still unsettled when its flow's `deadline` elapsed.
@@ -35,3 +36,5 @@ export class DeadlineExceeded extends Schema.TaggedError<DeadlineExceeded>()(
     message: Schema.String
   }
 ) {}
+
+Fault.register("@smthrs/flow/DeadlineExceeded", "policy")

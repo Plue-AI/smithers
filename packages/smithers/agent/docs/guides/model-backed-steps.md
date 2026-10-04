@@ -153,3 +153,9 @@ bounded transport retry ladder (five jittered retries inside a 45-second
 window by default), a quota-shaped refusal parks the step instead of failing
 it, and a terminal model error arrives inside the `HarnessError` cause with its
 code and reset fields intact.
+
+The durable model and cell-call boundaries do not add an engine retry ladder.
+Receipt allocation failures and malformed host results reach the typed harness
+channel without repeating the boundary; provider retries remain bounded
+by the model policy above. Sandbox configuration refusals ask the person to
+configure a suitable provider (`user` faults).
