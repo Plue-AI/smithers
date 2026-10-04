@@ -542,3 +542,11 @@ it("turns a selected gate skipped without a failure at the end of its chain red,
   // A summary with no such skip is returned as it was.
   expect(Affected.unskipped(["//d:test"], green)).toBe(green)
 })
+
+ it("requires a successful base receipt for an empty affected verdict and never accepts an empty diff", () => {
+   expect(Affected.needsFullGate(undefined, ["pkg/a.ts"], 0, false)).toBe(true)
+   expect(Affected.needsFullGate("a".repeat(40), [], 12, true)).toBe(true)
+   expect(Affected.needsFullGate("a".repeat(40), ["pkg/a.ts"], 0, false)).toBe(true)
+   expect(Affected.needsFullGate("a".repeat(40), ["pkg/a.ts"], 0, true)).toBe(false)
+   expect(Affected.needsFullGate("a".repeat(40), ["pkg/a.ts"], 2, false)).toBe(false)
+ })
