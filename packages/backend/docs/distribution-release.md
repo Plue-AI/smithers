@@ -1,59 +1,20 @@
 ---
-title: "Self-host image releases"
-description: "Build, publish, and verify the public Smithers container image."
+title: "Preview image builds"
+description: "Build and verify the preview-only Smithers image."
 ---
 
-## Install a published release
+The Docker image is a private preview of Home, never an install or release artifact (M-41). Machines are off; no workspace, flow, terminal or check runs. Native PostgreSQL and app data reset with container replacement. No repository credentials or model keys enter the build or runtime.
 
-Use the digest-pinned `ghcr.io/smithersai/smithers@sha256:...` reference in the
-[release notes](https://github.com/smithersai/smithers/releases). Follow the
-[installation and backup guide](../../../distribution/README.md) with that
-reference in `SMITHERS_IMAGE`. A release without an image receipt is not an
-available container release.
-
-## Build from source
-
-From the repository root at the desired revision:
+From the repository root:
 
 ```bash
-export SMITHERS_IMAGE=smithers:local
-BUILD_SHA=$(jj log -r @ --no-graph -T commit_id)
-docker build --build-arg "BUILD_SHA=$BUILD_SHA" \
-  -f distribution/Dockerfile -t "$SMITHERS_IMAGE" .
+BUILD_SHA=$(git rev-parse HEAD)
+docker buildx build --platform linux/amd64 --build-arg "BUILD_SHA=$BUILD_SHA" \
+  -f distribution/Dockerfile --load -t smithers-preview:local .
 SMITHERS_BUILD_SHA="$BUILD_SHA" SMITHERS_DOCKER_SKIP_BUILD=1 \
-  bash distribution/test-image.sh "$SMITHERS_IMAGE"
+  bash distribution/test-preview.sh smithers-preview:local
 ```
 
-Use that local image with the installation guide. Source acceptance uses local
-scripted model and evaluator responses, an actual PostgreSQL service, and the
-packaged coding runtime. It checks file creation, judged completion, restart,
-backup, restore, and version mismatch refusal; it does not measure model quality.
+The Docker backend stage invokes `sh scripts/build-backend.sh OUTPUT BUILD_SHA preview`. Only the optional `preview` argument adds `-tags smithers_preview`; two-argument install builds keep their existing behavior and unknown modes fail before compiling.
 
-Standard file writes hold an exclusive sibling lock until the write settles.
-The coding host releases only lock directories it created successfully and
-refuses cleanup if a lock contains files. A pre-existing lock remains in place;
-confirm its writer has stopped before recovering it manually.
-
-## Publish
-
-The existing Release workflow validates the image before publication. Its image
-step builds `linux/amd64` and `linux/arm64` with the release version embedded in
-the container, pushes the version tag, logs out of GHCR, and pulls both platforms
-using an empty Docker credential directory. It also verifies anonymous pulls of
-the manifest digest before adding that reference to the release notes. Dry runs
-build both architectures into a local OCI archive and skip publication. Reruns
-replace the existing image receipt while retaining the rest of the release notes. The Distribution image workflow runs the same acceptance
-script on main.
-
-The repository token requires `packages: write` and `contents: write`. GHCR's
-package visibility must be public: the first package publication may require an
-organization owner to change it in package settings. A private package fails the
-anonymous-pull gate and receives no release-note receipt. After fixing visibility,
-resume the release using its existing candidate procedure; never treat a pushed
-private image as a completed public release.
-
-`node scripts/set-release-version.mjs <version>` updates the image reference,
-Dockerfile default, and persisted distribution version together with package
-versions. The release contract test refuses drift. Record the release run, both
-platform pulls, the digest, and container acceptance before marking publication
-complete. A successful build alone proves none of those external receipts.
+The Distribution image workflow builds and tests linux/amd64 on GitHub-hosted amd64. It checks Home, install bootstrap, unauthenticated workspace refusal, non-root execution, listeners, credential-free image configuration, revision and shutdown. Releases neither build nor publish this image. See the [preview image guide](../../../distribution/README.md#preview-image).

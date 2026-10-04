@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,8 +35,44 @@ func TestBackendReleaseBuildStampsCLIVersion(t *testing.T) {
 		"-o", filepath.Join(root, "backend"), "./apps/backend",
 	}, strings.Split(strings.TrimSpace(string(args)), "\n"))
 
-	dockerfile, err := os.ReadFile("Dockerfile")
+}
+
+func TestBackendBuildModes(t *testing.T) {
+	for _, mode := range []string{"preview", "unknown", ""} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "packages", "smithers"), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "packages", "smithers", "package.json"), []byte("{\n  \"version\": \"2.3.4\"\n}\n"), 0644))
+			bin := filepath.Join(root, "bin")
+			require.NoError(t, os.Mkdir(bin, 0755))
+			argsFile := filepath.Join(root, "args")
+			executable(t, filepath.Join(bin, "go"), `printf '%s\n' "$@" > "$GO_ARGS_FILE"`)
+			script, err := filepath.Abs("../scripts/build-backend.sh")
+			require.NoError(t, err)
+			cmd := exec.Command("sh", script, "backend", strings.Repeat("a", 40), mode)
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "GO_ARGS_FILE="+argsFile)
+			out, err := cmd.CombinedOutput()
+			if mode != "preview" {
+				require.Error(t, err)
+				_, err = os.Stat(argsFile)
+				require.True(t, os.IsNotExist(err), "unknown mode must fail before invoking go")
+			} else {
+				require.NoError(t, err, string(out))
+				args, err := os.ReadFile(argsFile)
+				require.NoError(t, err)
+				require.Contains(t, string(args), "-tags\nsmithers_preview\n")
+			}
+		})
+	}
+}
+
+func TestEntrypointExecutesBackendWithoutExternalDatabase(t *testing.T) {
+	backend := filepath.Join(t.TempDir(), "backend")
+	executable(t, backend, `printf '%s\n' "$$" "$SMITHERS_AUTH_MODE" "$@"`)
+	cmd := exec.Command("sh", "entrypoint.sh", "argument with spaces", "--flag")
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "SMITHERS_BACKEND_BINARY=" + backend}
+	out, err := cmd.Output()
 	require.NoError(t, err)
-	require.Contains(t, string(dockerfile), "COPY packages/smithers/package.json packages/smithers/package.json")
-	require.Contains(t, string(dockerfile), `sh scripts/build-backend.sh /out/smithers-backend "$BUILD_SHA"`)
+	require.Equal(t, []string{strconv.Itoa(cmd.Process.Pid), "selfhost", "argument with spaces", "--flag"}, strings.Split(strings.TrimSpace(string(out)), "\n"))
 }

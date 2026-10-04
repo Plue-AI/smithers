@@ -544,17 +544,6 @@ jobs:
         run: rustup toolchain install
       - name: Install PostgreSQL 18 for the owned local mode
         run: bash .github/scripts/install-postgres-18.sh
-      - name: Real PostgreSQL backup and restore
-        run: go test -p 1 ./distribution -run 'TestRealBackupRestorePostgreSQL|TestRealFailedUpgradeRecoveryPostgreSQL|TestFailedUpgradeReportsRecovery|TestIncompleteUpgrade' -count=1 -v
-        env:
-          SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
-          SMITHERS_POSTGRES_TEST_MAJOR: "18"
-      - name: Distribution release contracts
-        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs distribution/fake-coding-provider.test.mjs distribution/publish-image.test.mjs
-      - name: Build distribution image
-        run: docker build --build-arg "BUILD_SHA=$(git rev-parse HEAD)" --build-arg "SMITHERS_DISTRIBUTION_VERSION=${RELEASE_TAG#v}" -f distribution/Dockerfile -t smithers-distribution:release .
-      - name: Test distribution image
-        run: SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" SMITHERS_DOCKER_SKIP_BUILD=1 bash distribution/test-image.sh smithers-distribution:release
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
@@ -873,38 +862,6 @@ jobs:
           echo "Dry run: every current gate ran; candidate build/smoke or archived-candidate verification passed. Nothing was published."
           echo "A real run would publish these at $PUBLISH_VERSION on the $PUBLISH_DIST_TAG dist-tag:"
           cat "$PUBLISH_ORDER"
-  distribution-publish:
-    name: publish public multi-architecture image
-    needs: publish
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    permissions:
-      contents: write
-      packages: write
-    env:
-      RELEASE_TAG: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 26.4.0
-      - name: Enable image architecture emulation
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
-      - name: Set up multi-architecture image builder
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
-      - name: Verify distribution version
-        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs
-      - name: Rehearse both image architectures
-        if: env.DRY_RUN == 'true'
-        run: bash distribution/publish-image.sh "${RELEASE_TAG#v}" "$(git rev-parse HEAD)" --dry-run
-      - name: Publish and anonymously verify distribution image
-        if: env.DRY_RUN != 'true' && !inputs.sourceRef
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash distribution/publish-image.sh "${RELEASE_TAG#v}" "$(git rev-parse HEAD)"
   # The docs sites serve the release that just published. A dispatched run is a
   # rehearsal and deploys nothing. Alchemy reads the shared alchemy-state-store,
   # so this job plans against the same record as an operator's shell.
