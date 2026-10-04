@@ -512,6 +512,23 @@ class DecisionCommandTests(unittest.TestCase):
                 (root / 'commands.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in logs))
                 self.assertNotEqual(self.command('--decision-evidence', tmp).returncode, 0)
 
+    def test_decision_evidence_refuses_failed_matrix_dispatch(self):
+        # Complete probe stdout does not prove a successful lifecycle command.
+        for layout in ('A', 'B'):
+            for phase in ('initial', 'reboot', 'second_vm'):
+                with self.subTest(layout=layout, phase=phase), tempfile.TemporaryDirectory() as tmp:
+                    root = pathlib.Path(tmp)
+                    retained_fixture(root)
+                    path = root / 'commands.jsonl'
+                    rows = [json.loads(line) for line in path.read_text().splitlines()]
+                    for row in rows:
+                        if row['command'].endswith(f'matrix {layout} {phase}'):
+                            row['exit_code'] = 124
+                    path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+                    run = self.command('--decision-evidence', tmp)
+                    self.assertEqual(run.returncode, 2, run.stdout)
+                    self.assertIn('matrix dispatch failed', run.stderr)
+
     def test_decision_evidence_refuses_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             for content in (None, "{", "{}", json.dumps(full_evidence())):

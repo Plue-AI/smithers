@@ -210,6 +210,7 @@ def decision_evidence(directory):
                 phase = value[0]['phase']
                 normalized = [dict(s, vm=2 if phase == 'second_vm' else 1) for s in value]
                 if all(s in steps for s in normalized):
+                    require(row['exit_code'] == 0, 'matrix dispatch failed')
                     argv = shlex.split(row['command'])
                     require('--' in argv, 'missing matrix exec arguments')
                     name = argv[argv.index('--') - 1]
