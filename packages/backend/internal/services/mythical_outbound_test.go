@@ -50,11 +50,14 @@ func TestMythicalOutboundAbsentProvidersPreserveSlots(t *testing.T) {
 				slot := []byte(`{"kind":"` + kind + `","target":"x","desired":"new","precondition":"old","state":"unknown"}`)
 				item := db.MythicalItem{PendingOp: slot}
 				sends, reads := 0, 0
-				s.outbound.Lookup = func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+				s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 					reads++
 					return "old", false, nil
 				}
-				s.outbound.Send = func(context.Context, db.MythicalItem, MythicalOutboundOp) error { sends++; return nil }
+				s.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+					sends++
+					return nil
+				}
 				st := mythicalItemStep{s: s}
 				_, err := st.recoverOutbound(context.Background(), item)
 				require.Error(t, err)
@@ -76,10 +79,13 @@ func TestMythicalOutboundMergeDecisionRequired(t *testing.T) {
 	allow := func(context.Context, db.MythicalItem, string) error { return nil }
 	s := &MythicalService{outbound: MythicalOutboundProviders{CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow}}
 	sends := 0
-	s.outbound.Lookup = func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 		return "old", false, nil
 	}
-	s.outbound.Send = func(context.Context, db.MythicalItem, MythicalOutboundOp) error { sends++; return nil }
+	s.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+		sends++
+		return nil
+	}
 	st := mythicalItemStep{s: s}
 	item := db.MythicalItem{PendingOp: []byte(`{"kind":"merge","target":"1","desired":"head","precondition":"old","state":"unknown"}`)}
 	_, err := st.recoverOutbound(context.Background(), item)
@@ -91,7 +97,7 @@ func TestMythicalOutboundMergeDecisionRequired(t *testing.T) {
 	_, err = st.recoverOutbound(context.Background(), item)
 	require.ErrorContains(t, err, "approver revoked")
 	require.Zero(t, sends)
-	s.outbound.Lookup = func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 		return "head", false, nil
 	}
 	_, err = st.recoverOutbound(context.Background(), item)
@@ -118,11 +124,14 @@ func TestMythicalOutboundDroppedProposalOnlyReconciles(t *testing.T) {
 				slot := []byte(`{"kind":"` + kind + `","target":"x","desired":"new","precondition":"old","state":"unknown"}`)
 				reads, sends := 0, 0
 				s := &MythicalService{outbound: MythicalOutboundProviders{
-					Lookup: func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+					Lookup: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 						reads++
 						return "old", false, nil
 					},
-					Send: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { sends++; return nil },
+					Send: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+						sends++
+						return nil
+					},
 				}}
 				st := mythicalItemStep{s: s}
 				item := db.MythicalItem{State: state, PendingOp: slot}
@@ -144,10 +153,13 @@ func TestMythicalOutboundSettlementRequiredBeforeRepeat(t *testing.T) {
 			s := &MythicalService{outbound: MythicalOutboundProviders{
 				CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow,
 				MergeDecision: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { return nil },
-				Lookup: func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+				Lookup: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 					return "old", false, nil
 				},
-				Send: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { sends++; return nil },
+				Send: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+					sends++
+					return nil
+				},
 			}}
 			st := mythicalItemStep{s: s}
 			slot := []byte(`{"kind":"` + kind + `","target":"1","desired":"new","precondition":"old","state":"unknown"}`)
@@ -164,7 +176,7 @@ func TestMythicalOutboundSettlementCannotResurrectDrop(t *testing.T) {
 	for _, state := range []string{"cancelled", "dropped"} {
 		t.Run(state, func(t *testing.T) {
 			s := &MythicalService{outbound: MythicalOutboundProviders{
-				Settle: func(_ context.Context, item db.MythicalItem, _ MythicalOutboundOp) (db.MythicalItem, error) {
+				Settle: func(_ *mythicalItemStep, _ context.Context, item db.MythicalItem, _ MythicalOutboundOp) (db.MythicalItem, error) {
 					item.State = "proposed"
 					return item, nil
 				},
@@ -186,11 +198,11 @@ func TestMythicalOutboundOpenRequiresRecoveryBeforeGitHub(t *testing.T) {
 		t.Run(missing, func(t *testing.T) {
 			s := &MythicalService{outbound: MythicalOutboundProviders{
 				CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow,
-				Lookup: func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+				Lookup: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 					t.Fatal("unexpected lookup")
 					return "", false, nil
 				},
-				Settle: func(context.Context, db.MythicalItem, MythicalOutboundOp) (db.MythicalItem, error) {
+				Settle: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (db.MythicalItem, error) {
 					t.Fatal("unexpected settlement")
 					return db.MythicalItem{}, nil
 				},

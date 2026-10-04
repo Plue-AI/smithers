@@ -48,7 +48,7 @@ type publicationFixture struct {
 // installation tokens are cached process-wide by installation.
 var publicationInstallations atomic.Int64
 
-func newPublicationFixture(t *testing.T, private bool) *publicationFixture {
+func newPublicationFixture(t *testing.T, private bool, issues ...int64) *publicationFixture {
 	t.Helper()
 	installation := 9100 + publicationInstallations.Add(1)
 	f := newMythicalServiceFixture(t)
@@ -62,9 +62,9 @@ func newPublicationFixture(t *testing.T, private bool) *publicationFixture {
 	require.NoError(t, err)
 	app := GitHubAppCredentials{ID: 42, Slug: "smithers-install", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client",
 		ClientSecret: "secret", WebhookSecret: "webhook", PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
-	fake, err := githubfake.New(githubfake.Config{GitRoot: gitRoot, AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind,
+	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind,
 		ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest-code",
-		Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: private}}}}})
+		Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: private, Issues: issues}}}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
@@ -177,6 +177,17 @@ func (f *publicationFixture) writes() []string {
 			continue
 		}
 		out = append(out, write.Method+" "+write.Path)
+	}
+	return out
+}
+
+// labelWrites lists label writes as "path status body", in order.
+func (f *publicationFixture) labelWrites() []string {
+	var out []string
+	for _, write := range f.fake.Writes() {
+		if strings.HasSuffix(write.Path, "/labels") {
+			out = append(out, write.Path+" "+strconv.Itoa(write.Status)+" "+string(write.Body))
+		}
 	}
 	return out
 }
@@ -329,14 +340,14 @@ func TestTodoPublicationGuardsRefuseBeforeEffects(t *testing.T) {
 	allowed, _ := spent.Allow(f.installation)
 	require.True(t, allowed)
 	for _, tc := range []struct {
-		name, reason   string
+		name, reason        string
 		breakSQL, repairSQL string
-		budget         *BudgetTracker
+		budget              *BudgetTracker
 	}{
 		{name: "membership", reason: "no longer a member of this install",
 			breakSQL: `UPDATE self_host_owners SET user_id = ` + strconv.FormatInt(other, 10), repairSQL: `UPDATE self_host_owners SET user_id = ` + strconv.FormatInt(f.userID, 10)},
 		{name: "accepted generation", reason: "no verified candidate to publish",
-			breakSQL: `UPDATE mythical_items SET candidate_verified = false WHERE repository_id = ` + strconv.FormatInt(f.repoID, 10),
+			breakSQL:  `UPDATE mythical_items SET candidate_verified = false WHERE repository_id = ` + strconv.FormatInt(f.repoID, 10),
 			repairSQL: `UPDATE mythical_items SET candidate_verified = true WHERE repository_id = ` + strconv.FormatInt(f.repoID, 10)},
 		{name: "budget", reason: "GitHub budget for rehearsal-owner/app is spent", budget: spent},
 		{name: "installation", reason: "",
@@ -421,4 +432,111 @@ func TestTodoPublicationGuardFacts(t *testing.T) {
 	require.NoError(t, s.githubBudget(ctx, item, "push"))
 	unbudgeted := &MythicalService{store: f.pool, publication: &mythicalPublication{connections: f.connections}}
 	require.EqualError(t, unbudgeted.githubBudget(ctx, item, "push"), "GitHub's budgeted transport is unavailable")
+}
+
+// Where drafts are unavailable, a later TODO's pull request opens ready,
+// names the TODO it waits for and carries smithers:waiting before the TODO
+// shows In review. A refused label write is retried; it never reopens.
+func TestTodoPublicationLabelsLaterPullWhereDraftsAreUnavailable(t *testing.T) {
+	f := newPublicationFixture(t, true)
+	first := f.todo("Add a greeting to JOURNEY.md", "Say hello", f.main, "JOURNEY.md", "Hello from T1\n")
+	f.wake()
+	require.Equal(t, "proposed", f.item(first.Number.Int64).State)
+	second := f.todo("Wave goodbye", "Say goodbye too", first.CandidateHead, "GOODBYE.md", "Bye from T2\n")
+	f.fake.FailNextWrites("/repos/rehearsal-owner/app/issues/2/labels", 1)
+	f.wake()
+	item := f.item(second.Number.Int64)
+	assert.Equal(t, "proposing", item.State, "an unlabeled pull request is not yet in review")
+	assert.NotEmpty(t, item.PendingOp)
+	assert.Equal(t, "working", f.card(second.Number.Int64)["state"])
+
+	f.wake()
+	item = f.item(second.Number.Int64)
+	require.Equal(t, "proposed", item.State, item.Reason)
+	creates := f.pullCreates()
+	require.Len(t, creates, 2, "one pull request per TODO; a refused label never reopens one")
+	assert.Equal(t, "Add a greeting to JOURNEY.md", creates[0]["title"])
+	assert.Equal(t, false, creates[0]["draft"])
+	assert.Equal(t, "[waits for T1] Wave goodbye", creates[1]["title"])
+	assert.Equal(t, false, creates[1]["draft"], "drafts are unavailable: the later pull request opens ready")
+	waiting := `{"labels":["smithers:waiting"]}`
+	assert.Equal(t, []string{
+		"/repos/rehearsal-owner/app/issues/2/labels 502 " + waiting,
+		"/repos/rehearsal-owner/app/issues/2/labels 200 " + waiting,
+	}, f.labelWrites(), "only the later pull request is labeled")
+	card := f.card(second.Number.Int64)
+	assert.Equal(t, "in_review", card["state"])
+	assert.Equal(t, []any{float64(first.Number.Int64), float64(second.Number.Int64)}, card["pr"].(map[string]any)["included_items"],
+		"the card includes what the pull request body includes")
+	assert.Equal(t, []any{float64(first.Number.Int64)}, f.card(first.Number.Int64)["pr"].(map[string]any)["included_items"])
+
+	writes := len(f.writes())
+	f.wake()
+	assert.Len(t, f.writes(), writes, "following both pull requests writes nothing")
+}
+
+// A person's push found while settling a push whose answer was lost is held
+// exactly like one found before the push: kept, named and told once.
+func TestTodoPublicationHoldsForeignPushFoundOnRecovery(t *testing.T) {
+	f := newPublicationFixture(t, false, 12)
+	ctx := context.Background()
+	first := f.todo("Add a greeting to JOURNEY.md", "Say hello", f.main, "JOURNEY.md", "Hello from T1\n")
+	// The TODO is linked to issue 12, where a person reads its holds.
+	_, err := f.pool.Exec(ctx, `UPDATE mythical_items SET issue_number = 12 WHERE id = $1`, first.ID)
+	require.NoError(t, err)
+	f.fake.LoseNextPushResponses(1)
+	f.wake()
+	const branch = "smithers/add-a-greeting-to-journey-md"
+	require.Len(t, f.githubRef(branch), 40, "GitHub took the push its answer lost")
+
+	// Alice pushes over it before Smithers looks again.
+	f.git(f.work, "checkout", "-q", f.main)
+	alice := f.commit("Alice's greeting", "JOURNEY.md", "Hi from Alice\n")
+	f.git(f.work, "push", "-q", "--force", f.github, alice+":refs/heads/"+branch)
+	for range 3 {
+		f.wake()
+	}
+
+	assert.Equal(t, alice, f.githubRef(branch), "a person's commit is never overwritten")
+	item := f.item(first.Number.Int64)
+	assert.Equal(t, "proposing", item.State)
+	assert.Equal(t, "someone else pushed to "+branch+" on GitHub; Smithers will not overwrite it and a person decides", item.Reason)
+	checks := mythicalChecksOf(item)
+	assert.Equal(t, alice, checks.ForeignHead)
+	assert.Nil(t, checks.Notice)
+	assert.Equal(t, []string{"foreign_push:" + alice}, checks.Noticed)
+	op, err := decodeMythicalOutbound(item.PendingOp)
+	require.NoError(t, err)
+	assert.Equal(t, "conflict", op.State)
+	assert.Equal(t, []string{
+		"POST /rehearsal-owner/app.git/git-receive-pack",
+		"POST /repos/rehearsal-owner/app/issues/12/comments",
+	}, f.writes(), "one push and one notice: no second push and no pull request")
+	assert.Equal(t, "working", f.card(first.Number.Int64)["state"])
+}
+
+// The App token can write any branch: only the TODO's own recorded
+// smithers/<slug> branch is ever pushed, whatever a stored slot names.
+func TestTodoPublicationPushesOnlyTheRecordedTodoBranch(t *testing.T) {
+	for _, target := range []string{"main", "smithers/someone-else"} {
+		t.Run(target, func(t *testing.T) {
+			f := newPublicationFixture(t, false)
+			ctx := context.Background()
+			first := f.todo("Add a greeting to JOURNEY.md", "Say hello", f.main, "JOURNEY.md", "Hello from T1\n")
+			before := f.githubRef(target)
+			slot, err := json.Marshal(MythicalOutboundOp{Kind: "push", Target: target, Desired: first.CandidateHead, Precondition: before, State: "intended"})
+			require.NoError(t, err)
+			recorded := mythicalChecks{Branch: "smithers/add-a-greeting-to-journey-md"}
+			_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET pending_op = $2, checks = $3 WHERE id = $1`, first.ID, string(slot), string(recorded.encode()))
+			require.NoError(t, err)
+			f.wake()
+			f.wake()
+
+			assert.Equal(t, before, f.githubRef(target), "the branch is untouched")
+			assert.Empty(t, f.writes(), "nothing is pushed")
+			op, err := decodeMythicalOutbound(f.item(first.Number.Int64).PendingOp)
+			require.NoError(t, err)
+			assert.Equal(t, target, op.Target, "the slot stays for a person to see")
+		})
+	}
 }

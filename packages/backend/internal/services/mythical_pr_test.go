@@ -173,7 +173,7 @@ func TestTODOPrHostPublicationDisablesRepositoryPrograms(t *testing.T) {
 	require.NotContains(t, diff, "earlier TODO")
 	require.NoFileExists(t, canary)
 	target := newMythicalFixture(t)
-	require.ErrorContains(t, (&mythicalItemStep{r: &mythicalRun{g: f.git}}).pushProposal(context.Background(), mythicalGitHubRepo{GitURL: target.git.dir}, mythicalProposalOp{Branch: "smithers/retry", Head: head}), "publication is held")
+	require.ErrorContains(t, (&mythicalItemStep{r: &mythicalRun{g: f.git}}).pushProposal(context.Background(), db.MythicalItem{}, mythicalGitHubRepo{GitURL: target.git.dir}, mythicalProposalOp{Branch: "smithers/retry", Head: head}), "publication is held")
 	// Exercise the controlled transport separately while publication is dark.
 	_, err = f.git.git(context.Background(), "push", "--porcelain", target.git.dir, head+":refs/heads/smithers/retry")
 	require.NoError(t, err)

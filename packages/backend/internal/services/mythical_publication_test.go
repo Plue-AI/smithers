@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,9 @@ func TestTodoBranchIsUniqueInTheRepository(t *testing.T) {
 func TestTodoPublicationNeverAuthorizesSystemMerge(t *testing.T) {
 	person := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 1}, SessionHash: "browser"})
 	run := mythicalRunContext(context.Background(), 1)
+	token := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 1}, SessionHash: "browser", IsTokenAuth: true})
+	bot := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 1, UserType: "bot"}, SessionHash: "browser"})
+	unsigned := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 1}})
 	landed := mythicalChecks{Land: &mythicalLand{By: "owner", Session: "browser", Head: strings.Repeat("a", 40)}}
 	unsessioned := mythicalChecks{Land: &mythicalLand{By: "label", Head: strings.Repeat("a", 40)}}
 	for _, tc := range []struct {
@@ -88,6 +92,9 @@ func TestTodoPublicationNeverAuthorizesSystemMerge(t *testing.T) {
 		{"close after drop", context.Background(), db.MythicalItem{Source: "todo", State: "dropped"}, "close", ""},
 		{"system merge", context.Background(), db.MythicalItem{Source: "todo"}, "merge", "never merges on its own"},
 		{"run credential merge", run, db.MythicalItem{Source: "todo"}, "merge", "never merges on its own"},
+		{"personal token merge", token, db.MythicalItem{Source: "todo"}, "merge", "never merges on its own"},
+		{"agent account session merge", bot, db.MythicalItem{Source: "todo"}, "merge", "never merges on its own"},
+		{"no browser session merge", unsigned, db.MythicalItem{Source: "todo"}, "merge", "never merges on its own"},
 		{"label land merge", context.Background(), db.MythicalItem{Source: "todo", Checks: unsessioned.encode()}, "merge", "never merges on its own"},
 		{"person merge", person, db.MythicalItem{Source: "todo"}, "merge", ""},
 		{"person's recorded land", context.Background(), db.MythicalItem{Source: "todo", Checks: landed.encode()}, "merge", ""},
@@ -142,5 +149,23 @@ func TestTodoPublicationHeldByForeignHead(t *testing.T) {
 			assert.Equal(t, time.Unix(100, 0).Add(mythicalPullPollEvery), next.NextAttemptAt.Time)
 			assert.False(t, called)
 		})
+	}
+}
+
+// Publication composes the guards and transport field by field: a merge
+// readiness decision composed by the merge route's owner survives it.
+func TestEnableTodoPublicationKeepsTheMergeDecision(t *testing.T) {
+	decided := errors.New("decided by the merge owner")
+	s := &MythicalService{}
+	s.outbound.MergeDecision = func(context.Context, db.MythicalItem, MythicalOutboundOp) error { return decided }
+	s.EnableTodoPublication(nil, nil, nil)
+	require.NotNil(t, s.outbound.MergeDecision)
+	require.ErrorIs(t, s.outbound.MergeDecision(context.Background(), db.MythicalItem{}, MythicalOutboundOp{}), decided)
+	for name, bound := range map[string]bool{
+		"canonical App": s.outbound.CanonicalApp != nil, "stack lease": s.outbound.StackLease != nil, "budget": s.outbound.Budget != nil,
+		"membership": s.outbound.Membership != nil, "authorization": s.outbound.Authorization != nil, "accepted generation": s.outbound.AcceptedGeneration != nil,
+		"lookup": s.outbound.Lookup != nil, "send": s.outbound.Send != nil, "settle": s.outbound.Settle != nil,
+	} {
+		assert.True(t, bound, name)
 	}
 }

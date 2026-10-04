@@ -41,10 +41,10 @@ func TestMythicalOutboundLeaseAndLostResponse(t *testing.T) {
 	allow := func(context.Context, db.MythicalItem, string) error { return nil }
 	s := &MythicalService{outbound: MythicalOutboundProviders{CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow}}
 	observed, sends := "old", 0
-	s.outbound.Lookup = func(context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 		return observed, false, nil
 	}
-	s.outbound.Send = func(ctx context.Context, sent db.MythicalItem, op MythicalOutboundOp) error {
+	s.outbound.Send = func(_ *mythicalItemStep, ctx context.Context, sent db.MythicalItem, op MythicalOutboundOp) error {
 		persisted, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"kind":"push","target":"smithers/issue-1","desired":"new","precondition":"old","state":"unknown"}`, string(persisted.PendingOp))

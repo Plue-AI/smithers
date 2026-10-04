@@ -1113,7 +1113,7 @@ func TestForeignPushUnavailableProvidersFailClosed(t *testing.T) {
 			assert.Equal(t, item.PendingOp, next.PendingOp)
 			assert.Equal(t, "h0", next.PRHead)
 			assert.Equal(t, "candidate", next.CandidateHead)
-			err = st.pushProposal(context.Background(), mythicalGitHubRepo{}, mythicalProposalOp{Branch: "smithers/retry-webhooks", Expected: "a3", Head: "candidate"})
+			err = st.pushProposal(context.Background(), item, mythicalGitHubRepo{}, mythicalProposalOp{Branch: "smithers/retry-webhooks", Expected: "a3", Head: "candidate"})
 			require.EqualError(t, err, mythicalPublicationUnavailable)
 		})
 	}

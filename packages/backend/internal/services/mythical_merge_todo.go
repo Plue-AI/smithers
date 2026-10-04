@@ -175,11 +175,19 @@ func (st *mythicalItemStep) landedByMaintainer(ctx context.Context, item db.Myth
 	return st.s.github.Maintainer(ctx, *st.gh, account)
 }
 
-// RequireMergeSession rejects non-session authority before readiness reads.
-// The caller still checks current GitHub maintainer authority before approval.
+// mergeSession reports a person's browser session: a signed-in account that
+// is not an agent's, holding a session rather than a token. It is the one
+// definition of who may press Merge.
+func mergeSession(info *middleware.AuthInfo) bool {
+	return info != nil && info.User != nil && !info.IsTokenAuth && info.SessionHash != "" && !info.IsAgent()
+}
+
+// RequireMergeSession rejects non-session authority before readiness reads,
+// binding the session to userID. The caller still checks current GitHub
+// maintainer authority before approval.
 func RequireMergeSession(ctx context.Context, userID int64) error {
 	info := middleware.AuthInfoFromContext(ctx)
-	if info == nil || info.User == nil || info.User.ID != userID || info.IsTokenAuth || info.SessionHash == "" || info.IsAgent() {
+	if !mergeSession(info) || info.User.ID != userID {
 		return &TodoControlError{Status: http.StatusForbidden, Code: "permission", Class: "permission", Message: "Merge requires an owner or maintainer browser session"}
 	}
 	return nil

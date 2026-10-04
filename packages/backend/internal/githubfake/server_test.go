@@ -545,3 +545,72 @@ func TestGitPushNeedsInstallationTokenAndPullHeadsFollowTheBranch(t *testing.T) 
 	require.Error(t, push("ghu_githubfake_owner"))
 	require.Equal(t, third, branchHead())
 }
+
+func TestIssueLabelsAndCommentsNeedAnIssueAndFailedWritesApplyNothing(t *testing.T) {
+	server, cfg, key := fixture(t)
+	// Issue 1 exists on acme/app; pull requests number after it, as GitHub
+	// numbers issues and pull requests in one sequence.
+	server.config.Installations[0].Repositories[0].Issues = []int64{1}
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"Wait","head":"smithers/wait","base":"main"}`))
+	require.Equal(t, 201, status)
+	var pull Pull
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.Equal(t, int64(2), pull.Number)
+	require.Empty(t, pull.Labels)
+
+	waiting := []byte(`{"labels":["smithers:waiting"]}`)
+	status, _ = request(t, server, "POST", "/repos/acme/app/issues/9/labels", access.Token, waiting)
+	require.Equal(t, 404, status, "no label on an issue that does not exist")
+	server.FailNextWrites("/repos/acme/app/issues/2/labels", 1)
+	status, _ = request(t, server, "POST", "/repos/acme/app/issues/2/labels", access.Token, waiting)
+	require.Equal(t, http.StatusBadGateway, status)
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/2", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &pull))
+	require.Empty(t, pull.Labels, "a failed write applies nothing")
+	for range 2 {
+		status, body = request(t, server, "POST", "/repos/acme/app/issues/2/labels", access.Token, waiting)
+		require.Equal(t, 200, status)
+		require.JSONEq(t, `[{"name":"smithers:waiting"}]`, string(body), "adding a present label keeps one")
+	}
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls?head=acme:smithers/wait", access.Token, nil)
+	require.Equal(t, 200, status)
+	var pulls []Pull
+	require.NoError(t, json.Unmarshal(body, &pulls))
+	require.Len(t, pulls, 1)
+	require.Equal(t, []Label{{Name: "smithers:waiting"}}, pulls[0].Labels)
+
+	status, body = request(t, server, "POST", "/repos/acme/app/issues/1/comments", access.Token, []byte(`{"body":"Smithers is holding this TODO."}`))
+	require.Equal(t, 201, status)
+	var comment map[string]any
+	require.NoError(t, json.Unmarshal(body, &comment))
+	require.Equal(t, "Smithers is holding this TODO.", comment["body"])
+	require.Equal(t, map[string]any{"type": "Bot"}, comment["user"])
+	require.Equal(t, map[string]any{"id": float64(cfg.AppID)}, comment["performed_via_github_app"])
+	status, _ = request(t, server, "POST", "/repos/acme/app/issues/9/comments", access.Token, []byte(`{"body":"lost"}`))
+	require.Equal(t, 404, status)
+	status, _ = request(t, server, "POST", "/repos/acme/app/issues/1/comments", access.Token, []byte(`{"body":""}`))
+	require.Equal(t, 422, status, "a comment needs a body")
+
+	var receipts []string
+	for _, write := range server.Writes() {
+		if strings.HasPrefix(write.Path, "/repos/acme/app/issues/") {
+			receipts = append(receipts, write.Path+" "+strconv.Itoa(write.Status))
+		}
+	}
+	require.Equal(t, []string{
+		"/repos/acme/app/issues/9/labels 404",
+		"/repos/acme/app/issues/2/labels 502",
+		"/repos/acme/app/issues/2/labels 200",
+		"/repos/acme/app/issues/2/labels 200",
+		"/repos/acme/app/issues/1/comments 201",
+		"/repos/acme/app/issues/9/comments 404",
+		"/repos/acme/app/issues/1/comments 422",
+	}, receipts)
+}

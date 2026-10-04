@@ -1685,7 +1685,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err != nil {
 		return nil, err
 	}
-	if err := st.pushProposal(ctx, gh, op); err != nil {
+	if err := st.pushProposal(ctx, next, gh, op); err != nil {
 		var foreign *mythicalForeignHead
 		if errors.As(err, &foreign) {
 			return st.holdForeignHead(next, foreign), nil
@@ -1734,13 +1734,17 @@ func (e *mythicalForeignHead) Error() string {
 }
 
 // pushProposal publishes the recorded head through the controlled bare-object
-// transport. It reads the branch on GitHub first: the recorded head (or no
-// branch for a first push) is pushed over with a lease on exactly that value,
-// the proposal itself is already there, and anything else is a person's push
-// that is never overwritten.
-func (st *mythicalItemStep) pushProposal(ctx context.Context, gh mythicalGitHubRepo, op mythicalProposalOp) error {
+// transport, only to item's own recorded smithers/<slug> branch: the App
+// token can write any branch, main included. It reads the branch on GitHub
+// first: the recorded head (or no branch for a first push) is pushed over
+// with a lease on exactly that value, the proposal itself is already there,
+// and anything else is a person's push that is never overwritten.
+func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, op mythicalProposalOp) error {
 	if st.s == nil || st.s.publication == nil {
 		return errors.New(mythicalPublicationUnavailable)
+	}
+	if recorded := mythicalChecksOf(item).Branch; !mythicalTodoBranchValid(op.Branch) || op.Branch != recorded {
+		return fmt.Errorf("refusing to push %q: this TODO publishes only to its recorded branch %q", op.Branch, recorded)
 	}
 	r := st.r
 	if !r.g.has(ctx, op.Head) {
@@ -1777,6 +1781,9 @@ func (st *mythicalItemStep) holdForeignHead(item db.MythicalItem, foreign *mythi
 		next.PendingOp, _ = json.Marshal(op)
 	}
 	next.Reason = "someone else pushed to " + foreign.Branch + " on GitHub; Smithers will not overwrite it and a person decides"
+	if foreign.Head == "" {
+		next.Reason = "someone else deleted " + foreign.Branch + " on GitHub; Smithers will not push it again and a person decides"
+	}
 	checks := mythicalChecksOf(next)
 	checks.ForeignHead = foreign.Head
 	checks.notice("foreign_push:"+foreign.Head, "Smithers is holding this TODO: "+next.Reason+".")
@@ -1800,7 +1807,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	if err := s.outboundReady(ctx, item, "open"); err != nil {
 		return nil, err
 	}
-	if p := st.outbound(); p.Lookup == nil || p.Settle == nil {
+	if s.outbound.Lookup == nil || s.outbound.Settle == nil {
 		return nil, errors.New("Waiting for GitHub reconciliation and settlement integration")
 	}
 	pull, err := s.github.FindPull(ctx, gh, branch)
@@ -1828,12 +1835,47 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		// must retain any Drop that committed while CreatePull was in flight.
 		return st.recoverOutbound(ctx, next)
 	}
-	if !st.prShape.First && !st.prShape.DraftsAvailable {
-		if err := s.github.AddLabel(ctx, gh, pull.Number, "smithers:waiting"); err != nil {
-			return mythicalInfraOutage(next, "github", "the waiting label could not be applied: "+err.Error(), st.now), nil
+	bound, err := st.bindPull(ctx, next, gh, branch, *pull)
+	if err != nil {
+		return mythicalInfraOutage(next, "github", "the waiting label could not be applied: "+err.Error(), st.now), nil
+	}
+	return bound, nil
+}
+
+// mythicalWaitingLabel marks a later TODO's ready pull request where drafts
+// are unavailable: it waits for the TODO it names (§12.5.1).
+const mythicalWaitingLabel = "smithers:waiting"
+
+// bindPull binds the item to its open pull request on branch. Where drafts
+// are unavailable a later item's pull request is labeled smithers:waiting
+// first, so a TODO shows In review only with its pull request fully opened.
+// The label write is idempotent; a refused one is retried, never reopened.
+func (st *mythicalItemStep) bindPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string, pull mythicalPull) (*db.MythicalItem, error) {
+	shape, err := st.acceptedShape(ctx, item, branch)
+	if err != nil {
+		return nil, err
+	}
+	if !shape.First && !shape.DraftsAvailable {
+		if err := st.s.github.AddLabel(ctx, gh, pull.Number, mythicalWaitingLabel); err != nil {
+			return nil, err
 		}
 	}
-	return st.proposedFrom(next, *pull), nil
+	return st.proposedFrom(item, pull, shape), nil
+}
+
+// acceptedShape is the pass's accepted shape of the item published on branch.
+func (st *mythicalItemStep) acceptedShape(ctx context.Context, item db.MythicalItem, branch string) (*mythicalPRShape, error) {
+	if st.prShape == nil || st.prShape.Branch != branch {
+		shape, err := st.shape(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		if shape.Branch != branch {
+			return nil, &mythicalPRUnavailable{}
+		}
+		st.prShape = &shape
+	}
+	return st.prShape, nil
 }
 
 // createPull opens the item's pull request from its accepted shape: head
@@ -1842,17 +1884,11 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 // it waits for (§12.5.1).
 func (st *mythicalItemStep) createPull(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, branch string) error {
 	s := st.s
-	if st.prShape == nil || st.prShape.Branch != branch {
-		shape, err := st.shape(ctx, item)
-		if err != nil {
-			return err
-		}
-		if shape.Branch != branch {
-			return &mythicalPRUnavailable{}
-		}
-		st.prShape = &shape
+	shape, err := st.acceptedShape(ctx, item, branch)
+	if err != nil {
+		return err
 	}
-	title, body, err := st.prShape.render()
+	title, body, err := shape.render()
 	if err != nil {
 		return err
 	}
@@ -1864,27 +1900,32 @@ func (st *mythicalItemStep) createPull(ctx context.Context, item db.MythicalItem
 	if base == "" {
 		base = "main"
 	}
-	draft := !st.prShape.First && st.prShape.DraftsAvailable
-	if !st.prShape.First && !st.prShape.DraftsAvailable {
-		if st.prShape.FirstNumber <= 0 {
+	draft := !shape.First && shape.DraftsAvailable
+	if !shape.First && !shape.DraftsAvailable {
+		if shape.FirstNumber <= 0 {
 			return &mythicalPRUnavailable{}
 		}
-		title = fmt.Sprintf("[waits for T%d] %s", st.prShape.FirstNumber, title)
+		title = fmt.Sprintf("[waits for T%d] %s", shape.FirstNumber, title)
 	}
 	_, err = s.github.CreatePull(ctx, gh, title, branch, base, body, draft)
 	return err
 }
 
 // proposedFrom binds the item to the pull request GitHub answered with: In
-// review comes only from this read, and the draft flag is GitHub's own. A
-// dropped item keeps its state; its close obligation is settled elsewhere.
-func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull) *db.MythicalItem {
+// review comes only from this read, and the draft flag is GitHub's own. The
+// earlier items its body includes are recorded with it. A dropped item keeps
+// its state; its close obligation is settled elsewhere.
+func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull, shape *mythicalPRShape) *db.MythicalItem {
 	next := item
 	next.PendingOp = nil
 	next.PRNumber = pgtype.Int8{Int64: pull.Number, Valid: true}
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	proposed.PRIncludes = nil
+	for _, included := range shape.Included {
+		proposed.PRIncludes = append(proposed.PRIncludes, included.Number)
+	}
 	if item.State != "cancelled" && item.State != "dropped" {
 		next.State, next.Reason = "proposed", ""
 		// The change is proposed: the outages on the way here are behind it.
@@ -2845,6 +2886,9 @@ type mythicalChecks struct {
 	Branch string `json:"branch,omitempty"`
 	// PRDraft is GitHub's draft flag on the item's pull request, as last read.
 	PRDraft bool `json:"prDraft,omitempty"`
+	// PRIncludes are the earlier items the pull request body includes until
+	// they merge, as it was opened.
+	PRIncludes []int64 `json:"prIncludes,omitempty"`
 	// Notice is an issue comment waiting to be posted, and Noticed the keys
 	// of every comment posted, so each is said once and a failed post is
 	// retried on a later pass (mythicalNotice).

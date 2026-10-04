@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +32,9 @@ type Repository struct {
 	ID       int64  `json:"id"`
 	FullName string `json:"full_name"`
 	Private  bool   `json:"private"`
+	// Issues are the repository's open issue numbers. Pull requests number
+	// after them: GitHub numbers both in one sequence.
+	Issues []int64 `json:"-"`
 }
 
 type Installation struct {
@@ -80,6 +84,20 @@ type Server struct {
 	// lostPushes is how many applied pushes still answer 502: a response
 	// lost after GitHub took the write.
 	lostPushes int
+	// failures counts the writes to a path that still answer 502 without
+	// taking effect.
+	failures map[string]int
+	// labels are each issue's or pull request's labels, by repo/number.
+	labels   map[string][]string
+	comments int64
+}
+
+// FailNextWrites makes the next n writes to path answer 502 and apply
+// nothing, as GitHub refusing during an outage would.
+func (s *Server) FailNextWrites(path string, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failures[path] = n
 }
 
 // LoseNextPushResponses makes the next n pushes apply and then answer 502,
@@ -125,7 +143,7 @@ func Handler(config Config) (*Server, error) {
 		installations[i].Repositories = append([]Repository(nil), installation.Repositories...)
 	}
 	config.Installations = installations
-	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull)}
+	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull), failures: make(map[string]int), labels: make(map[string][]string)}
 	s.codes = make(map[string]string)
 	if config.OAuthCode != "" {
 		s.codes[config.OAuthCode] = ""
@@ -168,12 +186,17 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	var status int
 	var response any
-	if err != nil {
+	write := r.Method != http.MethodGet && r.Method != http.MethodHead
+	switch {
+	case err != nil:
 		status, response = failure(http.StatusBadRequest, "request body unreadable")
-	} else {
+	case write && s.failures[r.URL.Path] > 0:
+		s.failures[r.URL.Path]--
+		status, response = failure(http.StatusBadGateway, "Bad Gateway")
+	default:
 		status, response = s.respond(r, body)
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if write {
 		if r.URL.Path == "/login/oauth/access_token" || strings.HasSuffix(r.URL.Path, "/conversions") {
 			body = nil
 		} // OAuth form contains credentials.
@@ -430,6 +453,11 @@ type Pull struct {
 	Base struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
+	Labels []Label `json:"labels"`
+}
+
+type Label struct {
+	Name string `json:"name"`
 }
 
 func (s *Server) pullRequest(r *http.Request, repo string, path []string, body []byte) (int, any) {
@@ -438,6 +466,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	}
 	if r.Method == http.MethodGet && strings.Join(path, "/") == "rules/branches/main" {
 		return 200, []any{}
+	}
+	if len(path) == 3 && path[0] == "issues" && r.Method == http.MethodPost && (path[2] == "labels" || path[2] == "comments") {
+		return s.issueWrite(repo, path[1], path[2], body)
 	}
 	if len(path) == 0 || path[0] != "pulls" {
 		return failure(404, "endpoint not found")
@@ -451,6 +482,11 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			return failure(422, "head and base required")
 		}
 		number := int64(1)
+		for _, issue := range s.issues(repo) {
+			if issue >= number {
+				number = issue + 1
+			}
+		}
 		for _, p := range s.pulls {
 			if p.Repository != repo {
 				continue
@@ -475,8 +511,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		}
 		p.Head.Repo.FullName = repo
 		p.Base.Ref = input.Base
-		s.pulls[repo+"/"+strconv.FormatInt(number, 10)] = p
-		return 201, p
+		key := repo + "/" + strconv.FormatInt(number, 10)
+		s.pulls[key] = p
+		return 201, s.current(key)
 	}
 	if len(path) == 1 && r.Method == http.MethodGet {
 		result := []Pull{}
@@ -565,6 +602,54 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	return failure(404, "endpoint not found")
 }
 
+// issues are a repository's configured issue numbers.
+func (s *Server) issues(repo string) []int64 {
+	for _, installation := range s.config.Installations {
+		for _, candidate := range installation.Repositories {
+			if candidate.FullName == repo {
+				return candidate.Issues
+			}
+		}
+	}
+	return nil
+}
+
+// issueWrite labels or comments on an issue or pull request of repo.
+func (s *Server) issueWrite(repo, rawNumber, kind string, body []byte) (int, any) {
+	number, _ := strconv.ParseInt(rawNumber, 10, 64)
+	_, pull := s.pulls[repo+"/"+strconv.FormatInt(number, 10)]
+	if number <= 0 || !pull && !slices.Contains(s.issues(repo), number) {
+		return failure(404, "issue not found")
+	}
+	key := repo + "/" + strconv.FormatInt(number, 10)
+	if kind == "comments" {
+		var input struct{ Body string }
+		if json.Unmarshal(body, &input) != nil || input.Body == "" {
+			return failure(422, "body required")
+		}
+		s.comments++
+		return 201, map[string]any{"id": s.comments, "body": input.Body, "user": map[string]string{"type": "Bot"}, "performed_via_github_app": map[string]int64{"id": s.config.AppID}}
+	}
+	var input struct{ Labels []string }
+	if json.Unmarshal(body, &input) != nil || len(input.Labels) == 0 {
+		return failure(422, "labels required")
+	}
+	for _, label := range input.Labels {
+		if !slices.Contains(s.labels[key], label) {
+			s.labels[key] = append(s.labels[key], label)
+		}
+	}
+	return 200, labelsOf(s.labels[key])
+}
+
+func labelsOf(names []string) []Label {
+	labels := []Label{}
+	for _, name := range names {
+		labels = append(labels, Label{Name: name})
+	}
+	return labels
+}
+
 // branchHead reads a branch of a repository the Git fixture hosts. hosted
 // is false without a fixture repository, where pull heads stay synthetic.
 func (s *Server) branchHead(repo, branch string) (head string, hosted, exists bool) {
@@ -586,6 +671,7 @@ func (s *Server) branchHead(repo, branch string) (head string, hosted, exists bo
 // head branch until the pull request closes.
 func (s *Server) current(key string) Pull {
 	p := s.pulls[key]
+	p.Labels = labelsOf(s.labels[key])
 	if p.State == "open" {
 		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists && head != p.Head.SHA {
 			p.Head.SHA = head

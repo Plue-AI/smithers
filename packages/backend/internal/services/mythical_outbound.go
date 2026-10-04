@@ -25,26 +25,20 @@ type MythicalOutboundOp struct {
 // Lookup returns the observed head/digest/lifecycle; AppliedClose must consult
 // canonical-App events before current state (a person's reopen is not a retry).
 // Send must use budgeted App transport and trusted bare-object tools only.
-// MergeDecision is T-STK-04's fresh DecideMerge under the matching TODO fence.
+// Lookup, Send and Settle run within the claimed pass they are given, which
+// holds its GitHub destination and bare-object transport; this is their one
+// binding (EnableTodoPublication composes them for push and open).
+// MergeDecision is T-STK-04's fresh DecideMerge under the matching TODO fence;
+// its owner composes it together with the merge kind of Lookup, Send and
+// Settle, and the merge route's gate opens only when both are composed.
 type MythicalOutboundProviders struct {
 	CanonicalApp, StackLease, Budget, Membership, Authorization, AcceptedGeneration func(context.Context, db.MythicalItem, string) error
 	MergeDecision                                                                   func(context.Context, db.MythicalItem, MythicalOutboundOp) error
-	Lookup                                                                          func(context.Context, db.MythicalItem, MythicalOutboundOp) (observed string, appliedClose bool, err error)
-	Send                                                                            func(context.Context, db.MythicalItem, MythicalOutboundOp) error
+	Lookup                                                                          func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (observed string, appliedClose bool, err error)
+	Send                                                                            func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error
 	// Settle projects a confirmed operation and retains Drop's PR-close obligation.
 	// It returns data only; the worker persists it under the same live lease.
-	Settle func(context.Context, db.MythicalItem, MythicalOutboundOp) (db.MythicalItem, error)
-}
-
-// outbound is the providers this claimed pass dispatches through. Composed
-// publication binds lookup, send and settlement to the pass's own GitHub
-// destination and bare-object transport (mythical_publication.go).
-func (st *mythicalItemStep) outbound() MythicalOutboundProviders {
-	p := st.s.outbound
-	if st.s.publication != nil {
-		p.Lookup, p.Send, p.Settle = st.appLookup, st.appSend, st.appSettle
-	}
-	return p
+	Settle func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (db.MythicalItem, error)
 }
 
 func (s *MythicalService) outboundReady(ctx context.Context, item db.MythicalItem, kind string) error {
@@ -93,6 +87,10 @@ func decodeMythicalOutbound(raw json.RawMessage) (MythicalOutboundOp, error) {
 	return op, nil
 }
 
+// mythicalPublishes reports the operations that write a TODO's own branch and
+// pull request; a foreign head found by either is a person's push.
+func mythicalPublishes(kind string) bool { return kind == "push" || kind == "open" }
+
 // outboundResult never authorizes a repeat after a foreign change. A close
 // event by the App settles even if a person subsequently reopened the PR.
 func outboundResult(op MythicalOutboundOp, observed string, appliedClose bool) string {
@@ -114,20 +112,32 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		return nil, err
 	}
 	if op.State == "conflict" {
+		if mythicalPublishes(op.Kind) {
+			// Held for a person: nothing moves but the hold's notice, said once.
+			held := st.s.deliverNotice(ctx, st.r, item)
+			return &held, nil
+		}
 		return nil, errors.New("pending GitHub operation conflicts with a foreign change")
 	}
 	if op.State == "done" {
 		return st.settleOutbound(ctx, item, op)
 	}
-	p := st.outbound()
+	p := st.s.outbound
 	if p.Lookup == nil {
 		return nil, errors.New("Waiting for GitHub reconciliation integration")
 	}
-	observed, appliedClose, err := p.Lookup(ctx, item, op)
+	observed, appliedClose, err := p.Lookup(st, ctx, item, op)
 	if err != nil {
 		return nil, err
 	}
 	op.State = outboundResult(op, observed, appliedClose)
+	if op.State == "conflict" && mythicalPublishes(op.Kind) {
+		// The branch holds a head Smithers neither recorded nor published: a
+		// person's push, held exactly as one found before the push.
+		held := st.holdForeignHead(item, &mythicalForeignHead{Branch: op.Target, Head: observed})
+		saved, err := st.q.SaveMythicalItemUnderLease(ctx, *held, st.r.row.Claim)
+		return &saved, err
+	}
 	if op.State == "intended" {
 		// Drop retains uncertain effects for lookup, but never authorizes another
 		// proposal. Its owner must settle the terminal close obligation first.
@@ -157,7 +167,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		if err != nil {
 			return nil, err
 		}
-		if err := p.Send(ctx, item, op); err != nil {
+		if err := p.Send(st, ctx, item, op); err != nil {
 			return nil, err
 		}
 		// A successful response still needs lookup before settlement. This retains
@@ -180,12 +190,12 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		// Open binds the discovered PR; merge waits for main containment and its
 		// fenced inbound transaction; Drop records the outstanding close. None
 		// can be invented from a transport response or a head alone.
-		settle := st.outbound().Settle
+		settle := st.s.outbound.Settle
 		if settle == nil {
 			return nil, errors.New("Waiting for GitHub settlement integration")
 		}
 		var err error
-		next, err = settle(ctx, item, op)
+		next, err = settle(st, ctx, item, op)
 		if err != nil {
 			return nil, err
 		}

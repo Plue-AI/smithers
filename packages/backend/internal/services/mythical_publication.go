@@ -38,13 +38,15 @@ type mythicalPublication struct {
 
 // EnableTodoPublication composes TODO pull-request publication for the
 // install. Without it every TODO-branch write is held (publicationAuthority).
+// It binds the guards and the push and open transport field by field, so the
+// merge route owner's MergeDecision is kept whichever is composed first.
 func (s *MythicalService) EnableTodoPublication(app GitHubAppCredentialReader, connections MythicalPublicationConnections, budget *BudgetTracker) {
 	s.publication = &mythicalPublication{app: app, connections: connections, budget: budget}
 	s.prFacts = s.todoPRFacts
-	s.outbound = MythicalOutboundProviders{
-		CanonicalApp: s.canonicalApp, StackLease: s.stackLease, Budget: s.githubBudget, Membership: s.currentMembership,
-		Authorization: mythicalCommandAuthorization, AcceptedGeneration: s.acceptedGeneration,
-	}
+	o := &s.outbound
+	o.CanonicalApp, o.StackLease, o.Budget, o.Membership = s.canonicalApp, s.stackLease, s.githubBudget, s.currentMembership
+	o.Authorization, o.AcceptedGeneration = mythicalCommandAuthorization, s.acceptedGeneration
+	o.Lookup, o.Send, o.Settle = (*mythicalItemStep).appLookup, (*mythicalItemStep).appSend, (*mythicalItemStep).appSettle
 }
 
 // mythicalPublicationTarget is where a repository's TODOs are published.
@@ -173,7 +175,9 @@ func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kin
 	case "close":
 		return nil
 	case "merge":
-		if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && !info.IsTokenAuth && info.SessionHash != "" && !info.IsAgent() {
+		// The merge route has bound this session to its person
+		// (RequireMergeSession); any owner or maintainer session merges (§10.6.2).
+		if mergeSession(middleware.AuthInfoFromContext(ctx)) {
 			return nil
 		}
 		if land := mythicalChecksOf(item).Land; land != nil && land.Session != "" {
@@ -487,7 +491,7 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 	}
 	switch op.Kind {
 	case "push":
-		return st.pushProposal(ctx, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
+		return st.pushProposal(ctx, item, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
 	case "open":
 		return st.createPull(ctx, item, gh, op.Target)
 	}
@@ -511,5 +515,9 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 	if pull == nil || pull.State != "open" || pull.HeadSHA != op.Desired {
 		return item, errors.New("GitHub shows no open pull request at the proposed head")
 	}
-	return *st.proposedFrom(item, *pull), nil
+	bound, err := st.bindPull(ctx, item, gh, op.Target, *pull)
+	if err != nil {
+		return item, err
+	}
+	return *bound, nil
 }

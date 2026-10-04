@@ -97,8 +97,15 @@ type mythicalPRIncluded struct {
 	URL    string
 }
 
+// mythicalTodoBranchValid reports a TODO branch: smithers/ and a slug of at
+// most mythicalTodoSlugMax lowercase letters and digits joined by hyphens.
+func mythicalTodoBranchValid(branch string) bool {
+	slug, ok := strings.CutPrefix(branch, "smithers/")
+	return ok && len(slug) <= mythicalTodoSlugMax && mythicalPRSlug.MatchString(slug)
+}
+
 func (p mythicalPRShape) render() (string, string, error) {
-	if !strings.HasPrefix(p.Branch, "smithers/") || !mythicalPRSlug.MatchString(strings.TrimPrefix(p.Branch, "smithers/")) || p.Title == "" || p.Owner == "" {
+	if !mythicalTodoBranchValid(p.Branch) || p.Title == "" || p.Owner == "" {
 		return "", "", fmt.Errorf("accepted TODO identity is unavailable")
 	}
 	var included []string
