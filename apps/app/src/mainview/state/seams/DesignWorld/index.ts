@@ -223,6 +223,7 @@ export interface DesignTimers {
 }
 
 export interface DesignWorldOptions {
+  readonly enabled?: boolean
   /** Injected in tests; defaults to setTimeout/clearTimeout. */
   readonly timers?: DesignTimers
   /** 10 runs the script ten times faster. */
@@ -271,7 +272,14 @@ const passedEvidence = (rev: string, prior?: DesignEvidence): DesignEvidence => 
 export const createDesignWorld = (options: DesignWorldOptions = {}) => {
   const timers: DesignTimers = options.timers ?? { set: (run, ms) => setTimeout(run, ms), clear: handle => clearTimeout(handle as ReturnType<typeof setTimeout>) }
   const speed = options.speed ?? speedFromLocation()
-  const seeded = (options.seed ?? seedDesignWorld)()
+  const enabled = options.enabled !== false
+  // Install hosts retain the collection readers, with no demo rows or simulated work.
+  const seeded = enabled ? (options.seed ?? seedDesignWorld)() : {
+    ...Object.fromEntries(KINDS.filter(kind => kind !== "repo").map(kind => [kind, []])),
+    repo: { id: "repo", repo: "", stack: [], flow: [], capacity: 0, parallel: 0, mergedSinceLook: 0,
+      syncedAgo: 0, mainSha: "", nextPr: 0, mainHealth: { state: "limited", cause: "Stack unavailable" },
+      setup: { listen: "mac", addresses: [], memory: "", github: "todo", provider: "", obsidian: "", source: "waiting", machine: "waiting" } }
+  } as unknown as DesignWorldRows
   const viewer: ActorId = options.viewer ?? viewerFromLocation(seeded)
   const collections = createCollections(seeded)
   const pending = new Map<string, unknown>()
@@ -950,7 +958,7 @@ export const createDesignWorld = (options: DesignWorldOptions = {}) => {
   /* Scheduler lifecycle */
   /** Start the simulated factory once: seeded Working items continue, queued ones wait for a slot. Idempotent. */
   const start = (): void => {
-    if (started || disposed) return
+    if (!enabled || started || disposed) return
     started = true
     for (const item of stackItems(world())) {
       if (item.state === "starting") after(item.id, DESIGN_SCRIPT[0]!.ms, () => enter(item.id, stepIndex(item.step)))
@@ -979,6 +987,7 @@ export const createDesignWorld = (options: DesignWorldOptions = {}) => {
   }
 
   return {
+    enabled,
     collections,
     /** The member this tab acts as. */
     viewer: (): ActorId => viewer,

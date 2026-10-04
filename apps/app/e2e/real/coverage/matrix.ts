@@ -118,6 +118,7 @@ export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<
   "commands.select": { selfhost: optional("needs a recommendation provider"), plue: optional("needs a recommendation provider") },
   "browser.read": { selfhost: optional("needs a pinned HTTPS transport"), plue: optional("needs a pinned HTTPS transport") },
   "identity": { selfhost: core, plue: core },
+  "install": { selfhost: optional("single-owner install composition"), plue: absent("hosted composition serves no install setup") },
   "github": { selfhost: optional("needs the operator's GitHub OAuth app"), plue: core },
   "cloud": { selfhost: core, plue: core },
   "billing.balance": { selfhost: billing, plue: billing },

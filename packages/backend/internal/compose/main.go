@@ -1522,7 +1522,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		router.NotFound(assets.ServeHTTP)
 	}
 	var r http.Handler = withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{
-		role: options.topology, identity: authHandler != nil,
+		role: options.topology, identity: authHandler != nil, install: gitHubAppSetup != nil,
 		agent:        options.ChatHost != nil && chatService != nil && options.topology.servesHTTP(),
 		redirectAuth: githubClient != nil || strings.TrimSpace(cfg.Auth.Auth0ClientID) != "",
 		github:       gitHubImportHandler != nil && githubClient != nil,

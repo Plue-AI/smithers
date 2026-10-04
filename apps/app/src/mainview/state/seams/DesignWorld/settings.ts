@@ -68,7 +68,7 @@ export const designInstall = (design: DesignWorld, live: InstallSnapshots): Inst
     subscribe: listener => { const stops = [design.subscribe(listener), live.subscribe(listener)]; return () => { for (const stop of stops) stop() } },
     get: () => {
       const answered = live.get()
-      if (answered.model !== undefined) return answered
+      if (!design.enabled || answered.model !== undefined) return answered
       if (version !== design.version()) { version = design.version(); snapshot = { model: designInstallModel(design.world()) } }
       return snapshot
     }

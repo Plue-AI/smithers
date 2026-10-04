@@ -138,3 +138,14 @@ func TestAppBootstrapBillingDoorsAreIndependent(t *testing.T) {
 		}
 	}
 }
+
+func TestAppBootstrapInstallOnlyWhenRoutesAreMounted(t *testing.T) {
+	for _, role := range []topology{localTopology, hostedAPITopology} {
+		for _, mounted := range []bool{false, true} {
+			document := bootstrapHTTPDocument(t, bootstrapFeatures{role: role, install: mounted})
+			capabilities := document["capabilities"].([]any)
+			require.Equal(t, mounted && !role.hosted(), slices.Contains(capabilities, any("install")))
+			require.Equal(t, "cloud", document["host"])
+		}
+	}
+}

@@ -802,8 +802,9 @@ export const createAppController = (
     // answer is quiet; an install that is unreachable or errors keeps its visible, retryable failure.
     quietWithoutInstall: true }))
   ctx.onDispose(installSeam.dispose)
-  if (services.bootstrap?.host === "local") void installSeam.showSetup()
-  const design = createDesignWorld()
+  const installHost = services.bootstrap?.capabilities.includes("install") === true
+  if (installHost) void installSeam.showSetup()
+  const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
   const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
     const id = subject === undefined ? kind : `${kind}:${subject}`
@@ -851,7 +852,7 @@ export const createAppController = (
     return `Opened ${title}`
   }
   /* MOCK SEAM: the seed answers TODO and Draft flows until this host serves /api/todos (todoSourceProbe). */
-  const todoSource = todoSourceProbe(seamCtx, services.bootstrap !== undefined)
+  const todoSource = installHost ? () => Promise.resolve("real" as const) : todoSourceProbe(seamCtx, services.bootstrap !== undefined)
   const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
     const snapshot = services.live!.getSnapshot(topic)
     if (snapshot?.data !== undefined) receive(snapshot.data)
@@ -1540,11 +1541,11 @@ export const createAppController = (
     presentBranchCard,
     showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
-    setInstallAddress: address => installSeam.snapshots.get().model === undefined ? designSettings(design).address(address) : installSeam.setInstallAddress(address),
+    setInstallAddress: address => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).address(address) : installSeam.setInstallAddress(address),
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
-    setInstallCapacity: capacity => installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
+    setInstallCapacity: capacity => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
     setInstallObsidian: installSeam.setInstallObsidian,
-    setInstallParallel: parallel => installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
+    setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
     promptStorageRecovery,
     exportStorageRecovery,

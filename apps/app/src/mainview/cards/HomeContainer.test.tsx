@@ -348,3 +348,15 @@ test("only the first unmerged row can offer one Merge, even with duplicate suppl
   const waiting = mount({ ...base, items: [{ ...row, state: "working", actions: [] }, { ...row, n: 99 }] })
   expect(waiting.props.model.items.flatMap(item => item.actions)).toEqual([])
 })
+
+test("an install without a home provider shows unavailable and never demo rows", () => {
+  const h = seeded(MAYA)
+  h.controller.design.dispose()
+  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }) } as AppController
+  const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>)
+  expect(markup).toContain("Stack unavailable")
+  expect(markup).not.toContain("acme/api")
+  expect(markup).not.toContain("Stripe")
+  expect(markup).not.toContain("T9")
+  controller.design.dispose()
+})

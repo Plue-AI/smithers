@@ -36,6 +36,7 @@ type appBootstrap struct {
 }
 
 type bootstrapFeatures struct {
+	install          bool
 	role             topology
 	identity         bool
 	redirectAuth     bool
@@ -58,6 +59,9 @@ func newAppBootstrap(features bootstrapFeatures) appBootstrap {
 	version, sha := buildIdentity()
 	result := appBootstrap{APIVersion: 1, Host: "cloud", Version: version, BuildSHA: sha,
 		Capabilities: make([]string, 0, 4), AuthFlow: "none"}
+	if features.install && !features.role.hosted() {
+		result.Capabilities = append(result.Capabilities, "install")
+	}
 	if features.identity {
 		result.Capabilities = append(result.Capabilities, "identity")
 		if !features.role.hosted() {

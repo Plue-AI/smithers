@@ -144,7 +144,8 @@ export const HomeCard = ({ production }: {
   const seeded = useDesignHome()
   const member = useDesignHomeView()
   const dispatch = useMemo(() => homeDispatch(controller), [controller])
-  const source = homeSource(useTopic(controller.live ? "home" : undefined, controller.live))
+  const answer = homeSource(useTopic(controller.live ? "home" : undefined, controller.live))
+  const source = answer.kind === "seed" && controller.design.enabled === false ? { kind: "failed" as const, code: "unsupported" } : answer
   const model = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(seeded.model.repository, source.code) : seeded.model
   return <HomeContainer model={model} role={production?.role ?? seeded.role}
     allowed={source.kind === "failed" ? FAILED_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
