@@ -287,3 +287,14 @@ Cycle 29: file co-editing, live file lists and diffs, teammate PR review, PR evi
 | A-WIKI-SAVE | [A-WIKI-SAVE.spec.ts](A-WIKI-SAVE.spec.ts) | fixme-before-implementation | T-APP-02 |
 
 Cycle 30: issue reads, creation and comments await live GitHub qualification; wiki reads and page creation await durable shared storage. Saving an answer still refuses because its page-write operation is absent. The filled issue form did not create an issue; its full regression remains pending with T-GH-09 and T-APP-02. Six mounted tests cover form cancellation, direct command projections and the honest save refusal.
+
+| id | spec file | status | ticket |
+| --- | --- | --- | --- |
+| A-FLOWS | [A-FLOWS.spec.ts](A-FLOWS.spec.ts) | fixme-before-implementation | T-FLW-03, T-APP-05 |
+| A-FLOW | [A-FLOW.spec.ts](A-FLOW.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-APP-05 |
+| A-FLOW-EDIT | [A-FLOW-EDIT.spec.ts](A-FLOW-EDIT.spec.ts) | fixme-before-implementation | T-FLW-05, T-FLW-03, T-FLW-04 |
+| A-FLOW-RUN | [A-FLOW-RUN.spec.ts](A-FLOW-RUN.spec.ts) | fixme-before-implementation | T-FLW-01, T-INS-02, T-CAT-01 |
+| A-FLOW-NEW | [A-FLOW-NEW.spec.ts](A-FLOW-NEW.spec.ts) | fixme-before-implementation | T-CAT-01, T-FLW-03 |
+| A-RUNS | [A-RUNS.spec.ts](A-RUNS.spec.ts) | fixme-before-implementation | T-FLW-07, T-COL-02 |
+
+Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execution, creation and durable attention retain full pending scenarios. Five mounted tests cover seeded lists, version selection, slash edit drafts, missing-input run forms and active run cards. `/flow.new` is absent. The Edit button loses its flow-name prefill; its regression remains a fixme under T-FLW-05 and T-APP-05. Seeded projections do not qualify live activation or durable providers.
