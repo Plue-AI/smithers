@@ -31,6 +31,11 @@ type InstallStep struct {
 	Error       *InstallReadinessError `json:"error,omitempty"`
 	Blocked     *InstallSetupBlock     `json:"blocked,omitempty"`
 	Input       json.RawMessage        `json:"input,omitempty"`
+	// Machine readiness receipts (InstallMachineReadyService): main's resolved
+	// revision, the verified layer and the readiness attempt fence.
+	Revision         string `json:"revision,omitempty"`
+	LayerKey         string `json:"layer_key,omitempty"`
+	ReadinessAttempt uint64 `json:"readiness_attempt,omitempty"`
 }
 type InstallSetupBlock struct {
 	Line   string `json:"line"`
@@ -146,6 +151,12 @@ func setupNow(now func() time.Time) time.Time {
 	return time.Now()
 }
 
+// installWorkerLive reports whether a running step's job is still being
+// worked: a worker holds an unexpired lease, or the handler deferred its next
+// pass. Admit refuses a restart while it holds, and Steps shows the step
+// running, so GET and POST agree after the step's expires_at lapses.
+const installWorkerLive = `SELECT COALESCE(lease_expires_at > clock_timestamp() OR (status = 'ready' AND next_attempt_at > clock_timestamp()), false) FROM product_job_dispatches WHERE operation_id=$1`
+
 func (s *InstallSetupService) Steps(ctx context.Context) ([]InstallStep, error) {
 	result := make([]InstallStep, 0, len(InstallStepIDs))
 	for _, id := range InstallStepIDs {
@@ -154,8 +165,18 @@ func (s *InstallSetupService) Steps(ctx context.Context) ([]InstallStep, error) 
 			return nil, err
 		}
 		if step.Status == InstallRunning && installStepCanStart(step, setupNow(s.Now)) {
-			step.Status = InstallPending
-			step.Pct = nil
+			live := false
+			// The App step runs in the browser and has no job.
+			if step.OperationID != "" {
+				err = s.Pool.QueryRow(ctx, installWorkerLive, step.OperationID).Scan(&live)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return nil, err
+				}
+			}
+			if !live {
+				step.Status = InstallPending
+				step.Pct = nil
+			}
 		}
 		result = append(result, step)
 	}
@@ -263,11 +284,11 @@ func (s *InstallSetupService) Admit(ctx context.Context, id, key string, raw jso
 		return jobs.RequestReceipt{}, pkgerrors.Conflict("setup step is running or complete")
 	}
 	if step.Status == InstallRunning {
-		var leaseActive bool
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(lease_expires_at > clock_timestamp(), false) FROM product_job_dispatches WHERE operation_id=$1 FOR UPDATE`, step.OperationID).Scan(&leaseActive); err != nil {
+		var live bool
+		if err := tx.QueryRow(ctx, installWorkerLive+` FOR UPDATE`, step.OperationID).Scan(&live); err != nil {
 			return jobs.RequestReceipt{}, err
 		}
-		if leaseActive {
+		if live {
 			return jobs.RequestReceipt{}, pkgerrors.Conflict("setup worker lease is active")
 		}
 		operation, err := s.Jobs.Get(ctx, scope, step.OperationID)

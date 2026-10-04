@@ -449,8 +449,9 @@ func TestGitHubImport_H_RunImportFailureStages(t *testing.T) {
 func TestGitHubImport_H_BoundWorkspaceRepoAndBookmarkHelpers(t *testing.T) {
 	ctx := context.Background()
 	svc := &GitHubImportService{}
-	_, err := svc.createBoundWorkspace(ctx, 7, db.Repository{ID: 42}, "alice", "demo", "main")
-	require.Contains(t, err.Error(), "workspace provisioner unavailable")
+	workspace, err := svc.createBoundWorkspace(ctx, 7, db.Repository{ID: 42}, "alice", "demo", "main")
+	require.NoError(t, err)
+	require.Equal(t, WorkspaceResponse{TargetBookmark: "main"}, workspace, "without a provisioner the import ends at the bookmark")
 
 	svc.workspaces = githubImportHWorkspace{resp: WorkspaceResponse{ID: "ws", TargetBookmark: "other"}}
 	_, err = svc.createBoundWorkspace(ctx, 7, db.Repository{ID: 42}, "alice", "demo", "main")

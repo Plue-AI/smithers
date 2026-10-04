@@ -155,6 +155,7 @@ func TestGitHubImport_Cov_StartGetAndDetachedFailure(t *testing.T) {
 		"https://git.example",
 		WithGitHubImportHTTPClient(api.Client()),
 		WithGitHubImportMetrics(metrics),
+		WithGitHubImportWorkspaceProvisioner(githubImportCovWorkspaceProvisioner{err: assert.AnError}),
 		withGitHubImportCloneMirror(func(context.Context, string, string, string, string, string, string) error { return nil }),
 	)
 
@@ -191,9 +192,9 @@ func TestGitHubImport_Cov_StartGetAndDetachedFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "failed", failed.Status)
 	assert.Equal(t, importStageProvisioningWorkspace, failed.Stage)
-	assert.Contains(t, failed.Error, "workspace provisioner unavailable")
+	assert.Contains(t, failed.Error, "create bound workspace")
 	assert.Contains(t, metrics.attemptsSnapshot(), "failed")
-	assert.Contains(t, metrics.failuresSnapshot(), "workspace:workspace")
+	assert.Contains(t, metrics.failuresSnapshot(), "workspace:create")
 }
 
 func TestGitHubImport_Cov_MetadataTokensReposAndHelpers(t *testing.T) {

@@ -77,11 +77,24 @@ to a Debian snapshot.
 
 ## Setup readiness seam
 
-The retained `InstallMachineReadyService` commits Source ready after resolving
-`main` to an immutable mirror revision, before starting machine preparation.
-Machine ready commits only after the layer builder returns verified layers.
-Failures retain the recipe error and its fix; attempt fencing rejects stale
-completion after a retry. Step completion serializes as `done` (§14.3).
+Setup step 5 (`source`) needs no machine. The install's import ends once the
+mirror holds `main` (spec §8.6.3). The step then asks the stack service for
+the repository's stack and completes without waiting for it. A TODO is
+accepted once the stack worker reports the stack `active`.
 
-The service remains unmounted. T-INS-06 supplies durable persistence and invokes
-it from the setup runner; this service owns no HTTP route or install topic.
+Setup step 6 (`machine`) runs `InstallMachineReadyService`. It resolves `main`
+to an immutable mirror revision and builds main's first image with the bound
+image builder. Machine ready commits only after the builder returns verified
+layers. Failures retain the recipe error and its fix; attempt fencing rejects
+stale completion after a retry. Readiness persists in `setup.step.source` and
+`setup.step.machine` in one transaction, written only by the operation that
+holds the machine step. Step completion serializes as `done` (§14.3).
+
+The install bundle leaves step 6 unbound, and `POST /api/install/setup/machine`
+answers 503. The microVM runtime's layer builder runs the root toolchain setup
+above with `packages` from `.smithers/machine.json` and the PostgreSQL pin from
+`.smithers/target-index.json` at `main`. T-INS-06 R4 keeps that path dark until
+`TestRootLayerInputsValidatedBeforeUse` passes through production setup-machine
+dispatch (T-MCH-10). Only a composition that injects `Options.MachineImages`
+for a runtime without its own builder binds the step; the install bundle
+cannot set it.

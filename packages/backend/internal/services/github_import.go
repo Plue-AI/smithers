@@ -1960,10 +1960,12 @@ func (s *GitHubImportService) bookmarkExists(ctx context.Context, owner, repo, n
 // createBoundWorkspace starts the imported bookmark's workspace. When the
 // user's sandbox allowance is full, the repository is still imported: the
 // result carries only the bookmark (no ID) and the workspace starts when the
-// user opens it, where the same allowance refusal is reported.
+// user opens it, where the same allowance refusal is reported. Without a
+// provisioner (the self-hosted install, whose machines start per branch) the
+// import ends when the mirror holds the bookmark: Source ready (spec §8.6.3).
 func (s *GitHubImportService) createBoundWorkspace(ctx context.Context, userID int64, repository db.Repository, owner, repo, bookmark string) (WorkspaceResponse, error) {
 	if s.workspaces == nil {
-		return WorkspaceResponse{}, pkgerrors.Internal("workspace provisioner unavailable")
+		return WorkspaceResponse{TargetBookmark: bookmark}, nil
 	}
 	workspace, err := s.workspaces.CreateWorkspaceAsync(ctx, CreateWorkspaceInput{
 		RepositoryID:   repository.ID,

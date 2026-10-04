@@ -10,8 +10,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -31,10 +33,12 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/sandbox/sandboxfake"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -130,7 +134,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	logs := &lockedBuffer{}
 	stdout := &lockedBuffer{}
 	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, ComputeProvider: sandboxfake.New(), ChatHost: host, FlowHostProductAPIURL: origin, GitHubImportGitRunner: func(ctx context.Context, env []string, args ...string) (string, error) {
+		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo")}}, ComputeProvider: sandboxfake.New(), ChatHost: host, FlowHostProductAPIURL: origin, GitHubImportGitRunner: func(ctx context.Context, env []string, args ...string) (string, error) {
 			args = append([]string(nil), args...)
 			env = append([]string(nil), env...)
 			if len(args) > 2 && args[0] == "clone" {
@@ -220,7 +224,9 @@ func TestJ1Rehearsal(t *testing.T) {
 		return data, nil
 	}
 	waitStep := func(id string) error {
-		deadline := time.Now().Add(5 * time.Second)
+		// Steps finish in background workers; Source waits out the durable
+		// importer's clone of main.
+		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
 			data, err := expect("GET", "/api/install", "", 200)
 			if err != nil {
@@ -470,7 +476,31 @@ func TestJ1Rehearsal(t *testing.T) {
 		return
 	}
 	var number int64
-	if !step("First TODO", "POST /api/todos", "202 accepted; positive n; exact app place body", "T-STK-01", func() error {
+	if !step("First TODO", "GET /api/repos/{o}/{r}/mythical; POST /api/todos", "stack active; 202 accepted; positive n; exact app place body", "T-STK-01", func() error {
+		// Source ready asked for the stack and did not wait for it (§8.6.3); the
+		// stack worker activates it, and a TODO is accepted only then.
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			data, err := expect("GET", "/api/repos/rehearsal-owner/app/mythical", "", 200)
+			if err != nil {
+				return err
+			}
+			var stack struct {
+				State     string `json:"state"`
+				Reason    string `json:"reason"`
+				LastError string `json:"lastError"`
+			}
+			if err = json.Unmarshal(data, &stack); err != nil {
+				return err
+			}
+			if stack.State == "active" {
+				break
+			}
+			if stack.State == "frozen" || !time.Now().Before(deadline) {
+				return fmt.Errorf("stack not active: state=%s reason=%q last_error=%q", stack.State, stack.Reason, stack.LastError)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		data, err := expect("POST", "/api/todos", `{"title":"First TODO","prompt":"Add a greeting to JOURNEY.md","place":{"mode":"append"}}`, 202)
 		if err != nil {
 			return err
@@ -654,3 +684,41 @@ func TestJ1Rehearsal(t *testing.T) {
 }
 
 func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
+
+// trustedProcessImages is the machine image adapter for the trusted-process
+// runtime the rehearsal composes. Its machines run on the host toolchain, so it
+// can provide only the base image: it reads main's recipe through the mirror
+// and refuses one that needs a layer (a target index, image additions or a
+// detected toolchain). "6 machine ready" therefore proves setup admission,
+// persistence and fencing, not an image build; the install bundle leaves step
+// 6 unbound until R4 passes (installMachineImages).
+type trustedProcessImages struct{ sources workspaceapi.SourceFiles }
+
+func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
+	if spec.Source == nil || spec.Source.Repository == "" || len(spec.Source.Revision) != 40 {
+		return microsandbox.Layer{}, fmt.Errorf("a machine image needs main's resolved revision")
+	}
+	read := func(path string) ([]byte, bool, error) {
+		data, err := images.sources.ReadSourceFile(ctx, *spec.Source, path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return data, err == nil, err
+	}
+	_, indexed, err := read(".smithers/target-index.json")
+	if err != nil {
+		return microsandbox.Layer{}, err
+	}
+	machine, err := microsandbox.ReadMachineJSON(read)
+	if err != nil {
+		return microsandbox.Layer{}, err
+	}
+	recipe, err := microsandbox.DetectRecipe(read)
+	if err != nil {
+		return microsandbox.Layer{}, err
+	}
+	if indexed || len(machine.Packages) > 0 || len(recipe.Tools) > 0 {
+		return microsandbox.Layer{}, fmt.Errorf("main's recipe needs an image layer; the trusted-process runtime provides only the base image")
+	}
+	return microsandbox.Layer{}, nil
+}

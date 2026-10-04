@@ -102,11 +102,33 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 	return runWithOptions(ctx, args, stdout, stderr, runOptions{Options: adapters, externalHTTP: true, ready: ready})
 }
 
+// installMachineImages returns setup step 6's image builder: only an adapter a
+// composition injects for a workspace runtime without one. The bundled microVM
+// runtime's own layer builder is never bound: it feeds root preparation from
+// main (T-INS-06 R4), which stays dark until TestRootLayerInputsValidatedBeforeUse
+// passes (T-MCH-10), so the install bundle answers 503 for step 6. An adapter
+// beside a runtime that builds images is refused, because it would report
+// Machine ready for an image that runtime never built.
+func installMachineImages(options Options) (services.InstallMachineLayerBuilder, error) {
+	if options.MachineImages == nil {
+		return nil, nil
+	}
+	if _, builds := options.Workspace.(services.InstallMachineLayerBuilder); builds {
+		return nil, errors.New("machine images belong to the workspace runtime")
+	}
+	return options.MachineImages, nil
+}
+
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
 	HostProfile *microsandbox.HostProfile
 	// GitHubImportGitRunner reuses the importer transport seam for integration fixtures.
 	GitHubImportGitRunner func(context.Context, []string, ...string) (string, error)
+	// MachineImages builds main's first machine image (setup step 6) for a
+	// workspace runtime that has no layer builder of its own: the trusted-process
+	// runtime that only tests compose. app.Config cannot set it, so the install
+	// bundle leaves step 6 unbound (installMachineImages).
+	MachineImages services.InstallMachineLayerBuilder
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
 	EnvGitHubAppCredentials bool
 	CanaryRuns              ports.CanaryRunSource
@@ -184,6 +206,10 @@ type runOptions struct {
 func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer, options runOptions) (runErr error) {
 	if !options.Duties.valid() {
 		return fmt.Errorf("unsupported backend duties %q", options.Duties)
+	}
+	machineImages, err := installMachineImages(options.Options)
+	if err != nil {
+		return err
 	}
 	// `smithers-backend migrate [apply|status]` is a server-free schema
 	// migration path: it applies the embedded product baseline and exits (non-zero on
@@ -862,7 +888,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithGitHubImportMetrics(smithersMetrics),
 		services.WithGitHubImportBillingPolicy(billingPolicy),
 		services.WithGitHubImportStorageSet(activeStorageSetID),
-		services.WithGitHubImportWorkspaceProvisioner(workspaceService),
 		services.WithGitHubImportTokenRefresher(authService),
 		services.WithGitHubImportInstallationTokens(repoConnectionService),
 		services.WithGitHubImportReadAccess(gitHubUserReposService),
@@ -870,7 +895,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithGitHubImportProvisioningStore(options.RepositoryProvisioning),
 	)
 	gitHubSyncedRepoService.SetMirrorer(gitHubImportService)
-	if !options.topology.hosted() {
+	if options.topology.hosted() {
+		services.WithGitHubImportWorkspaceProvisioner(workspaceService)(gitHubImportService)
+	} else {
+		// The install's import ends when the mirror holds the branch: machines
+		// start per branch, and Machine ready is setup step 6 (spec §8.6.3).
 		services.WithGitHubImportProductProvisioning(pool)(gitHubImportService)
 	}
 	if !options.topology.hosted() || provisioningEnforced {
@@ -1415,7 +1444,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if config.IsSingleOwner(cfg.Auth) {
 		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
 		installSetup.RepositoryAccess = gitHubUserReposService
-		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, gitHubImportService, authService.Members)
+		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, gitHubImportService, authService.Members, mythicalService)
+		if machineImages != nil {
+			installSetup.BindMachineProvider(repositorySourceFiles{client: repoHostClient}, machineImages)
+		}
 		installSetup.Capacity = installCapacity
 		if err := installSetup.Initialize(ctx); err != nil {
 			return fmt.Errorf("initialize install setup: %w", err)
