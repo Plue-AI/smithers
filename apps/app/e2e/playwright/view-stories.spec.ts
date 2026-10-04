@@ -678,3 +678,37 @@ test("DebugApiView hostile body and failure render as text", async ({ page }) =>
   await expect(page.locator('[data-story] img, [data-story] script')).toHaveCount(0)
   expect(await page.evaluate(() => Reflect.get(window, "__pwned"))).toBeUndefined()
 })
+
+test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page }) => {
+  const cases = [
+    ["awake", "Sleep", "box.suspend", { branch: "todo/12" }],
+    ["asleep", "Wake", "box.resume", { branch: "todo/12" }],
+    ["failed", "Retry", "box.resume", { branch: "todo/12" }],
+    ["rebase_pending", "Rebase now", "branch.rebase-now", { branch: "todo/12" }],
+    ["scratch_conflict", "Resolve", "terminal", { branch: "scratch/repro" }],
+    ["scratch_ready", "Done", "branch.rebase", { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" }],
+    ["moved_off", "Return to T15", "todo.return-to-item", { n: "15" }],
+    ["moved_off", "Keep for now", "todo.keep-moved", { n: "15" }],
+    ["active", "Diff", "diff", { branch: "todo/12", burst: "burst-6" }],
+    ["scratch_item", "Add to stack", "branch.add-to-stack", { branch: "scratch/repro", text: "Keyboard TODO" }],
+  ] as const
+  for (const [story, label, tag, args] of cases) {
+    await page.goto(`/view-stories.html?story=BranchView/branch-${story}-activity`)
+    await page.evaluate(() => {
+      (window as unknown as { branchCalls: unknown[] }).branchCalls = []
+      window.addEventListener("story-callback", event => (window as unknown as { branchCalls: unknown[] }).branchCalls.push((event as CustomEvent).detail))
+    })
+    if (label === "Add to stack") await page.getByRole("textbox", { name: "TODO", exact: true }).fill("Keyboard TODO")
+    const button = page.getByRole("button", { name: label, exact: true })
+    await expect(button).toHaveAttribute("data-flow", tag)
+    await button.focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { branchCalls: unknown[] }).branchCalls)).toEqual([
+      { kind: "action", value: { tag, args } },
+    ])
+  }
+  await page.goto("/view-stories.html?story=BranchView/branch-scratch_conflict-activity")
+  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeDisabled()
+  await page.goto("/view-stories.html?story=BranchView/branch-waking-activity")
+  await expect(page.locator("button[data-flow]")).toHaveCount(0)
+})

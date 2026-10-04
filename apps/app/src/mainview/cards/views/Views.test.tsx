@@ -1771,3 +1771,63 @@ describe("DebugApiView", () => {
     } finally { await close() }
   })
 })
+
+// T-UI-15: literal projection oracles supplement the reused stories.
+for (const [key, text] of [
+  ["waking", "Waking"], ["waiting", "Waiting for a machine · #2"], ["closed", "Closed"],
+  ["rebasing", "Rebasing… onto T8"], ["scratch_main", "Forked from main"],
+  ["scratch_item", "Forked from T12 Card model contracts"], ["scratch_branch", "Forked from scratch/repro"],
+] as const) test(`Branch ${key} literal state`, async () => {
+  const item = await mounted({ name: key, expect: [], render: callbacks => <BranchView {...branchFixtures[key]} {...callbacks} /> })
+  try {
+    expect(item.host.textContent).toContain(text)
+    expect(item.onAction).toHaveBeenCalledTimes(0)
+    expect(item.onView).toHaveBeenCalledTimes(0)
+  } finally { await item.close() }
+})
+
+test("Branch hostile display data opens no connection or mount callback", async () => {
+  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async () => { throw new Error("View fetched") }, { preconnect: fetch.preconnect }))
+  const socketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!
+  const socketSpy = mock(() => { throw new Error("View connected") })
+  Object.defineProperty(globalThis, "WebSocket", { configurable: true, value: socketSpy })
+  const hostile = '<script>alert("branch")</script><img src=x onerror=alert(1)>'
+  const base = branchFixtures.active
+  const item = await mounted({ name: "hostile", expect: [], render: callbacks => <BranchView {...base} {...callbacks}
+    model={{ ...base.model, name: hostile, presence: [{ ...base.model.presence[0]!, where: { kind: "file", path: hostile } }],
+      activity: [{ ...base.model.activity[0]!, text: hostile }], changed_files: [{ path: hostile, change: "added", authors: [] }] }} /> })
+  try {
+    expect(item.host.textContent).toContain(hostile)
+    expect(item.host.querySelectorAll("script, img[src=x]")).toHaveLength(0)
+    expect(fetchSpy).toHaveBeenCalledTimes(0)
+    expect(socketSpy).toHaveBeenCalledTimes(0)
+    expect(item.onAction).toHaveBeenCalledTimes(0)
+    expect(item.onView).toHaveBeenCalledTimes(0)
+  } finally { await item.close(); fetchSpy.mockRestore(); Object.defineProperty(globalThis, "WebSocket", socketDescriptor) }
+})
+
+test("Branch disabled location and watcher gestures refuse activation", async () => {
+  const item = await mounted({ name: "disabled", expect: [], render: callbacks => <BranchView {...branchFixtures.active} {...callbacks}
+    gestures={{ file: { tag: "file", label: "Open", disabled: { reason: "Access refused" } },
+      terminal: { tag: "terminal.watch", label: "Watch", disabled: { reason: "Access refused" } } }} /> })
+  try {
+    for (const button of item.host.querySelectorAll<HTMLButtonElement>(".branch-presence button")) {
+      expect(button.disabled).toBe(true)
+      await act(async () => button.click())
+    }
+    expect(item.onAction).toHaveBeenCalledTimes(0)
+  } finally { await item.close() }
+})
+
+for (const key of ["awake", "asleep", "waking", "waiting", "closed", "failed", "moved_off", "rebase_pending", "scratch_conflict"] as const)
+  test(`Branch ${key} copy blocks use product words`, async () => {
+    const item = await mounted({ name: key, expect: [], render: callbacks => <BranchView {...branchFixtures[key]} {...callbacks} /> })
+    try {
+      const banned = /\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythicals?|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i
+      for (const block of item.host.querySelectorAll("h2, button, label, .branch-machine, .branch-notice > span, .branch-notice > b, .branch-item > span")) {
+        expect(block.textContent).not.toMatch(banned)
+        expect(block.textContent!.trim().split(/\s+/).length).toBeLessThanOrEqual(12)
+        expect((block.textContent!.match(/[!?]|\.(?:\s|$)/g) ?? []).length).toBeLessThanOrEqual(1)
+      }
+    } finally { await item.close() }
+  })

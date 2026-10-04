@@ -596,15 +596,17 @@ Watchers and frozen terminals have an inert, read-only emulator. They never rece
 
 ### T-UI-15 Branch (S2)
 
-`BranchViewProps = CardProps<BranchCard>` from `@smthrs/rpc/BranchCard`.
-The existing Branch boundary decoder and fixtures are retained. §14.3 defines
+`BranchViewProps = CardProps<BranchCard, {}, "item" | "file" | "terminal">` from `@smthrs/rpc/BranchCard`.
+BranchCard is a TypeScript props contract; the existing stories are retained.
+T-APP-10 owns HTTP/storage decoding. §14.3 defines
 machine, item/scratch, rebase, moved-off, presence, terminals, activity,
 changed_files and ssh_line. `view.tab` selects activity, files or terminals.
 Buttons render supplied actions in order; activity actions retain burst ids.
 Scratch Done carries conflict_change and onto_revision in its supplied args
 (§8.5.2b). Sleep/Wake/Retry use the retained box.suspend/box.resume controls.
 Copy SSH uses the shared clipboard helper. Presence has no local state.
-BranchView is pending T-APP-10/T-COL-05/T-REL-02 and remains unmounted.
+The existing DesignWorld mount keeps its seeded data. Live integration remains
+pending T-APP-10/T-COL-05; this View adds no subscriptions or execution.
 Named gestures are `item`, `file` and `terminal`. Each optional supplied action
 opens the TODO, file (path and optional line) or terminal (id); bound args are
 retained. No gesture means plain text. Renamed files open renamed_to.

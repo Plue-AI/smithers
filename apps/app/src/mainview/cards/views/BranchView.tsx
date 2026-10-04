@@ -40,7 +40,7 @@ function BranchLink({
         className="branch-link"
         data-flow={action.tag}
         disabled={!!action.disabled}
-        onClick={() => onAction(action.tag, { ...action.args, ...input })}
+        onClick={() => { if (!action.disabled) onAction(action.tag, { ...action.args, ...input }) }}
       >
         {children}
       </button>
