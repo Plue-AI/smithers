@@ -17,9 +17,6 @@ export const namespace: Namespace = { id: "history", label: "History", summary: 
 
 const RepoOptional = Schema.optional(Schema.String)
 
-/** Retrying a blocked, rejected or declined issue is a person's decision (the retry route requires a person). */
-export const HISTORY_RETRY_USER_ONLY_REASON = "retrying a blocked, rejected or declined issue is a person's decision"
-
 /** Landing a TODO is a maintainer's own authorization of its merge (the land route requires the person). */
 export const HISTORY_LAND_USER_ONLY_REASON = "landing a TODO is a maintainer's own authorization of its merge"
 
@@ -97,18 +94,6 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       fields: { title: { label: "TODO" }, body: { label: "Details", kind: "textarea" }, repo: { hidden: true } }
     },
     handler: ({ title, body, repo }) => actions.fileTodo(title, body, repo)
-  }),
-  flow({
-    name: "history.retry",
-    summary: "Give a blocked, rejected or declined issue a fresh set of attempts",
-    userOnly: true,
-    userOnlyReason: HISTORY_RETRY_USER_ONLY_REASON,
-    runtime: ["cloud"],
-    args: "<item> [owner/repo]",
-    requires: ["signed-in"],
-    confirm: "retry this issue",
-    input: Schema.Struct({ id: Schema.String, repo: RepoOptional }),
-    handler: ({ id, repo }) => actions.retryStackItem(id, repo)
   }),
   /*
    * Land: the stack merges a proposed TODO's pull request as for a

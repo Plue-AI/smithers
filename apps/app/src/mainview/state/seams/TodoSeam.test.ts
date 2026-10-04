@@ -97,7 +97,7 @@ describe("TodoSeam — admission and live completion", () => {
       await h.seam.applyTodoProjection(12, { ...fixtures.failed.model, run: { id: "run-41", attempt: 1, indicators: [] }, evidence: fixtures.failed.model.evidence.slice(0, 1) })
       expect(await h.seam.controlTodo(12, "retry", "Fix the schema")).toEqual({ value: "Requested" })
       await waitFor(() => init !== undefined)
-      expect(JSON.parse(String(init!.body))).toEqual({ steer: "Fix the schema" })
+      expect(JSON.parse(String(init!.body))).toEqual({ op: "retry", steer: "Fix the schema" })
       expect(h.todo().payload.model?.run?.attempt).toBe(1)
       expect(h.outcomes).toEqual([])
       const key = h.todo().payload.requests[0]!.key
@@ -250,3 +250,31 @@ test("TODO HTTP and live projections normalize historical delegated authors", as
     expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Ben")
   } finally { h.close() }
 })
+
+for (const operation of ["stop", "resume", "retry", "retry-current-flow", "drop"] as const) {
+  test(`${operation} uses the numbered control route and acknowledges an unresolved request once`, async () => {
+    const admission = deferred<Response>()
+    const calls: { url: string; init?: RequestInit }[] = []
+    const h = await harness((url, init) => { calls.push({ url, init }); return admission.promise })
+    try {
+      await h.seam.applyTodoProjection(12, fixtures.failed.model)
+      const steer = operation.startsWith("retry") ? " Keep\nthis steer " : undefined
+      expect(await h.seam.controlTodo(12, operation, steer)).toEqual({ value: "Requested" })
+      expect(await h.seam.controlTodo(12, operation, steer)).toEqual({ value: "Requested" })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+      expect(calls[0]!.init?.method).toBe("POST")
+      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: operation, ...(steer ? { steer } : {}) })
+      const key = h.todo().payload.requests[0]!.key
+      expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(key)
+      expect(h.todo().payload.requests).toHaveLength(1)
+      expect(h.todo().payload.model).toEqual(fixtures.failed.model)
+      expect(h.outcomes).toEqual([])
+      admission.resolve(json({ code: "todo_control_unavailable", class: "infra", message: "TODO controls are unavailable" }, 503))
+      await waitFor(() => h.todo().payload.requests[0]?.state === "failed")
+      expect(h.outcomes).toHaveLength(1)
+      expect(h.outcomes[0]).toMatchObject({ status: "failed", detail: "TODO controls are unavailable Not your fault." })
+      expect(h.todo().payload.model).toEqual(fixtures.failed.model)
+    } finally { h.close() }
+  })
+}

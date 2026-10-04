@@ -59,6 +59,9 @@ export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "todo.retry", summary: "Retry a failed TODO", args: "<Tn>",
     input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: todoGrammar("text"), form: form("Retry"),
     handler: ({ n, text }) => actions.controlTodo(n, "retry", text) }),
+  flow({ name: "todo.retry-current-flow", summary: "Retry with the current flow", hidden: true, discloseToAgent: true,
+    input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: todoGrammar("text"), form: form("Retry"),
+    handler: ({ n, text }) => actions.controlTodo(n, "retry-current-flow", text) }),
   flow({ name: "todo.drop", summary: "Abandon an unmerged TODO", args: "<Tn>", input: Target,
     grammar: todoGrammar(), form: form("Drop"), confirm: "drop this TODO",
     handler: ({ n }) => actions.controlTodo(n, "drop") })

@@ -1271,6 +1271,25 @@ export interface PutApiGatewaysHostRepositoryJobsJobTrialsRequestInput {
 export const putApiGatewaysHostRepositoryJobsJobTrialsRequest = (transport: Transport, input: PutApiGatewaysHostRepositoryJobsJobTrialsRequestInput): Promise<PutApiGatewaysHostRepositoryJobsJobTrialsRequestResponse> =>
   transport.request("PUT", `/api/gateways/${segment(input.path.hostID)}/repository-jobs/${segment(input.path.job)}/trials/${segment(input.path.requestID)}`, input.body) as Promise<PutApiGatewaysHostRepositoryJobsJobTrialsRequestResponse>
 
+export type GetApiGithubSyncResponse = {
+  state: "fresh" | "stale" | "refused" | "limited"
+  last_success_at: string
+  cause?: "permission" | "not_installed"
+  retry_at?: string
+}
+
+/** GET /api/github/sync: Read GitHub sync health */
+export const getApiGithubSync = (transport: Transport): Promise<GetApiGithubSyncResponse> =>
+  transport.request("GET", `/api/github/sync`) as Promise<GetApiGithubSyncResponse>
+
+export type PostApiGithubSyncResponse = {
+  state: "accepted"
+}
+
+/** POST /api/github/sync: Retry GitHub sync through github.retry */
+export const postApiGithubSync = (transport: Transport): Promise<PostApiGithubSyncResponse> =>
+  transport.request("POST", `/api/github/sync`) as Promise<PostApiGithubSyncResponse>
+
 export type GetApiGithubImportIdResponse = MultiGitHubImportJob
 
 export interface GetApiGithubImportIdInput {
@@ -4590,19 +4609,6 @@ export interface PostApiReposOwnerRepoMythicalItemsIdLandInput {
 /** POST /api/repos/{owner}/{repo}/mythical/items/{id}/land */
 export const postApiReposOwnerRepoMythicalItemsIdLand = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdLandInput): Promise<PostApiReposOwnerRepoMythicalItemsIdLandResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/land`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdLandResponse>
-
-export type PostApiReposOwnerRepoMythicalItemsIdRetryBody = AnyJSON
-
-export type PostApiReposOwnerRepoMythicalItemsIdRetryResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoMythicalItemsIdRetryInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-  readonly body?: PostApiReposOwnerRepoMythicalItemsIdRetryBody
-}
-
-/** POST /api/repos/{owner}/{repo}/mythical/items/{id}/retry */
-export const postApiReposOwnerRepoMythicalItemsIdRetry = (transport: Transport, input: PostApiReposOwnerRepoMythicalItemsIdRetryInput): Promise<PostApiReposOwnerRepoMythicalItemsIdRetryResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mythical/items/${segment(input.path.id)}/retry`, input.body) as Promise<PostApiReposOwnerRepoMythicalItemsIdRetryResponse>
 
 export type PostApiReposOwnerRepoMythicalTodosBody = {
   title: string

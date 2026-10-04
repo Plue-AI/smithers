@@ -241,7 +241,7 @@ func TestMythicalFailureReasonsReachTheAPI(t *testing.T) {
 
 	// A person retries it; the lanes are back and the model provider fails.
 	o.service.SetOrchestration(o.github, o.launcher, o.lanes)
-	retried, err := o.service.RetryItem(ctx, o.repoID, uuidString(o.item(331).ID))
+	retried, err := o.service.retryItem(ctx, o.repoID, uuidString(o.item(331).ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", retried.State)
 	assert.Nil(t, retried.Failure)

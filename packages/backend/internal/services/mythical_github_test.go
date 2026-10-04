@@ -384,3 +384,21 @@ func TestMythicalGitHubOnMainComparesTheBookmark(t *testing.T) {
 	require.Error(t, err, "an unanswered compare is an error, never on main")
 	assert.Contains(t, github.calls[0], " read-token ", "read with the stack's read token")
 }
+
+func TestMythicalGitHubClosePull(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusForbidden, http.StatusNotFound, http.StatusInternalServerError} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			server := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+				"PATCH /repos/o/r/pulls/12": answer(status, map[string]any{"state": "closed"}),
+			}}
+			api := server.api(t)
+			err := api.ClosePull(context.Background(), stackRepo, 12)
+			if status == http.StatusOK {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			require.Equal(t, []string{`PATCH /repos/o/r/pulls/12 pull_requests=write {"state":"closed"}`}, server.calls)
+		})
+	}
+}

@@ -160,7 +160,7 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 // stays, so an edit after approval needs a new label. Only an item that has
 // not started takes new text; closing cancels an item that has not started.
 // A planner's decline stays until the issue's title or body changes to
-// approved text, or a person retries it (RetryItem). applied is the label
+// approved text, or a person retries it (retryItem). applied is the label
 // this event applied (zero for a sweep).
 func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
 	q := s.queries()
@@ -2624,7 +2624,10 @@ func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64
 	return nil
 }
 
-// RetryItem gives a blocked, rejected or declined item a fresh set of
+// retryItem retains the legacy CAS for the hidden maintainer machinery. It
+// has no production caller; ControlTodo is the install boundary and refuses
+// until durable attempts and validated machine dispatch are composed.
+// A blocked, rejected or declined item gets a fresh set of
 // attempts. A rejected item's pull request was closed by its owner, and a
 // declined item was declined by the planner: retrying either is a person's
 // decision (middleware.RequirePerson). A run may retry a blocked item. A
@@ -2632,7 +2635,7 @@ func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64
 // proposed TODO held on its review (mythicalReviewHeld) is retried by a
 // person too: the review of its current head runs again, with its bounds
 // lifted, and the pull request stays as it is.
-func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, itemID string) (MythicalItemView, error) {
+func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, itemID string) (MythicalItemView, error) {
 	id, err := uuid.Parse(itemID)
 	if err != nil {
 		return MythicalItemView{}, pkgerrors.BadRequest("invalid item id")

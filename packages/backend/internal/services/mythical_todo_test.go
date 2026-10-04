@@ -337,7 +337,7 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	assert.NotContains(t, o.github.comments[0], "SMITHERS_", "the issue names no operator setting")
 
 	// A run cannot lift the bound; a person can, and a maintainer's todo can.
-	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
+	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
 	o.wake()
@@ -1004,7 +1004,7 @@ func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 	o.project(o.launcher.last("coding/request"), jobs.StateCancelled, "run-71", "")
 	o.wake()
 	require.Equal(t, "blocked", o.item(71).State)
-	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(71).ID))
+	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(71).ID))
 	requireRunCredentialRefused(t, err)
 
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 72, Title: "Hard", State: "open", TextByMaintainer: true,
@@ -1384,7 +1384,7 @@ func TestMythicalPersonsRetryLiftsTheBound(t *testing.T) {
 	item.State, item.Checks = "blocked", checks.encode()
 	_, err := o.service.queries().SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
-	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	_, err = o.service.retryItem(ctx, o.repoID, uuidString(item.ID))
 	require.NoError(t, err)
 	o.wake()
 	assert.Equal(t, "running", o.item(361).State, "the retry is not re-stopped at the bound")
@@ -1598,7 +1598,7 @@ func TestMythicalRetryKeepsAnOpenPullRequest(t *testing.T) {
 	item.State, item.Checks = "blocked", stopped.encode()
 	_, err := o.service.queries().SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
-	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	view, err := o.service.retryItem(ctx, o.repoID, uuidString(item.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
 	retried := o.item(392)
@@ -1701,7 +1701,7 @@ func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
 	require.NoError(t, err)
 
 	// A person's Retry.
-	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(saved.ID))
+	_, err = o.service.retryItem(ctx, o.repoID, uuidString(saved.ID))
 	require.NoError(t, err)
 	retried := o.item(421)
 	assert.Zero(t, mythicalChecksOf(retried).GitHubOutages)
@@ -1806,9 +1806,9 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 			hold := fmt.Sprintf("#%d Smithers is holding this TODO: %s.", number, tc.reason)
 			assert.Equal(t, []string{hold}, withoutRunLines(o.github.comments))
 
-			_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(held.ID))
+			_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(held.ID))
 			requireRunCredentialRefused(t, err)
-			view, err := o.service.RetryItem(ctx, o.repoID, uuidString(held.ID))
+			view, err := o.service.retryItem(ctx, o.repoID, uuidString(held.ID))
 			require.NoError(t, err)
 			assert.Equal(t, "proposed", view.State)
 			assert.Empty(t, view.Reason)
@@ -1839,7 +1839,7 @@ func TestMythicalPersonRetriesAReviewParkedByOutages(t *testing.T) {
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(820, "eight-twenty.md")
 	running := o.item(820)
-	_, err := o.service.RetryItem(ctx, o.repoID, uuidString(running.ID))
+	_, err := o.service.retryItem(ctx, o.repoID, uuidString(running.ID))
 	requireMythicalConflict(t, err)
 	assert.False(t, mythicalItemView(running).ReviewHeld)
 
@@ -1857,7 +1857,7 @@ func TestMythicalPersonRetriesAReviewParkedByOutages(t *testing.T) {
 	require.Equal(t, "the review of this head could not run after repeated tries; not the TODO's fault", parked.Reason)
 	require.True(t, mythicalItemView(parked).ReviewHeld)
 	reviews := len(o.launcher.byFlow(mythicalReviewFlow))
-	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(parked.ID))
+	_, err = o.service.retryItem(ctx, o.repoID, uuidString(parked.ID))
 	require.NoError(t, err)
 	assert.Zero(t, mythicalChecksOf(o.item(820)).Outages, "the outage allowance counts again from the retry")
 	o.wake()
@@ -1871,7 +1871,7 @@ func TestMythicalPersonRetriesAReviewParkedByOutages(t *testing.T) {
 	moved.Checks = checks.encode()
 	_, err = o.service.queries().SaveMythicalItem(ctx, moved)
 	require.NoError(t, err)
-	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(moved.ID))
+	_, err = o.service.retryItem(ctx, o.repoID, uuidString(moved.ID))
 	requireMythicalConflict(t, err)
 }
 

@@ -159,7 +159,7 @@ test("lane notices start after the debounce, follow rebases and conflicts, and s
   fake.hint(2)
   await waitFor(() => toast(store, one)?.status === "ok" && toast(store, two)?.status === "failed")
   expect(toast(store, one)).toMatchObject({ title: "#1 Issue i1", detail: "PR #40" })
-  expect(toast(store, two)).toMatchObject({ detail: "blocked · 3 attempts conflicted", action: { flow: "history.retry", args: `i2 ${REPO}`, label: "Retry" } })
+  expect(toast(store, two)).toMatchObject({ detail: "blocked · 3 attempts conflicted" })
 })
 
 test("an item that leaves its lane inside the debounce never flashes a notice", async () => {
@@ -200,20 +200,11 @@ test("backfill and lane count answer before their requests do, deduplicate, and 
   expect(fake.writes.filter(write => write.method === "PUT")).toHaveLength(1)
 })
 
-test("a refused act stays visible on the card and its Retry succeeds", async () => {
-  const { store, controller, fake } = await setup()
-  await controller.commands.run("history.show", REPO)
-  fake.handlers.set(`POST ${BASE}/items/i5/retry`, async () => Response.json({ message: "Only a repository writer can retry." }, { status: 403 }))
-  expect(await controller.commands.run("history.retry", `i5 ${REPO}`)).toMatchObject({ status: "executed", value: "Requested" })
-  await waitFor(() => toast(store, `stack.retry.${REPO}#i5`)?.status === "failed")
-  await waitFor(() => stackCard(store)?.payload.failure?.act === "retry")
-  expect(stackCard(store)?.payload.failure).toMatchObject({ act: "retry", args: `i5 ${REPO}` })
-
-  fake.handlers.set(`POST ${BASE}/items/i5/retry`, async () => Response.json(item("i5", "queued"), { status: 202 }))
-  const failure = stackCard(store)!.payload.failure!
-  expect(await controller.commands.run("history.retry", failure.args)).toMatchObject({ status: "executed" })
-  await waitFor(() => stackCard(store)?.payload.failure === null)
-  await waitFor(() => toast(store, `stack.retry.${REPO}#i5`)?.status !== "running")
+test("the historical retry door refuses without writing", async () => {
+  const { controller, fake } = await setup()
+  expect(await controller.retryStackItem("i5", REPO)).toBe("Use Retry on the TODO.")
+  expect(await controller.commands.run("history.retry", `i5 ${REPO}`)).not.toMatchObject({ status: "executed" })
+  expect(fake.writes).toEqual([])
 })
 
 test("Create (history.bootstrap) asks the server and its notice runs until the stack reads active (#1760)", async () => {
@@ -640,7 +631,7 @@ test("a TODO the factory stops settles failed with the stop's words and Retry", 
   fake.set(snapshot(2, [item("i5", "blocked", { reason: "out of attempts" })]))
   fake.hint(2)
   await waitFor(() => todoToasts(store)[0]?.status === "failed")
-  expect(todoToasts(store)[0]).toMatchObject({ detail: "blocked · out of attempts", action: { flow: "history.retry", args: `i5 ${REPO}`, label: "Retry" } })
+  expect(todoToasts(store)[0]).toMatchObject({ detail: "blocked · out of attempts" })
   // The card's issue list, not a failure row, keeps the stopped TODO.
   expect(stackCard(store)?.payload.failure).toBeNull()
   expect(stackCard(store)?.payload.todos).toBeUndefined()

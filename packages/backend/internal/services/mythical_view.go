@@ -92,7 +92,7 @@ type MythicalItemView struct {
 	// HumanEdited is whether a person took over one of the item's runs.
 	HumanEdited bool `json:"humanEdited,omitempty"`
 	// ReviewHeld is whether a proposed TODO waits on a review of its current
-	// head that did not finish; a person may retry it (RetryItem).
+	// head that did not finish; a person may retry it (retryItem).
 	ReviewHeld bool `json:"reviewHeld,omitempty"`
 	// Request is the request id of the Smithers filing that made this TODO.
 	Request string `json:"request,omitempty"`

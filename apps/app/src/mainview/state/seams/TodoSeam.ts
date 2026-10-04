@@ -125,14 +125,15 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const row = ctx.store.collections.cards.get(cardId)
     const title = row?.title ?? "TODO"
     showNotice(request, title)
+    const control = ["stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
     const route = request.operation === "create" ? "/api/todos"
-      : `/api/todos/${request.n}${request.operation === "amend" ? "" : `/${request.operation}`}`
+      : `/api/todos/${request.n}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
       let response: Response
       try {
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
-          headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(request.body)
+          headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(control ? { op: request.operation, ...request.body } : request.body)
         })
       } catch (error) {
         if (current(login, revision)) await fail(unreachableSentence("TODOs", error))
@@ -319,7 +320,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       return request(n, "answer", { answer, wait: id })
     },
     steerTodo: (n: number, text: string) => request(n, "steer", { text }),
-    controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "drop", text?: string) => request(n, operation, text ? { steer: text } : {}),
+    controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string) => request(n, operation, text ? { steer: text } : {}),
     disposeTodos: stop }
 }
 export type TodoSeam = ReturnType<typeof createTodoSeam>

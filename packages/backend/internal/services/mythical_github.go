@@ -272,6 +272,25 @@ func (g *mythicalGitHubAPI) Pull(ctx context.Context, gh mythicalGitHubRepo, num
 	return pull.pull(), nil
 }
 
+// ClosePull is the Drop write primitive. Its caller must first persist the
+// outbound intent and reconcile uncertain results through Pull (T-GH-09).
+// Never invoke it before the merge fence and retained final capture settle.
+func (g *mythicalGitHubAPI) ClosePull(ctx context.Context, gh mythicalGitHubRepo, number int64) error {
+	token, err := g.installationToken(ctx, gh, map[string]string{"pull_requests": "write"})
+	if err != nil {
+		return err
+	}
+	status, err := g.api.request(ctx, token, http.MethodPatch,
+		landingGitHubRepoPath(gh.Owner, gh.Name)+"/pulls/"+strconv.FormatInt(number, 10), map[string]string{"state": "closed"}, nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return landingGitHubStatusError(status, gh.Owner, gh.Name, "close pull requests")
+	}
+	return nil
+}
+
 func (g *mythicalGitHubAPI) FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error) {
 	found, err := g.api.Find(ctx, gh.Token, gh.Owner, gh.Name, branch)
 	if err != nil || found == nil {

@@ -3,7 +3,7 @@ package services_test
 // The coding factory loop driven from the terminal (#2785): a person files
 // a TODO with `smthrs history todo`, watches the factory take it with
 // `smthrs history watch`, reads its check receipts, sees it land or stop
-// with a typed reason, and resumes it with `smthrs history retry`.
+// with a typed reason. The historical retry route is no longer served.
 //
 // Every command is the real `smthrs` process from this checkout, talking
 // HTTP to the real mythical routes, auth and repository middleware, stack
@@ -207,7 +207,6 @@ func serveBackend(t *testing.T, factory *services.TerminalFactory) *httptest.Ser
 		r.With(readRepo...).Get("/mythical/events", handler.Events)
 		r.With(readRepo...).Get("/mythical", handler.GetStack)
 		r.With(readRepo...).Get("/mythical/items/{ref}", handler.GetItem)
-		r.With(writeRepo...).Post("/mythical/items/{id}/retry", handler.Retry)
 		r.With(writeRepo...).Post("/mythical/todos", handler.Todos)
 	})
 	server := httptest.NewServer(router)
@@ -328,27 +327,11 @@ func TestTerminalFactoryLoop(t *testing.T) {
 	assert.Equal(t, "blocked", blocked["state"])
 	assert.Equal(t, "stopped: user: flows/model/ModelError/authentication", blocked["reason"])
 
-	// 5. Retry: the person resumes it and it reaches its pull request.
+	// The removed legacy Retry route must not restart a stopped TODO.
 	out, code = term.run("history", "retry", "701")
-	require.Equal(t, 0, code, out)
-	assert.Contains(t, out, "#701 Add the header link · queued")
-	assert.Equal(t, "queued", term.item(701, "retried")["state"])
-	watch = term.start("history", "watch", "701")
-	watch.until(t, "#701 Add the header link · queued")
-	term.note("factory: a lane picks #701 up again")
-	factory.Wake()
-	watch.until(t, "#701 Add the header link · running")
-	term.note("factory: this time coding/request validates the change")
-	candidate = factory.Implement(701, "docs/header.md")
-	factory.Wake()
-	factory.Wake()
-	code = watch.exit(t)
-	term.record(watch, []string{"history", "watch", "701"}, code)
-	require.Equal(t, 0, code, watch.output())
-	assert.Contains(t, watch.output(), "#701 Add the header link · PR open · checks passed")
-	assert.Contains(t, watch.output(), fmt.Sprintf("✓ affected-lint %s · ✓ affected-test %s", candidate[:7], candidate[:7]))
-	assert.Equal(t, "proposed", term.item(701, "retried-proposed")["state"])
-	assert.Equal(t, 2, factory.Launches("coding/request")-1, "#701 ran twice, #700 once")
+	assert.NotEqual(t, 0, code, out)
+	assert.Equal(t, "blocked", term.item(701, "retry-refused")["state"])
+	assert.Equal(t, 2, factory.Launches("coding/request"), "no new run on the removed door")
 
 	// The history as the terminal shows it at the end.
 	out, code = term.run("history", "show")

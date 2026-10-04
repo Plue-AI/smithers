@@ -224,6 +224,7 @@ export const FLOW_NAMES = [
   "todo.stop",
   "todo.resume",
   "todo.retry",
+  "todo.retry-current-flow",
   "todo.drop",
   "wiki.save",
   "toast.dismiss",

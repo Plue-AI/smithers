@@ -26,7 +26,7 @@
  */
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
 import { MythicalItemSchema, mythicalRoute, MythicalStackSchema } from "@smthrs/rpc/Mythical"
-import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, retryable, stackCounts } from "@smthrs/rpc/StackView"
+import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, stackCounts } from "@smthrs/rpc/StackView"
 import { Data } from "effect"
 import { actorSharedState } from "../ActorBindings"
 import type { Card, Toast } from "../AppState"
@@ -219,8 +219,7 @@ export const createStackSeam = (
       case "blocked":
       case "rejected":
         // The card keeps the Retry row; the notice leaves on its own so blocked items never pile up.
-        ctx.resolveToast?.(key, { status: "failed", title, detail: itemDetail(item), autoDismissMs: 30_000,
-          ...(item.issue === undefined ? {} : { action: { flow: "history.retry", args: `${item.id} ${repo}`, label: "Retry" } }) })
+        ctx.resolveToast?.(key, { status: "failed", title, detail: itemDetail(item), autoDismissMs: 30_000 })
         return
       default:
     }
@@ -580,16 +579,9 @@ export const createStackSeam = (
     return act(repo, "parallel", `${value} ${repo}`, { running: `Setting ${value} lanes…`, done: `${value} lanes` },
       () => writeAndApply(repo, "PUT", route("config", repo), { maxParallel: value }))
   }
-  const retryStackItem: StackSeam["retryStackItem"] = async (id, repoArg) => {
-    const resolved = target(repoArg)
-    if ("error" in resolved) return resolved.error
-    const { repo } = resolved
-    return act(repo, "retry", `${id} ${repo}`, { running: "Retrying…", done: "Retry requested" }, async () => {
-      const answer = await send("POST", route("retry", repo, id), {}, "the stack")
-      void refresh(watch(repo))
-      return "error" in answer ? answer.error : true
-    })
-  }
+  // Old recorded cards may still name this controller action. Refuse without
+  // a network write; new TODO retries use the numbered, durable TodoSeam.
+  const retryStackItem: StackSeam["retryStackItem"] = async () => "Use Retry on the TODO."
 
   /**
    * Resolves when a TODO a maintainer asked to land lands (true), or stops
@@ -675,8 +667,7 @@ export const createStackSeam = (
         case "landed":
           done({ ok: true, detail: itemStateLabel(item) }); return
         case "blocked": case "rejected": case "declined": case "skipped": case "cancelled":
-          done({ ok: false, detail: reason === undefined ? itemStateLabel(item) : `${itemStateLabel(item)} · ${reason}`,
-            ...(retryable(item) ? { action: { flow: "history.retry", args: `${item.id} ${repo}`, label: "Retry" } } : {}) })
+          done({ ok: false, detail: reason === undefined ? itemStateLabel(item) : `${itemStateLabel(item)} · ${reason}` })
           return
         default:
           progress(itemDetail(item))

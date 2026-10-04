@@ -10,7 +10,7 @@ var SystemFlows = []string{
 	"stack", "stack.move", "stack.candidate", "stack.propose",
 	// Product Appendix B.2: stack/TODO operations and their retained aliases.
 	"history.show", "history.view", "history.parallel", "history.bootstrap", "history.backfill",
-	"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "todo.takeover",
+	"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.drop", "todo.takeover",
 	"todo.preapprove", "todo.unapprove",
 	"history.todo", "issue.implement", "runs.steer", "history.retry",
 	"branch.fork", "branch.add-to-stack", "branch.rebase",

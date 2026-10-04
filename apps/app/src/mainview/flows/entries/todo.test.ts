@@ -34,7 +34,7 @@ test("all TODO commands register slash, button and agent doors; amend/drop and c
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
-    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.new", "todo.resume", "todo.retry", "todo.steer", "todo.stop"])
+    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop"])
     for (const entry of entries) {
       expect(modelInvocable(entry)).toBe(true)
       expect(entry.metadata.grammar).toBeDefined()
@@ -115,5 +115,18 @@ test("draft.discard uses the author-scoped Draft removal command", async () => {
     await h.controller.submitCommand({ name: "draft.discard", actor: "user", payload: { draft: draft.id }, display: draft.id })
     expect(h.store.collections.cards.has(draft.id)).toBe(false)
     expect(h.mutations).toEqual([])
+  } finally { h.controller.dispose() }
+})
+
+test("Retry with the current flow is an agent-invocable card control with its steer first", async () => {
+  const h = await boot()
+  try {
+    const entry = h.controller.commands.entries().find(row => nameOf(row) === "todo.retry-current-flow")!
+    expect(entry.metadata.hidden).toBe(true)
+    expect(entry.metadata.discloseToAgent).toBe(true)
+    expect(modelInvocable(entry)).toBe(true)
+    await h.controller.runCommandForResult("todo.retry-current-flow", JSON.stringify({ n: 12, text: " First\nmessage " }))
+    await waitFor(() => h.mutations.length === 1)
+    expect(h.mutations).toEqual([{ path: "/api/todos/12", body: { op: "retry-current-flow", steer: " First\nmessage " } }])
   } finally { h.controller.dispose() }
 })

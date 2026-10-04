@@ -23,7 +23,7 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
-import { HISTORY_LAND_USER_ONLY_REASON, HISTORY_RETRY_USER_ONLY_REASON } from "./entries/history"
+import { HISTORY_LAND_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
 import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@smthrs/ui/app-operations/wiki"
 
@@ -53,7 +53,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "confirm.cancel": "a confirmation answer belongs to the person",
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
-  "history.retry": HISTORY_RETRY_USER_ONLY_REASON,
   "history.land": HISTORY_LAND_USER_ONLY_REASON,
   "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.

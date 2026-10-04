@@ -843,12 +843,12 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Contains(t, payload, "Append new changes at the head only", "the last attempt appends only")
 	// A block the very hard stop typed is a person's to lift, like a
 	// planner's decline: an agent's run can re-open neither.
-	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(twelve.ID))
+	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(twelve.ID))
 	requireRunCredentialRefused(t, err)
-	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(twelve.ID))
+	view, err := o.service.retryItem(ctx, o.repoID, uuidString(twelve.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
-	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))
+	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))
 	requireRunCredentialRefused(t, err)
 	assert.Equal(t, "declined", o.item(13).State)
 
@@ -956,16 +956,16 @@ func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 	decline()
 
 	// A run cannot retry a decline; a person can.
-	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(31).ID))
+	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(31).ID))
 	requireRunCredentialRefused(t, err)
 	assert.Equal(t, "declined", o.item(31).State)
-	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(o.item(31).ID))
+	view, err := o.service.retryItem(ctx, o.repoID, uuidString(o.item(31).ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
 	assert.Empty(t, view.Reason)
 
 	// An admission skip is decided by labels, not by a retry.
-	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(o.item(32).ID))
+	_, err = o.service.retryItem(ctx, o.repoID, uuidString(o.item(32).ID))
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusConflict, apiErr.Status)
@@ -1156,10 +1156,10 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	o.wake()
 	require.Equal(t, "rejected", o.item(21).State)
 	// The owner closed the PR: only a person retries it.
-	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
+	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
 	require.Equal(t, "rejected", o.item(21).State)
-	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	view, err := o.service.retryItem(ctx, o.repoID, uuidString(item.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
 	retried := o.item(21)
@@ -1195,7 +1195,7 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 	require.Equal(t, "blocked", item.State)
 	assert.Equal(t, "a maintainer changes protected paths: .github/workflows/extra.yml", item.Reason)
 	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "protected_paths", Kind: "stopped"}, mythicalChecksOf(item).Fault, "only a person lifts it")
-	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
+	_, err := o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
 	requireRunCredentialRefused(t, err)
 	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")
 

@@ -13,7 +13,7 @@ func TestSystemFlowsAreNeverOverridable(t *testing.T) {
 	want := []string{
 		"stack", "stack.move", "stack.candidate", "stack.propose",
 		"todo.preapprove", "todo.unapprove",
-		"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop",
+		"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.drop",
 		"branch.fork", "branch.add-to-stack", "branch.rebase",
 		"merge", "members", "settings", "secrets", "sync", "admission", "setup", "flow-load", "summarizer",
 	}

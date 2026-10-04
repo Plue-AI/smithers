@@ -25,7 +25,6 @@ type MythicalRouteService interface {
 	SubmitLane(ctx context.Context, repositoryID, userID int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error)
 	SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error
 	Item(ctx context.Context, repositoryID int64, ref string) (services.MythicalItemView, error)
-	RetryItem(ctx context.Context, repositoryID int64, itemID string) (services.MythicalItemView, error)
 	FileTodo(ctx context.Context, repositoryID, userID int64, input services.MythicalTodoInput) (services.MythicalItemView, error)
 	LandTodo(ctx context.Context, repositoryID, userID int64, itemID string, input services.MythicalLandInput) (services.MythicalItemView, error)
 	RequestWiki(ctx context.Context, repositoryID int64) error
@@ -268,24 +267,6 @@ func (h *MythicalHandler) Config(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, view)
-}
-
-// Retry gives a blocked, rejected or skipped item a fresh set of attempts.
-func (h *MythicalHandler) Retry(w http.ResponseWriter, r *http.Request) {
-	if _, err := requireRouteUser(r); err != nil {
-		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
-		return
-	}
-	repoCtx, ok := h.repository(w, r)
-	if !ok {
-		return
-	}
-	item, err := h.Service.RetryItem(r.Context(), repoCtx.Repository.ID, chi.URLParam(r, "id"))
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	pkgerrors.WriteJSON(w, http.StatusAccepted, item)
 }
 
 // Todos files a TODO on the repository's GitHub issues for a maintainer

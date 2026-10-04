@@ -404,7 +404,7 @@ func TestMythicalTodoRefusesTheWrongMachine(t *testing.T) {
 
 	// The operator boots bigger lanes; a person retries.
 	o.lanes.offer = &mythicalMachineOffer{VCPUs: 8, MemoryMiB: 16384}
-	_, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	_, err := o.service.retryItem(ctx, o.repoID, uuidString(item.ID))
 	require.NoError(t, err)
 	o.wake()
 	item = o.item(71)

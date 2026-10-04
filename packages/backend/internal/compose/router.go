@@ -1143,7 +1143,6 @@ func buildRouter(
 					r.With(adminRepo...).Post("/mythical/bootstrap", extras.Mythical.Bootstrap)
 					r.With(writeRepo...).Post("/mythical/backfill", extras.Mythical.Backfill)
 					r.With(adminRepo...).Put("/mythical/config", extras.Mythical.Config)
-					r.With(writeRepo...).Post("/mythical/items/{id}/retry", extras.Mythical.Retry)
 					r.With(writeRepo...).Post("/mythical/todos", extras.Mythical.Todos)
 					r.With(writeRepo...).Post("/mythical/items/{id}/land", extras.Mythical.Land)
 					r.With(writeRepo...).Put("/mythical/lanes", extras.Mythical.Lanes)

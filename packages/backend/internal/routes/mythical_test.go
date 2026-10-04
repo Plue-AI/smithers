@@ -23,7 +23,6 @@ type fakeMythicalRoute struct {
 	main       string
 	lanes      []services.MythicalLaneSubmission
 	parallel   int32
-	retried    string
 	backfills  int
 	wikis      int
 	wikiErr    error
@@ -82,11 +81,6 @@ func (f *fakeMythicalRoute) Item(_ context.Context, repositoryID int64, ref stri
 	}
 	return services.MythicalItemView{ID: "item-12", State: "blocked", Issue: &services.MythicalIssueView{Number: 12, Title: "Fix login"},
 		DependsOn: []string{}}, nil
-}
-
-func (f *fakeMythicalRoute) RetryItem(_ context.Context, _ int64, id string) (services.MythicalItemView, error) {
-	f.retried = id
-	return services.MythicalItemView{ID: id, State: "queued", DependsOn: []string{}}, nil
 }
 
 func (f *fakeMythicalRoute) Snapshot(_ context.Context, id int64, slug, main string, viewer services.MythicalViewer) (services.MythicalStackView, error) {
@@ -223,13 +217,6 @@ func TestMythicalWriteRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	assert.Equal(t, 1, service.backfills)
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/", nil)
-	routeCtx := chi.NewRouteContext()
-	routeCtx.URLParams.Add("id", "item-9")
-	handler.Retry(rec, withRepo(req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))))
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, "item-9", service.retried)
 }
 
 func TestMythicalWikiRoute(t *testing.T) {

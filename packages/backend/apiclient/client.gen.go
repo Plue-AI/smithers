@@ -1140,6 +1140,19 @@ type PostAPIBillingCheckoutBody struct {
 	Interval string `json:"interval"`
 }
 
+// GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
+type GetAPIGithubSyncResponse struct {
+	State         string     `json:"state"`
+	LastSuccessAt time.Time  `json:"last_success_at"`
+	Cause         *string    `json:"cause,omitempty"`
+	RetryAt       *time.Time `json:"retry_at,omitempty"`
+}
+
+// PostAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
+type PostAPIGithubSyncResponse struct {
+	State string `json:"state"`
+}
+
 // GetAPIHostResponse is generated from docs/api/openapi.yaml.
 type GetAPIHostResponse struct {
 	Profile  GetAPIHostResponseProfile  `json:"profile"`
@@ -2081,6 +2094,20 @@ func (c *Client) PutAPIGatewaysHostRepositoryJobsJobManualRequest(ctx context.Co
 func (c *Client) PutAPIGatewaysHostRepositoryJobsJobTrialsRequest(ctx context.Context, hostID string, job string, requestID string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/gateways/"+url.PathEscape(hostID)+"/repository-jobs/"+url.PathEscape(job)+"/trials/"+url.PathEscape(requestID), nil, body, &out)
+	return out, err
+}
+
+// GetAPIGithubSync calls GET /api/github/sync.
+func (c *Client) GetAPIGithubSync(ctx context.Context) (GetAPIGithubSyncResponse, error) {
+	var out GetAPIGithubSyncResponse
+	err := c.do(ctx, "GET", "/api/github/sync", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIGithubSync calls POST /api/github/sync.
+func (c *Client) PostAPIGithubSync(ctx context.Context) (PostAPIGithubSyncResponse, error) {
+	var out PostAPIGithubSyncResponse
+	err := c.do(ctx, "POST", "/api/github/sync", nil, nil, &out)
 	return out, err
 }
 
@@ -4443,13 +4470,6 @@ func (c *Client) GetAPIReposOwnerRepoMythicalItemsRef(ctx context.Context, owner
 func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDLand(ctx context.Context, owner string, repo string, id string, body PostAPIReposOwnerRepoMythicalItemsIDLandBody) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/land", nil, body, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoMythicalItemsIDRetry calls POST /api/repos/{owner}/{repo}/mythical/items/{id}/retry.
-func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDRetry(ctx context.Context, owner string, repo string, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/retry", nil, body, &out)
 	return out, err
 }
 
