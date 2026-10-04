@@ -2770,7 +2770,6 @@
 .terminal-view .terminal-branch { color: var(--text-muted); font: var(--fs-caption) var(--font-mono); overflow-wrap: anywhere; }
 .terminal-view .terminal-people { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
 .terminal-view .terminal-person { display: inline-flex; align-items: center; gap: 3px; color: var(--text-muted); font-size: var(--fs-caption); }
-.terminal-view .terminal-person[data-watching] .mvp-avatar { opacity: .85; }
 .terminal-view .terminal-command { color: var(--text-muted); font: var(--fs-caption) var(--font-mono); overflow-wrap: anywhere; }
 .terminal-view .terminal-command[data-live] { color: var(--brand); }
 .terminal-view .terminal-output { height: 260px; min-width: 0; }
