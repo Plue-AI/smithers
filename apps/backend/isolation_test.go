@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,7 +23,7 @@ import (
 
 func TestProcessIsolationKeepsOneTrustedRuntime(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "")
-	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir(), true)
+	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +88,8 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 			t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 			t.Setenv("SMITHERS_MICROSANDBOX_BIN", binary)
 			freeRelayPort(t)
-			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false)
+			bundle := installedBundleFixture(t)
+			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle.backend, bundle.codingHost, false)
 			if err == nil {
 				_ = runtimes.Close()
 				t.Fatal("microvm mode started without Microsandbox")
@@ -98,73 +103,165 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 
 func TestIsolationModeIsValidated(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "container")
-	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir(), false); err == nil {
+	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), "", "", false); err == nil {
 		t.Fatal("unknown isolation mode accepted")
 	}
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	t.Setenv("SMITHERS_SERVER_ADDR", ":0")
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/bin/sh")
-	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false); err == nil || !strings.Contains(err.Error(), "fixed SMITHERS_SERVER_ADDR port") {
+	bundle := installedBundleFixture(t)
+	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle.backend, bundle.codingHost, false); err == nil || !strings.Contains(err.Error(), "fixed SMITHERS_SERVER_ADDR port") {
 		t.Fatalf("dynamic port accepted: %v", err)
 	}
 }
 
-// guestBundle is a Flow host bundle holding a Linux arm64 helper header and
-// names it as the coding host's workspace helper.
-func guestBundle(t *testing.T) string {
+// testBundle is an installed server bundle: the backend, the coding Flow
+// host and the Linux arm64 workspace helper, each declared with its digest
+// and mode in manifest.json the way the bundle assembler writes it.
+type testBundle struct {
+	root, backend, codingHost, helper string
+}
+
+func installedBundleFixture(t *testing.T) testBundle {
 	t.Helper()
-	bundle := t.TempDir()
+	temporary, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(temporary, "libexec")
 	header := make([]byte, 64)
 	copy(header, "\x7fELF\x02\x01\x01")
 	binary.LittleEndian.PutUint16(header[18:], 183)
-	helper := filepath.Join(bundle, "linux-arm64", "smithers-jj-export")
-	if err := os.MkdirAll(filepath.Dir(helper), 0o755); err != nil {
-		t.Fatal(err)
+	bundle := testBundle{root: root, backend: filepath.Join(root, "bin", "smithers-backend"),
+		codingHost: filepath.Join(root, "bin", "smithers-coding-host"), helper: filepath.Join(root, "bin", "linux-arm64", "smithers-jj-export")}
+	for path, body := range map[string][]byte{bundle.backend: []byte("backend"), bundle.codingHost: []byte("#!/usr/bin/env node\n"), bundle.helper: header} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(helper, header, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
+	bundle.writeManifest(t)
 	return bundle
 }
 
-// A coding host in a guest needs the Linux helper planted beside it: a
-// helper outside the bundle, absent or built for the Mac refuses startup.
-func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
+// writeManifest declares every regular file now in the bundle as it is.
+func (b testBundle) writeManifest(t *testing.T) {
+	t.Helper()
+	var files []map[string]any
+	err := filepath.WalkDir(b.root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || entry.Name() == "manifest.json" {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, _ := filepath.Rel(b.root, path)
+		sum := sha256.Sum256(body)
+		files = append(files, map[string]any{"path": filepath.ToSlash(relative), "sha256": hex.EncodeToString(sum[:]), "stage": "fixture", "mode": int(info.Mode().Perm())})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(map[string]any{"version": 1, "platform": "darwin-arm64", "revision": strings.Repeat("a", 40), "files": files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b.root, "manifest.json"), manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// microVM isolation plants only from the installed bundle the backend runs
+// from. A development build, a missing or altered manifest entry, a Mac
+// helper or a coding host outside the bundle refuses startup before
+// Microsandbox is asked; the workspace helper variable is never read.
+func TestMicroVMIsolationRefusesOutsideTheInstalledBundle(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	t.Setenv("SMITHERS_SERVER_ADDR", "127.0.0.1:4000")
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/bin/sh")
 	freeRelayPort(t)
-	bundle := guestBundle(t)
-	darwin := filepath.Join(bundle, "smithers-jj-export-darwin")
-	if err := os.WriteFile(darwin, []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(t.TempDir(), "smithers-jj-export")
-	for name, helper := range map[string]string{
-		"unset":   "",
-		"outside": outside,
-		"missing": filepath.Join(bundle, "absent"),
-		"darwin":  darwin,
+	for name, prepare := range map[string]func(t *testing.T, b *testBundle){
+		"development build": func(t *testing.T, b *testBundle) {
+			b.backend = filepath.Join(t.TempDir(), "smithers-backend")
+			if err := os.WriteFile(b.backend, []byte("backend"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"renamed backend": func(t *testing.T, b *testBundle) {
+			renamed := filepath.Join(b.root, "bin", "backend-dev")
+			if err := os.Rename(b.backend, renamed); err != nil {
+				t.Fatal(err)
+			}
+			b.backend = renamed
+			b.writeManifest(t)
+		},
+		"no manifest": func(t *testing.T, b *testBundle) {
+			if err := os.Remove(filepath.Join(b.root, "manifest.json")); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"helper absent": func(t *testing.T, b *testBundle) {
+			if err := os.Remove(b.helper); err != nil {
+				t.Fatal(err)
+			}
+			b.writeManifest(t)
+		},
+		"helper built for the Mac": func(t *testing.T, b *testBundle) {
+			if err := os.WriteFile(b.helper, append([]byte{0xcf, 0xfa, 0xed, 0xfe}, make([]byte, 60)...), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			b.writeManifest(t)
+		},
+		"helper changed after the install": func(t *testing.T, b *testBundle) {
+			body, err := os.ReadFile(b.helper)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body[63] = 1
+			if err := os.WriteFile(b.helper, body, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"coding host outside the bundle": func(t *testing.T, b *testBundle) {
+			b.codingHost = filepath.Join(t.TempDir(), "smithers-coding-host")
+			if err := os.WriteFile(b.codingHost, []byte("#!/usr/bin/env node\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"coding host changed after the install": func(t *testing.T, b *testBundle) {
+			if err := os.WriteFile(b.codingHost, []byte("#!/usr/bin/env node\n// branch\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
-			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle, false)
+			bundle := installedBundleFixture(t)
+			prepare(t, &bundle)
+			runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle.backend, bundle.codingHost, false)
 			if err == nil {
 				_ = runtimes.Close()
-				t.Fatal("microvm mode started without a guest workspace helper")
+				t.Fatal("microvm mode started outside the installed bundle")
 			}
-			if !strings.Contains(err.Error(), "refuses to start") || !strings.Contains(err.Error(), "helper") && !strings.Contains(err.Error(), "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY") {
-				t.Fatalf("refusal = %v", err)
+			if !strings.Contains(err.Error(), "refuses to start") || errors.Is(err, microsandbox.ErrUnavailable) {
+				t.Fatalf("refusal = %v; it must come before Microsandbox is asked", err)
 			}
 		})
 	}
-	// The same bundle with the Linux helper passes the helper check and is
-	// refused only by the (fake) Microsandbox qualification.
-	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", filepath.Join(bundle, "linux-arm64", "smithers-jj-export"))
-	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle, false)
-	if !errors.Is(err, microsandbox.ErrUnavailable) {
-		t.Fatalf("a Linux helper was refused: %v", err)
+	// The intact bundle passes every bundle check, whatever the retired helper
+	// variable names, and is refused only by the (fake) Microsandbox.
+	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", filepath.Join(t.TempDir(), "smithers-jj-export"))
+	bundle := installedBundleFixture(t)
+	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle.backend, bundle.codingHost, false)
+	if !errors.Is(err, microsandbox.ErrUnavailable) || errors.Is(err, microsandbox.ErrUnapprovedArtifact) {
+		t.Fatalf("the installed bundle was refused: %v", err)
 	}
 }
 
@@ -173,7 +270,7 @@ func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
 func TestControlRuntimeCannotBindCodingFlowHost(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "process")
 	root := t.TempDir()
-	runtimes, err := openExecutionRuntimes(context.Background(), root, t.TempDir(), true)
+	runtimes, err := openExecutionRuntimes(context.Background(), root, "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +305,7 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 	for _, name := range []string{"SMITHERS_MICROVM_CPUS", "SMITHERS_MICROVM_MEMORY_MIB", "SMITHERS_MICROVM_DISK_MIB", "SMITHERS_MICROVM_MAX_RUNNING", "SMITHERS_MICROVM_LAYER_BUDGET_GIB", "SMITHERS_MICROVM_MIN_FREE_GIB"} {
 		t.Setenv(name, "999")
 	}
-	bundle := guestBundle(t)
+	bundle := installedBundleFixture(t)
 	for _, row := range []struct {
 		name                             string
 		memory, disk                     int64
@@ -224,7 +321,7 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 			profile := microsandbox.HostProfile{MemoryBytes: row.memory << 30, DiskFreeBytes: row.disk << 30,
 				PerfCores: row.cores, PhysicalCores: row.cores + 4, MacOSVersion: "26.0", Hypervisor: true}
 			calls := 0
-			config, err := microVMConfigWithProfile(root, bundle, func(state string) (microsandbox.HostProfile, error) {
+			config, err := microVMConfigWithProfile(root, bundle.backend, bundle.codingHost, func(state string) (microsandbox.HostProfile, error) {
 				calls++
 				if state != root {
 					t.Fatalf("detector measured %q, want state volume %q", state, root)
@@ -236,6 +333,9 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 			}
 			if calls != 1 {
 				t.Fatalf("detector calls = %d", calls)
+			}
+			if config.Bundle != bundle.root || len(config.BundlePrograms) != 1 || config.BundlePrograms[0] != bundle.codingHost {
+				t.Fatalf("bundle = %q, programs = %q", config.Bundle, config.BundlePrograms)
 			}
 			if config.HostProfile == nil || *config.HostProfile != profile {
 				t.Fatalf("profile = %#v", config.HostProfile)
@@ -257,9 +357,9 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 func TestMicroVMConfigDetectionFailureRefusesStartup(t *testing.T) {
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/qualified/msb")
 	t.Setenv("SMITHERS_SERVER_ADDR", "127.0.0.1:4000")
-	bundle := guestBundle(t)
+	bundle := installedBundleFixture(t)
 	cause := errors.New("hw.memsize failed")
-	config, err := microVMConfigWithProfile(t.TempDir(), bundle, func(string) (microsandbox.HostProfile, error) {
+	config, err := microVMConfigWithProfile(t.TempDir(), bundle.backend, bundle.codingHost, func(string) (microsandbox.HostProfile, error) {
 		return microsandbox.HostProfile{}, cause
 	})
 	if err == nil {
@@ -282,7 +382,8 @@ func TestMicroVMIsolationRefusesWrongVersion(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", binary)
 	freeRelayPort(t)
-	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false)
+	bundle := installedBundleFixture(t)
+	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle.backend, bundle.codingHost, false)
 	if !errors.Is(err, microsandbox.ErrUnavailable) || !strings.Contains(err.Error(), "qualified with msb 0.6.16") {
 		t.Fatalf("version refusal = %v", err)
 	}

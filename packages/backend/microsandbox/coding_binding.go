@@ -2,14 +2,10 @@ package microsandbox
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
-	"os"
-	"path/filepath"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -70,41 +66,42 @@ func (r *Runtime) InstallWorkspaceCodingBinding(ctx context.Context, workspaceID
 	return err
 }
 
+// codingHelperBundlePath is the packaged Linux arm64 source-publication
+// helper's place in the installed bundle (flowmanifest's jjExport host).
+const codingHelperBundlePath = "bin/linux-arm64/smithers-jj-export"
+
+// codingHelperBytes reads the helper once from the approved installed
+// bundle, with the digest and mode its pinned manifest declares; a runtime
+// without a bundle installs no helper and so no binding.
 func (r *Runtime) codingHelperBytes() ([]byte, error) {
 	r.codingHelper.once.Do(func() {
-		r.codingHelper.data, r.codingHelper.err = r.readCodingHelper()
-		if r.codingHelper.err == nil {
-			sum := sha256.Sum256(r.codingHelper.data)
-			r.codingHelper.digest = hex.EncodeToString(sum[:])
-		}
+		r.codingHelper.data, r.codingHelper.digest, r.codingHelper.err = r.readCodingHelper()
 	})
 	return r.codingHelper.data, r.codingHelper.err
 }
 
-func (r *Runtime) readCodingHelper() ([]byte, error) {
-	if !filepath.IsAbs(r.config.CodingHelper) {
-		return nil, errors.New("packaged workspace coding helper is required")
+func (r *Runtime) readCodingHelper() ([]byte, string, error) {
+	if r.config.Bundle == "" {
+		return nil, "", fmt.Errorf("%w: the packaged workspace coding helper requires the installed bundle", ErrUnapprovedArtifact)
 	}
-	file, err := os.Open(r.config.CodingHelper)
+	bundle, err := r.approvedBundle()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	defer file.Close()
-	info, err := file.Stat()
+	return codingHelperFrom(bundle)
+}
+
+// codingHelperFrom reads the helper from bundle with the digest and mode its
+// pinned manifest declares, and only when it is a Linux arm64 executable.
+func codingHelperFrom(bundle *approvedBundle) ([]byte, string, error) {
+	data, digest, err := bundle.read(codingHelperBundlePath)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Size() < 64 || info.Size() > 64<<20 {
-		return nil, errors.New("packaged workspace coding helper is invalid")
+	if len(data) < 64 || string(data[:4]) != "\x7fELF" || data[4] != 2 || data[5] != 1 || binary.LittleEndian.Uint16(data[18:20]) != 183 {
+		return nil, "", errors.New("packaged workspace coding helper is not Linux arm64")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, 64<<20+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) < 64 || len(data) > 64<<20 || string(data[:4]) != "\x7fELF" || data[4] != 2 || data[5] != 1 || binary.LittleEndian.Uint16(data[18:20]) != 183 {
-		return nil, errors.New("packaged workspace coding helper is not Linux arm64")
-	}
-	return data, nil
+	return data, digest, nil
 }
 
 var _ workspaceapi.WorkspaceCodingBindingInstaller = (*Runtime)(nil)

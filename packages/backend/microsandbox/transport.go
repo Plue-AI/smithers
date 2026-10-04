@@ -3,7 +3,6 @@ package microsandbox
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -17,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -248,9 +246,10 @@ func (r *Runtime) InspectManagedHost(ctx context.Context, workspaceID string, sp
 	return r.probeManagedHost(ctx, workspaceID, spec, port)
 }
 
-// StartManagedHost chooses a free guest loopback port, plants the verified
-// host artifact in the guest, builds the command with guest paths, and starts
-// it as an ordinary service. The returned client reaches it only by relay.
+// StartManagedHost chooses a free guest loopback port, plants the approved
+// bundle artifact in the guest, builds the command with guest paths, and
+// starts it as an ordinary service. The returned client reaches it only by
+// relay.
 func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
 	if err := validateManagedHostSpec(spec); err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
@@ -409,42 +408,41 @@ func (r *Runtime) freeGuestPort(ctx context.Context, machine string) (uint16, er
 	return 0, errors.New("no free guest port for the managed host")
 }
 
-// plantArtifact copies a verified host artifact into the guest and returns
-// the guest path. Anything else is returned unchanged: it must already be a
-// guest program.
+// plantArtifact plants a file of the approved installed bundle in the guest
+// and returns its guest path. Only bytes the pinned bundle manifest declares,
+// with its digest and mode, are sent; the guest helper writes them as root
+// under guestBundleRoot through protected, never-followed directories. Any
+// other value is returned unchanged: it must already be a guest program.
 func (r *Runtime) plantArtifact(ctx context.Context, machine, program string) (string, error) {
-	target, ok := guestArtifactPath(r.config.Artifacts, program)
+	relative, ok, err := r.bundleArtifact(program)
 	if !ok {
 		return program, nil
 	}
-	contents, err := os.ReadFile(program)
 	if err != nil {
-		return "", fmt.Errorf("read managed host artifact: %w", err)
+		return "", err
 	}
-	sum := sha256.Sum256(contents)
-	want := hex.EncodeToString(sum[:])
-	script := fmt.Sprintf(`set -e; t=%s; if [ "$(sha256sum "$t" 2>/dev/null | cut -d' ' -f1)" != %s ]; then mkdir -p "$(dirname "$t")"; cat > "$t.tmp"; chmod 0755 "$t.tmp"; mv "$t.tmp" "$t"; fi; test "$(sha256sum "$t" | cut -d' ' -f1)" = %s`,
-		shellQuote(target), want, want)
-	if _, err := r.cli.run(ctx, contents, "exec", machine, "--", "sh", "-c", script); err != nil {
-		return "", fmt.Errorf("%w: plant managed host artifact: %v", ErrUnavailable, err)
+	bundle, err := r.approvedBundle()
+	if err != nil {
+		return "", err
 	}
-	return target, nil
-}
-
-// guestArtifactPath maps a host path under an artifact directory to its
-// guest path; any other value is not an artifact.
-func guestArtifactPath(artifacts map[string]string, value string) (string, bool) {
-	if !filepath.IsAbs(value) {
-		return "", false
+	data, sum, err := bundle.read(relative)
+	if err != nil {
+		return "", err
 	}
-	for hostDir, guestDir := range artifacts {
-		relative, err := filepath.Rel(hostDir, value)
-		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, "../") || filepath.IsAbs(relative) {
-			continue
+	state, err := r.guest(ctx, machine, nil, "managed-artifact-check", relative, sum)
+	if err != nil {
+		return "", err
+	}
+	switch strings.TrimSpace(string(state)) {
+	case "current":
+	case "replace":
+		if _, err := r.guest(ctx, machine, data, "managed-artifact", relative, sum); err != nil {
+			return "", err
 		}
-		return path.Join(guestDir, filepath.ToSlash(relative)), true
+	default:
+		return "", errors.New("guest managed artifact check returned an invalid result")
 	}
-	return "", false
+	return path.Join(guestBundleRoot, relative), nil
 }
 
 func shellQuote(value string) string {

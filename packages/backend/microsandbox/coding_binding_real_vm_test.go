@@ -38,11 +38,14 @@ func TestRealMicroVMCodingBindingInstallation(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, name), body, 0600))
 	}
 	work := t.TempDir()
-	helper := filepath.Join(work, "smithers-jj-export-installation-fixture")
 	contents := make([]byte, 64)
 	copy(contents, []byte("\x7fELF"))
 	contents[4], contents[5], contents[18] = 2, 1, 183
-	require.NoError(t, os.WriteFile(helper, contents, 0755))
+	bundle := filepath.Join(work, "bundle")
+	require.NoError(t, os.MkdirAll(filepath.Join(bundle, "bin", "linux-arm64"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundle, filepath.FromSlash(codingHelperBundlePath)), contents, 0o755))
+	helperSum := sha256.Sum256(contents)
+	writeBundleManifest(t, bundle, []map[string]any{{"path": codingHelperBundlePath, "sha256": hex.EncodeToString(helperSum[:]), "stage": "fixture", "mode": 0o755}})
 	guestFile := filepath.Join(work, "smithers-guest.py")
 	require.NoError(t, os.WriteFile(guestFile, guestHelper, 0644))
 	vm := "lane-flw-binding-" + uuid.NewString()
@@ -62,7 +65,7 @@ func TestRealMicroVMCodingBindingInstallation(t *testing.T) {
 		return output
 	}
 	writeEvidence("binding-msb-create.txt", run("create", "node:26-bookworm", "--pull", "never", "--name", vm, "--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net", "--copy-file", guestFile+":"+guestHelperPath))
-	runtime := &Runtime{cli: client, config: Config{CodingHelper: helper}, workspaces: map[string]*workspace{
+	runtime := &Runtime{cli: client, config: Config{Bundle: bundle}, workspaces: map[string]*workspace{
 		workspaceID: newWorkspace(metadata{Version: metadataVersion, ID: workspaceID, Machine: vm, State: "running"}, work),
 	}}
 	_, err = runtime.guest(ctx, vm, nil, "setup", guestUser, fmt.Sprint(guestUID), guestRoot, guestStateDir, guestTempDir)

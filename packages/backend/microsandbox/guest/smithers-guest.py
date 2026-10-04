@@ -19,6 +19,11 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
   coding-binding  atomically install the fixed root-owned source binding
   coding-helper   atomically install the packaged Linux arm64 helper
   coding-helper-check verify the fixed helper's digest and root ownership
+  managed-artifact PATH DIGEST
+                  atomically plant one approved bundle file under
+                  /opt/smithers/bundle; the bytes are stdin
+  managed-artifact-check PATH DIGEST
+                  report whether that planted file is current
 """
 
 import ctypes
@@ -46,6 +51,10 @@ SECRET_ENV_LIMIT = 1 << 20
 REQUEST_DIR = "/run/smithers/requests"
 TOOL_HOME = "/var/cache/smithers/home"
 ROOT_UID = 0
+# Approved bundle files live only under this fixed, root-owned tree.
+MANAGED_ARTIFACT_BASE = "/"
+MANAGED_ARTIFACT_ROOT = ("opt", "smithers", "bundle")
+MANAGED_ARTIFACT_LIMIT = 64 * 1024 * 1024
 
 
 def fail(code, message):
@@ -900,6 +909,121 @@ def install_coding_helper(body, directory="/usr/local/bin"):
         os.close(parent_fd)
 
 
+def managed_artifact_request(relative, digest):
+    # The adapter sends a manifest path and digest from the approved bundle.
+    # Neither can name another directory or skip the byte check.
+    if os.geteuid() != ROOT_UID:
+        fail(3, "managed artifact requires root")
+    if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        fail(3, "managed artifact digest is invalid")
+    parts = relative.split("/") if isinstance(relative, str) else []
+    if not 0 < len(parts) <= 8 or not all(valid_id(part) for part in parts):
+        fail(3, "managed artifact path is invalid")
+    return parts
+
+
+def managed_artifact_parent(parts, create):
+    # Walk by descriptor from the fixed base: the base and every directory
+    # below it are root-owned, not group or world writable, and never a
+    # symlink, on a fresh machine and on a retained one alike.
+    fd = os.open(MANAGED_ARTIFACT_BASE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+            fail(3, "managed artifact directory is not root-owned and protected")
+        for name in MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]):
+            if create:
+                try:
+                    os.mkdir(name, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            try:
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            except FileNotFoundError:
+                raise
+            except OSError:
+                fail(3, "managed artifact directory is a link or not a directory")
+            os.close(fd)
+            fd = child
+            info = os.fstat(fd)
+            if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+                fail(3, "managed artifact directory is not root-owned and protected")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def managed_artifact_current(relative, digest):
+    parts = managed_artifact_request(relative, digest)
+    try:
+        parent = managed_artifact_parent(parts, create=False)
+    except FileNotFoundError:
+        return False
+    try:
+        try:
+            current = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
+            fail(3, "managed artifact target is not a root-owned file")
+        try:
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        except OSError:
+            fail(3, "managed artifact target is not a root-owned file")
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
+                fail(3, "managed artifact target is not a root-owned file")
+            if stat.S_IMODE(info.st_mode) != 0o755 or info.st_size > MANAGED_ARTIFACT_LIMIT:
+                return False
+            checksum = hashlib.sha256()
+            remaining = MANAGED_ARTIFACT_LIMIT + 1
+            while remaining:
+                chunk = handle.read(min(65536, remaining))
+                if not chunk:
+                    return checksum.hexdigest() == digest
+                checksum.update(chunk)
+                remaining -= len(chunk)
+            return False
+    finally:
+        os.close(parent)
+
+
+def install_managed_artifact(relative, digest, body):
+    parts = managed_artifact_request(relative, digest)
+    if len(body) > MANAGED_ARTIFACT_LIMIT or hashlib.sha256(body).hexdigest() != digest:
+        fail(3, "managed artifact bytes differ from the approved digest")
+    parent = managed_artifact_parent(parts, create=True)
+    temporary = None
+    try:
+        try:
+            current = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+            if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
+                fail(3, "managed artifact target is not a root-owned file")
+        except FileNotFoundError:
+            pass
+        # A leading dot is never a valid artifact name, so this cannot collide.
+        temporary = ".managed-artifact-" + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o755)
+            os.fsync(handle.fileno())
+        os.rename(temporary, parts[-1], src_dir_fd=parent, dst_dir_fd=parent)
+        temporary = None
+        os.fsync(parent)
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        os.close(parent)
+
+
 # Where each tool looks under $HOME when its variable is unset. A process that
 # keeps only PATH and HOME (a Flow host's least-authority tool environment)
 # still finds the layer's caches and offline settings.
@@ -1053,6 +1177,12 @@ def main(args):
         return
     if command == "coding-helper" and len(args) == 1:
         install_coding_helper(sys.stdin.buffer.read(64 * 1024 * 1024 + 1))
+        return
+    if command == "managed-artifact-check" and len(args) == 3:
+        print("current" if managed_artifact_current(args[1], args[2]) else "replace")
+        return
+    if command == "managed-artifact" and len(args) == 3:
+        install_managed_artifact(args[1], args[2], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1))
         return
     if command == "coding-binding" and len(args) == 1:
         body = sys.stdin.buffer.read(65537)

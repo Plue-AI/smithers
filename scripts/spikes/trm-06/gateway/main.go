@@ -32,7 +32,7 @@ func relay(ctx context.Context, runtime *microsandbox.Runtime, workspaceID strin
 
 // Fresh configuration never resolves a branch index, layer or coding artifact.
 func freshConfig() microsandbox.Config {
-	return microsandbox.Config{Image: microsandbox.DefaultImage, Environments: nil, Artifacts: nil}
+	return microsandbox.Config{Image: microsandbox.DefaultImage, Environments: nil, Bundle: ""}
 }
 
 type open struct {

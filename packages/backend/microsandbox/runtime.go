@@ -61,9 +61,6 @@ const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d
 type Config struct {
 	// HostProfile distinguishes a computed zero capacity from missing sizing.
 	HostProfile *HostProfile
-	// CodingHelper is the packaged Linux arm64 source-publication helper.
-	// The binding installer plants its verified bytes at the fixed guest path.
-	CodingHelper string
 	// Binary is the absolute path of the pinned msb executable.
 	Binary string
 	// Root holds adapter metadata. It is host state, never a guest mount.
@@ -93,10 +90,17 @@ type Config struct {
 	CommandTimeout time.Duration
 	// Environments enables graph-keyed environment layers. Nil boots Image.
 	Environments *EnvironmentConfig
-	// Artifacts maps host directories to guest paths. A managed host command
-	// whose argv[0] lies under one is copied into the guest, digest-checked,
-	// and rewritten to the guest path.
-	Artifacts map[string]string
+	// Bundle is the approved installed bundle this backend runs from: the
+	// directory whose manifest.json `smthrs host start` verified. A managed
+	// host command's program, or an environment value, naming one of its
+	// files is planted in the guest from the bytes that manifest declares;
+	// so is the coding binding's Linux arm64 helper. No other host file ever
+	// reaches a guest. Empty plants nothing.
+	Bundle string
+	// BundlePrograms are the host programs managed hosts will run from
+	// Bundle. New refuses to start unless the pinned manifest declares each,
+	// and the coding helper, with exactly its bytes and mode.
+	BundlePrograms []string
 	// EgressRelay, when set, is the egress secret channel
 	// (workspace.WorkspaceEgressSecrets). Its port joins HostPorts, so it
 	// must stay the same across restarts for existing machines to reach it.
@@ -151,6 +155,7 @@ type Runtime struct {
 
 	environments *environments
 	codingHelper codingHelperCache
+	bundle       approvedBundleCache
 
 	mu                sync.Mutex
 	closed            bool
@@ -173,6 +178,12 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		if err := config.Environments.validate(config); err != nil {
 			return nil, err
 		}
+	}
+	// The bundle is pinned and every file it will plant is checked before
+	// Microsandbox is touched: a bad one refuses startup, not the first plant.
+	bundle, err := startupBundle(config)
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := newCLI(config.Binary)
@@ -216,6 +227,9 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		holder:     fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
 		semaphore:  make(chan struct{}, config.MaxConcurrent),
 		workspaces: make(map[string]*workspace),
+	}
+	if bundle != nil {
+		runtime.bundle.once.Do(func() { runtime.bundle.bundle = bundle })
 	}
 	if config.Environments != nil {
 		environmentConfig := *config.Environments

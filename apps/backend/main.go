@@ -103,7 +103,11 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	}()
 
 	dataRoot := os.Getenv("SMITHERS_DATA_ROOT")
-	runtimes, err := openExecutionRuntimes(ctx, dataRoot, filepath.Dir(registry.Coding.Executable), testFlowHostConfig.AllowTrustedProcessForTests)
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate the backend executable: %w", err)
+	}
+	runtimes, err := openExecutionRuntimes(ctx, dataRoot, executable, registry.Coding.Executable, testFlowHostConfig.AllowTrustedProcessForTests)
 	if err != nil {
 		return err
 	}

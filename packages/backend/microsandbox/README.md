@@ -39,10 +39,21 @@ the only thing `msb exec` runs:
   own port at guest `127.0.0.1`, the only destination the VM's network policy
   (`--no-net --net-rule allow@host:tcp:<port>`) allows.
 
-A managed host's program and every environment value naming a file under a
-`Config.Artifacts` directory (the packaged Flow host bundle and its Linux
-workspace helper) are copied into the guest, digest-checked, and rewritten to
-the guest path before the host starts; no host path reaches the guest.
+A managed host's program and every environment value naming a file of
+`Config.Bundle` are planted under `/opt/smithers/bundle` and rewritten to that
+guest path before the host starts. `Config.Bundle` is the installed bundle the
+backend runs from (`<bundle>/bin/smithers-backend`), whose `manifest.json`
+`smthrs host start` verified. Approval comes from that install, not from this
+code: whatever bundle is installed is the approved one, including one built
+from a branch. `New` pins the manifest and refuses to start unless the coding
+helper and every `Config.BundlePrograms` entry is a declared, non-symlink,
+mode 0755 file of at most 8 path segments with exactly its bytes, read by
+descriptor without following links. The guest helper's `managed-artifact`
+subcommand checks the digest again and writes as root, mode 0755, through
+root-owned, protected directories it never follows; a retained machine gets
+drifted bytes or mode replaced and refuses a link or writable directory. A
+file outside the bundle is never planted, even with an approved digest. Planted
+files are root-owned and run as the unprivileged guest user.
 
 Every non-PTY `msb exec` uses `--stream`: without it stdin of a few MiB never
 arrives. Guests keep no credentials but task-scoped ones: the product's
