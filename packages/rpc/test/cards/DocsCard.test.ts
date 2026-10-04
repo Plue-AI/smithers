@@ -15,12 +15,23 @@ describe("docs", () => {
     const parsed = DocsCardSchema.parse(fixtures.not_found.model)
     expect([parsed.not_found, parsed.page.slug]).toEqual(["deploy-to-kubernetes", parsed.toc[0]!.slug])
   })
-  test("every story opens pages through the docs gesture with a page argument", () => {
-    for (const story of Object.values(fixtures)) {
-      if (!story.gestures.open) continue
-      expect(story.gestures.open?.tag).toBe("docs")
-      if (story.gestures.open?.args?.page) expect(story.gestures.open.args.page).toMatch(/^[a-z-]+(#[a-z-]+)?$/)
+  test("every story supplies docs navigation except the named contract cases", () => {
+    const skipped: string[] = []
+    const exceptions: Record<string, string> = {
+      inert: "No navigation gesture: the page must remain inert",
+      hostile: "No page argument: the gesture carries source; clicked links supply page",
     }
+    for (const [name, story] of Object.entries(fixtures)) {
+      const open = story.gestures.open
+      if (open) expect(open.tag).toBe("docs")
+      if (!open?.args?.page) {
+        expect(exceptions[name], `Unnamed navigation exception: ${name}`).toBeTruthy()
+        skipped.push(name)
+        continue
+      }
+      expect(open.args.page).toMatch(/^[a-z-]+(#[a-z-]+)?$/)
+    }
+    expect(skipped).toEqual(["inert", "hostile"])
   })
   test("toc order is kept and every page field is required", () => {
     const page = fixtures.page.model
