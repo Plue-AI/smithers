@@ -1,179 +1,145 @@
-name: Deploy apps
-
-# Every push to main deploys smithers.sh, after the apps gates pass on that
-# exact sha. This is the one deploy path (apps/server/DEPLOY.md "CI (every
-# push to main)"). scripts/deploy.ts refuses a real deploy of any commit that
-# is dirty or not on origin/main, whoever runs it.
+name: "Deploy apps"
 on:
   push:
-    branches: [main]
-  # A manual run is a read-only rehearsal: the gates, then the dry-run
-  # deploy.
-  workflow_dispatch: {}
-
+    branches: ["main"]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
-  actions: read
-
-# One deploy at a time, never cancelled mid-publish. GitHub keeps one pending
-# run per group and replaces it on each push, so under load the newest main
-# deploys next and the shas between are skipped, never published out of order.
-concurrency:
-  group: apps-deploy
-  cancel-in-progress: false
-
 jobs:
-  # The apps gates ci.yml's apps-e2e job runs, by the same target labels, on
-  # the sha this run deploys. ci.yml on main is superseded before most runs
-  # start, so the deploy cannot wait on it. This job never sees the Cloudflare
-  # credential: environment secrets reach only the job that names the
-  # environment. apps/server/scripts/canary/workflow-wiring.test.ts holds
-  # these targets to a superset of apps-e2e's.
-  gate:
-    name: apps gates
-    runs-on: ubuntu-latest
-    # Setup 3 min, UI typecheck 1, unit tests 7, conformance 1, browser suite
-    # ~22 (30m target timeout), server 4, site 4: ~41 typical, ~49 worst.
-    # The TUI suites stay in ci.yml only: smithers.sh doesn't ship the TUI, so
-    # a TUI red can't make a site deploy unsafe (#3483).
+  "gate":
+    name: "apps gates"
+    runs-on: "ubuntu-latest"
     timeout-minutes: 75
-    env:
-      SMITHERS_CACHE_URL: ${{ secrets.SMITHERS_CACHE_URL }}
-      SMITHERS_CACHE_READ_TOKEN: ${{ secrets.SMITHERS_CACHE_READ_TOKEN }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
-          node-version-file: .node-version
-          cache: pnpm
-      - name: Install certified npm
-        shell: bash
+          "node-version-file": ".node-version"
+          "cache": "pnpm"
+      - name: "Install certified npm"
         run: |
           npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
           test "$(npm --version)" = '11.16.0'
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        shell: "bash"
+      - uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
         with:
-          bun-version: 1.4.1
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      - name: Install native smithers-jj-export
-        shell: bash
+          "bun-version": "1.4.1"
+      - run: "pnpm install --frozen-lockfile --ignore-scripts"
+      - uses: "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6"
+      - name: "Install native smithers-jj-export"
         run: |
-          rustup toolchain install '1.98.0' --profile minimal
-          cargo +1.98.0 build --locked -p 'smithers-ffi' --bin 'smithers-jj-export'
-          mkdir -p "$RUNNER_TEMP/smithers-native"
-          install -m 755 'target/debug/smithers-jj-export' "$RUNNER_TEMP/smithers-native/smithers-jj-export"
-          printf '%s=%s\n' 'SMITHERS_WORKSPACE_JJ_EXPORT_BINARY' "$RUNNER_TEMP/smithers-native/smithers-jj-export" >> "$GITHUB_ENV"
-      - name: Install jj
-        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b
+          case "$(uname -s)" in Linux|Darwin|MINGW*|MSYS*)
+            native_suffix=''
+            case "$(uname -s)" in MINGW*|MSYS*) native_suffix='.exe';; esac
+            rustup toolchain install '1.98.0' --profile minimal
+            cargo +1.98.0 build --locked -p 'smithers-ffi' --bin 'smithers-jj-export'
+            mkdir -p "$RUNNER_TEMP/smithers-native"
+            native_path="$RUNNER_TEMP/smithers-native/smithers-jj-export$native_suffix"
+            install -m 755 "target/debug/smithers-jj-export$native_suffix" "$native_path"
+            if [ "$native_suffix" = '.exe' ]; then native_path="$(cygpath -w "$native_path")"; fi
+            printf '%s=%s\n' 'SMITHERS_WORKSPACE_JJ_EXPORT_BINARY' "$native_path" >> "$GITHUB_ENV"
+          esac
+        shell: "bash"
+      - name: "Install jj"
+        uses: "taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b"
         with:
-          tool: jj-cli@0.39.0
-      - name: Initialize colocated jj repository
-        run: jj git init --colocate
-      - name: Install ripgrep
-        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b
+          "tool": "jj-cli@0.39.0"
+      - name: "Initialize colocated jj repository"
+        run: "jj git init --colocate"
+      - name: "Install ripgrep"
+        uses: "taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b"
         with:
-          tool: ripgrep@14.1.1
-      - name: Install system packages
-        shell: bash
+          "tool": "ripgrep@14.1.1"
+      - name: "Install system packages"
+        id: setup
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
-          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
+            if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
           fi
-      - name: UI typecheck
-        run: pnpm exec smthrs build '//apps/app:check' --verbose
-      - name: UI unit tests
-        run: pnpm exec smthrs test '//apps/app:unitTests' --verbose
-      - name: UI conformance lint
-        run: pnpm exec smthrs test '//apps/app:conformance' --verbose
-      - name: UI browser end-to-end suite
-        run: pnpm exec smthrs test '//apps/app:browserE2e' --verbose
-      - name: Server typecheck and tests
-        run: pnpm exec smthrs ci '//apps/server/...' --verbose
-      - name: Site build and tests
-        run: pnpm exec smthrs ci '//apps/site/...' --verbose
-      - name: Collect e2e artifacts
-        if: failure()
+        shell: "bash"
+      - name: "UI typecheck"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs build '//apps/app:check' --verbose"
+      - name: "UI unit tests"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs test '//apps/app:unitTests' --verbose"
+      - name: "UI conformance lint"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs test '//apps/app:conformance' --verbose"
+      - name: "UI browser end-to-end suite"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs test '//apps/app:browserE2e' --verbose"
+      - name: "Server typecheck and tests"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs ci '//apps/server/...' --verbose"
+      - name: "Site build and tests"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs ci '//apps/site/...' --verbose"
+      - name: "Collect apps-deploy-e2e-artifacts"
+        if: always()
         run: |
-          mkdir -p "$RUNNER_TEMP/e2e-artifacts"
-          cp /tmp/smithers-*.png "$RUNNER_TEMP/e2e-artifacts/" 2>/dev/null || true
-          cp -R apps/reports "$RUNNER_TEMP/e2e-artifacts/reports" 2>/dev/null || true
-          cp -R apps/app/test-results "$RUNNER_TEMP/e2e-artifacts/playwright-test-results" 2>/dev/null || true
-          cp -R apps/app/playwright-report "$RUNNER_TEMP/e2e-artifacts/playwright-report" 2>/dev/null || true
-      - name: Upload e2e artifacts
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          mkdir -p "$RUNNER_TEMP/apps-deploy-e2e-artifacts"
+          for f in '/tmp/smithers-'*'.png'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/apps-deploy-e2e-artifacts"; fi; done
+          if [ -e 'apps/reports' ]; then cp -R -- 'apps/reports' "$RUNNER_TEMP/apps-deploy-e2e-artifacts/reports"; fi
+          if [ -e 'apps/app/test-results' ]; then cp -R -- 'apps/app/test-results' "$RUNNER_TEMP/apps-deploy-e2e-artifacts/playwright-test-results"; fi
+          if [ -e 'apps/app/playwright-report' ]; then cp -R -- 'apps/app/playwright-report' "$RUNNER_TEMP/apps-deploy-e2e-artifacts/playwright-report"; fi
+      - name: "Upload apps-deploy-e2e-artifacts"
+        if: always()
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
         with:
-          name: apps-deploy-e2e-artifacts
-          path: ${{ runner.temp }}/e2e-artifacts
-          if-no-files-found: ignore
-
-  deploy:
-    name: build + wrangler deploy
-    needs: gate
-    runs-on: ubuntu-latest
-    environment: production
-    # Reserve time for bounded probes AND restoration after a failed publish.
+          "name": "apps-deploy-e2e-artifacts"
+          "path": "${{ runner.temp }}/apps-deploy-e2e-artifacts"
+          "if-no-files-found": "ignore"
+  "deploy":
+    name: "build + wrangler deploy"
+    runs-on: "ubuntu-latest"
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    environment: "production"
+    needs: ["gate"]
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: 60
     steps:
-      # Full history: scripts/deploy.ts checks that HEAD is an ancestor of
-      # origin/main, and a shallow clone has no origin/main history.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
         with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+          "fetch-depth": "0"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
-          node-version-file: .node-version
-          cache: pnpm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: 1.4.1
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      # A real deploy needs a push AND the production environment's
-      # Cloudflare credential; a manual run, or a push before the credential
-      # exists, proves the pipeline with --dry-run instead. The Worker
-      # identity (smithers-mvp-web) is frozen (apps/server/DEPLOY.md); this
-      # workflow never edits wrangler.jsonc.
-      - name: Decide dry-run mode
-        id: mode
-        env:
-          HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          "node-version-file": ".node-version"
+          "cache": "pnpm"
+      - name: "Install certified npm"
         run: |
-          if [ "${{ github.event_name }}" = "push" ] && [ "$HAS_TOKEN" = "true" ]; then
-            echo "dry_run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "dry_run=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Restore rollback receipt
-        if: steps.mode.outputs.dry_run == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bun apps/server/scripts/rollout-receipt.ts
-      - name: Deploy (dry-run)
-        id: deploy_dry
-        if: steps.mode.outputs.dry_run == 'true'
-        run: pnpm --filter smithers-server run deploy:dry
-      # Cloudflare deploy credentials only. The Worker's secrets are set once on
-      # the live script with `wrangler secret put` and every `wrangler deploy`
-      # keeps them (`keep_bindings`). `SMITHERS_BUILD_SHA`
-      # is not a binding either; scripts/deploy.ts bakes it into the site build.
-      # apps/server/scripts/deploy-docs.test.ts holds this env to that rule.
-      - name: Deploy (real)
-        id: deploy_real
-        if: steps.mode.outputs.dry_run == 'false'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter smithers-server run deploy
-      # scripts/deploy.ts owns the deterministic rollout and all required probes.
-      # Keep the rollout receipt even after successful recovery (the run stays red).
-      - name: Upload deploy receipt
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = '11.16.0'
+        shell: "bash"
+      - uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
         with:
-          name: deploy-receipt
-          path: apps/server/deploy-receipts/**/*.json
-          if-no-files-found: warn
+          "bun-version": "1.4.1"
+      - id: setup
+        run: "pnpm install --frozen-lockfile --ignore-scripts"
+      - name: "Deploy"
+        run: "pnpm exec smthrs run '//apps/server:deploy' --outward-only --verbose"
+        env:
+          "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          "GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"
+      - name: "Collect deploy-receipt"
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/deploy-receipt"
+          if [ -e 'apps/server/deploy-receipts/.' ]; then cp -R -- 'apps/server/deploy-receipts/.' "$RUNNER_TEMP/deploy-receipt"; fi
+      - name: "Upload deploy-receipt"
+        if: always()
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+        with:
+          "name": "deploy-receipt"
+          "path": "${{ runner.temp }}/deploy-receipt"
+          "if-no-files-found": "ignore"

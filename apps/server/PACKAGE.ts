@@ -159,6 +159,66 @@ const deploy = Smithers.Shell.Run({
   ]
 })
 
+/** Generated deploy workflow; lint is the drift gate. */
+const deployRuntimes = [
+  Smithers.CiToolchain.Node({ versionFile: ".node-version", npmRelease: "11.16.0" }),
+  Smithers.CiToolchain.Bun({ release: "1.4.1" })
+]
+const appsDeploy = Smithers.GithubCiGen({
+  mode: "write",
+  workflowName: "Deploy apps",
+  output: ".github/workflows/apps-deploy.yml",
+  pullRequest: false,
+  pushBranches: ["main"],
+  workflowDispatch: true,
+  cancelInProgress: false,
+  requiredJobs: ["gate", "deploy"],
+  jobs: [
+    {
+      id: "gate",
+      name: "apps gates",
+      runsOn: "ubuntu-latest",
+      timeoutMinutes: 75,
+      toolchain: Smithers.CiToolchain.Needs({
+        runtimes: deployRuntimes,
+        cargoBinaries: [{ package: "smithers-ffi", binary: "smithers-jj-export", toolchain: "1.98.0", environment: "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", platforms: ["linux", "darwin", "win32"] }],
+        jj: Smithers.CiToolchain.Jj({ release: "0.39.0" }),
+        ripgrep: Smithers.CiToolchain.Ripgrep({ release: "14.1.1" }),
+        apt: Smithers.CiToolchain.Apt({ packages: ["bubblewrap"] }),
+        artifacts: Smithers.CiToolchain.Artifacts({
+          artifact: "apps-deploy-e2e-artifacts",
+          sources: [{ from: "/tmp/smithers-*.png" }, { from: "apps/reports", as: "reports" },
+            { from: "apps/app/test-results", as: "playwright-test-results" }, { from: "apps/app/playwright-report", as: "playwright-report" }]
+        })
+      }),
+      steps: [
+        { name: "UI typecheck", verb: Smithers.Verb.Build, pattern: "//apps/app:check" },
+        { name: "UI unit tests", verb: Smithers.Verb.Test, pattern: "//apps/app:unitTests" },
+        { name: "UI conformance lint", verb: Smithers.Verb.Test, pattern: "//apps/app:conformance" },
+        { name: "UI browser end-to-end suite", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2e" },
+        { name: "Server typecheck and tests", verb: Smithers.Verb.Ci, pattern: "//apps/server/..." },
+        { name: "Site build and tests", verb: Smithers.Verb.Ci, pattern: "//apps/site/..." }
+      ]
+    },
+    {
+      id: "deploy",
+      name: "build + wrangler deploy",
+      runsOn: "ubuntu-latest",
+      timeoutMinutes: 60,
+      needs: ["gate"],
+      environment: "production",
+      permissions: { contents: "read", actions: "read" },
+      toolchain: Smithers.CiToolchain.Needs({
+        fetchDepth: 0,
+        runtimes: deployRuntimes,
+        artifacts: Smithers.CiToolchain.Artifacts({ artifact: "deploy-receipt", sources: [{ from: "apps/server/deploy-receipts/." }] })
+      }),
+      steps: [{ name: "Deploy", verb: Smithers.Verb.Run, pattern: "//apps/server:deploy",
+        secrets: [Smithers.Secret("CLOUDFLARE_API_TOKEN"), Smithers.Secret("GITHUB_TOKEN")] }]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
-  targets: { check, unitTests, deploy, ...securityReview }
+  targets: { check, unitTests, deploy, appsDeploy, ...securityReview }
 })

@@ -114,23 +114,13 @@ test("the secrets section names every secret and knob the Worker reads, and no v
   expect(guide).not.toMatch(/-----BEGIN [A-Z ]*PRIVATE KEY-----\n[A-Za-z0-9+/=]{20,}/)
 })
 
-/*
- * CI parity: Cloudflare credentials deploy the Worker, and no Worker secret or
- * variable rides the deploy step. apps-deploy.yml remains hand-maintained.
- */
-const deployRealEnv = (): string => {
-  const step = workflow.split("- name: Deploy (real)")[1]!
-  return step.split("run:")[0]!
-}
-
-test("the CI deploy step exports only deployment credentials", () => {
-  const env = deployRealEnv()
-  expect(env).toContain("CLOUDFLARE_API_TOKEN:")
-  expect(env).toContain("CLOUDFLARE_ACCOUNT_ID:")
-  for (const name of [...Object.keys(WORKER_IDENTITY.secrets), ...WORKER_IDENTITY.optionalVars]) {
-    expect(`${name}: ${new RegExp(`^\\s+${name}: `, "m").test(env)}`).toBe(`${name}: false`)
+test("the generated deploy step exports only the two brokered credentials", () => {
+  const parsed = Bun.YAML.parse(workflow) as { jobs: { deploy: { steps: Array<{ name?: string; env?: Record<string, string> }> } } }
+  const step = parsed.jobs.deploy.steps.find(step => step.name === "Deploy")!
+  expect(step.env).toEqual({ CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}", GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" })
+  for (const name of [...Object.keys(WORKER_IDENTITY.secrets), ...WORKER_IDENTITY.optionalVars].filter(name => name !== "GITHUB_TOKEN")) {
+    expect(step.env).not.toHaveProperty(name)
   }
-  expect(env).not.toContain("${{ secrets.GITHUB_TOKEN }}")
 })
 
 test("the preflight is documented as read-only, with no --apply", () => {
@@ -177,7 +167,7 @@ const retiredGatewayNames = (): ReadonlySet<string> => {
 }
 
 test("the guide names no Worker setting outside src/workerIdentity.ts", () => {
-  const external = new Set(["CLOUDFLARE_API_TOKEN", "SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN"])
+  const external = new Set(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_BASE_URL", "GITHUB_API_URL", "SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN"])
   const retired = retiredGatewayNames()
   const settings = [...guide.matchAll(/`([A-Z][A-Z0-9_]*_(?:TOKEN|URL|KEY|SALT|SECRET))`/g)].map(([, name]) => name!)
   expect(settings.length).toBeGreaterThan(0)
