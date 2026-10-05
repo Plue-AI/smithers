@@ -331,3 +331,31 @@ func TestWithCauseNilKeepsAnEarlierCause(t *testing.T) {
 	assert.Equal(t, cause, err.Cause())
 	assert.Nil(t, Internal("boom").Cause())
 }
+
+// TestRefusalsCarryPermissionClass pins §5.2.1: a 401 or 403 answers in the
+// §6.2.3 envelope with class permission. The app reads a missing class as
+// infra ("not your fault"), so a classless forbidden tells a refused caller
+// that plue broke.
+func TestRefusalsCarryPermissionClass(t *testing.T) {
+	for name, err := range map[string]*APIError{
+		"forbidden from the registry":     Forbidden("credential does not belong to the installation owner"),
+		"unauthorized from the registry":  Unauthorized("sign in"),
+		"bare 403 composite":              {Status: http.StatusForbidden, Message: "denied"},
+		"bare 401 composite":              {Status: http.StatusUnauthorized, Message: "sign in"},
+		"composite with a code, no class": {Status: http.StatusForbidden, Code: CodeOrgMembershipRequired, Fault: FaultUser, Message: "join"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			WriteError(rec, err)
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "permission", body["class"])
+		})
+	}
+}
+
+func TestExplicitClassSurvivesTheWire(t *testing.T) {
+	rec := httptest.NewRecorder()
+	WriteError(rec, &APIError{Status: http.StatusForbidden, Code: CodeForbidden, Class: ClassNever, Message: "Only a person can do this"})
+	assert.Contains(t, rec.Body.String(), `"class":"never"`)
+}

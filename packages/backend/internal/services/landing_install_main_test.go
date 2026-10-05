@@ -62,7 +62,7 @@ func TestLandingService_InstallRefusesLandingOntoMain(t *testing.T) {
 			require.True(t, ok, "land onto %s: %v", target, err)
 			assert.Equal(t, 403, refusal.Status, target)
 			assert.Equal(t, pkgerrors.CodePermission, refusal.Code, target)
-			assert.Equal(t, "permission", refusal.Class, target)
+			assert.Equal(t, pkgerrors.ClassPermission, refusal.Class, target)
 			assert.Zero(t, *calls, "land onto %s reached the repository host", target)
 			assert.False(t, q.enqueueLandingRequestCalled, target)
 			assert.False(t, q.createLandingTaskCalled, target)

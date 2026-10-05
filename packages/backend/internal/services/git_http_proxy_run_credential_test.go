@@ -81,7 +81,7 @@ func TestGitHTTPProxyService_ReceivePack_AgentRunCredentialNeverWritesDefaultOrM
 				assert.Equal(t, 403, apiStatus(t, err))
 				refusal := err.(*pkgerrors.APIError)
 				assert.Equal(t, pkgerrors.CodePermission, refusal.Code)
-				assert.Equal(t, "permission", refusal.Class)
+				assert.Equal(t, pkgerrors.ClassPermission, refusal.Class)
 				assert.Zero(t, host.receivePackCall)
 			})
 		}

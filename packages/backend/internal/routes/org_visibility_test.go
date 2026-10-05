@@ -46,8 +46,8 @@ func TestOrgHandler_GetOrg_VisibilityWithRealService(t *testing.T) {
 		{name: "signed in missing", authenticated: true, missing: true, status: http.StatusNotFound, body: notFoundBody},
 		{name: "anonymous public", visibility: "public", status: http.StatusOK},
 		{name: "outsider public", visibility: "public", authenticated: true, status: http.StatusOK},
-		{name: "anonymous limited", visibility: "limited", status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"fault\":\"user\",\"message\":\"organization membership required\"}\n"},
-		{name: "outsider limited", visibility: "limited", authenticated: true, status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"fault\":\"user\",\"message\":\"insufficient organization permissions\"}\n"},
+		{name: "anonymous limited", visibility: "limited", status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"class\":\"permission\",\"fault\":\"user\",\"message\":\"organization membership required\"}\n"},
+		{name: "outsider limited", visibility: "limited", authenticated: true, status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"class\":\"permission\",\"fault\":\"user\",\"message\":\"insufficient organization permissions\"}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

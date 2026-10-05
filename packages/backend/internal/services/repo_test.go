@@ -1194,7 +1194,7 @@ func TestRepoService_UpdateRepo_InstallDefaultBookmarkRefusalIsPermission(t *tes
 	refusal := apiError(t, err)
 	assert.Equal(t, http.StatusForbidden, refusal.Status)
 	assert.Equal(t, errors.CodePermission, refusal.Code)
-	assert.Equal(t, "permission", refusal.Class)
+	assert.Equal(t, errors.ClassPermission, refusal.Class)
 }
 
 func TestRepoService_UpdateRepo_DatabaseFailureRestoresRepoHostDefaultBookmark(t *testing.T) {

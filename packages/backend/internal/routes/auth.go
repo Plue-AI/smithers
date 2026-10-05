@@ -988,6 +988,7 @@ func writeRouteError(w http.ResponseWriter, r *http.Request, err error) {
 				// RetryAfter here a full pool would answer 503 with no pacing
 				// at all.
 				Code:       apiErr.Code,
+				Class:      apiErr.Class,
 				Fault:      apiErr.Fault,
 				RetryAfter: apiErr.RetryAfter,
 			})

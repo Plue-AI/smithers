@@ -38,7 +38,11 @@ func TestPublicErrorConstructorsCarryLiteralWireVerdicts(t *testing.T) {
 			apierrors.WriteError(recorder, err)
 			require.Equal(t, row.status, recorder.Code)
 			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
-			require.JSONEq(t, `{"code":"`+row.code+`","fault":"`+row.fault+`","message":"action refused"}`, recorder.Body.String())
+			class := ""
+			if row.status == 401 || row.status == 403 {
+				class = `"class":"permission",`
+			}
+			require.JSONEq(t, `{"code":"`+row.code+`",`+class+`"fault":"`+row.fault+`","message":"action refused"}`, recorder.Body.String())
 		})
 	}
 	for _, row := range []struct {

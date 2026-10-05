@@ -23163,6 +23163,10 @@ components:
       properties:
         code:
           type: string
+        class:
+          description: The spec §6.2.3 failure class; every 401 and 403 carries permission or never. Absent for a code whose class is not yet assigned.
+          type: string
+          enum: [user, permission, capacity, github, infra, conflict, never]
         fault:
           type: string
         plan_key:

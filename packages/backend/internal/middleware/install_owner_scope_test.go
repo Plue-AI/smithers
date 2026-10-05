@@ -46,4 +46,6 @@ func TestInstallationOwnerSetupScopeCoversGitHubReturns(t *testing.T) {
 	stranger := &AuthInfo{User: &db.User{ID: 8}}
 	require.False(t, authorizeInstallationOwner(w, httptest.NewRequest(http.MethodGet, "http://localhost:4000/setup/github/installed", nil), stranger, boundary))
 	require.Equal(t, http.StatusForbidden, w.Code, "setup scope never admits another person")
+	// §5.2.1: the refusal is 403 permission in the §6.2.3 envelope.
+	require.JSONEq(t, `{"code":"forbidden","class":"permission","fault":"user","message":"credential does not belong to the installation owner"}`, w.Body.String())
 }

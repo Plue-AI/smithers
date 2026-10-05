@@ -45,7 +45,7 @@ func TestPublicSharedBearerGateRefusesWithoutDisclosure(t *testing.T) {
 			require.Zero(t, calls)
 			require.Equal(t, 401, recorder.Code)
 			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
-			require.JSONEq(t, `{"code":"unauthorized","fault":"user","message":"this endpoint requires its shared bearer token"}`, recorder.Body.String())
+			require.JSONEq(t, `{"code":"unauthorized","class":"permission","fault":"user","message":"this endpoint requires its shared bearer token"}`, recorder.Body.String())
 		}
 	}
 }
@@ -84,7 +84,7 @@ func TestPublicAgentTokenMalformedCredentialsNeverQueryOrDispatch(t *testing.T) 
 		require.Zero(t, query.calls)
 		require.Zero(t, dispatches)
 		require.Equal(t, 401, recorder.Code)
-		require.JSONEq(t, `{"code":"unauthorized","fault":"user","message":"invalid or missing agent token"}`, recorder.Body.String())
+		require.JSONEq(t, `{"code":"unauthorized","class":"permission","fault":"user","message":"invalid or missing agent token"}`, recorder.Body.String())
 	}
 }
 
@@ -119,11 +119,11 @@ func TestPublicAgentTokenLookupExpiryAndTerminalRefusalsStayClosed(t *testing.T)
 			require.Equal(t, pgtype.Text{String: publicAgentFixtureHash, Valid: true}, query.hash)
 			require.Zero(t, dispatches)
 			require.Equal(t, row.statusCode, recorder.Code)
-			fault, code := "user", "unauthorized"
+			class, fault, code := `"class":"permission",`, "user", "unauthorized"
 			if row.statusCode == 500 {
-				fault, code = "bug", "internal"
+				class, fault, code = "", "bug", "internal"
 			}
-			require.JSONEq(t, `{"code":"`+code+`","fault":"`+fault+`","message":"`+row.message+`"}`, recorder.Body.String())
+			require.JSONEq(t, `{"code":"`+code+`",`+class+`"fault":"`+fault+`","message":"`+row.message+`"}`, recorder.Body.String())
 			require.NotContains(t, recorder.Body.String(), publicAgentFixtureToken)
 		})
 	}

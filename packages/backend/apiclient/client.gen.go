@@ -900,6 +900,7 @@ type ErrorDetail struct {
 // Error is generated from docs/api/openapi.yaml.
 type Error struct {
 	Code                 *string                    `json:"code,omitempty"`
+	Class                *string                    `json:"class,omitempty"`
 	Fault                *string                    `json:"fault,omitempty"`
 	PlanKey              *string                    `json:"plan_key,omitempty"`
 	LimitKind            *string                    `json:"limit_kind,omitempty"`
@@ -917,7 +918,7 @@ func (v *Error) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "code", "fault", "plan_key", "limit_kind", "upgrade_plan_key", "message", "errors", "request_id", "retryable")
+	return splitAdditional(data, &v.AdditionalProperties, "code", "class", "fault", "plan_key", "limit_kind", "upgrade_plan_key", "message", "errors", "request_id", "retryable")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of Error.

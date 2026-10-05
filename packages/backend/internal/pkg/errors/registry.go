@@ -53,6 +53,33 @@ const (
 // bad. Exported for the generated artifact and for exhaustiveness checks.
 var Faults = []Fault{FaultUser, FaultWait, FaultInfra, FaultDependency, FaultBug, FaultFactory, FaultPolicy}
 
+// Class is the §6.2.3 failure class the app's fault copy is chosen by. Fault
+// says whose problem a failure is; Class says which sentence the interface
+// shows ("not your fault" for infra and capacity, "Only a person can do this"
+// for never).
+//
+//	user        the request itself is wrong. Fix it.
+//	permission  the credential is missing, dead, or not allowed (401, 403).
+//	capacity    plue has no room right now.
+//	github      GitHub failed or refused.
+//	infra       plue's own platform failed.
+//	conflict    the subject's state refuses the request.
+//	never       this kind of actor may never do this (403).
+type Class string
+
+const (
+	ClassUser       Class = "user"
+	ClassPermission Class = "permission"
+	ClassCapacity   Class = "capacity"
+	ClassGitHub     Class = "github"
+	ClassInfra      Class = "infra"
+	ClassConflict   Class = "conflict"
+	ClassNever      Class = "never"
+)
+
+// Classes is every Class, in §6.2.3 order.
+var Classes = []Class{ClassUser, ClassPermission, ClassCapacity, ClassGitHub, ClassInfra, ClassConflict, ClassNever}
+
 // Entry is everything the transport layer needs to answer a failure without
 // asking the call site. The call site chooses the Code; it does not get to
 // choose the HTTP status, the fault, or the retry pacing.
@@ -61,6 +88,9 @@ type Entry struct {
 	Status int
 	// Fault is who the failure belongs to.
 	Fault Fault
+	// Class is the §6.2.3 class the envelope carries. Empty only for a code
+	// whose class is not yet ruled (classPending in registry_test.go).
+	Class Class
 	// RetryAfter, when > 0, is the number of seconds a client should wait
 	// before retrying. It feeds the Retry-After header.
 	RetryAfter int
@@ -309,14 +339,14 @@ var registry = map[Code]Entry{
 	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},
 	// The request carried no credential, or one the server could not verify.
 	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Doc: "The request host matches no configured install origin."},
-	CodeOwnerUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Doc: "Owner repository access has not been verified."},
-	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The owner claim invalidated the setup credential."},
-	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The setup credential is missing, expired or invalid."},
-	CodeUnauthorized:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
-	CodeInvalidToken:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The presented token has an unrecognized format or is no longer valid."},
+	CodeOwnerUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, Doc: "Owner repository access has not been verified."},
+	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The owner claim invalidated the setup credential."},
+	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The setup credential is missing, expired or invalid."},
+	CodeUnauthorized:    {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
+	CodeInvalidToken:    {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The presented token has an unrecognized format or is no longer valid."},
 	// The credential is valid but is not allowed to perform this operation.
-	CodePermission: {Status: http.StatusForbidden, Fault: FaultUser, Doc: "Install permission policy refused the operation."},
-	CodeForbidden:  {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The credential is valid but is not allowed to perform this operation."},
+	CodePermission: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, Doc: "Install permission policy refused the operation."},
+	CodeForbidden:  {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The credential is valid but is not allowed to perform this operation."},
 	// The addressed resource does not exist, or the caller may not see that
 	// it does.
 	CodeNotFound: {Status: http.StatusNotFound, Fault: FaultUser, RetryAfter: 0, Doc: "The addressed resource does not exist, or the caller may not see that it does."},
@@ -359,7 +389,7 @@ var registry = map[Code]Entry{
 	// budget; plue simply cannot prove it right now, so the pacing rides in
 	// the body as well as the header.
 	CodeRateLimiterUnavailable:    {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "plue's rate-limit store is not answering and the endpoint fails closed rather than let a budget go unenforced."},
-	CodeRepositoryCIRunUnverified: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The CI check receipt names a run this repository and workspace retain no usable dispatch for."},
+	CodeRepositoryCIRunUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The CI check receipt names a run this repository and workspace retain no usable dispatch for."},
 	// The endpoint's storage is not provisioned on this deployment, so the
 	// feature is switched off here. Nothing the caller sent is wrong, and no
 	// retry helps until the deployment is migrated.
@@ -372,11 +402,11 @@ var registry = map[Code]Entry{
 	CodeCodingGatewayNotConfigured: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "This deployment has no workspace-gateway health probe configured, so it cannot verify a box's coding gateway and refuses every bound gateway until an operator configures one."},
 	// The GitHub grant is dead in a way no server-side refresh can repair;
 	// the person has to re-authorize the GitHub App.
-	CodeGitHubReconnectRequired: {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The GitHub grant is dead in a way no server-side refresh can repair; the person has to re-authorize the GitHub App."},
+	CodeGitHubReconnectRequired: {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The GitHub grant is dead in a way no server-side refresh can repair; the person has to re-authorize the GitHub App."},
 	// The GitHub proxy refuses this action for the caller's grant. Legacy
 	// SCREAMING_CASE spelling kept for the clients that already branch on
 	// it.
-	CodeGitHubForbiddenAction: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The GitHub proxy refuses this action for the caller's grant. Legacy SCREAMING_CASE spelling kept for the clients that already branch on it."},
+	CodeGitHubForbiddenAction: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The GitHub proxy refuses this action for the caller's grant. Legacy SCREAMING_CASE spelling kept for the clients that already branch on it."},
 	// The box is up but its desktop helpers have not finished linking; the
 	// same request works seconds later.
 	// The box is suspended, failed, or has no VM. Observe and input never
@@ -490,7 +520,7 @@ var registry = map[Code]Entry{
 	// The caller can already write to this repository, so forking it would
 	// only fragment the history. Forks exist to give a reader a namespace they
 	// can write in; a writer already has one.
-	CodeForkNotNeeded: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The caller already has write access to this repository, so there is nothing to fork: edit it in place."},
+	CodeForkNotNeeded: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The caller already has write access to this repository, so there is nothing to fork: edit it in place."},
 	// The landing request cannot proceed as asked; details name what is
 	// blocking it.
 	CodeLandingBlocked: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, RetryAfter: 0, Doc: "The landing request cannot proceed as asked; details name what is blocking it."},
@@ -499,7 +529,7 @@ var registry = map[Code]Entry{
 	// The requested owner is an organization on this deployment and the
 	// caller does not belong to it. Imports never silently fall back to the
 	// caller's own namespace; join the organization or fork the repository.
-	CodeOrgMembershipRequired: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The requested owner is an organization on this deployment and the caller does not belong to it. Join the organization, or fork the repository into your own namespace."},
+	CodeOrgMembershipRequired: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The requested owner is an organization on this deployment and the caller does not belong to it. Join the organization, or fork the repository into your own namespace."},
 	// The account's credit cannot cover the next metered model call. Plue's
 	// model proxy answers it; the Worker relays it unchanged.
 	CodeOutOfCredit: {Status: http.StatusPaymentRequired, Fault: FaultUser, RetryAfter: 0, Doc: "The account's credit balance cannot cover the next model call; upgrade or top up, then retry."},
@@ -519,7 +549,7 @@ var registry = map[Code]Entry{
 	// The wiki's collaboration backend is not answering.
 	CodeWikiUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "The wiki's collaboration backend is not answering."},
 	// A readable repository's private wiki needs explicit repository access.
-	CodeWikiSpaceUnreadable: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The repository is readable, but its private wiki needs explicit repository access (owner, member or collaborator)."},
+	CodeWikiSpaceUnreadable: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The repository is readable, but its private wiki needs explicit repository access (owner, member or collaborator)."},
 	// plue's event-stream tier could not open the stream: the LISTEN backing
 	// it failed, or the broker refused the subscription. The stream was never
 	// established, so a client loses nothing by reconnecting.
@@ -601,22 +631,22 @@ var registry = map[Code]Entry{
 	CodeQuiesceFailed: {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 1, Doc: "The worker could not quiesce the guest in time to take the action; retrying usually succeeds."},
 	// The access grant presented to the controller does not cover this
 	// sandbox.
-	CodeAccessDenied: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The access grant presented to the controller does not cover this sandbox."},
+	CodeAccessDenied: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The access grant presented to the controller does not cover this sandbox."},
 	// The calling peer's mTLS identity is not one this worker accepts.
-	CodePeerIdentityDenied: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The calling peer's mTLS identity is not one this worker accepts."},
+	CodePeerIdentityDenied: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The calling peer's mTLS identity is not one this worker accepts."},
 	// The worker's identity key is not the one the controller registered.
-	CodeWorkerIdentityDenied: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The worker's identity key is not the one the controller registered."},
+	CodeWorkerIdentityDenied: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The worker's identity key is not the one the controller registered."},
 	// The worker's identity assertion is past its validity window.
-	CodeWorkerIdentityExpired: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The worker's identity assertion is past its validity window."},
+	CodeWorkerIdentityExpired: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The worker's identity assertion is past its validity window."},
 	// The worker heartbeat's identity key is malformed.
-	CodeWorkerIdentityInvalid: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The worker heartbeat's identity key is malformed."},
+	CodeWorkerIdentityInvalid: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The worker heartbeat's identity key is malformed."},
 	// Two workers claim the same id with different identity keys.
-	CodeWorkerIdentityConflict: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "Two workers claim the same id with different identity keys."},
+	CodeWorkerIdentityConflict: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "Two workers claim the same id with different identity keys."},
 	// The worker heartbeat's identity was superseded by a newer
 	// registration.
-	CodeWorkerIdentityStale: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The worker heartbeat's identity was superseded by a newer registration."},
+	CodeWorkerIdentityStale: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The worker heartbeat's identity was superseded by a newer registration."},
 	// The worker's registration conflicts with a live one under the same id.
-	CodeWorkerRegistrationConflict: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The worker's registration conflicts with a live one under the same id."},
+	CodeWorkerRegistrationConflict: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The worker's registration conflicts with a live one under the same id."},
 	// The request targets a different worker than the one holding the
 	// placement, or the worker lost its controller authorization.
 	CodeWorkerFenced: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The request targets a different worker than the one holding the placement, or the worker lost its controller authorization."},
@@ -695,12 +725,8 @@ func New(code Code, msg string) *APIError {
 	if !ok {
 		entry = Entry{Status: http.StatusInternalServerError, Fault: FaultBug}
 	}
-	class := ""
-	if code == CodePermission || code == CodeSetupClosed || code == CodeOwnerUnverified || code == CodeUnauthenticated {
-		class = "permission"
-	}
 	return &APIError{
-		Class:      class,
+		Class:      entry.Class,
 		Status:     entry.Status,
 		Code:       code,
 		Fault:      entry.Fault,

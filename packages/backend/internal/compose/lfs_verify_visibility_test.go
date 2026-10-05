@@ -157,7 +157,7 @@ func TestServerRouter_LFSVerifyReadableRepositoryPermissions(t *testing.T) {
 				rec := httptest.NewRecorder()
 				router.ServeHTTP(rec, lfsVerifyActor(lfsVerifyRequest("demo", strings.Repeat("a", 64), 1), 2, token, 0))
 				require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-				require.JSONEq(t, `{"code":"forbidden","fault":"user","message":"permission denied"}`, rec.Body.String())
+				require.JSONEq(t, `{"code":"forbidden","class":"permission","fault":"user","message":"permission denied"}`, rec.Body.String())
 				require.Zero(t, q.objectReads)
 			})
 		}
@@ -206,7 +206,7 @@ func TestServerRouter_LFSVerifyAuthorizedConfirmation(t *testing.T) {
 				require.Equal(t, 1, q.objectReads)
 			} else {
 				require.Zero(t, q.objectReads)
-				require.JSONEq(t, `{"code":"forbidden","fault":"user","message":"lfs verify credential does not authorize this object"}`, rec.Body.String())
+				require.JSONEq(t, `{"code":"forbidden","class":"permission","fault":"user","message":"lfs verify credential does not authorize this object"}`, rec.Body.String())
 			}
 		})
 	}

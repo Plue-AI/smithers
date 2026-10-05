@@ -200,7 +200,7 @@ func TestPublicRouteErrorsSanitizePrivateDiagnosticsAndPreserveSafePacing(t *tes
 		status      int
 		body, retry string
 	}{
-		{"wrapped user refusal", fmt.Errorf("context: %w", apierrors.Forbidden("action refused")), 403, `{"message":"action refused","code":"forbidden","fault":"user"}`, ""},
+		{"wrapped user refusal", fmt.Errorf("context: %w", apierrors.Forbidden("action refused")), 403, `{"message":"action refused","code":"forbidden","class":"permission","fault":"user"}`, ""},
 		{"internal cause", apierrors.Internal("private operation").WithCause(errors.New(secret)), 500, `{"message":"internal server error","code":"internal","fault":"bug"}`, ""},
 		{"untyped", errors.New(secret), 500, `{"message":"internal server error","code":"internal","fault":"bug"}`, ""},
 		{"dependency", apierrors.New(apierrors.Code("service_unavailable"), secret), 503, `{"message":"service unavailable","code":"service_unavailable","fault":"infra"}`, ""},

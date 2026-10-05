@@ -161,6 +161,7 @@ func gitHubInstallationUnverified(err error) *pkgerrors.APIError {
 		return (&pkgerrors.APIError{
 			Status:     apiErr.Status,
 			Code:       apiErr.Code,
+			Class:      apiErr.Class,
 			Fault:      apiErr.Fault,
 			RetryAfter: apiErr.RetryAfter,
 			Message:    gitHubInstallationUnverifiedMessage,

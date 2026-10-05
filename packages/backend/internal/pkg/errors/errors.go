@@ -20,8 +20,10 @@ type APIError struct {
 	Status int `json:"-"`
 	// Code is the machine-readable verdict. It is always present on the wire:
 	// clients branch on Code, never on Message.
-	Code  Code   `json:"code"`
-	Class string `json:"class,omitempty"`
+	Code Code `json:"code"`
+	// Class is the §6.2.3 class the app picks its fault copy by. It comes from
+	// the registry; a call site sets it only to say never.
+	Class Class `json:"class,omitempty"`
 	// Fault says whose problem this is, so an interface can choose its words
 	// without a table of every code. It is derived from Code, never chosen at
 	// the call site.
@@ -201,12 +203,14 @@ func GitHubReconnectRequired(msg string) *APIError {
 // The Code constants that used to live here are in registry.go, beside the
 // status, fault and retry pacing each one implies.
 
-// normalized returns the copy of e that goes on the wire. It fills in the two
+// normalized returns the copy of e that goes on the wire. It fills in the
 // fields a hand-built composite may have left empty, so `code` and `fault` are
 // present on EVERY response while the code-less call sites are swept:
 //
 //   - an empty Code becomes the generic code for the status;
-//   - an empty Fault is looked up from the Code, defaulting to bug.
+//   - an empty Fault is looked up from the Code, defaulting to bug;
+//   - an empty Class is looked up from the Code, so a bare 403 still answers
+//     class permission.
 //
 // It never overwrites a value the caller set, and it never touches the
 // caller's struct.
@@ -221,6 +225,10 @@ func (e *APIError) normalized() APIError {
 			entry.Fault = FaultBug
 		}
 		out.Fault = entry.Fault
+	}
+	if out.Class == "" {
+		entry, _ := Lookup(out.Code)
+		out.Class = entry.Class
 	}
 	return out
 }

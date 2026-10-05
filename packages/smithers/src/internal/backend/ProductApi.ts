@@ -459,6 +459,7 @@ export type ErrorDetail = {
 
 export type Error = {
   code?: string
+  class?: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
   fault?: string
   plan_key?: string
   limit_kind?: "concurrent_sandboxes" | "sandbox_hours_per_day" | "agent_runs" | "repositories" | "organizations"
