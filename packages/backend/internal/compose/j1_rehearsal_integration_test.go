@@ -1094,7 +1094,8 @@ func TestJ1Rehearsal(t *testing.T) {
 		if number <= 0 {
 			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
 		}
-		deadline := time.Now().Add(3 * time.Second)
+		// The merge worker polls every 3 s; 30 s spans several of its passes.
+		deadline := time.Now().Add(30 * time.Second)
 		for {
 			data, err := expect("GET", todoPath, "", 200)
 			if err != nil {
