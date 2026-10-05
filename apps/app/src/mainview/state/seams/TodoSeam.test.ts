@@ -140,7 +140,7 @@ describe("TodoSeam — admission and live completion", () => {
     const requests: { url: string; body: unknown }[] = []
     const h = await harness(async (url, init) => {
       requests.push({ url, body: JSON.parse(String(init?.body)) })
-      return JSON.parse(String(init?.body)).op === "answer" ? json({ code: "answered", class: "never", message: "Already answered", answered_by: "maya" }, 409) : json({ state: "requested", n: 12 })
+      return url.endsWith("/answer") ? json({ code: "answered", class: "conflict", message: "maya answered", answered_by: "maya" }, 409) : json({ state: "requested", n: 12 })
     })
     try {
       await h.seam.applyTodoProjection(12, fixtures.needs_you.model)
@@ -277,8 +277,8 @@ describe("TodoSeam — admission and live completion", () => {
 
 test("multiple waits require a target and persist the exact answer wait in HTTP", async () => {
   const calls: unknown[] = []
-  const h = await harness(async (_url, init) => {
-    calls.push(JSON.parse(String(init?.body)))
+  const h = await harness(async (url, init) => {
+    calls.push({ url, ...JSON.parse(String(init?.body)) })
     return json({ state: "accepted", n: 12 })
   })
   try {
@@ -290,7 +290,66 @@ test("multiple waits require a target and persist the exact answer wait in HTTP"
     expect(calls).toEqual([])
     expect(await h.seam.answerTodo(12, "Approve", approval.id)).toEqual({ value: "Requested" })
     await waitFor(() => calls.length === 1)
-    expect(calls).toEqual([{ op: "answer", answer: "Approve", wait: approval.id }])
+    expect(calls).toEqual([{ url: "https://install.test/api/todos/12/answer", answer: "Approve", wait: approval.id }])
+  } finally { h.close() }
+})
+
+// J2 step 4 / J3 step 6 on an install: Needs you toasts the TODO's owner once per question with its one action; the
+// TODO card's and Branch card's Answer ({n, answer}, no wait id) posts to the answer route; admission settles nothing,
+// and the answer and its toast settle only when the served question closes.
+test("an answer posts to POST /api/todos/{n}/answer and settles with the question; Needs you toasts the owner once", async () => {
+  const admission = deferred<Response>()
+  const calls: { url: string; init?: RequestInit }[] = []
+  const h = await harness((url, init) => { calls.push({ url, init }); return admission.promise })
+  try {
+    const question = fixtures.needs_you.model.waits[0]!
+    await h.seam.applyTodoProjection(12, fixtures.working.model)
+    expect([...h.store.collections.toasts.values()]).toEqual([])
+    await h.seam.applyTodoProjection(12, fixtures.needs_you.model)
+    await h.seam.applyTodoProjection(12, fixtures.needs_you.model)
+    const toasts = () => [...h.store.collections.toasts.values()].filter(toast => toast.key.startsWith("todo.needs-you."))
+    expect(toasts()).toHaveLength(1)
+    expect(toasts()[0]).toMatchObject({ key: `todo.needs-you.12.${question.id}`, title: "T12 needs you", status: "running", sourceCard: "todo:12",
+      action: { flow: "todo", args: "T12", label: "Answer" } })
+
+    expect(await h.seam.answerTodo(12, "Include them")).toEqual({ value: "Requested" })
+    expect(await h.seam.answerTodo(12, "Include them")).toEqual({ value: "Requested" })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe("https://install.test/api/todos/12/answer")
+    expect(calls[0]!.init?.method).toBe("POST")
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ answer: "Include them", wait: question.id })
+    const key = h.todo().payload.requests[0]!.key
+    expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(key)
+    admission.resolve(json({ state: "accepted" }))
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, fixtures.needs_you.model)
+    expect(h.outcomes).toEqual([])
+    expect(h.todo().payload.requests).toHaveLength(1)
+
+    await h.seam.applyTodoProjection(12, fixtures.working.model)
+    expect(h.outcomes).toEqual(expect.arrayContaining([
+      { key: `todo.needs-you.12.${question.id}`, status: "ok", detail: "Answered" },
+      { key: `todo.request.${key}`, status: "ok", detail: "Answered" }
+    ]))
+    expect(h.todo().payload.requests).toEqual([])
+    expect(toasts()[0]).toMatchObject({ status: "ok" })
+  } finally { h.close() }
+})
+
+test("Needs you toasts anyone on the branch, but not a member who neither owns the TODO nor is on its branch (M-14)", async () => {
+  const h = await harness(async () => json({ state: "accepted" }))
+  try {
+    const maya = { login: "maya", name: "Maya", avatar_url: fixtures.needs_you.model.owner.avatar_url }
+    const needsYou = () => [...h.store.collections.toasts.values()].filter(toast => toast.key.startsWith("todo.needs-you."))
+    await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, owner: maya, present: [] })
+    expect(needsYou()).toEqual([])
+    // Ben joins the branch while the question is still open: an already-open question raises nothing new.
+    await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, owner: maya })
+    expect(needsYou()).toEqual([])
+    const asked = { ...fixtures.needs_you.model.waits[0]!, id: "wait-question-2", prompt: "Which region?" }
+    await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, owner: maya, waits: [asked] })
+    expect(needsYou().map(toast => toast.key)).toEqual(["todo.needs-you.12.wait-question-2"])
   } finally { h.close() }
 })
 

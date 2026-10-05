@@ -80,6 +80,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const blank = (n: number): TodoEntry => todoCard(n, undefined, ctx.nextOrdinal(), Date.now())
   const noticeKey = (key: string) => `todo.request.${key}`
+  const needsYouKey = (n: number, wait: string) => `todo.needs-you.${n}.${wait}`
   const showNotice = (request: Request, title: string) => {
     if (shared.timers.has(request.key)) return
     const timer = setTimeout(() => {
@@ -145,6 +146,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (request.state !== "accepted" || receipts.some(receipt => receipt.key === request.key)) return []
       if (request.operation === "merge") return model.state === "merged"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
+      // An accepted answer is done once its question is no longer open.
+      if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait)
+        ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Answered" } }]
       if (request.operation !== "create" || model.title !== request.body.title || model.prompt_revisions[0]?.text !== request.body.prompt) return []
       const terminal = ["in_review", "merged", "failed", "dropped"].includes(model.state)
       return [{ key: request.key, committed: { n, rev: 1 }, ...(terminal ? {
@@ -159,6 +163,16 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       ...(receipts.some(receipt => receipt.outcome?.status === "ok" && card.payload.requests.some(request => request.key === receipt.key && request.operation === "steer"))
         ? { answerDraft: undefined, answeredBy: undefined } : {})
     } }, "system")
+    // Needs you (M-14): each question the agent opens raises one toast with its Answer for the TODO's owner and anyone
+    // on its branch, settled when the question is.
+    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).filter(wait => wait.kind === "question").map(wait => wait.id))
+    const before = asked(card.payload.model), after = asked(model)
+    const toasted = model.owner.login === owner() || model.present.some(actor => actor.kind === "person" && actor.login === owner())
+    for (const id of after) {
+      if (toasted && !before.has(id) && live()) ctx.dispatch({ type: "toast.shown", actor: "system", key: needsYouKey(n, id), title: `T${n} needs you`,
+        sourceCard: card.id, action: { flow: "todo", args: `T${n}`, label: "Answer" } })
+    }
+    for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: "Answered" })
     for (const receipt of receipts) {
       if (!live()) return
       const original = card.payload.requests.find(request => request.key === receipt.key)
@@ -191,7 +205,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const row = ctx.store.collections.cards.get(cardId)
     const title = row?.title ?? "TODO"
     showNotice(request, title)
-    const control = ["answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
+    // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
+    const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
     const route = request.operation === "create" ? TODOS_PATH
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
