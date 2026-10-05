@@ -2473,3 +2473,45 @@ test("SetupAction origin markers follow its optional prop", () => {
     expect(host.querySelector(".setup-field")!.textContent).toBe(expected)
   }
 })
+
+describe("Timeline glyphs and actions", () => {
+  const renderLine = async (glyph: import("@smthrs/rpc/TimelineCard").TimelineLine["glyph"], extra: Partial<import("@smthrs/rpc/TimelineCard").TimelineLine> = {}) => {
+    const { Timeline } = await import("../../Timeline")
+    return mounted({ name: "Timeline", expect: ["Run"], render: callbacks => <Timeline lines={[{ entry_id: "run-9", kind: "event", title: "Run", summary: "Checks failed", tone: "quiet", glyph, ...extra }]} on_screen={["", ""]} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} /> })
+  }
+  test("state uses the shared failed glyph", async () => {
+    const view = await renderLine({ state: "failed" })
+    expect(view.host.querySelector(".mvp-tl-node .lucide-x.mvp-glyph")).not.toBeNull()
+    await view.close()
+  })
+  test("actor uses the author's avatar", async () => {
+    const view = await renderLine({ actor: { kind: "github", login: "octocat", color_index: 7 } })
+    expect(view.host.querySelector('.mvp-avatar[aria-label="@octocat"]')).not.toBeNull()
+    await view.close()
+  })
+  for (const [event, selector] of [["running", '[data-slot="spinner"][aria-label="Working"]'], ["ok", ".lucide-check"], ["attention", ".lucide-circle-alert"], ["failed", ".lucide-x"]] as const) {
+    test(`event ${event} renders its glyph`, async () => {
+      const view = await renderLine({ event }, { fresh: true })
+      expect(view.host.querySelector(`.mvp-tl-node ${selector}`)).not.toBeNull()
+      expect(view.host.querySelector("li[data-fresh]")).not.toBeNull()
+      await view.close()
+    })
+  }
+  for (const args of [undefined, { n: "9" }]) test(`action forwards ${args ? "args" : "empty args"} without jumping`, async () => {
+    const view = await renderLine({ state: "failed" }, { action: { tag: "todo.retry", label: "Retry", ...(args ? { args } : {}) } })
+    view.onView.mockClear()
+    await act(async () => view.host.querySelector<HTMLButtonElement>('button[data-flow="todo.retry"]')!.click())
+    expect(view.onAction.mock.calls).toEqual([["todo.retry", args ?? {}]])
+    expect(view.onView.mock.calls).toEqual([])
+    await act(async () => view.host.querySelector<HTMLButtonElement>("li > button")!.click())
+    expect(view.onView.mock.calls).toEqual([[{ jump_to: "run-9" }]])
+    await view.close()
+  })
+  test("disabled actions refuse callbacks and show the reason", async () => {
+    const view = await renderLine({ state: "failed" }, { action: { tag: "todo.retry", label: "Retry", disabled: { reason: "Run active" } } })
+    await act(async () => view.host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
+    expect(view.onAction.mock.calls).toEqual([])
+    expect(view.host.textContent).toContain("Run active")
+    await view.close()
+  })
+})

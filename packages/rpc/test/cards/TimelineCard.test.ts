@@ -30,3 +30,17 @@ describe("timeline", () => {
     expect(TimelineCardSchema.safeParse({ ...base, lines: [{ ...base.lines[0]!, kind }] }).success).toBe(false)
   })
 })
+
+describe("timeline glyph and action contract", () => {
+  test.each([
+    { state: "working" },
+    { actor: { kind: "github", login: "octocat", color_index: 7 } },
+    ...["running", "ok", "attention", "failed"].map(event => ({ event }))
+  ])("decodes glyph %j with an optional action and fresh flag", glyph => {
+    const line = { ...base.lines[0]!, kind: "event", glyph, action: { tag: "todo.retry", label: "Retry", args: { n: "9" } }, fresh: true }
+    expect(TimelineCardSchema.parse({ ...base, lines: [line] }).lines).toEqual([line])
+  })
+  test.each([undefined, {}, { state: "ready" }, { event: "done" }, { actor: { kind: "person" } }])("rejects invalid glyph %j", glyph => {
+    expect(TimelineCardSchema.safeParse({ ...base, lines: [{ ...base.lines[0]!, glyph }] }).success).toBe(false)
+  })
+})

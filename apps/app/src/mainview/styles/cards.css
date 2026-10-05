@@ -3408,3 +3408,16 @@ button.mvp-node:focus-visible { outline: 2px solid var(--ring-border); outline-o
 .smithers-card-body > .confirm-view > .smithers-card-header { display: none; }
 .smithers-card-body > .setup-view[data-kind="settings"] { max-width: none; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .smithers-card-body > .setup-view[data-kind="settings"] > h2 { display: none; }
+
+/* Timeline (T-UI-08): a newly arrived line highlights once. */
+.mvp-timeline li[data-fresh] { animation: mvp-timeline-fresh 1.2s ease-out; }
+.mvp-timeline .mvp-tl-ok { color: var(--brand); }
+.mvp-timeline .mvp-tl-failed { color: var(--danger); }
+.mvp-timeline .mvp-toast-attention { color: var(--attention-text); }
+@keyframes mvp-timeline-fresh {
+  from { background: var(--brand-soft); }
+  to { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mvp-timeline li[data-fresh] { animation: none; }
+}

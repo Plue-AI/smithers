@@ -4,6 +4,7 @@
  * foot. A card file, not a View: it maps the transcript, the toasts and the
  * design world to the Views' props and binds their callbacks to flows.
  */
+import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
@@ -27,6 +28,8 @@ export type RailEntry =
 
 const firstLine = (text: string): string => text.split("\n").find(line => line.trim() !== "")?.trim() ?? ""
 
+const toneGlyph = (tone: TimelineLine["tone"]): TimelineLine["glyph"] => ({ state: tone === "failed" ? "failed" : tone === "done" ? "merged" : tone === "live" ? "working" : tone === "attention" ? "needs_you" : "queued" })
+
 const cardTone = (card: Card): TimelineLine["tone"] => card.status === "error" ? "failed" : card.status === "acted" ? "done" : "quiet"
 
 /** One timeline line per transcript entry (spec §14.5.4). The opening read has none. */
@@ -35,17 +38,17 @@ export const railLines = (entries: ReadonlyArray<RailEntry>): TimelineLine[] => 
   // T-APP-16 can supply this model when its shared-entry provider is mounted.
   if (entry.kind === "entry") {
     const row = entry.entry
-    return [{ entry_id: entry.id, kind: row.kind, title: row.title, tone: row.tone,
+    return [{ entry_id: entry.id, kind: row.kind, title: row.title, tone: row.tone, glyph: row.state ? { state: row.state } : { actor: row.author },
       ...(row.summary === undefined || row.tombstone ? {} : { summary: row.summary }) }]
   }
   if (entry.kind === "init") return []
-  if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card) }]
+  if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card), glyph: toneGlyph(cardTone(entry.card)) }]
   const { message } = entry
   const text = firstLine(message.text)
   if (text === "") return []
   return [message.role === "user"
-    ? { entry_id: message.id, kind: "prompt", title: `“${text}”`, tone: "quiet" }
-    : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet" }]
+    ? { entry_id: message.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: toneGlyph("quiet") }
+    : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } }]
 })
 
 const LIVE: ReadonlySet<TimelineLine["tone"]> = new Set(["live", "attention", "failed"])
@@ -82,11 +85,12 @@ export const HOME_ENTRY_ID = "home"
 
 /** The home line: the repository and "N need you · M working"; a failed read claims no counts. */
 export const homeLine = (home: Pick<HomeAnswer, "kind" | "model">): TimelineLine => {
-  if (home.kind === "failed") return { entry_id: HOME_ENTRY_ID, kind: "card", title: home.model.repository, tone: "quiet" }
+  if (home.kind === "failed") return { entry_id: HOME_ENTRY_ID, kind: "card", title: home.model.repository, tone: "quiet", glyph: { state: "queued" } }
   const { needs_you: needsYou, working, starting } = home.model.counts
   return {
     entry_id: HOME_ENTRY_ID, kind: "card", title: home.model.repository, summary: `${needsYou} need you · ${working + starting} working`,
-    tone: needsYou > 0 ? "attention" : working + starting > 0 ? "live" : "quiet"
+    tone: needsYou > 0 ? "attention" : working + starting > 0 ? "live" : "quiet",
+    glyph: { state: needsYou > 0 ? "needs_you" : working + starting > 0 ? "working" : "queued" }
   }
 }
 
@@ -121,7 +125,7 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const last = lines.at(-1)?.entry_id ?? ""
   return <aside className="mvp-rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />
-    <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} />
+    <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={onEdgeAction} />
     <ToastStack toasts={notices} more={Math.max(0, notices.length - 3)} onAction={onToastAction} onView={onView} />
   </aside>
 }

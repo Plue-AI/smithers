@@ -89,6 +89,7 @@ interface HandlerRef {
   /** The line the action prop appears on. */
   readonly line: string
   readonly context: string
+  readonly control?: string
 }
 
 /**
@@ -113,7 +114,7 @@ const handlers = (source: string): Array<HandlerRef> => {
         insideActions(node))
     if (named && isAction(node.name.getText(tree))) {
       const line = tree.getLineAndCharacterOfPosition(node.getStart(tree)).line
-      found.push({ prop: node.name.getText(tree), line: lines[line]!, context: node.getText(tree) })
+      found.push({ prop: node.name.getText(tree), line: lines[line]!, context: node.getText(tree), control: ts.isJsxAttribute(node) ? node.parent.getText(tree) : undefined })
     }
     ts.forEachChild(node, visit)
   }
@@ -1141,6 +1142,9 @@ describe("launch-law parity: every affordance is a command", () => {
     for (const [file, source] of Object.entries(files)) {
       for (const handler of handlers(source)) {
         if (routesThroughRegistry(handler.context)) continue
+        // Inline props actions must pass the same AST seam as design-owned Views.
+        if (handler.control && handler.context.includes("onAction(") &&
+          viewSeamViolations(handler.control, new URL(file, import.meta.url)).length === 0) continue
         // The allowlist exempts the handler that NAMES the token, not any
         // handler that happens to sit near one: a complete one-line
         // handler matches against its own line only, so it can no longer
@@ -1245,7 +1249,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../EdgeMap.tsx": 4, // The pinned edges: a row jump, its one action, the pill jump and "+N" (T-UI-08).
       "../SearchPalette.tsx": 6, // + Ask Smithers, the first row of an empty ⌘K
       "../SurfaceChrome.tsx": 3,
-      "../Timeline.tsx": 1, // A line click is onView({ jump_to }).
+      "../Timeline.tsx": 2, // Jump through onView; the action through onAction.
       "../ToastStackView.tsx": 3, // A notice's one action, Hide and "+N more".
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
 

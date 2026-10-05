@@ -1,3 +1,4 @@
+import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 /*
  * The activity rail (T-APP-07): the card file's mapping from transcript
  * entries and toasts to the Views' props, and the three Views' controls at
@@ -11,8 +12,9 @@ import { createRoot } from "react-dom/client"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { EdgeMap } from "./EdgeMap"
-import { railEdges, railLines, railNotices, type RailEntry } from "./ShellRail"
+import { homeLine, railEdges, railLines, railNotices, type RailEntry } from "./ShellRail"
 import type { Card, Message, Toast } from "./state/AppState"
+import { homeFailureModel } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
 
@@ -39,20 +41,30 @@ const message = (id: string, role: Message["role"], text: string, status: Messag
   ({ kind: "message", message: { id, ordinal: 1, createdAt: 1, text, role, status } })
 const card = (id: string, status: Card["status"], title = "Build"): RailEntry =>
   ({ kind: "card", card: { id, kind: "status", title, createdAt: 1, ordinal: 1, status, payload: {} } })
-const line = (entry_id: string, tone: TimelineLine["tone"]): TimelineLine => ({ entry_id, kind: "card", title: entry_id, tone })
+const line = (entry_id: string, tone: TimelineLine["tone"]): TimelineLine => ({ entry_id, kind: "card", title: entry_id, tone, glyph: { state: "queued" } })
 const toast = (id: string, status: Toast["status"], createdAt: number, extra: Partial<Toast> = {}): Toast =>
   ({ id, key: id, title: `Toast ${id}`, detail: "", status, createdAt, updatedAt: createdAt, ...extra })
 
 describe("ShellRail maps the conversation to the rail", () => {
+  test("home prioritizes attention, includes starting work, and keeps failed reads count-free", () => {
+    const model = homeFailureModel("smithersai/smithers", "unavailable")
+    const answer = (needs_you: number, working: number, starting: number) => ({ kind: "served" as const, model: { ...model, counts: { ...model.counts, needs_you, working, starting } } })
+    expect(homeLine(answer(2, 3, 1))).toEqual({ entry_id: "home", kind: "card", title: "smithersai/smithers", summary: "2 need you · 4 working", tone: "attention", glyph: { state: "needs_you" } })
+    expect(homeLine(answer(0, 3, 0))).toEqual({ entry_id: "home", kind: "card", title: "smithersai/smithers", summary: "0 need you · 3 working", tone: "live", glyph: { state: "working" } })
+    expect(homeLine(answer(0, 0, 1))).toEqual({ entry_id: "home", kind: "card", title: "smithersai/smithers", summary: "0 need you · 1 working", tone: "live", glyph: { state: "working" } })
+    expect(homeLine(answer(0, 0, 0))).toEqual({ entry_id: "home", kind: "card", title: "smithersai/smithers", summary: "0 need you · 0 working", tone: "quiet", glyph: { state: "queued" } })
+    expect(homeLine({ ...answer(2, 3, 1), kind: "failed" })).toEqual({ entry_id: "home", kind: "card", title: "smithersai/smithers", tone: "quiet", glyph: { state: "queued" } })
+  })
+
   test("shared entry facts keep their host title, tone and last summary", () => {
     expect(railLines([
       { kind: "entry", id: "t3-starting", entry: { kind: "event", author: { kind: "system", color_index: 7 }, title: "Starting", tone: "live", state: "starting", summary: "Preparing checks" } },
       { kind: "entry", id: "t3-review", entry: { kind: "card", author: { kind: "system", color_index: 7 }, title: "Ready for review", tone: "quiet", state: "in_review" } },
       { kind: "entry", id: "removed", entry: { kind: "answer", author: { kind: "system", color_index: 7 }, title: "Removed", tone: "quiet", summary: "Hidden content", tombstone: true } }
     ])).toEqual([
-      { entry_id: "t3-starting", kind: "event", title: "Starting", tone: "live", summary: "Preparing checks" },
-      { entry_id: "t3-review", kind: "card", title: "Ready for review", tone: "quiet" },
-      { entry_id: "removed", kind: "answer", title: "Removed", tone: "quiet" }
+      { entry_id: "t3-starting", kind: "event", title: "Starting", tone: "live", summary: "Preparing checks", glyph: { state: "starting" } },
+      { entry_id: "t3-review", kind: "card", title: "Ready for review", tone: "quiet", glyph: { state: "in_review" } },
+      { entry_id: "removed", kind: "answer", title: "Removed", tone: "quiet", glyph: { actor: { kind: "system", color_index: 7 } } }
     ])
   })
   test("one line per entry: prompts quoted, answers by first line, cards by status; the opening read and blank text have none", () => {
@@ -64,11 +76,11 @@ describe("ShellRail maps the conversation to the rail", () => {
       card("c1", "error"), card("c2", "acted"), card("c3", "active", "")
     ]
     expect(railLines(entries)).toEqual([
-      { entry_id: "m1", kind: "prompt", title: "“Fix the flaky test”", tone: "quiet" },
-      { entry_id: "m2", kind: "answer", title: "On it.", tone: "failed" },
-      { entry_id: "c1", kind: "card", title: "Build", tone: "failed" },
-      { entry_id: "c2", kind: "card", title: "Build", tone: "done" },
-      { entry_id: "c3", kind: "card", title: "status", tone: "quiet" }
+      { entry_id: "m1", kind: "prompt", title: "“Fix the flaky test”", tone: "quiet", glyph: { state: "queued" } },
+      { entry_id: "m2", kind: "answer", title: "On it.", tone: "failed", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } },
+      { entry_id: "c1", kind: "card", title: "Build", tone: "failed", glyph: { state: "failed" } },
+      { entry_id: "c2", kind: "card", title: "Build", tone: "done", glyph: { state: "merged" } },
+      { entry_id: "c3", kind: "card", title: "status", tone: "quiet", glyph: { state: "queued" } }
     ])
   })
 
@@ -144,7 +156,7 @@ describe("the rail's Views at their callback seam", () => {
   test("the timeline marks the band inclusively, a line click jumps, and visibility is reported once", () => {
     const views: ShellView[] = []
     const lines = [line("a", "quiet"), line("b", "live"), line("c", "attention"), line("d", "done")]
-    const host = mount(<Timeline lines={lines} on_screen={["b", "c"]} onView={patch => views.push(patch)} />)
+    const host = mount(<Timeline onAction={() => {}} lines={lines} on_screen={["b", "c"]} onView={patch => views.push(patch)} />)
     expect([...host.querySelectorAll("li")].map(each => each.hasAttribute("data-in-view"))).toEqual([false, true, true, false])
     expect(views.filter(patch => "timeline_visible" in patch).length).toBe(1)
     click(host.querySelector('li[data-entry="d"] button'))

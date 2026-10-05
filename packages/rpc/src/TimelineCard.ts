@@ -4,7 +4,8 @@
  */
 
 import { z } from "zod"
-import { ToneSchema } from "./CardPrimitives.ts"
+import { ActorSchema, TodoStateSchema, ToneSchema } from "./CardPrimitives.ts"
+import { ActionSchema, type CardProps } from "./CardAction.ts"
 import { EntryKindSchema } from "./EntryRowCard.ts"
 import type { ShellView } from "./ToastCard.ts"
 
@@ -18,7 +19,14 @@ export const TimelineLineSchema = z.object({
   kind: EntryKindSchema,
   title: z.string(),
   summary: z.string().optional(),
-  tone: ToneSchema
+  tone: ToneSchema,
+  glyph: z.union([
+    z.object({ state: TodoStateSchema }),
+    z.object({ actor: ActorSchema }),
+    z.object({ event: z.enum(["running", "ok", "attention", "failed"]) })
+  ]),
+  action: ActionSchema.optional(),
+  fresh: z.boolean().optional()
 })
 
 /**
@@ -51,4 +59,4 @@ export type TimelineCard = z.infer<typeof TimelineCardSchema>
  * @since 1.0.0
  * @category models
  */
-export type TimelineProps = TimelineCard & { readonly onView: (patch: ShellView) => void }
+export type TimelineProps = TimelineCard & { readonly onAction: CardProps<unknown>["onAction"]; readonly onView: (patch: ShellView) => void }
