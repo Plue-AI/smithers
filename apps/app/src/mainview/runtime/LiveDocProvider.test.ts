@@ -3,6 +3,7 @@ import * as Y from "yjs"
 import * as sync from "y-protocols/sync"
 import * as encoding from "lib0/encoding"
 import * as decoding from "lib0/decoding"
+import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness"
 import { LiveDocProvider, type DocumentEvent, type DocumentChannel, type DocumentPrerequisites } from "./LiveDocProvider"
 const ready: DocumentPrerequisites = { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true }
 function fixture(prerequisites = ready) {
@@ -151,4 +152,37 @@ test("the same provider retains the wiki's markdown root without creating a seco
   expect(provider.unsaved).toEqual({ count: 1, text: "wiki text" })
   expect(provider.doc.share.has("content")).toBe(false)
   provider.dispose()
+})
+
+test("reapply is offered only to an assigned, synced replica holding retained edits", () => {
+  const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
+  expect(f.provider.canReapply).toBe(false)
+  f.provider.doc.getText("content").insert(0, "kept")
+  f.event({ kind: "refused" })
+  expect(f.provider.unsaved?.text).toBe("kept"); expect(f.provider.canReapply).toBe(false)
+  expect(f.provider.collection.get("document")?.canReapply).toBe(false)
+  f.event({ kind: "assigned", epoch: "00000000000000000000000000000002", clientId: 8 })
+  expect(f.provider.editable).toBe(false); expect(f.provider.canReapply).toBe(true)
+  expect(f.provider.collection.get("document")?.canReapply).toBe(true)
+  expect(f.provider.reapply()).toBe(true)
+  expect(f.provider.canReapply).toBe(false)
+  f.provider.dispose()
+})
+test("an awareness change alone republishes the status row, so remote flags render and leave", () => {
+  const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
+  const peer = new Y.Doc(); peer.clientID = 9
+  const remote = new Awareness(peer)
+  remote.setLocalState({ actor: { kind: "outside", color_index: 7 }, colour: "x", line: 2 })
+  const before = f.provider.collection.get("document")!.revision
+  f.provider.awareness.emit("change", [{ added: [], updated: [], removed: [] }, "timer"])
+  expect(f.provider.collection.get("document")!.revision).toBe(before)
+  f.event({ kind: "awareness", payload: encodeAwarenessUpdate(remote, [9]) })
+  const joined = f.provider.collection.get("document")!.revision
+  expect(joined).toBeGreaterThan(before)
+  expect(f.provider.awareness.getStates().get(9)).toMatchObject({ line: 2 })
+  // A timeout removal arrives with no document event; the row still moves.
+  removeAwarenessStates(f.provider.awareness, [9], "timeout")
+  expect(f.provider.awareness.getStates().has(9)).toBe(false)
+  expect(f.provider.collection.get("document")!.revision).toBeGreaterThan(joined)
+  remote.destroy(); peer.destroy(); f.provider.dispose()
 })

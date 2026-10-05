@@ -24,7 +24,7 @@ export interface DocumentPrerequisites {
   contract: boolean; actor: boolean; file: boolean; recovery: boolean; catalog: boolean; machine: boolean
 }
 let nextDocument = 0
-interface DocumentStatus { id: string; revision: number; editable: boolean; signature: string; saved: "saving" | "saved"; unsaved?: { count: number; text: string } | undefined }
+interface DocumentStatus { id: string; revision: number; editable: boolean; canReapply: boolean; signature: string; saved: "saving" | "saved"; unsaved?: { count: number; text: string } | undefined }
 interface Pending { bytes: Uint8Array; vector: Map<number, number> }
 const covered = (required: Map<number, number>, actual: Map<number, number>) =>
   [...required].every(([id, clock]) => (actual.get(id) ?? 0) >= clock)
@@ -53,6 +53,7 @@ export class LiveDocProvider {
     try { contract = parseLiveDocTopic(topic) } catch { /* Invalid topics stay dark. */ }
     this.textName = contract?.kind === "wiki" ? "markdown" : "content"
     this.doc.getText(this.textName)
+    this.awareness.on("change", this.aware)
     this.publish()
     this.doc.on("update", this.updated)
     if (!channel || !prerequisites || ![prerequisites.contract, prerequisites.actor, prerequisites.file, prerequisites.recovery, prerequisites.catalog, prerequisites.machine].every(value => value === true)) return
@@ -63,16 +64,24 @@ export class LiveDocProvider {
   get editable() { return this.assigned && this.synced && !this.disposed && !this.recovery }
   get saved(): "saving" | "saved" { return !this.acknowledged || this.pending.length || this.recovery || !covered(this.localClocks, this.savedClocks) ? "saving" : "saved" }
   get unsaved() { return this.recovery && { ...this.recovery } }
+  /** Retained edits can be reapplied once this replica is assigned and synced again. */
+  get canReapply() { return this.assigned && this.synced && !this.disposed && !!this.recovery && !this.reapplying }
   private publish() {
     const previous = this.collection.get("document")
     const signature = JSON.stringify([this.epoch, this.doc.clientID, [...this.doc.getMap("authors")], [...this.awareness.getStates()]])
     const unsaved = this.unsaved
-    if (previous?.editable === this.editable && previous.saved === this.saved && previous.signature === signature &&
+    if (previous?.editable === this.editable && previous.canReapply === this.canReapply && previous.saved === this.saved && previous.signature === signature &&
       previous.unsaved?.count === unsaved?.count && previous.unsaved?.text === unsaved?.text) return
     const status: DocumentStatus = { id: "document", revision: (previous?.revision ?? 0) + 1,
-      editable: this.editable, saved: this.saved, unsaved, signature }
+      editable: this.editable, canReapply: this.canReapply, saved: this.saved, unsaved, signature }
     if (previous) this.collection.update(status.id, row => { Object.assign(row, status) })
     else this.collection.insert(status)
+  }
+  /** Remote flags come and go (a peer leaves, or its state times out) without any document event. */
+  private aware = () => { if (!this.disposed) this.publish() }
+  private renewAwareness() {
+    this.awareness.off("change", this.aware); this.awareness.destroy()
+    this.awareness = new Awareness(this.doc); this.awareness.on("change", this.aware)
   }
   private updated = (bytes: Uint8Array, origin: unknown) => {
     if (this.disposed) return
@@ -106,13 +115,13 @@ export class LiveDocProvider {
       if (!/^[a-f0-9]{32}$/i.test(event.epoch) || !LiveDocId.safeParse(event.clientId).success) return
       if ((this.epoch !== undefined && this.epoch !== event.epoch) || (this.epoch === undefined && this.recovery)) {
         this.retain(); this.pending = []; this.localClocks.clear(); this.savedClocks.clear(); this.acknowledged = false
-        this.doc.off("update", this.updated); this.awareness.destroy(); this.doc.destroy(); this.doc = new Y.Doc(); this.awareness = new Awareness(this.doc); this.doc.on("update", this.updated)
+        this.doc.off("update", this.updated); this.doc.destroy(); this.doc = new Y.Doc(); this.renewAwareness(); this.doc.on("update", this.updated)
       } else if (this.pending.some(update => update.vector.has(event.clientId)) && this.doc.clientID !== event.clientId) {
         // Assignment cannot reuse a client id already present in this replica.
         this.assigned = false; this.retain(); return
       }
       this.epoch = event.epoch; this.doc.clientID = event.clientId
-      if (this.awareness.clientID !== event.clientId) { this.awareness.destroy(); this.awareness = new Awareness(this.doc) }
+      if (this.awareness.clientID !== event.clientId) this.renewAwareness()
       this.assigned = true; this.synced = false; this.restart(); return
     }
     if (!this.assigned) return
@@ -180,7 +189,7 @@ export class LiveDocProvider {
   dispose() {
     if (this.disposed) return
     this.retain(); this.assigned = false; this.disposed = true; this.subscription?.release()
-    this.doc.off("update", this.updated); this.awareness.destroy(); this.publish()
+    this.doc.off("update", this.updated); this.awareness.off("change", this.aware); this.awareness.destroy(); this.publish()
     // Keep the document/recovery text for its owner; disposal never discards unacknowledged edits.
   }
 }
