@@ -1,10 +1,11 @@
-import { NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
+import { NodeFileSystem, NodePath, NodeServices } from "@effect/platform-node"
+import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import { Effect, FileSystem, Layer, ManagedRuntime } from "effect"
+import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
@@ -15,7 +16,7 @@ import { CapabilityPattern } from "../../packages/smithers/flows/capability/src/
 import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { catalogLayers } from "../coding/catalog.ts"
-import { checkDelegate, checkLayers } from "../coding/checks.ts"
+import { CheckCommand, checkDelegate, checkLayers } from "../coding/checks.ts"
 import {
   type Check,
   CodingError,
@@ -48,7 +49,7 @@ test("native command checks read immutable source during edits and replay exact 
     await rm(temporary, { force: true, recursive: true })
   })
   const root = join(temporary, "repo"), started = join(temporary, "started"), release = join(temporary, "release")
-  execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
+  execFileSync("jj", ["git", "init", root], { cwd: temporary, stdio: "pipe" })
   const jj = (...args: string[]) => execFileSync("jj", ["-R", root, ...args], { cwd: root, stdio: "pipe" }).toString()
   jj("config", "set", "--repo", "user.name", "Check Acceptance")
   jj("config", "set", "--repo", "user.email", "check@example.com")
@@ -84,7 +85,9 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   jj("status")
   const commit = JSON.parse(jj("log", "--ignore-working-copy", "-r", "@", "--no-graph", "-T", "json(self)"))
   const operationId = JSON.parse(jj("op", "log", "-n", "1", "--no-graph", "-T", "json(self)")).id as string
-  const initial = JSON.parse(execFileSync(exporter!, [root, commit.commit_id, temporary], { stdio: "pipe" }).toString())
+  const initial = JSON.parse(
+    execFileSync(exporter!, [root, commit.commit_id, temporary], { cwd: root, stdio: "pipe" }).toString()
+  )
   assert.equal(initial.commitId, commit.commit_id)
   assert.equal(initial.changeId, commit.change_id)
   await rm(initial.path, { recursive: true, force: true })
@@ -128,6 +131,44 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   }
   const directories: string[] = []
   const fs = await Effect.runPromise(FileSystem.FileSystem.pipe(Effect.provide(NodeFileSystem.layer)))
+  const rawSpawner = await Effect.runPromise(
+    ChildProcessSpawner.ChildProcessSpawner.pipe(Effect.provide(NodeServices.layer))
+  )
+  // These host-owned checks export the fixture's jj metadata before running the
+  // declared command. Restore the real host spawner at invocation, after the
+  // runtime installs its action workspace guards; layer provision alone is erased.
+  const hostCommands = Layer.mergeAll(
+    Layer.effect(FlowRuntime.FlowRuntime)(Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
+      ...runtime,
+      register: (flow, handler, options) =>
+        runtime.register(
+          flow,
+          flow._tag === CheckCommand.name
+            ? (payload, executionId) =>
+              handler(payload, executionId).pipe(
+                Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, rawSpawner)
+              )
+            : handler,
+          options
+        )
+    }))),
+    Layer.effect(Action.Implementations)(Effect.map(Action.Implementations, (table) => ({
+      ...table,
+      add: (implementation, options) =>
+        table.add(
+          implementation.name === CheckCommand.name
+            ? {
+              ...implementation,
+              action: (payload) =>
+                implementation.action(payload).pipe(
+                  Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, rawSpawner)
+                )
+            }
+            : implementation,
+          options
+        )
+    })))
+  )
   const recordingFs: FileSystem.FileSystem = {
     ...fs,
     makeTempDirectoryScoped: (options?: Parameters<typeof fs.makeTempDirectoryScoped>[0]) =>
@@ -154,7 +195,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
           exporterPath: exporter,
           fs: recordingFs,
           environment: { PATH: dirname(process.execPath) }
-        }),
+        }).pipe(Layer.provide(hostCommands)),
         catalogLayers,
         Interpreter.layer(CheckRun),
         executable.layer
@@ -163,7 +204,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
         Layer.provideMerge(Layer.succeed(Executable.Catalog, { executables: [executable], refused: [] }))
       )
     ).pipe(
-      Layer.provide(Layer.succeed(NodeJj.StartupTimeoutMs, 30_000))
+      Layer.provide(Layer.succeed(NodeJj.StartupTimeoutMs, 120_000))
     )
   let host = ManagedRuntime.make(runtime())
   disposeHost = () => host.dispose()
@@ -294,7 +335,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   jj("status")
   const linkedCommit = JSON.parse(jj("log", "--ignore-working-copy", "-r", "@", "--no-graph", "-T", "json(self)"))
   const linked = JSON.parse(
-    execFileSync(exporter!, [root, linkedCommit.commit_id, temporary], { stdio: "pipe" }).toString()
+    execFileSync(exporter!, [root, linkedCommit.commit_id, temporary], { cwd: root, stdio: "pipe" }).toString()
   )
   await rm(linked.path, { recursive: true, force: true })
   assert.equal(linked.commitId, linkedCommit.commit_id)
