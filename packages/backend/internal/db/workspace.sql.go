@@ -1110,6 +1110,86 @@ func (q *Queries) GetBranchWorkspace(ctx context.Context, arg GetBranchWorkspace
 	return i, err
 }
 
+const getFlowWorkspaceForUserRepo = `-- name: GetFlowWorkspaceForUserRepo :one
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit, vcpu_count, memory_mb, disk_mb
+FROM workspaces w
+WHERE w.id = $1
+  AND w.repository_id = $2
+  AND w.deleted_at IS NULL
+  AND (w.user_id = $3 OR (
+        w.user_id IN (
+          SELECT u.id FROM users u WHERE u.lower_username = 'smithers-machines'
+            AND u.user_type = 'service' AND u.prohibit_login AND u.deleted_at IS NULL)
+        AND EXISTS (
+          SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
+            AND s.grantee_user_id = $3)
+        AND NOT EXISTS (
+          SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
+            AND s.grantee_user_id <> $3)))
+`
+
+type GetFlowWorkspaceForUserRepoParams struct {
+	ID           string `json:"id"`
+	RepositoryID int64  `json:"repository_id"`
+	UserID       int64  `json:"user_id"`
+}
+
+// GetFlowWorkspaceForUserRepo is the box a person's flow calls reach: their
+// own, or a branch machine the install's machine service owns whose only
+// write share is theirs (a TODO's lane). The flow host's lease checks the
+// same predicate under its lock (flowhost/store.go).
+func (q *Queries) GetFlowWorkspaceForUserRepo(ctx context.Context, arg GetFlowWorkspaceForUserRepoParams) (Workspace, error) {
+	row := q.db.QueryRow(ctx, getFlowWorkspaceForUserRepo, arg.ID, arg.RepositoryID, arg.UserID)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.RepositoryID,
+		&i.UserID,
+		&i.Name,
+		&i.IsFork,
+		&i.ParentWorkspaceID,
+		&i.TargetBookmark,
+		&i.SourceSnapshotID,
+		&i.Kind,
+		&i.EnvironmentSource,
+		&i.EnvironmentRevision,
+		&i.EnvironmentClosureHash,
+		&i.AgentSessionID,
+		&i.HeadPushTokenID,
+		&i.EnvironmentImage,
+		&i.DesktopSessionID,
+		&i.DesktopSessionTokenHash,
+		&i.DesktopSessionExpiresAt,
+		&i.VmID,
+		&i.ProvisioningGeneration,
+		&i.Status,
+		&i.FailureCode,
+		&i.FailureMessage,
+		&i.ProvisioningStage,
+		&i.LastActivityAt,
+		&i.IdleTimeoutSecs,
+		&i.SuspendedAt,
+		&i.StartedAt,
+		&i.ResumedAt,
+		&i.HeadChangeID,
+		&i.HeadCommitID,
+		&i.Ahead,
+		&i.Behind,
+		&i.LastAccessedAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
+		&i.ClientLeaseSecs,
+		&i.ClientLeaseExpiresAt,
+		&i.SourceCommit,
+		&i.VcpuCount,
+		&i.MemoryMb,
+		&i.DiskMb,
+	)
+	return i, err
+}
+
 const getRepoOwnerSlugAndNameByID = `-- name: GetRepoOwnerSlugAndNameByID :one
 SELECT r.name AS repo_name,
        COALESCE(o.name, u.username, '')::text AS owner_slug

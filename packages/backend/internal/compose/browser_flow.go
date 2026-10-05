@@ -42,8 +42,10 @@ type browserFlowAPI struct {
 	repos interface {
 		GetRepoView(context.Context, *db.User, string, string) (services.RepoView, error)
 	}
+	// queries finds the named box: the caller's own, or a TODO's lane shared
+	// with the caller alone (GetFlowWorkspaceForUserRepo).
 	queries interface {
-		GetWorkspaceForUserRepo(context.Context, db.GetWorkspaceForUserRepoParams) (db.Workspace, error)
+		GetFlowWorkspaceForUserRepo(context.Context, db.GetFlowWorkspaceForUserRepoParams) (db.Workspace, error)
 	}
 	dispatcher browserFlowDispatcher
 	// boxes resumes a sleeping box (services.WorkspaceService).
@@ -164,7 +166,7 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		browserFlowRefusal(w, http.StatusNotFound, "Repository unavailable.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
-	workspace, err := api.queries.GetWorkspaceForUserRepo(r.Context(), db.GetWorkspaceForUserRepoParams{
+	workspace, err := api.queries.GetFlowWorkspaceForUserRepo(r.Context(), db.GetFlowWorkspaceForUserRepoParams{
 		ID: request.WorkspaceID, RepositoryID: view.Repository.ID, UserID: user.ID,
 	})
 	if err == nil && workspace.RebuildRequiredAt.Valid {
@@ -177,6 +179,13 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 	}
 	if workspace.Status == "failed" {
 		browserFlowTyped(w, http.StatusConflict, "workspace_gone", "This box is gone. Open a new one.")
+		return request, flowruntime.Target{}, db.Workspace{}, false
+	}
+	// A box the caller does not own is a TODO's lane: the stack runs it. Its
+	// person reads its runs here and acts on them through the TODO
+	// (/api/todos), never through the relay.
+	if !provision && workspace.UserID != user.ID && request.Procedure != "List" && request.Procedure != "Projection.Snapshot" {
+		browserFlowTyped(w, http.StatusForbidden, "todo_requires_stack_admission", "This branch runs a TODO. Act on the TODO.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	return request, flowruntime.Target{

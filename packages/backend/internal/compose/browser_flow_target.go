@@ -16,7 +16,7 @@ import (
 type browserFlowTarget struct {
 	queries interface {
 		GetRepoByOwnerAndLowerName(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
-		GetWorkspaceForUserRepo(context.Context, db.GetWorkspaceForUserRepoParams) (db.Workspace, error)
+		GetFlowWorkspaceForUserRepo(context.Context, db.GetFlowWorkspaceForUserRepoParams) (db.Workspace, error)
 	}
 }
 
@@ -36,7 +36,9 @@ func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, tar
 	if err != nil || userID <= 0 || target.PrincipalID != "user:"+strconv.FormatInt(userID, 10) {
 		return flowhost.Authority{}, errors.New("browser Flow principal is invalid")
 	}
-	workspace, err := resolver.queries.GetWorkspaceForUserRepo(ctx, db.GetWorkspaceForUserRepoParams{
+	// The relay's own box lookup: a TODO's lane resolves for the one person
+	// it is shared with, as the host's lease checks again (flowhost/store.go).
+	workspace, err := resolver.queries.GetFlowWorkspaceForUserRepo(ctx, db.GetFlowWorkspaceForUserRepoParams{
 		ID: target.WorkspaceID, RepositoryID: repository.ID, UserID: userID,
 	})
 	if err != nil || workspace.ID != target.WorkspaceID || workspace.Status != "running" {

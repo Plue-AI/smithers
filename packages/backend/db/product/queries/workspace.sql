@@ -103,6 +103,28 @@ WHERE id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
 
+-- GetFlowWorkspaceForUserRepo is the box a person's flow calls reach: their
+-- own, or a branch machine the install's machine service owns whose only
+-- write share is theirs (a TODO's lane). The flow host's lease checks the
+-- same predicate under its lock (flowhost/store.go).
+-- name: GetFlowWorkspaceForUserRepo :one
+SELECT *
+FROM workspaces w
+WHERE w.id = sqlc.arg(id)
+  AND w.repository_id = sqlc.arg(repository_id)
+  AND w.deleted_at IS NULL
+  AND (w.user_id = sqlc.arg(user_id) OR (
+        w.user_id IN (
+          SELECT u.id FROM users u WHERE u.lower_username = 'smithers-machines'
+            AND u.user_type = 'service' AND u.prohibit_login AND u.deleted_at IS NULL)
+        AND EXISTS (
+          SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
+            AND s.grantee_user_id = sqlc.arg(user_id))
+        AND NOT EXISTS (
+          SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
+            AND s.grantee_user_id <> sqlc.arg(user_id))));
+
+
 -- name: ListWorkspacesByRepo :many
 SELECT *
 FROM workspaces

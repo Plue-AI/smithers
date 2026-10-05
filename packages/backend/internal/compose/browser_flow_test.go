@@ -12,9 +12,35 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const browserBoxID = "11111111-1111-4111-8111-111111111111"
+
+// browserReadDependencies is the box the routing and authorization tests
+// relay to: repository 23, box browserBoxID. Which box a caller may name is
+// tested on real PostgreSQL (browser_flow_read_test.go).
+type browserReadDependencies struct {
+	workspace db.Workspace
+	lookups   []db.GetFlowWorkspaceForUserRepoParams
+	canWrite  bool
+}
+
+func (d *browserReadDependencies) GetRepoView(context.Context, *db.User, string, string) (services.RepoView, error) {
+	return services.RepoView{Repository: db.Repository{ID: 23}, CanWrite: d.canWrite}, nil
+}
+
+func (d *browserReadDependencies) GetFlowWorkspaceForUserRepo(_ context.Context, params db.GetFlowWorkspaceForUserRepoParams) (db.Workspace, error) {
+	d.lookups = append(d.lookups, params)
+	workspace := d.workspace
+	if workspace.UserID == 0 {
+		// The caller's own box unless the test names another owner.
+		workspace.UserID = params.UserID
+	}
+	return workspace, nil
+}
 
 type browserFlowRelayCall struct {
 	target    flowruntime.Target

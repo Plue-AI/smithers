@@ -120,8 +120,9 @@ func (value *lease) loadOrCreate(ctx context.Context, authority Authority, catal
 	// A target resolver authorizes the product request; this lock independently
 	// verifies that its workspace still belongs to that repository/user: the
 	// user's own, or a branch machine the install's machine service owns whose
-	// only write share is the user's (WorkspaceSoleWriter). Keep deletion and
-	// insertion ordered, including repository/user cascades.
+	// only write share is the user's. The browser relay finds its box with the
+	// same predicate (GetFlowWorkspaceForUserRepo); change both together. Keep
+	// deletion and insertion ordered, including repository/user cascades.
 	var workspaceID string
 	if err := tx.QueryRow(ctx, `SELECT w.id::text FROM workspaces w
 		WHERE w.id=$1 AND w.repository_id=$2 AND w.deleted_at IS NULL
