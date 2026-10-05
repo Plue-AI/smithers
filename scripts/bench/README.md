@@ -38,6 +38,15 @@ proposed measurement to an artifact directory; a reviewer must inspect changed
 costs and semantics before editing the baseline. A broad performance claim
 also needs the owning package's differential, fault and coverage gates.
 
+The 2026-10-02 baseline raised the scheduler fixtures from about 46 to 65
+statements and from 20 to 29 prepares per node, deliberately. `3ff0127860`
+moved the owner fence from a `WHERE EXISTS` clause on the fenced journal
+insert into the injected `Consensus.guard` read, which runs as a savepoint
+before each fenced append, and added the lease heartbeat: +120 statements on
+`scheduler-chain-8`. `9ed6aa98c5` journals a fenced cache-provenance
+`admitted` entry with each inserting `CacheStore.put`, so step-cache heads can
+be rebuilt from the journal: +40. Journal fixtures and outputs did not change.
+
 ## Scheduled observations
 
 The `benchmark-observations` job runs
