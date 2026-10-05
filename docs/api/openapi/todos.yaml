@@ -122,7 +122,7 @@ paths:
     post:
       x-composition: install
       summary: Steer the coding agent, or stop, resume, retry, drop or move a TODO
-      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer; a move carries its direction. Members steer, stop, resume, retry, drop and move TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt. Drop of an unmerged TODO cancels its run, stops every later TODO waiting on it to merge, and closes its pull request with the comment "Dropped in Smithers by @login". Move swaps the TODO with the nearest TODO still on the stack above (up) or below (down) it and answers the place it took; the stack admits and merges in that order. The same Idempotency-Key answers a Retry, a Drop or a Move again. Every other control answers todo_control_unavailable until its service is composed (T-STK-05, T-STK-06).
+      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer; a move carries its direction. Members steer, stop, resume, retry, drop and move TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt. Drop of an unmerged TODO cancels its run, stops every later TODO waiting on it to merge, and closes its pull request with the comment "Dropped in Smithers by @login". Move swaps the TODO with the nearest TODO still on the stack above (up) or below (down) it and answers the place it took; the stack admits and merges in that order. A steer reaches the coding run by the TODO's state: a working run receives it at its next feedback boundary and plans again with it; a queued or starting TODO holds it for its run; a paused TODO holds it for Resume; a TODO past its coding run (in review) queues its next attempt with the steer first and keeps its pull request open; a failed TODO is retried with it; a merged or dropped TODO answers 409 todo_closed. A steer never settles an open question. Stop cancels a working TODO's run and the TODO shows paused until Resume, which runs the same attempt again on its lane. The same Idempotency-Key answers a steer, Stop, Resume, Retry, Drop or Move again. Retry with the current flow answers todo_control_unavailable until its service is composed (T-STK-05).
       operationId: post_api_todos_n
       tags:
         - Todos
@@ -172,9 +172,9 @@ paths:
         '404':
           description: todo_not_found
         '409':
-          description: The TODO or the TODO a move passes is merging, the TODO is settled, the control does not apply to its state (Retry of a TODO that has not failed, Move up of the first TODO or down of the last), the Idempotency-Key was used for a different move, or a GitHub write on it is settling
+          description: The TODO or the TODO a move passes is merging, the TODO is settled or closed (todo_closed for a steer), the control does not apply to its state (Stop with no executing run or with a question open, Resume of a TODO that is not paused, Retry of a TODO that has not failed, Move up of the first TODO or down of the last), the Idempotency-Key was used for a different move, or a GitHub write on it is settling
         '503':
-          description: todo_control_unavailable
+          description: todo_control_unavailable (Retry with the current flow; a steer to a TODO running the pinned todo composition)
   /api/todos/{n}/merge:
     post:
       x-composition: install

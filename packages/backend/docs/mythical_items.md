@@ -11,6 +11,9 @@ binding, authorization context, reconciliation policy and request identity with
 `Signal`. The caller commits or rolls back the product event, revision and
 signal intent together. Admission performs no runtime resolution or delivery;
 the existing jobs worker delivers committed intents and reconciles lost replies.
+A request with `Steer` (a message id, its time and its body) takes the same
+path and reaches the run through the runtime's steer mutation (`Control.steer`)
+instead of a named signal.
 
 The dispatcher records intent; it does not authorize a TODO mutation, lock a
 merge fence, settle a wait, append a revision or start an attempt. Those operations
@@ -23,31 +26,37 @@ queue admission. The pinned `todo` composition and its closure, notification
 lineage and guest-host delivery contracts must pass their production checks
 before replacing this refusal. Existing `coding/request` delivery is retained.
 
-The public `POST /api/todos/{n} {steer}`, `PATCH /api/todos/{n}` and corresponding
-catalog commands are not enabled by this dispatcher change. Their activation
-requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02, T-FLW-01, T-SEC-01,
-T-CAT-01 and T-ACC-03. Delegation also requires T-ACC-04; delegated Amend requires
-T-APP-04. No branch-built artifact or repository code executes as root or on the
-host through this admission seam.
+`PATCH /api/todos/{n}` and its catalog command are not enabled. Their
+activation requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02, T-FLW-01,
+T-SEC-01, T-CAT-01 and T-ACC-03; delegated Amend also requires T-APP-04. No
+branch-built artifact or repository code executes as root or on the host
+through this admission seam.
 
 ## Stop, Resume, Retry and Drop
 
-T-STK-05 supplies the control boundary for `POST /api/todos/{n}`. It is
-unmounted until the shared install command dispatcher and its authorization,
-confirmation and execution dependencies pass their joint checks. Direct
-handler calls return `503` with `code: todo_control_unavailable`, `class: infra`;
-they never acknowledge admission or mutate a TODO.
+`POST /api/todos/{n}` runs each control through one dispatch map
+(`todoControls`, one `mythical_todo_<op>.go` service per op) after the route
+authorizes the person. An op with no service answers `503` with
+`code: todo_control_unavailable`, `class: infra`; today that is only
+`retry-current-flow`.
 
 The request carries `Idempotency-Key` and JSON `{op, steer?}`. `op` is `stop`,
-`resume`, `retry`, `retry-current-flow` or `drop`. Only the two retries accept a
-steer. The browser retains the request and its key until a committed projection
-receipt arrives; HTTP acceptance alone never completes the toast.
+`resume`, `retry`, `retry-current-flow` or `drop`; a steer has no op. Only the
+two retries accept a steer. The same key again answers the same receipt. The
+browser retains the request and its key until a committed projection receipt
+arrives; HTTP acceptance alone never completes the toast.
 
 Stop requires an executing run and no question or approval; branch waits do
-not refuse Stop. Resume requires the committed pause fact. Both retries require
-a blocked item, even when an independent wait makes the card show Needs you.
-Terminal items refuse every control. The item's merge fence (`pending_op`
-of kind `merge`) refuses every control with `409 merging`.
+not refuse Stop. It cancels the attempt's runs in its transaction and sets
+`paused_at`; the stack takes no step for a paused TODO (one in review still
+follows its pull request), and the TODO keeps its lane. Resume requires
+`paused_at`: it clears it and queues the same attempt to run again from its
+first step on the TODO's lane (a TODO stopped during its review is reviewed
+again). The spec's durable pause wait, which resumes from the last finished
+step, needs the todo composition's pause boundary (T-FLW-11). Both retries
+require a blocked item, even when an independent wait makes the card show
+Needs you. Terminal items refuse every control. The item's merge fence
+(`pending_op` of kind `merge`) refuses every control with `409 merging`.
 
 The historical `/mythical/items/{id}/retry` route and `history.retry` command
 are removed. Old recorded cards remain decodable. The former CAS helper stays
@@ -94,15 +103,28 @@ changed loses its verification in the move's transaction and waits in
 stack rebases it onto the new prefix. A new TODO filed Before has no
 verified candidate, so it changes no prefix until it is verified.
 
-## Steer and Amend refusal boundary
+## Steer, and the Amend refusal boundary
 
-The same unmounted control handler recognizes `POST /api/todos/{n}` with
-`{steer}`; the unmounted Amend handler accepts `PATCH /api/todos/{n}` with
-`{prompt, acceptance}`. Both reuse the existing control decoder, request size
-limit, number validation, idempotency-key requirement and error envelope.
-Valid direct requests return `503 infra/todo_control_unavailable` before subject
-reads or effects, including repeated keys. Neither accepts actor or `via`
-from JSON. Attribution must come from the shared bound authorization decision.
+A steer (`{"op":"steer","text":...}` or `{"steer":...}`) is kept on the card
+(`steers[]`) and delivered by the TODO's state. A working TODO's attached
+`coding/request` run receives it at once as a message: the dispatcher's signal
+path calls the runtime's steer mutation, and the run takes it at its next
+feedback boundary (`flows/coding/steering.ts`: before implementation, or after
+correction) and plans again with it. A queued TODO holds it as the next
+attempt's first input; a starting one holds it until its run attaches; a
+paused one holds it for Resume. A TODO past its coding run (delivering through
+in review) cancels the attempt's runs and queues its next attempt with the
+steer first; an open pull request stays open. A failed TODO is retried with
+the steer under Retry's person-only guard. A merged or dropped TODO answers
+`409 todo_closed`. A steer never settles an open question. A run of the pinned
+todo composition refuses messages until T-FLW-11 composes its boundaries, so a
+steer to one answers `503 todo_control_unavailable`. A stage-1 terminal's
+credential steers only its own branch's TODO. Neither the body nor headers
+supply the actor or `via`; attribution comes from the bound authorization.
+
+The unmounted Amend handler accepts `PATCH /api/todos/{n}` with
+`{prompt, acceptance}` and answers `503 infra/todo_control_unavailable` before
+subject reads or effects.
 
 Amend cannot allocate a revision, create a confirmation or send a signal here.
 Once the shared authority exists, delegated Amend must refuse

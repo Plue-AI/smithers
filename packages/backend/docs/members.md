@@ -81,9 +81,10 @@ issue whose author and last writers have write access on GitHub; an
 outsider's issue answers `403 permission` ("Only a maintainer can make a TODO
 from this issue"), and a maintainer's TODO from it is marked outsider.
 
-`POST /api/todos/{n}` is mounted and authorized by role, and the TODO service
-still answers every control `503 todo_control_unavailable` until a steer can
-reach a running attempt (T-FLW-11, T-STK-01).
+`POST /api/todos/{n}` is mounted and authorized by role: any member steers,
+stops, resumes, retries and drops a TODO (mvp.md §4.1, Roles). Retry with the
+current flow answers `503 todo_control_unavailable` until its service is
+composed (T-STK-05).
 
 ## Removal
 
