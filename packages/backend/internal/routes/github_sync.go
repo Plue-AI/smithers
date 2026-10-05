@@ -11,7 +11,7 @@ import (
 
 // GitHubSyncRouteService is the authorized catalog dispatch seam. Status is
 // read-only; Retry returns only after durable admission, never after execution.
-// The install mounts a nil provider until authority and stream checks qualify.
+// The install mounts its GitHub sync; a nil provider answers unavailable.
 type GitHubSyncRouteService interface {
 	SyncHealth(context.Context) (services.GitHubSyncHealth, error)
 	RetrySync(context.Context) error

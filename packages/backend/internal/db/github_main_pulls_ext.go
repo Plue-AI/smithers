@@ -40,6 +40,44 @@ func (q *Queries) GetGithubMainPull(ctx context.Context, repositoryID int64) (Gi
 	return scanGithubMainPull(q.db.QueryRow(ctx, getGithubMainPull, repositoryID))
 }
 
+const listGithubMainPulls = `SELECT ` + githubMainPullColumns + ` FROM github_main_pulls p ORDER BY p.repository_id`
+
+// ListGithubMainPulls returns every followed repository's pull state.
+func (q *Queries) ListGithubMainPulls(ctx context.Context) ([]GithubMainPull, error) {
+	rows, err := q.db.Query(ctx, listGithubMainPulls)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GithubMainPull{}
+	for rows.Next() {
+		item, err := scanGithubMainPull(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// A retry makes every row due now in one statement, as a request makes one.
+const requestAllGithubMainPulls = `
+UPDATE github_main_pulls
+SET requested_generation = requested_generation + 1,
+    next_attempt_at = NOW(),
+    updated_at = NOW()
+`
+
+// RequestAllGithubMainPulls records one more requested pull for every
+// followed repository.
+func (q *Queries) RequestAllGithubMainPulls(ctx context.Context) (int64, error) {
+	tag, err := q.db.Exec(ctx, requestAllGithubMainPulls)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 const claimGithubMainPulls = `
 WITH due AS (
 	SELECT repository_id

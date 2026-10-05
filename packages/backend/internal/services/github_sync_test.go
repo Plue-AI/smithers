@@ -3,9 +3,13 @@ package services
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 func TestGitHubSyncHealth(t *testing.T) {
@@ -60,30 +64,107 @@ func (f *syncStreamFixture) RequiredStreams(context.Context) ([]GitHubSyncStream
 }
 func (f *syncStreamFixture) RetryStreams(context.Context) error { f.retries++; return f.err }
 
-func TestGitHubSyncMissingProvidersHaveZeroEffects(t *testing.T) {
+// The install's GitHub sync is the main pull: it follows with no
+// declaration, its receipt is the sync's health, a failed read keeps the
+// last success (so health turns stale only past 120 s), and Retry makes
+// every followed main due at once.
+func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
+	const pullNext = "3333333333333333333333333333333333333333"
 	h := newPullHarness(t)
 	h.service.UseInstallPolicy()
-	require.Error(t, h.service.RequestForGitHub(t.Context(), "smithersai", "smithers"))
-	_, err := h.service.Request(t.Context(), 19)
-	require.Error(t, err)
-	require.Error(t, h.service.PollOnce(t.Context()))
-	h.service.Sweep(t.Context())
-	h.service.Start(t.Context())
-	require.Error(t, h.service.RetrySync(t.Context()))
-	require.Error(t, h.service.ResetToGitHub(t.Context(), 19, pullOld, pullNew))
-	_, err = h.service.SyncHealth(t.Context())
-	require.Error(t, err)
-	require.Equal(t, pullOld, h.host.bookmarkSnapshot("main"))
-	require.Equal(t, 0, h.policyReads)
+	ctx := t.Context()
 	var unavailable *GitHubSyncUnavailable
-	require.ErrorAs(t, err, &unavailable)
-	require.Equal(t, "infra", unavailable.Class)
-	_, err = h.store.GetGithubMainPull(t.Context(), 19)
-	require.Error(t, err, "no request was persisted")
+	_, err := h.service.SyncHealth(ctx)
+	require.ErrorAs(t, err, &unavailable, "no followed repository yet: no health")
+	require.Equal(t, "github_sync_unavailable", unavailable.Code)
+
+	require.NoError(t, h.service.RequestForGitHub(ctx, "smithersai", "smithers"))
+	require.NoError(t, h.service.PollOnce(ctx))
+	require.Equal(t, pullNew, h.host.bookmarkSnapshot("main"))
+	synced := h.row(t)
+	require.Equal(t, "synced", synced.State)
+	require.Equal(t, 0, h.policyReads, "an install never reads a declaration")
+	health, err := h.service.SyncHealth(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "fresh", health.State)
+	require.Equal(t, synced.LastSyncedAt.Time, *health.LastSuccessAt)
+
+	// The network drops: Retry reads at once and fails; the last success stands.
+	h.github = pullNext
+	h.service.lsRemote = func(context.Context, string, string) (string, error) {
+		return "", errors.New("git ls-remote failed: Could not resolve host: github.com")
+	}
+	require.NoError(t, h.service.RetrySync(ctx))
+	require.NoError(t, h.service.PollOnce(ctx))
+	failed := h.row(t)
+	require.Equal(t, "failed", failed.State)
+	require.Equal(t, synced.LastSyncedAt, failed.LastSyncedAt)
+	require.Equal(t, pullNew, h.host.bookmarkSnapshot("main"))
+	health, err = h.service.SyncHealth(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "fresh", health.State, "within 120 s of the last success")
+	h.service.now = func() time.Time { return synced.LastSyncedAt.Time.Add(121 * time.Second) }
+	health, err = h.service.SyncHealth(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "stale", health.State)
+	require.Equal(t, synced.LastSyncedAt.Time, *health.LastSuccessAt)
+
+	// The network is back: Retry overrides the failure's backoff.
+	h.service.now = time.Now
+	h.service.lsRemote = func(context.Context, string, string) (string, error) { return h.github, nil }
+	require.True(t, h.row(t).NextAttemptAt.Time.After(time.Now()), "a failure backs off")
+	require.NoError(t, h.service.RetrySync(ctx))
+	require.NoError(t, h.service.PollOnce(ctx))
+	require.Equal(t, pullNext, h.host.bookmarkSnapshot("main"))
+	health, err = h.service.SyncHealth(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "fresh", health.State)
+	require.True(t, health.LastSuccessAt.After(synced.LastSyncedAt.Time))
+	// Every write of the install's main presents the sync's authority.
+	require.Len(t, h.host.meta, 2)
+	for _, meta := range h.host.meta {
+		require.Equal(t, middleware.CredentialSync, meta.PusherCredential)
+	}
+}
+
+// The install reads main every 30 s, so a commit whose factory projection it
+// reconciled is not read again; a failed reconciliation retries.
+func TestInstallGitHubSyncReconcilesEachCommitOnce(t *testing.T) {
+	h := newPullHarness(t)
+	h.service.UseInstallPolicy()
+	h.github = pullOld
+	reads, fail := 0, true
+	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) {
+		reads++
+		return []byte(`{"on":[]}`), nil
+	}
+	h.service.SetFactoryReconciler(func(context.Context, int64, string, FactoryProjection) error {
+		if fail {
+			return errors.New("registry unavailable")
+		}
+		return nil
+	})
+	poll := func() db.GithubMainPull {
+		t.Helper()
+		_, err := h.service.Request(t.Context(), 19)
+		require.NoError(t, err)
+		require.NoError(t, h.service.PollOnce(t.Context()))
+		return h.row(t)
+	}
+	require.Equal(t, "failed", poll().FactoryState)
+	fail = false
+	require.Equal(t, "empty", poll().FactoryState, "a failure retries on the next read")
+	require.Equal(t, "synced", poll().State)
+	require.Equal(t, 2, reads, "a reconciled commit is not read again")
+	h.github = pullNew
+	require.Equal(t, "empty", poll().FactoryState)
+	require.Equal(t, 3, reads, "a new commit is")
 }
 
 func TestGitHubSyncProviderErrorsAndAdmission(t *testing.T) {
 	s := NewGitHubMainPullService(nil, nil, nil, nil)
+	var unavailable *GitHubSyncUnavailable
+	require.ErrorAs(t, s.RetrySync(t.Context()), &unavailable, "no receipts: no Retry")
 	f := &syncStreamFixture{}
 	s.syncStreams = f
 	_, err := s.SyncHealth(t.Context())
@@ -93,9 +174,6 @@ func TestGitHubSyncProviderErrorsAndAdmission(t *testing.T) {
 	require.ErrorIs(t, err, f.err)
 	require.ErrorIs(t, s.RetrySync(t.Context()), f.err)
 	require.Equal(t, 1, f.retries)
-	s.UseInstallPolicy()
-	require.Error(t, s.RetrySync(t.Context()))
-	require.Equal(t, 1, f.retries, "install cannot bypass missing authority")
 }
 
 func TestGitHubSyncStaleTimerRecoversWithoutPolling(t *testing.T) {

@@ -40,7 +40,13 @@ const (
 	gitHubMainPullInterval       = 5 * time.Second
 	gitHubMainPullPollInterval   = 5 * time.Minute
 	gitHubMainPullSkippedRecheck = 6 * time.Hour
-	gitHubMainPullDiscoverLimit  = int32(50)
+	// An install has no public address, so its main follows GitHub's by
+	// polling alone, within a minute (mvp.md §9): its refs are read again
+	// 30 s after the last read, and the sweep that makes them due runs
+	// every 10 s.
+	gitHubMainPullInstallPollInterval  = 30 * time.Second
+	gitHubMainPullInstallSweepInterval = 10 * time.Second
+	gitHubMainPullDiscoverLimit        = int32(50)
 	// The lease outlives the run deadline, which cancels every subprocess and
 	// the in-process push, so a stale owner cannot write after a takeover.
 	gitHubMainPullLease         = 15 * time.Minute
@@ -102,8 +108,8 @@ type GitHubMainPullStatus struct {
 }
 
 type GitHubMainPullService struct {
-	// Install consumers stay dark until stream admission, authority, stack
-	// fences, durable rebase/main-moved delivery and machine isolation qualify.
+	// install is the install's GitHub sync (UseInstallPolicy): it always
+	// follows, polls on the install cadence and serves its health.
 	install     bool
 	syncStreams GitHubSyncStreams
 
@@ -175,9 +181,6 @@ func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepo
 // RequestForGitHub requests a pull for every Smithers repository whose
 // recorded GitHub source is owner/repo. The worker decides whether to write.
 func (s *GitHubMainPullService) RequestForGitHub(ctx context.Context, owner, repo string) error {
-	if s != nil && s.install {
-		return githubSyncUnavailable()
-	}
 	if s == nil || s.store == nil {
 		return nil
 	}
@@ -197,9 +200,6 @@ func (s *GitHubMainPullService) RequestForGitHub(ctx context.Context, owner, rep
 func (s *GitHubMainPullService) Request(ctx context.Context, repositoryID int64) (GitHubMainPullStatus, error) {
 	if s == nil || s.store == nil {
 		return GitHubMainPullStatus{}, pkgerrors.Internal("github main pull is not configured")
-	}
-	if s.install {
-		return GitHubMainPullStatus{}, githubSyncUnavailable()
 	}
 	row, err := s.store.RequestGithubMainPull(ctx, repositoryID)
 	if err != nil {
@@ -290,12 +290,13 @@ func gitHubMainPullStatus(row db.GithubMainPull) GitHubMainPullStatus {
 // Start drains due pulls and periodically re-checks and discovers
 // repositories, so a missed webhook or enrollment is caught by the poll.
 func (s *GitHubMainPullService) Start(ctx context.Context) {
+	sweepEvery := gitHubMainPullPollInterval
 	if s.install {
-		return
+		sweepEvery = gitHubMainPullInstallSweepInterval
 	}
 	lastPoll := time.Time{}
 	for {
-		if s.now().Sub(lastPoll) >= gitHubMainPullPollInterval {
+		if s.now().Sub(lastPoll) >= sweepEvery {
 			s.Sweep(ctx)
 			lastPoll = s.now()
 		}
@@ -313,10 +314,11 @@ func (s *GitHubMainPullService) Start(ctx context.Context) {
 // Sweep re-requests stale pull and skipped rows and starts tracking
 // GitHub-sourced repositories that have never been evaluated.
 func (s *GitHubMainPullService) Sweep(ctx context.Context) {
+	pollEvery := gitHubMainPullPollInterval
 	if s.install {
-		return
+		pollEvery = gitHubMainPullInstallPollInterval
 	}
-	if _, err := s.store.RequestStaleGithubMainPulls(ctx, gitHubMainPullPollInterval.Seconds(), gitHubMainPullSkippedRecheck.Seconds()); err != nil && ctx.Err() == nil {
+	if _, err := s.store.RequestStaleGithubMainPulls(ctx, pollEvery.Seconds(), gitHubMainPullSkippedRecheck.Seconds()); err != nil && ctx.Err() == nil {
 		s.logger.Error("github.main_pull.poll_failed", "error", err)
 	}
 	if _, err := s.store.RequestUntrackedGithubMainPulls(ctx, gitHubMainPullDiscoverLimit); err != nil && ctx.Err() == nil {
@@ -328,9 +330,6 @@ func (s *GitHubMainPullService) Sweep(ctx context.Context) {
 // immediately before its run, so the run deadline always ends inside its
 // lease.
 func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
-	if s.install {
-		return githubSyncUnavailable()
-	}
 	for range gitHubMainPullClaimLimit {
 		if ctx.Err() != nil {
 			return nil
@@ -528,6 +527,11 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	}
 	reconcile := func(revision string) {
 		if s.reconcileFactory == nil {
+			return
+		}
+		// The install reads main every 30 s; a commit it reconciled is not
+		// read again. A failed reconciliation retries on the next read.
+		if s.install && row.PolicyCommit == revision && row.FactoryState != "" && row.FactoryState != "failed" {
 			return
 		}
 		// Factory failures must not invalidate an observed or completed ref sync.

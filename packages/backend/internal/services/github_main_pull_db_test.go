@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,6 +135,24 @@ func TestGitHubMainPullQueriesOnProductSchema(t *testing.T) {
 	n, err = q.RequestStaleGithubMainPulls(ctx, 300, 6*3600)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, n)
+
+	// The install's sync lists every row and its Retry makes every row due
+	// now, a failed one's backoff included.
+	_, err = pool.Exec(ctx, `UPDATE github_main_pulls SET next_attempt_at = NOW() + interval '1 hour'`)
+	require.NoError(t, err)
+	listed, err := q.ListGithubMainPulls(ctx)
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	assert.Equal(t, []int64{min(canary, stale), max(canary, stale)}, []int64{listed[0].RepositoryID, listed[1].RepositoryID})
+	n, err = q.RequestAllGithubMainPulls(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, n)
+	for _, before := range listed {
+		after, err := q.GetGithubMainPull(ctx, before.RepositoryID)
+		require.NoError(t, err)
+		assert.Equal(t, before.RequestedGeneration+1, after.RequestedGeneration)
+		assert.False(t, after.NextAttemptAt.Time.After(time.Now()), "due now")
+	}
 
 	// The ref-push feed check resolves owner/name through owner namespaces.
 	pull, err := q.IsGithubMainPullMirror(ctx, "smithers-canary", "smithers")

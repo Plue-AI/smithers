@@ -1039,8 +1039,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repoSyncService := services.NewRepoSyncService("", repoConnectionService)
 	// Smithers main follows GitHub main for `mirror: "pull"` repositories.
 	gitHubMainPullService := services.NewGitHubMainPullService(queries, repoHostClient, repoConnectionService, repoConnectionService)
-	// The pull's install policy is the engine's install fact, as for every door.
-	if repoHostClient.InstallMainMirror() {
+	// The pull's install policy is the engine's install fact, as for every
+	// door: on an install it is the GitHub sync, the one writer of main.
+	installSync := repoHostClient.InstallMainMirror()
+	if installSync {
 		gitHubMainPullService.UseInstallPolicy()
 	}
 	gitHubSyncedRepoService.SetPullMirror(gitHubMainPullService.PullMirror)
@@ -1050,6 +1052,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
 	mythicalService.SetPublicURL(publicBaseURL)
 	gitHubMainPullService.SetMainMoved(mythicalService.MainMoved)
+	// GET/POST /api/github/sync serve the install's sync; elsewhere they
+	// answer unavailable.
+	var gitHubSyncRoute routes.GitHubSyncRouteService
+	if installSync {
+		gitHubSyncRoute = gitHubMainPullService
+		// A merge the stack sends moves GitHub's main; the sync reads it now.
+		mythicalService.SetMainFollower(func(ctx context.Context, repositoryID int64) {
+			if _, err := gitHubMainPullService.Request(ctx, repositoryID); err != nil {
+				slog.WarnContext(ctx, "github.main_pull.request_failed", "repository_id", repositoryID, "error", err)
+			}
+		})
+	}
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)
 	mythicalService.SetWiki(wikiService)
@@ -1637,7 +1651,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminWorkspaces:    &routes.AdminWorkspaceHandler{Service: adminManageService},
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
 			DeploymentAdmin:    deploymentAdminRoutes,
-			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService}},
+			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService},
+			GitHubSync:         gitHubSyncRoute},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,

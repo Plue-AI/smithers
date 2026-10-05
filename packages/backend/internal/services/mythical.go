@@ -91,6 +91,16 @@ type MythicalService struct {
 	// (EnableTodoAdmission): a fresh attempt launches coding/request on a new
 	// lane. Only the install's composition sets it; hosted leaves it off.
 	todoAdmission bool
+	// followMain asks the GitHub sync to read GitHub's main now
+	// (SetMainFollower): a merge the stack sent moved it. Unset, the sync's
+	// own poll finds the move.
+	followMain func(ctx context.Context, repositoryID int64)
+}
+
+// SetMainFollower registers the GitHub sync's request for an immediate read
+// of a repository's main on GitHub.
+func (s *MythicalService) SetMainFollower(follow func(ctx context.Context, repositoryID int64)) {
+	s.followMain = follow
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {

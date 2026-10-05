@@ -846,8 +846,12 @@ func (s *MythicalService) mergeSend(ctx context.Context, gh mythicalGitHubRepo, 
 	} else if err != nil {
 		return err
 	}
-	// GitHub's main moved: the next pass confirms the merge and settles it.
+	// GitHub's main moved: the next pass confirms the merge and settles it,
+	// and the GitHub sync brings the install's main to it.
 	s.MainMoved(ctx, item.RepositoryID)
+	if s.followMain != nil {
+		s.followMain(ctx, item.RepositoryID)
+	}
 	return nil
 }
 

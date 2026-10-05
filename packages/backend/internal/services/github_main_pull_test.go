@@ -192,11 +192,35 @@ func (f *fakeMainPullStore) FinishGithubMainPull(_ context.Context, arg db.Finis
 		row.FactoryState, row.FactoryError = "", ""
 	}
 	row.LeaseExpiresAt = pgtype.Timestamptz{}
+	row.LastCheckedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	if arg.State == "synced" {
+		row.LastSyncedAt = row.LastCheckedAt
+	}
 	return 1, nil
 }
 
 func (f *fakeMainPullStore) RequestUntrackedGithubMainPulls(context.Context, int32) (int64, error) {
 	return 0, nil
+}
+
+func (f *fakeMainPullStore) ListGithubMainPulls(context.Context) ([]db.GithubMainPull, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rows := []db.GithubMainPull{}
+	for _, row := range f.rows {
+		rows = append(rows, *row)
+	}
+	return rows, nil
+}
+
+func (f *fakeMainPullStore) RequestAllGithubMainPulls(context.Context) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, row := range f.rows {
+		row.RequestedGeneration++
+		row.NextAttemptAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	}
+	return int64(len(f.rows)), nil
 }
 
 func (f *fakeMainPullStore) IsGithubMainPullMirror(context.Context, string, string) (bool, error) {

@@ -14,9 +14,10 @@ func TestGitHubSyncInstallComposition(t *testing.T) {
 			served := map[string]servedRoute{}
 			walkServedRoutes(t, openAPIConformanceRouter(cfg), served)
 			for _, method := range []string{"get", "post"} {
-				_, mounted := served[method+" /api/github/sync"]
+				route, mounted := served[method+" /api/github/sync"]
 				require.Equal(t, mode == config.AuthModeSelfHosted, mounted)
 				if mode == config.AuthModeSelfHosted {
+					require.True(t, route.authed, "a signed-in person reads and retries the sync")
 					_, legacy := served[method+" /api/repos/{owner}/{repo}/github/main-pull"]
 					require.False(t, legacy)
 				}

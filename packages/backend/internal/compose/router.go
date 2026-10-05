@@ -62,6 +62,9 @@ type routerExtras struct {
 	ModelProxy http.Handler
 	// EgressPolicy serves a repository's owner-only egress allowlist.
 	EgressPolicy *routes.RepositoryEgressPolicyHandler
+	// GitHubSync is the install's GitHub sync (GET/POST /api/github/sync);
+	// nil answers unavailable.
+	GitHubSync routes.GitHubSyncRouteService
 }
 
 func buildRouter(
@@ -911,10 +914,10 @@ func buildRouter(
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
 		}
 		if config.IsSingleOwner(cfg.Auth) {
-			// No authority/stream provider is wired until T-GH-07 qualifies activation.
-			sync := &routes.GitHubSyncHandler{}
-			r.Get("/github/sync", sync.Status)
-			r.Post("/github/sync", sync.Retry)
+			// Any signed-in person reads the sync's health and retries it.
+			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
+			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
+			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
 			// Accepted-prefix reads stay dark until T-GH-03 dependency checks qualify.
 			diff := &routes.BranchDiffHandler{}
 			r.Get("/branches/{b}/diff", diff.Diff)

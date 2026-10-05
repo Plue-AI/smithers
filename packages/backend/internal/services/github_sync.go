@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // GitHubSyncHealth projects T-GH-02's persisted required-stream receipts; it
@@ -27,10 +29,50 @@ type GitHubSyncStream struct {
 // GitHubSyncStreams is supplied by the existing poll/admission provider.
 // Retry must durably schedule every required stream atomically, retaining
 // persisted pauses and charging admission before any upstream request.
-// It is intentionally unwired until T-GH-02 and catalog authority qualify.
 type GitHubSyncStreams interface {
 	RequiredStreams(context.Context) ([]GitHubSyncStream, error)
 	RetryStreams(context.Context) error
+}
+
+// gitHubMainPullReceipts are the main pull's own rows, read and requested
+// as a whole; *db.Queries implements them.
+type gitHubMainPullReceipts interface {
+	ListGithubMainPulls(ctx context.Context) ([]db.GithubMainPull, error)
+	RequestAllGithubMainPulls(ctx context.Context) (int64, error)
+	RequestUntrackedGithubMainPulls(ctx context.Context, limit int32) (int64, error)
+}
+
+// gitHubMainPullStreams is the install's one required stream so far: each
+// followed repository's main, read by the main pull. github_main_pulls is
+// its receipt: last_synced_at is the last read that found or made the
+// install's main equal to GitHub's, which a failed read leaves intact.
+type gitHubMainPullStreams struct{ receipts gitHubMainPullReceipts }
+
+func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
+	rows, err := g.receipts.ListGithubMainPulls(ctx)
+	if err != nil {
+		return nil, err
+	}
+	streams := make([]GitHubSyncStream, 0, len(rows))
+	for _, row := range rows {
+		var stream GitHubSyncStream
+		if row.LastSyncedAt.Valid {
+			at := row.LastSyncedAt.Time
+			stream.LastSuccessAt = &at
+		}
+		streams = append(streams, stream)
+	}
+	return streams, nil
+}
+
+// RetryStreams makes every followed main due now, enrolling any repository
+// the sweep has not reached yet; the worker reads them on its next pass.
+func (g gitHubMainPullStreams) RetryStreams(ctx context.Context) error {
+	if _, err := g.receipts.RequestUntrackedGithubMainPulls(ctx, gitHubMainPullDiscoverLimit); err != nil {
+		return err
+	}
+	_, err := g.receipts.RequestAllGithubMainPulls(ctx)
+	return err
 }
 
 type GitHubSyncUnavailable struct {
@@ -44,9 +86,16 @@ func githubSyncUnavailable() error {
 	return &GitHubSyncUnavailable{Code: "github_sync_unavailable", Class: "infra", Message: "GitHub sync is unavailable"}
 }
 
-// UseInstallPolicy removes declaration-based enrollment in the install only.
-// Its worker and mutations remain dark; Plue keeps its existing policy.
-func (s *GitHubMainPullService) UseInstallPolicy() { s.install = true }
+// UseInstallPolicy makes the pull the install's GitHub sync: every GitHub
+// repository is followed with no declaration, on the install cadence, as
+// the one writer of the install's main (mainWriter), and its receipts are
+// the sync's health. Plue keeps declaration-based enrollment.
+func (s *GitHubMainPullService) UseInstallPolicy() {
+	s.install = true
+	if receipts, ok := s.store.(gitHubMainPullReceipts); ok {
+		s.syncStreams = gitHubMainPullStreams{receipts: receipts}
+	}
+}
 
 func (s *GitHubMainPullService) SyncHealth(ctx context.Context) (GitHubSyncHealth, error) {
 	if s == nil || s.syncStreams == nil {
@@ -63,7 +112,7 @@ func (s *GitHubMainPullService) SyncHealth(ctx context.Context) (GitHubSyncHealt
 }
 
 func (s *GitHubMainPullService) RetrySync(ctx context.Context) error {
-	if s == nil || s.install || s.syncStreams == nil {
+	if s == nil || s.syncStreams == nil {
 		return githubSyncUnavailable()
 	}
 	return s.syncStreams.RetryStreams(ctx)

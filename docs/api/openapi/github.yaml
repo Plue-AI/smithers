@@ -6,6 +6,10 @@ paths:
       operationId: get_api_github_sync
       tags:
         - Github
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
       responses:
         '200':
           description: Aggregate required-stream health
@@ -28,6 +32,8 @@ paths:
                   retry_at:
                     type: string
                     format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '503':
           description: Sync dependencies unavailable; no effects
           content:
@@ -49,6 +55,10 @@ paths:
       operationId: post_api_github_sync
       tags:
         - Github
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
       parameters:
         - name: Idempotency-Key
           in: header
@@ -67,6 +77,8 @@ paths:
                   state:
                     type: string
                     enum: [accepted]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '503':
           description: Sync dependencies unavailable; no effects
           content:
