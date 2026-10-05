@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test"
 export default defineConfig({
-  testDir: "e2e/local", testMatch: ["**/setup-no-github.spec.ts", "**/team-no-github.spec.ts"], workers: 1,
+  testDir: "e2e/local", testMatch: ["**/setup-no-github.spec.ts", "**/team-no-github.spec.ts", "**/team-open-branch.spec.ts"], workers: 1,
   fullyParallel: false, retries: 0, timeout: 20_000,
   outputDir: "test-results/local-no-github/artifacts", reporter: "list",
   use: { headless: true, actionTimeout: 5000, trace: "off" },
