@@ -1228,8 +1228,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       open: (socket) => {
         if ("live" in socket.data) {
           const bridge = socket.data.live
-          // Dark documents refuse locally even when the backend route is absent.
-          // Open the shared upstream only after an ordinary frame needs it.
+          // Open the shared upstream only after the first frame needs it.
           bridge.connect = () => {
             if (bridge.upstream) return
             const upstream = new WebSocket(bridge.target, { headers: bridge.headers } as never)
@@ -1307,17 +1306,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
           const bridge = socket.data.live
           const bytes = typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength
           if (bytes > MAX_ANY_WS_FRAME_BYTES) { socket.close(1009, "live frame too large"); return }
-          if (typeof raw === "string") {
-            let frame: unknown
-            try { frame = JSON.parse(raw) } catch { /* Ordinary malformed frames remain backend-owned. */ }
-            if (frame && typeof frame === "object" && "t" in frame && frame.t === "sub"
-              && "topic" in frame && typeof frame.topic === "string" && frame.topic.startsWith("doc:code:")) {
-              if ("id" in frame && Number.isSafeInteger(frame.id) && (frame.id as number) >= 0) {
-                socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" }))
-              }
-              return
-            }
-          }
+          // Document subs and binary sync/awareness frames go upstream like any frame: the backend
+          // owns admission (err unsupported off a TODO branch machine, err forbidden on a forged update).
           bridge.connect?.()
           if (bridge.upstream?.readyState === WebSocket.OPEN) {
             if (bridge.upstream.bufferedAmount > MAX_WS_BACKPRESSURE_BYTES) { socket.close(1009, "live upstream backpressure"); return }

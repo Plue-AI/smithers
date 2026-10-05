@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { LiveChannel, type LiveSocket } from "./LiveChannel"
+import { browserChannelOptions, LiveChannel, type LiveSocket } from "./LiveChannel"
 
 class Socket implements LiveSocket {
   readyState = 0
@@ -14,10 +14,11 @@ class Socket implements LiveSocket {
   drop() { this.readyState = 3; this.onclose?.() }
   receive(frame: unknown) { this.onmessage?.({ data: JSON.stringify(frame) }) }
 }
-const harness = (project?: (topic: string, previous: unknown, delta: unknown) => unknown) => {
+const harness = (project?: (topic: string, previous: unknown, delta: unknown) => unknown, documentFrames = false) => {
   const sockets: Socket[] = []
   const timers: { run: () => void; ms: number; cancelled: boolean }[] = []
   const channel = new LiveChannel({
+    documentFrames,
     socket: () => { const socket = new Socket(); sockets.push(socket); return socket },
     random: () => 1, project,
     schedule: (run, ms) => { const timer = { run, ms, cancelled: false }; timers.push(timer); return timer },
@@ -27,6 +28,25 @@ const harness = (project?: (topic: string, previous: unknown, delta: unknown) =>
 }
 
 describe("live channel", () => {
+  // S3 co-editing: the browser tab's channel carries documents; the backend decides which it serves.
+  test("the browser channel subscribes code documents upstream and an upstream refusal reaches the provider", () => {
+    expect(browserChannelOptions.documentFrames).toBe(true)
+    const { channel, sockets } = harness(undefined, browserChannelOptions.documentFrames)
+    const events: unknown[] = []
+    const main = channel.subscribeDocument("doc:code:main:retry.ts", event => events.push(event))
+    const todo = channel.subscribeDocument("doc:code:T12:retry.ts", event => events.push(event))
+    expect(events).toEqual([])
+    sockets[0]!.open()
+    expect(sockets[0]!.frames).toEqual([{ t: "sub", id: 1, topic: "doc:code:main:retry.ts" }, { t: "sub", id: 2, topic: "doc:code:T12:retry.ts" }])
+    sockets[0]!.receive({ t: "err", id: 1, code: "unsupported" })
+    expect(events).toEqual([{ kind: "refused" }])
+    sockets[0]!.receive({ t: "snap", id: 2, cursor: 0, data: { epoch: "00112233445566778899aabbccddeeff", client_id: 42 } })
+    expect(events).toEqual([{ kind: "refused" }, { kind: "assigned", epoch: "00112233445566778899aabbccddeeff", clientId: 42 }])
+    main.release(); todo.release()
+    expect(sockets[0]!.frames.slice(2)).toEqual([{ t: "unsub", id: 1 }, { t: "unsub", id: 2 }])
+    channel.dispose()
+  })
+  // The seam stays: a channel without documentFrames (a host with no document backend) refuses locally.
   // T-COL-08 Scope In: unavailable real-stack providers must fail closed.
   test("dark code documents refuse without opening a socket or sending a subscription", () => {
     const { channel, sockets, timers } = harness()

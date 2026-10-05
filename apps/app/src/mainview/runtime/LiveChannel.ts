@@ -18,7 +18,7 @@ export interface LiveSocket {
   close(): void
 }
 export interface LiveChannelOptions {
-  /** Explicit contract seam; production leaves documents disabled until T-APP-14. */
+  /** Carry `doc:` topics and their binary frames. The browser channel enables it; off, documents refuse locally as unsupported. */
   documentFrames?: boolean
   socket?: () => LiveSocket
   random?: () => number
@@ -224,6 +224,8 @@ export class LiveChannel {
   dispose() { this.disposed = true; for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.collection.cleanup() }
 }
 
+/** The browser tab's channel carries code documents; the backend refuses any it cannot serve (err unsupported). */
+export const browserChannelOptions: LiveChannelOptions = { documentFrames: true }
 /** Lazy module singleton: exactly one channel for the browser tab. */
 let browserChannel: LiveChannel | undefined
-export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel()
+export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel(browserChannelOptions)
