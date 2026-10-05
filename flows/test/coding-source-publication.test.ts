@@ -1,12 +1,20 @@
 import { NodeServices } from "@effect/platform-node"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Sink, Stream } from "effect"
+import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
-import { NativeCoding, NativeCodingError, nativeLayer, requestIdFor, type SourcePublication } from "../coding/native.ts"
+import {
+  NativeCoding,
+  NativeCodingError,
+  nativeLayer,
+  NativeTransport,
+  requestIdFor,
+  type SourcePublication
+} from "../coding/native.ts"
 import type { Plan } from "../coding/schema.ts"
 import { admitSource } from "../coding/source-admission.ts"
 
@@ -163,4 +171,97 @@ process.stdout.write(${JSON.stringify(JSON.stringify(output))});
       }
     }
   }
+})
+
+/** A spawner that records each helper operation it starts and answers with the helper's busy envelope. */
+const recordingSpawner = (name: string, calls: Array<string>) =>
+  ChildProcessSpawner.make((command) =>
+    Effect.gen(function*() {
+      if (command._tag !== "StandardCommand" || !Stream.isStream(command.options.stdin)) {
+        return yield* Effect.die("the native helper is one command with its request on stdin")
+      }
+      const stdin = command.options.stdin as Stream.Stream<Uint8Array>
+      const request = JSON.parse(yield* Stream.mkString(Stream.decodeText(stdin))) as { readonly operation: string }
+      calls.push(`${name}:${request.operation}`)
+      const envelope = JSON.stringify({ error: { code: "workspace_busy", message: `${name} spawner answered` } })
+      return ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(1)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        stdin: Sink.drain,
+        stdout: Stream.make(new TextEncoder().encode(envelope)),
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+        unref: Effect.succeed(Effect.void)
+      })
+    })
+  )
+
+test("import and publication run on the host's NativeTransport spawner; every other operation stays guarded", async () => {
+  const imported = "e".repeat(40)
+  const operations = (native: NativeCoding["Service"]): ReadonlyArray<Effect.Effect<unknown, NativeCodingError>> => [
+    native.read(),
+    native.apply({
+      operation: "create",
+      requestId: requestIdFor("transport", "create"),
+      expectedOperationId: revision.operationId,
+      target: revision,
+      description: "change"
+    }),
+    native.apply({
+      operation: "apply_files",
+      requestId: requestIdFor("transport", "apply"),
+      expectedOperationId: revision.operationId,
+      target: revision,
+      files: [{ path: "file.ts", beforeDigest: null, content: "export {}\n" }]
+    }),
+    native.createSource!({
+      requestId: requestIdFor("transport", "create-source"),
+      expectedOperationId: revision.operationId,
+      base: revision,
+      description: "source",
+      files: [{ path: "file.ts", beforeDigest: null, content: "export {}\n" }]
+    }),
+    native.importSource!({
+      requestId: requestIdFor("transport", "import"),
+      commits: [{ commitId: imported, ref: `refs/smithers/workspaces/${workspaceId}/sources/${imported}` }]
+    }),
+    native.publishOriginalSource({ requestId, source: revision })
+  ]
+  const run = async (transport: boolean) => {
+    const calls: Array<string> = []
+    const spawner = (name: string) =>
+      Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, recordingSpawner(name, calls))
+    const native = nativeLayer({ repositoryPath: "/workspace", helperPath: "/helper", sourcePublication: "cloud" })
+    // The host's wiring: the raw platform spawner becomes NativeTransport; the run's guarded one stays the spawner.
+    const layer = transport
+      ? native.pipe(Layer.provide(NativeTransport.layerFrom(spawner("raw"))), Layer.provide(spawner("guarded")))
+      : native.pipe(Layer.provide(spawner("guarded")))
+    const results = await Effect.runPromise(
+      Effect.flatMap(NativeCoding, (service) => Effect.all(operations(service).map((effect) => Effect.result(effect))))
+        .pipe(Effect.provide(layer))
+    )
+    // Every operation reached a helper process and carried its answer back.
+    for (const result of results) {
+      assert.equal(result._tag, "Failure")
+      if (result._tag === "Failure") assert.equal(result.failure.code, "workspace_busy")
+    }
+    return calls
+  }
+  assert.deepEqual(await run(true), [
+    "guarded:read",
+    "guarded:create",
+    "guarded:apply_files",
+    "guarded:create_source",
+    "raw:import_source",
+    "raw:publish_source"
+  ])
+  assert.deepEqual(
+    await run(false),
+    ["read", "create", "apply_files", "create_source", "import_source", "publish_source"].map((op) => `guarded:${op}`),
+    "without NativeTransport every operation uses the run's guarded spawner"
+  )
 })
