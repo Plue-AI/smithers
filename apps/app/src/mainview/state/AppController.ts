@@ -134,6 +134,7 @@ import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
+import { createInstallBranches, type InstallBranches } from "./seams/BranchSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
@@ -517,6 +518,10 @@ export interface AppController extends IssueFlowsController {
   readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
+  /** The branches an install serves (GET /api/branches/{b}, /diff), which its Branch card reads; absent off an install. */
+  readonly installBranches?: InstallBranches
+  /** `branch` on an install: reads the branch the install serves, then opens its card. A string is the install's refusal. */
+  readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
@@ -889,6 +894,13 @@ export const createAppController = (
       if (response.status === 201 && typeof body?.name === "string") return { value: body.name }
       return typeof body?.message === "string" ? body.message : "Branch unavailable"
     } catch { return "Branch unavailable" }
+  } : undefined
+  /* An install's Branch card reads the branch the install serves; the seeded branches stand in only off an install. */
+  const installBranches = installHost ? createInstallBranches((path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init)) : undefined
+  const openBranch: AppController["openBranch"] = installBranches ? async name => {
+    const read = await installBranches.read(name)
+    if (typeof read === "string") return read
+    return { value: await presentBranchCard("branch", read.name, read.name) }
   } : undefined
   const flowCards: AppController["flowCards"] = async () => installHost ? flowsSeam.read()
     : flowNames(design.world()).flatMap(name => flowCardOf(design.world(), name) ?? [])
@@ -1703,6 +1715,7 @@ export const createAppController = (
     changeMembers,
     flowCards,
     ...(forkBranch ? { forkBranch } : {}),
+    ...(installBranches && openBranch ? { installBranches, openBranch } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,

@@ -1,9 +1,9 @@
-/* T-APP-10: live topics map to BranchView; demo projections remain isolated. */
-import { useState } from "react"
+/* T-APP-10: an install's served branch, else live topics, map to BranchView; demo projections remain isolated. */
+import { useEffect, useState, useSyncExternalStore } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
 import { useTopic } from "../state/useTopic"
-import { branchModel } from "../state/seams/BranchSeam"
+import { branchModel, type InstallBranches } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -88,8 +88,32 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
     onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized" }} onView={() => {}} />
 }
 
+/** A served branch's presses: its TODO (the item gesture) and, for a TODO's branch, Fork. */
+export const installBranchActionDefinitions = (model: BranchModel): Definition[] => model.item === undefined ? [] : [
+  { tag: "todo", label: model.item.title, gesture: "item", command_input: { n: model.item.n }, resolve_input: () => ({ n: model.item!.n }) },
+  { tag: "branch.fork", label: "Fork", command_input: { from: `T${model.item.n}` } }
+]
+
+/** An install's branch, as GET /api/branches/{b} and its /diff serve it (InstallBranches); a refusal shows its message. */
+export const InstallBranchBody = ({ card, actions, branches }: { readonly card: CardOf<"branch">; readonly actions: CardActions; readonly branches: InstallBranches }) => {
+  const controller = useController()
+  const name = card.payload.id
+  const snapshot = useSyncExternalStore(branches.subscribe, () => branches.get(name), () => branches.get(name))
+  const [tab, setTab] = useState<string | undefined>(undefined)
+  useEffect(() => { if (branches.get(name) === undefined) void branches.read(name) }, [branches, name])
+  if (snapshot?.model === undefined) return snapshot?.error === undefined ? null : <p className="branch-muted">{snapshot.error}</p>
+  // A press that fails says why (surfaceCommandFailure), as every person's press does.
+  const dispatch: CardCommandDispatch = (tag, input) =>
+    controller.submitCommand({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
+  const bindings = cardActions<Gesture>(dispatch, installBranchActionDefinitions(snapshot.model))
+  return <BranchView model={snapshot.model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction}
+    view={{ maximized: actions.presentation === "maximized", ...(tab === undefined ? {} : { tab }) }}
+    onView={patch => { if ("tab" in patch) setTab(patch.tab) }} />
+}
+
 const BranchBody = (props: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
+  if (controller.installBranches) return <InstallBranchBody {...props} branches={controller.installBranches} />
   return controller.live || controller.bootstrap ? <LiveBranchBody {...props} /> : <DesignBranchBody {...props} />
 }
 

@@ -136,6 +136,8 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
       controller.changeDraft(`/${tag} T${card.payload.n} `)
       return controller.runCommand("chat.open")
     }
+    // Open branch has no TODO request to fail on the card, so its refusal is stated (surfaceCommandFailure).
+    if (tag === "branch") return controller.submitCommand({ name: tag, payload, actor: "user", originCardId: card.id })
     return controller.commands.submit({ name: tag, payload, actor: "user", originCardId: card.id })
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }

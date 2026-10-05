@@ -196,18 +196,20 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
             ),
           )}
         </div>
-        <div className="branch-ssh">
-          <code tabIndex={0}>{model.ssh_line}</code>
-          <button
-            type="button"
-            aria-label="Copy SSH line"
-            onClick={() => {
-              void copyText(model.ssh_line)
-            }}
-          >
-            <Copy size={14} aria-hidden="true" />
-          </button>
-        </div>
+        {model.ssh_line ? (
+          <div className="branch-ssh">
+            <code tabIndex={0}>{model.ssh_line}</code>
+            <button
+              type="button"
+              aria-label="Copy SSH line"
+              onClick={() => {
+                void copyText(model.ssh_line)
+              }}
+            >
+              <Copy size={14} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
   )

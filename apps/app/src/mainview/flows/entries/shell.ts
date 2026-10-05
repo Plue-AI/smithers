@@ -1,8 +1,9 @@
 /*
- * The shell's flows: the crumbs and the branch tree name `branch`, and a
- * slash or the agent reach the same flow. MOCK: the handler moves the viewer
- * through the seeded design world (state/seams/DesignWorld/shell.ts) until
- * the per-member view topic lands (mvp.md §7.2).
+ * The shell's flows: the crumbs, the branch tree and a TODO card's Open
+ * branch name `branch`, and a slash or the agent reach the same flow. An
+ * install opens the branch it serves; off an install (MOCK) the handler moves
+ * the viewer through the seeded design world (state/seams/DesignWorld/
+ * shell.ts) until the per-member view topic lands (mvp.md §7.2).
  */
 import { Schema } from "effect"
 import { flow, type CommandActions } from "./Declare"
@@ -30,6 +31,8 @@ export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     grammar: name,
     input: Schema.Struct({ name: Schema.String }),
     handler: async ({ name: target }) => {
+      // An install opens the branch it serves (GET /api/branches/{b}); a refusal is the install's message.
+      if (actions.openBranch) return actions.openBranch(target)
       if (actions.bootstrap || actions.live) return "Branch unavailable"
       const result = goToBranch(actions.design, actions.design.viewer(), target)
       if (!result.ok) return result.refusal

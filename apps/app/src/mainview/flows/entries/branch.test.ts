@@ -8,6 +8,7 @@ import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state/TestFixtures"
 import { todoOf } from "../../state/seams/DesignWorld"
+import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 
 const boot = async (live?: import("../../state/useTopic").LiveTopics) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -152,5 +153,55 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
     expect(posts.every(post => post.key !== null && post.key.length > 0)).toBe(true)
     // The seeded world is off on an install: nothing forked there.
     expect(controller.design.world().branches.some(each => each.name.startsWith("scratch/ben/"))).toBe(false)
+  } finally { await controller.dispose() }
+})
+
+test("On an install Open branch reads the branch the install serves and opens its card with its commits, files and checks; a refusal is the install's message", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const head = "c".repeat(40), base = "b".repeat(40)
+  const avatar = PlaceholderAvatarUrl
+  const reads: string[] = []
+  // The bodies GET /api/branches/{b}, its /diff and GET /api/todos/{n} serve on an install (docs/api/openapi/branches.yaml).
+  const todo = { n: 1, title: "Add greeting", state: "in_review", place: 1, merge: { on_github: false, reason: "state", state: "waiting" },
+    owner: { avatar_url: avatar, login: "rehearsal-owner", name: "Rehearsal owner" }, present: [], prompt_revisions: [], steers: [], steps: [], waits: [],
+    evidence: [{ attempt: 1, revision: head, items: [{ kind: "check", name: "node --test", state: "passed" }, { kind: "review", summary: "approve" }] }] }
+  const profile = signupProfileFetch(async input => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    reads.push(path)
+    switch (path) {
+      case "/api/branches/smithers%2Fadd-greeting": return Response.json({ name: "smithers/add-greeting", kind: "item", state: "asleep", head,
+        item: { n: 1, title: "Add greeting", state: "in_review", place: 1 }, machine: { id: "lane-1", status: "stopped" } })
+      case "/api/branches/smithers%2Fadd-greeting/diff": return Response.json({
+        files: [{ path: "greet.mjs", branch: "smithers/add-greeting", against: { kind: "item_base", rev: base }, change: "added",
+          hunks: [{ old_start: 0, new_start: 1, lines: [{ op: "+", text: "export const greet = () => 'hi'" }] }] }],
+        commits: [{ sha: head, subject: "feat: add greet", author: "Smithers", at: "2026-10-05T09:00:00-07:00" }] })
+      case "/api/todos/1": return Response.json(todo)
+      case "/api/branches/smithers%2Fgone": return Response.json({ code: "not_found", class: "user", message: "branch not found" }, { status: 404 })
+    }
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, live: { subscribe: () => () => {}, getSnapshot: () => undefined },
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    // The TODO card's Open branch sends the branch its card names.
+    expect(await controller.submitCommand({ name: "branch", payload: { name: "smithers/add-greeting" }, actor: "user" }))
+      .toEqual({ status: "executed", value: "Opened smithers/add-greeting" })
+    expect(reads.filter(path => path.startsWith("/api/branches") || path.startsWith("/api/todos")).sort())
+      .toEqual(["/api/branches/smithers%2Fadd-greeting", "/api/branches/smithers%2Fadd-greeting/diff", "/api/todos/1"])
+    expect(store.collections.cards.get("branch:smithers/add-greeting")).toMatchObject({ kind: "branch", title: "smithers/add-greeting", payload: { id: "smithers/add-greeting" } })
+    const model = controller.installBranches!.get("smithers/add-greeting")!.model!
+    expect(model).toMatchObject({ id: "smithers/add-greeting", name: "smithers/add-greeting", machine: { state: "asleep" },
+      item: { n: 1, title: "Add greeting", state: "in_review", place: 1 }, ssh_line: "", presence: [], terminals: [] })
+    expect(model.changed_files).toEqual([{ path: "greet.mjs", change: "added", authors: [] }])
+    expect(model.activity.map(entry => [entry.kind, entry.text, entry.items ?? []])).toEqual([["change", "feat: add greet", ["ccccccc"]], ["step", "node --test passed", []]])
+
+    // A branch the install does not serve opens nothing and says why.
+    const refused = await controller.submitCommand({ name: "branch", payload: { name: "smithers/gone" }, actor: "user" })
+    expect(refused).toMatchObject({ status: "failed", error: "branch not found" })
+    expect(store.collections.cards.get("branch:smithers/gone")).toBeUndefined()
+    expect([...store.collections.toasts.values()].filter(toast => toast.status === "failed").map(toast => toast.detail)).toEqual(["branch not found"])
+    // The seeded world is off on an install: no seeded branch opened.
+    expect([...store.collections.cards.keys()].filter(id => id.startsWith("branch:"))).toEqual(["branch:smithers/add-greeting"])
   } finally { await controller.dispose() }
 })
