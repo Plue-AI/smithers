@@ -134,10 +134,11 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			require.Equal(t, tc.mergeCode, envelope["code"])
 			// Every control, as the app sends it: a person on the roster gets
 			// past authorization to the service, which sends a steer to the
-			// working run (it never settles the open question), refuses Retry
-			// of a working TODO, answers Drop of an unknown TODO 404, refuses
-			// Move up of the first one and keeps the controls it has no
-			// service for dark; nobody else gets past authorization.
+			// working run (it never settles the open question), refuses Stop
+			// while that question is open, Resume of a TODO not paused, Retry
+			// of a working TODO and Move up of the first one, answers Drop of
+			// an unknown TODO 404 and keeps Retry with the current flow dark;
+			// nobody else gets past authorization.
 			for _, body := range []string{`{"op":"steer","text":"Keep the max at 5"}`, `{"steer":"Keep the max at 5"}`, `{"op":"stop"}`, `{"op":"resume"}`,
 				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`, `{"op":"move","direction":"up"}`} {
 				path := "/api/todos/3"
@@ -154,7 +155,13 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 				} else if tc.list == 200 && strings.HasPrefix(body, `{"op":"move"`) {
 					require.Equal(t, http.StatusConflict, status, body)
 					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "T3 is already first"}, envelope, body)
-				} else if tc.list == 200 && (body == `{"op":"stop"}` || body == `{"op":"resume"}` || body == `{"op":"retry-current-flow"}`) {
+				} else if tc.list == 200 && body == `{"op":"stop"}` {
+					require.Equal(t, http.StatusConflict, status, body)
+					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "Answer the open wait first"}, envelope, body)
+				} else if tc.list == 200 && body == `{"op":"resume"}` {
+					require.Equal(t, http.StatusConflict, status, body)
+					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "TODO is not paused"}, envelope, body)
+				} else if tc.list == 200 && body == `{"op":"retry-current-flow"}` {
 					require.Equal(t, http.StatusServiceUnavailable, status, body)
 					require.Equal(t, map[string]any{"code": "todo_control_unavailable", "class": "infra", "message": "TODO controls are unavailable"}, envelope, body)
 				} else if tc.list == 200 {

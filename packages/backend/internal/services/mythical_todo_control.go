@@ -35,10 +35,12 @@ type TodoControlReceipt struct {
 // todoControls dispatches each TODO control to its service, one file per op
 // (mythical_todo_<op>.go). An op without an entry is unavailable.
 var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){
-	"":      (*MythicalService).steerTodo,
-	"retry": (*MythicalService).retryTodo,
-	"drop":  (*MythicalService).dropTodo,
-	"move":  (*MythicalService).moveTodo,
+	"":       (*MythicalService).steerTodo,
+	"stop":   (*MythicalService).stopTodo,
+	"resume": (*MythicalService).resumeTodo,
+	"retry":  (*MythicalService).retryTodo,
+	"drop":   (*MythicalService).dropTodo,
+	"move":   (*MythicalService).moveTodo,
 }
 
 // TodoControlError uses the install command error envelope (§6.2.3).
@@ -113,6 +115,9 @@ func todoControlGuard(item db.MythicalItem, input TodoControlInput, facts todoCo
 	}
 	switch input.Op {
 	case "stop":
+		if facts.Paused {
+			return todoControlConflict("TODO is paused")
+		}
 		if !facts.Executing {
 			return todoControlConflict("TODO has no executing run")
 		}
