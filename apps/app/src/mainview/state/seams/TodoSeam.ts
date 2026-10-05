@@ -12,9 +12,10 @@ import type { SeamContext } from "./SeamContext"
 import { readResult, unreachableSentence } from "./SeamContext"
 import { randomUuid } from "../../runtime/RandomUuid"
 
-export const todoDecodeError = (error: ZodError | SyntaxError): string => error instanceof ZodError
+export const todoDecodeError = (error: unknown): string => error instanceof ZodError
   ? `Could not decode TODOs: ${error.issues.map(issue => `${issue.path.join(".") || "TODO"}: ${issue.message}`).join("; ")}`
-  : "Could not decode TODOs: invalid JSON."
+  : error instanceof SyntaxError ? "Could not decode TODOs: invalid JSON."
+  : `Could not decode TODOs: ${error instanceof Error ? error.message : String(error)}`
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
 
@@ -299,11 +300,13 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       const response = await ctx.http(`${ctx.baseUrl}${todoPath(n)}`, { credentials: "include" })
       if (!current(login, revision)) return
       if (!response.ok) return "Could not open the TODO."
-      const model = TodoCardSchema.parse(todoActors(await response.json(), options.actors?.()))
+      let model: TodoCard
+      try { model = TodoCardSchema.parse(todoActors(await response.json(), options.actors?.())) }
+      catch (error) { return todoDecodeError(error) }
       await applyProjection(n, model)
       watch(n)
       return readResult(JSON.stringify(model))
-    } catch (error) { return error instanceof ZodError || error instanceof SyntaxError ? todoDecodeError(error) : unreachableSentence("TODOs", error) }
+    } catch (error) { return unreachableSentence("TODOs", error) }
   }
   const publishList = (snapshot: TodoListSnapshot) => {
     shared.list.snapshot = snapshot
@@ -316,12 +319,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     let next: TodoListSnapshot
     try {
       const response = await ctx.http(`${ctx.baseUrl}${TODOS_PATH}`, { credentials: "include" })
-      const body: unknown = response.ok ? await response.json() : undefined
-      const parsed = Array.isArray(body) ? TodoCardSchema.array().safeParse(body.map(value => todoActors(value, options.actors?.()))) : undefined
-      next = response.status === 401 || response.status === 403 ? { error: "forbidden" }
-        : !response.ok ? { ...shared.list.snapshot, error: "internal" }
-        : parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid", detail: parsed ? todoDecodeError(parsed.error) : "Could not decode TODOs: expected a list." }
-    } catch (error) { next = { ...shared.list.snapshot, error: error instanceof ZodError || error instanceof SyntaxError ? "invalid" : "unreachable", ...(error instanceof ZodError || error instanceof SyntaxError ? { detail: todoDecodeError(error) } : {}) } }
+      if (response.status === 401 || response.status === 403) next = { error: "forbidden" }
+      else if (!response.ok) next = { ...shared.list.snapshot, error: "internal" }
+      else try {
+        const body: unknown = await response.json()
+        const parsed = Array.isArray(body) ? TodoCardSchema.array().safeParse(body.map(value => todoActors(value, options.actors?.()))) : undefined
+        next = parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid", detail: parsed ? todoDecodeError(parsed.error) : "Could not decode TODOs: expected a list." }
+      } catch (error) { next = { ...shared.list.snapshot, error: "invalid", detail: todoDecodeError(error) } }
+    } catch { next = { ...shared.list.snapshot, error: "unreachable" } }
     if (current(login, revision)) publishList(next)
   }
   const pollList = () => {

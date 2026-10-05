@@ -20,20 +20,21 @@ export { actorName } from "../cards/views/actorName"
 export const todoActors = (value: unknown, context: ActorContext = {}): unknown => {
   if (!value || typeof value !== "object") return value
   const model = value as Record<string, unknown>
-  const actor = (wire: unknown) => {
+  const actor = (wire: unknown, path: string) => {
     if (!wire || typeof wire !== "object" || "kind" in wire) return wire
     if (!["person", "agent", "system", "github", "outside"].some(key => key in wire)) return wire
-    return toActor(wire as ProductActor, context.roster, context.runs, context.sessions)
+    try { return toActor(wire as ProductActor, context.roster, context.runs, context.sessions) }
+    catch (error) { throw new Error(`${path}: ${error instanceof Error ? error.message : String(error)}`) }
   }
-  const authored = (value: unknown) => {
+  const authored = (value: unknown, path: string) => {
     if (!value || typeof value !== "object") return value
     const row = value as Record<string, unknown>
-    return row.by === undefined ? row : { ...row, by: actor(row.by) }
+    return row.by === undefined ? row : { ...row, by: actor(row.by, `${path}.by`) }
   }
-  const rows = (value: unknown) => Array.isArray(value) ? value.map(authored) : value
-  return { ...model, prompt_revisions: rows(model.prompt_revisions), steers: rows(model.steers), waits: rows(model.waits),
-    ...(model.first_answer ? { first_answer: authored(model.first_answer) } : {}),
-    ...(Array.isArray(model.present) ? { present: model.present.map(actor) } : {}) }
+  const rows = (value: unknown, path: string) => Array.isArray(value) ? value.map((row, index) => authored(row, `${path}.${index}`)) : value
+  return { ...model, prompt_revisions: rows(model.prompt_revisions, "prompt_revisions"), steers: rows(model.steers, "steers"), waits: rows(model.waits, "waits"),
+    ...(model.first_answer ? { first_answer: authored(model.first_answer, "first_answer") } : {}),
+    ...(Array.isArray(model.present) ? { present: model.present.map((row, index) => actor(row, `present.${index}`)) } : {}) }
 }
 /** Recorded attribution only; request headers and credential authority never enter this adapter. */
 export const toActor = (wire: ProductActor | Actor, roster: readonly ActorMember[] = [], runs: readonly ActorRun[] = [], sessions: readonly ActorSession[] = []): Actor => {

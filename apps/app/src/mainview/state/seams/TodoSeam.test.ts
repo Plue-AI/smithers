@@ -769,3 +769,16 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
   }
  })
 })
+
+test("a historical author missing from the roster is a field decode failure", async () => {
+ const model = structuredClone(fixtures.in_review.model) as any
+ model.prompt_revisions[0].by = {person:"missing-member"}
+ const h = await harness(async () => json(model, 200))
+ try {
+  const result = await h.seam.showTodo(12)
+  expect(result).toContain("Could not decode TODOs")
+  expect(result).toContain("prompt_revisions.0.by")
+  expect(result).toContain("missing-member")
+  expect(result).not.toContain("Could not reach")
+ } finally {h.close()}
+})
