@@ -228,10 +228,48 @@ func (g mythicalGit) isAncestor(ctx context.Context, ancestor, descendant string
 	return gitutil.IsAncestor(ctx, g.dir, ancestor, descendant, gitHubMainPullCommand)
 }
 
+// mythicalScratchIdentity signs the scratch commits merge3 writes. Nothing
+// refers to them: they exist only so merge-tree sees the chosen merge base.
+const mythicalScratchIdentity = "Smithers <noreply@smithers.sh> 0 +0000"
+
 // merge3 is a three-way tree merge of commits: base's tree, with both ours'
 // and theirs' changes. Identical changes on both sides merge cleanly.
+//
+// merge-tree's --merge-base needs git 2.40, and an install's bundled git is
+// Xcode's 2.39, where every adopt after a merge failed with "unknown option
+// `merge-base=...'". So the merge runs between scratch commits of ours' and
+// theirs' trees whose one parent is a scratch commit of base's tree: their
+// only merge base is that commit, which is the three-way merge --merge-base
+// names, on any git with merge-tree --write-tree (2.38).
 func (g mythicalGit) merge3(ctx context.Context, base, ours, theirs string) (string, error) {
-	out, err := g.command(ctx, nil, "merge-tree", "--write-tree", "-z", "--name-only", "--no-messages", "--merge-base="+base, ours, theirs)
+	for _, commit := range []string{base, ours, theirs} {
+		if !mythicalSHA.MatchString(commit) {
+			return "", fmt.Errorf("merge3 needs commit ids, not %q", commit)
+		}
+	}
+	resolved, err := g.git(ctx, "rev-parse", base+"^{tree}", ours+"^{tree}", theirs+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	trees := strings.Fields(resolved)
+	if len(trees) != 3 {
+		return "", errors.New("git rev-parse returned no trees")
+	}
+	scratch := func(tree string, parents ...string) (string, error) {
+		return g.writeCommit(ctx, mythicalCommit{Tree: tree, Parents: parents, Author: mythicalScratchIdentity,
+			Committer: mythicalScratchIdentity, Message: "merge3 scratch\n"})
+	}
+	root, err := scratch(trees[0])
+	if err != nil {
+		return "", err
+	}
+	if ours, err = scratch(trees[1], root); err != nil {
+		return "", err
+	}
+	if theirs, err = scratch(trees[2], root); err != nil {
+		return "", err
+	}
+	out, err := g.command(ctx, nil, "merge-tree", "--write-tree", "-z", "--name-only", "--no-messages", ours, theirs)
 	fields := strings.Split(strings.TrimRight(string(out), "\x00"), "\x00")
 	if err != nil {
 		var exit *exec.ExitError

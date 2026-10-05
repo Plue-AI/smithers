@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -296,6 +297,41 @@ func TestMythicalMergeTreatsIdenticalChangesAsClean(t *testing.T) {
 	tree, err := f.git.merge3(ctx, base, left, right)
 	require.NoError(t, err)
 	assert.Equal(t, f.tree(left), tree)
+}
+
+// An install's bundled git is Xcode's 2.39, which has merge-tree --write-tree
+// but not --merge-base (2.40): every adopt after a merge failed there with
+// "unknown option `merge-base=...'". merge3 runs on such a git: a shim that
+// refuses the option, as 2.39 does, gives the same clean merge and conflict.
+func TestMythicalMergeRunsWithoutMergeBaseOption(t *testing.T) {
+	f := newMythicalFixture(t)
+	ctx := context.Background()
+	real, err := exec.LookPath("git")
+	require.NoError(t, err)
+	shim := filepath.Join(t.TempDir(), "git")
+	require.NoError(t, os.WriteFile(shim, []byte("#!/bin/sh\nfor arg in \"$@\"; do case \"$arg\" in --merge-base*) echo \"error: unknown option \\`${arg#--}'\" >&2; exit 129;; esac; done\nexec "+real+" \"$@\"\n"), 0o755))
+	restore, err := hostexec.Configure(hostexec.Config{Git: shim, Environment: hostexec.Environment()})
+	require.NoError(t, err)
+	t.Cleanup(restore)
+
+	base := f.commit("base", map[string]string{"a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n"})
+	f.run("checkout", "--quiet", "-b", "left")
+	left := f.commit("left", map[string]string{"a.txt": "a1\n", "c.txt": "c1\n"})
+	f.run("checkout", "--quiet", "-b", "right", base)
+	right := f.commit("right", map[string]string{"b.txt": "b2\n"})
+	// A history below base never makes it the merge base: the merge is base's tree with both sides.
+	tree, err := f.git.merge3(ctx, base, left, right)
+	require.NoError(t, err)
+	f.run("checkout", "--quiet", "-b", "both", left)
+	f.run("merge", "--quiet", "--no-edit", right)
+	assert.Equal(t, f.tree("HEAD"), tree)
+
+	f.run("checkout", "--quiet", "-b", "clash", base)
+	clash := f.commit("clash", map[string]string{"c.txt": "c2\n"})
+	_, err = f.git.merge3(ctx, base, left, clash)
+	var conflict *errMythicalConflict
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, []string{"c.txt"}, conflict.Paths)
 }
 
 func TestMythicalNotesAndIdsAreDeterministic(t *testing.T) {
