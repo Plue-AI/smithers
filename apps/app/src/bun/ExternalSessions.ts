@@ -87,20 +87,51 @@ export interface SessionRead {
   readonly error?: { readonly code: string; readonly message: string }
 }
 
-interface Tail { offset: number; state: CodexState; readonly decoder: TextDecoder; readonly entries: Entry[]; error?: SessionRead["error"] }
+interface Tail { lastRead: number; dev: number; ino: number; offset: number; state: CodexState; readonly decoder: TextDecoder; readonly entries: Entry[]; error?: SessionRead["error"] }
 
-/** Reads sessions by id, keeping one tail per rollout file for this host's lifetime. */
-export function externalSessions(roots: () => Promise<readonly string[]> = () => sessionRoots()) {
+/** Cache discovery per id; retain decoded tails only while actively read. */
+export function externalSessions(
+  roots: () => Promise<readonly string[]> = () => sessionRoots(),
+  options: { readonly now?: () => number; readonly lookup?: typeof findRollout } = {}
+) {
+  const now = options.now ?? Date.now
+  const lookup = options.lookup ?? findRollout
+  const paths = new Map<string, { path: string; root: string; dev: number; ino: number }>()
   const tails = new Map<string, Tail>()
   return async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
-    const directories = await roots()
-    const found = await findRollout(id, directories)
-    if (!("path" in found)) return found
-    const tail = tails.get(found.path) ?? { offset: 0, state: codexStart, decoder: new TextDecoder(), entries: [] }
+    const time = now()
+    for (const [path, tail] of tails) if (time - tail.lastRead >= 10 * 60_000) {
+      tails.delete(path)
+      for (const [session, cached] of paths) if (cached.path === path) paths.delete(session)
+    }
+    let found = paths.get(id)
+    let info = found ? await regularPath(found.path, found.root).catch(error => {
+      if (error?.code === "ENOENT") return undefined
+      throw error
+    }) : undefined
+    if (found && (!info || info.dev !== found.dev || info.ino !== found.ino)) {
+      tails.delete(found.path)
+      paths.delete(id)
+      found = undefined
+    }
+    if (!found) {
+      const directories = await roots()
+      const discovered = await lookup(id, directories)
+      if (!("path" in discovered)) return discovered
+      const path = resolve(discovered.path)
+      const root = directories.find(root => path.startsWith(resolve(root) + sep))
+      if (!root) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
+      info = await regularPath(path, root)
+      found = { path, root, dev: info.dev, ino: info.ino }
+      paths.set(id, found)
+    }
+    if (!info?.isFile()) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
+    const root = found.root
+    const previous = tails.get(found.path)
+    const tail: Tail = previous && previous.dev === info.dev && previous.ino === info.ino && info.size >= previous.offset
+      ? previous : { lastRead: time, dev: info.dev, ino: info.ino, offset: 0, state: codexStart, decoder: new TextDecoder(), entries: [] }
+    tail.lastRead = time
     tails.set(found.path, tail)
-    const root = directories.find(root => found.path.startsWith(resolve(root) + sep))!
-    const info = await regularPath(found.path, root)
-    if (!info.isFile()) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
     const size = info.size
     if (tail.error === undefined && size > tail.offset) {
       const file = await open(found.path, constants.O_RDONLY | constants.O_NOFOLLOW)

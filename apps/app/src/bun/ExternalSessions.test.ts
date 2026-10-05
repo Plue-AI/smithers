@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { appendFile, mkdir, mkdtemp, rm, realpath, symlink, utimes, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, mkdtemp, rm, realpath, rename, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
 import { EXTERNAL_CODEX_PATH } from "@smthrs/rpc/AgentApiRoutes"
@@ -67,6 +67,63 @@ describe("finding a session", () => {
 })
 
 describe("tailing a session", () => {
+  test("two reads walk once; deletion and replacement each resolve once", async () => {
+    const root = join(home, "cached")
+    const path = rolloutPath(root, ID)
+    await write(path, [meta(ID), prompt(1, "first")])
+    let walks = 0
+    const read = externalSessions(async () => [root], { lookup: async (id, roots) => { walks++; return findRollout(id, roots) } })
+    expect(await read(ID)).toMatchObject({ entries: [{ part: { text: "first" } }] })
+    expect(await read(ID)).toMatchObject({ next: 1 })
+    expect(walks).toBe(1)
+    await rm(path)
+    expect(await read(ID)).toMatchObject({ error: "unknown" })
+    expect(walks).toBe(2)
+    await write(path, [meta(ID), prompt(1, "restored")])
+    expect(await read(ID)).toMatchObject({ entries: [{ part: { text: "restored" } }] })
+    expect(walks).toBe(3)
+    await write(`${path}.new`, [meta(ID), prompt(1, "replaced")])
+    await rename(`${path}.new`, path)
+    expect(await read(ID)).toMatchObject({ entries: [{ part: { text: "replaced" } }] })
+    expect(walks).toBe(4)
+    await read(ID)
+    expect(walks).toBe(4)
+  })
+
+  test("idle tails expire at ten minutes; active reads refresh their lifetime", async () => {
+    const root = join(home, "idle")
+    const path = rolloutPath(root, ID)
+    await write(path, [meta(ID), prompt(1, "original")])
+    let time = 0
+    let walks = 0
+    const read = externalSessions(async () => [root], { now: () => time,
+      lookup: async (id, roots) => { walks++; return findRollout(id, roots) } })
+    await read(ID)
+    time = 599_999
+    await read(ID)
+    expect(walks).toBe(1)
+    // Same inode and byte length: only eviction causes the source to be decoded again.
+    await write(path, [meta(ID), prompt(1, "new text")])
+    time += 599_999
+    expect(await read(ID)).toMatchObject({ entries: [{ part: { text: "original" } }] })
+    expect(walks).toBe(1)
+    time += 600_000
+    expect(await read(ID)).toMatchObject({ entries: [{ part: { text: "new text" } }] })
+    expect(walks).toBe(2)
+  })
+
+  test("a truncated rollout resets the cached decoder without rediscovery", async () => {
+    const root = join(home, "truncated")
+    const path = rolloutPath(root, ID)
+    await write(path, [meta(ID), prompt(1, "a long original prompt")])
+    let walks = 0
+    const read = externalSessions(async () => [root], { lookup: async (id, roots) => { walks++; return findRollout(id, roots) } })
+    await read(ID)
+    await write(path, [meta(ID), prompt(1, "short")])
+    expect(await read(ID)).toMatchObject({ next: 1, entries: [{ part: { text: "short" } }] })
+    expect(walks).toBe(1)
+  })
+
   test("each read decodes only what was appended, and since skips what was sent", async () => {
     const root = join(home, "tail")
     const path = rolloutPath(root, ID)
