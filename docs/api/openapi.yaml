@@ -19453,7 +19453,7 @@ paths:
     post:
       x-composition: install
       summary: Steer the coding agent, or stop, resume, retry or drop a TODO
-      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer. Members steer, stop, resume, retry and drop TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt; the same Idempotency-Key answers it again. Every other control answers todo_control_unavailable until its service is composed (T-STK-05, T-STK-06).
+      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer. Members steer, stop, resume, retry and drop TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt. Drop of an unmerged TODO cancels its run, stops every later TODO waiting on it to merge, and closes its pull request with the comment "Dropped in Smithers by @login". The same Idempotency-Key answers a Retry or a Drop again. Every other control answers todo_control_unavailable until its service is composed (T-STK-05, T-STK-06).
       operationId: post_api_todos_n
       tags:
         - Todos
