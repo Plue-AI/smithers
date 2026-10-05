@@ -12,6 +12,8 @@ import { createDebugApiSeam } from "../state/seams/DebugApiSeam"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"
 import { memoryStorage, silentAgent } from "../state/TestFixtures"
+import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import type { AgentPort } from "../runtime/AgentPort"
 import { apiFixture, expectedOperations } from "../state/seams/DebugApiFixtures.test-support"
 
 const createController = scopedControllers()
@@ -40,7 +42,7 @@ test("slash opens without fetching; production Send and confirmation preserve re
   expect(calls).toHaveLength(0)
   expect(props.model.pending).toEqual({ method: "PUT", path: "/api/secrets" })
   expect(props.actions[0]!.label).toBe(`Confirm PUT /api/secrets #${controller.debugApi.get().target}`)
-  expect(controller.debugApi.get().target).toMatch(/^[0-9a-f]{12}$/)
+  expect(controller.debugApi.get().target).toBeTruthy()
   await act(async () => { props.onAction(props.actions[0]!.tag, { body: '{"name":"changed"}' }); await settle(() => !controller.debugApi.get().model.pending) })
   expect(calls).toHaveLength(0)
   await act(async () => { props.onAction(props.actions[0]!.tag, { body: '{"name":"CI","value":"private"}' }); await settle(() => !!controller.debugApi.get().model.pending) })
@@ -84,7 +86,7 @@ test("agent door refuses raw API; a running fetch never blocks Chat or duplicate
   finish(new Response('{"code":"signed_out","class":"permission","message":"Sign in"}', { status: 401 }))
   await settle(() => !controller.debugApi.get().busy)
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", message: "HTTP 401", status: 401 })
+  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", message: "Sign in", status: 401 })
 })
 
 test("the production help projection keeps unavailable docs and Debug API dark", async () => {
@@ -113,7 +115,7 @@ test("a debug-api failure journals only generic status copy; response text stays
   await settle(() => store.collections.cards.has("debug-api"))
   expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("HTTP 500")
+  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("leaked response words")
   expect(store.collections.toasts.get("toast-debug.api.send")?.detail).toBe("The API answered HTTP 500 (infra).")
   expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("leaked response words")
   expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("leaked response words")
@@ -192,4 +194,29 @@ test("replacing the seam at the same selection and epoch remounts the real form 
   await act(async () => render(b))
   expect(host.querySelector("textarea")!.value).toBe("")
   expect(host.innerHTML).not.toContain("seam-a-draft")
+})
+
+test("debug bodies are viewer-only and ephemeral: no storage write, store row or agent request carries them, and the card is not agent context", async () => {
+  const BODY = "BODY-BYTES-7f3a"
+  const writes: string[] = [], base = memoryStorage()
+  const storage = { ...base, setItem: (key: string, value: string) => { writes.push(`${key}=${value}`); base.setItem(key, value) } }
+  const store = await createAppStore({ kind: "localStorage", storage })
+  const requests: StartAgentTurnRequest[] = []
+  const agent: AgentPort = { available: true, startTurn: async request => { requests.push(request); return { status: "started" } }, cancelTurn: async () => {}, subscribe: () => () => {} }
+  const controller = createController(store, agent, { openApi: async () => apiFixture, debugApiOrigin: "http://mini.local", debugApiGates: () => ({ view: true, catalog: true, authorizer: true }),
+    toastDebounceMs: 0, toastAutoDismissMs: 60_000, fetchImpl: async () => new Response(JSON.stringify({ secret_note: BODY }), { status: 500, headers: { "Content-Type": "application/json", "X-Request-Id": "req-7f3a", "X-Echo": BODY } }) })
+  await controller.runCommandForResult("debug-api", "readFile")
+  await settle(() => store.collections.cards.has("debug-api"))
+  expect((await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": `${BODY}.ts` } }))).status).toBe("executed")
+  await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
+  expect(JSON.stringify(controller.debugApi.get())).toContain(BODY)
+  expect(await controller.send("What is on screen?")).toBe(true)
+  await settle(() => requests.length === 1)
+  expect(JSON.stringify(requests[0])).not.toContain(BODY)
+  expect(requests[0]!.context?.recentCards?.map(card => card.kind)).not.toContain("debug-api")
+  const rows = Object.values(store.collections).flatMap(collection => [...(collection as unknown as { values: () => Iterable<unknown> }).values()])
+  expect(rows.length).toBeGreaterThan(0)
+  expect(JSON.stringify(rows)).not.toContain(BODY)
+  expect(writes.join("\n")).not.toContain(BODY)
+  expect(writes.join("\n")).not.toContain("req-7f3a")
 })

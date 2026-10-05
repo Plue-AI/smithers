@@ -20,7 +20,7 @@ export interface DebugApiGates { view: boolean; catalog: boolean; authorizer: bo
 /**
  * `instance` and `epoch` name the seam and its account generation; the
  * Container keys the View by both so no form draft outlives either. `target`
- * is the pending confirmation's discriminator (`requestDiscriminator`).
+ * is the pending confirmation's random id, held by the pending request.
  */
 export type DebugApiSnapshot = { model: DebugApiCard; fields: FormField[]; confirmation?: string; busy?: boolean; epoch?: number; instance?: number; target?: string }
 const METHODS: HttpMethod[] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
@@ -32,50 +32,33 @@ const installComposition = (composition?: string) => composition === undefined |
 const adminPath = (path: string) => /^\/api\/admin(?:\/|$)/.test(path)
 
 /**
- * Operations whose whole response is a credential the person must not see
- * pasted into a pane (tickets, tokens, OAuth codes, callback handoffs).
- * Pinned because their OpenAPI rows declare AnyJSON or no body; OpenApi.test
- * checks each id is a release install operation. Schema-declared credential
- * fields are found from the document as well (`credentialOperation`).
+ * Credential-minting operations: their response, request echo, URL values and
+ * confirm prefills are withheld whole. Everything else is the viewer's own
+ * data, readable with their session anyway, and shows as returned (T-APP-21
+ * residual risk, smithers-8a 2026-10-05). OpenApi.test pins this list and
+ * fails when a new install operation's success schema names a credential
+ * field without being listed or exempted with a reason.
  */
 export const CREDENTIAL_OPERATIONS: ReadonlySet<string> = new Set([
-  "post_api_auth_sse_ticket", "post_api_v1_sse_ticket", "post_api_auth_github_token_exchange", "get_api_auth_github_callback",
-  "get_api_auth_auth0_callback", "get_api_oauth2_authorize", "post_api_oauth2_authorize", "post_api_oauth2_token", "post_api_user_tokens",
-  "post_api_repos_owner_repo_build_cache_tokens", "get_api_user_emails_verify_token", "post_api_user_emails_verify_token",
-  "get_api_repos_owner_repo_workspace_sessions_id_ssh", "post_api_model_credential"
+  // SSE and live tickets
+  "post_api_auth_sse_ticket", "post_api_v1_sse_ticket",
+  // OAuth codes, token exchanges and sign-in handoffs
+  "get_api_oauth2_authorize", "post_api_oauth2_authorize", "post_api_oauth2_token", "post_api_auth_github_token_exchange",
+  "get_api_auth_github_callback", "get_api_auth_auth0_callback", "get_api_auth_github_cli", "get_api_auth_github_cli_consent", "post_api_auth_github_cli_consent",
+  // GitHub App manifest state and setup credentials
+  "post_api_install_setup_app", "post_api_install_setup_models", "post_api_model_credential",
+  "post_api_user_provider_connections", "post_api_orgs_org_provider_connections", "post_api_user_provider_connections_codex_device",
+  "post_api_user_provider_connections_codex_device_id", "post_api_user_provider_connections_id_refresh",
+  // Token mints and SSH access
+  "post_api_user_tokens", "post_api_repos_owner_repo_build_cache_tokens", "get_api_user_emails_verify_token", "post_api_user_emails_verify_token",
+  "get_api_repos_owner_repo_workspace_sessions_id_ssh", "get_api_repos_owner_repo_workspaces_id_ssh"
 ])
-const REDACTED = "[redacted]", WITHHELD = "[withheld]"
-/** Field names that carry a credential; used only to classify an operation from its schema. */
+const WITHHELD = "[withheld]"
+/** Field names a schema uses for credential material; an operation whose success schema declares one is withheld like a pinned one. */
 const credentialName = (key: string) =>
-  /^value$|token|ticket|secret|passw|cookie|credential|api[-_]?key|private[-_]?key|access[-_]?key|^key$|authorization|session[-_]?(?:id|key)|client[-_]?secret|code[-_]?verifier/i.test(key)
-
-/*
- * Withhold by default, show by allowlist. A string value (response or request
- * JSON field, path or query parameter) shows only when its schema proves it
- * safe (an enum member, a typed integer, number or boolean, or a validated
- * date-time, date, uuid or same-origin uri) or its name is pinned below.
- * Everything else reads `[withheld]`. No masking regex decides what shows.
- */
-/** Pinned names whose values are identifiers or lifecycle labels, never credentials. Debug API tests pin this list. */
-export const SAFE_FIELDS: ReadonlySet<string> = new Set([
-  "id", "number", "n", "state", "status", "phase", "kind", "type", "role", "name", "title", "login", "owner", "repo", "full_name",
-  "branch", "default_branch", "sha", "created_at", "updated_at", "started_at", "finished_at", "closed_at", "merged_at", "expires_at"
-])
-const SAFE_FORMATS: Readonly<Record<string, (value: string, origin: string) => boolean>> = {
-  "date-time": value => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value),
-  date: value => /^\d{4}-\d{2}-\d{2}$/.test(value),
-  uuid: value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
-  uri: (value, origin) => { try { const url = new URL(value); return url.origin === new URL(origin).origin && !url.username && !url.password && !url.search && !url.hash } catch { return false } }
-}
-/** A schema constraint (enum, format, or a non-string type) decides alone; the name allowlist covers only unconstrained strings. */
-const safeString = (value: string, name: string | undefined, schema: ApiSchema | undefined, origin: string) => {
-  if (schema?.enum !== undefined) return schema.enum.includes(value)
-  if (schema?.type === "integer") return /^-?\d{1,15}$/.test(value)
-  if (schema?.type === "number") return /^-?\d{1,15}(?:\.\d{1,15})?$/.test(value)
-  if (schema?.type === "boolean") return value === "true" || value === "false"
-  if (schema?.format !== undefined && Object.hasOwn(SAFE_FORMATS, schema.format)) return SAFE_FORMATS[schema.format]!(value, origin)
-  return name !== undefined && SAFE_FIELDS.has(name) && value.length <= 200 && !/[\u0000-\u001f]/.test(value)
-}
+  /token|ticket|secret|passw|cookie|credential|api[-_]?key|private[-_]?key|access[-_]?key|session[-_]?(?:id|key)|client[-_]?secret|code[-_]?verifier/i.test(key)
+/** Text responses show up to this many characters; the rest is summarized. */
+export const RESPONSE_TEXT_CAP = 256 * 1024
 
 /** Headers that may show, each with the only values it may carry; every other header is hidden. */
 const MEDIA_TYPES: ReadonlySet<string> = new Set(["application/json", "application/problem+json", "text/plain", "text/html",
@@ -97,30 +80,20 @@ const safeHeaders = (headers: Headers): [string, string][] => [...headers.entrie
   const shown = Object.hasOwn(HEADER_RULES, key) ? HEADER_RULES[key]!(value) : undefined
   return shown === undefined ? [] : [[key, shown]]
 })
-/** What a withheld body shows instead of itself: its size and an allowlisted media type. */
-const withheld = (body: string, contentType: string | null) =>
-  `[withheld: ${new TextEncoder().encode(body).length} bytes, ${mediaType(contentType) ?? "other"}]`
+const TEXT_TYPES: ReadonlySet<string> = new Set(["application/json", "application/problem+json", "text/plain", "text/html", "application/x-www-form-urlencoded"])
+const byteLength = (body: string) => new TextEncoder().encode(body).length
+/** The viewer's own response: JSON pretty-printed, text as-is up to the cap, anything else summarized by size and allowlisted media type. */
+const shownBody = (body: string, contentType: string | null) => {
+  if (body === "") return ""
+  const type = mediaType(contentType)
+  try { return JSON.stringify(JSON.parse(body), null, 2) } catch {}
+  if (type === undefined || !TEXT_TYPES.has(type)) return `[not shown: ${byteLength(body)} bytes, ${type ?? "other"}]`
+  return body.length <= RESPONSE_TEXT_CAP ? body : `${body.slice(0, RESPONSE_TEXT_CAP)}\n[truncated: ${byteLength(body)} bytes, ${type}]`
+}
 /** §6.2.3 failure classes; anything else is unclassified, never echoed. */
 const FAILURE_LABELS: Readonly<Record<string, string>> = { user: "user", permission: "permission", capacity: "capacity", github: "github", infra: "infra", conflict: "conflict", never: "never" }
 const failureClass = (value: unknown) => typeof value === "string" && Object.hasOwn(FAILURE_LABELS, value) ? FAILURE_LABELS[value]! : "unclassified"
 
-/**
- * A short discriminator of the canonical request (method, URL, body). The
- * confirm step shows it, and the fetch re-derives it from the request it
- * sends; two targets that echo alike still differ here. Not a secret check:
- * a 48-bit display hash (cyrb53 pair).
- */
-export const requestDiscriminator = (method: string, url: string, body?: string) => {
-  const text = `${method}\n${url}\n${body ?? ""}`
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57
-  for (let index = 0; index < text.length; index++) {
-    const code = text.charCodeAt(index)
-    h1 = Math.imul(h1 ^ code, 2654435761); h2 = Math.imul(h2 ^ code, 1597334677)
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-  return ((h2 >>> 0).toString(16).padStart(8, "0") + (h1 >>> 0).toString(16).padStart(8, "0")).slice(0, 12)
-}
 let instances = 0
 
 export const installOperations = (document: OpenApiDocument) => {
@@ -174,30 +147,6 @@ export const createDebugApiSeam = (options: {
   const guard = () => { if (!available()) refuse("Debug API is unavailable") }
   const resolveParameter = (parameter: ApiParameter) => parameter.$ref?.startsWith("#/components/parameters/")
     ? document?.components?.parameters?.[parameter.$ref.slice(24)] ?? parameter : parameter
-  const resolveSchema = (schema?: ApiSchema, depth = 0): ApiSchema | undefined =>
-    schema?.$ref?.startsWith("#/components/schemas/") && depth < 8 ? resolveSchema(document?.components?.schemas?.[schema.$ref.slice(21)], depth + 1) : schema
-  const responseSchema = (operation: typeof operations[number], status: number) => {
-    const responses = (operation.spec.responses ?? {}) as Record<string, ApiResponse>
-    let response: ApiResponse | undefined = responses[String(status)] ?? responses[`${String(status)[0]}XX`] ?? responses.default
-    if (response?.$ref?.startsWith("#/components/responses/")) response = document?.components?.responses?.[response.$ref.slice(23)]
-    return response?.content?.["application/json"]?.schema
-  }
-  /** JSON for display: allowlisted strings show; every other string is withheld. Numbers, booleans and null show. */
-  const shownJson = (value: unknown, schema: ApiSchema | undefined, name: string | undefined): unknown => {
-    const resolved = resolveSchema(schema)
-    if (typeof value === "string") return safeString(value, name, resolved, options.origin) ? value : WITHHELD
-    if (Array.isArray(value)) return value.map(item => shownJson(item, resolved?.items, name))
-    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shownJson(item, resolved?.properties?.[key], key)]))
-    return value
-  }
-  /** A body for display: credential operations and secret paths are redacted whole; JSON per the allowlist; anything else withheld. */
-  const displayedBody = (body: string, schema: ApiSchema | undefined, redact: boolean, contentType: string | null) => {
-    if (body === "") return ""
-    if (redact) return REDACTED
-    let decoded: unknown
-    try { decoded = JSON.parse(body) } catch { return withheld(body, contentType) }
-    return JSON.stringify(shownJson(decoded, schema, undefined))
-  }
   const fieldsFor = (operation: typeof operations[number]): FormField[] => [
     ...operation.parameters.map(resolveParameter).filter(parameter => ["path", "query"].includes(parameter.in)).map(parameter => ({
       name: `${parameter.in}:${parameter.name}`, label: parameter.name, required: parameter.in === "path" || !!parameter.required,
@@ -233,21 +182,19 @@ export const createDebugApiSeam = (options: {
     for (const field of fields) if (field.required && !values[field.name]?.trim()) refuse(`Missing ${field.label}`)
     let path = operation!.path, shownPath = operation!.path
     const query = new URLSearchParams(), shownQuery: string[] = []
-    // The echo is built apart from the request sent: a credential operation
-    // shows no parameter value; any other value shows only by the allowlist.
+    // The echo is the request sent, except that a credential-minting
+    // operation shows no parameter value.
     const credential = credentialOperation(document, operation!)
-    const safe: Record<string, boolean> = {}, queryKeys: string[] = []
     for (const parameter of operation!.parameters.map(resolveParameter)) {
       const value = values[`${parameter.in}:${parameter.name}`]
       if (value === undefined || value === "") continue
-      const ok = safe[`${parameter.in}:${parameter.name}`] = !credential && safeString(value, parameter.name, resolveSchema(parameter.schema), options.origin)
-      const shown = ok ? encodeURIComponent(value) : WITHHELD
+      const shown = credential ? WITHHELD : encodeURIComponent(value)
       if (parameter.in === "path") {
         if (value === "." || value === ".." || /[\\/]/.test(value)) refuse("Invalid path parameter")
         path = path.replace(`{${parameter.name}}`, encodeURIComponent(value))
         shownPath = shownPath.replace(`{${parameter.name}}`, shown)
       } else if (parameter.in === "query") {
-        query.append(parameter.name, value); queryKeys.push(encodeURIComponent(parameter.name))
+        query.append(parameter.name, value)
         shownQuery.push(`${encodeURIComponent(parameter.name)}=${shown}`)
       }
     }
@@ -257,9 +204,11 @@ export const createDebugApiSeam = (options: {
     url.search = query.toString()
     const body = values.body
     if (body !== undefined && body !== "") { try { JSON.parse(body) } catch { refuse("Invalid JSON body") } }
+    const shownSearch = shownQuery.length ? `?${shownQuery.join("&")}` : ""
+    // Secret values written to a secrets path never echo (§8.8); neither does a credential exchange's body.
+    const withholdBody = credential || /(?:^|\/)secrets(?:\/|$)/.test(url.pathname) || secretBody(body)
     return { req: { method: operation!.method, url: url.href, ...(body ? { body } : {}) },
-      shown: { url: `${url.origin}${shownPath}${shownQuery.length ? `?${shownQuery.join("&")}` : ""}`,
-        target: `${shownPath}${queryKeys.length ? `?${queryKeys.join("&")}` : ""}`, credential, safe } }
+      shown: { url: `${url.origin}${shownPath}${shownSearch}`, target: `${shownPath}${shownSearch}`, credential, withholdBody } }
   }
   const send = async (input: DebugApiInput) => {
     guard()
@@ -268,13 +217,13 @@ export const createDebugApiSeam = (options: {
       ? { ...input, values: { ...pending.input.values, ...input.values } } : input
     const { req, shown } = request(effective), signature = JSON.stringify(req)
     const operation = operations.find(operation => operation.id === input.operationId)!
-    const target = requestDiscriminator(req.method, req.url, req.body)
     if (mutation(req.method) && input.intent !== "confirm") {
-      const confirmation = uuid()
-      // Originals live only in pending state. The confirm form prefills a
-      // field only when its value passes the allowlist; the body never.
+      // The confirmation id is random and held by the pending request; it is
+      // never derived from the request, so it reveals nothing about the body.
+      const confirmation = uuid(), target = uuid().replace(/-/g, "").slice(0, 8)
       pending = { signature, confirmation, target, input: { ...input, values: { ...input.values } } }
-      const prefilled = fieldsFor(operation).flatMap(field => shown.safe[field.name] ? [{ ...field, value: input.values![field.name] }] : [])
+      const prefilled = shown.credential ? [] : fieldsFor(operation).flatMap(field =>
+        field.name === "body" && shown.withholdBody ? [] : [{ ...field, value: input.values?.[field.name] }])
       publish({ ...snapshot, fields: prefilled, confirmation, target, model: { ...snapshot.model, pending: { method: req.method, path: shown.target } } })
       return
     }
@@ -284,7 +233,7 @@ export const createDebugApiSeam = (options: {
       // fetch, whether it matches or not. A retry needs a fresh confirmation;
       // the idempotency key (by signature) is the separate retry identity.
       pending = undefined
-      if (!confirmed || confirmed.signature !== signature || confirmed.confirmation !== input.confirmation || confirmed.target !== target) {
+      if (!confirmed || confirmed.signature !== signature || confirmed.confirmation !== input.confirmation) {
         publish({ ...snapshot, fields: fieldsFor(operation), confirmation: undefined, target: undefined, model: { ...snapshot.model, pending: undefined } })
         refuse("API confirmation is stale")
       }
@@ -294,8 +243,9 @@ export const createDebugApiSeam = (options: {
     if (mutation(req.method)) { if (!keys.has(signature)) keys.set(signature, uuid()); headers.set("Idempotency-Key", keys.get(signature)!) }
     const seq = ++generation, account = epoch, started = now()
     const current = () => seq === generation && account === epoch
-    const credential = shown.credential, secretPath = /(?:^|\/)secrets(?:\/|$)/.test(new URL(req.url).pathname)
-    const exchange: NonNullable<DebugApiCard["exchange"]> = { request: { method: req.method, url: shown.url, headers: safeHeaders(headers), ...(req.body ? { body: displayedBody(req.body, operation.spec.requestBody?.content?.["application/json"]?.schema, credential || secretPath || secretBody(req.body), "application/json") } : {}) } }
+    const credential = shown.credential
+    const exchange: NonNullable<DebugApiCard["exchange"]> = { request: { method: req.method, url: shown.url, headers: safeHeaders(headers),
+      ...(req.body ? { body: shown.withholdBody ? WITHHELD : shownBody(req.body, "application/json") } : {}) } }
     // The cancellation exists before any subscriber hears of the Send, so a
     // reentrant endAccount aborts it; the epoch is rechecked right before fetch.
     const controller = abort = new AbortController()
@@ -310,14 +260,15 @@ export const createDebugApiSeam = (options: {
       if (account !== epoch) return
       if (response.ok && mutation(req.method)) keys.delete(signature)
       const contentType = response.headers.get("content-type")
-      // An error body is withheld whole: its envelope message and class are
-      // server words. Only the enumerated class and the status are kept.
+      // The viewer's own response, held only in this seam's memory. A
+      // credential-minting operation's body is withheld whole.
       exchange.response = { status: response.status, headers: safeHeaders(response.headers),
-        body: response.ok ? displayedBody(body, responseSchema(operation, response.status), credential || secretPath, contentType) : body === "" ? "" : withheld(body, contentType), duration_ms: Math.max(0, now() - started) }
+        body: credential && body !== "" ? WITHHELD : shownBody(body, contentType), duration_ms: Math.max(0, now() - started) }
       if (!response.ok) {
-        let error: { class?: unknown } = {}
+        let error: { class?: unknown; message?: unknown } = {}
         try { const decoded: unknown = JSON.parse(body); if (decoded && typeof decoded === "object") error = decoded } catch {}
-        exchange.failure = { class: error.class === undefined ? "infra" : failureClass(error.class), message: `HTTP ${response.status}`, status: response.status }
+        exchange.failure = { class: error.class === undefined ? "infra" : failureClass(error.class),
+          message: typeof error.message === "string" && !credential ? error.message : `HTTP ${response.status}`, status: response.status }
       }
     } catch (cause) { exchange.failure = { class: "infra", message: cause instanceof Error && cause.message === "API redirect refused" ? cause.message : "API request failed" } }
     if (current()) publish({ ...snapshot, fields: fieldsFor(operation), busy: false, confirmation: undefined, target: undefined, model: { ...snapshot.model, pending: undefined, exchange } })

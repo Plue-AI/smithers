@@ -241,7 +241,9 @@ export const createTurnController = (
       ? undefined
       : store.collections.worldDocuments.get(current.selectedWorldDocumentId)
     const recent = [...store.collections.cards.values()]
-      .filter(card => inConversation(card, conversationTabIdOf(current)) && cardAvailable(card.kind)
+      // The Debug API card is the viewer's private, ephemeral playground
+      // (T-APP-21): it never enters model context, not even by kind.
+      .filter(card => inConversation(card, conversationTabIdOf(current)) && cardAvailable(card.kind) && card.kind !== "debug-api"
         && (card.kind !== "draft" || card.audience_member_id === null))
       .sort((a, b) => a.ordinal - b.ordinal).slice(-RECENT_CARD_WINDOW)
     return {
