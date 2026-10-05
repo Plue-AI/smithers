@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page } from "@playwright/test"
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import { PROVIDER_MODEL } from "../real/support/model-provider-behaviors"
 import { githubRoute } from "./github-route"
+import { README } from "./demo-repository"
 
 // Shared browser history, never seeded product state: later rows expose the
 // first real missing control or predecessor receipt instead of faking progress.
@@ -96,14 +97,16 @@ test("5 models", async ({}, info) => {
   const enrolled = await context.request.post("http://localhost:4000/api/model/credential", { headers, data: { action: "enroll", requestId: "local-model-enroll", name: "LOCAL_MODEL_API_KEY", value: run.modelKey, origin: run.modelOrigin } })
   expect(enrolled.status(), await enrolled.text()).toBe(200)
   expect(await enrolled.json()).toMatchObject({ ok: true })
-  const model = { id: "local-coding", protocol: "openai-chat", modelId: PROVIDER_MODEL.answers, credential: "LOCAL_MODEL_API_KEY", baseUrl: run.modelOrigin }
-  const configured = await context.request.put("http://localhost:4000/api/model/default", { headers, data: { model } })
+  // The stand-in model that reads: asked about a file, it calls files.read and quotes the result.
+  const binding = { protocol: "openai-chat", modelId: PROVIDER_MODEL.reads, credential: "LOCAL_MODEL_API_KEY", baseUrl: run.modelOrigin }
+  const model = { id: "local-coding", ...binding }
+  const configured = await context.request.put("http://localhost:4000/api/model/default", { headers, data: { model: binding } })
   expect(configured.status()).toBe(200)
   const probe = await context.request.post("http://localhost:4000/api/model/test", { headers, data: { model } })
   expect(probe.status(), await probe.text()).toBe(200)
   expect(await probe.json()).toMatchObject({ ok: true })
   const journal = await (await context.request.get(`${run.modelOrigin}/__journal`)).json()
-  expect(journal).toEqual(expect.arrayContaining([expect.objectContaining({ authorized: true, status: 200, modelId: PROVIDER_MODEL.answers })]))
+  expect(journal).toEqual(expect.arrayContaining([expect.objectContaining({ authorized: true, status: 200, modelId: PROVIDER_MODEL.reads })]))
   writeFileSync(`${output}/model-requests.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
   await click("Model access")
   await done("models")
@@ -120,13 +123,22 @@ for (const [id, label, owner] of [
   }
 })
 test("agent question with file cards", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "crit4-agent-file-cards (T-APP-03 #3497; T-APP-16 host catalog dispatch)" }); test.fail()
+  info.annotations.push({ type: "owner", description: "crit4-agent-file-cards (T-APP-03 #3497; T-APP-16 host tools; now passing)" })
   await done("source")
-  const input = page.getByTestId("composer-input")
-  if (!await input.isVisible()) await page.keyboard.press("Control+k")
-  await input.fill("What is in README.md? Show the file.")
-  await input.press("Enter")
-  await expect(page.locator('[data-kind="file"]').last()).toContainText("README.md")
+  // The host reads main's mirror as the asking member; the browser runs no files.read of its own.
+  const contents: string[] = []
+  const watch = (request: { url: () => string }) => { if (new URL(request.url()).pathname.includes("/contents")) contents.push(request.url()) }
+  page.on("request", watch)
+  try {
+    const input = page.getByTestId("composer-input")
+    if (!await input.isVisible()) await page.keyboard.press("Control+k")
+    await input.fill("What is in README.md? Show the file.")
+    await input.press("Enter")
+    const file = page.locator('[data-kind="file"]').last()
+    await expect(file).toContainText("README.md", { timeout: 15_000 })
+    await expect(file).toContainText(README.trim().split("\n").at(-1)!)
+    expect(contents).toEqual([])
+  } finally { page.off("request", watch) }
 })
 test("8 TODO start", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "TODO start lane (T-FLW-11)" }); test.fail()

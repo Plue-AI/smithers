@@ -486,11 +486,13 @@ your logged-in user, prints the setup URL, and opens Chromium. Enter
 state, including PostgreSQL. `--no-browser` starts just the two servers.
 
 Address, Create GitHub App, sign-in, repository selection and model access work
-through the Setup card. The model row uses real provider keys; the unattended
-walk reads `OPENAI_API_KEY` and `AI_GATEWAY_API_KEY` from its environment and
-never substitutes a model server. Source ready and Machine ready remain with
-`w-source-machine`;
-TODO start, PR and merge remain with their owning lanes. Source import and
+through the Setup card. The unattended walk needs no provider key: it saves the
+key of the loopback model stand-in (`e2e/real/support/model-provider.ts`) and
+makes the stand-in's `e2e-reads` model the coding model. After Source ready it
+asks the app agent about `README.md`; the host reads the file from the mirrored
+`main` as the signed-in owner and the answer shows its File card. Machine ready
+remains with `w-source-machine`; TODO start, PR and merge remain with their
+owning lanes. Source import and
 retention still hard-code `https://github.com/<repo>.git`, and their Git process
 drops the refusing proxy, so Source ready can reach real GitHub. This rehearsal
 does not replace models, machines, Git objects or later journey steps.

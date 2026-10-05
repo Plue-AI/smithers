@@ -16,7 +16,7 @@ import * as OpenAIChatCompletions from "@smthrs/model/OpenAIChatCompletions"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
 import {
-  PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
+  PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
   type ProviderProtocol
 } from "./model-provider-behaviors"
 import { launchModelProvider, type ModelProvider } from "./model-provider-process"
@@ -222,6 +222,44 @@ describe("behaviour is keyed by model id", () => {
     const events = await Effect.runPromise(stream("openai-chat", PROVIDER_MODEL.slow))
     expect(performance.now() - started).toBeGreaterThanOrEqual(SLOW_MS)
     expect(ModelEvent.settledMessage(events).message.stopReason).toBe("stop")
+  })
+})
+
+describe("reads: the app agent asked about a file", () => {
+  const commands = ModelRequest.ToolDefinition.make({ name: "commands", description: "The app agent's one tool.", parameters: { type: "object" } })
+  const question = ModelRequest.Message.user("What is in README.md? Show the file.")
+  const read = (messages: ReadonlyArray<ModelRequest.Message>, tools: ReadonlyArray<ModelRequest.ToolDefinition>) =>
+    Effect.gen(function*() {
+      const model = yield* Route.toModel(yield* Effect.fromResult(chatRoute(KEY)))
+      return yield* Stream.runCollect(model.stream(ModelRequest.ModelRequest.make({
+        modelId: PROVIDER_MODEL.reads, system: [], messages, tools, params: ModelRequest.GenerationParams.make({ maxTokens: 16 })
+      })))
+    }).pipe(Effect.provide(executor))
+  const texts = (events: ReadonlyArray<ModelEvent.ModelEvent>) => events.flatMap((event) => event.type === "text-delta" ? [event.text] : [])
+
+  test("offered commands and asked about a path, it calls files.read on that path", async () => {
+    const settled = ModelEvent.settledMessage(await Effect.runPromise(read([question], [commands])))
+    expect(settled.message.content).toEqual([{
+      type: "tool-call", id: "call_loopback_read", name: "commands", arguments: JSON.stringify({ action: "execute", name: "files.read", args: "README.md" })
+    }])
+    expect(settled.message.stopReason).toBe("tool-calls")
+    expect(await last()).toMatchObject({ protocol: "openai-chat", modelId: PROVIDER_MODEL.reads, status: 200, authorized: true })
+  })
+
+  test("handed the tool result, it answers by quoting it", async () => {
+    const call = ModelRequest.ToolCallPart.make({ id: "call_loopback_read", name: "commands", arguments: "{}" })
+    const result = ModelRequest.ToolResultPart.make({ toolCallId: call.id, content: "README.md in local-owner/demo:\n# demo\n" })
+    const events = await Effect.runPromise(read([question, ModelRequest.Message.assistant(call, { stopReason: "tool-calls" }), ModelRequest.Message.tool(result)], [commands]))
+    expect(texts(events)).toEqual([PROVIDER_READ_LEAD, "README.md in local-owner/demo:\n# demo\n"])
+  })
+
+  test("without the commands tool, or without a path, it streams the ordinary reply", async () => {
+    expect(texts(await Effect.runPromise(read([question], [])))).toEqual([...PROVIDER_REPLY])
+    expect(texts(await Effect.runPromise(read([ModelRequest.Message.user("hello there")], [commands])))).toEqual([...PROVIDER_REPLY])
+  })
+
+  test("on Anthropic Messages it is the ordinary reply", async () => {
+    expect(texts(await Effect.runPromise(stream("anthropic-messages", PROVIDER_MODEL.reads)))).toEqual([...PROVIDER_REPLY])
   })
 })
 

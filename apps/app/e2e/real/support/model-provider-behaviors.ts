@@ -4,12 +4,15 @@ export const PROVIDER_MODEL = {
   rateLimited: "e2e-rate-limited",
   slow: "e2e-slow",
   garbled: "e2e-garbled",
-  echoes: "e2e-echoes"
+  echoes: "e2e-echoes",
+  reads: "e2e-reads"
 } as const
 export type ProviderModelId = typeof PROVIDER_MODEL[keyof typeof PROVIDER_MODEL]
 
 /** The assistant text every successful generation streams, in two deltas. */
 export const PROVIDER_REPLY = ["loopback ", "pong"] as const
+/** What a `reads` generation says before the tool result it was handed. */
+export const PROVIDER_READ_LEAD = "From the source: "
 /** What an `echoes` generation says before its nested credential fragments. */
 export const PROVIDER_ECHO_LEAD = "your key is "
 /** The per-question confidence the evaluation endpoint reports. */

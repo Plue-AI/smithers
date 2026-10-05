@@ -8,7 +8,10 @@
  * There is no control channel. Behaviour is keyed by the requested model id
  * (PROVIDER_MODEL; any other id is 404; `echoes` streams the presented
  * credential back in nested fragments across three deltas, so a host that publishes provider
- * text unscrubbed is caught), a credential that is not byte-equal
+ * text unscrubbed is caught; `reads`, on Chat Completions, is the app agent asked
+ * about a file: offered the `commands` tool and a question naming a path, it
+ * calls files.read on that path, and handed a tool result it answers by quoting
+ * it), a credential that is not byte-equal
  * to SMITHERS_MODEL_PROVIDER_KEY is 401, and "down" is a SIGTERM of this
  * process. GET /__journal is append-only evidence that holds a credential's
  * sha256 and never its value. Any session may launch its own copy through
@@ -19,7 +22,7 @@
  */
 import { createHash, timingSafeEqual } from "node:crypto"
 import {
-  PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
+  PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
   type ProviderJournalEntry, type ProviderProtocol
 } from "./model-provider-behaviors"
 
@@ -74,6 +77,36 @@ const openaiStream = (modelId: string, includeUsage: boolean, reply: ReadonlyArr
     ...(includeUsage ? [{ data: chunk({ choices: [], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }) }] : []),
     { data: "[DONE]" }
   ])
+}
+
+/** One streamed call of the app agent's `commands` tool, ending the leg as OpenAI does: finish_reason tool_calls. */
+const openaiToolCall = (modelId: string, call: { readonly name: string; readonly arguments: string }): Response => sse([
+  { data: JSON.stringify({
+    id: "chatcmpl-loopback", object: OPENAI_CHUNK_OBJECT, created: Math.floor(Date.now() / 1000), model: modelId,
+    choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_loopback_read", type: "function", function: call }] }, finish_reason: "tool_calls" }]
+  }) },
+  { data: "[DONE]" }
+])
+
+/** A Chat Completions message's text, whether it is a string or text parts. */
+const messageText = (content: unknown): string => typeof content === "string" ? content
+  : Array.isArray(content) ? content.map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "").join("") : ""
+const FILE_PATH = /(?:[\w.-]+\/)*[\w-]+\.[A-Za-z0-9]+/
+
+/**
+ * `reads` on Chat Completions: the last tool result, quoted; else, offered
+ * `commands` and asked about a path, a files.read call on it; else undefined,
+ * so the ordinary reply streams.
+ */
+const readsAnswer = (modelId: string, body: Record<string, unknown>): Response | undefined => {
+  const latest = (Array.isArray(body.messages) ? body.messages.filter(isRecord) : []).reverse()
+  const result = latest.find((message) => message.role === "tool")
+  if (result !== undefined) return openaiStream(modelId, false, [PROVIDER_READ_LEAD, messageText(result.content)])
+  const offered = Array.isArray(body.tools) && body.tools.some((tool) => isRecord(tool) && isRecord(tool.function) && tool.function.name === "commands")
+  const path = FILE_PATH.exec(messageText(latest.find((message) => message.role === "user")?.content))?.[0]
+  return offered && path !== undefined
+    ? openaiToolCall(modelId, { name: "commands", arguments: JSON.stringify({ action: "execute", name: "files.read", args: path }) })
+    : undefined
 }
 
 const anthropicStream = (modelId: string, reply: ReadonlyArray<string>): Response => {
@@ -154,6 +187,8 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const cut = Math.ceil(presented.length / 2)
   const reply = modelId === PROVIDER_MODEL.echoes
     ? [`${PROVIDER_ECHO_LEAD}${presented.slice(0, cut).repeat(2)}`, presented.slice(cut), presented.slice(cut)] : PROVIDER_REPLY
+  const read = protocol === "openai-chat" && modelId === PROVIDER_MODEL.reads ? readsAnswer(modelId, body) : undefined
+  if (read !== undefined) return record(read)
   const answer = record(
     protocol === "evaluation" ? evaluate(questions ?? {})
       : protocol === "anthropic-messages" ? anthropicStream(modelId, reply)
