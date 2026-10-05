@@ -77,6 +77,7 @@ type recordingRuntime struct {
 	failFirstLaunch bool
 	launches        []flowruntime.Launch
 	signals         []flowruntime.Signal
+	steers          []flowruntime.Steer
 	launchEntered   chan struct{}
 	launchRelease   chan struct{}
 	launchOnce      sync.Once
@@ -205,8 +206,12 @@ func (runtime *recordingRuntime) Signal(_ context.Context, input flowruntime.Sig
 		Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID},
 	}, nil
 }
-func (*recordingRuntime) Steer(context.Context, flowruntime.Steer) (flowruntime.MutationResult, error) {
-	return flowruntime.MutationResult{}, nil
+func (runtime *recordingRuntime) Steer(_ context.Context, input flowruntime.Steer) (flowruntime.MutationResult, error) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	runtime.steers = append(runtime.steers, input)
+	return flowruntime.MutationResult{Operation: "steer", ApplicationRequestID: input.ApplicationRequestID,
+		Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
 }
 func (*recordingRuntime) Resume(context.Context, flowruntime.Lifecycle) (flowruntime.MutationResult, error) {
 	return flowruntime.MutationResult{}, nil

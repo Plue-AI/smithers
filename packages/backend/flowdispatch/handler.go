@@ -32,6 +32,8 @@ func (service *Service) Handle(ctx context.Context, lease *jobs.Lease) error {
 		return service.handleApproval(ctx, lease)
 	case OperationSignal:
 		return service.handleSignal(ctx, lease)
+	case OperationSteer:
+		return service.handleSteer(ctx, lease)
 	default:
 		return errors.New("flow dispatch: unsupported product operation")
 	}
@@ -321,6 +323,39 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	if err := json.Unmarshal(claim.Payload, &payload); err != nil || payload.RunID == "" || payload.Name == "" {
 		return service.fail(lease, "invalid_signal_request", RuntimeCheckpoint{})
 	}
+	return service.handleRunMutation(ctx, lease, runMutationPayload{
+		Target: payload.Target, FlowID: payload.FlowID, RunID: payload.RunID, Projection: payload.Projection,
+	}, "signal", func(ctx context.Context, runtime flowruntime.Runtime, generation int64) (flowruntime.MutationResult, error) {
+		return runtime.Signal(ctx, flowruntime.Signal{
+			ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
+			RunID: payload.RunID, Name: payload.Name, Payload: payload.Payload,
+		})
+	})
+}
+
+func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) error {
+	claim := lease.Claim()
+	var payload steerPayload
+	if err := json.Unmarshal(claim.Payload, &payload); err != nil || payload.RunID == "" || payload.FlowID == "" ||
+		!validSteerInput(payload.MessageID, payload.CreatedAt, payload.Body) {
+		return service.fail(lease, "invalid_steer_request", RuntimeCheckpoint{})
+	}
+	return service.handleRunMutation(ctx, lease, payload.runMutationPayload, "steer",
+		func(ctx context.Context, runtime flowruntime.Runtime, generation int64) (flowruntime.MutationResult, error) {
+			return runtime.Steer(ctx, flowruntime.Steer{
+				ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
+				RunID: payload.RunID, MessageID: payload.MessageID, CreatedAt: payload.CreatedAt,
+				Kind: "Message", Body: payload.Body,
+			})
+		})
+}
+
+// Both input kinds share wake, run identity verification, and receipt recovery.
+// The runtime remains the authority for whether an input was already applied.
+func (service *Service) handleRunMutation(ctx context.Context, lease *jobs.Lease, payload runMutationPayload, kind string,
+	mutate func(context.Context, flowruntime.Runtime, int64) (flowruntime.MutationResult, error),
+) error {
+	claim := lease.Claim()
 	checkpoint, err := decodeCheckpoint(claim.ExternalReceipt)
 	if err != nil {
 		return service.fail(lease, "invalid_checkpoint", RuntimeCheckpoint{Projection: payload.Projection})
@@ -379,7 +414,7 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	}
 
 	// Observation verifies the requested run's Flow identity. Its terminal
-	// state cannot distinguish a lost acknowledgment for a delivered signal
+	// state cannot distinguish a lost acknowledgment for a delivered input
 	// from a run that never took it; only Control's mutation receipt can.
 	// A verified host is not yet proof that this run has reattached. Keep the
 	// original wake allowance through Observe, including its durable retries.
@@ -410,24 +445,18 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	}
 
 	callContext, cancel = context.WithTimeout(ctx, service.runtimeCallTimeout)
-	result, err := runtime.Signal(callContext, flowruntime.FlowRuntimeSignal{
-		ApplicationRequestID: claim.OperationID,
-		OwnerGeneration:      identity.OwnerGeneration,
-		RunID:                checkpoint.RunID,
-		Name:                 payload.Name,
-		Payload:              payload.Payload,
-	})
+	result, err := mutate(callContext, runtime, identity.OwnerGeneration)
 	cancel()
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
 	}
-	if !validMutationResult(result, "signal", claim.OperationID) {
-		return service.fail(lease, "invalid_signal_receipt", checkpoint)
+	if !validRunMutationResult(result, kind, claim.OperationID, checkpoint.RunID) {
+		return service.fail(lease, "invalid_"+kind+"_receipt", checkpoint)
 	}
 	checkpoint.MutationReceipt = &result.Receipt
 	if result.Receipt.Tag == "Terminal" {
 		if result.Receipt.RunID != checkpoint.RunID || !terminalStatus(result.Receipt.Status) {
-			return service.fail(lease, "invalid_signal_receipt", checkpoint)
+			return service.fail(lease, "invalid_"+kind+"_receipt", checkpoint)
 		}
 		checkpoint.Run = &flowruntime.FlowRuntimeRun{
 			RunID: checkpoint.RunID, FlowID: checkpoint.FlowID, Status: result.Receipt.Status,
@@ -438,7 +467,7 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 		return err
 	}
 	return lease.Complete(ctx, mustJSON(terminalReceipt{
-		Kind: "runtime-signal", Runtime: identity, Receipt: &result.Receipt,
+		Kind: "runtime-" + kind, Runtime: identity, Receipt: &result.Receipt,
 		Run: checkpoint.Run, Projection: checkpoint.Projection,
 	}))
 }
@@ -784,6 +813,13 @@ func validMutationResult(result flowruntime.FlowRuntimeMutationResult, operation
 	default:
 		return false
 	}
+}
+
+// Generic Control receipts may omit runId. When a receipt supplies it, a
+// mutation of another run cannot count as delivery to the requested run.
+func validRunMutationResult(result flowruntime.MutationResult, operation, requestID, runID string) bool {
+	return validMutationResult(result, operation, requestID) &&
+		(result.Receipt.RunID == "" || result.Receipt.RunID == runID)
 }
 
 func validObservationPage(previous string, observation flowruntime.FlowRuntimeObservation) bool {

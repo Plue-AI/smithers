@@ -19,6 +19,7 @@ const (
 	OperationLaunch  = "flow.runtime.launch"
 	OperationApprove = "flow.runtime.approve"
 	OperationSignal  = "flow.runtime.signal"
+	OperationSteer   = "flow.runtime.steer"
 )
 
 var (
@@ -102,6 +103,22 @@ type SignalRequest struct {
 	RunID                string
 	Name                 string
 	Payload              json.RawMessage
+	AuthorizationContext json.RawMessage
+	Projection           json.RawMessage
+}
+
+// SteerRequest delivers model feedback through Control's notification queue.
+// MessageID and CreatedAt are fixed at product admission and survive retries.
+// The caller authorizes the input; dispatch resolves the fenced runtime owner.
+type SteerRequest struct {
+	Scope                jobs.Scope
+	RequestID            string
+	Target               flowruntime.FlowRuntimeTarget
+	FlowID               string
+	RunID                string
+	MessageID            string
+	CreatedAt            float64
+	Body                 string
 	AuthorizationContext json.RawMessage
 	Projection           json.RawMessage
 }
@@ -200,6 +217,20 @@ type signalPayload struct {
 	Name       string                        `json:"name"`
 	Payload    json.RawMessage               `json:"payload"`
 	Projection json.RawMessage               `json:"projection"`
+}
+
+type runMutationPayload struct {
+	Target     flowruntime.FlowRuntimeTarget `json:"target"`
+	FlowID     string                        `json:"flowId"`
+	RunID      string                        `json:"runId"`
+	Projection json.RawMessage               `json:"projection"`
+}
+
+type steerPayload struct {
+	runMutationPayload
+	MessageID string  `json:"messageId"`
+	CreatedAt float64 `json:"createdAt"`
+	Body      string  `json:"body"`
 }
 
 type terminalReceipt struct {

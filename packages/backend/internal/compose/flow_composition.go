@@ -215,7 +215,7 @@ func codingHostEnvironment(_ topology) map[string]string {
 
 func (flow *flowComposition) recover(ctx context.Context) error {
 	if _, err := flow.jobs.RecoverExpiredForOperations(ctx,
-		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal}, 100); err != nil {
+		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal, flowdispatch.OperationSteer}, 100); err != nil {
 		return fmt.Errorf("recover Flow operations: %w", err)
 	}
 	if err := flow.bindings.ReconcileRetired(ctx, flow.stopper, 100); err != nil {

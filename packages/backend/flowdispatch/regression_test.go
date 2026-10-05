@@ -432,7 +432,7 @@ func TestCancellationBeforeDispatchSurvivesExpiredClaim(t *testing.T) {
 }
 
 func TestCancellationRejectsNonLaunchOperations(t *testing.T) {
-	for _, operation := range []string{OperationApprove, OperationSignal} {
+	for _, operation := range []string{OperationApprove, OperationSignal, OperationSteer} {
 		t.Run(operation, func(t *testing.T) {
 			store, _ := newFlowDispatchStore(t)
 			service, err := New(Config{
