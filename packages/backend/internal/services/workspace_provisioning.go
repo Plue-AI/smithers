@@ -669,7 +669,7 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 		return WorkspaceResponse{}, err
 	}
 	input.SourceBookmark = bookmark
-	if err := s.preflightBranchMachine(ctx, input.RepositoryID, input.UserID, bookmark); err != nil {
+	if err := s.preflightBranchMachine(ctx, input.RepositoryID, input.UserID, bookmark, ""); err != nil {
 		return WorkspaceResponse{}, err
 	}
 
@@ -793,7 +793,7 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 		return WorkspaceResponse{}, err
 	}
 	input.SourceBookmark = bookmark
-	if err := s.preflightBranchMachine(ctx, input.RepositoryID, input.UserID, bookmark); err != nil {
+	if err := s.preflightBranchMachine(ctx, input.RepositoryID, input.UserID, bookmark, ""); err != nil {
 		return WorkspaceResponse{}, err
 	}
 

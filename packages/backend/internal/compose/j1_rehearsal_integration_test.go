@@ -1235,7 +1235,7 @@ var trustedProcessBranchMachines = services.BranchMachineProviders{
 		return nil
 	},
 	Authorize:       func(context.Context, pgx.Tx, string, int64, string, int64) error { return nil },
-	LaneBinding:     func(context.Context, pgx.Tx, int64, string) error { return nil },
+	LaneBinding:     func(context.Context, pgx.Tx, int64, string, string) error { return nil },
 	MicroVM:         func(context.Context) error { return nil },
 	SessionIdentity: func(context.Context) error { return nil },
 }

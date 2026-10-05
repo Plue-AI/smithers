@@ -49,7 +49,8 @@ func TestTodoLongWaitRetainsDiskAndBinding(t *testing.T) {
 			require.Equal(t, tc.reclaimed, len(runtime.reclaimed) == 1)
 			if !tc.reclaimed {
 				lanes := &workspaceMythicalLanes{workspaces: svc}
-				require.ErrorIs(t, lanes.Delete(context.Background(), 0, 0, row.ID), errTodoWorkspaceRetained)
+				// Retirement succeeds and touches nothing: the disk stays.
+				require.NoError(t, lanes.Delete(context.Background(), 0, 0, row.ID))
 				require.Empty(t, runtime.reclaimed)
 				require.Equal(t, row.ID, q.lane.WorkspaceID)
 				if tc.err == nil {
@@ -79,7 +80,8 @@ func TestTodoLongWaitStaleSweepReReadsAfterResume(t *testing.T) {
 	row.Status = "running"
 	require.NoError(t, svc.CleanupStoppedAgentWorkspaceDisks(context.Background()))
 	require.Empty(t, runtime.reclaimed)
-	require.ErrorIs(t, (&workspaceMythicalLanes{workspaces: svc}).Delete(context.Background(), 0, 0, row.ID), errTodoWorkspaceRetained)
+	require.NoError(t, (&workspaceMythicalLanes{workspaces: svc}).Delete(context.Background(), 0, 0, row.ID))
+	require.Empty(t, runtime.reclaimed)
 	require.Equal(t, "running", row.Status, "a stale retirement must not suspend resumed work")
 }
 

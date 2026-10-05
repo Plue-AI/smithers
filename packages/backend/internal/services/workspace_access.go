@@ -49,7 +49,7 @@ func (s *WorkspaceService) requireWorkspaceAccess(ctx context.Context, workspace
 		if err != nil {
 			return err
 		}
-		if err := s.preflightBranchMachine(ctx, row.RepositoryID, requesterUserID, row.TargetBookmark); err != nil {
+		if err := s.preflightBranchMachine(ctx, row.RepositoryID, requesterUserID, row.TargetBookmark, row.ID); err != nil {
 			return err
 		}
 	}

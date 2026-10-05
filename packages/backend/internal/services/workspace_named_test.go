@@ -24,7 +24,7 @@ func TestBranchMachineUnavailableProviders(t *testing.T) {
 	complete := BranchMachineProviders{
 		Membership:  func(context.Context, pgx.Tx, int64, int64) error { return nil },
 		Authorize:   func(context.Context, pgx.Tx, string, int64, string, int64) error { return nil },
-		LaneBinding: func(context.Context, pgx.Tx, int64, string) error { return nil },
+		LaneBinding: func(context.Context, pgx.Tx, int64, string, string) error { return nil },
 		MicroVM:     allow, SessionIdentity: allow,
 	}
 	for _, missing := range []string{"membership", "authorizer", "lane", "microvm", "identity", "transaction"} {
@@ -147,10 +147,13 @@ func TestBranchMachineProviderFailureOrdering(t *testing.T) {
 				require.EqualValues(t, 2, actor)
 				return check("authorizer")
 			},
-			LaneBinding: func(context.Context, pgx.Tx, int64, string) error { return check("lane") },
-			MicroVM:     func(context.Context) error { return check("microvm") }, SessionIdentity: func(context.Context) error { return check("identity") },
+			LaneBinding: func(_ context.Context, _ pgx.Tx, _ int64, _, workspaceID string) error {
+				require.Equal(t, "shared-machine", workspaceID)
+				return check("lane")
+			},
+			MicroVM: func(context.Context) error { return check("microvm") }, SessionIdentity: func(context.Context) error { return check("identity") },
 		}))
-		require.ErrorIs(t, svc.authorizeBranchMachine(context.Background(), nil, 101, 2, "scratch/alice/shared"), denied)
+		require.ErrorIs(t, svc.authorizeBranchMachine(context.Background(), nil, 101, 2, "scratch/alice/shared", "shared-machine"), denied)
 		require.Equal(t, []string{"membership", "authorizer", "lane", "microvm", "identity"}[:fail+1], calls)
 	}
 }

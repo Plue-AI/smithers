@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -11,18 +12,36 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 )
 
-// BranchMachineProviders are activation contracts, intentionally unwired in the
-// install until their named integration/security checks pass. Membership must
-// hold current collaborator authority in tx until commit; Authorize consumes
-// the actual stored credential, never the machine's database owner. LaneBinding
-// refuses an item branch without its existing lane. MicroVM validates R1–R5;
-// SessionIdentity requires distinct non-root/no-sudo execution identities.
+// BranchMachineProviders are activation contracts. The install composes them
+// on its microVM runtime (InstallBranchMachineProviders); without them every
+// machine stays dark. Membership must hold current collaborator authority in
+// tx until commit; Authorize consumes the actual stored credential, never the
+// machine's database owner. LaneBinding answers for the branch's machine,
+// workspaceID, or "" for a machine about to be created: it refuses an item
+// branch without its existing lane. MicroVM validates R1–R5; SessionIdentity
+// requires distinct non-root/no-sudo execution identities.
 type BranchMachineProviders struct {
 	Membership      func(context.Context, pgx.Tx, int64, int64) error
 	Authorize       func(context.Context, pgx.Tx, string, int64, string, int64) error
-	LaneBinding     func(context.Context, pgx.Tx, int64, string) error
+	LaneBinding     func(ctx context.Context, tx pgx.Tx, repositoryID int64, branch, workspaceID string) error
 	MicroVM         func(context.Context) error
 	SessionIdentity func(context.Context) error
+}
+
+type stackLaneCreationKey struct{}
+
+// withStackLaneCreation marks the stack service creating one of its own lanes
+// (workspaceMythicalLanes.Create). A lane is created before BindMythicalLane
+// records it, so no binding exists yet to admit it. Only the stack sets this
+// value; no request can.
+func withStackLaneCreation(ctx context.Context) context.Context {
+	return context.WithValue(ctx, stackLaneCreationKey{}, true)
+}
+
+// StackLaneCreation reports whether ctx is the stack service creating a lane.
+func StackLaneCreation(ctx context.Context) bool {
+	creating, _ := ctx.Value(stackLaneCreationKey{}).(bool)
+	return creating
 }
 
 func WithBranchMachineProviders(providers BranchMachineProviders) WorkspaceServiceOption {
@@ -40,7 +59,7 @@ func (s *WorkspaceService) requireBranchMachineProviders() error {
 
 var errBranchMachineAdmission = errors.New("branch machine admission refused")
 
-func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64, branch string) (retErr error) {
+func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64, branch, workspaceID string) (retErr error) {
 	defer func() {
 		if retErr != nil {
 			retErr = fmt.Errorf("%w: %w", errBranchMachineAdmission, retErr)
@@ -63,7 +82,7 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	if err := p.Authorize(ctx, tx, "branch.join", repositoryID, branch, actorID); err != nil {
 		return err
 	}
-	if err := p.LaneBinding(ctx, tx, repositoryID, branch); err != nil {
+	if err := p.LaneBinding(ctx, tx, repositoryID, branch, workspaceID); err != nil {
 		return err
 	}
 	if err := p.MicroVM(ctx); err != nil {
@@ -86,10 +105,21 @@ func (s *WorkspaceService) createBranchMachineRow(ctx context.Context, arg db.Cr
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	actorID := arg.UserID
 	branch := targetWorkspaceBookmark(arg.TargetBookmark)
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", fmt.Sprintf("branch-machine:%d:%s", arg.RepositoryID, branch)); err != nil {
+	// Every stack lane works from the stack's bookmark, yet each is its own
+	// branch machine: its identity is its lane name, unique to its item and
+	// attempt (the lane binding, spec §8.1.2), so a second TODO never joins
+	// the first one's machine.
+	lane := strings.TrimSpace(arg.Name)
+	stackLane := branch == MythicalBookmark && StackLaneCreation(ctx) && lane != ""
+	identity := fmt.Sprintf("branch-machine:%d:%s", arg.RepositoryID, branch)
+	if stackLane {
+		// Git refuses ":" in a branch name, so no branch spells this key.
+		identity += ":lane:" + lane
+	}
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", identity); err != nil {
 		return db.Workspace{}, err
 	}
-	if err := s.authorizeBranchMachine(ctx, tx, arg.RepositoryID, arg.UserID, branch); err != nil {
+	if err := s.authorizeBranchMachine(ctx, tx, arg.RepositoryID, arg.UserID, branch, ""); err != nil {
 		return db.Workspace{}, err
 	}
 	q := db.New(tx)
@@ -97,7 +127,12 @@ func (s *WorkspaceService) createBranchMachineRow(ctx context.Context, arg db.Cr
 	if err != nil {
 		return db.Workspace{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch machine owner unavailable").WithCause(err)
 	}
-	row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: arg.RepositoryID, TargetBookmark: branch})
+	var row db.Workspace
+	if stackLane {
+		row, err = stackLaneWorkspace(ctx, tx, q, arg.RepositoryID, lane)
+	} else {
+		row, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: arg.RepositoryID, TargetBookmark: branch})
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		arg.UserID, arg.TargetBookmark, arg.AgentSessionID = owner, branch, pgUUIDFromString("")
 		row, err = q.CreateWorkspace(ctx, arg)
@@ -114,6 +149,18 @@ func (s *WorkspaceService) createBranchMachineRow(ctx context.Context, arg db.Cr
 		return db.Workspace{}, err
 	}
 	return row, nil
+}
+
+// stackLaneWorkspace is the lane's own machine, created earlier under the same
+// lock when a crash came between its insert and its binding.
+func stackLaneWorkspace(ctx context.Context, tx pgx.Tx, q *db.Queries, repositoryID int64, lane string) (db.Workspace, error) {
+	var id string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM workspaces
+        WHERE repository_id = $1 AND target_bookmark = $2 AND name = $3 AND deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, repositoryID, MythicalBookmark, lane).Scan(&id); err != nil {
+		return db.Workspace{}, err
+	}
+	return q.GetWorkspace(ctx, id)
 }
 
 func branchMachineCompatible(row db.Workspace, arg db.CreateWorkspaceParams, owner int64) error {
@@ -165,7 +212,7 @@ func (s *WorkspaceService) attachBranchMachineSession(ctx context.Context, works
 	if row.RepositoryID != input.RepositoryID {
 		return pkgerrors.Forbidden("agent session repository binding denied")
 	}
-	if err := s.authorizeBranchMachine(ctx, tx, row.RepositoryID, input.UserID, row.TargetBookmark); err != nil {
+	if err := s.authorizeBranchMachine(ctx, tx, row.RepositoryID, input.UserID, row.TargetBookmark, row.ID); err != nil {
 		return err
 	}
 	// No cross-session, cross-repository or rebinding fallback. Multiple
@@ -203,7 +250,9 @@ func (s *WorkspaceService) branchMachineOwned(ctx context.Context, ownerID int64
 	return owner == ownerID, err
 }
 
-func (s *WorkspaceService) preflightBranchMachine(ctx context.Context, repositoryID, actorID int64, branch string) error {
+// preflightBranchMachine authorizes actorID on branch's machine, workspaceID,
+// or "" before the machine exists.
+func (s *WorkspaceService) preflightBranchMachine(ctx context.Context, repositoryID, actorID int64, branch, workspaceID string) error {
 	if err := s.requireBranchMachineProviders(); err != nil {
 		return err
 	}
@@ -212,7 +261,7 @@ func (s *WorkspaceService) preflightBranchMachine(ctx context.Context, repositor
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	return s.authorizeBranchMachine(ctx, tx, repositoryID, actorID, branch)
+	return s.authorizeBranchMachine(ctx, tx, repositoryID, actorID, branch, workspaceID)
 }
 
 func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db.Workspace, actorID int64, fn func(context.Context) error) error {
@@ -234,7 +283,7 @@ func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db
 		return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	if err := s.authorizeBranchMachine(ctx, tx, row.RepositoryID, actorID, row.TargetBookmark); err != nil {
+	if err := s.authorizeBranchMachine(ctx, tx, row.RepositoryID, actorID, row.TargetBookmark, row.ID); err != nil {
 		return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
 	}
 	level, err := db.New(tx).LockWorkspaceShareForMutation(ctx, db.LockWorkspaceShareForMutationParams{WorkspaceID: row.ID, GranteeUserID: actorID})

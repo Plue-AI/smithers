@@ -67,7 +67,7 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 }
 
 func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
-	if err := s.preflightBranchMachine(ctx, repositoryID, userID, branch); err != nil {
+	if err := s.preflightBranchMachine(ctx, repositoryID, userID, branch, ""); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	tx, err := s.transactions.Begin(ctx)
