@@ -329,7 +329,7 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
 
 
 /** Built-in top-level leaves, distinct from repository-owned flows. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "docs", "settings", "todo", "help", "members", "stack", "theme", "stop", "search", "sign-in", "sign-out", "flow", "flows", "runs", "run", "issue", "issues", "file", "files", "diff", "pr"]
+export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "docs", "settings", "todo", "help", "members", "stack", "theme", "stop", "search", "sign-in", "sign-out", "flow", "flows", "runs", "run", "monitor", "issue", "issues", "file", "files", "diff", "pr"]
 
 export interface Namespace {
   readonly id: string

@@ -394,3 +394,10 @@ describe("box.open recovery grammar", () => {
     ]) expect(payloadFor("box.open", args)).toHaveProperty("error")
   })
 })
+
+
+test("monitor shares run-list filters and scoped Inspect preserves the recorded workspace", () => {
+  expect(payloadFor("monitor", "failed todo lineage=parent sourceCard=monitor owner/repo")).toEqual(payloadFor("runs.list", "failed todo lineage=parent sourceCard=monitor owner/repo"))
+  expect(payloadFor("runs.open", "sourceCard=monitor workspaceId=lane run-1")).toEqual({ payload: { sourceCard: "monitor", workspaceId: "lane", runId: "run-1" } })
+  expect(payloadFor("runs.open", "workspaceId=one workspaceId=two run-1")).toHaveProperty("error")
+})

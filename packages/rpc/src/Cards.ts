@@ -1402,6 +1402,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       workspaceId: GatewayWorkspaceIdSchema.optional(),
       /** Version 1 records an explicit legacy route when workspaceId is absent. */
       gatewayBindingVersion: z.literal(1).optional(),
+      monitor: z.boolean().optional(),
       /** Every status the unfiltered workspace carried when listed; the filter chips read it. Optional for older cards. */
       statuses: z.array(z.string()).optional(),
       /** A saved inventory read; only this request may publish into the card. */
@@ -1413,6 +1414,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         status: z.string().optional(),
         flow: z.string().optional(),
         lineage: z.string().optional(),
+        monitor: z.boolean().optional(),
         state: z.enum(["pending", "complete", "failed"])
       }).optional(),
       status: z.string().optional(),
@@ -1425,6 +1427,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       runs: z.array(
         z.object({
           runId: z.string(),
+          workspaceId: GatewayWorkspaceIdSchema.optional(),
+          todo: z.number().int().positive().optional(),
+          title: z.string().optional(),
           flowId: z.string(),
           status: z.string(),
           waiting: z.string().optional(),

@@ -67,7 +67,7 @@ export const RunListCardBody = ({
   /* The filter chips: every status the unfiltered workspace could carry, each re-invoking runs.list with its argument. */
   const chips = [...new Set([...(card.payload.statuses ?? []), ...runs.map((run) => run.status)])].sort()
   const listArgs = (status?: string): string =>
-    flowArgs("runs.list", { status, flow: card.payload.flow, lineage: card.payload.lineage, sourceCard: card.id, repo })
+    flowArgs(card.payload.monitor ? "monitor" : "runs.list", { status, flow: card.payload.flow, lineage: card.payload.lineage, sourceCard: card.id, repo })
   const liveCount = runs.filter((run) => LIVE_STATUSES.has(run.status)).length
   /*
    * Needs you, Working, Done (cards/RunsInbox.ts). A pending approval whose
@@ -84,12 +84,12 @@ export const RunListCardBody = ({
     /* The gate's own words, so the row says what is being asked before it is opened. */
     const gate = approvals.find((approval) => approval.runId === run.runId)
     /* A gate nobody here can decide is not offered (state/ApprovalDeciders.ts), exactly as on the run card. */
-    const act = tone !== "needs-you" ? undefined : needsYouAct(run) === "resume" ? "resume" : canDecide(run.flowId, admin) ? "answer" : undefined
+    const act = card.payload.monitor || tone !== "needs-you" ? undefined : needsYouAct(run) === "resume" ? "resume" : canDecide(run.flowId, admin) ? "answer" : undefined
     return (
-      <li key={run.runId} className="world-card-row" data-status={run.status} data-tone={tone}>
+      <li key={JSON.stringify([run.workspaceId,run.runId])} className="world-card-row" data-status={run.status} data-tone={tone}>
         <span className="runs-inbox-glyph" data-tone={tone} aria-hidden>{TONE_GLYPH[tone]}</span>
         <span className="world-card-path">{run.runId}</span>
-        <span className="world-card-title">{run.flowId}</span>
+        <span className="world-card-title">{run.title ?? run.flowId}</span>
         {gate === undefined ? null : <span className="world-card-title" data-testid={`runs-gate-${run.runId}`}>{gate.title}</span>}
         <span className="world-card-path">
           {run.statusRollup === undefined ? run.waiting === undefined ? run.status : waitingWords(run.waiting) :
@@ -109,9 +109,9 @@ export const RunListCardBody = ({
           variant="outline"
           data-testid={`runs-open-${run.runId}`}
           aria-label={`Open ${run.runId}`}
-          {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { sourceCard: card.id, runId: run.runId }))}
+          {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { sourceCard: card.id, runId: run.runId, workspaceId: run.workspaceId }))}
         >
-          Open
+          {card.payload.monitor ? "Inspect" : "Open"}
         </Button>
       </li>
     )
@@ -125,9 +125,9 @@ export const RunListCardBody = ({
         <Button size="sm" variant={attention ? "default" : "outline"} 
           {...flowAction(onRunCommand, "runs.attention", flowArgs("runs.attention", { sourceCard: card.id, repo }))}>Needs attention</Button>
         <Button size="sm" variant="outline" 
-          {...flowAction(onRunCommand, "runs.list", listArgs(card.payload.status))}>Refresh</Button>
+          {...flowAction(onRunCommand, card.payload.monitor ? "monitor" : "runs.list", listArgs(card.payload.status))}>Refresh</Button>
         {attention ? <Button size="sm" variant="outline" 
-          {...flowAction(onRunCommand, "runs.list", listArgs())}>All runs</Button> : null}
+          {...flowAction(onRunCommand, card.payload.monitor ? "monitor" : "runs.list", listArgs())}>All runs</Button> : null}
       </div>
       {observationError === undefined ? null : ((read: "partial" | "failed") => (
         <FailureNotice className="sui-approval-error" data-testid="run-list-failure"
@@ -145,7 +145,7 @@ export const RunListCardBody = ({
             <Button
               size="sm"
               variant={card.payload.status === undefined ? "default" : "outline"}
-              {...flowAction(onRunCommand, "runs.list", listArgs())}
+              {...flowAction(onRunCommand, card.payload.monitor ? "monitor" : "runs.list", listArgs())}
             >
               All
             </Button>
@@ -155,7 +155,7 @@ export const RunListCardBody = ({
                 size="sm"
                 variant={card.payload.status === status ? "default" : "outline"}
                 data-testid={`run-list-chip-${status}`}
-                {...flowAction(onRunCommand, "runs.list", listArgs(status))}
+                {...flowAction(onRunCommand, card.payload.monitor ? "monitor" : "runs.list", listArgs(status))}
               >
                 {status}
               </Button>

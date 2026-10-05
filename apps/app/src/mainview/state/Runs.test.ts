@@ -15,6 +15,7 @@ import { approvalActionId } from "./ApprovalReference"
  * approvals inbox, including the `inboxCardId:requestId` decision routing
  * that lets a human decide a gate whose own approval card never landed.
  */
+import { fixtures as todoFixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 import { CODING_PLAN } from "../cards/fixtures/CodingPlan"
 import { preparedCodingJournal } from "../cards/fixtures/CodingJournal"
 import { describe, expect, test } from "bun:test"
@@ -2798,7 +2799,7 @@ describe("durable run facet requests", () => {
 
 
 describe("durable run-list reads", () => {
-  const ready = async (gate: Promise<void>, storage = memoryStorage(), holdAll = false) => {
+  const ready = async (gate: Promise<void>, storage = memoryStorage(), holdAll = false, todoResponse?: () => Response | Promise<Response>) => {
     const store = await createAppStore({ kind: "localStorage", storage })
     await signIn(store)
     const double = relay({ runs: [
@@ -2808,6 +2809,8 @@ describe("durable run-list reads", () => {
     let reads = 0
     let returned = 0
     const services = { ...double.services, fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith("/api/todos") && todoResponse) return todoResponse()
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
       if (body?.payload?.selector?._tag === "workspace-runs") {
         reads += 1
@@ -2821,6 +2824,64 @@ describe("durable run-list reads", () => {
     const controller = createAppController(store, silentAgent, services)
     return { store, controller, services, storage, reads: () => reads, returned: () => returned }
   }
+
+  test("monitor reads TODOs and box runs through the command boundary and keeps their scoped Inspect addresses", async () => {
+    const todo = { ...todoFixtures.in_review.model, run: { id: "parked", attempt: 1, indicators: [] }, branch: { id: "0b0c0d0e-0000-4000-8000-000000000002", name: "T12", machine: { state: "awake" } } }
+    let reads = 0
+    const fixture = await ready(Promise.resolve(), memoryStorage(), false, () => { reads++; return json(200, [todo, todo]) })
+    expect((await fixture.controller.commands.run("monitor")).status).toBe("executed")
+    await waitFor(() => ([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)?.payload.listRequest?.state === "complete")
+    const card = ([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)!
+    expect(card.payload.monitor).toBe(true)
+    expect(card.payload.runs).toHaveLength(3)
+    expect(reads).toBe(1)
+    expect(card.payload.runs.filter(row => row.runId === "parked").map(row => row.workspaceId).sort()).toEqual([TEST_BOX, "0b0c0d0e-0000-4000-8000-000000000002"].sort())
+    // A host-local id alone is ambiguous; a row's workspace selects its exact gateway.
+    expect((await fixture.controller.commands.run("runs.open", flowArgs("runs.open", { sourceCard: card.id, runId: "parked" }))).status).toBe("failed")
+    expect((await fixture.controller.commands.run("runs.open", flowArgs("runs.open", { sourceCard: card.id, runId: "parked", workspaceId: "foreign" }))).status).toBe("failed")
+  })
+  test("monitor lists TODO runs with no box and refreshes the same persisted card", async () => {
+    const todo = { ...todoFixtures.in_review.model, run: { id: "todo-run", attempt: 1, indicators: [] }, branch: { id: "0b0c0d0e-0000-4000-8000-000000000002", name: "T12", machine: { state: "awake" } } }
+    const fixture = await ready(Promise.resolve(), memoryStorage(), false, () => json(200, [todo]))
+    await fixture.store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
+    await fixture.controller.commands.run("monitor")
+    const current = () => [...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined
+    await waitFor(() => current()?.payload.listRequest?.state === "complete")
+    expect(current()?.payload.runs).toHaveLength(1)
+    expect(fixture.reads()).toBe(0)
+    const id = current()!.id
+    await fixture.controller.commands.run("monitor", flowArgs("monitor", { sourceCard: id }))
+    await waitFor(() => current()?.payload.listRequest?.state === "complete")
+    expect(current()?.id).toBe(id)
+  })
+
+  test("monitor retains box rows on TODO read failure and refresh retries the complete inventory", async () => {
+    let fail = true
+    const fixture = await ready(Promise.resolve(), memoryStorage(), false, () => fail ? json(503, {}) : json(200, []))
+    await fixture.controller.commands.run("monitor")
+    await waitFor(() => ([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)?.payload.listRequest?.state === "failed")
+    expect(([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)?.payload.runs).toHaveLength(2)
+    expect(([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)?.payload.observationError).toContain("503")
+    fail = false
+    await fixture.controller.commands.run("monitor", JSON.stringify({ sourceCard: ([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)!.id }))
+    await waitFor(() => ([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)?.payload.listRequest?.state === "complete")
+    expect(([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)?.payload.observationError).toBeUndefined()
+  })
+  test("monitor deduplicates pending reads and drops the result after an account change", async () => {
+    const gate = Promise.withResolvers<void>()
+    let reads = 0
+    const fixture = await ready(Promise.resolve(), memoryStorage(), false, async () => { reads++; await gate.promise; return json(200, []) })
+    try {
+      await fixture.controller.commands.run("monitor")
+      await waitFor(() => reads === 1)
+      await fixture.controller.commands.runForAgent("monitor")
+      expect(reads).toBe(1)
+      await fixture.controller.adoptSession({ state: "signed-in", login: "another-owner", admin: false })
+      gate.resolve()
+      await settle(20)
+      expect(([...fixture.store.collections.cards.values()].find(card => card.kind === "run-list" && card.payload.monitor) as Extract<Card, { kind: "run-list" }> | undefined)).toBeUndefined()
+    } finally { gate.resolve() }
+  })
 
   test("listing acknowledges before a held projection and leaves Chat usable", async () => {
     const gate = Promise.withResolvers<void>()

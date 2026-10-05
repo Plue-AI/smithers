@@ -19,6 +19,7 @@
 
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
+import { INSPECT_LABELS } from "./internal/InspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
 import { engineTraceFromJournal } from "./EngineTrace.ts"
 import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
@@ -535,12 +536,20 @@ const shellActivity = (command: string): FlowActivity => {
  * @category utilities
  * @since 1.0.0
  */
+/** Appendix C's bookkeeping tags; their original evidence remains under the Engine disclosure. */
+export const isEngineBookkeeping = (tag: string): boolean =>
+  tag === "agent/trace/checkpoint" || tag === "agent/send (stamp)" || tag === "<seal-step>" ||
+  /^(?:<seal-step>|<boundary:[^>]+>|<structured-output-count>\/[^/]+|<quota-park>\/[^/]+|<park>\/parked|agent\/capacity\/[^/]+\/cool\/\d+)$/.test(tag)
+
 export const callSemantics = (
   flowName: string,
   payload: Record<string, unknown>
 ): CallMetadata => {
   const recorded = recordedMetadata(payload.descriptor, flowName)
-  const metadata = recorded ?? LEGACY_PRESENTATION.get(flowName)
+  const title = Object.hasOwn(INSPECT_LABELS, flowName) ? INSPECT_LABELS[flowName] : undefined
+  const appendix = title === undefined ? undefined : legacy(undefined, `Running: ${title}`, title, `Failed: ${title}`, "none", "none")
+  const tool = LEGACY_PRESENTATION.get(flowName)
+  const metadata = tool === undefined && appendix !== undefined ? { ...recorded, presentation: appendix.presentation } : recorded ?? tool
   const activity = metadata?.activity
     ?? (flowName === "bash" ? shellActivity(commandOf(payload.input) ?? "") : undefined)
   return {

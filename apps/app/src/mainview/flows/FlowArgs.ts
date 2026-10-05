@@ -70,9 +70,10 @@ export interface FlowInput {
   readonly "triggers.pause": { readonly slug: string; readonly repo?: string }
   readonly "wiki.heading": { readonly line: string; readonly cardId?: string }
   readonly "billing.upgrade": { readonly plan: string }
+  readonly "monitor": { readonly repo?: string; readonly status?: string; readonly flow?: string; readonly lineage?: string; readonly sourceCard?: string }
   readonly "runs.list": { readonly repo?: string; readonly status?: string; readonly flow?: string; readonly lineage?: string; readonly sourceCard?: string }
   readonly "runs.attention": { readonly repo?: string; readonly sourceCard?: string }
-  readonly "runs.open": { readonly runId: string; readonly repo?: string; readonly sourceCard?: string; readonly requestId?: string }
+  readonly "runs.open": { readonly workspaceId?: string; readonly runId: string; readonly repo?: string; readonly sourceCard?: string; readonly requestId?: string }
   readonly "runs.trace.select": { readonly runId: string; readonly nodeId: string; readonly seq?: number; readonly sourceCard?: string }
   readonly "approvals.open": { readonly runId: string; readonly sourceCard?: string }
   readonly "tutorial.live.inspect": { readonly cardId: string; readonly eventId: string }
@@ -220,9 +221,10 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "flow.plan.tab": payload => graphLine(payload, "cardId", "tab"),
   "issues.list": (payload) => line(token(payload, "filter") ?? "open", payload.kind === undefined || payload.kind === "all" ? undefined : `--kind ${payload.kind}`, token(payload, "view") === undefined ? undefined : `--view ${token(payload, "view")}`, token(payload, "repo")),
   "billing.upgrade": (payload) => line(token(payload, "plan")),
+  "monitor": (payload) => JSON.stringify(payload),
   "runs.list": (payload) => JSON.stringify(payload),
   "runs.attention": (payload) => line(keyed(payload, "sourceCard"), token(payload, "repo")),
-  "runs.open": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "requestId"), token(payload, "runId"), token(payload, "repo")),
+  "runs.open": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "requestId"), keyed(payload, "workspaceId"), token(payload, "runId"), token(payload, "repo")),
   "runs.trace.select": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId"), token(payload, "nodeId"), token(payload, "seq")),
   "approvals.open": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),

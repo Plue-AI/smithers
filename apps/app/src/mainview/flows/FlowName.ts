@@ -31,6 +31,7 @@ export const currentFlowName = (name: string): string => RENAMED_FLOWS[name] ?? 
 
 /** Every flow name declared under flows/entries, in sorted order. */
 export const FLOW_NAMES = [
+  "monitor",
   "stack",
   "stack.move",
   "merge",

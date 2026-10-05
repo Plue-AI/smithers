@@ -21,7 +21,7 @@ import { tokenWords, totalTokens, traceSteps, type TraceStep } from "./TraceStep
 export const stepFacts = (steps: ReadonlyArray<TraceStep>, wallMs: number): ReadonlyArray<string> => {
   const tokens = totalTokens(steps)
   return [
-    `${steps.length} ${steps.length === 1 ? "step" : "steps"}`,
+    `${steps.filter(step => step.type !== "engine").length} ${steps.filter(step => step.type !== "engine").length === 1 ? "step" : "steps"}`,
     wallMs > 0 ? durationWords(wallMs) : undefined,
     tokens === undefined ? undefined : `${tokenWords(tokens)} tok`
   ].filter((fact): fact is string => fact !== undefined)
@@ -66,7 +66,10 @@ export const StepList = ({ model, runId, selected, detail, onRunCommand, cardId 
               <span className="run-step-duration">{step.durationMs === undefined ? "" : durationWords(step.durationMs)}</span>
               <span className="run-step-tokens">{step.tokens === undefined ? "" : tokenWords(step.tokens)}</span>
             </button>
-            {open && detail !== undefined ? <div id={detailId} className="run-turn-detail">{detail}</div> : null}
+            {open && detail !== undefined ? <div id={detailId} className="run-turn-detail">
+              {step.engine === undefined ? null : <ul aria-label="Engine records">{step.engine.map(span => <li key={span.id}>{span.label}</li>)}</ul>}
+              {detail}
+            </div> : null}
           </li>
         )
       })}

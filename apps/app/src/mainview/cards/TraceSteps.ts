@@ -10,10 +10,10 @@
  * has no step, the way it has no line. Bare journal events (a printed line)
  * stay in the Details view.
  */
-import { callSemantics, callSubject, type TraceModel, type TraceSpan } from "./RunTrace"
+import { isEngineBookkeeping, callSemantics, callSubject, type TraceModel, type TraceSpan } from "./RunTrace"
 
 /** The type word a step wears: a call's recorded activity, else its span kind. */
-export type StepType = "model" | "read" | "write" | "check" | "test" | "call" | "approval" | "execution" | "attempt" | "resolved"
+export type StepType = "model" | "read" | "write" | "check" | "test" | "call" | "approval" | "execution" | "attempt" | "resolved" | "engine"
 
 export interface TraceStep {
   readonly id: string
@@ -26,6 +26,7 @@ export interface TraceStep {
   readonly tokens?: number | undefined
   readonly status: string
   readonly span: TraceSpan
+  readonly engine?: ReadonlyArray<TraceSpan>
 }
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -52,11 +53,13 @@ const callStep = (span: TraceSpan): { readonly type: StepType; readonly descript
 }
 
 /** The steps of a run, in journal order. */
-export const traceSteps = (model: TraceModel): ReadonlyArray<TraceStep> =>
-  model.rows.flatMap((span): ReadonlyArray<TraceStep> => {
+export const traceSteps = (model: TraceModel): ReadonlyArray<TraceStep> => {
+  const bookkeeping = model.rows.filter(span => span.kind === "call" && isEngineBookkeeping(span.label))
+  const steps = model.rows.flatMap((span): ReadonlyArray<TraceStep> => {
     // Frames and cells contain steps; a bare journal event (a printed line, a
     // steering note) is evidence under a step, not a step of its own.
     if (span.kind === "run" || span.kind === "frame" || span.kind === "cell" || span.kind === "fork" || span.kind === "event") return []
+    if (span.kind === "call" && isEngineBookkeeping(span.label)) return []
     const end = span.endedAt ?? (span.status === "running" || span.status === "waiting" ? model.extent.end : undefined)
     const durationMs = end === undefined ? undefined : Math.max(end - span.startedAt, 0)
     const usage = span.detail.usage
@@ -68,6 +71,10 @@ export const traceSteps = (model: TraceModel): ReadonlyArray<TraceStep> =>
       : { type: span.kind as StepType, description: span.label }
     return [{ id: span.id, at: span.startedAt, ...named, durationMs, tokens, status: span.status, span }]
   })
+  const first = bookkeeping[0]
+  if (first !== undefined) steps.push({ id: first.id, at: first.startedAt, type: "engine", description: "Engine", status: "recorded", span: first, engine: bookkeeping })
+  return steps.sort((a,b) => a.at - b.at)
+}
 
 /** Tokens in the mono column: `812`, `2.1k`, `1.3M`. */
 export const tokenWords = (tokens: number): string =>

@@ -382,6 +382,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * workspace, and the remaining positionals are [status] [flow].
    */
   "runs.attention": (args) => repoOnly("runs.attention", args),
+  "monitor": (args, known) => GRAMMAR["runs.list"]!(args, known),
   "runs.list": (args, known) => {
     const structured = structuredFields("runs.list", args, ["status", "flow", "by", "lineage", "sourceCard", "repo"])
     if (structured !== undefined) return structured
@@ -402,13 +403,16 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "runs.open": (args, known) => {
     const tokens = (args ?? "").trim().split(/\s+/)
+    const workspaces = tokens.filter(token => token.startsWith("workspaceId="))
+    if (workspaces.length > 1 || workspaces[0] === "workspaceId=") return no("The run's workspace is invalid.")
+    const workspaceId = workspaces[0]?.slice("workspaceId=".length)
     const requests = tokens.filter(token => token.startsWith("requestId="))
     if (requests.length > 1 || requests[0] === "requestId=") return no("The saved run request is invalid.")
     const requestId = requests[0]?.slice("requestId=".length)
-    const { rest, repo } = identifierRepo(tokens.filter(token => !token.startsWith("requestId=")).join(" "), known)
+    const { rest, repo } = identifierRepo(tokens.filter(token => !token.startsWith("requestId=") && !token.startsWith("workspaceId=")).join(" "), known)
     const runId = rest.trim()
     if (runId === "" || /\s/.test(runId)) return no("runs.open needs a run id: /runs.open <runId> [owner/repo]")
-    return ok({ runId, ...(repo === undefined ? {} : { repo }), ...(requestId === undefined ? {} : { requestId }) })
+    return ok({ runId, ...(repo === undefined ? {} : { repo }), ...(requestId === undefined ? {} : { requestId }), ...(workspaceId === undefined ? {} : { workspaceId }) })
   },
   "runs.resume": (args) => required("runId", args, "runs.resume needs a run id"),
   "runs.rerun": (args) => required("runId", args, "runs.rerun needs a run id"),

@@ -40,6 +40,10 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     return { value: await actions.presentRun(trace.id, trace.title, maximize) }
   }
   return [
+  flow({ name: "monitor", summary: "TODO and box runs", runtime: ["cloud"], requires: ["signed-in"],
+    args: "[status] [flow] [by=principal] [lineage=id] [sourceCard=id] [owner/repo]",
+    input: Schema.Struct({ repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String), status: Schema.optional(Schema.String), flow: Schema.optional(Schema.String), by: Schema.optional(Schema.String), lineage: Schema.optional(Schema.String) }),
+    handler: payload => actions.listRuns({ ...payload, monitor: true }) }),
   flow({ name: "runs", summary: "Active and attention-needing runs", input: Schema.Struct({}),
     handler: async () => {
       const traces = activeTraces(actions.design.world())
@@ -103,10 +107,10 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "[sourceCard=id] [requestId=id] <runId> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({
-      sourceCard: Schema.optional(Schema.String), runId: Schema.String,
+      sourceCard: Schema.optional(Schema.String), runId: Schema.String, workspaceId: Schema.optional(Schema.String),
       repo: Schema.optional(Schema.String), requestId: Schema.optional(Schema.String)
     }),
-    handler: ({ runId, repo, sourceCard, requestId }) => actions.openRun(runId, repo, sourceCard, requestId)
+    handler: ({ runId, repo, sourceCard, requestId, workspaceId }) => actions.openRun(runId, repo, sourceCard, requestId, workspaceId)
   }),
   flow({
     name: "runs.resume",

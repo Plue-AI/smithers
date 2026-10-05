@@ -85,3 +85,26 @@ describe("a park", () => {
     expect(traceStatus(model([...records, event(4, "approval.requested", { requestId: "g1" })]))).toMatchObject({ condition: "approval" })
   })
 })
+
+
+describe("Appendix C presentation", () => {
+  test("one collapsed Engine row retains all bookkeeping records across retry and duplicate delivery", () => {
+    const events = [event(1, "agent.turn-opened"),
+      event(2, "agent.cell-call-started", { callId: "a", flowName: "agent/trace/checkpoint" }),
+      event(3, "agent.cell-call-settled", { callId: "a", flowName: "agent/trace/checkpoint", outcome: "success" }),
+      event(4, "agent.cell-call-started", { callId: "b", flowName: "<seal-step>" }),
+      event(5, "agent.cell-call-settled", { callId: "b", flowName: "<seal-step>", outcome: "failure", error: "retry" }),
+      event(6, "agent.cell-call-started", { callId: "c", flowName: "coding/edit-atom", input: { path: "src/a.ts" } }),
+      event(7, "agent.cell-call-settled", { callId: "c", flowName: "coding/edit-atom", outcome: "success" })]
+    const steps = traceSteps(model([...events, ...events].reverse()))
+    expect(steps.filter(row => row.description === "Engine")).toHaveLength(1)
+    expect(steps.find(row => row.type === "engine")?.engine?.map(row => row.label)).toEqual(["agent/trace/checkpoint", "<seal-step>"])
+    expect(steps.find(row => row.description === "Edited the files")).toBeDefined()
+    expect(steps.some(row => row.description.includes("seal-step"))).toBe(false)
+  })
+  test("cancelled pending steps do not claim completion", () => {
+    const steps = traceSteps(model([event(1, "agent.turn-opened"), event(2, "agent.cell-call-started", { callId: "a", flowName: "coding/edit-atom" }), event(3, "run.cancelled")], "cancelled"))
+    expect(steps[0]?.description).toBe("Running: Edited the files")
+    expect(steps[0]?.status).not.toBe("completed")
+  })
+})

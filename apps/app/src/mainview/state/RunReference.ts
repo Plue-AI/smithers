@@ -30,10 +30,17 @@ export const cardContainsRun = (card: Card, runId: string, allowChild = false): 
 }
 
 /** Old ancillary omission can inherit only the already-recorded legacy-key run trace. */
-export const runScopeFromCard = (store: AppStore, card: Card, runId: string): RunScope | undefined => {
+export const runScopeFromCard = (store: AppStore, card: Card, runId: string, requestedWorkspaceId?: string): RunScope | undefined => {
   if (!("repo" in card.payload) || typeof card.payload.repo !== "string") return undefined
   let workspaceId = "workspaceId" in card.payload && typeof card.payload.workspaceId === "string"
     ? card.payload.workspaceId : undefined
+  if (card.kind === "run-list") {
+    const candidates = card.payload.runs.filter(row => row.runId === runId && (requestedWorkspaceId === undefined || row.workspaceId === requestedWorkspaceId))
+    if (requestedWorkspaceId !== undefined && candidates.length === 0) return undefined
+    const scopes = new Set(candidates.map(row => row.workspaceId ?? workspaceId))
+    if (scopes.size > 1) return undefined
+    if (candidates.length > 0) workspaceId = candidates[0]?.workspaceId ?? workspaceId
+  }
   if (workspaceId === undefined && card.kind !== "run-trace" && !("gatewayBindingVersion" in card.payload && card.payload.gatewayBindingVersion === 1)) {
     const trace = store.collections.cards.get(`flow-run-${runId}`)
     if (trace?.kind === "run-trace" && trace.payload.runId === runId && trace.payload.repo === card.payload.repo) {
