@@ -106,9 +106,9 @@ type Server struct {
 	holdMain bool
 	refusals map[string]Refusal
 	// delayed are the pull requests whose next merge times out; pending are
-	// the merges GitHub has yet to complete.
+	// the merges GitHub accepted and has yet to complete.
 	delayed  map[string]bool
-	pending  []string
+	pending  []pendingMerge
 	checks   map[string][]CheckRun
 	required []string
 	// protected is whether main has classic branch protection; GitHub
@@ -341,6 +341,10 @@ func (s *Server) merge(key string, p Pull) Pull {
 	return p
 }
 
+// pendingMerge is a merge request GitHub accepted for a pull request at the
+// head sha it named, its effect not yet applied.
+type pendingMerge struct{ key, sha string }
+
 // DelayNextMerge makes the next merge of repo#number GitHub accepts answer
 // 502 and take no effect until CompleteDelayedMerges: a request that times
 // out while GitHub is still completing it.
@@ -350,14 +354,15 @@ func (s *Server) DelayNextMerge(repo string, number int64) {
 	s.delayed[repo+"/"+strconv.FormatInt(number, 10)] = true
 }
 
-// CompleteDelayedMerges completes every delayed merge whose pull request is
-// still open.
+// CompleteDelayedMerges applies each accepted merge as GitHub would when it
+// takes effect: only while its pull request is open at the sha the request
+// named, which is checked again then; otherwise it fails and merges nothing.
 func (s *Server) CompleteDelayedMerges() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, key := range s.pending {
-		if p := s.current(key); p.State == "open" {
-			s.merge(key, p)
+	for _, pending := range s.pending {
+		if p := s.current(pending.key); p.State == "open" && !p.Merged && p.Head.SHA == pending.sha {
+			s.merge(pending.key, p)
 		}
 	}
 	s.pending = nil
@@ -1013,9 +1018,10 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				return failure(405, "Pull Request is not mergeable")
 			}
 			if s.delayed[key] {
-				// The request times out; GitHub completes the merge later.
+				// The request was validated as it arrived and times out;
+				// GitHub completes it later (CompleteDelayedMerges).
 				delete(s.delayed, key)
-				s.pending = append(s.pending, key)
+				s.pending = append(s.pending, pendingMerge{key: key, sha: input.SHA})
 				return failure(http.StatusBadGateway, "Bad Gateway")
 			}
 			p = s.merge(key, p)
