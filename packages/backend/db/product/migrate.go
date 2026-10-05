@@ -155,6 +155,7 @@ var migrationRegistry = []migrationSpec{
 	{117, "migrations/0117_flow_versions.sql"},
 	{118, "migrations/0118_repo_connection_repository_id.sql"},
 	{119, "migrations/0119_workspace_forked_from.sql"},
+	{120, "migrations/0120_run_journals.sql"},
 }
 
 type migration struct {

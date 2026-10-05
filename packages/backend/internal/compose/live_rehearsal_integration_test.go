@@ -190,3 +190,68 @@ func decodeTodo(frame liveFrame) liveTodo {
 type liveWait struct {
 	ID string `json:"id"`
 }
+
+// stepKey is one state a run's step showed: started, running or ended.
+func stepKey(node, status string, ended bool) string {
+	return fmt.Sprintf("%s|%s|%t", node, status, ended)
+}
+
+// watchSteps polls run's steps (run-tree) on box through the browser relay
+// every 100 ms, as the owner, until the answer it returns is called: when
+// each step state first showed at the source, the lane's host.
+func (r *rehearsal) watchSteps(repo, box, run string) func() map[string]time.Time {
+	seen := map[string]time.Time{}
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	body := fmt.Sprintf(`{"repo":%q,"workspaceId":%q,"procedure":"Projection.Snapshot","payload":{"selector":{"_tag":"run-tree","runId":%q}}}`, repo, box, run)
+	client := &http.Client{Jar: r.jar, Timeout: 5 * time.Second}
+	go func() {
+		defer close(finished)
+		for n := 0; ; n++ {
+			select {
+			case <-done:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			request, err := http.NewRequest("POST", r.origin+"/api/workflow/rpc", strings.NewReader(body))
+			if err != nil {
+				continue
+			}
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", r.origin)
+			request.Header.Set("Idempotency-Key", fmt.Sprintf("%swatch-%d-%d", r.keyPrefix, time.Now().UnixNano(), n))
+			for _, cookie := range r.jar.Cookies(request.URL) {
+				if cookie.Name == "__csrf" {
+					request.Header.Set("X-CSRF-Token", cookie.Value)
+				}
+			}
+			response, err := client.Do(request)
+			if err != nil {
+				continue
+			}
+			var answer struct {
+				Payload struct {
+					Rows []struct {
+						NodeID  string   `json:"nodeId"`
+						Status  string   `json:"status"`
+						EndedAt *float64 `json:"endedAt"`
+					} `json:"rows"`
+				} `json:"payload"`
+			}
+			at := time.Now()
+			_ = json.NewDecoder(response.Body).Decode(&answer)
+			_ = response.Body.Close()
+			for _, row := range answer.Payload.Rows {
+				key := stepKey(row.NodeID, row.Status, row.EndedAt != nil)
+				if _, ok := seen[key]; !ok {
+					seen[key] = at
+				}
+			}
+		}
+	}()
+	return func() map[string]time.Time {
+		close(done)
+		<-finished
+		return seen
+	}
+}

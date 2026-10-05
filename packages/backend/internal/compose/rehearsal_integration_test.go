@@ -383,7 +383,8 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// A finished run's journal (run-events) passes 1 MiB.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	r.location = resp.Header.Get("Location")
 	// Evidence never keeps a minted credential.
 	logged := rehearsalTokenField.ReplaceAll(data, []byte(`"token":"<redacted>"`))

@@ -173,11 +173,21 @@ func (s *WorkspaceService) StopLaneMachine(ctx context.Context, repositoryID int
 	if !ok {
 		return pkgerrors.Internal("workspace stop store unavailable")
 	}
+	if s.laneStopping != nil {
+		s.laneStopping(ctx, workspace)
+	}
 	stopped, err := s.stopWorkspaceRetaining(ctx, store, workspace, workspace.UserID)
 	if err == nil || stopped.Status == "stopped" {
 		return nil
 	}
 	return err
+}
+
+// OnLaneStopping runs fn with a retired lane's running machine just before
+// StopLaneMachine stops it: the last moment its coding host answers reads.
+// Set it before serving.
+func (s *WorkspaceService) OnLaneStopping(fn func(context.Context, db.Workspace)) {
+	s.laneStopping = fn
 }
 
 // UpdateWorkspacePodStatus handles optional workspace runtime status reports.

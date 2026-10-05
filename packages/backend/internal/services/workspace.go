@@ -555,6 +555,9 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
+	// laneStopping runs before StopLaneMachine stops a retired lane
+	// (OnLaneStopping).
+	laneStopping         func(context.Context, db.Workspace)
 	commandJobs          *jobs.Store
 	commandCodec         flowhost.SecretCodec
 	provisionTasks       *workspaceProvisionTasks

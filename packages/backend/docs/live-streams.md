@@ -13,7 +13,7 @@ owner, as another account and anonymously through the composed backend.
 
 | Stream | Transport | Who may open it | Delivery | Test composition |
 | --- | --- | --- | --- | --- |
-| `GET /api/live` | WebSocket | install members with a browser session from the install's origin | shared topic snapshots (`home`, `todo:<n>`, `flows`) at per-topic cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
+| `GET /api/live` | WebSocket | install members with a browser session from the install's origin | shared topic snapshots (`home`, `todo:<n>`, `flows`, `run:<lane>:<run>`) at per-topic cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
 | `GET /api/notifications` | SSE | the signed-in account, its own notifications | live hints; no replay | opens |
 | `GET /api/notifications/events/stream` | SSE | the signed-in account, its own notifications | durable facts; `Last-Event-ID` cursor | opens |
 | `GET /api/github/import/{id}` | SSE with `Accept: text/event-stream` | the account that started the import | polled import snapshots until terminal | opens |
