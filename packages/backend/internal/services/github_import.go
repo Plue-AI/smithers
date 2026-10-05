@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -292,22 +293,25 @@ type GitHubImportInstallationTokenIssuer interface {
 }
 
 type GitHubImportService struct {
-	db           GitHubImportDB
-	repoDB       GitHubImportRepoDB
-	orgs         GitHubImportOrgDB
-	tokenDB      GitHubImportTokenDB
-	repoHost     GitHubImportRepoHost
-	workspaces   GitHubImportWorkspaceProvisioner
-	decrypter    OAuthAccessTokenDecrypter
-	refresher    GitHubUserTokenRefresher
-	appTokens    GitHubImportInstallationTokenIssuer
-	readAccess   RepositoryJobGitHubReadAccess
-	httpClient   *http.Client
-	gitBaseURL   string
-	metrics      GitHubImportMetrics
-	billing      BillingPolicy
-	storageSetID string
-	asyncTimeout time.Duration
+	db         GitHubImportDB
+	repoDB     GitHubImportRepoDB
+	orgs       GitHubImportOrgDB
+	tokenDB    GitHubImportTokenDB
+	repoHost   GitHubImportRepoHost
+	workspaces GitHubImportWorkspaceProvisioner
+	decrypter  OAuthAccessTokenDecrypter
+	refresher  GitHubUserTokenRefresher
+	appTokens  GitHubImportInstallationTokenIssuer
+	readAccess RepositoryJobGitHubReadAccess
+	httpClient *http.Client
+	gitBaseURL string
+	metrics    GitHubImportMetrics
+	// installMainMirror is the engine's install fact
+	// (repohost.Client.InstallMainMirror): a refresh never rewrites main.
+	installMainMirror bool
+	billing           BillingPolicy
+	storageSetID      string
+	asyncTimeout      time.Duration
 	// refreshCooldown is the per-mirror window between GitHub clones (#2970).
 	refreshCooldown time.Duration
 	cloneMirror     func(ctx context.Context, owner, repo, sourceToken, pushURL, pushToken, jobID string) error
@@ -376,6 +380,13 @@ func (s *GitHubImportService) EnableDurableWorker() {
 }
 
 type GitHubImportOption func(*GitHubImportService)
+
+// WithGitHubImportInstallMainMirror applies the engine's install fact
+// (repohost.Client.InstallMainMirror): a refresh that would rewrite main
+// fails visibly instead (refuseGitHubMainRewrite).
+func WithGitHubImportInstallMainMirror(install bool) GitHubImportOption {
+	return func(s *GitHubImportService) { s.installMainMirror = install }
+}
 
 func WithGitHubImportMetrics(metrics GitHubImportMetrics) GitHubImportOption {
 	return func(s *GitHubImportService) { s.metrics = metrics }
@@ -735,6 +746,12 @@ func (s *GitHubImportService) handleDurableImportFailure(job claimedGitHubImport
 func isTerminalGitHubImportFailure(err error) bool {
 	var terminal terminalGitHubImportError
 	if errors.As(err, &terminal) {
+		return true
+	}
+	// A rewrite of install main waits for the owner's reset; a background
+	// retry cannot change it, the owner's Retry can.
+	var rewrite *GitHubMainForcePush
+	if errors.As(err, &rewrite) {
 		return true
 	}
 	var apiErr *pkgerrors.APIError
@@ -1835,7 +1852,10 @@ func (s *GitHubImportService) finishReusedImport(ctx context.Context, userID int
 
 	// Refresh BEFORE resolving the default-branch bookmark so the resolved change
 	// reflects the just-refreshed GitHub head. Best-effort: never fails the reopen.
-	s.refreshReusedMirror(ctx, userID, repository.ID, sourceOwner, repo, localOwner, mirrorName, jobID, githubCloneToken)
+	if err := s.refreshReusedMirror(ctx, userID, repository.ID, sourceOwner, repo, localOwner, mirrorName, defaultBranch, jobID, githubCloneToken); err != nil {
+		s.observeFailure("refresh", err)
+		return db.Repository{}, WorkspaceResponse{}, err
+	}
 
 	s.setStage(ctx, jobID, importStageCreatingBookmark)
 	targetChangeID, err := s.importedBookmarkTarget(ctx, localOwner, mirrorName, defaultBranch)
@@ -1886,33 +1906,40 @@ func (s *GitHubImportService) finishReusedImport(ctx context.Context, userID int
 // of the tree frozen at first-import time. It is BEST-EFFORT by contract: a
 // GitHub outage or an expired user token must NOT fail the reopen — it logs
 // mirror.reuse.refresh_failed and degrades to serving the existing (stale)
-// mirror. It NEVER deletes the pre-existing repo (this is not the fresh path;
-// the e60d6f8beb compensation only applies to freshly-created repos). Inside
-// the mirror's refresh cooldown, or while another import refreshes it, it
-// clones nothing (claimMirrorRefresh).
-func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) {
+// mirror. The one failure it returns is an install's refused rewrite of main
+// (GitHubMainForcePush): the import fails with it, visible on its job and
+// retryable, and the mirror stays as it was. It NEVER deletes the pre-existing
+// repo (this is not the fresh path; the e60d6f8beb compensation only applies
+// to freshly-created repos). Inside the mirror's refresh cooldown, or while
+// another import refreshes it, it clones nothing (claimMirrorRefresh).
+func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, defaultBranch, jobID, githubCloneToken string) error {
 	claim, claimed := s.claimMirrorRefresh(ctx, repositoryID, jobID)
 	if !claimed {
 		if s.metrics != nil {
 			s.metrics.ObserveMirrorAttempt("refresh_skipped")
 		}
-		return
+		return nil
 	}
 	started := time.Now()
-	if err := s.refreshMirrorFromGitHub(ctx, userID, repositoryID, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken); err != nil {
+	if err := s.refreshMirrorFromGitHub(ctx, userID, repositoryID, sourceOwner, sourceRepo, localOwner, mirrorName, defaultBranch, jobID, githubCloneToken); err != nil {
 		s.settleMirrorRefresh(ctx, repositoryID, claim, false)
-		// Degrade to the stale mirror: the user still gets their repo, staleness
-		// is the fallback, not the norm. Not surfaced, not fatal, no cleanup.
 		slog.Warn("mirror.reuse.refresh_failed", "import_job_id", jobID, "repo_owner", localOwner, "repo_name", mirrorName, "error", err)
 		if s.metrics != nil {
 			s.metrics.ObserveMirrorAttempt("refresh_failed")
 		}
-		return
+		var rewrite *GitHubMainForcePush
+		if errors.As(err, &rewrite) {
+			return err
+		}
+		// Degrade to the stale mirror: the user still gets their repo, staleness
+		// is the fallback, not the norm. Not surfaced, not fatal, no cleanup.
+		return nil
 	}
 	s.settleMirrorRefresh(ctx, repositoryID, claim, true)
 	if s.metrics != nil {
 		s.metrics.ObserveMirrorDuration("refresh", time.Since(started).Seconds())
 	}
+	return nil
 }
 
 // refreshMirrorFromGitHub performs the non-destructive refresh: clone the GitHub
@@ -1920,8 +1947,9 @@ func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID, r
 // NON-PRUNING refspecs (jjhub-side refs survive, #47), then ImportRefs so jj
 // bookmarks tracking updated git refs move forward while jjhub-only bookmarks are
 // left untouched. Returns an error on any failure; the best-effort wrapper
-// (refreshReusedMirror) decides that a failure degrades rather than fails.
-func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) error {
+// (refreshReusedMirror) decides that a failure degrades rather than fails. On an
+// install it first refuses a GitHub rewrite of main (refuseGitHubMainRewrite).
+func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, defaultBranch, jobID, githubCloneToken string) error {
 	token, err := issueTemporarySyncPushToken(ctx, s.tokenDB, userID, repositoryID, "github-import-refresh-push")
 	if err != nil {
 		return fmt.Errorf("create refresh push token: %w", err)
@@ -1934,8 +1962,12 @@ func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userI
 		return err
 	}
 
+	var beforePush func(context.Context, string) error
+	if s.installMainMirror {
+		beforePush = s.refuseGitHubMainRewrite(localOwner, mirrorName, defaultBranch)
+	}
 	s.setStage(ctx, jobID, importStageCloningGitHub)
-	if err := s.cloneAndSyncMirror(ctx, "mirror.refresh", sourceOwner, sourceRepo, githubCloneToken, pushURLParsed.String(), token.Plaintext, jobID, nonPruningPushArgs, nil); err != nil {
+	if err := s.cloneAndSyncMirror(ctx, "mirror.refresh", sourceOwner, sourceRepo, githubCloneToken, pushURLParsed.String(), token.Plaintext, jobID, nonPruningPushArgs, nil, beforePush); err != nil {
 		return err
 	}
 
@@ -1946,6 +1978,48 @@ func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userI
 		return fmt.Errorf("import refs: %w", err)
 	}
 	return nil
+}
+
+// refuseGitHubMainRewrite is an install refresh's §12.3 check on the fetched
+// GitHub mirror, before anything is pushed: GitHub's main, and its default
+// branch, must descend from the mirror's. A rewrite fails the refresh with
+// GitHubMainForcePush, which the import records on its job; the mirror keeps
+// its main until the owner's reset. It decides with gitutil.IsAncestor, the
+// ancestry the repository host applies under its lock to the same push.
+func (s *GitHubImportService) refuseGitHubMainRewrite(localOwner, mirrorName, defaultBranch string) func(context.Context, string) error {
+	return func(ctx context.Context, gitDir string) error {
+		names := []string{"main"}
+		if branch := strings.TrimSpace(defaultBranch); branch != "" && branch != "main" {
+			names = append(names, branch)
+		}
+		for _, name := range names {
+			current, found, err := repohost.LookupBookmark(ctx, s.repoHost, localOwner, mirrorName, name)
+			if err != nil {
+				return fmt.Errorf("read the mirror's %s: %w", name, err)
+			}
+			old := strings.TrimSpace(current.TargetCommitID)
+			if !found || old == "" {
+				continue
+			}
+			// A branch GitHub no longer has is left alone: the push never prunes.
+			out, err := gitHubMainPullCommand(ctx, "--git-dir", gitDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+name+"^{commit}").Output()
+			tip := strings.TrimSpace(string(out))
+			if err != nil || tip == "" || tip == old {
+				continue
+			}
+			forward := false
+			if gitHubMainPullCommand(ctx, "--git-dir", gitDir, "cat-file", "-e", old+"^{commit}").Run() == nil {
+				if forward, err = gitutil.IsAncestor(ctx, gitDir, old, tip, gitHubMainPullCommand); err != nil {
+					return fmt.Errorf("compare GitHub's %s: %w", name, err)
+				}
+			}
+			if !forward {
+				return fmt.Errorf("GitHub rewrote %s from %.12s to %.12s; Smithers keeps %s at %.12s until the owner resets it to GitHub's %s: %w",
+					name, old, tip, name, old, name, &GitHubMainForcePush{Old: old, New: tip})
+			}
+		}
+		return nil
+	}
 }
 
 // bookmarkExists reports whether one named bookmark is present in the mirror.
@@ -2543,7 +2617,8 @@ func (s *GitHubImportService) stagedMirrorPushHeaders(ctx context.Context, stage
 // discipline, cleanup) serves both the fresh --mirror push and the reuse-refresh
 // non-pruning push. spanName names the trace span for the caller's phase.
 // pushHeaders are sent with every push request.
-func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, owner, repo, sourceToken, pushURL, pushToken, jobID string, buildPushArgs func(gitDir, pushURL string) []string, pushHeaders http.Header) error {
+// beforePush, when set, inspects the fetched mirror and may refuse the push.
+func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, owner, repo, sourceToken, pushURL, pushToken, jobID string, buildPushArgs func(gitDir, pushURL string) []string, pushHeaders http.Header, beforePush ...func(context.Context, string) error) error {
 	ctx, span := otel.Tracer("smithers-server").Start(ctx, spanName)
 	span.SetAttributes(attribute.String("repo_owner", owner), attribute.String("repo_name", repo), attribute.String("mirror_id", jobID))
 	defer span.End()
@@ -2595,6 +2670,14 @@ func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, 
 	}
 	if mirrorBytesErr == nil {
 		if err := mirrorFitsStorageAllowance(pushHeaders, mirrorBytes); err != nil {
+			return err
+		}
+	}
+	for _, inspect := range beforePush {
+		if inspect == nil {
+			continue
+		}
+		if err := inspect(ctx, localMirror); err != nil {
 			return err
 		}
 	}

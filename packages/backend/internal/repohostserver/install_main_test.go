@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,7 +99,8 @@ func TestReceivePackInstallMainRefusesMultiRefAndAliases(t *testing.T) {
 }
 
 // git receive-pack writes through a symbolic ref, so an existing alias of
-// main is main. The alias is resolved under the repository write lock.
+// main is main. On an install a push that names any symbolic ref is refused
+// under the repository write lock, the sync's included.
 func TestReceivePackInstallMainRefusesSymbolicAlias(t *testing.T) {
 	for _, install := range []bool{true, false} {
 		t.Run(fmt.Sprintf("install=%v", install), func(t *testing.T) {
@@ -112,11 +115,13 @@ func TestReceivePackInstallMainRefusesSymbolicAlias(t *testing.T) {
 				require.NoError(t, err, string(out))
 			}
 			for _, ref := range []string{"refs/heads/alias", "refs/heads/hop", "refs/heads/ALIAS", "refs/tags/main-tag"} {
-				rec := postReceivePack(t, f, f.pushBody(f.base, tip, ref), repohost.PusherCredentialHeader, "person")
-				if install {
-					require.Equal(t, http.StatusForbidden, rec.Code, "%s: %s", ref, rec.Body.String())
-					assert.Equal(t, "permission", rec.Header().Get("X-Smithers-Error-Code"), ref)
-					assert.Equal(t, f.base, f.repo.refs()["refs/heads/main"], "%s moved main", ref)
+				for _, kind := range []string{"person", "sync"} {
+					rec := postReceivePack(t, f, f.pushBody(f.base, tip, ref), repohost.PusherCredentialHeader, kind)
+					if install {
+						require.Equal(t, http.StatusForbidden, rec.Code, "%s %s: %s", kind, ref, rec.Body.String())
+						assert.Equal(t, "permission", rec.Header().Get("X-Smithers-Error-Code"), ref)
+						assert.Equal(t, f.base, f.repo.refs()["refs/heads/main"], "%s %s moved main", kind, ref)
+					}
 				}
 			}
 			if !install {
@@ -368,6 +373,142 @@ func TestRefuseDefaultBookmarkRewindOnInstall(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+// No push writes a replacement ref on an install, the sync's included: a
+// replacement could make a rewrite of main read as a fast-forward.
+func TestReceivePackInstallRefusesReplacementRefs(t *testing.T) {
+	for _, install := range []bool{true, false} {
+		t.Run(fmt.Sprintf("install=%v", install), func(t *testing.T) {
+			f, tip := installFixture(t, "main")
+			f.srv.config.InstallMainMirror = install
+			for _, kind := range []string{"person", "sync", "run"} {
+				for _, ref := range []string{"refs/replace/" + f.base, "refs/Replace/" + f.base} {
+					rec := postReceivePack(t, f, f.pushBody(laneZeroOID, tip, ref), repohost.PusherCredentialHeader, kind)
+					if !install {
+						continue
+					}
+					require.Equal(t, http.StatusForbidden, rec.Code, "%s %s: %s", kind, ref, rec.Body.String())
+					assert.Equal(t, "permission", rec.Header().Get("X-Smithers-Error-Code"))
+					for name := range f.repo.refs() {
+						assert.False(t, strings.HasPrefix(strings.ToLower(name), "refs/replace/"), "%s %s wrote %s", kind, ref, name)
+					}
+				}
+			}
+			if !install {
+				assert.Equal(t, tip, f.repo.refs()["refs/replace/"+f.base], "hosted keeps git's replacement refs")
+			}
+		})
+	}
+}
+
+// A replacement ref the install already holds is ignored when the sync's
+// push is checked: a GitHub rewrite of main stays refused, and the
+// replacement is reported.
+func TestReceivePackInstallSyncRewriteIgnoresExistingReplacement(t *testing.T) {
+	f, tip := installFixture(t, "main")
+	var logs bytes.Buffer
+	f.srv.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	rec := postReceivePack(t, f, f.pushBody(f.base, tip, "refs/heads/main"), repohost.PusherCredentialHeader, "sync")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	// GitHub rewrites main to a sibling of tip; a planted replacement names
+	// a commit whose parent is tip in its place.
+	f.git("reset", "-q", "--hard", f.base)
+	rewrite := f.commit("rewritten on GitHub", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "reviewed.txt"), []byte("rewritten\n"), 0o644))
+	})
+	f.git("reset", "-q", "--hard", tip)
+	graft := f.commit("replacement", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "graft.txt"), []byte("graft\n"), 0o644))
+	})
+	carrier := f.pushBody(tip, graft, "refs/heads/carrier")
+	copy(carrier[4:44], laneZeroOID) // the pack is relative to tip; the command creates the bookmark
+	rec = postReceivePack(t, f, carrier, repohost.PusherCredentialHeader, "person")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	out, err := exec.Command("git", "--git-dir", f.repo.gitDir, "update-ref", "refs/replace/"+rewrite, graft).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	rec = postReceivePack(t, f, f.pushBody(tip, rewrite, "refs/heads/main"), repohost.PusherCredentialHeader, "sync")
+	require.Equal(t, http.StatusForbidden, rec.Code, "a replacement made the rewrite a fast-forward: %s", rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()["refs/heads/main"])
+	assert.Contains(t, logs.String(), "install replacement refs are ignored")
+	assert.Contains(t, logs.String(), "refs/replace/"+rewrite)
+}
+
+// Namespace maintenance deletes a symbolic user or workspace ref itself,
+// never the ref it names: main and the default bookmark survive the expiry
+// sweep, the listing's reconciliation and the workspace-ref delete, and a
+// retained source never writes through a symbolic ref.
+func TestSymbolicNamespaceRefsNeverWriteTheirTarget(t *testing.T) {
+	for _, install := range []bool{true, false} {
+		t.Run(fmt.Sprintf("install=%v", install), func(t *testing.T) {
+			f, tip := installFixture(t, "trunk")
+			f.srv.config.InstallMainMirror = install
+			git := func(args ...string) {
+				t.Helper()
+				out, err := exec.Command("git", append([]string{"--git-dir", f.repo.gitDir}, args...)...).CombinedOutput()
+				require.NoError(t, err, string(out))
+			}
+			git("update-ref", "refs/heads/trunk", f.base)
+			start := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+			alias := func(name, target string) string {
+				ref := repohost.UserRef(42, name)
+				git("symbolic-ref", ref, target)
+				return ref
+			}
+			protected := func(when string) {
+				t.Helper()
+				refs := f.repo.refs()
+				assert.Equal(t, f.base, refs["refs/heads/main"], "%s deleted main", when)
+				assert.Equal(t, f.base, refs["refs/heads/trunk"], "%s deleted the default bookmark", when)
+			}
+
+			// The sweep expires symbolic user refs.
+			withUserRefClock(t, start)
+			swept := []string{alias("main-alias", "refs/heads/main"), alias("default-alias", "refs/heads/trunk")}
+			rec := userRefRequest(t, f, http.MethodGet, "42", nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			withUserRefClock(t, start.Add(repohost.DefaultUserRefTTL+time.Hour))
+			f.srv.sweepUserRefs(t.Context())
+			protected("the sweep")
+			for _, ref := range swept {
+				assert.NotContains(t, f.repo.refs(), ref)
+			}
+
+			// The listing's reconciliation expires them too.
+			later := start.Add(2 * repohost.DefaultUserRefTTL)
+			withUserRefClock(t, later)
+			listed := []string{alias("main-alias-2", "refs/heads/main"), alias("default-alias-2", "refs/heads/trunk")}
+			rec = userRefRequest(t, f, http.MethodGet, "42", nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			withUserRefClock(t, later.Add(repohost.DefaultUserRefTTL+time.Hour))
+			rec = userRefRequest(t, f, http.MethodGet, "42", nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			protected("the listing")
+			for _, ref := range listed {
+				assert.NotContains(t, f.repo.refs(), ref)
+			}
+
+			// The workspace-ref delete removes symbolic workspace refs.
+			git("symbolic-ref", repohost.BranchHeadRef(userRefWorkspace), "refs/heads/main")
+			git("symbolic-ref", repohost.WorkspaceSourceRef(userRefWorkspace, f.base), "refs/heads/trunk")
+			rec = serveCaseRef(t, f, http.MethodDelete, "/workspace-refs/"+userRefWorkspace, "")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			protected("the workspace-ref delete")
+			assert.NotContains(t, f.repo.refs(), repohost.BranchHeadRef(userRefWorkspace))
+
+			// Retaining a user ref never writes through a symbolic source ref:
+			// git refuses to replace a dangling symbolic ref, and nothing moves.
+			withUserRefClock(t, later.Add(3*repohost.DefaultUserRefTTL))
+			rec = pushAs(t, f, "42", f.userRefPush(laneZeroOID, tip, repohost.UserRef(42, "work")))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			git("symbolic-ref", repohost.WorkspaceSourceRef(userRefWorkspace, tip), "refs/heads/planted")
+			rec = userRefRequest(t, f, http.MethodPost, "42/retain", map[string]string{"name": "work", "workspace_id": userRefWorkspace})
+			require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+			assert.NotContains(t, f.repo.refs(), "refs/heads/planted", "retain wrote through a symbolic source ref")
+			protected("the retain")
 		})
 	}
 }

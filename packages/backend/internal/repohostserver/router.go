@@ -973,6 +973,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	if err := s.refuseInstallMainPush(r.Context(), gitDir, sender.PusherCredential, commands); err != nil {
 		return err
 	}
+	s.reportInstallReplaceRefs(owner, repo, beforeRefs)
 	pusherID := sender.PusherID
 	if msg := repohost.ControlPlaneRefViolation(commands, r.Header.Get("X-Smithers-Workspace-Id"),
 		pusherID, r.Header.Get("X-Smithers-Control-Plane") == "mythical"); msg != "" {

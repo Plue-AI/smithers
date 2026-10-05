@@ -148,8 +148,10 @@ func (s *Server) reconcileUserRefs(ctx context.Context, gitDir string, refs map[
 	return index, nil
 }
 
+// deleteGitRef deletes a namespace-owned ref itself: --no-deref keeps a
+// symbolic ref from deleting the ref it names, main included.
 func deleteGitRef(ctx context.Context, gitDir, ref, oid string) error {
-	output, err := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "-d", ref, oid).CombinedOutput()
+	output, err := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--no-deref", "-d", ref, oid).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("delete %s: %s", ref, strings.TrimSpace(string(output)))
 	}
@@ -341,7 +343,8 @@ func (s *Server) retainUserRef(w http.ResponseWriter, r *http.Request) error {
 	}
 	sourceRef := repohost.WorkspaceSourceRef(req.WorkspaceID, oid)
 	if current, exists := refs[sourceRef]; !exists {
-		output, err := hostexec.Git(r.Context(), "--git-dir", gitDir, "update-ref", sourceRef, oid, strings.Repeat("0", 40)).CombinedOutput()
+		// --no-deref: a symbolic ref at that name never writes the ref it names.
+		output, err := hostexec.Git(r.Context(), "--git-dir", gitDir, "update-ref", "--no-deref", sourceRef, oid, strings.Repeat("0", 40)).CombinedOutput()
 		if err != nil {
 			return internalError("failed to retain the user ref", errors.New(strings.TrimSpace(string(output))))
 		}

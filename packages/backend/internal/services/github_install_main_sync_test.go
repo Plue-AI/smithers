@@ -30,6 +30,7 @@ import (
 // over smart HTTP, as the GitHub sync sees them.
 type installSync struct {
 	f      *gitFixture
+	cfg    repository.Config
 	client *repohost.Client
 	github string // GitHub's bare repository
 	server *httptest.Server
@@ -46,10 +47,11 @@ func newInstallSync(t *testing.T, install bool) *installSync {
 	root := t.TempDir()
 	f := &gitFixture{t: t, root: root, work: filepath.Join(root, "work")}
 	f.git(root, "init", "-q", "--initial-branch=main", f.work)
-	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "install-sync-engine", FFILibraryPath: ffi, InstallMainMirror: install})
+	cfg := repository.Config{StoragePath: t.TempDir(), AuthToken: "install-sync-engine", FFILibraryPath: ffi, InstallMainMirror: install}
+	local, err := repository.OpenLocal(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
-	s := &installSync{f: f, client: local.Client(), github: f.bare("github.git")}
+	s := &installSync{f: f, cfg: cfg, client: local.Client(), github: f.bare("github.git")}
 	require.Equal(t, install, s.client.InstallMainMirror())
 	backend := &cgi.Handler{Path: mustLookPath(t, "git"), Args: []string{"http-backend"}, Dir: root,
 		Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}}
@@ -80,6 +82,8 @@ func (s *installSync) receive(ctx context.Context, kind middleware.CredentialKin
 	body.Write(pack)
 	return s.client.ProxyReceivePack(ctx, owner, repo, &body, io.Discard, repohost.ReceivePackMetadata{PusherLogin: "github", PusherCredential: kind})
 }
+
+func (s *installSync) root() string { return s.f.root }
 
 func (s *installSync) main(t *testing.T, owner, repo, name string) string {
 	t.Helper()
@@ -206,9 +210,10 @@ func gitSmartHTTP(svc *GitHTTPProxyService) http.Handler {
 // Re-importing an existing mirror refreshes it from GitHub with the import's
 // system-minted, repository-bound sync token through the public push door.
 // On an install a GitHub fast-forward of main is refreshed, but a GitHub
-// rewrite of main is refused by the engine under its write lock: the refresh
-// fails (refresh_failed, lease released so the next import retries it) and
-// main stays where it was. Hosted repositories keep copying GitHub's refs.
+// rewrite of main is refused even when replacement refs on GitHub and in the
+// mirror make it read as a fast-forward: the import fails with the rewrite
+// (refresh_failed, lease released so the next import retries it) and main
+// stays where it was. Hosted repositories keep copying GitHub's refs.
 func TestReimportRefreshNeverRewritesInstallMain(t *testing.T) {
 	for _, install := range []bool{true, false} {
 		t.Run(map[bool]string{true: "install", false: "hosted"}[install], func(t *testing.T) {
@@ -240,6 +245,7 @@ func TestReimportRefreshNeverRewritesInstallMain(t *testing.T) {
 			existing := repository
 			svc := NewGitHubImportService(ledger, testGitHubImportRepoDB{existing: &existing}, testGitHubImportTokenDB{}, s.client,
 				testGitHubImportDecrypter{}, door.URL, WithGitHubImportHTTPClient(api.Client()), WithGitHubImportMetrics(metrics),
+				WithGitHubImportInstallMainMirror(s.client.InstallMainMirror()),
 				withGitHubImportProvenance(func(context.Context, int64, string, string, int64) (bool, error) { return true, nil }))
 
 			next := s.f.commit("merged on GitHub", "b.txt", "b")
@@ -254,14 +260,32 @@ func TestReimportRefreshNeverRewritesInstallMain(t *testing.T) {
 			rewrite := s.f.commit("rewritten on GitHub", "c.txt", "c")
 			s.f.git(s.f.work, "checkout", "-q", "main")
 			feature := s.f.commit("feature on GitHub", "d.txt", "d")
-			s.f.git(s.f.work, "push", "-q", "--force", s.github, rewrite+":refs/heads/main", feature+":refs/heads/feature")
+			// A replacement names, in rewrite's place, a commit whose parent is
+			// the mirror's main: with it, plain git reads the rewrite as a
+			// fast-forward. GitHub carries it, so the import's clone has it.
+			graft := s.f.commit("replacement", "e.txt", "e")
+			s.f.git(s.f.work, "push", "-q", "--force", s.github, rewrite+":refs/heads/main", feature+":refs/heads/feature", graft+":refs/replace/"+rewrite)
+			if install {
+				// A member cannot push it to the install's mirror...
+				err := s.receive(ctx, middleware.CredentialPerson, owner, repo, strings.Repeat("0", 40), graft, "refs/replace/"+rewrite)
+				var refused *repohost.StatusError
+				require.True(t, errors.As(err, &refused) && refused.StatusCode == http.StatusForbidden, "a member's replacement ref: %v", err)
+				// ...and one the mirror already holds is ignored too.
+				require.NoError(t, s.receive(ctx, middleware.CredentialPerson, owner, repo, strings.Repeat("0", 40), graft, "refs/heads/carrier"))
+				s.f.git(s.root(), "--git-dir", s.cfg.GitBackendPath(owner, repo), "update-ref", "refs/replace/"+rewrite, graft)
+			}
 			ledger.ledger = nil
 			_, _, err = svc.runImport(ctx, 7, "smithersai", repo, owner, "main", "job-rewrite")
-			require.NoError(t, err, "a failed refresh degrades to the existing mirror")
 			if !install {
+				require.NoError(t, err)
 				assert.Equal(t, rewrite, s.main(t, owner, repo, "main"), "hosted mirrors copy GitHub's rewrite")
 				return
 			}
+			var forcePush *GitHubMainForcePush
+			require.True(t, errors.As(err, &forcePush), "the refused rewrite fails the import: %v", err)
+			assert.Equal(t, GitHubMainForcePush{Old: next, New: rewrite}, *forcePush)
+			assert.Contains(t, err.Error(), "GitHub rewrote main")
+			assert.True(t, isTerminalGitHubImportFailure(err), "the job fails now and is retried by its owner, not twenty times")
 			assert.Equal(t, next, s.main(t, owner, repo, "main"), "a GitHub rewrite reached install main")
 			assert.Equal(t, next, s.main(t, owner, repo, "feature"), "the refused refresh wrote none of its refs")
 			assert.Contains(t, metrics.attempts, "refresh_failed")

@@ -269,3 +269,25 @@ func TestInstallMainMirrorUsesCanonicalRefIdentity(t *testing.T) {
 		}
 	}
 }
+
+// No credential, the sync included, writes a replacement ref on an install:
+// a replacement could make a rewrite of main read as a fast-forward.
+func TestInstallMainMirrorRefusesReplacementRefs(t *testing.T) {
+	for _, ref := range []string{"refs/replace/" + strings.Repeat("b", 40), "refs/Replace/x", "refs/re\u200cplace/x", "REFS/REPLACE/x"} {
+		for _, kind := range []middleware.CredentialKind{"", "person", "run", "platform", "sync"} {
+			err := RequireInstallMainMirror(true, kind, ref, "main")
+			refusal, ok := err.(*pkgerrors.APIError)
+			if !ok || refusal.Status != 403 || refusal.Code != "permission" {
+				t.Fatalf("%s/%s: %#v", ref, kind, err)
+			}
+			if err := RequireInstallMainMirror(false, kind, ref, "main"); err != nil {
+				t.Fatalf("hosted %s/%s: %v", ref, kind, err)
+			}
+		}
+	}
+	for _, ref := range []string{"refs/heads/replace", "refs/replacements/x", "refs/tags/replace/x"} {
+		if ReplaceRef(ref) {
+			t.Fatalf("%s is not a replacement ref", ref)
+		}
+	}
+}

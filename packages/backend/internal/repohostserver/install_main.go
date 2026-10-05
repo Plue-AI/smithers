@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -50,53 +51,64 @@ func (s *Server) refuseInstallMainBookmark(ctx context.Context, repoID, name str
 	return nil
 }
 
-// refuseInstallMainPush applies repohost.RequireInstallMainMirror to every ref
-// a push names and to every ref a symbolic one among them resolves to: git
-// receive-pack writes through a symbolic ref, so an alias of main is main.
-// It runs under the repository's write lock, before git reads the pack.
+// refuseInstallMainPush applies repohost.RequireInstallMainMirror to every
+// command of a push on an install, for every credential kind, and refuses a
+// command that names an existing symbolic ref: git receive-pack writes
+// through it, and nothing on an install pushes one. It runs under the
+// repository's write lock, before git reads the pack.
 func (s *Server) refuseInstallMainPush(ctx context.Context, gitDir string, kind middleware.CredentialKind, commands []repohost.ReceivePackCommand) error {
-	if !s.config.InstallMainMirror || kind == middleware.CredentialSync || len(commands) == 0 {
+	if !s.config.InstallMainMirror || len(commands) == 0 {
 		return nil
 	}
 	symbolic, err := listSymbolicRefs(ctx, gitDir)
 	if err != nil {
 		return internalError("failed to list symbolic refs", err)
 	}
-	var written []string
-	for _, command := range commands {
-		ref := command.RefName
-		for hop := 0; ref != "" && hop <= maxSymbolicRefHops; hop++ {
-			written = append(written, ref)
-			ref = symbolic[repohost.RefKey(ref)]
-		}
-		if ref != "" {
-			return installMainRefusal("the push is refused: " + command.RefName + " is a symbolic ref chain longer than git follows")
-		}
-	}
 	needsDefault := false
-	for _, ref := range written {
-		if err := repohost.RequireInstallMainMirror(true, kind, ref, ""); err != nil {
+	for _, command := range commands {
+		if symbolic[repohost.RefKey(command.RefName)] != "" {
+			return installMainRefusal("the push is refused: " + command.RefName + " is a symbolic ref")
+		}
+		if err := repohost.RequireInstallMainMirror(true, kind, command.RefName, ""); err != nil {
 			return installMainRefusal(err.Error())
 		}
-		needsDefault = needsDefault || strings.HasPrefix(repohost.RefKey(ref), "refs/heads/")
+		needsDefault = needsDefault || strings.HasPrefix(repohost.RefKey(command.RefName), "refs/heads/")
 	}
-	if !needsDefault {
+	// The sync may write main and the default; only the names above refuse it.
+	if !needsDefault || kind == middleware.CredentialSync {
 		return nil
 	}
 	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
 	if err != nil {
 		return installMainRefusal("the push is refused: the default bookmark cannot be read")
 	}
-	for _, ref := range written {
-		if err := repohost.RequireInstallMainMirror(true, kind, ref, defaultBookmark); err != nil {
+	for _, command := range commands {
+		if err := repohost.RequireInstallMainMirror(true, kind, command.RefName, defaultBookmark); err != nil {
 			return installMainRefusal(err.Error())
 		}
 	}
 	return nil
 }
 
-// maxSymbolicRefHops is git's own limit on following symbolic refs.
-const maxSymbolicRefHops = 5
+// reportInstallReplaceRefs logs the replacement refs an install's repository
+// already holds, from an import or from before the install refused them.
+// Every ancestry decision ignores them (gitutil.IsAncestor), and the native
+// reader does not apply them; the owner removes them.
+func (s *Server) reportInstallReplaceRefs(owner, repo string, refs map[string]string) {
+	if !s.config.InstallMainMirror || s.logger == nil {
+		return
+	}
+	var replaced []string
+	for ref := range refs {
+		if repohost.ReplaceRef(ref) {
+			replaced = append(replaced, ref)
+		}
+	}
+	if len(replaced) > 0 {
+		sort.Strings(replaced)
+		s.logger.Warn("install replacement refs are ignored", "owner", owner, "repo", repo, "refs", replaced)
+	}
+}
 
 // listSymbolicRefs maps each symbolic ref's RefKey to the ref it names.
 // RefKey matches git's lookup on a case-insensitive filesystem, where a

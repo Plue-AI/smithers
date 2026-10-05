@@ -891,6 +891,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithGitHubImportMetrics(smithersMetrics),
 		services.WithGitHubImportBillingPolicy(billingPolicy),
 		services.WithGitHubImportStorageSet(activeStorageSetID),
+		services.WithGitHubImportInstallMainMirror(repoHostClient.InstallMainMirror()),
 		services.WithGitHubImportTokenRefresher(authService),
 		services.WithGitHubImportInstallationTokens(repoConnectionService),
 		services.WithGitHubImportReadAccess(gitHubUserReposService),
@@ -972,7 +973,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repoSyncService := services.NewRepoSyncService("", repoConnectionService)
 	// Smithers main follows GitHub main for `mirror: "pull"` repositories.
 	gitHubMainPullService := services.NewGitHubMainPullService(queries, repoHostClient, repoConnectionService, repoConnectionService)
-	if config.IsSingleOwner(cfg.Auth) {
+	// The pull's install policy is the engine's install fact, as for every door.
+	if repoHostClient.InstallMainMirror() {
 		gitHubMainPullService.UseInstallPolicy()
 	}
 	gitHubSyncedRepoService.SetPullMirror(gitHubMainPullService.PullMirror)

@@ -328,13 +328,28 @@ func InstallMainRef(ref, defaultBookmark string) bool {
 	return defaultBookmark != "" && SameRef(ref, "refs/heads/"+defaultBookmark)
 }
 
+// ReplaceRef reports whether ref is a git replacement ref, in any spelling
+// that names the same file (RefKey). A replacement substitutes one commit for
+// another wherever git follows replacements, so on an install it could make
+// a rewrite of main read as a fast-forward.
+func ReplaceRef(ref string) bool {
+	return strings.HasPrefix(RefKey(ref), "refs/replace/")
+}
+
 // RequireInstallMainMirror refuses, on an install, a write of an
-// InstallMainRef by anything but the GitHub sync (§5.2.1, §12.2.3). Sync is
+// InstallMainRef by anything but the GitHub sync (§5.2.1, §12.2.3), and a
+// write of any ReplaceRef by anyone, the sync included. Sync is
 // server-issued authority that only receive-pack carries; a bookmark,
 // landing or repair route carries no credential kind and is always refused.
 // Hosted repositories retain their existing policy.
 func RequireInstallMainMirror(install bool, kind middleware.CredentialKind, ref, defaultBookmark string) error {
-	if install && kind != middleware.CredentialSync && InstallMainRef(ref, defaultBookmark) {
+	if !install {
+		return nil
+	}
+	if ReplaceRef(ref) {
+		return pkgerrors.New(pkgerrors.CodePermission, "replacement refs are refused on an install: they would rewrite main's history")
+	}
+	if kind != middleware.CredentialSync && InstallMainRef(ref, defaultBookmark) {
 		return pkgerrors.New(pkgerrors.CodePermission, "main is a GitHub mirror; merge a pull request on GitHub")
 	}
 	return nil

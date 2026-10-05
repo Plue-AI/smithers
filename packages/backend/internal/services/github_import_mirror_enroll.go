@@ -49,7 +49,7 @@ func (s *GitHubImportService) MirrorEnrolledGitHubRepo(ctx context.Context, user
 
 	// jobID is empty: this is not an import job, so there is no stage row to
 	// write. setStage tolerates the miss and only logs.
-	if err := s.refreshMirrorFromGitHub(ctx, userID, repository.ID, owner, repo, localOwner, repository.Name, "", githubCloneToken); err != nil {
+	if err := s.refreshMirrorFromGitHub(ctx, userID, repository.ID, owner, repo, localOwner, repository.Name, defaultBranch, "", githubCloneToken); err != nil {
 		return "", "", err
 	}
 	slog.Info("mirror.enrolled.ok",
