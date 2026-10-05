@@ -43,6 +43,8 @@ export const Workspace = S.Workspace("fixture", {
     Path.join(root, "packages/a/PACKAGE.ts"),
     `import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: {
+  manualRun: S.Shell.Run({ shell: "true", manual: true }),
+  ordinaryRun: S.Shell.Run({ shell: "true" }),
   ...S.SecurityReview({ cwd: "packages/a", base: "HEAD", checks: [] })
 } })
 `
@@ -80,5 +82,16 @@ describe("manual targets", () => {
 
   it("are selected by label", async () => {
     expect(await roots("//packages/a:securityAudit")).toEqual(["//packages/a:securityAudit"])
+  })
+})
+
+describe("manual Shell.Run selection", () => {
+  const runRoots = async (pattern: string) =>
+    (await PackageExec.plan({ index, cacheDirectory: ".flows", verb: "run", patterns: [pattern], plan: true })).roots
+  it("omits manual runs from wildcards while keeping ordinary runs", async () => {
+    expect(await runRoots("//...")).toEqual(["//packages/a:ordinaryRun"])
+  })
+  it("selects a manual run by its explicit label", async () => {
+    expect(await runRoots("//packages/a:manualRun")).toEqual(["//packages/a:manualRun"])
   })
 })
