@@ -66,7 +66,7 @@ test("typed GitHub, infra, access and not-found envelopes survive without insert
       live: { subscribe: () => () => {}, getSnapshot: () => undefined } })
     await seam.read()
     expect(await seam.mutate("members.add", { login: "alice", role: "member" })).toEqual(error)
-    expect(seam.snapshots.get()).toEqual({ model, error })
+    expect(seam.snapshots.get()).toEqual({ model, error, refused: "members.add" })
     seam.dispose()
   }
 })
@@ -144,6 +144,32 @@ test("disposed mutation cannot publish or reread", async () => {
   await mutation
   expect(seam.snapshots.get()).toEqual({})
   expect(effects).toBe(1)
+})
+test("a refused Add shows why in the add row: needs access links to GitHub, other refusals are text, and no row appears", async () => {
+  for (const [error, expected] of [
+    [{ class: "user", code: "needs_github_access", message: "Needs access on GitHub", fix: "https://github.com/smithersai/smithers/settings/access" },
+      '<a class="mvp-access" href="https://github.com/smithersai/smithers/settings/access" target="_blank" rel="noreferrer">needs access on GitHub<svg'],
+    [{ class: "user", code: "unknown_github_user", message: "Unknown GitHub user" }, '<span class="mvp-member-reason">Unknown GitHub user</span>']
+  ] as const) {
+    const seam = createMembersSeam({ ready: true, http: async (_url, init) => Response.json(init?.method ? error : model, { status: init?.method ? 403 : 200 }),
+      live: { subscribe: () => () => {}, getSnapshot: () => undefined } })
+    await seam.read()
+    await seam.mutate("members.add", { login: "carol", role: "member" })
+    const addRow = () => renderToStaticMarkup(<MembersCard roster={seam.snapshots} role="owner" dispatch={() => {}} view={{ maximized: false }} onView={() => {}} />).split('class="mvp-add-row"')[1]
+    expect(addRow()).toContain(expected)
+    expect(addRow()).not.toContain("carol")
+    // A later committed read clears the refusal.
+    await seam.read()
+    expect(addRow()).not.toContain(expected)
+    seam.dispose()
+  }
+  // A failed role change is not an Add refusal.
+  const seam = createMembersSeam({ ready: true, http: async (_url, init) => Response.json(init?.method ? { class: "conflict", code: "conflict", message: "Busy" } : model, { status: init?.method ? 409 : 200 }),
+    live: { subscribe: () => () => {}, getSnapshot: () => undefined } })
+  await seam.read()
+  await seam.mutate("members.role", { login: "ben", role: "member" })
+  expect(renderToStaticMarkup(<MembersCard roster={seam.snapshots} role="owner" dispatch={() => {}} view={{ maximized: false }} onView={() => {}} />)).not.toContain("Busy")
+  seam.dispose()
 })
 test("a missing roster renders no controls or invented rows", () => {
   const html = renderToStaticMarkup(<MembersCard roster={{ get: () => ({}), subscribe: () => () => {} }} role="owner"

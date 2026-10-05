@@ -11,7 +11,9 @@ import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
  * Members projection fields from spec §14.3 and ui-components.md v0.4 (T-UI-09). `needs_access`: never had write
- * access on GitHub; `suspended`: lost it, automatically (M-05, §5.1.3). Every Members command is person-only.
+ * access on GitHub; `suspended`: lost it, automatically (M-05, §5.1.3). `add_refused`: why the last Add stored no row,
+ * with `fix` linking where to fix it (a person without write access: the repository's access settings on GitHub).
+ * Every Members command is person-only.
  * @since 1.0.0
  * @category schemas
  */
@@ -26,7 +28,8 @@ export const MembersCardSchema = z.object({
       actions: z.array(ActionSchema)
     })
   ),
-  access_url: HttpUrlSchema
+  access_url: HttpUrlSchema,
+  add_refused: z.object({ text: z.string(), fix: HttpUrlSchema.optional() }).optional()
 })
 
 /**

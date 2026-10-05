@@ -23,7 +23,10 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
   if (role !== "member") definitions.push({ tag: "members.add", label: "Add", command_input: { login: "", role: "member" },
     input: [{ name: "login", label: "GitHub username", kind: "text", required: true }],
     resolve_input: input => ({ login: input.login ?? "", role: "member" }) })
-  const model = { ...source, members: source.members.map(member => {
+  // A refused Add stores no row; the add row says why, linking to GitHub when the fix is there (C-J1-05).
+  const refusal = snapshot.refused === "members.add" ? snapshot.error : undefined
+  const model = { ...source, ...(refusal ? { add_refused: { text: refusal.code === "needs_github_access" ? "needs access on GitHub" : refusal.message,
+    ...(refusal.fix ? { fix: refusal.fix } : {}) } } : {}), members: source.members.map(member => {
     const actor = toActor({ person: member.login }, [{ ...member, id: member.login }])
     if (role !== "member" && member.role !== "owner") {
       definitions.push({ tag: "members.role", label: "Role", args: { login: member.login },

@@ -30,7 +30,10 @@ export function MembersView({ model, actions, onAction }: MembersViewProps) {
     <ul className="mvp-members">
       {rows}
     </ul>
-    <div className="mvp-add-row">{footer}</div>
+    <div className="mvp-add-row">{footer}
+      {model.add_refused?.fix ? <a className="mvp-access" href={model.add_refused.fix} target="_blank" rel="noreferrer">{model.add_refused.text}<ExternalLink size={12} aria-hidden="true" /></a>
+        : model.add_refused ? <span className="mvp-member-reason">{model.add_refused.text}</span> : null}
+    </div>
   </section>
 }
 

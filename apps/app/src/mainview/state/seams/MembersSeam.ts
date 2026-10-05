@@ -6,7 +6,8 @@ import { randomUuid } from "../../runtime/RandomUuid"
 
 // T-ACC-02 owns the shared validator; replace this boundary validator when it is exported.
 export const validMemberLogin = (login: string) => /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(login)
-export interface MembersSnapshot { readonly model?: MembersCard; readonly error?: InstallError }
+/** `refused` names the mutation `error` answered, so the card can say why an Add stored no row. */
+export interface MembersSnapshot { readonly model?: MembersCard; readonly error?: InstallError; readonly refused?: "members.add" | "members.role" | "members.remove" }
 export interface MembersSnapshots {
   readonly get: () => MembersSnapshot
   readonly subscribe: (listener: () => void) => () => void
@@ -68,7 +69,7 @@ export function createMembersSeam(options: {
         if (disposed) return
         const error = parsed.success ? parsed.data : membersUnavailable
         if (error.class === "permission" || error.class === "never") ++generation
-        publish({ ...(error.class === "permission" || error.class === "never" ? {} : snapshot), error }); return error
+        publish({ ...(error.class === "permission" || error.class === "never" || !snapshot.model ? {} : { model: snapshot.model }), error, refused: tag }); return error
       }
       // Server-seeded roles and post-commit rows only; a mutation never appends optimistically.
       return await read()
