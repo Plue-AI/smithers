@@ -747,3 +747,16 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
     } finally { out.close() }
   })
 })
+
+
+test("retained settled questions settle Needs you without raising a new answer toast", async () => {
+  const h = await harness(async () => json({ state: "accepted", n: 12 }))
+  try {
+    const question = fixtures.needs_you.model.waits[0]!
+    const active = { ...fixtures.needs_you.model, owner: { ...fixtures.needs_you.model.owner, login: "ben" } }
+    await h.seam.applyTodoProjection(12, active)
+    await h.seam.applyTodoProjection(12, { ...active, state: "working", waits: [{ ...question, actions: [], answered_by: "alice", settled_at: "2026-10-05T17:00:00Z" }] })
+    expect(h.outcomes).toEqual([{ key: `todo.needs-you.12.${question.id}`, status: "ok", detail: "Answered" }])
+    expect(h.todo().payload.model?.waits[0]?.answered_by).toBe("alice")
+  } finally { h.close() }
+})

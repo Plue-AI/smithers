@@ -118,6 +118,7 @@ func TestJ11Rehearsal(t *testing.T) {
 	}
 	var t5, pr int64
 	head, branch, run, wait := "", "", "", ""
+	var since, observed, answeredAt time.Time
 	if !r.step("1 T5 asks", "POST /api/todos; GET /api/todos/{T5}", "202; needs_you with one question", "T-STK-01", func() error {
 		var err error
 		if t5, err = r.file("T5 greets", "[ASK] [FILE t5.md] Add a greeting to t5.md"); err != nil {
@@ -134,6 +135,7 @@ func TestJ11Rehearsal(t *testing.T) {
 			return fmt.Errorf("T%d needs you with branch %+v and run %+v", t5, v.Branch, v.Run)
 		}
 		wait, branch, run = v.Waits[0].ID, v.Branch.ID, v.Run.ID
+		since, observed = v.Waits[0].Since, time.Now()
 		return nil
 	}) {
 		return
@@ -161,7 +163,13 @@ func TestJ11Rehearsal(t *testing.T) {
 			return nil
 		})
 	if !r.step("2 T5 in review after the answer", "POST /api/todos/{T5}/answer; GET /api/todos/{T5}; GitHub fake PR", "202; in_review; PR smithers/<slug> at the card's head, base main", "T-STK-01", func() error {
-		code, data, err := r.answer(t5, wait, "Say hello in Spanish")
+		alice, err := r.member("alice", 202, "pull")
+		if err != nil {
+			return err
+		}
+		time.Sleep(2 * time.Second)
+		answeredAt = time.Now()
+		code, data, err := r.keyedAs(alice, "POST", fmt.Sprintf("/api/todos/%d/answer", t5), fmt.Sprintf(`{"wait":%q,"answer":"Say hello in Spanish"}`, wait), "j11-alice-answer")
 		if err != nil || code != 202 {
 			return fmt.Errorf("answer: HTTP %d %s %v", code, data, err)
 		}
@@ -256,7 +264,28 @@ func TestJ11Rehearsal(t *testing.T) {
 	r.pending("11 Step I/O and transcript", "Inspect → implement", "input, output and the agent transcript", "T-FLW-07", "inspect-run-trace")
 	r.pending("12 Retries", "Inspect → timeline", "both check attempts, the first failed", "T-FLW-07", "inspect-run-trace")
 	r.pending("13 Tokens and time", "Inspect → steps", "tokens and time per step", "T-FLW-07", "inspect-run-trace")
-	r.pending("14 Wait for the answer", "Inspect → waits", "the question with since, answered_by and its settle time", "T-FLW-07", "monitor-waits")
+	r.step("14 Wait for the answer", "GET /api/todos/{T5} after merge", "original since; answered_by alice; settled duration within 5 s of the observed delay; no Answer", "T-FLW-07", func() error {
+		v, err := r.todo(t5)
+		if err != nil {
+			return err
+		}
+		for _, w := range v.Waits {
+			if w.ID != wait {
+				continue
+			}
+			if !w.Since.Equal(since) || w.SettledAt == nil || w.AnsweredBy != "alice" || len(w.Actions) != 0 {
+				return fmt.Errorf("settled question: %+v", w)
+			}
+			duration := w.SettledAt.Sub(w.Since)
+			delta := duration - answeredAt.Sub(observed)
+			if delta < -5*time.Second || delta > 5*time.Second || duration < 2*time.Second {
+				return fmt.Errorf("duration %s; observed %s", duration, answeredAt.Sub(observed))
+			}
+			r.actual = fmt.Sprintf("alice; since %s; settled %s; duration %s; observed delay %s; no Answer", w.Since.Format(time.RFC3339Nano), w.SettledAt.Format(time.RFC3339Nano), duration, answeredAt.Sub(observed))
+			return nil
+		}
+		return fmt.Errorf("merged T%d lost wait %s", t5, wait)
+	})
 	r.pending("15 Titles and /monitor", "Inspect; /monitor", "Appendix C step titles, one Engine row; /monitor lists the TODO run with Inspect", "T-FLW-07", "monitor-labels")
 	r.pending("16 Per-step cost", "Inspect → steps; model proxy usage", "each step's cost sums to the run's metered total", "T-FLW-07", "step-cost")
 	r.pending("17 Live step states", "GET /api/live run:<id>", "a step state change arrives within 1 s", "T-FLW-07", "live-slice")

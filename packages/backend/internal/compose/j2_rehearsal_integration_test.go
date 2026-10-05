@@ -173,9 +173,10 @@ func TestJ2Rehearsal(t *testing.T) {
 		type card struct {
 			State string `json:"state"`
 			Waits []struct {
-				ID     string `json:"id"`
-				Kind   string `json:"kind"`
-				Prompt string `json:"prompt"`
+				ID        string     `json:"id"`
+				SettledAt *time.Time `json:"settled_at"`
+				Kind      string     `json:"kind"`
+				Prompt    string     `json:"prompt"`
 			} `json:"waits"`
 			FirstAnswer *struct {
 				Text string `json:"text"`
@@ -225,7 +226,7 @@ func TestJ2Rehearsal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if answered.State == "needs_you" || len(answered.Waits) != 0 || answered.FirstAnswer == nil || answered.FirstAnswer.Text != greeting {
+		if answered.State == "needs_you" || len(answered.Waits) != 1 || answered.Waits[0].SettledAt == nil || answered.FirstAnswer == nil || answered.FirstAnswer.Text != greeting {
 			return fmt.Errorf("the answer did not settle the question: %s", r.actual)
 		}
 		// The answer resumes the run that asked: its plan follows.

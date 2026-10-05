@@ -147,7 +147,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (request.operation === "merge") return model.state === "merged"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       // An accepted answer is done once its question is no longer open.
-      if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait)
+      if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait && wait.settled_at === undefined)
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Answered" } }]
       // A drop settles once the TODO is dropped.
       if (request.operation === "drop") return model.state === "dropped"
@@ -178,7 +178,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     } }, "system")
     // Needs you (M-14): each question the agent opens raises one toast with its Answer for the TODO's owner and anyone
     // on its branch, settled when the question is.
-    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).filter(wait => wait.kind === "question").map(wait => wait.id))
+    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).filter(wait => wait.kind === "question" && wait.settled_at === undefined).map(wait => wait.id))
     const before = asked(card.payload.model), after = asked(model)
     const toasted = model.owner.login === owner() || model.present.some(actor => actor.kind === "person" && actor.login === owner())
     for (const id of after) {

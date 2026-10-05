@@ -1295,3 +1295,16 @@ test("a pending facet does not claim an empty result; refusal keeps the existing
   expect(failed).toContain('data-flow="runs.logs"')
   expect(failed).toContain('data-flow-args="run-1"')
 })
+
+
+test("the settled wait pane shows the answering member and settlement time", () => {
+  const events = [
+    stamp(1, "control.approval.requested", { requestId: "q", question: "Which language?" }, 1000),
+    stamp(2, "control.approval.approved", { tokenId: "q", principal: { id: "alice", kind: "person" } }, 13000)
+  ]
+  const h = renderTrace({ events, selection: "approval-q", liveTail: false })
+  const fields = h.host.querySelector('[aria-label="Journal fields"]')!
+  expect(fields.textContent).toContain("alice")
+  expect(fields.textContent).toContain("settled_at")
+  expect(fields.textContent).toContain("13000")
+})

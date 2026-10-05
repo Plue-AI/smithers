@@ -1473,8 +1473,10 @@ const foldStep = (state: FoldState, record: JournalRecord): void => {
         const span = key === undefined
           ? [...approvals.values()].find((entry) => entry.status === "waiting")
           : approvals.get(key)
-        if (span === undefined) break
+        if (span === undefined || span.status !== "waiting") break
         touch(span)
+        span.detail = { ...span.detail, fields: { ...span.detail.fields,
+          ...restOf(payload, ["tokenId", "requestId"]), settled_at: at } }
         span.status = decided
         span.endedAt = at
         break

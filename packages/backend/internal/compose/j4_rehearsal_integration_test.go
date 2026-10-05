@@ -426,8 +426,10 @@ func TestJ4Rehearsal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if len(v.Waits) > 0 {
-			return fmt.Errorf("T2 still waits on %s %q", v.Waits[0].Kind, v.Waits[0].Prompt)
+		for _, wait := range v.Waits {
+			if wait.SettledAt == nil {
+				return fmt.Errorf("T2 still waits on %s %q", wait.Kind, wait.Prompt)
+			}
 		}
 		if len(v.PR.Head) != 40 {
 			return fmt.Errorf("T2 in review has no PR head")
@@ -684,7 +686,7 @@ func TestJ4Rehearsal(t *testing.T) {
 			return nil
 		}
 		if err := check("answer", fmt.Sprintf("todo:%d", t2), answered.at, func(frame liveFrame) bool {
-			return !slices.ContainsFunc(decodeTodo(frame).Waits, func(wait liveWait) bool { return wait.ID == wait2 })
+			return !slices.ContainsFunc(decodeTodo(frame).Waits, func(wait liveWait) bool { return wait.ID == wait2 && wait.SettledAt == nil })
 		}); err != nil {
 			return err
 		}

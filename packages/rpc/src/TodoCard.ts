@@ -20,7 +20,7 @@ import {
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
- * One open wait for a person (spec §10.8.0). Waits are independent: settling one never settles another, and each
+ * One durable wait for a person (spec §10.8.0). Waits are independent: settling one never settles another, and each
  * carries its own action (§4.1.0a).
  * @since 1.0.0
  * @category schemas
@@ -30,6 +30,8 @@ export const TodoWaitSchema = z.object({
   kind: NeedsYouKindSchema,
   prompt: z.string(),
   since: z.string(),
+  answered_by: z.string().optional(),
+  settled_at: z.string().optional(),
   paths: z.array(z.string()).optional(),
   ssh_line: z.string().optional(),
   by: ActorSchema.optional(),

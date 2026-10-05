@@ -227,3 +227,15 @@ test("a row the seed opened (no projection, no request) renders the seeded TODO;
   const requested = render({ n: 9, requests: [{ key: "k", owner: "ben", operation: "steer", n: 9, body: { text: "x" }, state: "failed", error: "Stack unavailable" }] })
   expect(requested).not.toContain(seededTitle)
 })
+
+
+test("retained answered history neither reopens Answer nor marks the current step waiting", () => {
+  const question = fixtures.needs_you.model.waits[0]!
+  const model: TodoCard = { ...fixtures.needs_you.model, state: "working", waits: [{ ...question, actions: [],
+    answered_by: "alice", settled_at: "2026-10-05T17:00:12Z" }] }
+  const h = mount(model)
+  expect(h.props.actions.some(action => action.tag === "todo.answer")).toBe(false)
+  const html = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(html).toContain(question.prompt)
+  expect(html).not.toContain('data-phase="waiting"')
+})

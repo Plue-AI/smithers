@@ -188,5 +188,6 @@ func decodeTodo(frame liveFrame) liveTodo {
 
 // liveWait is one open question or approval on a TODO card.
 type liveWait struct {
-	ID string `json:"id"`
+	ID        string     `json:"id"`
+	SettledAt *time.Time `json:"settled_at"`
 }

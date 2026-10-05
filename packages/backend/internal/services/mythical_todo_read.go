@@ -84,16 +84,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	if len(revisions) == 0 {
 		revisions = []byte(`[]`)
 	}
-	waits := []map[string]any{}
-	for _, wait := range todoOpenWaits(item) {
-		actions := []any{}
-		if wait.Kind == "question" && wait.Signal != nil {
-			// The seeded card's Answer: one text field, sent as todo.answer.
-			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
-				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
-		}
-		waits = append(waits, map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions})
-	}
+	waits := todoWaitCards(item)
 	// There is no branch or machine before admission. Never invent an ID or
 	// machine state for a queued item; TodoCard permits that absence.
 	card := map[string]any{"n": item.Number.Int64, "title": item.Title.String, "state": todoState(item),

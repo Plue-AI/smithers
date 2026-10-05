@@ -809,10 +809,13 @@ type rehearsalTodo struct {
 		Reason string `json:"reason"`
 	} `json:"merge"`
 	Waits []struct {
-		ID      string `json:"id"`
-		Kind    string `json:"kind"`
-		Prompt  string `json:"prompt"`
-		Actions []struct {
+		Since      time.Time  `json:"since"`
+		SettledAt  *time.Time `json:"settled_at"`
+		AnsweredBy string     `json:"answered_by"`
+		ID         string     `json:"id"`
+		Kind       string     `json:"kind"`
+		Prompt     string     `json:"prompt"`
+		Actions    []struct {
 			Tag string `json:"tag"`
 		} `json:"actions"`
 	} `json:"waits"`

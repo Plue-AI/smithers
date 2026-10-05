@@ -139,7 +139,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
             : index < currentIndex ? "done"
             : index > currentIndex ? "next"
             : "kind" in step ? "held"
-            : todo.waits.length ? "waiting"
+            : todo.waits.some(wait => wait.settled_at === undefined) ? "waiting"
             : todo.state === "failed" ? "failed"
             : todo.state === "paused" ? "paused" : "current";
           return (
