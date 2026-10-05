@@ -134,6 +134,12 @@ type GitHubMainPullService struct {
 	synced func(ctx context.Context, repositoryID int64, githubRepository, branch string)
 	// syncing holds the repositories whose synced listener is running.
 	syncing sync.Map
+	// issueEvents is the install's issue-events stream (SetIssueEvents):
+	// each followed repository's read, run from Start every
+	// issueEventsEvery; issueEventsRead holds each repository's last turn.
+	issueEvents      func(ctx context.Context, repositoryID int64) error
+	issueEventsEvery time.Duration
+	issueEventsRead  map[int64]time.Time
 }
 
 // SetFactoryReconciler registers owner-main declaration reconciliation. Failures
@@ -303,6 +309,7 @@ func (s *GitHubMainPullService) Start(ctx context.Context) {
 		if err := s.PollOnce(ctx); err != nil && ctx.Err() == nil {
 			s.logger.Error("github.main_pull.claim_failed", "error", err)
 		}
+		s.readIssueEvents(ctx)
 		select {
 		case <-ctx.Done():
 			return

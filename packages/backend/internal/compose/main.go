@@ -219,6 +219,9 @@ type Options struct {
 	OwnerModelKeys modelproxy.Keys
 	// ModelProxyUpstreams overrides provider origins for PlatformModelKeys.
 	ModelProxyUpstreams map[string]string
+	// GitHubIssueEventsEvery is the install's issue-events cadence; zero is
+	// the product's 120 s. The journey rehearsals read every few seconds.
+	GitHubIssueEventsEvery time.Duration
 	// AdminRoutes serves deployment operator endpoints under /api/admin.
 	AdminRoutes ports.AdminRoutes
 }
@@ -1063,6 +1066,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				slog.WarnContext(ctx, "github.main_pull.request_failed", "repository_id", repositoryID, "error", err)
 			}
 		})
+		// No webhook reaches an install (M-03): the sync reads each
+		// repository's issue events, so a member's todo label on GitHub
+		// commits a TODO (J2 step 2).
+		gitHubMainPullService.SetIssueEvents(mythicalService.ReadIssueEvents, options.GitHubIssueEventsEvery)
 	}
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)

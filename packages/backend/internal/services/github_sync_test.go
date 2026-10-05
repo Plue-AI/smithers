@@ -258,3 +258,48 @@ func TestGitHubSyncPauseTimerRecoversWithoutPolling(t *testing.T) {
 		})
 	}
 }
+
+// The install's sync reads each followed repository's issue events on its
+// cadence from its own loop: due repositories are read, a failed read holds
+// up no other, and nothing is read off an install or before a repository's
+// first main read names its GitHub repository.
+func TestInstallSyncReadsIssueEventsOnItsCadence(t *testing.T) {
+	store := newFakeMainPullStore()
+	store.rows[1] = &db.GithubMainPull{RepositoryID: 1, GithubRepository: "acme/one", State: "synced"}
+	store.rows[2] = &db.GithubMainPull{RepositoryID: 2, GithubRepository: "acme/two", State: "synced"}
+	store.rows[3] = &db.GithubMainPull{RepositoryID: 3, State: "pending"}
+	service := NewGitHubMainPullService(store, nil, nil, nil)
+	now := time.Unix(1_000_000, 0)
+	service.now = func() time.Time { return now }
+	var read []int64
+	service.SetIssueEvents(func(ctx context.Context, repositoryID int64) error {
+		_, bounded := ctx.Deadline()
+		require.True(t, bounded, "each read is bounded")
+		read = append(read, repositoryID)
+		if repositoryID == 1 {
+			return errors.New("GitHub refused")
+		}
+		return nil
+	}, 0)
+	require.Equal(t, gitHubIssueEventsEvery, service.issueEventsEvery, "the product cadence is 120 s")
+
+	service.readIssueEvents(context.Background())
+	require.Empty(t, read, "off an install nothing is read")
+	service.UseInstallPolicy()
+	service.readIssueEvents(context.Background())
+	require.ElementsMatch(t, []int64{1, 2}, read, "a failed read holds up no other; a repository not yet read is skipped")
+	read = nil
+	now = now.Add(119 * time.Second)
+	service.readIssueEvents(context.Background())
+	require.Empty(t, read, "not due before 120 s")
+	now = now.Add(time.Second)
+	service.readIssueEvents(context.Background())
+	require.ElementsMatch(t, []int64{1, 2}, read, "a failed read runs again on its next turn")
+
+	read = nil
+	service.SetIssueEvents(service.issueEvents, 2*time.Second)
+	service.readIssueEvents(context.Background())
+	now = now.Add(2 * time.Second)
+	service.readIssueEvents(context.Background())
+	require.Len(t, read, 4, "a configured cadence")
+}

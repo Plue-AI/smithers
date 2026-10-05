@@ -90,6 +90,56 @@ func githubSyncUnavailable() error {
 // repository is followed with no declaration, on the install cadence, as
 // the one writer of the install's main (mainWriter), and its receipts are
 // the sync's health. Plue keeps declaration-based enrollment.
+// gitHubIssueEventsEvery is the install's issue-events cadence (engineering
+// spec §12.2: issues and issue events every 120 s; mvp.md §6.3: issues
+// within 5 minutes), and gitHubIssueEventsTimeout bounds one repository's
+// read.
+const (
+	gitHubIssueEventsEvery   = 120 * time.Second
+	gitHubIssueEventsTimeout = time.Minute
+)
+
+// SetIssueEvents registers the install's issue-events stream: read runs for
+// each followed repository every `every` (gitHubIssueEventsEvery when not
+// positive), from the sync's own loop. MythicalService.ReadIssueEvents is
+// the read: it hands a member's todo label to the label door.
+func (s *GitHubMainPullService) SetIssueEvents(read func(ctx context.Context, repositoryID int64) error, every time.Duration) {
+	if every <= 0 {
+		every = gitHubIssueEventsEvery
+	}
+	s.issueEvents, s.issueEventsEvery, s.issueEventsRead = read, every, map[int64]time.Time{}
+}
+
+// readIssueEvents runs each followed repository's issue-events read that is
+// due. A failed read is logged and runs again on its next turn; it holds up
+// no other repository's read.
+func (s *GitHubMainPullService) readIssueEvents(ctx context.Context) {
+	receipts, ok := s.store.(gitHubMainPullReceipts)
+	if !s.install || s.issueEvents == nil || !ok {
+		return
+	}
+	rows, err := receipts.ListGithubMainPulls(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.Error("github.issue_events.list_failed", "error", err)
+		}
+		return
+	}
+	for _, row := range rows {
+		now := s.now()
+		if last, read := s.issueEventsRead[row.RepositoryID]; row.GithubRepository == "" || read && now.Sub(last) < s.issueEventsEvery {
+			continue
+		}
+		s.issueEventsRead[row.RepositoryID] = now
+		readCtx, cancel := context.WithTimeout(ctx, gitHubIssueEventsTimeout)
+		err := s.issueEvents(readCtx, row.RepositoryID)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			s.logger.Warn("github.issue_events.failed", "repository_id", row.RepositoryID, "github", row.GithubRepository, "error", err)
+		}
+	}
+}
+
 func (s *GitHubMainPullService) UseInstallPolicy() {
 	s.install = true
 	if receipts, ok := s.store.(gitHubMainPullReceipts); ok {
