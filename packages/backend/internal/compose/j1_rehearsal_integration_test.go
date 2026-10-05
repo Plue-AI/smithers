@@ -961,8 +961,10 @@ func TestJ1Rehearsal(t *testing.T) {
 	var prNumber int64
 	// Each state lasts as long as the work behind it: Starting until the lane's
 	// coding host accepts the run, Working for the scripted coding/request,
-	// In review once coding/vibe delivered and the PR opened.
-	waits := map[string]time.Duration{"queued": 3 * time.Second, "starting": 2 * time.Minute, "working": 3 * time.Minute, "in_review": 10 * time.Minute}
+	// In review once coding/vibe delivered and the PR opened. The stack takes
+	// its own steps to In review at once, so a TODO left for the stale sweep
+	// (5 to 10 minutes) fails here.
+	waits := map[string]time.Duration{"queued": 3 * time.Second, "starting": 2 * time.Minute, "working": 3 * time.Minute, "in_review": 2 * time.Minute}
 	for _, state := range []string{"queued", "starting", "working", "in_review"} {
 		if !step("TODO "+state, "GET "+todoPath, "200 state="+state, "T-STK-01", func() error {
 			if number <= 0 {
