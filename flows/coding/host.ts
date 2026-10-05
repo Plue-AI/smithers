@@ -105,6 +105,7 @@ export interface Options extends NativeOptions {
       readonly seats?: Readonly<Record<string, string>>
       readonly limits?: ProjectConfig["limits"]
       readonly landing?: ProjectConfig["landing"]
+      readonly detected?: ProjectConfig["detected"]
     })
     | undefined
   readonly planningModel?: string | undefined
@@ -147,12 +148,21 @@ export const configuredCodingRoutes = (
   ...(options.planning?.wiki === true ? [{ name: "coding/wiki" as const, capability: "coding-wiki/v1" }] : [])
 ]
 
-/** The built-ins this configured host writes: the defaults plus its configured coding routes. */
+/**
+ * The built-ins this configured host writes: the defaults, its configured
+ * coding routes and the check flows of the commands it detected.
+ */
 export const provisionHostBuiltins = (
   stateRoot: string,
   policy: string,
   options: Pick<Options, "planning" | "landing">
-) => provisionBuiltins(stateRoot, policy, configuredCodingRoutes(options).map((route) => route.name))
+) =>
+  provisionBuiltins(
+    stateRoot,
+    policy,
+    configuredCodingRoutes(options).map((route) => route.name),
+    options.planning?.detected ?? []
+  )
 
 /**
  * The executables a configured host refuses to serve without, by name.

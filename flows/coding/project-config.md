@@ -6,8 +6,8 @@ The host uses the same Effect composition and durable engine on Node and Bun.
 
 The host loads `<root>/.smithers/coding-project.json` when it exists and
 `SMITHERS_CODING_PROJECT` is unset. Set that variable to an explicit UTF-8 JSON
-file to override the default. An absent default leaves the manual plan route
-available; an empty, missing, malformed or invalid explicit file refuses
+file to override the default. An absent default uses the built-in
+configuration below; an empty, missing, malformed or invalid explicit file refuses
 startup. An invalid default also refuses startup and names its path. The file
 is read once before host construction through the injected Effect filesystem.
 Restart the host to adopt a changed configuration or catalog.
@@ -53,6 +53,31 @@ a claim that review already passed. Page entries use the existing wiki
 `historyLimit` is optional (1–100, default 100). `maxMemoryBytes` is optional
 (1024–92160, default 49152). A project with no adequate required checks still
 fails the existing planning/validation policy; the loader invents none.
+
+## Built-in configuration
+
+A repository with no Smithers declarations still serves coding requests
+(mvp.md J1.4). With no file, and for each of `implementation` and `checks` a
+file omits, the host uses:
+
+- `implementation`: `coding/implementation`.
+- `checks`: one required check per command the repository-registration
+  detector (`checkCommands`, `flows/register-repository/tree.ts`) finds, in its
+  order.
+- `wiki`: `false`.
+
+Detection reads only `package.json`, `Makefile`, `Cargo.toml`, `go.mod`,
+`pyproject.toml`, `setup.py`, `pytest.ini` and the package-manager lockfiles at
+`--root`, and runs nothing. Each detected command becomes the check `<kind>`
+(`test`, `lint`, `typecheck` or `build`) on the built-in flow `checks/<kind>`,
+which the host writes beside its other built-ins with the body
+`{"argv": [...], "cwd": ".", "timeoutMs": 1800000}`. Lint, typecheck and build
+are fast checks; test is the slow check. A Go repository gets `go test ./...`,
+`go vet ./...` and `go build ./...`; a pnpm repository with `test` and `lint`
+scripts gets `pnpm run test` and `pnpm run lint`. A field the file declares,
+including an empty `checks`, always wins. Planning still needs a required fast
+and a required slow check, so a request in a repository whose detected
+commands lack either fails at planning.
 
 ## Landing
 

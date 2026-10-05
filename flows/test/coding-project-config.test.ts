@@ -166,7 +166,8 @@ test("default project lookup, explicit override and absent default use the injec
     NodeServices.layer
   const load = (filename: string | undefined) =>
     Effect.runPromise(loadProject(directory, filename).pipe(Effect.provide(platform)))
-  assert.equal(await load(undefined), undefined)
+  // No file and nothing to detect: the built-in implementation and no checks.
+  assert.deepEqual(await load(undefined), { wiki: false, implementation: "coding/implementation", checks: [] })
   await mkdir(join(directory, ".smithers"))
   const defaultFile = join(directory, ".smithers/coding-project.json")
   const minimal = { implementation: valid().implementation, checks: valid().checks }
@@ -249,7 +250,7 @@ test("project reads enforce emitted byte bounds and skip an absent default", asy
         Effect.provide(NodeServices.layer)
       )
     )
-  assert.equal(await load(undefined), undefined)
+  assert.deepEqual(await load(undefined), { wiki: false, implementation: "coding/implementation", checks: [] })
   assert.equal(reads, 0)
   await assert.rejects(load("explicit.json"), /256 KiB/)
   assert.equal(reads, 1)

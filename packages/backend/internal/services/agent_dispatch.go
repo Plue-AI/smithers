@@ -272,7 +272,7 @@ func (d *agentDispatch) markInfraFailed(message string) error {
 // task.
 const agentLoopRetiredMessage = "Cloud agent dispatch is disabled: plue's own 0.x agent loop was deleted and Smithers 1.0 has no verb that runs one dispatched task in a box. " +
 	"The 1.0 coding host is a long-lived gateway (`smithers-coding-host serve`) whose flows are started over its control RPC, not a per-task process plue can exec. " +
-	"Its nearest flow, `coding/Request`, is not a drop-in: it is only registered when the host is launched with SMITHERS_CODING_PROJECT naming a project JSON in the repository, " +
+	"Its nearest flow, `coding/Request`, is not a drop-in: " +
 	"its input is a single prompt with no session history, role or model, and its result is a plan plus check receipts rather than the assistant turns this session shows. " +
 	"Re-enabling needs a 1.0 flow that runs one dispatched turn, a plue caller that drives it over the workspace gateway, and a poller that streams its progress into this run."
 

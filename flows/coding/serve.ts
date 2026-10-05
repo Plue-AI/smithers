@@ -67,6 +67,7 @@ if (parsed.values.version) {
       `Set ${CodingState.inRootVariable}=1 only for a local single-repository run that wants the old <root>/.flows layout.\n` +
       "Requires SMITHERS_GATEWAY_ID; set SMITHERS_CODING_IMPLEMENT_MODEL or use a provisioned pool/platform default. SMITHERS_API_KEY authenticates the existing gateway.\n" +
       "Loads <root>/.smithers/coding-project.json when present; SMITHERS_CODING_PROJECT overrides it.\n" +
+      "A field the file omits, or a root with no file, uses coding/implementation and the checks detected from the root's package.json, Makefile, go.mod, Cargo.toml or pytest files.\n" +
       "SMITHERS_FLOW_ARTIFACT_SHA256, SMITHERS_SOURCE_REVISION and SMITHERS_OWNER_GENERATION bind the runtime bridge.\n" +
       "SMITHERS_SYSTEM_FLOWS supplies the backend's packaged system flow names as a JSON array.\n" +
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
@@ -159,7 +160,7 @@ if (parsed.values.version) {
         Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
           ...options,
           ...models,
-          ...(planning === undefined ? {} : { planning }),
+          planning,
           ...(landing === undefined ? {} : {
             landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),
             repositoryRemote: Layer.merge(

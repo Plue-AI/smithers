@@ -153,10 +153,48 @@ const codingRoutes = {
 } as const satisfies Record<string, { readonly flow: RuntimeFlow.Any; readonly description: string }>
 export type CodingRoute = keyof typeof codingRoutes
 
-export const provisionBuiltins = (stateRoot: string, policy: string, routes: ReadonlyArray<CodingRoute> = []) =>
+/**
+ * A check command the host registers as a built-in `checks/<name>` flow: a
+ * repository's detected command (`detectChecks`, `flows/coding/project-config.ts`).
+ */
+export interface BuiltinCheck {
+  readonly flow: string
+  readonly argv: ReadonlyArray<string>
+  readonly timeoutMs: number
+}
+const builtinCheckName = /^checks\/[a-z][a-z0-9-]{0,63}$/
+
+/** The registered body `coding/CommandCheck` runs: its first body line is the JSON command (`flows/coding/checks.ts`). */
+const checkBody = (check: BuiltinCheck) =>
+  [
+    "---",
+    `description: ${JSON.stringify(`Run the detected command ${check.argv.join(" ")}.`)}`,
+    "flows: [coding/CommandCheck]",
+    `capabilities: ${JSON.stringify(["fs:read:**", `proc:spawn:${check.argv.join(" ")}`])}`,
+    "---",
+    JSON.stringify({ argv: check.argv, cwd: ".", timeoutMs: check.timeoutMs }),
+    ""
+  ].join("\n")
+
+export const provisionBuiltins = (
+  stateRoot: string,
+  policy: string,
+  routes: ReadonlyArray<CodingRoute> = [],
+  checks: ReadonlyArray<BuiltinCheck> = []
+) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     const root = path.join(stateRoot, "builtin-flows", policy)
+    for (const check of checks) {
+      if (
+        !builtinCheckName.test(check.flow) || check.argv.length === 0 ||
+        check.argv.some((part) => part === "" || /[\0\r\n]/.test(part))
+      ) {
+        return yield* Effect.die(
+          new Error(`A built-in check must be checks/<name> with a nonempty argv: ${check.flow}`)
+        )
+      }
+    }
     /*
      * The bundled flows a workspace has before its repository writes any.
      *
@@ -260,6 +298,25 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
       const directory = path.join(root, name)
       yield* fs.makeDirectory(directory, { recursive: true })
       const file = path.join(directory, "flow.mdx")
+      const previous = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
+      if (previous !== text) yield* fs.writeFileString(file, text)
+    }
+    /*
+     * The detected checks of a repository that declares none, written beside
+     * the authoring bodies the same way. `checks/` under this root holds only
+     * them, so a check this host no longer provisions is removed.
+     */
+    const checksRoot = path.join(root, "checks")
+    const provisioned = new Set(checks.map((check) => check.flow))
+    for (const entry of yield* fs.readDirectory(checksRoot).pipe(Effect.orElseSucceed(() => []))) {
+      if (!provisioned.has(`checks/${entry}`)) {
+        yield* fs.remove(path.join(checksRoot, entry), { recursive: true, force: true })
+      }
+    }
+    for (const check of checks) {
+      const directory = path.join(root, check.flow)
+      yield* fs.makeDirectory(directory, { recursive: true })
+      const file = path.join(directory, "flow.mdx"), text = checkBody(check)
       const previous = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
       if (previous !== text) yield* fs.writeFileString(file, text)
     }
