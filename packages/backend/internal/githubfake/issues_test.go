@@ -140,3 +140,62 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 }
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+// The repository's issue-events list, which an install's label door reads,
+// holds every issue's events newest first, each with its issue, in pages.
+func TestRepositoryIssueEventsListNewestFirstWithTheirIssues(t *testing.T) {
+	server, cfg, key := fixture(t)
+	first := server.OpenIssue("acme/app", "ben", "One", "B1")
+	second := server.OpenIssue("acme/app", "ben", "Two", "B2")
+	todo := server.LabelIssue("acme/app", first, "ben", "todo")
+	bug := server.LabelIssue("acme/app", second, "ben", "bug")
+	later := server.LabelIssue("acme/app", first, "ben", "later")
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	type listed struct {
+		ID     int64  `json:"id"`
+		Event  string `json:"event"`
+		Actor  struct{ Login, Type string }
+		ViaApp *json.RawMessage `json:"performed_via_github_app"`
+		Label  struct{ Name string }
+		Issue  struct {
+			Number      int64            `json:"number"`
+			Title       string           `json:"title"`
+			Body        string           `json:"body"`
+			PullRequest *json.RawMessage `json:"pull_request"`
+		} `json:"issue"`
+	}
+	read := func(query string) []listed {
+		t.Helper()
+		status, body := request(t, server, "GET", "/repos/acme/app/issues/events"+query, access.Token, nil)
+		require.Equal(t, 200, status, string(body))
+		var events []listed
+		require.NoError(t, json.Unmarshal(body, &events))
+		return events
+	}
+	events := read("?per_page=100")
+	require.Len(t, events, 3)
+	require.Equal(t, []int64{later, bug, todo}, []int64{events[0].ID, events[1].ID, events[2].ID}, "newest first")
+	require.Equal(t, "labeled", events[2].Event)
+	require.Equal(t, "todo", events[2].Label.Name)
+	require.Equal(t, "ben", events[2].Actor.Login)
+	require.Equal(t, "User", events[2].Actor.Type)
+	require.Nil(t, events[2].ViaApp)
+	require.Equal(t, first, events[2].Issue.Number)
+	require.Equal(t, "One", events[2].Issue.Title)
+	require.Equal(t, "B1", events[2].Issue.Body)
+	require.Nil(t, events[2].Issue.PullRequest, "an issue's event names no pull request")
+	require.Equal(t, second, events[1].Issue.Number)
+	// Pages of per_page, newest first; past the end is empty.
+	page := read("?per_page=2&page=2")
+	require.Len(t, page, 1)
+	require.Equal(t, todo, page[0].ID)
+	require.Empty(t, read("?per_page=2&page=3"))
+	require.Len(t, read(""), 3, "30 per page by default")
+	status, _ = request(t, server, "GET", "/repos/acme/app/issues/events", "", nil)
+	require.Equal(t, 401, status, "the list is read with a token")
+}

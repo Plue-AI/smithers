@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -185,6 +186,9 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		status, response := failure(404, "comment not found")
 		return status, response, true
 	}
+	if len(path) == 2 && path[1] == "events" && r.Method == http.MethodGet {
+		return 200, s.repositoryIssueEvents(r, repo), true
+	}
 	number, err := strconv.ParseInt(path[1], 10, 64)
 	if err != nil {
 		return 0, nil, false
@@ -248,6 +252,50 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		return 200, comments, true
 	}
 	return 0, nil, false
+}
+
+// repositoryIssueEvents is GET /repos/{owner}/{repo}/issues/events: every
+// issue's events, newest first as GitHub lists them, per_page (30 by
+// default, at most 100) from page (1 by default), each with the issue it
+// happened on; an event on a pull request carries its pull_request link.
+func (s *Server) repositoryIssueEvents(r *http.Request, repo string) []any {
+	type located struct {
+		number int64
+		event  IssueEvent
+	}
+	var all []located
+	prefix := repo + "/"
+	for key, events := range s.events {
+		number, err := strconv.ParseInt(strings.TrimPrefix(key, prefix), 10, 64)
+		if !strings.HasPrefix(key, prefix) || err != nil {
+			continue
+		}
+		for _, event := range events {
+			all = append(all, located{number, event})
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].event.ID > all[j].event.ID })
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	if perPage <= 0 {
+		perPage = 30
+	}
+	perPage = min(perPage, 100)
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	page = max(page, 1)
+	out := []any{}
+	for _, at := range all[min((page-1)*perPage, len(all)):min(page*perPage, len(all))] {
+		issue := map[string]any{"number": at.number, "pull_request": map[string]any{}}
+		if opened := s.opened[issueKey(repo, at.number)]; opened != nil {
+			issue = s.issueJSON(repo, opened)
+		}
+		entry := map[string]any{"id": at.event.ID, "event": at.event.Event, "actor": s.actor(at.event.Actor, at.event.ViaApp),
+			"performed_via_github_app": s.viaApp(at.event.ViaApp), "created_at": at.event.CreatedAt, "issue": issue}
+		if at.event.Label != "" {
+			entry["label"] = map[string]string{"name": at.event.Label}
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // issueText answers GraphQL's repository.issueOrPullRequest text fields for
