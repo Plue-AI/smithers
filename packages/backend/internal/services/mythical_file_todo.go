@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -36,6 +37,10 @@ type MythicalTodoInput struct {
 	IssueDigest string            `json:"issue_digest,omitempty"`
 	Fixes       *bool             `json:"fixes,omitempty"`
 	Request     string            `json:"-"`
+	// Confirmation files the TODO its member confirmed in the app (spec
+	// §5.4): the agent that asked is its author, the confirmation keys the
+	// filing's idempotency, and the filing approves it in its transaction.
+	Confirmation *TodoConfirmation `json:"-"`
 }
 
 // MythicalTodoPlace is where a new TODO goes on the stack: the Draft's place
@@ -88,7 +93,14 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
-	// The first revision is the person's own text, by them.
+	// A filing's identity is the person's session and Idempotency-Key, or the
+	// confirmation it settles: any of its member's sessions files it once.
+	scope := info.SessionHash
+	if input.Confirmation != nil {
+		scope = "confirmation:" + input.Confirmation.ID
+	}
+	// The first revision is the person's own text, by them, or by the agent
+	// that asked for it.
 	person, err := s.queries().GetUserByID(ctx, userID)
 	if err != nil {
 		return MythicalItemView{}, err
@@ -126,7 +138,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	var issue *db.MythicalTodoIssue
 	link := ""
 	if input.Issue != nil {
-		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request); errors.Is(err, pgx.ErrNoRows) {
+		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, scope, input.Request); errors.Is(err, pgx.ErrNoRows) {
 			if issue, err = s.readTodoIssue(ctx, repositoryID, decision.Role, *input.Issue, input.IssueDigest); err != nil {
 				return MythicalItemView{}, err
 			}
@@ -144,11 +156,11 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
 			return err
 		}
-		existing, err := q.GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request)
+		existing, err := q.GetMythicalRequest(ctx, repositoryID, scope, input.Request)
 		if err == nil {
 			// The same key may have approved a merge instead: a different request.
 			held := mythicalChecksOf(existing)
-			if held.FiledRequest != input.Request || held.CreationSession != info.SessionHash || held.CreationPayload != string(canonical) {
+			if held.FiledRequest != input.Request || held.CreationSession != scope || held.CreationPayload != string(canonical) {
 				return &TodoControlError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
 			}
 			item = existing
@@ -180,12 +192,16 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 				return &TodoControlError{409, "merging", "conflict", fmt.Sprintf("T%d is merging", *input.Place.N)}
 			}
 		}
-		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
+		by, byRef := todoActor(ctx, person), todoActorRef(ctx, person)
+		if c := input.Confirmation; c != nil {
+			by, byRef = c.By, c.ByRef
+		}
+		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": by, "at": s.now().UTC().Format(time.RFC3339Nano)}
 		if issue != nil {
 			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
 		}
 		revision, _ := json.Marshal([]map[string]any{first})
-		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: info.SessionHash, CreationPayload: string(canonical)}
+		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: scope, CreationPayload: string(canonical)}
 		item, err = q.InsertMythicalIssueTodo(ctx, repositoryID, userID, input.Title, input.Prompt, revision, checks.encode(), issue)
 		if issue != nil && errors.Is(err, pgx.ErrNoRows) {
 			held, _ := q.GetActiveMythicalItemByIssue(ctx, repositoryID, issue.Number)
@@ -214,12 +230,23 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 			}
 		}
 		created := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID,
-			"place": item.StackPosition.Int64}
+			"place": item.StackPosition.Int64, "by": byRef}
 		if before.Number.Valid {
 			created["before"] = before.Number.Int64
 		}
 		if issue != nil {
 			created["issue"] = issue.Number
+		}
+		if c := input.Confirmation; c != nil {
+			// The press approves its confirmation with the TODO, once: a
+			// confirmation already answered files nothing.
+			result, _ := json.Marshal(map[string]int64{"todo": item.Number.Int64})
+			if _, err = q.DecideConfirmation(ctx, db.DecideConfirmationParams{ID: c.ID, MemberID: pgtype.Int8{Int64: userID, Valid: true}, State: ApprovalStateApproved, Result: result}); errors.Is(err, pgx.ErrNoRows) {
+				return &TodoControlError{409, "confirmation_decided", "conflict", "This confirmation was already answered"}
+			} else if err != nil {
+				return err
+			}
+			created["confirmation"] = c.ID
 		}
 		fact, _ := json.Marshal(created)
 		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.created", "queued", fact); err != nil {

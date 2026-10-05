@@ -328,8 +328,12 @@ var installCommands = map[string]installCommand{
 	// branch (§15.1.5: fork is run).
 	"branches.read": {role: InstallMember},
 	"branch.fork":   {role: InstallMember},
-	"members.list":  {role: InstallMember},
-	"members.write": {role: InstallMaintainer},
+	// confirmations.read lists a person's own confirmations;
+	// confirmations.decide is their press, Confirm or Cancel (spec §5.4).
+	"confirmations.read":   {role: InstallMember},
+	"confirmations.decide": {role: InstallMember},
+	"members.list":         {role: InstallMember},
+	"members.write":        {role: InstallMaintainer},
 	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
 	// on a repository: add, replace and delete (§5.2 "Members, roles,
 	// secrets write"). Secret values never pass through an agent.
@@ -339,10 +343,11 @@ var installCommands = map[string]installCommand{
 // terminalCommands are the commands a stage-1 terminal credential runs for
 // its member (spec §8.11.1, §5.3.2a): the eligible reads and wiki reads;
 // answer and steer, on its own branch's TODO only (AuthorizeTodoBranch);
-// todo.control, the steer door, whose handler authorizes the op again; and
-// todo.new, which a delegated credential confirms in the app.
+// todo.control, the steer door, whose handler authorizes the op again;
+// todo.new, which its member confirms in the app; and the id and state of
+// the confirmations it asked for.
 var terminalCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true,
-	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true}
+	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true, "confirmations.read": true}
 
 // AccessError is Authorize's refusal (spec §6.2.3 error envelope).
 type AccessError struct {
@@ -362,6 +367,10 @@ func (e *AccessError) Error() string { return e.Message }
 type InstallAuthorization struct {
 	UserID int64
 	Role   InstallRole
+	// Confirm is set when the command runs only once its person confirms it
+	// in the app (a terminal credential's todo.new, spec §5.3.2a, §5.4): the
+	// caller records the person's private confirmation and runs nothing.
+	Confirm bool
 }
 
 // Authorize is the install's one command authorizer (T-ACC-03): the
@@ -369,9 +378,9 @@ type InstallAuthorization struct {
 // committed roster state on every call, so a removal or suspension refuses
 // the very next request. A person's own browser session carries person
 // authority; a stage-1 terminal's delegated credential acts for its member
-// within terminalCommands, and its todo.new is refused with confirm_in_app
-// until the app's private Confirm card serves it (spec §5.3.2a). Every other
-// credential is refused. A person-only command checks the role first, so an
+// within terminalCommands, and its todo.new is decided Confirm: it waits for
+// that member's press on the app's private Confirm card (spec §5.3.2a). Every
+// other credential is refused. A person-only command checks the role first, so an
 // eligible delegated caller is told never and an ineligible one permission
 // (§5.2.1).
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
@@ -406,12 +415,8 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if role.rank() < need.role.rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
 	}
-	if terminal && command == "todo.new" {
-		// A delegated TODO waits for its person's Confirm in the app, which
-		// stage 1 does not serve yet: nothing is filed (T-APP-04).
-		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
-	}
-	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	// A delegated TODO waits for its person's Confirm in the app (T-APP-04).
+	return InstallAuthorization{UserID: info.User.ID, Role: role, Confirm: terminal && command == "todo.new"}, nil
 }
 
 // authorizePersonOnly decides a person-only command: the person's role

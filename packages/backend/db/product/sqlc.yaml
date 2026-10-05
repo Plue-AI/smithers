@@ -68,6 +68,11 @@ sql:
             go_struct_tag: 'json:"-"'
           - column: "issue_state_facts.audience_user_id"
             go_struct_tag: 'json:"-"'
+          # A person confirmation has no agent session (migration 0119).
+          - column: "approvals.session_id"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Text"
           # Preserve the handwritten stores' public field types as sqlc takes
           # ownership of their row models. Scope overrides to these columns.
           - column: "github_main_pulls.next_attempt_at"

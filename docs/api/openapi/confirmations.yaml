@@ -1,0 +1,144 @@
+paths:
+  /api/confirmations:
+    get:
+      x-composition: install
+      summary: Read your own confirmations
+      description: The confirmations that wait on, or were answered by, the signed-in person, newest first. A browser session reads each with its Confirm card. A terminal's credential reads only the id and state of the ones it asked for. A pending confirmation expires 24 hours after it was asked.
+      operationId: get_api_confirmations
+      tags:
+        - Confirmations
+      security:
+        - sessionCookie: []
+        - tokenAuth: []
+      responses:
+        '200':
+          description: The person's own confirmations (a session), or the id and state of the terminal's own (a terminal's credential)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Confirmation'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/ConfirmationReceipt'
+        '401':
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '403':
+          description: Not a member, or a credential that is neither a person's browser session nor a terminal's
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: Confirmations unavailable (confirmation_unavailable), or the install repository is unavailable
+  /api/confirmations/{id}/approve:
+    post:
+      x-composition: install
+      summary: Confirm a pending confirmation
+      description: The person it asks presses Confirm in their own browser session. For a terminal's TODO the server files the TODO as that person, authored by the agent that asked ("Claude Code for Ben"), and approves the confirmation in the same transaction. A second press commits nothing more and answers the same TODO.
+      operationId: post_api_confirmations_id_approve
+      tags:
+        - Confirmations
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '202':
+          description: Approved; todo names the TODO it committed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Confirmation'
+        '400':
+          description: Missing Idempotency-Key
+        '403':
+          description: Another person's confirmation, or any credential but the person's own browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '404':
+          description: No such confirmation (confirmation_not_found)
+        '409':
+          description: Already cancelled or expired (confirmation_decided, confirmation_expired)
+        '503':
+          description: Confirmations unavailable (confirmation_unavailable), or the repository stack is unavailable
+  /api/confirmations/{id}/deny:
+    post:
+      x-composition: install
+      summary: Cancel a pending confirmation
+      description: The person it asks presses Cancel in their own browser session. Nothing runs; a second Cancel answers the same.
+      operationId: post_api_confirmations_id_deny
+      tags:
+        - Confirmations
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Confirmation'
+        '400':
+          description: Missing Idempotency-Key
+        '403':
+          description: Another person's confirmation, or any credential but the person's own browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '404':
+          description: No such confirmation (confirmation_not_found)
+        '409':
+          description: Already confirmed or expired (confirmation_decided, confirmation_expired)
+        '503':
+          description: Confirmations unavailable (confirmation_unavailable)
+components:
+  schemas:
+    ConfirmationReceipt:
+      description: All a delegated credential learns of a confirmation (spec §5.4).
+      type: object
+      required: [confirmation, state]
+      properties:
+        confirmation: {type: string, format: uuid}
+        state: {type: string, enum: [pending, approved, rejected, expired]}
+    Confirmation:
+      description: A person's own confirmation (spec §5.4).
+      type: object
+      required: [id, state, created_at, card]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [pending, approved, rejected, expired]}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        todo:
+          description: The TODO an approved confirmation committed.
+          type: integer
+          minimum: 1
+        card:
+          description: The Confirm card; ConfirmCardSchema in packages/rpc/src/ConfirmCard.ts is the full contract
+          type: object

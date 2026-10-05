@@ -20,12 +20,12 @@ INSERT INTO approvals (
 VALUES (
     $1, $2, $3, 'pending', $4, $5, $6, $7, $8
 )
-RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key
 `
 
 type CreateApprovalParams struct {
 	ID           string             `json:"id"`
-	SessionID    string             `json:"session_id"`
+	SessionID    pgtype.Text        `json:"session_id"`
 	RepositoryID int64              `json:"repository_id"`
 	Kind         string             `json:"kind"`
 	Title        string             `json:"title"`
@@ -41,6 +41,10 @@ type CreateApprovalParams struct {
 // enforces idempotency + conflict detection at the SQL level).
 // Read path: GetApproval for the decide route preflight; ListApprovalsByRepo
 // for repo-scoped inbox clients; ListApprovalsBySession for admin/debug.
+//
+// A person confirmation (spec §5.4) is a member's row (member_id set, no
+// session): only the Confirmation queries below read or decide it, so the
+// repo-scoped inbox and its decide never show or settle another member's.
 // Insert a fresh pending-state approval. Caller supplies repository_id from
 // the session context (NOT NULL: realtime stream auth requires it).
 func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) (Approval, error) {
@@ -68,6 +72,68 @@ func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
+	)
+	return i, err
+}
+
+const createConfirmation = `-- name: CreateConfirmation :one
+INSERT INTO approvals (
+    id, repository_id, member_id, credential_id, request_key, state, kind, title, expires_at, payload
+)
+VALUES (
+    $1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9
+)
+ON CONFLICT (credential_id, request_key) WHERE request_key IS NOT NULL DO NOTHING
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key
+`
+
+type CreateConfirmationParams struct {
+	ID           string             `json:"id"`
+	RepositoryID int64              `json:"repository_id"`
+	MemberID     pgtype.Int8        `json:"member_id"`
+	CredentialID pgtype.Int8        `json:"credential_id"`
+	RequestKey   pgtype.Text        `json:"request_key"`
+	Kind         string             `json:"kind"`
+	Title        string             `json:"title"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	Payload      json.RawMessage    `json:"payload"`
+}
+
+// A delegated credential's command waiting for its member's press (spec
+// §5.4). The same credential's request again (credential_id, request_key)
+// inserts nothing and answers no row; the caller then reads that row.
+func (q *Queries) CreateConfirmation(ctx context.Context, arg CreateConfirmationParams) (Approval, error) {
+	row := q.db.QueryRow(ctx, createConfirmation,
+		arg.ID,
+		arg.RepositoryID,
+		arg.MemberID,
+		arg.CredentialID,
+		arg.RequestKey,
+		arg.Kind,
+		arg.Title,
+		arg.ExpiresAt,
+		arg.Payload,
+	)
+	var i Approval
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RepositoryID,
+		&i.State,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.DecidedBy,
+		&i.ExpiresAt,
+		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
 	)
 	return i, err
 }
@@ -79,8 +145,9 @@ SET state       = $2,
     decided_by  = $3
 WHERE id = $1
   AND repository_id = $4
+  AND member_id IS NULL
   AND state = 'pending'
-RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key
 `
 
 type DecideApprovalParams struct {
@@ -120,12 +187,80 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
 	)
 	return i, err
 }
 
+const decideConfirmation = `-- name: DecideConfirmation :one
+UPDATE approvals
+SET state      = $1,
+    decided_at = NOW(),
+    decided_by = $2,
+    payload    = payload || $3::jsonb
+WHERE id = $4
+  AND member_id = $2
+  AND state = 'pending'
+  AND (expires_at IS NULL OR expires_at > NOW())
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key
+`
+
+type DecideConfirmationParams struct {
+	State    string          `json:"state"`
+	MemberID pgtype.Int8     `json:"member_id"`
+	Result   json.RawMessage `json:"result"`
+	ID       string          `json:"id"`
+}
+
+// The member's press: pending to approved or rejected, once, before its
+// expiry; result is merged into the payload (the TODO an approve filed).
+// No row means it was decided, expired or is not this member's.
+func (q *Queries) DecideConfirmation(ctx context.Context, arg DecideConfirmationParams) (Approval, error) {
+	row := q.db.QueryRow(ctx, decideConfirmation,
+		arg.State,
+		arg.MemberID,
+		arg.Result,
+		arg.ID,
+	)
+	var i Approval
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RepositoryID,
+		&i.State,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.DecidedBy,
+		&i.ExpiresAt,
+		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
+	)
+	return i, err
+}
+
+const expireMemberConfirmations = `-- name: ExpireMemberConfirmations :exec
+UPDATE approvals
+SET state = 'expired'
+WHERE member_id = $1
+  AND state = 'pending'
+  AND expires_at < NOW()
+`
+
+// A member's pending confirmations past their expiry read as expired.
+func (q *Queries) ExpireMemberConfirmations(ctx context.Context, memberID pgtype.Int8) error {
+	_, err := q.db.Exec(ctx, expireMemberConfirmations, memberID)
+	return err
+}
+
 const getApproval = `-- name: GetApproval :one
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals WHERE id = $1
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key FROM approvals WHERE id = $1 AND member_id IS NULL
 `
 
 // Returns a single approval row. Does NOT filter on repository_id; the route
@@ -146,13 +281,78 @@ func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
+	)
+	return i, err
+}
+
+const getConfirmation = `-- name: GetConfirmation :one
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key FROM approvals WHERE id = $1 AND member_id IS NOT NULL
+`
+
+// One person confirmation; the caller checks it is the caller's own.
+func (q *Queries) GetConfirmation(ctx context.Context, id string) (Approval, error) {
+	row := q.db.QueryRow(ctx, getConfirmation, id)
+	var i Approval
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RepositoryID,
+		&i.State,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.DecidedBy,
+		&i.ExpiresAt,
+		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
+	)
+	return i, err
+}
+
+const getConfirmationByRequest = `-- name: GetConfirmationByRequest :one
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key FROM approvals WHERE credential_id = $1 AND request_key = $2
+`
+
+type GetConfirmationByRequestParams struct {
+	CredentialID pgtype.Int8 `json:"credential_id"`
+	RequestKey   pgtype.Text `json:"request_key"`
+}
+
+// The confirmation one credential's Idempotency-Key created.
+func (q *Queries) GetConfirmationByRequest(ctx context.Context, arg GetConfirmationByRequestParams) (Approval, error) {
+	row := q.db.QueryRow(ctx, getConfirmationByRequest, arg.CredentialID, arg.RequestKey)
+	var i Approval
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RepositoryID,
+		&i.State,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.CreatedAt,
+		&i.DecidedAt,
+		&i.DecidedBy,
+		&i.ExpiresAt,
+		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
 	)
 	return i, err
 }
 
 const listApprovalsByRepo = `-- name: ListApprovalsByRepo :many
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key FROM approvals
 WHERE repository_id = $1
+  AND member_id IS NULL
   AND ($2::text = '' OR state = $2)
 ORDER BY created_at DESC
 LIMIT $4 OFFSET $3
@@ -193,6 +393,58 @@ func (q *Queries) ListApprovalsByRepo(ctx context.Context, arg ListApprovalsByRe
 			&i.DecidedBy,
 			&i.ExpiresAt,
 			&i.Payload,
+			&i.MemberID,
+			&i.CredentialID,
+			&i.RequestKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMemberConfirmations = `-- name: ListMemberConfirmations :many
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key FROM approvals
+WHERE repository_id = $1 AND member_id = $2
+ORDER BY created_at DESC
+LIMIT 50
+`
+
+type ListMemberConfirmationsParams struct {
+	RepositoryID int64       `json:"repository_id"`
+	MemberID     pgtype.Int8 `json:"member_id"`
+}
+
+// A member's own confirmations on the repository, newest first.
+func (q *Queries) ListMemberConfirmations(ctx context.Context, arg ListMemberConfirmationsParams) ([]Approval, error) {
+	rows, err := q.db.Query(ctx, listMemberConfirmations, arg.RepositoryID, arg.MemberID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Approval{}
+	for rows.Next() {
+		var i Approval
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.RepositoryID,
+			&i.State,
+			&i.Kind,
+			&i.Title,
+			&i.Description,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.DecidedBy,
+			&i.ExpiresAt,
+			&i.Payload,
+			&i.MemberID,
+			&i.CredentialID,
+			&i.RequestKey,
 		); err != nil {
 			return nil, err
 		}
@@ -205,14 +457,14 @@ func (q *Queries) ListApprovalsByRepo(ctx context.Context, arg ListApprovalsByRe
 }
 
 const listPendingApprovalsBySession = `-- name: ListPendingApprovalsBySession :many
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key FROM approvals
 WHERE repository_id = $1 AND session_id = $2 AND state = 'pending'
 ORDER BY created_at DESC
 `
 
 type ListPendingApprovalsBySessionParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	SessionID    string `json:"session_id"`
+	RepositoryID int64       `json:"repository_id"`
+	SessionID    pgtype.Text `json:"session_id"`
 }
 
 // Admin / debug helper; not on the hot path. realtime stream is the
@@ -239,6 +491,9 @@ func (q *Queries) ListPendingApprovalsBySession(ctx context.Context, arg ListPen
 			&i.DecidedBy,
 			&i.ExpiresAt,
 			&i.Payload,
+			&i.MemberID,
+			&i.CredentialID,
+			&i.RequestKey,
 		); err != nil {
 			return nil, err
 		}

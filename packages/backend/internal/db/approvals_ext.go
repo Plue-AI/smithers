@@ -13,9 +13,10 @@ SET state = 'expired',
     decided_by = NULL
 WHERE id = $1
   AND repository_id = $2
+  AND member_id IS NULL
   AND state = 'pending'
   AND expires_at < $3
-RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, request_key
 `
 
 type ExpireApprovalParams struct {
@@ -41,6 +42,9 @@ func (q *Queries) ExpireApproval(ctx context.Context, arg ExpireApprovalParams) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.RequestKey,
 	)
 	return i, err
 }

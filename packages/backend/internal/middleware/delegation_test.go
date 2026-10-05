@@ -112,15 +112,20 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"GET", "/api/repos/acme/app/wiki/search"},
 		{"GET", "/api/repos/acme/app/wiki/home/revisions"},
 		// The TODO doors whose handlers authorize the rest: answer and steer
-		// on its own branch's TODO, and todo.new's confirm_in_app.
+		// on its own branch's TODO, and todo.new, which waits for its
+		// person's Confirm; and the id and state of its own confirmations.
 		{"POST", "/api/todos"},
 		{"POST", "/api/todos/3"},
 		{"POST", "/api/todos/3/answer"},
+		{"GET", "/api/confirmations"},
 	} {
 		assert.Equal(t, http.StatusNoContent, serve(terminal, allowed[0], allowed[1]).Code, "%v", allowed)
 	}
 	for _, refused := range [][2]string{
 		{"POST", "/api/todos/3/merge"},
+		{"POST", "/api/confirmations"},
+		{"POST", "/api/confirmations/0ddf4532-f72c-4b4b-aafc-29b947737655/approve"},
+		{"POST", "/api/confirmations/0ddf4532-f72c-4b4b-aafc-29b947737655/deny"},
 		{"POST", "/api/todos/3/answers"},
 		{"POST", "/api/todos/x/answer"},
 		{"PATCH", "/api/todos/3"},

@@ -94,8 +94,9 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 // (TerminalProfileS1, spec §8.11.1) may call: its person's identity, the
 // eligible reads, wiki reads, and the TODO doors whose handlers authorize
 // the rest (services.Authorize): answer and steer on its own branch's TODO
-// only, and todo.new, which a delegated credential confirms in the app.
-// Every other route refuses it with 403 permission before any handler runs.
+// only, and todo.new, which its member confirms in the app; and the id and
+// state of the confirmations it asked for. Every other route refuses it with
+// 403 permission before any handler runs.
 var terminalProfileRoutes = []struct {
 	method string
 	path   *regexp.Regexp
@@ -104,6 +105,7 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+)?$`)},
 	{http.MethodPost, regexp.MustCompile(`^/api/todos(/[0-9]+(/answer)?)?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/confirmations$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, wikiReadPath},
@@ -415,6 +417,9 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "todo.control", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
+	// A person's own confirmations and their Confirm or Cancel (spec §5.4).
+	{http.MethodGet, "confirmations.read", regexp.MustCompile(`^/api/confirmations$`)},
+	{http.MethodPost, "confirmations.decide", regexp.MustCompile(`^/api/confirmations/[^/]+/(approve|deny)$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches(/[^/]+)?$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},

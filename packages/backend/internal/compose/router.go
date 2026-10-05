@@ -919,12 +919,23 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
-			todos := &routes.TodoHandler{Queries: queries, Service: service}
+			// A terminal's TODO waits for its member's Confirm (spec §5.4):
+			// the person confirmations over the approvals store, which file
+			// the TODO through the same service.
+			var confirmations *services.ApprovalsService
+			if queries != nil {
+				confirmations = services.NewApprovalsServiceWithAudit(queries, services.NewAuditService(queries), services.WithConfirmedTodos(service))
+			}
+			todos := &routes.TodoHandler{Queries: queries, Service: service, Confirmations: confirmations}
 			mountTodoReads(r, todos)
 			r.Post("/todos", todos.Create)
 			r.Post("/todos/{n}", todos.Control)
 			r.Post("/todos/{n}/merge", todos.Merge)
 			r.Post("/todos/{n}/answer", todos.Answer)
+			confirm := &routes.ConfirmationsHandler{Queries: queries, Service: confirmations}
+			r.Get("/confirmations", confirm.List)
+			r.Post("/confirmations/{id}/approve", confirm.Approve)
+			r.Post("/confirmations/{id}/deny", confirm.Deny)
 			// The issue list card and the issue card read the install
 			// repository's GitHub issues through the install's App.
 			issueService, _ := extras.Mythical.Service.(routes.InstallIssueRouteService)

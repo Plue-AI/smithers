@@ -23,10 +23,15 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	stdErrors "errors"
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +39,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -162,6 +168,10 @@ type ApprovalsService struct {
 	q            ApprovalsQuerier
 	audit        ApprovalsAuditor
 	pushNotifier ApprovalPushNotifier
+	// todos files the TODO a person confirms (WithConfirmedTodos); nil
+	// leaves every confirmation unavailable.
+	todos ConfirmedTodoFiler
+	now   func() time.Time
 }
 
 type ApprovalsServiceOption func(*ApprovalsService)
@@ -169,6 +179,14 @@ type ApprovalsServiceOption func(*ApprovalsService)
 func WithApprovalPushNotifier(notifier ApprovalPushNotifier) ApprovalsServiceOption {
 	return func(s *ApprovalsService) {
 		s.pushNotifier = notifier
+	}
+}
+
+// WithConfirmedTodos makes the service's person confirmations executable:
+// a member's Confirm files the TODO through todos (spec §5.4).
+func WithConfirmedTodos(todos ConfirmedTodoFiler) ApprovalsServiceOption {
+	return func(s *ApprovalsService) {
+		s.todos = todos
 	}
 }
 
@@ -243,7 +261,7 @@ func (s *ApprovalsService) Create(ctx context.Context, input CreateApprovalInput
 
 	params := db.CreateApprovalParams{
 		ID:           uuid.NewString(),
-		SessionID:    session.ID,
+		SessionID:    pgtype.Text{String: session.ID, Valid: true},
 		RepositoryID: session.RepositoryID,
 		Kind:         input.Kind,
 		Title:        input.Title,
@@ -469,7 +487,7 @@ func (s *ApprovalsService) logApprovalEvent(ctx context.Context, args approvalAu
 	meta := map[string]any{
 		"approval_id":   args.Row.ID,
 		"repository_id": args.Row.RepositoryID,
-		"session_id":    args.Row.SessionID,
+		"session_id":    args.Row.SessionID.String,
 		"kind":          args.Row.Kind,
 		"state":         args.Row.State,
 		// Keep a stable payload identifier without storing the raw blob.
@@ -528,7 +546,7 @@ func (s *ApprovalsService) GetForRepo(ctx context.Context, approvalID string, re
 func toApprovalResponse(row db.Approval) ApprovalResponse {
 	resp := ApprovalResponse{
 		ID:           row.ID,
-		SessionID:    row.SessionID,
+		SessionID:    row.SessionID.String,
 		RepositoryID: row.RepositoryID,
 		State:        row.State,
 		Kind:         row.Kind,
@@ -566,4 +584,379 @@ func timestampOrNull(t time.Time) pgtype.Timestamptz {
 		return pgtype.Timestamptz{}
 	}
 	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+// ── Person confirmations (spec §5.4, T-APP-04) ─────────────────────────────
+//
+// A delegated credential's command whose policy is confirm runs nothing: it
+// records an approvals row for the member it acts for, and only that member's
+// own browser session presses Confirm or Cancel. Stage 1 confirms one
+// command, a terminal's TODO (todo.new appended to the stack).
+
+// ConfirmationTTL is how long a person confirmation waits for its press.
+const ConfirmationTTL = 24 * time.Hour
+
+// ConfirmedTodoFiler files the TODO a member confirmed: MythicalService's
+// FileTodo with input.Confirmation set.
+type ConfirmedTodoFiler interface {
+	FileTodo(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput) (MythicalItemView, error)
+}
+
+// TodoConfirmation is the confirmation a TODO filing settles: the filing
+// approves it in its own transaction, keys its idempotency by it, and names
+// the agent that asked as the TODO's author (By, the TodoCard Actor, and
+// ByRef, the facts' {person, via, session}).
+type TodoConfirmation struct {
+	ID    string
+	By    json.RawMessage
+	ByRef map[string]any
+}
+
+// confirmationStore is the approvals store person confirmations use;
+// *db.Queries is one.
+type confirmationStore interface {
+	GetUserByID(ctx context.Context, id int64) (db.User, error)
+	CreateConfirmation(ctx context.Context, arg db.CreateConfirmationParams) (db.Approval, error)
+	GetConfirmationByRequest(ctx context.Context, arg db.GetConfirmationByRequestParams) (db.Approval, error)
+	GetConfirmation(ctx context.Context, id string) (db.Approval, error)
+	ExpireMemberConfirmations(ctx context.Context, memberID pgtype.Int8) error
+	ListMemberConfirmations(ctx context.Context, arg db.ListMemberConfirmationsParams) ([]db.Approval, error)
+	DecideConfirmation(ctx context.Context, arg db.DecideConfirmationParams) (db.Approval, error)
+}
+
+// ConfirmationReceipt is all a delegated caller learns of a confirmation:
+// its id and state (spec §5.4).
+type ConfirmationReceipt struct {
+	Confirmation string `json:"confirmation"`
+	State        string `json:"state"`
+}
+
+// Confirmation is a person's own confirmation as their app reads it: its id
+// and state, the Confirm card (packages/rpc ConfirmCard) and, once
+// confirmed, the TODO it committed.
+type Confirmation struct {
+	ID        string         `json:"id"`
+	State     string         `json:"state"`
+	CreatedAt time.Time      `json:"created_at"`
+	ExpiresAt *time.Time     `json:"expires_at,omitempty"`
+	Todo      int64          `json:"todo,omitempty"`
+	Card      map[string]any `json:"card"`
+	// credential is the credential whose request made it.
+	credential int64
+}
+
+// confirmationPayload is a confirmation row's payload: the command, its
+// validated input, who asked, and once confirmed the TODO it committed.
+type confirmationPayload struct {
+	Command string            `json:"command"`
+	Input   MythicalTodoInput `json:"input"`
+	AskedBy json.RawMessage   `json:"asked_by"`
+	ByRef   map[string]any    `json:"by_ref"`
+	Todo    int64             `json:"todo,omitempty"`
+}
+
+func confirmationUnavailable() error {
+	return &TodoControlError{http.StatusServiceUnavailable, "confirmation_unavailable", "infra", "Confirmations are unavailable"}
+}
+
+func (s *ApprovalsService) confirmationStore() (confirmationStore, error) {
+	if s == nil {
+		return nil, confirmationUnavailable()
+	}
+	store, ok := s.q.(confirmationStore)
+	if !ok || s.todos == nil {
+		return nil, confirmationUnavailable()
+	}
+	return store, nil
+}
+
+func (s *ApprovalsService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now().UTC()
+}
+
+// RequestConfirmation records the private confirmation a terminal
+// credential's TODO waits on (spec §5.3.2a, §5.4): a pending one_click row
+// for memberID, bound to the credential and the request's Idempotency-Key
+// (input.Request), that expires after ConfirmationTTL. It files nothing. The
+// same credential's same request answers that confirmation in its current
+// state; the same key with another request is 409 idempotency_mismatch. A
+// TODO placed anywhere but the end of the stack is 403 permission.
+func (s *ApprovalsService) RequestConfirmation(ctx context.Context, repositoryID, memberID int64, input MythicalTodoInput) (ConfirmationReceipt, error) {
+	store, err := s.confirmationStore()
+	if err != nil {
+		return ConfirmationReceipt{}, err
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if _, delegated := info.Delegation(); !delegated || info.TokenID <= 0 {
+		return ConfirmationReceipt{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only an agent's credential asks for a confirmation"}
+	}
+	key := input.Request
+	if key == "" || len(key) > 256 {
+		return ConfirmationReceipt{}, &TodoControlError{http.StatusBadRequest, "idempotency_key_required", "user", "Idempotency-Key is required"}
+	}
+	if input, err = confirmationTodo(input); err != nil {
+		return ConfirmationReceipt{}, err
+	}
+	person, err := store.GetUserByID(ctx, memberID)
+	if err != nil {
+		return ConfirmationReceipt{}, err
+	}
+	payload, err := json.Marshal(confirmationPayload{Command: "todo.new", Input: input, AskedBy: todoActor(ctx, person), ByRef: todoActorRef(ctx, person)})
+	if err != nil {
+		return ConfirmationReceipt{}, err
+	}
+	now := s.clock()
+	credential := pgtype.Int8{Int64: info.TokenID, Valid: true}
+	row, err := store.CreateConfirmation(ctx, db.CreateConfirmationParams{
+		ID: uuid.NewString(), RepositoryID: repositoryID, MemberID: pgtype.Int8{Int64: memberID, Valid: true},
+		CredentialID: credential, RequestKey: pgtype.Text{String: key, Valid: true}, Kind: "one_click", Title: input.Title,
+		ExpiresAt: pgtype.Timestamptz{Time: now.Add(ConfirmationTTL), Valid: true}, Payload: payload,
+	})
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		// This credential sent this key before: the same request answers its
+		// confirmation as it stands now.
+		if row, err = store.GetConfirmationByRequest(ctx, db.GetConfirmationByRequestParams{CredentialID: credential, RequestKey: pgtype.Text{String: key, Valid: true}}); err != nil {
+			return ConfirmationReceipt{}, err
+		}
+		var held confirmationPayload
+		_ = json.Unmarshal(row.Payload, &held)
+		was, _ := json.Marshal(held.Input)
+		asked, _ := json.Marshal(input)
+		if row.RepositoryID != repositoryID || row.MemberID.Int64 != memberID || held.Command != "todo.new" || !bytes.Equal(was, asked) {
+			return ConfirmationReceipt{}, &TodoControlError{http.StatusConflict, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
+		}
+		return ConfirmationReceipt{Confirmation: row.ID, State: confirmationState(row, now)}, nil
+	}
+	if err != nil {
+		return ConfirmationReceipt{}, err
+	}
+	s.logApprovalEvent(ctx, approvalAuditArgs{EventType: AuditEventApprovalRequested, ActorID: &memberID, ActorName: person.Username, Action: "request", Row: row})
+	return ConfirmationReceipt{Confirmation: row.ID, State: row.State}, nil
+}
+
+// confirmationTodo is a terminal's TODO as its confirmation stores it: a
+// trimmed title of 1 to 256 bytes and a prompt of up to 64 KiB, neither
+// blank, with no NUL byte in any text (PostgreSQL refuses one), appended to
+// the stack and made from no issue (spec §5.3.2a: other placements are 403).
+// A replay of the request compares this value's JSON with the stored one, so
+// the value is unchanged by a JSON round trip and by a second pass.
+func confirmationTodo(input MythicalTodoInput) (MythicalTodoInput, error) {
+	// Text is stored as JSON, which holds only valid UTF-8.
+	valid := func(text string) string { return strings.ToValidUTF8(text, "\uFFFD") }
+	title, prompt := strings.TrimSpace(valid(input.Title)), valid(input.Prompt)
+	acceptance := make([]string, 0, len(input.Acceptance))
+	for _, line := range input.Acceptance {
+		acceptance = append(acceptance, valid(line))
+	}
+	if title == "" || strings.TrimSpace(prompt) == "" || len(title) > 256 || len(prompt) > 64<<10 ||
+		strings.ContainsRune(title+prompt+strings.Join(acceptance, ""), 0) {
+		return MythicalTodoInput{}, &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Title and prompt are required"}
+	}
+	if input.Issue != nil || input.IssueDigest != "" || input.Fixes != nil || input.Place.N != nil || input.Place.Mode != "" && input.Place.Mode != "append" {
+		return MythicalTodoInput{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's TODO goes at the end of the stack"}
+	}
+	return MythicalTodoInput{Title: title, Prompt: prompt, Acceptance: acceptance, Place: MythicalTodoPlace{Mode: "append"}, Request: input.Request}, nil
+}
+
+// Confirmations are memberID's own confirmations on the repository, newest
+// first, each with its Confirm card. A pending one past its expiry is stored
+// and read as expired.
+func (s *ApprovalsService) Confirmations(ctx context.Context, repositoryID, memberID int64) ([]Confirmation, error) {
+	store, err := s.confirmationStore()
+	if err != nil {
+		return nil, err
+	}
+	member := pgtype.Int8{Int64: memberID, Valid: true}
+	if err = store.ExpireMemberConfirmations(ctx, member); err != nil {
+		return nil, err
+	}
+	rows, err := store.ListMemberConfirmations(ctx, db.ListMemberConfirmationsParams{RepositoryID: repositoryID, MemberID: member})
+	if err != nil {
+		return nil, err
+	}
+	person, err := store.GetUserByID(ctx, memberID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Confirmation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, confirmationView(row, person))
+	}
+	return out, nil
+}
+
+// ConfirmationReceipts are the {confirmation, state} of the confirmations in
+// list that credential's requests made: all a delegated reader sees of its
+// member's confirmations (spec §5.4).
+func ConfirmationReceipts(list []Confirmation, credential int64) []ConfirmationReceipt {
+	out := []ConfirmationReceipt{}
+	for _, each := range list {
+		if each.credential == credential {
+			out = append(out, ConfirmationReceipt{Confirmation: each.ID, State: each.State})
+		}
+	}
+	return out
+}
+
+// ApproveConfirmation is memberID's Confirm (spec §5.4), from their own
+// browser session (the route authorizes confirmations.decide) on their own
+// pending confirmation. It files the TODO as the member, authored by the
+// agent that asked, and approves the confirmation in the filing's
+// transaction (MythicalService.FileTodo), so a second press from any of the
+// member's sessions files nothing more and answers the same TODO. Another
+// member's confirmation is 403 permission; a cancelled or expired one 409.
+func (s *ApprovalsService) ApproveConfirmation(ctx context.Context, repositoryID, memberID int64, id string) (Confirmation, error) {
+	store, row, person, err := s.ownConfirmation(ctx, repositoryID, memberID, id)
+	if err != nil {
+		return Confirmation{}, err
+	}
+	if row.State == ApprovalStatePending {
+		var asked confirmationPayload
+		if json.Unmarshal(row.Payload, &asked) != nil || asked.Command != "todo.new" {
+			return Confirmation{}, confirmationUnavailable()
+		}
+		input := asked.Input
+		input.Request = "confirmation-" + row.ID
+		input.Confirmation = &TodoConfirmation{ID: row.ID, By: asked.AskedBy, ByRef: asked.ByRef}
+		_, err = s.todos.FileTodo(ctx, repositoryID, memberID, input)
+		var lost *TodoControlError
+		if err != nil && !(stdErrors.As(err, &lost) && lost.Code == "confirmation_decided") {
+			return Confirmation{}, err
+		}
+		if row, err = store.GetConfirmation(ctx, id); err != nil {
+			return Confirmation{}, err
+		}
+		row.State = confirmationState(row, s.clock())
+		if lost == nil {
+			s.logApprovalEvent(ctx, approvalAuditArgs{EventType: AuditEventApprovalApproved, ActorID: &memberID, ActorName: person.Username, Action: "approve", Row: row, Decision: ApprovalStateApproved})
+		}
+	}
+	return settledConfirmation(row, person, ApprovalStateApproved)
+}
+
+// DenyConfirmation is memberID's Cancel on their own pending confirmation:
+// nothing runs, and a second Cancel answers the same.
+func (s *ApprovalsService) DenyConfirmation(ctx context.Context, repositoryID, memberID int64, id string) (Confirmation, error) {
+	store, row, person, err := s.ownConfirmation(ctx, repositoryID, memberID, id)
+	if err != nil {
+		return Confirmation{}, err
+	}
+	if row.State == ApprovalStatePending {
+		decided, err := store.DecideConfirmation(ctx, db.DecideConfirmationParams{ID: id, MemberID: pgtype.Int8{Int64: memberID, Valid: true}, State: ApprovalStateRejected, Result: json.RawMessage(`{}`)})
+		switch {
+		case err == nil:
+			s.logApprovalEvent(ctx, approvalAuditArgs{EventType: AuditEventApprovalRejected, ActorID: &memberID, ActorName: person.Username, Action: "reject", Row: decided, Decision: ApprovalStateRejected})
+		case stdErrors.Is(err, pgx.ErrNoRows):
+			decided, err = store.GetConfirmation(ctx, id)
+		}
+		if err != nil {
+			return Confirmation{}, err
+		}
+		row = decided
+	}
+	return settledConfirmation(row, person, ApprovalStateRejected)
+}
+
+// ownConfirmation reads confirmation id for its member's press: 404 when the
+// repository holds no such confirmation, 403 permission when it is another
+// person's. A pending one past its expiry is stored as expired first.
+func (s *ApprovalsService) ownConfirmation(ctx context.Context, repositoryID, memberID int64, id string) (confirmationStore, db.Approval, db.User, error) {
+	store, err := s.confirmationStore()
+	if err != nil {
+		return nil, db.Approval{}, db.User{}, err
+	}
+	missing := &TodoControlError{http.StatusNotFound, "confirmation_not_found", "user", "No such confirmation"}
+	if _, err = uuid.Parse(id); err != nil {
+		return nil, db.Approval{}, db.User{}, missing
+	}
+	row, err := store.GetConfirmation(ctx, id)
+	if stdErrors.Is(err, pgx.ErrNoRows) || err == nil && row.RepositoryID != repositoryID {
+		return nil, db.Approval{}, db.User{}, missing
+	}
+	if err != nil {
+		return nil, db.Approval{}, db.User{}, err
+	}
+	if row.MemberID.Int64 != memberID {
+		return nil, db.Approval{}, db.User{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only the person it asks can answer it"}
+	}
+	if confirmationState(row, s.clock()) == ApprovalStateExpired && row.State == ApprovalStatePending {
+		if err = store.ExpireMemberConfirmations(ctx, row.MemberID); err != nil {
+			return nil, db.Approval{}, db.User{}, err
+		}
+		row.State = ApprovalStateExpired
+	}
+	person, err := store.GetUserByID(ctx, memberID)
+	if err != nil {
+		return nil, db.Approval{}, db.User{}, err
+	}
+	return store, row, person, nil
+}
+
+// settledConfirmation answers a press: the confirmation when it settled as
+// the press asked, else 409 naming how it settled.
+func settledConfirmation(row db.Approval, person db.User, want string) (Confirmation, error) {
+	switch {
+	case row.State == want:
+		return confirmationView(row, person), nil
+	case row.State == ApprovalStateExpired:
+		return Confirmation{}, &TodoControlError{http.StatusConflict, "confirmation_expired", "conflict", "This confirmation expired"}
+	case row.State == ApprovalStateApproved:
+		return Confirmation{}, &TodoControlError{http.StatusConflict, "confirmation_decided", "conflict", "This confirmation was confirmed"}
+	case row.State == ApprovalStateRejected:
+		return Confirmation{}, &TodoControlError{http.StatusConflict, "confirmation_decided", "conflict", "This confirmation was cancelled"}
+	}
+	return Confirmation{}, &TodoControlError{http.StatusConflict, "confirmation_decided", "conflict", "This confirmation is still pending"}
+}
+
+// confirmationState is the row's state as of now: a pending row past its
+// expiry is expired.
+func confirmationState(row db.Approval, now time.Time) string {
+	if row.State == ApprovalStatePending && row.ExpiresAt.Valid && !row.ExpiresAt.Time.After(now) {
+		return ApprovalStateExpired
+	}
+	return row.State
+}
+
+// confirmationView is row as its member's app reads it, with the Confirm
+// card: one_click, Commit, the TODO's title and the exact prompt it sends,
+// who asked, and the receipt once it settled.
+func confirmationView(row db.Approval, person db.User) Confirmation {
+	var asked confirmationPayload
+	_ = json.Unmarshal(row.Payload, &asked)
+	title := asked.Input.Title
+	card := map[string]any{"kind": row.Kind, "action": map[string]any{"tag": asked.Command, "verb": "Commit"},
+		"summary": "Commit " + title, "subject": map[string]any{"kind": "todo", "ref": title}, "text": asked.Input.Prompt}
+	if len(asked.AskedBy) > 0 {
+		card["asked_by"] = asked.AskedBy
+	}
+	view := Confirmation{ID: row.ID, State: row.State, CreatedAt: row.CreatedAt, Todo: asked.Todo, Card: card, credential: row.CredentialID.Int64}
+	if row.ExpiresAt.Valid {
+		at := row.ExpiresAt.Time
+		view.ExpiresAt = &at
+	}
+	name := person.DisplayName
+	if name == "" {
+		name = person.Username
+	}
+	receipt := map[string]any{"by": map[string]any{"login": person.Username, "name": name, "avatar_url": todoAvatar(person)}}
+	if row.DecidedAt.Valid {
+		receipt["at"] = row.DecidedAt.Time.UTC().Format(time.RFC3339Nano)
+	} else if view.ExpiresAt != nil {
+		receipt["at"] = view.ExpiresAt.UTC().Format(time.RFC3339Nano)
+	}
+	switch row.State {
+	case ApprovalStateApproved:
+		receipt["result"], receipt["text"] = "done", fmt.Sprintf("Committed T%d", asked.Todo)
+	case ApprovalStateRejected:
+		receipt["result"] = "cancelled"
+	case ApprovalStateExpired:
+		receipt["result"] = "expired"
+	default:
+		return view
+	}
+	card["receipt"] = receipt
+	return view
 }

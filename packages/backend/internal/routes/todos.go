@@ -21,12 +21,20 @@ type TodoRouteService interface {
 	ControlTodo(context.Context, int64, services.TodoControlInput) (services.TodoControlReceipt, error)
 }
 
+// TodoConfirmationService records the private confirmation a terminal's
+// TODO waits on (services.ApprovalsService.RequestConfirmation).
+type TodoConfirmationService interface {
+	RequestConfirmation(context.Context, int64, int64, services.MythicalTodoInput) (services.ConfirmationReceipt, error)
+}
+
 // TodoHandler resolves the install's persisted GitHub repository, never a
 // caller-supplied repository or actor. Each route authorizes its command for
-// the person's browser session by roster role.
+// the person's browser session by roster role. Confirmations records a
+// terminal's TODO for its member's Confirm instead of filing it.
 type TodoHandler struct {
-	Queries *db.Queries
-	Service TodoRouteService
+	Queries       *db.Queries
+	Service       TodoRouteService
+	Confirmations TodoConfirmationService
 }
 
 func todoRouteError(w http.ResponseWriter, err error) {
@@ -65,10 +73,10 @@ func todoRouteError(w http.ResponseWriter, err error) {
 // members create, read, answer and steer TODOs; maintainers merge; a
 // terminal's credential answers and steers its own branch's TODO and
 // confirms a new one in the app), then resolves the install's repository.
-func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command string) (int64, int64, bool) {
+func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command string) (int64, services.InstallAuthorization, bool) {
 	if h == nil || h.Service == nil {
 		todoRouteError(w, nil)
-		return 0, 0, false
+		return 0, services.InstallAuthorization{}, false
 	}
 	return authorizeInstallRepository(w, r, h.Queries, command)
 }
@@ -76,20 +84,20 @@ func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command 
 // authorizeInstallRepository decides command for the request's person
 // (services.Authorize), then resolves the install's persisted repository,
 // never a caller-supplied one. It writes the refusal itself.
-func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries *db.Queries, command string) (int64, int64, bool) {
+func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries *db.Queries, command string) (int64, services.InstallAuthorization, bool) {
 	if queries == nil {
 		todoRouteError(w, nil)
-		return 0, 0, false
+		return 0, services.InstallAuthorization{}, false
 	}
 	decision, err := services.Authorize(r.Context(), queries, command)
 	if err != nil {
 		todoRouteError(w, err)
-		return 0, 0, false
+		return 0, services.InstallAuthorization{}, false
 	}
 	setting, err := queries.GetInstallSetting(r.Context(), "github.repository")
 	if err != nil {
 		todoRouteError(w, err)
-		return 0, 0, false
+		return 0, services.InstallAuthorization{}, false
 	}
 	var binding struct {
 		Owner string `json:"owner_login"`
@@ -97,18 +105,27 @@ func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries 
 	}
 	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
 		todoRouteError(w, err)
-		return 0, 0, false
+		return 0, services.InstallAuthorization{}, false
 	}
 	repo, err := queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
 	if err != nil {
 		todoRouteError(w, err)
-		return 0, 0, false
+		return 0, services.InstallAuthorization{}, false
 	}
-	return repo.ID, decision.UserID, true
+	return repo.ID, decision, true
 }
+
+// Create files the person's TODO: 202 {state: accepted, n, rev}. A
+// terminal's TODO files nothing: it waits for its member's Confirm in the
+// app, 202 {confirmation, state: pending} (spec §5.3.2a, §5.4), or 503
+// confirmation_unavailable where the install serves no confirmations.
 func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := h.authorize(w, r, "todo.new")
+	repo, decision, ok := h.authorize(w, r, "todo.new")
 	if !ok {
+		return
+	}
+	if decision.Confirm && h.Confirmations == nil {
+		todoRouteError(w, &services.TodoControlError{Status: http.StatusServiceUnavailable, Code: "confirmation_unavailable", Class: "infra", Message: "Confirmations are unavailable"})
 		return
 	}
 	var input services.MythicalTodoInput
@@ -123,7 +140,18 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Request = r.Header.Get("Idempotency-Key")
-	item, err := h.Service.FileTodo(r.Context(), repo, user, input)
+	if decision.Confirm {
+		receipt, err := h.Confirmations.RequestConfirmation(r.Context(), repo, decision.UserID, input)
+		if err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(receipt)
+		return
+	}
+	item, err := h.Service.FileTodo(r.Context(), repo, decision.UserID, input)
 	if err != nil {
 		todoRouteError(w, err)
 		return
@@ -171,7 +199,7 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 // same person's same answer again; a question someone else already
 // answered is 409 {answered_by}.
 func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := h.authorize(w, r, "todo.answer")
+	repo, decision, ok := h.authorize(w, r, "todo.answer")
 	if !ok {
 		return
 	}
@@ -191,7 +219,7 @@ func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_answer", Class: "user", Message: "An answer and its question are required"})
 		return
 	}
-	if err := h.Service.AnswerTodo(r.Context(), repo, user, n, input); err != nil {
+	if err := h.Service.AnswerTodo(r.Context(), repo, decision.UserID, n, input); err != nil {
 		todoRouteError(w, err)
 		return
 	}
@@ -210,7 +238,7 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, err)
 		return
 	}
-	repo, user, ok := h.authorize(w, r, "merge")
+	repo, decision, ok := h.authorize(w, r, "merge")
 	if !ok {
 		return
 	}
@@ -227,7 +255,7 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Request = r.Header.Get("Idempotency-Key")
-	_, err = h.Service.MergeTodo(r.Context(), repo, user, n, input)
+	_, err = h.Service.MergeTodo(r.Context(), repo, decision.UserID, n, input)
 	if err != nil {
 		todoRouteError(w, err)
 		return
@@ -285,7 +313,7 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "idempotency_key_required", Class: "user", Message: "Idempotency-Key is required"})
 		return
 	}
-	repo, user, ok := h.authorize(w, r, command)
+	repo, decision, ok := h.authorize(w, r, command)
 	if !ok {
 		return
 	}
@@ -293,7 +321,7 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, err)
 		return
 	}
-	input.Repository, input.Actor, input.Request = repo, user, r.Header.Get("Idempotency-Key")
+	input.Repository, input.Actor, input.Request = repo, decision.UserID, r.Header.Get("Idempotency-Key")
 	receipt, err := h.Service.ControlTodo(r.Context(), n, input)
 	if err != nil {
 		todoRouteError(w, err)

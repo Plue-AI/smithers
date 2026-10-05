@@ -136,7 +136,7 @@ type AppTimelineSnapshot struct {
 
 type Approval struct {
 	ID           string             `json:"id"`
-	SessionID    string             `json:"session_id"`
+	SessionID    pgtype.Text        `json:"session_id"`
 	RepositoryID int64              `json:"repository_id"`
 	State        string             `json:"state"`
 	Kind         string             `json:"kind"`
@@ -147,6 +147,9 @@ type Approval struct {
 	DecidedBy    pgtype.Int8        `json:"decided_by"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
 	Payload      json.RawMessage    `json:"payload"`
+	MemberID     pgtype.Int8        `json:"member_id"`
+	CredentialID pgtype.Int8        `json:"credential_id"`
+	RequestKey   pgtype.Text        `json:"request_key"`
 }
 
 type AuditLog struct {

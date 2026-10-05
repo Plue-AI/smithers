@@ -1159,6 +1159,22 @@ type TODOBranchDiffModelHunksItemLinesItem struct {
 	Text string `json:"text"`
 }
 
+// ConfirmationReceipt — All a delegated credential learns of a confirmation (spec §5.4).
+type ConfirmationReceipt struct {
+	Confirmation string `json:"confirmation"`
+	State        string `json:"state"`
+}
+
+// Confirmation — A person's own confirmation (spec §5.4).
+type Confirmation struct {
+	ID        string                     `json:"id"`
+	State     string                     `json:"state"`
+	CreatedAt time.Time                  `json:"created_at"`
+	ExpiresAt *time.Time                 `json:"expires_at,omitempty"`
+	Todo      *int64                     `json:"todo,omitempty"`
+	Card      map[string]json.RawMessage `json:"card"`
+}
+
 // FlowCard is generated from docs/api/openapi.yaml.
 type FlowCard struct {
 	Name     string                 `json:"name"`
@@ -1819,13 +1835,6 @@ type PostAPITodosBody struct {
 type PostAPITodosBodyPlace struct {
 	Mode string `json:"mode"`
 	N    *int64 `json:"n,omitempty"`
-}
-
-// PostAPITodosResponse is generated from docs/api/openapi.yaml.
-type PostAPITodosResponse struct {
-	State string `json:"state"`
-	N     int64  `json:"n"`
-	Rev   int64  `json:"rev"`
 }
 
 // PostAPITodosNBody is generated from docs/api/openapi.yaml.
@@ -2506,6 +2515,27 @@ func (c *Client) HeadAPIBuildCacheHealthz(ctx context.Context) error {
 func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/commands/select", nil, body, &out)
+	return out, err
+}
+
+// GetAPIConfirmations calls GET /api/confirmations.
+func (c *Client) GetAPIConfirmations(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.do(ctx, "GET", "/api/confirmations", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIConfirmationsIDApprove calls POST /api/confirmations/{id}/approve.
+func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (Confirmation, error) {
+	var out Confirmation
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIConfirmationsIDDeny calls POST /api/confirmations/{id}/deny.
+func (c *Client) PostAPIConfirmationsIDDeny(ctx context.Context, id string, idempotencyKey string) (Confirmation, error) {
+	var out Confirmation
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/deny", nil, nil, &out)
 	return out, err
 }
 
@@ -5129,8 +5159,8 @@ func (c *Client) GetAPITodos(ctx context.Context) ([]TodoCard, error) {
 }
 
 // PostAPITodos calls POST /api/todos.
-func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (PostAPITodosResponse, error) {
-	var out PostAPITodosResponse
+func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos", nil, body, &out)
 	return out, err
 }

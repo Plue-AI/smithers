@@ -657,6 +657,22 @@ export type TODOBranchDiffModel = {
   }>
 }
 
+/** All a delegated credential learns of a confirmation (spec §5.4). */
+export type ConfirmationReceipt = {
+  confirmation: string
+  state: "pending" | "approved" | "rejected" | "expired"
+}
+
+/** A person's own confirmation (spec §5.4). */
+export type Confirmation = {
+  id: string
+  state: "pending" | "approved" | "rejected" | "expired"
+  created_at: string
+  expires_at?: string
+  todo?: number
+  card: Record<string, unknown>
+}
+
 export type FlowCard = {
   name: string
   source: {
@@ -1492,6 +1508,34 @@ export interface PostApiCommandsSelectInput {
 /** POST /api/commands/select */
 export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
   transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
+
+export type GetApiConfirmationsResponse = Array<Confirmation> | Array<ConfirmationReceipt>
+
+/** GET /api/confirmations: Read your own confirmations */
+export const getApiConfirmations = (transport: Transport): Promise<GetApiConfirmationsResponse> =>
+  transport.request("GET", `/api/confirmations`) as Promise<GetApiConfirmationsResponse>
+
+export type PostApiConfirmationsIdApproveResponse = Confirmation
+
+export interface PostApiConfirmationsIdApproveInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/approve: Confirm a pending confirmation */
+export const postApiConfirmationsIdApprove = (transport: Transport, input: PostApiConfirmationsIdApproveInput): Promise<PostApiConfirmationsIdApproveResponse> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/approve`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiConfirmationsIdApproveResponse>
+
+export type PostApiConfirmationsIdDenyResponse = Confirmation
+
+export interface PostApiConfirmationsIdDenyInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/deny: Cancel a pending confirmation */
+export const postApiConfirmationsIdDeny = (transport: Transport, input: PostApiConfirmationsIdDenyInput): Promise<PostApiConfirmationsIdDenyResponse> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/deny`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiConfirmationsIdDenyResponse>
 
 export type GetApiFeatureFlagsResponse = AnyJSON
 
@@ -5272,7 +5316,7 @@ export type PostApiTodosResponse = {
   state: "accepted"
   n: number
   rev: number
-}
+} | ConfirmationReceipt
 
 export interface PostApiTodosInput {
   readonly headers: { readonly "Idempotency-Key": string }

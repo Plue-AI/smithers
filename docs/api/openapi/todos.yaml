@@ -71,24 +71,26 @@ paths:
                   type: boolean
       responses:
         '202':
-          description: Persisted TODO creation; execution has not completed
+          description: Persisted TODO creation; execution has not completed. A terminal's credential files nothing; its TODO waits for its person's Confirm in the app, and it reads the pending confirmation's id and state.
           content:
             application/json:
               schema:
-                type: object
-                required: [state, n, rev]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  n: {type: integer, minimum: 1}
-                  rev: {type: integer, minimum: 1}
+                oneOf:
+                  - type: object
+                    required: [state, n, rev]
+                    properties:
+                      state: {type: string, enum: [accepted]}
+                      n: {type: integer, minimum: 1}
+                      rev: {type: integer, minimum: 1}
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place (amend, or Before a TODO that is not on the stack), or an issue reference that is incomplete or names a pull request
         '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential gets confirm_in_app ("Confirm in the app") and files nothing; its TODO waits for its person's Confirm in the app, which stage 1 does not serve.
+          description: Not a member, or not a person's browser session or terminal. A terminal's TODO placed anywhere but the end of the stack, or made from an issue, is refused.
         '409':
           description: Idempotency-Key reused for a different request; merging when Before names a merging TODO; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
-          description: Repository stack unavailable, or github_unavailable when Make TODO cannot read the issue
+          description: Repository stack unavailable, github_unavailable when Make TODO cannot read the issue, or confirmation_unavailable when a terminal's TODO cannot wait for its Confirm
   /api/todos/{n}:
     get:
       x-composition: install

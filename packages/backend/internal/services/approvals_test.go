@@ -160,7 +160,7 @@ func sampleSession(t *testing.T) db.AgentSession {
 func seededApproval(repoID int64, state string) db.Approval {
 	r := db.Approval{
 		ID:           "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-		SessionID:    "11111111-2222-3333-4444-555555555555",
+		SessionID:    pgtype.Text{String: "11111111-2222-3333-4444-555555555555", Valid: true},
 		RepositoryID: repoID,
 		State:        state,
 		Kind:         "shell_command",
@@ -253,7 +253,7 @@ func TestApprovalsService_Create_PersistsPendingRowWithSessionRepoID(t *testing.
 	// repository_id is derived from the session, not the caller.
 	assert.Equal(t, int64(42), resp.RepositoryID)
 	assert.Equal(t, int64(42), captured.RepositoryID)
-	assert.Equal(t, s.ID, captured.SessionID)
+	assert.Equal(t, s.ID, captured.SessionID.String)
 	assert.Equal(t, "shell_command", captured.Kind)
 	// Empty payload is replaced with '{}' so the JSONB CHECK passes.
 	assert.Equal(t, `{"cmd":"brew install foo"}`, string(captured.Payload))

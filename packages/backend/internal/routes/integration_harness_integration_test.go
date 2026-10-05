@@ -330,7 +330,7 @@ func routesIntegrationCreateApproval(t *testing.T, queries *db.Queries, session 
 
 	approval, err := queries.CreateApproval(context.Background(), db.CreateApprovalParams{
 		ID:           uuid.NewString(),
-		SessionID:    session.ID,
+		SessionID:    pgtype.Text{String: session.ID, Valid: true},
 		RepositoryID: session.RepositoryID,
 		Kind:         kind,
 		Title:        title,

@@ -28,7 +28,7 @@ func TestApprovalsSQL_H_CreateListDecideAndMissing(t *testing.T) {
 
 	approvalID := uuid.NewString()
 	approval, err := q.CreateApproval(ctx, CreateApprovalParams{
-		ID: approvalID, SessionID: sessionID, RepositoryID: repoID, Kind: "tool", Title: "Run command",
+		ID: approvalID, SessionID: pgtype.Text{String: sessionID, Valid: true}, RepositoryID: repoID, Kind: "tool", Title: "Run command",
 		Description: pgtype.Text{String: "approve it", Valid: true},
 		ExpiresAt:   pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
 		Payload:     json.RawMessage(`{"command":"make test"}`),
@@ -42,7 +42,7 @@ func TestApprovalsSQL_H_CreateListDecideAndMissing(t *testing.T) {
 	all, err := q.ListApprovalsByRepo(ctx, ListApprovalsByRepoParams{RepositoryID: repoID, State: "", PageOffset: 0, PageSize: 10})
 	require.NoError(t, err)
 	require.Len(t, all, 1)
-	pending, err := q.ListPendingApprovalsBySession(ctx, ListPendingApprovalsBySessionParams{RepositoryID: repoID, SessionID: sessionID})
+	pending, err := q.ListPendingApprovalsBySession(ctx, ListPendingApprovalsBySessionParams{RepositoryID: repoID, SessionID: pgtype.Text{String: sessionID, Valid: true}})
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
 
@@ -53,7 +53,7 @@ func TestApprovalsSQL_H_CreateListDecideAndMissing(t *testing.T) {
 	assert.Equal(t, "approved", decided.State)
 	_, err = q.DecideApproval(ctx, DecideApprovalParams{ID: approvalID, State: "rejected", RepositoryID: repoID})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
-	pending, err = q.ListPendingApprovalsBySession(ctx, ListPendingApprovalsBySessionParams{RepositoryID: repoID, SessionID: sessionID})
+	pending, err = q.ListPendingApprovalsBySession(ctx, ListPendingApprovalsBySessionParams{RepositoryID: repoID, SessionID: pgtype.Text{String: sessionID, Valid: true}})
 	require.NoError(t, err)
 	assert.Empty(t, pending)
 
@@ -67,7 +67,7 @@ func TestApprovalsSQL_H_CreateListDecideAndMissing(t *testing.T) {
 
 	_ = mustExpectQueryError(t, pool, func(spQ *Queries) error {
 		_, err := spQ.CreateApproval(ctx, CreateApprovalParams{
-			ID: uuid.NewString(), SessionID: sessionID, RepositoryID: repoID, Kind: "bad", Title: "bad", Payload: json.RawMessage(`[]`),
+			ID: uuid.NewString(), SessionID: pgtype.Text{String: sessionID, Valid: true}, RepositoryID: repoID, Kind: "bad", Title: "bad", Payload: json.RawMessage(`[]`),
 		})
 		return err
 	})
@@ -84,7 +84,7 @@ func TestApprovalsSQL_H_ErrorBranches(t *testing.T) {
 			return err
 		}},
 		{"ListPendingApprovalsBySession", func(q *Queries) error {
-			_, err := q.ListPendingApprovalsBySession(context.Background(), ListPendingApprovalsBySessionParams{RepositoryID: 1, SessionID: uuid.NewString()})
+			_, err := q.ListPendingApprovalsBySession(context.Background(), ListPendingApprovalsBySessionParams{RepositoryID: 1, SessionID: pgtype.Text{String: uuid.NewString(), Valid: true}})
 			return err
 		}},
 	}

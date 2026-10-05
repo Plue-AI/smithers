@@ -69,10 +69,11 @@ func (c *todoCalls) ControlTodo(_ context.Context, n int64, input services.TodoC
 // the production auth loader, member boundary, memberCommands and TODO
 // handler on real PostgreSQL: a stage-1 terminal's delegated credential, the
 // owner's, maintainer Ben's or member Alice's, answers and steers only the
-// TODO on its own branch, as its member; its todo.new is 403 confirm_in_app
-// with nothing filed; every other TODO action and route is 403 permission;
-// forged attribution headers change no decision; and a suspended member's
-// terminal is refused like their browser.
+// TODO on its own branch, as its member; its todo.new files nothing and
+// waits as its member's private confirmation, which neither the terminal nor
+// another member may press; every other TODO action and route is 403
+// permission; forged attribution headers change no decision; and a
+// suspended member's terminal is refused like their browser.
 func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
@@ -128,10 +129,14 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
 	calls := &todoCalls{}
-	todos := &routes.TodoHandler{Queries: q, Service: calls}
+	confirmations := services.NewApprovalsService(q, services.WithConfirmedTodos(calls))
+	todos := &routes.TodoHandler{Queries: q, Service: calls, Confirmations: confirmations}
+	confirm := &routes.ConfirmationsHandler{Queries: q, Service: confirmations}
 	router := chi.NewRouter()
 	router.Use(authLoader(q, cfg.Auth))
 	router.Use(memberCommands(q))
+	router.Get("/api/confirmations", confirm.List)
+	router.Post("/api/confirmations/{id}/approve", confirm.Approve)
 	router.Post("/api/todos", todos.Create)
 	router.Get("/api/todos/{n}", todos.Get)
 	router.Post("/api/todos/{n}", todos.Control)
@@ -157,7 +162,10 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	}
 	permission := map[string]any{"class": "permission", "code": "permission", "message": "A terminal's credential cannot do this"}
 	otherBranch := map[string]any{"class": "permission", "code": "permission", "message": "A terminal acts only on its own branch's TODO"}
-	confirm := map[string]any{"class": "permission", "code": "confirm_in_app", "message": "Confirm in the app"}
+	browsers := map[int64]http.Header{}
+	for _, u := range []db.User{owner, ben, alice} {
+		browsers[u.ID] = http.Header{"Cookie": {"session=" + session(u)}, "Idempotency-Key": {"browser-" + u.Username}}
+	}
 	answer := `{"wait":"q-0123456789abcdef","answer":"Use backoff"}`
 	steer := `{"op":"steer","text":"use the retry helper"}`
 	for _, holder := range []db.User{owner, ben, alice} {
@@ -179,6 +187,36 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				}
 				require.Equal(t, want, calls.take(), "%s %s", admitted.method, admitted.path)
 			}
+			// Its TODO draft files nothing: it waits for its member's Confirm,
+			// and forged headers make it no less a draft.
+			draft := `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`
+			forgedDraft := header.Clone()
+			forgedDraft.Set("Smithers-Profile", "full")
+			forgedDraft.Set("Idempotency-Key", "forged-"+holder.Username)
+			for _, sent := range []http.Header{header, forgedDraft} {
+				status, envelope := call("POST", "/api/todos", draft, sent)
+				require.Equal(t, http.StatusAccepted, status, "%v", envelope)
+				require.Equal(t, "pending", envelope["state"])
+				require.Len(t, envelope, 2)
+				id, _ := envelope["confirmation"].(string)
+				var member int64
+				require.NoError(t, pool.QueryRow(ctx, `SELECT member_id FROM approvals WHERE id=$1 AND state='pending'`, id).Scan(&member))
+				require.Equal(t, holder.ID, member)
+				// Neither the terminal nor another member presses it.
+				other := owner
+				if holder.ID == owner.ID {
+					other = alice
+				}
+				for _, presser := range []http.Header{header, browsers[other.ID]} {
+					status, envelope = call("POST", "/api/confirmations/"+id+"/approve", "", presser)
+					require.Equal(t, http.StatusForbidden, status, "%v", envelope)
+					require.Equal(t, "permission", envelope["code"])
+				}
+			}
+			// The terminal reads only the id and state of its own.
+			status, envelope := call("GET", "/api/confirmations", "", header)
+			require.Equal(t, http.StatusOK, status, "%v", envelope)
+			require.Empty(t, calls.take())
 			for _, refused := range []struct {
 				method, path, body string
 				envelope           map[string]any
@@ -193,8 +231,6 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				{"POST", "/api/todos/2", `{"op":"stop"}`, permission},
 				{"POST", "/api/todos/2", `{"op":"retry","steer":"again"}`, permission},
 				{"POST", "/api/todos/2/merge", `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, permission},
-				// A delegated TODO is confirmed in the app, which S1 does not serve.
-				{"POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`, confirm},
 				// Routes outside the profile.
 				{"GET", "/api/install", "", permission},
 				{"GET", "/api/members", "", permission},
@@ -224,8 +260,7 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	}
 	// The person's own browser session files a TODO directly; only the
 	// delegated credential confirms in the app.
-	status, envelope := call("POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`,
-		http.Header{"Cookie": {"session=" + session(ben)}, "Idempotency-Key": {"ben-browser"}})
+	status, envelope := call("POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`, browsers[ben.ID])
 	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
 	require.Equal(t, []string{fmt.Sprintf("file %d Follow-up", ben.ID)}, calls.take())
 	// A suspended member's terminal is refused like their browser.
