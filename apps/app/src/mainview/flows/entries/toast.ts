@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flow } from "./Declare"
+import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -13,6 +13,17 @@ export const namespace: Namespace = { id: "toast", label: "Toasts", summary: "No
 
 /** The `toast` flows registered as one aggregator block. */
 export const toastFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  // T-APP-18: the routed-entry and synchronous catalog providers are not mounted.
+  // Keep the person-only door registered, but refuse without touching browser APIs.
+  flow({
+    name: "notifications.allow",
+    summary: "Allow notifications",
+    hidden: true,
+    userOnly: true,
+    userOnlyReason: "browser permission requires the person’s in-card gesture",
+    input: NoPayload,
+    handler: () => "Browser notifications are unavailable."
+  }),
   flow({
     name: "toast.dismiss",
     summary: "Dismiss a toast notification",

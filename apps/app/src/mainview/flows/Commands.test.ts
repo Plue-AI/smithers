@@ -325,3 +325,30 @@ describe("fulfill-less requirement", () => {
     expect(forms).toEqual([])
   })
 })
+
+
+describe("notifications.allow stays dark until its providers are mounted", () => {
+  test("person, agent, automatic and preload paths never request browser permission", async () => {
+    const { store, controller } = await freshController()
+    const original = Object.getOwnPropertyDescriptor(globalThis, "Notification")
+    let calls = 0
+    Object.defineProperty(globalThis, "Notification", { configurable: true, value: {
+      permission: "default", requestPermission: () => { calls++; return Promise.resolve("granted") }
+    } })
+    try {
+      expect(controller.commands.find("notifications.allow")?.binding.descriptor.modelInvocable).toBe(false)
+      expect(JSON.stringify(controller.commands.toolSpecs())).not.toContain('"notifications.allow"')
+      expect((await controller.commands.run("notifications.allow")).status).toBe("failed")
+      expect((await controller.commands.runAsAgent("notifications.allow")).status).toBe("failed")
+      expect((await controller.commands.run("notifications.allow", undefined, "automatic")).status).toBe("failed")
+      await controller.commands.preload?.("notifications.allow")
+      expect(calls).toBe(0)
+      store.dispatch({ type: "toast.shown", actor: "system", key: "ordinary", title: "Working" })
+      expect(store.collections.toasts.get("toast-ordinary")?.title).toBe("Working")
+    } finally {
+      if (original) Object.defineProperty(globalThis, "Notification", original)
+      else Reflect.deleteProperty(globalThis, "Notification")
+      await controller.dispose()
+    }
+  })
+})

@@ -33,6 +33,7 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "notifications.allow": "browser permission requires the person’s in-card gesture",
   "storage.recovery.export": STORAGE_RECOVERY_USER_ONLY_REASON,
   "members": "Only a person can do this",
   "members.add": "Only a person can do this",
