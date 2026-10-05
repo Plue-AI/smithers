@@ -9,7 +9,7 @@ const diffExpected: Record<string, string> = { item_base: 'description: "Complet
 const shots = process.env.SMITHERS_VIEW_SHOTS ?? resolve(process.cwd(), "../../.artifacts/checks/C-UI-12", new Date().toISOString().replace(/[:.]/g, "-"))
 test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "C-UI-12 requires Chromium")
-  test.setTimeout(600_000)
+  test.setTimeout(1_800_000) // ~360 stories × 2 themes × 3 widths with axe takes ~11 min on the mini
   const errors: string[] = []
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()) })
