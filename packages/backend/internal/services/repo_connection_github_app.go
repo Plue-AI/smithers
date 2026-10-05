@@ -499,7 +499,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	}
 	key := scope.cacheKey(installationID)
 	if cached, ok := getCachedInstallationToken(key); ok {
-		s.gitHubBudgetTracker.registerToken(cached.token, installationID)
+		s.gitHubBudgetTracker.registerToken(cached.token, installationID, cached.expiresAt)
 		return GitHubInstallationToken{InstallationID: installationID, Token: cached.token, ExpiresAt: cached.expiresAt}, nil
 	}
 	requestBody, err := json.Marshal(scope)
@@ -557,7 +557,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	}
 
 	storeCachedInstallationToken(key, installationID, token, expiresAt)
-	s.gitHubBudgetTracker.registerToken(token, installationID)
+	s.gitHubBudgetTracker.registerToken(token, installationID, expiresAt)
 	return GitHubInstallationToken{
 		InstallationID: installationID,
 		Token:          token,
@@ -1024,6 +1024,8 @@ func parseGitHubAppPrivateKey(value string) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
+const gitHubAppJWTValidity = 9 * time.Minute
+
 var createGitHubAppJWTFunc = createGitHubAppJWT
 
 func createGitHubAppJWT(appID int64, privateKey *rsa.PrivateKey, now time.Time) (string, error) {
@@ -1034,7 +1036,7 @@ func createGitHubAppJWT(appID int64, privateKey *rsa.PrivateKey, now time.Time) 
 
 	claims := mustBase64URLEncodeJSON(map[string]any{
 		"iat": now.Add(-30 * time.Second).Unix(),
-		"exp": now.Add(9 * time.Minute).Unix(),
+		"exp": now.Add(gitHubAppJWTValidity).Unix(),
 		"iss": appID,
 	})
 

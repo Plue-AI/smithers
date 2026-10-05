@@ -91,10 +91,11 @@ func TestGitHubSharedBudgetComposition(t *testing.T) {
 			count := func() int { mu.Lock(); defer mu.Unlock(); return len(requests) }
 			codec, err := webhook.NewSecretCodec("budget-install-key")
 			require.NoError(t, err)
-			store := services.NewGitHubAppCredentialStore(pool, codec)
+			budget := newGitHubBudget(topology{multitenant: hosted})
+			store := services.NewGitHubAppCredentialStore(pool, codec, services.WithGitHubAppCredentialBudget(budget))
 			require.NoError(t, store.Save(ctx, credentials))
 			auth := services.NewAuthService(q, config.AuthConfig{SessionSecret: "session-key"}, nil, nil)
-			assembled, err := composeGitHubSync(pool, store, auth, topology{multitenant: hosted}, newGitHubBudget(topology{multitenant: hosted}))
+			assembled, err := composeGitHubSync(pool, store, auth, topology{multitenant: hosted}, budget)
 			require.NoError(t, err)
 			user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "budget-user", LowerUsername: "budget-user"})
 			require.NoError(t, err)

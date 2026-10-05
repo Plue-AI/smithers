@@ -516,12 +516,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Error("failed to initialize webhook secret codec", "error", err)
 		return err
 	}
-	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec)
+	gitHubBudgetTracker := newGitHubBudget(options.topology)
+	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec, services.WithGitHubAppCredentialBudget(gitHubBudgetTracker))
 	gitHubAppCredentials, err := selectGitHubAppCredentials(config.IsSingleOwner(cfg.Auth), options.EnvGitHubAppCredentials, gitHubAppStore)
 	if err != nil {
 		return err
 	}
-	gitHubBudgetTracker := newGitHubBudget(options.topology)
 	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials, gitHubBudgetTracker)
 	if err != nil {
 		slog.Error("invalid auth provider configuration", "error", err)

@@ -22,16 +22,16 @@ const GitHubInstallationHourlyBudget = 5000
 // install constructor selects response-header accounting; the hosted
 // constructor retains its existing per-installation rolling token bucket.
 type BudgetTracker struct {
-	mu                 sync.Mutex
-	buckets            map[int64]*budgetEntry
-	capacity           int
-	window             time.Duration
-	now                func() time.Time
-	headers            bool
-	resources          map[string]GitHubRateLimit
-	pauses             map[string]time.Time
-	streamResources    map[string]string
-	tokenInstallations map[[32]byte]int64
+	mu              sync.Mutex
+	buckets         map[int64]*budgetEntry
+	capacity        int
+	window          time.Duration
+	now             func() time.Time
+	headers         bool
+	resources       map[string]GitHubRateLimit
+	pauses          map[string]time.Time
+	streamResources map[string]string
+	tokenPrincipals map[[32]byte]gitHubTokenPrincipal
 }
 
 type budgetEntry struct {
@@ -238,17 +238,40 @@ func NewGitHubResponseBudgetTracker() *BudgetTracker {
 	t.resources = make(map[string]GitHubRateLimit)
 	t.pauses = make(map[string]time.Time)
 	t.streamResources = make(map[string]string)
-	t.tokenInstallations = make(map[[32]byte]int64)
+	t.tokenPrincipals = make(map[[32]byte]gitHubTokenPrincipal)
 	return t
 }
 
-func (t *BudgetTracker) registerToken(token string, installationID int64) {
+type gitHubTokenPrincipal struct {
+	key     string
+	expires time.Time
+}
+
+func (t *BudgetTracker) registerToken(token string, installationID int64, expires time.Time) {
+	t.registerCredential(token, fmt.Sprintf("installation:%d", installationID), expires)
+}
+
+// Called only by the credential source after signing with its loaded App key.
+// Incoming JWT claims never supply trusted accounting identity.
+func (t *BudgetTracker) registerAppToken(token string, appID int64, expires time.Time) {
+	t.registerCredential(token, fmt.Sprintf("app:%d", appID), expires)
+}
+
+func (t *BudgetTracker) registerCredential(token, principal string, expires time.Time) {
 	if t == nil || !t.headers {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.tokenInstallations[sha256.Sum256([]byte("Bearer "+token))] = installationID
+	now := t.now()
+	for digest, known := range t.tokenPrincipals {
+		if !known.expires.After(now) {
+			delete(t.tokenPrincipals, digest)
+		}
+	}
+	if token != "" && expires.After(now) {
+		t.tokenPrincipals[sha256.Sum256([]byte("Bearer "+token))] = gitHubTokenPrincipal{principal, expires}
+	}
 }
 
 // StreamCadence changes only the low-priority streams, until the resource reset.
@@ -322,8 +345,12 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 	stream := gitHubBudgetStream(req.URL.Path)
 	t.mu.Lock()
 	principal := fmt.Sprintf("credential:%x", digest)
-	if id, ok := t.tokenInstallations[digest]; ok {
-		principal = fmt.Sprintf("installation:%d", id)
+	if known, ok := t.tokenPrincipals[digest]; ok {
+		if known.expires.After(t.now()) {
+			principal = known.key
+		} else {
+			delete(t.tokenPrincipals, digest)
+		}
 	}
 	// Token minting is accounted before the token exists, using its installation.
 	parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")

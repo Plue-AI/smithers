@@ -26,6 +26,8 @@ A 403 or 429 with `Retry-After` pauses only its stream. Exhausted primary capaci
 
 Startup creates this budget before auth and setup. Manifest owner discovery, conversion and installation discovery, OAuth exchange and refresh, and profile/email reads use it too. Profile, email and repository reads with the same user token share headroom; a temporary OAuth pause does not invalidate a stored refresh token. Setup retains its refusal to follow redirects.
 
+The sealed credential source registers each JWT under the App ID it signed for. Renewing that JWT retains the App's resource limits and stream pauses across setup, access diagnosis, member checks and installation reconciliation. App and installation-token budgets remain distinct. Registrations expire with their credentials; removing an expired registration does not clear the principal's rate-limit history. Incoming JWT claims never establish an accounting identity.
+
 The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events use an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. Full production stream and freshness contracts remain unqualified.
 
 ## Fetched-state delivery

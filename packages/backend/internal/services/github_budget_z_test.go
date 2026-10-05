@@ -86,8 +86,8 @@ func TestGitHubBudget_ResponseHeadersAndStreamAdmission(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	tracker := NewGitHubResponseBudgetTracker()
 	tracker.now = func() time.Time { return now }
-	tracker.registerToken("scoped-one", 91)
-	tracker.registerToken("scoped-two", 91)
+	tracker.registerToken("scoped-one", 91, now.Add(time.Hour))
+	tracker.registerToken("scoped-two", 91, now.Add(time.Hour))
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.RequestURI())
@@ -153,7 +153,7 @@ func TestGitHubBudget_MintAndReadsShareAdmissionWithoutHourlyCap(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	tracker := NewGitHubResponseBudgetTracker()
 	tracker.now = func() time.Time { return now }
-	tracker.registerToken("read-token", 91)
+	tracker.registerToken("read-token", 91, now.Add(time.Hour))
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++

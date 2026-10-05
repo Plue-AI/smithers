@@ -24154,6 +24154,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/repo_connection_github_app.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/compose/main.go"
       },
       {
