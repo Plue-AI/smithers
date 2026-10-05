@@ -382,6 +382,7 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 type todoRuntimeHost struct {
 	mu       sync.Mutex
 	launches []map[string]any
+	steers   []map[string]any
 	// cancels and denials are the runs and plans the dispatcher stopped.
 	cancels, denials []string
 	cancelled        map[string]bool
@@ -434,6 +435,9 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 			runID := "todo-run"
 			receipt := flowruntime.Receipt{Tag: "Accepted", RunID: runID}
 			switch operation {
+			case "steer":
+				h.steers = append(h.steers, input)
+				receipt.RunID, _ = input["runId"].(string)
 			case "launch":
 				h.launches = append(h.launches, input)
 				if input["flowId"] == mythicalReviewFlow {

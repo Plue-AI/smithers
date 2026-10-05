@@ -35,6 +35,10 @@ func TestTodoSteerLifecycleAndOpenQuestions(t *testing.T) {
 		deliver                     bool
 	}{
 		{"queued", "queued", false, false, false, "queued", 3, false},
+		{"queued question", "queued", false, false, true, "queued", 3, false},
+		{"queued attaching question", "queued", false, true, true, "queued", 2, false},
+		{"retrying question", "retrying", false, false, true, "retrying", 3, false},
+		{"skipped question", "skipped", false, false, true, "skipped", 3, false},
 		{"starting", "running", false, true, false, "running", 2, false},
 		{"working", "running", false, false, false, "running", 2, true},
 		{"review", "proposed", false, false, false, "running", 2, true},
@@ -61,7 +65,7 @@ func TestTodoSteerLifecycleAndOpenQuestions(t *testing.T) {
 			if tc.question {
 				checks.Waits = []TodoWait{{ID: "question-1", Kind: "question", Prompt: "Which behavior?", Signal: &TodoWaitSignal{Run: "same-run", Name: "answer"}}}
 			}
-			if tc.state == "queued" {
+			if tc.state == "queued" && !tc.attaching {
 				checks.RunLaunched, checks.RunAttached = false, false
 			}
 			item.Checks = checks.encode()

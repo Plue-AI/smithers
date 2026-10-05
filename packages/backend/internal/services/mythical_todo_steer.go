@@ -94,7 +94,39 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 	if role == "" {
 		return mythicalFlowFailure{code: "steer_author_revoked"}
 	}
+	// Admission may have committed before Stop, a merge claim, or settlement.
+	// Re-read those facts at both delivery boundaries. A hold keeps the same
+	// durable input retryable; it is never consent to resume the run.
+	switch item.State {
+	case "landed", "cancelled", "rejected", "declined":
+		return mythicalFlowFailure{code: "steer_todo_closed"}
+	}
+	if !todoSteerReady(item) {
+		return mythicalFlowFailure{code: "steer_held", retryable: true}
+	}
+	if _, pinned := mythicalPinOf(item); !pinned {
+		return mythicalFlowFailure{code: "steer_authorizer_unavailable", retryable: true}
+	}
 	return nil
+}
+
+// todoSteerReady reads lifecycle facts, not the card's state: an open question
+// can mask a paused, queued, or failed attempt as needs_you. The question
+// itself remains open and does not hold feedback for an otherwise live run.
+func todoSteerReady(item db.MythicalItem) bool {
+	if item.PausedAt.Valid || mythicalMergeFenced(item) {
+		return false
+	}
+	checks := mythicalChecksOf(item)
+	if !checks.RunLaunched || !checks.RunAttached {
+		return false
+	}
+	switch item.State {
+	case "running", "delivering", "integrating", "verifying", "proposing", "waiting", "proposed":
+		return true
+	default:
+		return false
+	}
 }
 
 // steerTodo joins feedback, activity and an immediately deliverable Message in
@@ -235,17 +267,13 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	}
 	next, attempt := item, item.Attempt
 	fenced := mythicalMergeFenced(item)
-	// Needs you is a projection that can cover a paused, failed or attaching
-	// run. Use the stored lifecycle facts before deciding to contact that run.
-	attaching := checks.RunLaunched && !checks.RunAttached
-	deliver := !fenced && !item.PausedAt.Valid && item.State != "blocked" && !attaching &&
-		(state == "working" || state == "needs_you" || state == "in_review")
+	deliver := todoSteerReady(item)
 	if deliver {
 		if _, pinned := mythicalPinOf(item); !pinned || item.RequestRunID == "" || item.WorkspaceID == "" {
 			return item, todoSteer{}, false, false, todoControlUnavailable()
 		}
 	}
-	if state == "queued" {
+	if (item.State == "queued" || item.State == "retrying" || item.State == "skipped") && !(checks.RunLaunched && !checks.RunAttached) {
 		attempt++
 	}
 	if item.State == "blocked" && !fenced {
