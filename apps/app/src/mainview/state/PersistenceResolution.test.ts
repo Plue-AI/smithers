@@ -4,7 +4,11 @@ import { describe, expect, spyOn, test } from "bun:test"
 import { APP_SCHEMA_VERSION, PERSISTENCE_BACKEND_STORAGE_KEY } from "../chain/SchemaVersion"
 import { METADATA_TABLE_NAME, openSqliteRowStorage, ROW_TABLE_NAME } from "../chain/SqliteRowStorage"
 import type { SqliteRowDatabase } from "../chain/SqliteRowStorage"
-import { createAppStore, resolvePersistence } from "./AppStore"
+import { createAppStore, PLAIN_HTTP_NOTICE_KEY, resolvePersistence } from "./AppStore"
+import { scopedControllers } from "./ControllerTestScope"
+import { settled, silentAgent } from "./TestFixtures"
+
+const createAppController = scopedControllers()
 
 const memory = (): StorageApi & {
   readonly bytes: Map<string, string>
@@ -220,6 +224,66 @@ describe("the browser's persistence resolver", () => {
     } finally {
       if (locks) Object.defineProperty(navigator, "locks", locks)
       else Reflect.deleteProperty(navigator, "locks")
+      warn.mockRestore()
+    }
+  })
+
+  test("a plain-HTTP browser is told once that nothing is saved, and the person dismisses it", async () => {
+    const locks = Object.getOwnPropertyDescriptor(navigator, "locks")
+    const local = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
+    const warn = spyOn(console, "warn").mockImplementation(() => {})
+    const browser = memory()
+    const notice = { status: "failed", title: "This session will not be saved", detail: "On plain HTTP, nothing typed now will be kept." }
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined })
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: browser })
+    try {
+      const first = await createAppStore()
+      expect(first.collections.toasts.get("toast-store.degraded")).toMatchObject(notice)
+      // The person hides it with the notice's Hide button, and it is gone.
+      const controller = createAppController(first, silentAgent)
+      controller.runCommand("toast.dismiss", "toast-store.degraded")
+      await settled()
+      expect(first.collections.toasts.get("toast-store.degraded")).toBeUndefined()
+      await first.dispose?.()
+
+      // A later launch in the same browser runs in memory again and does not repeat it.
+      for (let launch = 0; launch < 2; launch += 1) {
+        const later = await createAppStore()
+        expect(later.persistenceMode).toBe("memory")
+        expect(later.collections.toasts.get("toast-store.degraded")).toBeUndefined()
+        await later.dispose?.()
+      }
+      // The browser holds that record beside the appearance mirrors, and no later store reads it as saved data.
+      expect(browser.getItem(PLAIN_HTTP_NOTICE_KEY)).toBe("shown")
+      expect([...browser.bytes.keys()].sort()).toEqual(["smithers-mvp.palette", PLAIN_HTTP_NOTICE_KEY, "smithers-mvp.theme"])
+      const resolved = await resolvePersistence({
+        bootRecord: () => browser,
+        databaseExists: async () => true,
+        openDatabase: async () => ({ execute: async () => [] })
+      })
+      expect(resolved.mode).toBe("opfs")
+      if (resolved.backend.kind === "opfs") await resolved.backend.close()
+
+      // A browser that refuses storage cannot be told once, so it is told each launch.
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: {
+          getItem: () => null,
+          setItem: () => {
+            throw new Error("quota")
+          }
+        }
+      })
+      for (let launch = 0; launch < 2; launch += 1) {
+        const refused = await createAppStore()
+        expect(refused.collections.toasts.get("toast-store.degraded")).toMatchObject(notice)
+        await refused.dispose?.()
+      }
+    } finally {
+      if (locks) Object.defineProperty(navigator, "locks", locks)
+      else Reflect.deleteProperty(navigator, "locks")
+      if (local) Object.defineProperty(globalThis, "localStorage", local)
+      else Reflect.deleteProperty(globalThis, "localStorage")
       warn.mockRestore()
     }
   })

@@ -278,6 +278,26 @@ const inertStorageEvents: StorageEventApi = {
  * anything else is open. A browser with storage disabled throws on the property
  * itself, so the read is guarded.
  */
+/** Where a plain-HTTP browser records that it was told its sessions are not saved. */
+export const PLAIN_HTTP_NOTICE_KEY = `${PERSISTED_KEY_PREFIX}plain-http-notice`
+
+/*
+ * Every launch on a plain-HTTP origin runs in memory, so its notice is true
+ * for each one, and raised on each it greets every launch and never leaves.
+ * A browser is told once: the first launch records it, best-effort as the
+ * appearance mirrors are, and a browser that refuses storage is told each time.
+ */
+const firstPlainHttpNotice = (): boolean => {
+  try {
+    if (typeof localStorage === "undefined") return true
+    if (localStorage.getItem(PLAIN_HTTP_NOTICE_KEY) !== null) return false
+    localStorage.setItem(PLAIN_HTTP_NOTICE_KEY, "shown")
+  } catch {
+    // Not recorded: the next launch tells this browser again.
+  }
+  return true
+}
+
 const bootRecordStorage = (): StorageApi | undefined => {
   try {
     return typeof window === "undefined" ? undefined : window.localStorage
@@ -310,7 +330,7 @@ const hasLegacyLocalState = (storage: StorageApi): boolean => {
       const key = scannable.key(index)
       if (key !== null && key.startsWith(PERSISTED_KEY_PREFIX) && key !== SCHEMA_VERSION_STORAGE_KEY &&
         key !== PERSISTENCE_BACKEND_STORAGE_KEY && key !== THEME_MIRROR_KEY && key !== PALETTE_MIRROR_KEY &&
-        key !== DRAFT_RECOVERY_STORAGE_KEY &&
+        key !== DRAFT_RECOVERY_STORAGE_KEY && key !== PLAIN_HTTP_NOTICE_KEY &&
         storage.getItem(key) !== null) return true
     }
   }
@@ -1964,11 +1984,12 @@ const initializeAppStore = async (
    * the empty surface has to be told why, or an honest recovery reads as
    * silent data loss. The failure toast is the one notice that stays until
    * dismissed, which is what this state needs — it is true for the whole
-   * session, not for 300ms.
+   * session, not for 300ms. On plain HTTP it is true of every launch, so a
+   * browser is told once and the person dismisses it (firstPlainHttpNotice).
    *
    * Raised after the stale-toast sweep above so it is not swept with them.
    */
-  if (resolved.degraded && !resolved.savedStoreUnavailable) {
+  if (resolved.degraded && !resolved.savedStoreUnavailable && (resolved.insecureOrigin !== true || firstPlainHttpNotice())) {
     await dispatch({
       type: "toast.shown",
       actor: "system",
