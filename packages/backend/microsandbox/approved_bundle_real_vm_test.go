@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -49,9 +51,7 @@ func installedBundleCopy(t *testing.T) string {
 		}
 		t.Skip("SMITHERS_INSTALLED_BUNDLE is not set")
 	}
-	temporary, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
-	bundle := filepath.Join(temporary, "bundle")
+	bundle := filepath.Join(bundletest.ProtectedTempDir(t), "bundle")
 	output, err := exec.Command("/bin/cp", "-cR", source, bundle).CombinedOutput()
 	require.NoError(t, err, string(output))
 	data, err := os.ReadFile(filepath.Join(bundle, "manifest.json"))
@@ -120,21 +120,116 @@ func TestRealMicroVMApprovedBundleRootPaths(t *testing.T) {
 	}
 	host := filepath.Join(bundle, "bin", "fixture-host")
 	codingHost := filepath.Join(bundle, "bin", "smithers-coding-host")
-	runtime, err := New(context.Background(), Config{Bundle: bundle, Executable: filepath.Join(bundle, "bin", "smithers-backend"),
-		BundlePrograms: []string{host, codingHost}, BundleFiles: []string{filepath.Join(bundle, "bin", "flow-hosts.json")},
-		Root: t.TempDir(), CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 2})
+	installed, err := installbundle.OpenRunning(filepath.Join(bundle, "bin", "smithers-backend"))
+	require.NoError(t, err)
+	runtime, err := New(context.Background(), Config{Bundle: installed,
+		BundlePrograms: []string{host, codingHost},
+		Root:           t.TempDir(), CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 2})
 	require.NoError(t, err, "the real assembled bundle passes startup")
 	t.Cleanup(func() { sweepOwner(t, runtime) })
-	root, revision, manifestDigest, ok := runtime.ApprovedBundle()
-	require.True(t, ok)
 	require.Equal(t, filepath.Join(bundle, "bin", "msb"), runtime.cli.binary, "msb is the bundle's own")
-	record("startup", map[string]any{"bundle": root, "revision": revision, "manifestSHA256": manifestDigest, "msb": runtime.cli.binary})
+	record("startup", map[string]any{"bundle": installed.Root(), "revision": installed.Revision(), "manifestSHA256": installed.ManifestSHA256(),
+		"msb": runtime.cli.binary, "guestHelperSHA256": guestHelperDigest})
 
 	ctx := operation("bundle-root")
 	const workspaceID = "bundle-root"
 	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: workspaceID})
 	require.NoError(t, err)
 	machine := runtime.machineName(workspaceID)
+
+	// Fable round 2, N2: setup's sanitizer end state in a real guest: no
+	// file under /usr keeps a set-id bit or security.capability, and sudo,
+	// su and sshd are gone. Read as root, after setup ran.
+	scan, err := runtime.cli.run(ctx, nil, "exec", machine, "--", "/usr/bin/python3", "-I", "-S", "-c", `import json,os,stat
+setid,caps,found,files=[],[],[],0
+for top,dirs,names in os.walk("/usr"):
+    for name in names+dirs:
+        if name in ("sudo","su","sshd"): found.append(os.path.join(top,name))
+    for name in names:
+        path=os.path.join(top,name)
+        info=os.lstat(path)
+        if not stat.S_ISREG(info.st_mode): continue
+        files+=1
+        if info.st_mode & 0o6000: setid.append(path)
+        try:
+            if "security.capability" in os.listxattr(path, follow_symlinks=False): caps.append(path)
+        except OSError: pass
+for path in ("/bin/sudo","/bin/su","/sbin/sshd","/usr/bin/sudo","/usr/bin/su","/usr/sbin/sshd"):
+    if os.path.lexists(path) and path not in found: found.append(path)
+print(json.dumps({"regularFiles":files,"setid":setid,"capabilities":caps,"sudoSuSshd":found}))`)
+	require.NoError(t, err, string(scan))
+	var sanitized struct {
+		RegularFiles int      `json:"regularFiles"`
+		SetID        []string `json:"setid"`
+		Capabilities []string `json:"capabilities"`
+		SudoSuSshd   []string `json:"sudoSuSshd"`
+	}
+	require.NoError(t, json.Unmarshal(scan, &sanitized))
+	require.Greater(t, sanitized.RegularFiles, 1000, "the scan walked the image's /usr")
+	require.Empty(t, sanitized.SetID, "no set-id bit remains under /usr")
+	require.Empty(t, sanitized.Capabilities, "no security.capability remains under /usr")
+	require.Empty(t, sanitized.SudoSuSshd, "sudo, su and sshd are removed")
+	record("sanitizer-end-state", sanitized)
+
+	// Fable round 2, B2 and N2: the real msb and the guest kernel it loads are
+	// verified before every run. A replaced file (a new inode, so running
+	// microVMs keep theirs) refuses the next run; the approved bytes put back
+	// are accepted again.
+	perRun := map[string]string{}
+	for _, relative := range []string{"bin/msb", "lib/libkrunfw.5.dylib"} {
+		target := filepath.Join(bundle, filepath.FromSlash(relative))
+		info, err := os.Stat(target)
+		require.NoError(t, err)
+		original := filepath.Join(t.TempDir(), "original")
+		output, err := exec.Command("/bin/cp", "-c", target, original).CombinedOutput()
+		require.NoError(t, err, string(output))
+		tampered := filepath.Join(filepath.Dir(target), ".tampered")
+		output, err = exec.Command("/bin/cp", "-c", target, tampered).CombinedOutput()
+		require.NoError(t, err, string(output))
+		file, err := os.OpenFile(tampered, os.O_WRONLY|os.O_APPEND, 0)
+		require.NoError(t, err)
+		_, err = file.Write([]byte{0})
+		require.NoError(t, err)
+		require.NoError(t, file.Close())
+		require.NoError(t, os.Chmod(tampered, info.Mode().Perm()))
+		require.NoError(t, os.Rename(tampered, target))
+		_, err = runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"/bin/true"}})
+		require.ErrorIs(t, err, ErrUnapprovedArtifact, relative)
+		perRun[relative] = err.Error()
+		require.NoError(t, os.Rename(original, target))
+		result, err := runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"/bin/true"}})
+		require.NoError(t, err, relative)
+		require.Zero(t, result.ExitCode)
+	}
+	// msb loads the first libkrunfw.5.dylib it finds beside itself, then in
+	// ../lib: a kernel placed beside msb refuses the next run.
+	shadow := filepath.Join(bundle, "bin", "libkrunfw.5.dylib")
+	output, err := exec.Command("/bin/cp", "-c", filepath.Join(bundle, "lib", "libkrunfw.5.dylib"), shadow).CombinedOutput()
+	require.NoError(t, err, string(output))
+	_, err = runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"/bin/true"}})
+	require.ErrorIs(t, err, ErrUnapprovedArtifact, "a kernel beside msb")
+	perRun["bin/libkrunfw.5.dylib"] = err.Error()
+	require.NoError(t, os.Remove(shadow))
+	result, err := runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"/bin/true"}})
+	require.NoError(t, err)
+	require.Zero(t, result.ExitCode)
+	record("per-run-check", perRun)
+
+	// The kernel msb resolves, in the environment every msb run gets, is the
+	// verified lib/ file.
+	doctor, err := runtime.cli.command("doctor").CombinedOutput()
+	require.NoError(t, err, string(doctor))
+	want, err := filepath.EvalSymlinks(filepath.Join(bundle, "lib", "libkrunfw.5.dylib"))
+	require.NoError(t, err)
+	var resolved string
+	for _, line := range strings.Split(string(doctor), "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && strings.Contains(line, "libkrunfw") {
+			resolved, _ = filepath.EvalSymlinks(fields[len(fields)-1])
+		}
+	}
+	require.Equal(t, want, resolved, "msb doctor: %s", doctor)
+	record("kernel-lookup", map[string]string{"msbDoctor": strings.TrimSpace(string(doctor)), "loaded": resolved})
+
 	sum := func(path string) string {
 		body, err := os.ReadFile(path)
 		require.NoError(t, err)

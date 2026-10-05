@@ -25,7 +25,7 @@ func codingBindingFixture() workspaceapi.WorkspaceCodingBinding {
 func codingHelperFixture(t *testing.T, runtime *Runtime) (string, string) {
 	t.Helper()
 	bundle, files := approvedBundleFixture(t)
-	runtime.config.Bundle = bundle
+	runtime.config.Bundle = pinned(t, bundle)
 	script, err := os.ReadFile(runtime.cli.binary)
 	require.NoError(t, err)
 	script = []byte(strings.Replace(string(script), "exit 0", "case \"$*\" in *' coding-helper-check '*) echo replace;; esac\nexit 0", 1))
@@ -159,12 +159,11 @@ func TestMicroVMCodingBindingRefusesInvalidPackagedHelper(t *testing.T) {
 			runtime, argv, _ := egressFakeMSB(t, nil)
 			egressWorkspace(t, runtime, "coding-lane", "running", 0)
 			helper, _ := codingHelperFixture(t, runtime)
-			bundle := runtime.config.Bundle
+			bundle := runtime.config.Bundle.Root()
 			approved, err := os.ReadFile(helper)
 			require.NoError(t, err)
 			switch name {
 			case "no installed bundle":
-				runtime.config.Bundle = ""
 			case "directory":
 				require.NoError(t, os.Remove(helper))
 				require.NoError(t, os.Mkdir(helper, 0o755))
@@ -184,6 +183,11 @@ func TestMicroVMCodingBindingRefusesInvalidPackagedHelper(t *testing.T) {
 				require.NoError(t, os.WriteFile(copied, approved, 0o755))
 				require.NoError(t, os.Remove(helper))
 				require.NoError(t, os.Symlink(copied, helper))
+			}
+			// The backend pins the bundle as it is at startup.
+			runtime.config.Bundle = pinned(t, bundle)
+			if name == "no installed bundle" {
+				runtime.config.Bundle = nil
 			}
 			err = runtime.InstallWorkspaceCodingBinding(context.Background(), "coding-lane", codingBindingFixture())
 			require.Error(t, err)

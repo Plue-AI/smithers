@@ -25,15 +25,15 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 	add := func(name string, ok bool, format string, args ...any) {
 		lines = append(lines, DoctorLine{Name: name, OK: ok, Detail: fmt.Sprintf(format, args...)})
 	}
-	bundle, msb, err := startupBundle(config)
+	binary, verify, err := startupChecks(config)
 	if err != nil {
 		add("bundle", false, "%v", err)
 		return lines
 	}
-	if bundle != nil {
-		add("bundle", true, "%s revision %s, manifest sha256 %s", bundle.root, bundle.revision, bundle.digest)
+	if bundle := config.Bundle; bundle != nil {
+		add("bundle", true, "%s revision %s, manifest sha256 %s", bundle.Root(), bundle.Revision(), bundle.ManifestSHA256())
 	}
-	client, err := runtimeCLI(config, msb)
+	client, err := runtimeCLI(binary, verify)
 	if err != nil {
 		add("msb", false, "%v", err)
 		return lines

@@ -416,18 +416,11 @@ func (r *Runtime) managedHostCommand(ctx context.Context, machine string, comman
 // under guestBundleRoot through protected, never-followed directories. Any
 // other value is returned unchanged: it must already be a guest program.
 func (r *Runtime) plantArtifact(ctx context.Context, machine, program string) (string, error) {
-	relative, ok, err := r.bundleArtifact(program)
+	relative, ok := r.bundleArtifact(program)
 	if !ok {
 		return program, nil
 	}
-	if err != nil {
-		return "", err
-	}
-	bundle, err := r.approvedBundle()
-	if err != nil {
-		return "", err
-	}
-	data, sum, err := bundle.read(relative)
+	data, sum, err := plantable(r.config.Bundle, relative)
 	if err != nil {
 		return "", err
 	}

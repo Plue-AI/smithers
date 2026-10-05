@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 )
 
 func TestExternalDatabaseURL(t *testing.T) {
@@ -43,13 +45,21 @@ func TestMigrationWithoutDatabaseDoesNotPrepareLocalState(t *testing.T) {
 	}
 }
 
+// An installed bundle without its packaged Flow hosts refuses to serve
+// before local state is prepared; beside a bundle no variable can supply
+// another manifest.
 func TestServeRequiresPackagedFlowHostsBeforePreparingLocalState(t *testing.T) {
-	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
-	root := t.TempDir()
-	t.Setenv("SMITHERS_DATA_ROOT", root)
-	t.Setenv("SMITHERS_NATIVE_POSTGRES_BIN", "/unused/postgres")
-	t.Setenv("SMITHERS_FLOW_HOST_MANIFEST", "")
-	if err := run(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "SMITHERS_FLOW_HOST_MANIFEST") {
+	bundle := installedBundleFixture(t)
+	if err := os.Remove(bundle.hostManifest); err != nil {
+		t.Fatal(err)
+	}
+	bundle.writeManifest(t)
+	root := filepath.Join(bundletest.ProtectedTempDir(t), "data")
+	err := serveInstalled(t, bundle, func(env map[string]string) {
+		env["SMITHERS_DATA_ROOT"] = root
+		delete(env, "SMITHERS_FLOW_HOST_MANIFEST")
+	})
+	if err == nil || !strings.Contains(err.Error(), "SMITHERS_FLOW_HOST_MANIFEST") {
 		t.Fatalf("missing Flow bundle = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "config")); !os.IsNotExist(err) {

@@ -116,7 +116,7 @@ func TestExecSFTPAndLoopback(t *testing.T) {
 }
 func TestFreshOnlyAndNoFallback(t *testing.T) {
 	config := freshConfig()
-	if config.Environments != nil || config.Bundle != "" || config.Image != "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b" {
+	if config.Environments != nil || config.Bundle != nil || config.Image != "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b" {
 		t.Fatalf("%+v", config)
 	}
 	if conn, err := relay(context.Background(), nil, "ben"); err != errAuthority || conn != nil {

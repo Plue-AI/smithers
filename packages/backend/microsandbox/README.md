@@ -46,30 +46,35 @@ values they are, so a repository's agent variable cannot select what guest
 root installs.
 
 `Config.Bundle` is the installed bundle the backend runs from
-(`<bundle>/bin/smithers-backend`). For stage S1, approval of that bundle means:
+(`<bundle>/bin/smithers-backend`), pinned once by the caller with
+`installbundle.OpenRunning` (spec §17.3). For stage S1, approval of that
+bundle means:
 
-- `New` pins its `manifest.json` once and refuses to start unless the bundle
-  directory, the manifest and every ancestor up to `/` are owned by root or the
-  running user and not writable by group or others. A symlinked ancestor is
-  resolved once; the resolved chain is what is checked. The refusal names the
-  path.
-- The running backend (`Config.Executable`) must be the bundle's
-  `bin/smithers-backend` with the manifest's sha256. msb is only the bundle's
-  `bin/msb`; `Config.Binary` must be empty with a bundle, and no environment
-  variable selects msb. msb is re-verified against the pinned manifest before
-  every run: a changed identity (device, inode, size, mode, owner,
-  modification or change time) hashes it again, and a mismatch starts nothing.
-- The coding helper, every `Config.BundlePrograms` entry and every
-  `Config.BundleFiles` entry (the Flow host manifest) must be declared,
+- `installbundle` refuses the bundle unless its directory, `manifest.json`
+  and every ancestor up to `/` are owned by root or the running user and not
+  writable by group or others. A symlinked ancestor is resolved once; the
+  resolved chain is what is checked. The refusal names the path. The running
+  backend must be the bundle's `bin/smithers-backend` with the manifest's
+  sha256.
+- msb is only the bundle's `bin/msb`; `Config.Binary` must be empty with a
+  bundle, and no environment variable reaches msb. msb 0.6.16 loads the first
+  `libkrunfw.5.dylib` it finds: `MSB_LIBKRUNFW_PATH`, beside msb, its
+  `../lib`, then its state home's `lib/`. msb, the guest kernel declared in
+  the bundle's `lib/`, and the absence of any kernel beside msb are verified
+  against the pinned manifest at startup and again before every msb run: a
+  changed identity (device, inode, size, mode, owner, modification or change
+  time) hashes the file again, and a mismatch starts nothing.
+- The coding helper and every `Config.BundlePrograms` entry must be declared,
   non-symlink files with exactly their bytes and mode, read through the same
   protected descriptor walk. Planted files are mode 0755 and at most 8 path
   segments deep.
+- With a bundle, the state root (`Config.Root`) and its machine and layer
+  record directories must be reached through a protected chain before msb is
+  asked anything.
 - msb's state home is the running account's home directory from the user
   database, never `$HOME`.
-- The startup log records the manifest's revision and its own sha256, for
-  comparison with the manifest the release build produced. Verifying a
-  signature over the distribution manifest belongs to release distribution
-  (T-INS-05), not this package.
+- Verifying a signature over the distribution manifest belongs to release
+  distribution (T-INS-05), not this package.
 
 The guest helper's `managed-artifact` and `coding-helper` subcommands check
 the digest again and write as root, mode 0755, through one descriptor walk
@@ -182,6 +187,8 @@ SMITHERS_MICROSANDBOX_BIN=/path/to/msb go test ./packages/backend/microsandbox -
 # layers, a package's tests and an app screenshot in a VM; layers persist under the root
 SMITHERS_MICROVM_LAYER_ROOT=/path/to/state SMITHERS_MICROVM_SCREENSHOT=/tmp/app.png \
   SMITHERS_MICROSANDBOX_BIN=/path/to/msb go test ./packages/backend/microsandbox -run 'Layers' -v -timeout 60m
+# the approved-bundle receipts copy an assembled bundle and run its own msb
+SMITHERS_INSTALLED_BUNDLE=/path/to/bundle go test ./packages/backend/microsandbox -run TestRealMicroVMApprovedBundle -v
 ```
 
 Each test removes every machine and snapshot its owner created.

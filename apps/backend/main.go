@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/app"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
-	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/localbootstrap"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/native"
@@ -33,7 +33,7 @@ func main() {
 }
 
 // run returns nil for a clean signal stop and reports every cleanup failure.
-func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.WorkspaceLauncherConfig) (runErr error) {
+func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.WorkspaceLauncherConfig) error {
 	// Only programmatic integration tests supply this configuration. The install
 	// entry point has no environment setting that enables trusted coding hosts.
 	if len(testFlowHostConfigs) > 1 {
@@ -43,6 +43,12 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	if len(testFlowHostConfigs) == 1 {
 		testFlowHostConfig = testFlowHostConfigs[0]
 	}
+	return serve(ctx, args, os.Executable, testFlowHostConfig)
+}
+
+// serve runs the backend. executable answers the running backend's path
+// (os.Executable; startup tests pass a bundle fixture's).
+func serve(ctx context.Context, args []string, executable func() (string, error), testFlowHostConfig flowhost.WorkspaceLauncherConfig) (runErr error) {
 	var cleanupErr error
 	defer func() { runErr = stopResult(ctx, runErr, cleanupErr) }()
 	// Schema maintenance is server-free. The native path migrates its owned
@@ -67,32 +73,58 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	}
 	// `microvm doctor` inspects microVM isolation read-only; server-free.
 	if len(args) > 0 && args[0] == "microvm" {
-		return runMicroVM(ctx, args[1:])
+		return runMicroVM(ctx, args[1:], executable)
 	}
-	if _, err := workspaceIsolation(testFlowHostConfig.AllowTrustedProcessForTests); err != nil {
+	mode, err := workspaceIsolation(testFlowHostConfig.AllowTrustedProcessForTests)
+	if err != nil {
 		return err
 	}
-	manifestPath := strings.TrimSpace(os.Getenv("SMITHERS_FLOW_HOST_MANIFEST"))
-	if manifestPath == "" {
-		return errors.New("SMITHERS_FLOW_HOST_MANIFEST is required to serve the packaged Flow hosts")
+	// A microVM backend pins its installed bundle before it loads anything
+	// else, and verifies every path it was handed against it.
+	var inputs hostInputs
+	if mode == isolationMicroVM {
+		path, err := executable()
+		if err != nil {
+			return fmt.Errorf("locate the backend executable: %w", err)
+		}
+		if inputs, err = installedInputs(path, os.Getenv); err != nil {
+			return fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
+		}
+		// The startup receipt an operator or CI compares with the manifest
+		// the release build produced.
+		slog.Info("approved installed bundle", "bundle", inputs.bundle.Root(), "revision", inputs.bundle.Revision(), "manifest_sha256", inputs.bundle.ManifestSHA256())
+	} else if inputs, err = processInputs(os.Getenv); err != nil {
+		return err
 	}
-	registry, err := flowmanifest.Load(manifestPath)
-	if err != nil {
-		return fmt.Errorf("load bundled Flow hosts: %w", err)
-	}
+	registry := inputs.registry
 
-	nativeBin := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_POSTGRES_BIN"))
 	var databaseURL string
-	if nativeBin == "" {
+	if inputs.postgresBin == "" {
 		var err error
 		databaseURL, err = externalDatabaseURL()
 		if err != nil {
 			return err
 		}
-
 	}
 
-	local, err := localbootstrap.Prepare(os.Getenv("SMITHERS_DATA_ROOT"))
+	// Every git the backend starts runs the verified bundle's helpers and
+	// templates and reads no configuration file.
+	for name, value := range inputs.environment {
+		if err := os.Setenv(name, value); err != nil {
+			return err
+		}
+	}
+	// The repository engine dlopens exactly the verified bundle library,
+	// checked again immediately before it is loaded.
+	if inputs.ffi != nil {
+		if err := inputs.ffi.Check(); err != nil {
+			return fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: SMITHERS_FFI_LIBRARY_PATH: %w", err)
+		}
+		if err := os.Setenv("SMITHERS_FFI_LIBRARY_PATH", inputs.ffi.Path()); err != nil {
+			return err
+		}
+	}
+	local, err := localbootstrap.Prepare(inputs.dataRoot)
 	if err != nil {
 		return err
 	}
@@ -102,12 +134,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		cleanupErr = errors.Join(cleanupErr, local.Shutdown(shutdownCtx))
 	}()
 
-	dataRoot := os.Getenv("SMITHERS_DATA_ROOT")
-	executable, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate the backend executable: %w", err)
-	}
-	runtimes, err := openExecutionRuntimes(ctx, dataRoot, executable, manifestPath, registry.Coding.Executable, testFlowHostConfig.AllowTrustedProcessForTests)
+	runtimes, err := openExecutionRuntimes(ctx, inputs.dataRoot, inputs.bundle, registry.Coding.Executable, testFlowHostConfig.AllowTrustedProcessForTests)
 	if err != nil {
 		return err
 	}
@@ -117,8 +144,8 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	defer func() { cleanupErr = errors.Join(cleanupErr, runtimes.Close()) }()
 	launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{
 		Runtime:    runtimes.control,
-		NodeBinary: strings.TrimSpace(os.Getenv("SMITHERS_NODE_BINARY")),
-		BundlePath: strings.TrimSpace(os.Getenv("SMITHERS_MODEL_HOST_BUNDLE")),
+		NodeBinary: inputs.node,
+		BundlePath: inputs.modelHost,
 	})
 	if err != nil {
 		return fmt.Errorf("configure local model host: %w", err)
@@ -151,16 +178,12 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		Recommender:      recommender,
 	}
 
-	if nativeBin != "" {
-		stateRoot := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
-		if stateRoot == "" {
-			stateRoot = dataRoot
-		}
+	if inputs.postgresBin != "" {
 		return native.Run(ctx, native.Config{
 			App: appConfig,
 			Postgres: postgres.Config{
-				BinDir:   nativeBin,
-				StateDir: filepath.Join(stateRoot, "postgres"),
+				BinDir:   inputs.postgresBin,
+				StateDir: filepath.Join(inputs.stateRoot, "postgres"),
 				Major:    18,
 			},
 		})

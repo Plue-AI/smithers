@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -82,20 +83,16 @@ func (r *Runtime) codingHelperBytes() ([]byte, error) {
 }
 
 func (r *Runtime) readCodingHelper() ([]byte, string, error) {
-	if r.config.Bundle == "" {
+	if r.config.Bundle == nil {
 		return nil, "", fmt.Errorf("%w: the packaged workspace coding helper requires the installed bundle", ErrUnapprovedArtifact)
 	}
-	bundle, err := r.approvedBundle()
-	if err != nil {
-		return nil, "", err
-	}
-	return codingHelperFrom(bundle)
+	return codingHelperFrom(r.config.Bundle)
 }
 
 // codingHelperFrom reads the helper from bundle with the digest and mode its
 // pinned manifest declares, and only when it is a Linux arm64 executable.
-func codingHelperFrom(bundle *approvedBundle) ([]byte, string, error) {
-	data, digest, err := bundle.read(codingHelperBundlePath)
+func codingHelperFrom(bundle *installbundle.Bundle) ([]byte, string, error) {
+	data, digest, err := plantable(bundle, codingHelperBundlePath)
 	if err != nil {
 		return nil, "", err
 	}

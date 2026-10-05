@@ -3,6 +3,7 @@
 package flowmanifest
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -77,7 +78,21 @@ func Load(path string) (Registry, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxManifestBytes {
 		return Registry{}, errors.New("Flow host manifest must be a regular file under 1 MiB")
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, maxManifestBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxManifestBytes+1))
+	if err != nil {
+		return Registry{}, fmt.Errorf("read Flow host manifest: %w", err)
+	}
+	return Parse(data, filepath.Dir(path))
+}
+
+// Parse decodes a Flow host manifest's bytes, whose hosts sit in directory,
+// and verifies those hosts as Load does. A caller that verified the bytes
+// itself (the installed bundle's pinned manifest) parses exactly them.
+func Parse(data []byte, directory string) (Registry, error) {
+	if !filepath.IsAbs(directory) || len(data) > maxManifestBytes {
+		return Registry{}, errors.New("Flow host manifest must be under 1 MiB beside absolute hosts")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var raw rawManifest
 	if err := decoder.Decode(&raw); err != nil {
@@ -98,7 +113,7 @@ func Load(path string) (Registry, error) {
 		if len(helper.Flows) != 0 {
 			return Registry{}, fmt.Errorf("%s Flow host declares unexpected flows", linuxHelperFamily)
 		}
-		helperPath := filepath.Join(filepath.Dir(path), filepath.FromSlash(linuxHelperExecutable))
+		helperPath := filepath.Join(directory, filepath.FromSlash(linuxHelperExecutable))
 		if err := verifyExecutable(helperPath, linuxHelperFamily, helper.SHA256); err != nil {
 			return Registry{}, err
 		}
@@ -112,7 +127,7 @@ func Load(path string) (Registry, error) {
 		if !ok {
 			return Registry{}, fmt.Errorf("Flow host manifest lacks %s", family)
 		}
-		host, err := verifyHost(filepath.Dir(path), family, entry, wanted)
+		host, err := verifyHost(directory, family, entry, wanted)
 		if err != nil {
 			return Registry{}, err
 		}

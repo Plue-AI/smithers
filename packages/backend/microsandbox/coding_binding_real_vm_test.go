@@ -65,7 +65,7 @@ func TestRealMicroVMCodingBindingInstallation(t *testing.T) {
 		return output
 	}
 	writeEvidence("binding-msb-create.txt", run("create", DefaultImage, "--pull", "never", "--name", vm, "--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net", "--copy-file", guestFile+":"+guestHelperPath))
-	runtime := &Runtime{cli: client, config: Config{Bundle: bundle}, workspaces: map[string]*workspace{
+	runtime := &Runtime{cli: client, config: Config{Bundle: pinned(t, bundle)}, workspaces: map[string]*workspace{
 		workspaceID: newWorkspace(metadata{Version: metadataVersion, ID: workspaceID, Machine: vm, State: "running"}, work),
 	}}
 	_, err = runtime.guest(ctx, vm, nil, "setup", guestUser, fmt.Sprint(guestUID), guestRoot, guestStateDir, guestTempDir)

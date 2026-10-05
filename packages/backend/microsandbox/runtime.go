@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/egressrelay"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -63,7 +64,7 @@ type Config struct {
 	HostProfile *HostProfile
 	// Binary is the absolute path of an msb executable for a runtime
 	// without a Bundle. With a Bundle it must be empty: msb is the bundle's
-	// bin/msb, verified against the pinned manifest before every run.
+	// bin/msb, verified with the guest kernel before every run.
 	Binary string
 	// Root holds adapter metadata. It is host state, never a guest mount.
 	Root string
@@ -92,26 +93,18 @@ type Config struct {
 	CommandTimeout time.Duration
 	// Environments enables graph-keyed environment layers. Nil boots Image.
 	Environments *EnvironmentConfig
-	// Bundle is the approved installed bundle this backend runs from: the
-	// directory whose manifest.json `smthrs host start` verified. New pins
-	// that manifest and refuses to start unless the directory, the manifest
-	// and every ancestor up to / are owned by root or the running user and
-	// not writable by group or others. A managed host command's program
-	// naming one of its files is planted in the guest from the bytes that
-	// manifest declares; so is the coding binding's Linux arm64 helper. No
-	// other host file ever reaches a guest. Empty plants nothing.
-	Bundle string
-	// Executable is the running backend. With a Bundle, New refuses unless
-	// it is the bundle's bin/smithers-backend with the manifest's bytes.
-	Executable string
+	// Bundle is the approved installed bundle this backend runs from, pinned
+	// and its own executable verified by installbundle.OpenRunning. msb and
+	// the guest kernel it loads come only from it and are verified before
+	// every msb run. A managed host command's program naming one of its
+	// files is planted in the guest from the bytes the pinned manifest
+	// declares; so is the coding binding's Linux arm64 helper. No other host
+	// file ever reaches a guest. Nil plants nothing.
+	Bundle *installbundle.Bundle
 	// BundlePrograms are the host programs managed hosts will run from
 	// Bundle. New refuses to start unless the pinned manifest declares each,
 	// and the coding helper, with exactly its bytes and mode.
 	BundlePrograms []string
-	// BundleFiles are the other files of Bundle the backend read at startup
-	// (its Flow host manifest). New refuses unless each has the manifest's
-	// bytes and mode.
-	BundleFiles []string
 	// EgressRelay, when set, is the egress secret channel
 	// (workspace.WorkspaceEgressSecrets). Its port joins HostPorts, so it
 	// must stay the same across restarts for existing machines to reach it.
@@ -166,7 +159,6 @@ type Runtime struct {
 
 	environments *environments
 	codingHelper codingHelperCache
-	bundle       approvedBundleCache
 
 	mu                sync.Mutex
 	closed            bool
@@ -190,15 +182,24 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	// The bundle is pinned and the backend, msb and every file it will plant
-	// are checked before Microsandbox is touched: a bad one refuses startup,
-	// not the first plant.
-	bundle, msb, err := startupBundle(config)
+	// msb, the guest kernel and every file the runtime will plant are checked
+	// against the pinned bundle before Microsandbox is touched: a bad one
+	// refuses startup, not the first plant.
+	binary, verify, err := startupChecks(config)
 	if err != nil {
 		return nil, err
 	}
 
-	client, err := runtimeCLI(config, msb)
+	// An installed runtime's existing metadata (machines, snapshots, layer
+	// records that decide what guests boot) is refused before msb runs unless
+	// only root or this user can change it, every directory from / down.
+	if config.Bundle != nil {
+		if err := protectedState(config.Root); err != nil {
+			return nil, err
+		}
+	}
+
+	client, err := runtimeCLI(binary, verify)
 	if err != nil {
 		return nil, err
 	}
@@ -221,10 +222,8 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if err := withRelayRoute(&config); err != nil {
 		return nil, err
 	}
-	for _, dir := range []string{root, filepath.Join(root, "workspaces"), filepath.Join(root, "snapshots"), filepath.Join(root, "layers")} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("create microsandbox state: %w", err)
-		}
+	if err := createState(root, config.Bundle != nil); err != nil {
+		return nil, err
 	}
 	owner, err := installationOwner(root)
 	if err != nil {
@@ -239,9 +238,6 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		holder:     fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
 		semaphore:  make(chan struct{}, config.MaxConcurrent),
 		workspaces: make(map[string]*workspace),
-	}
-	if bundle != nil {
-		runtime.bundle.once.Do(func() { runtime.bundle.bundle = bundle })
 	}
 	if config.Environments != nil {
 		environmentConfig := *config.Environments
@@ -260,6 +256,46 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		return nil, err
 	}
 	return runtime, nil
+}
+
+// stateDirectories are the metadata root and the directories below it.
+func stateDirectories(root string) []string {
+	return []string{root, filepath.Join(root, "workspaces"), filepath.Join(root, "snapshots"), filepath.Join(root, "layers")}
+}
+
+// protectedState checks the existing metadata directories through
+// installbundle.ProtectedDirectory.
+func protectedState(root string) error {
+	if strings.TrimSpace(root) == "" {
+		return errors.New("microsandbox workspace root is required")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	for _, dir := range stateDirectories(root) {
+		if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if _, err := installbundle.ProtectedDirectory("microVM state", dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createState makes the metadata directories private; an installed runtime
+// then checks each through the protected chain.
+func createState(root string, installed bool) error {
+	for _, dir := range stateDirectories(root) {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create microsandbox state: %w", err)
+		}
+	}
+	if installed {
+		return protectedState(root)
+	}
+	return nil
 }
 
 func applyDefaults(config *Config) {

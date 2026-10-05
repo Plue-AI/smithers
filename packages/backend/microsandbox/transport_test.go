@@ -16,18 +16,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 )
 
 // approvedBundleFixture writes an installed bundle and its manifest.json the
 // way the bundle assembler does: every file with digest, stage and mode.
 func approvedBundleFixture(t *testing.T) (string, map[string][]byte) {
 	t.Helper()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
-	bundle := filepath.Join(root, "bundle")
+	bundle := filepath.Join(bundletest.ProtectedTempDir(t), "bundle")
 	helper := make([]byte, 64)
 	copy(helper, "\x7fELF")
 	helper[4], helper[5], helper[18] = 2, 1, 183
@@ -39,8 +38,10 @@ func approvedBundleFixture(t *testing.T) (string, map[string][]byte) {
 		// The fixture msb records each run beside the bundle and reports a
 		// version no runtime qualifies, so New stops at its qualification.
 		"bin/msb": []byte("#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/../../msb-ran\"\necho 'msb 0.0.0'\n"),
+		// The guest kernel msb loads from lib/ beside its bin/.
+		"lib/libkrunfw.5.dylib": []byte("approved guest kernel"),
 	}
-	modes := map[string]os.FileMode{"bin/flow-hosts.json": 0o644}
+	modes := map[string]os.FileMode{"bin/flow-hosts.json": 0o644, "lib/libkrunfw.5.dylib": 0o644}
 	var entries []map[string]any
 	for name, body := range files {
 		mode := modes[name]
@@ -59,6 +60,18 @@ func approvedBundleFixture(t *testing.T) (string, map[string][]byte) {
 	entries = append(entries, map[string]any{"path": "bin/coding-link", "sha256": hex.EncodeToString(sum[:]), "stage": "fixture", "mode": 0o755, "symlink": "smithers-coding-host"})
 	writeBundleManifest(t, bundle, entries)
 	return bundle, files
+}
+
+// pinned opens an installed bundle fixture the way the backend does at
+// startup; "" is no bundle.
+func pinned(t *testing.T, root string) *installbundle.Bundle {
+	t.Helper()
+	if root == "" {
+		return nil
+	}
+	bundle, err := installbundle.Open(root)
+	require.NoError(t, err)
+	return bundle
 }
 
 // approveBundleFile writes one bundle file and records it in manifest.json, as
@@ -130,7 +143,7 @@ guest.main(args[args.index("run") + 1:])
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o700))
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "workspaces"), 0o700))
-	runtime := &Runtime{cli: &cli{binary: binary, home: t.TempDir()}, config: Config{Bundle: bundle}, root: root,
+	runtime := &Runtime{cli: &cli{binary: binary, home: t.TempDir()}, config: Config{Bundle: pinned(t, bundle)}, root: root,
 		owner: "smithers-backend-0123456789abcdef", holder: "test", workspaces: map[string]*workspace{}}
 	return runtime, argv, guestRootDir
 }
@@ -290,8 +303,6 @@ func TestRootManagedArtifactInstallUsesApprovedBundleOnly(t *testing.T) {
 			{name: "not executable", program: "bin/flow-hosts.json"},
 			{name: "symlink entry", program: "bin/coding-link"},
 			{name: "manifest edited after the bundle was pinned", program: codingHost, mutate: func(t *testing.T, bundle string, runtime *Runtime) {
-				_, err := runtime.approvedBundle()
-				require.NoError(t, err)
 				body := []byte("#!/usr/bin/env node\nconsole.log('branch-built host!')\n")
 				require.NoError(t, os.WriteFile(filepath.Join(bundle, "bin", "smithers-coding-host"), body, 0o755))
 				sum := sha256.Sum256(body)
@@ -312,45 +323,6 @@ func TestRootManagedArtifactInstallUsesApprovedBundleOnly(t *testing.T) {
 				require.ErrorIs(t, err, os.ErrNotExist)
 			})
 		}
-	})
-
-	t.Run("an invalid bundle manifest refuses", func(t *testing.T) {
-		for name, manifest := range map[string]string{
-			"missing":        "",
-			"version":        `{"version":2,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493}]}`,
-			"platform":       `{"version":1,"platform":"linux-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493}]}`,
-			"no files":       `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[]}`,
-			"traversal":      `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/../x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493}]}`,
-			"absolute":       `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"/bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493}]}`,
-			"duplicate":      `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493},{"path":"bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493}]}`,
-			"digest":         `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/x","sha256":"` + strings.Repeat("B", 64) + `","stage":"s","mode":493}]}`,
-			"unknown field":  `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493,"approved":true}]}`,
-			"trailing value": `{"version":1,"platform":"darwin-arm64","revision":"` + strings.Repeat("a", 40) + `","files":[{"path":"bin/x","sha256":"` + strings.Repeat("b", 64) + `","stage":"s","mode":493}]} {}`,
-			"symlink":        "->",
-		} {
-			t.Run(name, func(t *testing.T) {
-				bundle, err := filepath.EvalSymlinks(t.TempDir())
-				require.NoError(t, err)
-				switch manifest {
-				case "":
-				case "->":
-					real := filepath.Join(t.TempDir(), "manifest.json")
-					require.NoError(t, os.WriteFile(real, []byte(`{"version":1,"platform":"darwin-arm64","revision":"`+strings.Repeat("a", 40)+`","files":[{"path":"bin/x","sha256":"`+strings.Repeat("b", 64)+`","stage":"s","mode":493}]}`), 0o644))
-					require.NoError(t, os.Symlink(real, filepath.Join(bundle, "manifest.json")))
-				default:
-					require.NoError(t, os.WriteFile(filepath.Join(bundle, "manifest.json"), []byte(manifest), 0o644))
-				}
-				runtime, argv, _ := guestArtifactMSB(t, bundle)
-				_, err = runtime.plantArtifact(ctx, "fresh", filepath.Join(bundle, "bin", "x"))
-				require.ErrorIs(t, err, ErrUnapprovedArtifact)
-				_, err = os.Stat(argv)
-				require.ErrorIs(t, err, os.ErrNotExist)
-			})
-		}
-		_, err := loadApprovedBundle("relative/bundle")
-		require.ErrorIs(t, err, ErrUnapprovedArtifact)
-		_, err = loadApprovedBundle("/tmp/../tmp/bundle")
-		require.ErrorIs(t, err, ErrUnapprovedArtifact)
 	})
 
 	t.Run("hostile retained guest directories refuse without following", func(t *testing.T) {
@@ -434,68 +406,26 @@ func TestManagedHostPlantsOnlyItsProgram(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-// New pins the installed bundle and, before it runs msb or writes state,
-// verifies against that one manifest: the chain from / to the bundle and its
-// manifest (owned by root or this user, not group or world writable), the
-// running backend's own bytes, the msb it drives (only the bundle's bin/msb),
-// every file it will plant (the coding helper and each bundle program) and
-// the Flow host manifest it read. A refusal starts nothing and names the
-// path; the approved bundle passes and stops only at the fixture msb's
-// qualification.
+// New verifies, against the bundle the backend pinned and before it runs
+// msb or writes state, the msb it drives (only the bundle's bin/msb), the
+// guest kernel msb loads, and every file it will plant (the coding helper
+// and each bundle program). A refusal starts nothing and names the file; the
+// approved bundle passes and stops only at the fixture msb's qualification.
+// The chain, manifest and backend checks are installbundle's own tests.
 func TestNewChecksTheInstalledBundleBeforeMicrosandbox(t *testing.T) {
 	codingHost := "bin/smithers-coding-host"
 	for _, test := range []struct {
-		name     string
-		prepare  func(t *testing.T, bundle string, config *Config)
-		approved bool
-		unproven bool   // refused, but not as an unapproved artifact
-		names    string // the refusal names this path
+		name      string
+		prepare   func(t *testing.T, bundle string, config *Config)
+		approved  bool
+		unproven  bool   // refused, but not as an unapproved artifact
+		names     string // the refusal names this path
+		unbundled bool
 	}{
 		{name: "approved", approved: true},
-		{name: "approved through a symlinked ancestor", approved: true, prepare: func(t *testing.T, bundle string, config *Config) {
-			link := filepath.Join(t.TempDir(), "keg")
-			require.NoError(t, os.Symlink(filepath.Dir(bundle), link))
-			config.Bundle = filepath.Join(link, filepath.Base(bundle))
-			config.Executable = filepath.Join(config.Bundle, "bin", "smithers-backend")
-		}},
-		{name: "no bundle with a program", prepare: func(t *testing.T, _ string, config *Config) { config.Bundle = "" }},
-		{name: "msb chosen outside the bundle", prepare: func(t *testing.T, bundle string, config *Config) {
+		{name: "no bundle with a program", unbundled: true},
+		{name: "msb chosen beside the bundle", prepare: func(t *testing.T, bundle string, config *Config) {
 			config.Binary = filepath.Join(bundle, "bin", "msb")
-		}},
-		{name: "invalid manifest", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.WriteFile(filepath.Join(bundle, "manifest.json"), []byte(`{}`), 0o644))
-		}},
-		{name: "group-writable manifest", names: "manifest.json", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.Chmod(filepath.Join(bundle, "manifest.json"), 0o664))
-		}},
-		{name: "group-writable bundle directory", names: "bundle is not owned", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.Chmod(bundle, 0o775))
-		}},
-		{name: "world-writable ancestor", names: "is not owned by root", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.Chmod(filepath.Dir(bundle), 0o777))
-		}},
-		{name: "symlinked ancestor whose target is writable", names: "is not owned by root", prepare: func(t *testing.T, bundle string, config *Config) {
-			require.NoError(t, os.Chmod(filepath.Dir(bundle), 0o757))
-			link := filepath.Join(t.TempDir(), "keg")
-			require.NoError(t, os.Symlink(filepath.Dir(bundle), link))
-			config.Bundle = filepath.Join(link, filepath.Base(bundle))
-			config.Executable = filepath.Join(config.Bundle, "bin", "smithers-backend")
-		}},
-		{name: "group-writable bin directory", names: "bin is not owned", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.Chmod(filepath.Join(bundle, "bin"), 0o775))
-		}},
-		{name: "backend outside the bundle", names: "is not the bundle's bin/smithers-backend", prepare: func(t *testing.T, _ string, config *Config) {
-			config.Executable = filepath.Join(t.TempDir(), "smithers-backend")
-			require.NoError(t, os.WriteFile(config.Executable, []byte("approved backend"), 0o755))
-		}},
-		{name: "backend unnamed", names: "is not the bundle's bin/smithers-backend", prepare: func(t *testing.T, _ string, config *Config) {
-			config.Executable = ""
-		}},
-		{name: "backend bytes changed", names: "bin/smithers-backend differs", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.WriteFile(filepath.Join(bundle, "bin", "smithers-backend"), []byte("branch-built backend"), 0o755))
-		}},
-		{name: "backend undeclared", names: "bin/smithers-backend", prepare: func(t *testing.T, bundle string, _ *Config) {
-			approveBundleFile(t, bundle, "bin/smithers-backend", nil, 0)
 		}},
 		{name: "msb bytes changed", names: "bin/msb differs", prepare: func(t *testing.T, bundle string, _ *Config) {
 			require.NoError(t, os.WriteFile(filepath.Join(bundle, "bin", "msb"), []byte("#!/bin/sh\necho 'msb 0.6.16'\n"), 0o755))
@@ -514,6 +444,15 @@ func TestNewChecksTheInstalledBundleBeforeMicrosandbox(t *testing.T) {
 			require.NoError(t, os.WriteFile(copied, body, 0o755))
 			require.NoError(t, os.Remove(target))
 			require.NoError(t, os.Symlink(copied, target))
+		}},
+		{name: "guest kernel bytes changed", names: "lib/libkrunfw.5.dylib differs", prepare: func(t *testing.T, bundle string, _ *Config) {
+			require.NoError(t, os.WriteFile(filepath.Join(bundle, "lib", "libkrunfw.5.dylib"), []byte("branch-built kernel"), 0o644))
+		}},
+		{name: "guest kernel undeclared", names: "lib/libkrunfw*.dylib", prepare: func(t *testing.T, bundle string, _ *Config) {
+			approveBundleFile(t, bundle, "lib/libkrunfw.5.dylib", nil, 0)
+		}},
+		{name: "group-writable lib directory", names: "lib is not owned", prepare: func(t *testing.T, bundle string, _ *Config) {
+			require.NoError(t, os.Chmod(filepath.Join(bundle, "lib"), 0o775))
 		}},
 		{name: "coding helper undeclared", prepare: func(t *testing.T, bundle string, _ *Config) {
 			approveBundleFile(t, bundle, codingHelperBundlePath, nil, 0)
@@ -544,25 +483,18 @@ func TestNewChecksTheInstalledBundleBeforeMicrosandbox(t *testing.T) {
 			approveBundleFile(t, bundle, deep, []byte("#!/usr/bin/env node\n"), 0o755)
 			config.BundlePrograms = []string{filepath.Join(bundle, filepath.FromSlash(deep))}
 		}},
-		{name: "Flow host manifest changed", names: "bin/flow-hosts.json differs", prepare: func(t *testing.T, bundle string, _ *Config) {
-			require.NoError(t, os.WriteFile(filepath.Join(bundle, "bin", "flow-hosts.json"), []byte(`{"hosts":{}}`), 0o644))
-		}},
-		{name: "Flow host manifest outside the bundle", names: "is not a file of the installed bundle", prepare: func(t *testing.T, _ string, config *Config) {
-			outside := filepath.Join(t.TempDir(), "flow-hosts.json")
-			require.NoError(t, os.WriteFile(outside, []byte("{}\n"), 0o644))
-			config.BundleFiles = []string{outside}
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			bundle, _ := approvedBundleFixture(t)
 			ran := filepath.Join(filepath.Dir(bundle), "msb-ran")
-			state := filepath.Join(t.TempDir(), "state")
+			state := filepath.Join(bundletest.ProtectedTempDir(t), "state")
 			config := Config{Root: state, CPUs: 1, MemoryMiB: 1024, DiskMiB: 1024, MaxRunningVMs: 1,
-				Bundle: bundle, Executable: filepath.Join(bundle, "bin", "smithers-backend"),
-				BundlePrograms: []string{filepath.Join(bundle, filepath.FromSlash(codingHost))},
-				BundleFiles:    []string{filepath.Join(bundle, "bin", "flow-hosts.json")}}
+				BundlePrograms: []string{filepath.Join(bundle, filepath.FromSlash(codingHost))}}
 			if test.prepare != nil {
 				test.prepare(t, bundle, &config)
+			}
+			if !test.unbundled {
+				config.Bundle = pinned(t, bundle)
 			}
 			runtime, err := New(context.Background(), config)
 			require.Error(t, err)
@@ -587,17 +519,51 @@ func TestNewChecksTheInstalledBundleBeforeMicrosandbox(t *testing.T) {
 	}
 }
 
-// msb is verified against the pinned manifest at each use, not only at
-// startup: changed bytes refuse the next run before anything starts, and the
+// Ruling item 3: the microVM metadata root names machines, snapshots and
+// layer records that decide what guests boot. New refuses one that someone
+// other than root or this user can change, before msb runs.
+func TestNewRefusesUnprotectedMicroVMState(t *testing.T) {
+	for name, prepare := range map[string]func(t *testing.T, state string){
+		"group-writable state root": func(t *testing.T, state string) {
+			require.NoError(t, os.MkdirAll(state, 0o700))
+			require.NoError(t, os.Chmod(state, 0o770))
+		},
+		"world-writable layer records": func(t *testing.T, state string) {
+			require.NoError(t, os.MkdirAll(filepath.Join(state, "layers"), 0o700))
+			require.NoError(t, os.Chmod(filepath.Join(state, "layers"), 0o777))
+		},
+		"layer records through a link": func(t *testing.T, state string) {
+			require.NoError(t, os.MkdirAll(state, 0o700))
+			outside := filepath.Join(t.TempDir(), "layers")
+			require.NoError(t, os.MkdirAll(outside, 0o777))
+			require.NoError(t, os.Chmod(outside, 0o777))
+			require.NoError(t, os.Symlink(outside, filepath.Join(state, "layers")))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bundle, _ := approvedBundleFixture(t)
+			state := filepath.Join(bundletest.ProtectedTempDir(t), "state")
+			prepare(t, state)
+			// Qualification runs: the refusal must come before msb is asked.
+			_, err := New(context.Background(), Config{Root: state, CPUs: 1, MemoryMiB: 1024, DiskMiB: 1024, MaxRunningVMs: 1, Bundle: pinned(t, bundle)})
+			require.ErrorIs(t, err, ErrUnapprovedArtifact)
+			require.Contains(t, err.Error(), "is not owned by root or this user")
+			_, statErr := os.Stat(filepath.Join(filepath.Dir(bundle), "msb-ran"))
+			require.ErrorIs(t, statErr, os.ErrNotExist, "refused before msb ran")
+		})
+	}
+}
+
+// Fable round 2, B2: msb and the guest kernel it loads are verified against
+// the pinned manifest before every run, not only at startup: changed bytes
+// or a writable lib/ refuse the next run before anything starts, and the
 // approved bytes written back are accepted again.
 func TestBundleMSBIsVerifiedBeforeEveryRun(t *testing.T) {
 	bundle, files := approvedBundleFixture(t)
 	ran := filepath.Join(filepath.Dir(bundle), "msb-ran")
-	pinned, err := loadApprovedBundle(bundle)
+	binary, verify, err := startupChecks(Config{Bundle: pinned(t, bundle)})
 	require.NoError(t, err)
-	msb := pinned.program(bundleMSBPath)
-	require.NoError(t, msb.check())
-	client, err := runtimeCLI(Config{}, msb)
+	client, err := runtimeCLI(binary, verify)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(bundle, "bin", "msb"), client.binary)
 	runs := func() int {
@@ -608,127 +574,62 @@ func TestBundleMSBIsVerifiedBeforeEveryRun(t *testing.T) {
 		require.NoError(t, err)
 		return strings.Count(string(data), "\n")
 	}
-	_, err = client.run(context.Background(), nil, "--version")
-	require.NoError(t, err)
-	require.Equal(t, 1, runs())
+	refused := func(why string) {
+		t.Helper()
+		before := runs()
+		_, err := client.run(context.Background(), nil, "--version")
+		require.ErrorIs(t, err, ErrUnapprovedArtifact, why)
+		require.ErrorIs(t, err, ErrUnavailable, why)
+		require.Equal(t, before, runs(), "%s: nothing ran", why)
+	}
+	accepted := func() {
+		t.Helper()
+		before := runs()
+		_, err := client.run(context.Background(), nil, "--version")
+		require.NoError(t, err)
+		require.Equal(t, before+1, runs())
+	}
+	accepted()
 
-	// Same size, different bytes: the identity changed, so it is hashed again.
+	// Same size, different msb bytes: the identity changed, so it is hashed again.
+	msb := filepath.Join(bundle, "bin", "msb")
 	tampered := append([]byte(nil), files["bin/msb"]...)
 	tampered[len(tampered)-2] = '1'
-	require.NoError(t, os.WriteFile(filepath.Join(bundle, "bin", "msb"), tampered, 0o755))
-	_, err = client.run(context.Background(), nil, "--version")
-	require.ErrorIs(t, err, ErrUnapprovedArtifact)
-	require.ErrorIs(t, err, ErrUnavailable)
-	require.Equal(t, 1, runs(), "the changed msb never ran")
+	require.NoError(t, os.WriteFile(msb, tampered, 0o755))
+	refused("changed msb")
+	require.NoError(t, os.WriteFile(msb, files["bin/msb"], 0o755))
+	require.NoError(t, os.Chmod(msb, 0o775))
+	refused("group-writable msb")
+	require.NoError(t, os.Chmod(msb, 0o755))
+	accepted()
 
-	// A group-writable msb refuses, whatever its bytes.
-	require.NoError(t, os.WriteFile(filepath.Join(bundle, "bin", "msb"), files["bin/msb"], 0o755))
-	require.NoError(t, os.Chmod(filepath.Join(bundle, "bin", "msb"), 0o775))
-	_, err = client.run(context.Background(), nil, "--version")
-	require.ErrorIs(t, err, ErrUnapprovedArtifact)
-	require.Equal(t, 1, runs())
+	// The guest kernel msb loads, checked the same way, with no execute bit.
+	kernel := filepath.Join(bundle, "lib", "libkrunfw.5.dylib")
+	require.NoError(t, os.WriteFile(kernel, []byte("approved guest kerneL"), 0o644))
+	refused("changed guest kernel")
+	require.NoError(t, os.WriteFile(kernel, files["lib/libkrunfw.5.dylib"], 0o644))
+	require.NoError(t, os.Chmod(filepath.Join(bundle, "lib"), 0o775))
+	refused("group-writable lib/")
+	require.NoError(t, os.Chmod(filepath.Join(bundle, "lib"), 0o755))
+	require.NoError(t, os.Remove(kernel))
+	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "kernel"), kernel))
+	refused("guest kernel replaced by a link")
+	require.NoError(t, os.Remove(kernel))
+	require.NoError(t, os.WriteFile(kernel, files["lib/libkrunfw.5.dylib"], 0o644))
+	accepted()
 
-	require.NoError(t, os.Chmod(filepath.Join(bundle, "bin", "msb"), 0o755))
-	_, err = client.run(context.Background(), nil, "--version")
-	require.NoError(t, err)
-	require.Equal(t, 2, runs())
-}
-
-// The bundle trust rule: root or the running user owns it, and neither group
-// nor others can write it.
-func TestProtectedOwnerRule(t *testing.T) {
-	uid := uint32(os.Getuid())
-	for _, test := range []struct {
-		uid  uint32
-		mode uint32
-		ok   bool
-	}{
-		{0, 0o755, true}, {uid, 0o700, true}, {uid, 0o755, true},
-		{uid + 1, 0o755, uid+1 == 0}, {0, 0o775, false}, {uid, 0o757, false}, {uid, 0o722, false},
-	} {
-		require.Equal(t, test.ok, trustedOwnership(test.uid, unix.S_IFDIR|test.mode), "uid %d mode %o", test.uid, test.mode)
-	}
-}
-
-// The guest side validates every request field and the bytes itself, before
-// it touches the filesystem, and survives an ancestor swapped mid-walk.
-func TestGuestManagedArtifactRefusesUntrustedRequests(t *testing.T) {
-	digest := func(body string) string {
-		sum := sha256.Sum256([]byte(body))
-		return hex.EncodeToString(sum[:])
-	}
-	boundaryPython(t, fmt.Sprintf(`
-import hashlib
-with tempfile.TemporaryDirectory() as directory:
- directory=os.path.realpath(directory)
- g.ROOT_UID=os.geteuid(); g.PROTECTED_BASE=directory
- body=b'approved'; good=%q
- def refused(call, *args):
-  try: call(*args)
-  except SystemExit as exit: assert exit.code==3, exit.code
-  else: raise AssertionError('accepted %%r' %% (args,))
- for path in ('', '/abs', '../x', 'bin/../x', '.hidden', 'bin//x', 'bin/', 'a/b/c/d/e/f/g/h/i', 'bin/é', 'bin/x y', 'x'*97):
-  refused(g.install_managed_artifact, path, good, body)
-  refused(g.managed_artifact_current, path, good)
- for wrong in ('', 'A'*64, 'g'*64, good[:63], good+'0'):
-  refused(g.install_managed_artifact, 'bin/x', wrong, body)
-  refused(g.managed_artifact_current, 'bin/x', wrong)
- refused(g.install_managed_artifact, 'bin/x', good, b'branch-built')
- g.MANAGED_ARTIFACT_LIMIT=4
- refused(g.install_managed_artifact, 'bin/x', good, body)
- g.MANAGED_ARTIFACT_LIMIT=64*1024*1024
- assert not os.path.exists(directory+'/opt'), 'refusals wrote nothing'
- g.ROOT_UID=os.geteuid()+1
- refused(g.install_managed_artifact, 'bin/x', good, body)
- refused(g.managed_artifact_current, 'bin/x', good)
- g.ROOT_UID=os.geteuid()
- assert g.managed_artifact_current('bin/x', good) is False
- g.install_managed_artifact('bin/x', good, body)
- assert g.managed_artifact_current('bin/x', good) is True
- assert g.managed_artifact_current('bin/x', %q) is False
- # Swap the parent for a link to a directory that passes every ownership
- # check, between its creation and its open: only no-follow refuses it.
- outside=directory+'/outside'; os.mkdir(outside,0o755)
- real_open=os.open
- def racing_open(path,flags,*args,**kwargs):
-  if path=='race' and kwargs.get('dir_fd') is not None:
-   os.rename(directory+'/opt/smithers/bundle/race',directory+'/opt/smithers/bundle/old-race')
-   os.symlink(outside,directory+'/opt/smithers/bundle/race')
-  return real_open(path,flags,*args,**kwargs)
- g.os.open=racing_open
- try: g.install_managed_artifact('race/x', good, body)
- except SystemExit as exit: assert exit.code==3, exit.code
- else: raise AssertionError('followed a raced parent')
- finally: g.os.open=real_open
- assert os.listdir(outside)==[], os.listdir(outside)
-`, digest("approved"), digest("other")))
-}
-
-// Outsider-started work in a microVM honours the per-run GitHub deny by
-// construction: after WithholdConversationEgress, as before it, the machine
-// is created with no network but the backend's own port, where the product
-// applies the withheld conversation scopes. There is no GitHub route to deny.
-func TestWithheldConversationEgressLeavesOnlyTheBackendPort(t *testing.T) {
-	runtime := &Runtime{config: Config{CPUs: 4, MemoryMiB: 8192, HostPorts: []uint16{64820}}, owner: "smithers-backend-0123456789abcdef", holder: "test"}
-	require.NoError(t, runtime.WithholdConversationEgress(context.Background(), "outsider-lane"))
-	flags := runtime.machineFlags("outsider-lane")
-	var network []string
-	for index, flag := range flags {
-		switch {
-		case flag == "--no-net":
-			network = append(network, flag)
-		case strings.HasPrefix(flag, "--net"), strings.HasPrefix(flag, "--port"), flag == "-p", strings.HasPrefix(flag, "--dns"), strings.HasPrefix(flag, "--allow"):
-			value := ""
-			if index+1 < len(flags) {
-				value = flags[index+1]
-			}
-			network = append(network, flag+" "+value)
-		}
-	}
-	require.Equal(t, []string{"--no-net", "--net-rule allow@host:tcp:64820"}, network)
-	for _, flag := range flags {
-		require.NotContains(t, strings.ToLower(flag), "github")
-	}
+	// msb loads the first libkrunfw.5.dylib it finds: MSB_LIBKRUNFW_PATH
+	// (never in its fixed environment), beside msb, then ../lib, then its
+	// state home's lib/ (traced with msb doctor, 0.6.16). A kernel beside msb
+	// would be loaded instead of the verified one, so it refuses the run.
+	beside := filepath.Join(bundle, "bin", "libkrunfw.5.dylib")
+	require.NoError(t, os.WriteFile(beside, files["lib/libkrunfw.5.dylib"], 0o644))
+	refused("a kernel beside msb is loaded before lib/")
+	require.NoError(t, os.Remove(beside))
+	require.NoError(t, os.Symlink(kernel, beside))
+	refused("a link beside msb is loaded before lib/")
+	require.NoError(t, os.Remove(beside))
+	accepted()
 }
 
 // Astra round 1: msb keeps images, machines and snapshots (the root
@@ -741,8 +642,10 @@ func TestMSBStateHomeIgnoresTheEnvironment(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "msb")
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\necho 'msb 0.6.16'\n"), 0o755))
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MSB_LIBKRUNFW_PATH", filepath.Join(t.TempDir(), "libkrunfw.5.dylib"))
 	client, err := newCLI(binary)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Clean(account.HomeDir), client.home)
-	require.Contains(t, client.environment(), "HOME="+filepath.Clean(account.HomeDir))
+	require.Equal(t, []string{"HOME=" + filepath.Clean(account.HomeDir), "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "MSB_BACKEND=local", "NO_COLOR=1"},
+		client.environment(), "no ambient variable, such as the one that selects msb's guest kernel, reaches msb")
 }

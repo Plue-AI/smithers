@@ -139,18 +139,21 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_FFI_LIBRARY_PATH).toBe(join(runtime.root,
       process.platform === "darwin" ? "libsmithers_ffi.dylib" : process.platform === "linux" ? "libsmithers_ffi.so" : "smithers_ffi.dll"
     ))
-    expect(env.SMITHERS_WORKSPACE_CODING_HOST_BINARY).toEndWith("smithers-coding-host")
     expect(env.SMITHERS_MODEL_HOST_BUNDLE).toEndWith("smithers-model-host")
     expect(env.SMITHERS_FLOW_HOST_MANIFEST).toEndWith("flow-hosts.json")
     expect(env.PATH?.split(delimiter)[0]).toBe(runtime.root)
-    expect(env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY).toEndWith(join("linux-arm64", "smithers-jj-export"))
     expect(env.SMITHERS_CODING_LOCAL_OWNER).toBeUndefined()
     expect(env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
-    expect(env.SMITHERS_JJ_PATH).toEndWith("jj")
     expect(env.GIT_EXEC_PATH).toEndWith(join("libexec", "git-core"))
     expect(env.GIT_TEMPLATE_DIR).toEndWith(join("share", "git-core", "templates"))
     expect(env.SMITHERS_FFI_LIBRARY).toBeUndefined()
     expect(env.SMITHERS_CODING_HOST_PATH).toBeUndefined()
+    // The backend reads every path it is handed only to verify it against
+    // the installed bundle; nothing it does not verify is passed.
+    for (const name of ["SMITHERS_MICROSANDBOX_BIN", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "SMITHERS_JJ_PATH",
+      "SMITHERS_WORKSPACE_CODING_HOST_BINARY", "SMITHERS_WORKSPACE_CODING_HOST_SHA256"]) {
+      expect(env[name]).toBeUndefined()
+    }
     expect(instance.origin).toBe("http://127.0.0.1:4000")
     expect(instance.bootstrapToken).toBeUndefined()
     await instance.stop()
@@ -259,8 +262,6 @@ describe("native backend ownership", () => {
       "SMITHERS_EGRESS_RELAY_PORT",
       "SMITHERS_FFI_LIBRARY_PATH",
       "SMITHERS_FLOW_HOST_MANIFEST",
-      "SMITHERS_JJ_PATH",
-      "SMITHERS_MICROSANDBOX_BIN",
       "SMITHERS_MODEL_HOST_BUNDLE",
       "SMITHERS_NATIVE_POSTGRES_BIN",
       "SMITHERS_NATIVE_POSTGRES_MAJOR",
@@ -269,10 +270,7 @@ describe("native backend ownership", () => {
       "SMITHERS_SERVER_ADDR",
       "SMITHERS_SSH_ADDR",
       "SMITHERS_WEB_ROOT",
-      "SMITHERS_WORKSPACE_CODING_HOST_BINARY",
-      "SMITHERS_WORKSPACE_CODING_HOST_SHA256",
       "SMITHERS_WORKSPACE_ISOLATION",
-      "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY",
       "TMPDIR",
       "no_proxy"
     ])
@@ -350,7 +348,7 @@ describe("native backend ownership", () => {
     argv = args; childOptions = options
     expect(Object.values(options.env)).not.toContain("hostile")
     expect(options.env.PATH).toBe([runtime.root, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
-    expect(options.env.SMITHERS_MICROSANDBOX_BIN).toBe(join(runtime.root, "msb"))
+    expect(options.env.SMITHERS_MICROSANDBOX_BIN).toBeUndefined()
     expect(options.env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
     expect(options.env.SMITHERS_EGRESS_RELAY_PORT).toBe("4001")
     expect(options.env.SMITHERS_SERVER_ADDR).toBe("127.0.0.1:4000")

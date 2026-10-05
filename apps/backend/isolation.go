@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/egressrelay"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -101,10 +101,10 @@ func workspaceIsolation(allowProcessForTests bool) (string, error) {
 }
 
 // openExecutionRuntimes composes the workspace runtime. In microvm mode the
-// backend runs from an installed bundle (installedBundle): its own bytes,
-// msb, the Flow host manifest it loaded and the coding Flow host and Linux
-// workspace helper it plants are verified against that bundle's manifest.
-func openExecutionRuntimes(ctx context.Context, dataRoot, executable, hostManifest, codingHost string, allowProcessForTests bool) (executionRuntimes, error) {
+// backend runs from the installed bundle it pinned (installedInputs); msb,
+// the guest kernel and the coding Flow host and Linux workspace helper it
+// plants are verified against that bundle's manifest.
+func openExecutionRuntimes(ctx context.Context, dataRoot string, bundle *installbundle.Bundle, codingHost string, allowProcessForTests bool) (executionRuntimes, error) {
 	mode, err := workspaceIsolation(allowProcessForTests)
 	if err != nil {
 		return executionRuntimes{}, err
@@ -120,7 +120,7 @@ func openExecutionRuntimes(ctx context.Context, dataRoot, executable, hostManife
 		}
 		return executionRuntimes{workspace: runtime, control: runtime, relay: relay}, nil
 	}
-	config, err := microVMConfig(dataRoot, executable, hostManifest, codingHost)
+	config, err := microVMConfig(dataRoot, bundle, codingHost)
 	if err != nil {
 		return executionRuntimes{}, err
 	}
@@ -137,11 +137,6 @@ func openExecutionRuntimes(ctx context.Context, dataRoot, executable, hostManife
 	if err != nil {
 		return executionRuntimes{}, errors.Join(fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err), relay.Close())
 	}
-	// The startup receipt an operator or CI compares with the manifest the
-	// release build produced.
-	if root, revision, digest, ok := isolated.ApprovedBundle(); ok {
-		slog.Info("approved installed bundle", "bundle", root, "revision", revision, "manifest_sha256", digest)
-	}
 	control, err := process.New(process.Config{Root: filepath.Join(dataRoot, "control")})
 	if err != nil {
 		return executionRuntimes{}, errors.Join(fmt.Errorf("start control runtime: %w", err), isolated.Close(), relay.Close())
@@ -149,27 +144,11 @@ func openExecutionRuntimes(ctx context.Context, dataRoot, executable, hostManife
 	return executionRuntimes{workspace: isolated, control: control, relay: relay, profile: config.HostProfile}, nil
 }
 
-// installedBundle is the approved server bundle the backend executable runs
-// from: the directory holding it at bin/smithers-backend beside the
-// manifest.json `smthrs host start` verified. A backend outside one, such as
-// a development build, has none.
-func installedBundle(executable string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		return "", fmt.Errorf("locate the installed bundle: %w", err)
-	}
-	bin := filepath.Dir(resolved)
-	if filepath.Base(resolved) != "smithers-backend" || filepath.Base(bin) != "bin" {
-		return "", fmt.Errorf("the backend %s does not run from an installed bundle's bin/smithers-backend", resolved)
-	}
-	return filepath.Dir(bin), nil
+func microVMConfig(dataRoot string, bundle *installbundle.Bundle, codingHost string) (microsandbox.Config, error) {
+	return microVMConfigWithProfile(dataRoot, bundle, codingHost, microsandbox.Detect)
 }
 
-func microVMConfig(dataRoot, executable, hostManifest, codingHost string) (microsandbox.Config, error) {
-	return microVMConfigWithProfile(dataRoot, executable, hostManifest, codingHost, microsandbox.Detect)
-}
-
-func microVMConfigWithProfile(dataRoot, executable, hostManifest, codingHost string, detect func(string) (microsandbox.HostProfile, error)) (microsandbox.Config, error) {
+func microVMConfigWithProfile(dataRoot string, bundle *installbundle.Bundle, codingHost string, detect func(string) (microsandbox.HostProfile, error)) (microsandbox.Config, error) {
 	port, err := backendPort()
 	if err != nil {
 		return microsandbox.Config{}, err
@@ -179,19 +158,13 @@ func microVMConfigWithProfile(dataRoot, executable, hostManifest, codingHost str
 		HostPorts:    []uint16{port},
 		Environments: &microsandbox.EnvironmentConfig{},
 	}
-	// microsandbox.New pins this bundle's manifest and refuses to start unless
-	// it approves this backend, its bin/msb (the only msb it runs), the Flow
-	// host manifest and the coding host and Linux helper it plants. No
-	// environment variable selects any of them.
-	if config.Bundle, err = installedBundle(executable); err != nil {
-		return config, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
+	// microsandbox.New refuses to start unless the pinned bundle approves its
+	// bin/msb (the only msb it runs), the guest kernel, and the coding host
+	// and Linux helper it plants.
+	if bundle == nil {
+		return config, errors.New("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: the backend does not run from an installed bundle")
 	}
-	if want := filepath.Join(config.Bundle, "bin", "flow-hosts.json"); !sameFile(hostManifest, want) {
-		return config, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w: the Flow host manifest %s is not the installed bundle's %s",
-			microsandbox.ErrUnapprovedArtifact, hostManifest, want)
-	}
-	config.Executable = executable
-	config.BundleFiles = []string{hostManifest}
+	config.Bundle = bundle
 	config.BundlePrograms = []string{codingHost}
 	profile, err := detect(dataRoot)
 	if err != nil {
@@ -209,17 +182,6 @@ func microVMConfigWithProfile(dataRoot, executable, hostManifest, codingHost str
 	config.CPUs, config.MemoryMiB, config.DiskMiB, config.MaxRunningVMs = sizing.CPUs, sizing.MemoryMiB, int(microsandbox.MachineDiskBytes>>20), sizing.Capacity
 	config.Environments = &microsandbox.EnvironmentConfig{PrepareCPUs: config.CPUs, PrepareMemoryMiB: config.MemoryMiB, PrepareDiskMiB: config.DiskMiB, LayerBudgetBytes: sizing.LayerBudgetBytes, MinFreeBytes: microsandbox.MinFreeDiskBytes}
 	return config, nil
-}
-
-// sameFile reports whether two absolute paths name one file once their
-// symlinks are resolved.
-func sameFile(a, b string) bool {
-	if !filepath.IsAbs(a) {
-		return false
-	}
-	resolvedA, errA := filepath.EvalSymlinks(a)
-	resolvedB, errB := filepath.EvalSymlinks(b)
-	return errA == nil && errB == nil && resolvedA == resolvedB
 }
 
 // backendPort is the port guests reach at 127.0.0.1 through the bridge: the
@@ -242,7 +204,7 @@ func backendPort() (uint16, error) {
 
 // runMicroVM serves `smithers-backend microvm doctor`: read-only checks of
 // Microsandbox, this installation's machines and layers, and the disk floor.
-func runMicroVM(ctx context.Context, args []string) error {
+func runMicroVM(ctx context.Context, args []string, executable func() (string, error)) error {
 	if len(args) != 1 || args[0] != "doctor" {
 		return errors.New("usage: smithers-backend microvm doctor")
 	}
@@ -252,15 +214,15 @@ func runMicroVM(ctx context.Context, args []string) error {
 	}
 	// The doctor runs only the msb of the bundle this backend runs from,
 	// verified like a running backend's.
-	executable, err := os.Executable()
+	path, err := executable()
 	if err != nil {
 		return fmt.Errorf("locate the backend executable: %w", err)
 	}
-	bundle, err := installedBundle(executable)
+	bundle, err := installbundle.OpenRunning(path)
 	if err != nil {
 		return err
 	}
-	config := microsandbox.Config{Bundle: bundle, Executable: executable, Root: filepath.Join(dataRoot, "microvm"),
+	config := microsandbox.Config{Bundle: bundle, Root: filepath.Join(dataRoot, "microvm"),
 		Environments: &microsandbox.EnvironmentConfig{}}
 	config.Environments.MinFreeBytes = microsandbox.MinFreeDiskBytes
 	failed := false

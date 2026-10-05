@@ -291,6 +291,8 @@ export const startNativeBackend = async (
       return value === undefined || value === "" ? [] : [[name, value]]
     })
   )
+  // The backend verifies every path below against the installed bundle it
+  // runs from (spec section 17.3); nothing it does not verify is passed.
   environment.PATH = `${binaryRoot}${delimiter}${SYSTEM_PATH}`
   environment.SMITHERS_WEB_ROOT = options.webRoot ?? packagedPath(bundleRoot, "views/mainview", "Packaged web app")
   // The backend's git is plumbing over owned repositories; the user's git config never applies.
@@ -303,16 +305,11 @@ export const startNativeBackend = async (
   environment.SMITHERS_DATA_ROOT = options.stateDir
   environment.SMITHERS_SERVER_ADDR = new URL(origin).host
   environment.SMITHERS_FLOW_HOST_MANIFEST = hosts.manifest
-  environment.SMITHERS_WORKSPACE_CODING_HOST_BINARY = hosts.coding.path
-  environment.SMITHERS_WORKSPACE_CODING_HOST_SHA256 = hosts.coding.sha256
   environment.SMITHERS_WORKSPACE_ISOLATION = "microvm"
-  environment.SMITHERS_MICROSANDBOX_BIN = msb
   environment.SMITHERS_EGRESS_RELAY_PORT = "4001"
   environment.SMITHERS_SSH_ADDR = "127.0.0.1:2222"
   environment.SMITHERS_MODEL_HOST_BUNDLE = modelHost
   environment.SMITHERS_NODE_BINARY = resolve(binaryRoot, "node")
-  environment.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY = hosts.jjExport.path
-  environment.SMITHERS_JJ_PATH = jj
   environment.GIT_EXEC_PATH = gitExecPath
   environment.GIT_TEMPLATE_DIR = gitTemplateDir
   environment.SMITHERS_FFI_LIBRARY_PATH = ffi

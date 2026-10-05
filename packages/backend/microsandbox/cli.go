@@ -33,22 +33,20 @@ type cli struct {
 	// home is msb's state home: where it keeps images, machines and
 	// snapshots, the root filesystems guests boot.
 	home string
-	// verify, when set, checks binary against the installed bundle's pinned
-	// manifest before every run; a refusal starts nothing.
+	// verify, when set, checks binary and the guest kernel it loads against
+	// the installed bundle's pinned manifest before every run; a refusal
+	// starts nothing.
 	verify func() error
 }
 
-// runtimeCLI is the msb a runtime drives: the installed bundle's bin/msb,
-// verified before every run, or Config.Binary for a runtime without one.
-func runtimeCLI(config Config, msb *bundleProgram) (*cli, error) {
-	if msb == nil {
-		return newCLI(config.Binary)
-	}
-	client, err := newCLI(msb.path)
+// runtimeCLI is the msb a runtime drives. verify, when set, checks msb and
+// the guest kernel against the pinned bundle before every run.
+func runtimeCLI(binary string, verify func() error) (*cli, error) {
+	client, err := newCLI(binary)
 	if err != nil {
 		return nil, err
 	}
-	client.verify = msb.check
+	client.verify = verify
 	return client, nil
 }
 
