@@ -2356,7 +2356,12 @@ paths:
     get:
       x-composition: install
       summary: List the install repository's branches
-      description: Each branch is a projection of its workspace (spec §6.3, §8.1.2); there is no branches table.
+      description: >-
+        Every open branch of the install's repository, whoever started it: each
+        open TODO's branch under the name its card gives it, then every other
+        branch machine (scratch branches, main), newest first. Each branch is a
+        projection of its workspace (spec §6.3, §8.1.2); there is no branches
+        table.
       operationId: get_api_branches
       tags:
         - Branches
@@ -2436,6 +2441,9 @@ paths:
     get:
       x-composition: install
       summary: Read one branch
+      description: >-
+        A branch machine's branch by its name (a scratch branch, main), else a
+        TODO's branch by the name its card gives it, merged or not.
       operationId: get_api_branches_b
       tags:
         - Branches
@@ -2466,44 +2474,41 @@ paths:
   /api/branches/{b}/diff:
     get:
       x-composition: install
-      summary: Read an accepted TODO item diff
-      description: Compares the accepted item's tree against its accepted prefix candidate. Refuses before reads until identity, accepted-prefix and caller-authorization providers qualify. Never falls back to the current main or a working tree.
+      summary: Read a branch's change
+      description: >-
+        A TODO's branch: its verified candidate against the revision its change
+        is measured from (its accepted prefix; main's tip for the first TODO).
+        A scratch branch: its head against the revision it was forked from.
+        Each with the commits between, oldest first. A TODO with no candidate
+        yet, and main, answer no files. Never falls back to the current main or
+        a working tree.
       operationId: get_api_branches_b_diff
       tags:
         - Branches
+      security:
+        - sessionCookie: []
       parameters:
         - in: path
           name: b
           required: true
+          description: The branch name, URL-encoded (smithers%2Fadd-greeting).
           schema:
             type: string
       responses:
         '200':
-          description: Item-only files in DiffCard form
+          description: The branch's files in DiffCard form and its commits
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TODOBranchDiff'
+        '401':
+          description: No person's browser session
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: Not a member of the install
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No such branch
         '503':
-          description: Accepted TODO diff dependencies unavailable
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [code, class, message]
-                properties:
-                  code:
-                    type: string
-                    const: dependency_unavailable
-                  class:
-                    type: string
-                    const: infra
-                  message:
-                    type: string
+          description: The change is too large to show (diff_unavailable), or the stack service or the repository unavailable
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz
@@ -23885,6 +23890,22 @@ components:
               description: The TODO's number.
               type: integer
               minimum: 1
+        item:
+          description: A TODO's branch's TODO, in its card's words.
+          type: object
+          required: [n, title, state, place]
+          properties:
+            n:
+              type: integer
+              minimum: 1
+            title:
+              type: string
+            state:
+              type: string
+            place:
+              description: Its place in the stack; 0 once merged or dropped.
+              type: integer
+              minimum: 0
         machine:
           type: object
           additionalProperties: true
@@ -23896,6 +23917,22 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TODOBranchDiffModel'
+        commits:
+          description: The commits from the compared revision to the head, oldest first; absent when none.
+          type: array
+          items:
+            type: object
+            required: [sha, subject, author, at]
+            properties:
+              sha:
+                type: string
+              subject:
+                type: string
+              author:
+                type: string
+              at:
+                type: string
+                format: date-time
     TODOBranchDiffModel:
       type: object
       required: [path, branch, against, change, hunks]
@@ -23909,8 +23946,9 @@ components:
           required: [kind, rev]
           properties:
             kind:
+              description: item_base for a TODO's branch, fork for a scratch branch.
               type: string
-              const: item_base
+              enum: [item_base, fork]
             rev:
               type: string
         change:

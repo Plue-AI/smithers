@@ -1106,6 +1106,7 @@ type Branch struct {
 	State      string                     `json:"state"`
 	Head       *string                    `json:"head,omitempty"`
 	ForkedFrom *BranchForkedFrom          `json:"forked_from,omitempty"`
+	Item       *BranchItem                `json:"item,omitempty"`
 	Machine    map[string]json.RawMessage `json:"machine"`
 }
 
@@ -1118,9 +1119,26 @@ type BranchForkedFrom struct {
 	Item   *int64 `json:"item,omitempty"`
 }
 
+// BranchItem is generated from docs/api/openapi.yaml.
+type BranchItem struct {
+	N     int64  `json:"n"`
+	Title string `json:"title"`
+	State string `json:"state"`
+	Place int64  `json:"place"`
+}
+
 // TODOBranchDiff is generated from docs/api/openapi.yaml.
 type TODOBranchDiff struct {
-	Files []TODOBranchDiffModel `json:"files"`
+	Files   []TODOBranchDiffModel       `json:"files"`
+	Commits []TODOBranchDiffCommitsItem `json:"commits,omitempty"`
+}
+
+// TODOBranchDiffCommitsItem is generated from docs/api/openapi.yaml.
+type TODOBranchDiffCommitsItem struct {
+	SHA     string    `json:"sha"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author"`
+	At      time.Time `json:"at"`
 }
 
 // TODOBranchDiffModel is generated from docs/api/openapi.yaml.

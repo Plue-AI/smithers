@@ -627,18 +627,30 @@ export type Branch = {
     base: string
     item?: number
   }
+  item?: {
+    n: number
+    title: string
+    state: string
+    place: number
+  }
   machine: Record<string, unknown>
 }
 
 export type TODOBranchDiff = {
   files: Array<TODOBranchDiffModel>
+  commits?: Array<{
+    sha: string
+    subject: string
+    author: string
+    at: string
+  }>
 }
 
 export type TODOBranchDiffModel = {
   path: string
   branch: string
   against: {
-    kind: "item_base"
+    kind: "item_base" | "fork"
     rev: string
   }
   change: "added" | "modified" | "deleted" | "renamed"
@@ -1467,7 +1479,7 @@ export interface GetApiBranchesBDiffInput {
   readonly path: { readonly b: string }
 }
 
-/** GET /api/branches/{b}/diff: Read an accepted TODO item diff */
+/** GET /api/branches/{b}/diff: Read a branch's change */
 export const getApiBranchesBDiff = (transport: Transport, input: GetApiBranchesBDiffInput): Promise<GetApiBranchesBDiffResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/diff`) as Promise<GetApiBranchesBDiffResponse>
 

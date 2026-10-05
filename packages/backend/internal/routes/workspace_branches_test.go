@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -93,6 +94,78 @@ func TestBranchReadDecodesBranchNameOnce(t *testing.T) {
 	branchRouter(&BranchHandler{Authorize: branchSignedIn, Reads: fixture}).ServeHTTP(response, httptest.NewRequest("GET", "/api/branches/scratch%2Falice%2Fshared", nil))
 	require.Equal(t, 403, response.Code)
 	require.Equal(t, "scratch/alice/shared", fixture.branch)
+}
+
+// branchDiffFixture reads one TODO branch and answers its diff.
+type branchDiffFixture struct {
+	read   string
+	diffed services.BranchMachineResponse
+	err    error
+	result services.BranchDiff
+}
+
+func (*branchDiffFixture) ListBranches(context.Context, int64, int64, int, int) ([]services.BranchMachineResponse, int64, error) {
+	return nil, 0, nil
+}
+func (f *branchDiffFixture) GetBranch(_ context.Context, branch string, _ int64, _ int64) (services.BranchMachineResponse, error) {
+	f.read = branch
+	if branch != "smithers/add-greeting" {
+		return services.BranchMachineResponse{}, pkgerrors.NotFound("branch not found")
+	}
+	return services.BranchMachineResponse{Name: branch, Kind: "item", Item: &services.BranchItem{N: 1, Title: "Add greeting", State: "in_review", Place: 1}}, nil
+}
+func (f *branchDiffFixture) BranchDiff(_ context.Context, repository int64, branch services.BranchMachineResponse) (services.BranchDiff, error) {
+	f.diffed = branch
+	return f.result, f.err
+}
+
+// The branch's diff is read for the branch the name resolves to, by any
+// member who reads branches; the stack's refusals keep their envelope.
+func TestBranchDiffReadsTheResolvedBranch(t *testing.T) {
+	file := services.BranchDiffModel{Path: "greet.mjs", Branch: "smithers/add-greeting", Against: services.BranchDiffAgainst{Kind: "item_base", Rev: "base"}, Change: "added",
+		Hunks: []services.BranchDiffHunk{{OldStart: 0, NewStart: 1, Lines: []services.BranchDiffLine{{Op: "+", Text: "export const greet = () => 'hi'"}}}}}
+	for _, tc := range []struct {
+		name, path string
+		fixture    *branchDiffFixture
+		status     int
+		body       string
+	}{
+		{"change", "/api/branches/smithers%2Fadd-greeting/diff", &branchDiffFixture{result: services.BranchDiff{Files: []services.BranchDiffModel{file},
+			Commits: []services.BranchCommit{{SHA: strings.Repeat("c", 40), Subject: "feat: add greet", Author: "Smithers", At: "2026-10-05T09:00:00-07:00"}}}}, 200,
+			`{"files":[{"path":"greet.mjs","branch":"smithers/add-greeting","against":{"kind":"item_base","rev":"base"},"change":"added","hunks":[{"old_start":0,"new_start":1,"lines":[{"op":"+","text":"export const greet = () => 'hi'"}]}]}],
+			"commits":[{"sha":"` + strings.Repeat("c", 40) + `","subject":"feat: add greet","author":"Smithers","at":"2026-10-05T09:00:00-07:00"}]}`},
+		{"nothing yet", "/api/branches/smithers%2Fadd-greeting/diff", &branchDiffFixture{}, 200, `{"files":[]}`},
+		{"no such branch", "/api/branches/smithers%2Fgone/diff", &branchDiffFixture{}, 404, `{"code":"not_found","class":"user","message":"branch not found"}`},
+		{"too large", "/api/branches/smithers%2Fadd-greeting/diff", &branchDiffFixture{err: fmt.Errorf("diff: %w", &services.TODOPrUnavailable{})}, 503,
+			`{"code":"diff_unavailable","class":"infra","message":"This change is too large to show"}`},
+		{"unreadable", "/api/branches/smithers%2Fadd-greeting/diff", &branchDiffFixture{err: &services.BranchError{Status: 503, Code: "branch_unavailable", Class: "infra", Message: "the branch's revisions could not be read"}}, 503,
+			`{"code":"branch_unavailable","class":"infra","message":"the branch's revisions could not be read"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var commands []string
+			authorize := func(r *http.Request, command string) (int64, int64, error) {
+				commands = append(commands, command)
+				return branchSignedIn(r, command)
+			}
+			w := httptest.NewRecorder()
+			branchRouter(&BranchHandler{Authorize: authorize, Reads: tc.fixture, Diffs: tc.fixture}).ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
+			require.Equal(t, tc.status, w.Code)
+			require.JSONEq(t, tc.body, w.Body.String())
+			require.Equal(t, []string{"branches.read"}, commands)
+			if tc.status != 404 {
+				require.Equal(t, "smithers/add-greeting", tc.fixture.read)
+				require.Equal(t, int64(1), tc.fixture.diffed.Item.N, "the diff is the resolved branch's")
+			}
+		})
+	}
+	// Without the stack's diff, or signed out, nothing is read.
+	fixture := &branchDiffFixture{}
+	for _, h := range []*BranchHandler{{Authorize: branchSignedIn, Reads: fixture}, {Authorize: branchSignedOut, Reads: fixture, Diffs: fixture}} {
+		w := httptest.NewRecorder()
+		branchRouter(h).ServeHTTP(w, httptest.NewRequest("GET", "/api/branches/smithers%2Fadd-greeting/diff", nil))
+		require.Contains(t, []int{401, 503}, w.Code)
+		require.Empty(t, fixture.read)
+	}
 }
 
 func TestBranchForkAnswersTheNewBranch(t *testing.T) {

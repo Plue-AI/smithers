@@ -25,14 +25,21 @@ type BranchForkService interface {
 	ForkBranch(context.Context, int64, int64, services.BranchForkInput) (services.BranchMachineResponse, error)
 }
 
+// BranchDiffService is the stack service's read of a branch's change.
+type BranchDiffService interface {
+	BranchDiff(context.Context, int64, services.BranchMachineResponse) (services.BranchDiff, error)
+}
+
 // BranchHandler serves the install's branches (spec §6.3 /api/branches):
-// reads of the workspace projection and Fork, which the stack service
-// performs. Authorize decides the command for the request's person and
-// resolves the install's repository; a caller never names either.
+// reads of the workspace projection, and Fork and the branch's diff, which
+// the stack service performs. Authorize decides the command for the
+// request's person and resolves the install's repository; a caller never
+// names either.
 type BranchHandler struct {
 	Authorize func(r *http.Request, command string) (repositoryID, userID int64, err error)
 	Reads     BranchReadService
 	Forks     BranchForkService
+	Diffs     BranchDiffService
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -44,6 +51,7 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 	}
 	r.Get("/branches", h.ListBranches)
 	r.Get("/branches/{b}", h.GetBranch)
+	r.Get("/branches/{b}/diff", h.Diff)
 	r.Post("/branches", h.Fork)
 }
 
@@ -112,6 +120,39 @@ func (h *BranchHandler) GetBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, row)
+}
+
+// Diff is GET /api/branches/{b}/diff: the branch's change in DiffCard form
+// and its commits, for any member who reads the branch.
+func (h *BranchHandler) Diff(w http.ResponseWriter, r *http.Request) {
+	repository, user, err := h.authorize(r, "branches.read", h.Reads != nil && h.Diffs != nil)
+	if err != nil {
+		writeBranchError(w, err)
+		return
+	}
+	name, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, pkgerrors.BadRequest("invalid branch name"))
+		return
+	}
+	branch, err := h.Reads.GetBranch(r.Context(), name, repository, user)
+	if err != nil {
+		writeBranchError(w, err)
+		return
+	}
+	diff, err := h.Diffs.BranchDiff(r.Context(), repository, branch)
+	var unavailable *services.TODOPrUnavailable
+	if errors.As(err, &unavailable) {
+		err = &services.BranchError{Status: http.StatusServiceUnavailable, Code: "diff_unavailable", Class: "infra", Message: "This change is too large to show"}
+	}
+	if err != nil {
+		writeBranchError(w, err)
+		return
+	}
+	if diff.Files == nil {
+		diff.Files = []services.BranchDiffModel{}
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, diff)
 }
 
 // Fork is POST /api/branches fork{from, name?}: 201 with the new scratch

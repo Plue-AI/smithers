@@ -24,9 +24,10 @@ var branchMachineCommands = map[string]bool{"branch.join": true, "branches.read"
 
 // InstallBranchMachineProviders are a self-hosted install's branch machine
 // providers (T-MCH-04, #3565), composed only on its microVM runtime:
-//   - Membership is the install's roster: its owner (M-17 adds members), an
-//     active account that may sign in, held FOR SHARE until the transaction
-//     ends so a suspension waits for the admitted write.
+//   - Membership is the install's roster: its owner and the repository's
+//     unsuspended maintainers and members (M-17), each an active account that
+//     may sign in, held FOR SHARE until the transaction ends so a suspension
+//     waits for the admitted write.
 //   - Authorize is the one member authorizer every transport uses
 //     (identity.MemberBoundary): the verified owner, for branch.join and
 //     branches.read only.
@@ -45,11 +46,18 @@ func InstallBranchMachineProviders(members identity.MemberAuthorizer, runtime wo
 	}
 }
 
-func installBranchMembership(ctx context.Context, tx pgx.Tx, _, actorID int64) error {
+func installBranchMembership(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
 	var id int64
-	err := tx.QueryRow(ctx, `SELECT u.id FROM self_host_owners o JOIN users u ON u.id = o.user_id
-        WHERE o.singleton AND u.id = $1 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login
-        FOR SHARE OF u`, actorID).Scan(&id)
+	// A member's roster row (InstallationMemberPermission) is read and held
+	// with the account, so its suspension waits too.
+	err := tx.QueryRow(ctx, `SELECT u.id FROM users u
+        LEFT JOIN self_host_owners o ON o.singleton AND o.user_id = u.id
+        LEFT JOIN collaborators c ON c.user_id = u.id AND c.repository_id = $2 AND c.suspended_at IS NULL AND c.permission IN ('write', 'admin')
+        WHERE u.id = $1 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login AND (o.user_id IS NOT NULL OR c.user_id IS NOT NULL)
+        FOR SHARE OF u`, actorID, repositoryID).Scan(&id)
+	if err == nil && id != 0 {
+		_, err = tx.Exec(ctx, `SELECT 1 FROM collaborators WHERE user_id = $1 AND repository_id = $2 FOR SHARE`, actorID, repositoryID)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pkgerrors.Forbidden("not a member of this install")
 	}

@@ -950,16 +950,15 @@ func buildRouter(
 			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
 			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
 			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
-			// Accepted-prefix reads stay dark until T-GH-03 dependency checks qualify.
-			diff := &routes.BranchDiffHandler{}
-			r.Get("/branches/{b}/diff", diff.Diff)
-			// The branch projection and Fork, which the stack service performs.
+			// The branch projection, and Fork and the branch's diff, which
+			// the stack service performs.
 			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
 			if workspaceHandler != nil {
 				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
 			}
 			if extras.Mythical != nil {
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
+				branches.Diffs, _ = extras.Mythical.Service.(routes.BranchDiffService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
 		}

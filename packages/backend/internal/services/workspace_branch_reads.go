@@ -20,7 +20,17 @@ type BranchMachineResponse struct {
 	State      string            `json:"state"`
 	Head       string            `json:"head,omitempty"`
 	ForkedFrom *BranchForkedFrom `json:"forked_from,omitempty"`
+	Item       *BranchItem       `json:"item,omitempty"`
 	Machine    WorkspaceResponse `json:"machine"`
+}
+
+// BranchItem is the TODO a TODO's branch belongs to, in its card's words:
+// its number, title, state and place in the stack (0 once it has left it).
+type BranchItem struct {
+	N     int64  `json:"n"`
+	Title string `json:"title"`
+	State string `json:"state"`
+	Place int64  `json:"place"`
 }
 
 // BranchForkedFrom is forked_from {kind, ref, commit, base, item?} (spec
@@ -75,65 +85,175 @@ func branchKind(bookmark string) string {
 	return "main"
 }
 
-func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]BranchMachineResponse, int64, error) {
+// branchListLimit bounds the branch machines one list reads: an install's
+// repository has a handful of open TODOs and scratch branches.
+const branchListLimit = 500
+
+// beginBranchRead admits a person's read of the repository's branches
+// (branches.read). Every member reads every branch: a branch belongs to the
+// repository and its machine to the machine service, never to the person
+// who started it. List-all authority is a separate catalog decision; a
+// branch-scoped run never gains it by joining its own branch.
+func (s *WorkspaceService) beginBranchRead(ctx context.Context, repositoryID, userID int64) (pgx.Tx, error) {
 	if err := s.requireBranchMachineProviders(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	// List-all authority is a separate catalog decision; a branch-scoped run
-	// never gains it by joining its own branch.
 	tx, err := s.transactions.Begin(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := s.branchMachineProviders.Membership(ctx, tx, repositoryID, userID); err != nil {
-		return nil, 0, err
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, err
 	}
 	if err := s.branchMachineProviders.Authorize(ctx, tx, "branches.read", repositoryID, "", userID); err != nil {
-		return nil, 0, err
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, err
 	}
-	rows, total, err := s.ListWorkspaces(ctx, repositoryID, userID, page, perPage)
+	return tx, nil
+}
+
+// ListBranches is every open branch of the repository, whoever started it:
+// each open TODO's branch as its card names it, then every other branch
+// machine (scratch branches, main), newest first.
+func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]BranchMachineResponse, int64, error) {
+	tx, err := s.beginBranchRead(ctx, repositoryID, userID)
 	if err != nil {
 		return nil, 0, err
 	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
-	result := make([]BranchMachineResponse, 0, len(rows))
-	for _, row := range rows {
-		full, err := s.q.GetWorkspace(ctx, row.ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		branch, err := s.projectBranch(ctx, q, full, row)
-		if err != nil {
-			return nil, 0, err
-		}
-		result = append(result, branch)
+	todos, err := todoBranches(ctx, tx, q, repositoryID, false)
+	if err != nil {
+		return nil, 0, err
 	}
-	return result, total, nil
+	all := make([]BranchMachineResponse, 0, len(todos))
+	for _, todo := range todos {
+		all = append(all, s.projectTodoBranch(todo))
+	}
+	machines, err := q.GetBranchMachineOwner(ctx)
+	if err != nil {
+		return nil, 0, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch machine owner unavailable").WithCause(err)
+	}
+	rows, err := q.ListWorkspacesByRepo(ctx, db.ListWorkspacesByRepoParams{RepositoryID: repositoryID, UserID: machines, PageSize: branchListLimit})
+	if err != nil {
+		return nil, 0, pkgerrors.Internal("list branches: " + err.Error())
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		// A TODO's lanes are its one branch (above), never branches of their own.
+		if row.TargetBookmark == MythicalBookmark || seen[row.TargetBookmark] {
+			continue
+		}
+		seen[row.TargetBookmark] = true
+		branch, err := s.projectBranch(ctx, q, row, s.toWorkspaceResponse(row))
+		if err != nil {
+			return nil, 0, err
+		}
+		all = append(all, branch)
+	}
+	return branchPage(all, page, perPage), int64(len(all)), nil
 }
 
-func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
-	if err := s.preflightBranchMachine(ctx, repositoryID, userID, branch, ""); err != nil {
-		return BranchMachineResponse{}, err
+// branchPage is page (from 1) of perPage branches (1 to 100, else 30); a
+// page past the end is empty.
+func branchPage(all []BranchMachineResponse, page, perPage int) []BranchMachineResponse {
+	if page < 1 {
+		page = 1
 	}
-	tx, err := s.transactions.Begin(ctx)
+	if perPage < 1 || perPage > 100 {
+		perPage = 30
+	}
+	start := len(all)
+	if page-1 < len(all)/perPage+1 {
+		start = min((page-1)*perPage, len(all))
+	}
+	return all[start:min(start+perPage, len(all))]
+}
+
+// GetBranch reads one branch by name: a branch machine's bookmark (a scratch
+// branch, main), else the name a TODO's card gives its branch, merged or not.
+func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
+	tx, err := s.beginBranchRead(ctx, repositoryID, userID)
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
-	row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return BranchMachineResponse{}, pkgerrors.NotFound("branch not found")
+	if branch != MythicalBookmark {
+		row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+		if err == nil {
+			return s.projectBranch(ctx, q, row, s.toWorkspaceResponse(row))
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return BranchMachineResponse{}, err
+		}
 	}
+	todos, err := todoBranches(ctx, tx, q, repositoryID, true)
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
-	projected, err := s.GetWorkspace(ctx, row.ID, repositoryID, userID)
-	if err != nil {
-		return BranchMachineResponse{}, err
+	for _, todo := range todos {
+		if todo.name == branch {
+			return s.projectTodoBranch(todo), nil
+		}
 	}
-	return s.projectBranch(ctx, q, row, projected)
+	return BranchMachineResponse{}, pkgerrors.NotFound("branch not found")
+}
+
+// todoBranch is one TODO's branch: the TODO, the lane machine its card
+// names and the name it goes by (todoBranchWorkspace, todoBranchName).
+type todoBranch struct {
+	item      db.MythicalItem
+	workspace db.Workspace
+	name      string
+}
+
+// todoBranches are the repository's TODOs' branches; settled includes the
+// merged and dropped TODOs', whose cards still name them.
+func todoBranches(ctx context.Context, store db.DBTX, q *db.Queries, repositoryID int64, settled bool) ([]todoBranch, error) {
+	items, err := q.ListMythicalItems(ctx, repositoryID, branchListLimit)
+	if err != nil {
+		return nil, err
+	}
+	branches := []todoBranch{}
+	for _, item := range items {
+		if !item.Number.Valid {
+			continue
+		}
+		if state := todoState(item); !settled && (state == "merged" || state == "dropped") {
+			continue
+		}
+		workspace, ok, err := todoBranchWorkspace(ctx, store, q, item)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			branches = append(branches, todoBranch{item: item, workspace: workspace, name: todoBranchName(item, workspace)})
+		}
+	}
+	return branches, nil
+}
+
+// projectTodoBranch answers a TODO's branch: kind item, the TODO it holds and
+// its head, the pull request's once published, else its verified candidate,
+// else its lane machine's.
+func (s *WorkspaceService) projectTodoBranch(todo todoBranch) BranchMachineResponse {
+	item := todo.item
+	head := item.PRHead
+	for _, next := range []string{item.CandidateHead, todo.workspace.HeadCommitID, todo.workspace.SourceCommit} {
+		if head == "" {
+			head = next
+		}
+	}
+	state := todoState(item)
+	var place int64
+	if item.StackPosition.Valid && state != "merged" && state != "dropped" {
+		place = item.StackPosition.Int64
+	}
+	return BranchMachineResponse{Name: todo.name, Kind: "item", State: branchMachineState(todo.workspace), Head: head,
+		Item:    &BranchItem{N: item.Number.Int64, Title: item.Title.String, State: state, Place: place},
+		Machine: s.toWorkspaceResponse(todo.workspace)}
 }
 
 // projectBranch answers row as a branch: a scratch branch's head is its

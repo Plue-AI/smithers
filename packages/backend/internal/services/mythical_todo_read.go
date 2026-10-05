@@ -109,7 +109,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	if card["merge"], err = s.todoMerge(ctx, item); err != nil {
 		return nil, err
 	}
-	workspace, hasBranch, err := s.todoBranchWorkspace(ctx, item)
+	workspace, hasBranch, err := todoBranchWorkspace(ctx, s.store, s.queries(), item)
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +130,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		if state == "failed" {
 			machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
 		}
-		// Once published, the branch is the pull request's head branch.
-		name := workspace.Name
-		if published := mythicalChecksOf(item).Branch; published != "" {
-			name = published
-		}
-		card["branch"] = map[string]any{"id": workspace.ID, "name": name, "machine": machine}
+		card["branch"] = map[string]any{"id": workspace.ID, "name": todoBranchName(item, workspace), "machine": machine}
 	}
 	if item.Attempt > 0 && item.RequestRunID != "" {
 		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
@@ -202,11 +197,12 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 // todoBranchWorkspace is the lane machine a TODO's card names as its branch:
 // the lane it holds, else, once that lane was released (in review after the
 // verdict, merged), its latest coding lane, retired or not, so the card keeps
-// naming its branch. A TODO that never had a lane has none.
-func (s *MythicalService) todoBranchWorkspace(ctx context.Context, item db.MythicalItem) (db.Workspace, bool, error) {
+// naming its branch. A TODO that never had a lane has none. The TODO card and
+// the branch reads (GET /api/branches) both name a TODO's branch this way.
+func todoBranchWorkspace(ctx context.Context, store db.DBTX, q *db.Queries, item db.MythicalItem) (db.Workspace, bool, error) {
 	id := item.WorkspaceID
 	if id == "" {
-		err := s.store.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
+		err := store.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
  WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%'
  ORDER BY created_at DESC LIMIT 1`, item.ID, item.RepositoryID).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -216,7 +212,7 @@ func (s *MythicalService) todoBranchWorkspace(ctx context.Context, item db.Mythi
 			return db.Workspace{}, false, err
 		}
 	}
-	workspace, err := s.queries().GetWorkspace(ctx, id)
+	workspace, err := q.GetWorkspace(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Workspace{}, false, nil
 	}
@@ -224,6 +220,15 @@ func (s *MythicalService) todoBranchWorkspace(ctx context.Context, item db.Mythi
 		return db.Workspace{}, false, err
 	}
 	return workspace, workspace.RepositoryID == item.RepositoryID, nil
+}
+
+// todoBranchName is the name a TODO's branch goes by: its lane's until the
+// TODO is published, then the pull request's head branch.
+func todoBranchName(item db.MythicalItem, workspace db.Workspace) string {
+	if published := mythicalChecksOf(item).Branch; published != "" {
+		return published
+	}
+	return workspace.Name
 }
 
 // modelAccessLabel names the model access a run used, one group per provider

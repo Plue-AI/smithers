@@ -6,10 +6,20 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
-// BranchDiff is the item-base subset of the shared DiffCard contract. The
-// existing landing response exposes raw patches, not the card's hunk model.
+// BranchDiff is the item-base subset of the shared DiffCard contract, with
+// the commits it spans. The existing landing response exposes raw patches,
+// not the card's hunk model.
 type BranchDiff struct {
-	Files []BranchDiffModel `json:"files"`
+	Files   []BranchDiffModel `json:"files"`
+	Commits []BranchCommit    `json:"commits,omitempty"`
+}
+
+// BranchCommit is one commit of a branch's change.
+type BranchCommit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
+	Author  string `json:"author"`
+	At      string `json:"at"`
 }
 type BranchDiffModel struct {
 	Path      string            `json:"path"`
@@ -41,8 +51,8 @@ type BranchDiffLine struct {
 // ProjectTODOBranchDiff consumes a diff already read against the immutable
 // accepted prefix. It performs no git or machine execution. Binary sizes must
 // come from blob metadata: FileDiff omits binary content, so len is not a size.
-// No production caller is installed until accepted-prefix and authority gates
-// qualify; the route refuses rather than comparing against guessed main.
+// BranchDiff compares against the item's recorded candidate base, never a
+// guessed main.
 func ProjectTODOBranchDiff(branch, acceptedPrefix string, files []repohost.FileDiff, binarySizes map[string]BranchDiffBinary) (BranchDiff, error) {
 	result := BranchDiff{Files: []BranchDiffModel{}}
 	if branch == "" || acceptedPrefix == "" {
