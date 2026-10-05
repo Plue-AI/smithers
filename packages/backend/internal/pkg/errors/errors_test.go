@@ -228,6 +228,7 @@ func TestWriteError_IncludesStructuredGitHubRateLimit(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, w.Code)
 	assert.JSONEq(t, `{
 		"code":"github_rate_limited",
+		"class":"github",
 		"fault":"dependency",
 		"message":"github installation rate limit exceeded",
 		"limit":5000,

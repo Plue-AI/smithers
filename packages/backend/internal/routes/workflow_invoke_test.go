@@ -88,7 +88,7 @@ func TestWorkflowHandler_InvokeReviewRefusesBeforeWorkingCopyDispatch(t *testing
 		rec := httptest.NewRecorder()
 		h.InvokeWorkflow(rec, req)
 		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-		require.JSONEq(t, `{"code":"service_unavailable","fault":"infra","message":"service unavailable"}`, rec.Body.String())
+		require.JSONEq(t, `{"code":"service_unavailable","class":"infra","fault":"infra","message":"service unavailable"}`, rec.Body.String())
 	}
 }
 

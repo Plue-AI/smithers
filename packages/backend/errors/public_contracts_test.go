@@ -15,18 +15,18 @@ import (
 
 func TestPublicErrorConstructorsCarryLiteralWireVerdicts(t *testing.T) {
 	for _, row := range []struct {
-		name        string
-		build       func(string) *apierrors.APIError
-		code, fault string
-		status      int
+		name               string
+		build              func(string) *apierrors.APIError
+		code, class, fault string
+		status             int
 	}{
-		{"bad request", apierrors.BadRequest, "bad_request", "user", 400},
-		{"unauthorized", apierrors.Unauthorized, "unauthorized", "user", 401},
-		{"forbidden", apierrors.Forbidden, "forbidden", "user", 403},
-		{"not found", apierrors.NotFound, "not_found", "user", 404},
-		{"conflict", apierrors.Conflict, "conflict", "user", 409},
-		{"body size", apierrors.RequestEntityTooLarge, "request_entity_too_large", "user", 413},
-		{"internal", apierrors.Internal, "internal", "bug", 500},
+		{"bad request", apierrors.BadRequest, "bad_request", "user", "user", 400},
+		{"unauthorized", apierrors.Unauthorized, "unauthorized", "permission", "user", 401},
+		{"forbidden", apierrors.Forbidden, "forbidden", "permission", "user", 403},
+		{"not found", apierrors.NotFound, "not_found", "user", "user", 404},
+		{"conflict", apierrors.Conflict, "conflict", "conflict", "user", 409},
+		{"body size", apierrors.RequestEntityTooLarge, "request_entity_too_large", "user", "user", 413},
+		{"internal", apierrors.Internal, "internal", "infra", "bug", 500},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			err := row.build("action refused")
@@ -38,11 +38,7 @@ func TestPublicErrorConstructorsCarryLiteralWireVerdicts(t *testing.T) {
 			apierrors.WriteError(recorder, err)
 			require.Equal(t, row.status, recorder.Code)
 			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
-			class := ""
-			if row.status == 401 || row.status == 403 {
-				class = `"class":"permission",`
-			}
-			require.JSONEq(t, `{"code":"`+row.code+`",`+class+`"fault":"`+row.fault+`","message":"action refused"}`, recorder.Body.String())
+			require.JSONEq(t, `{"code":"`+row.code+`","class":"`+row.class+`","fault":"`+row.fault+`","message":"action refused"}`, recorder.Body.String())
 		})
 	}
 	for _, row := range []struct {
@@ -70,7 +66,7 @@ func TestPublicErrorsValidationCauseAndRetryDoNotMutateCaller(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	apierrors.WriteError(recorder, validation)
 	require.Equal(t, 422, recorder.Code)
-	require.JSONEq(t, `{"code":"validation_failed","fault":"user","message":"validation failed","errors":[{"resource":"Repo","field":"name","code":"missing"}]}`, recorder.Body.String())
+	require.JSONEq(t, `{"code":"validation_failed","class":"user","fault":"user","message":"validation failed","errors":[{"resource":"Repo","field":"name","code":"missing"}]}`, recorder.Body.String())
 	cause := stderrors.New("unit-only private storage diagnostic")
 	internal := apierrors.Internal("internal server error")
 	require.Same(t, internal, internal.WithCause(cause))
@@ -80,7 +76,7 @@ func TestPublicErrorsValidationCauseAndRetryDoNotMutateCaller(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	apierrors.WriteError(recorder, internal)
 	require.NotContains(t, recorder.Body.String(), cause.Error())
-	require.JSONEq(t, `{"code":"internal","fault":"bug","message":"internal server error"}`, recorder.Body.String())
+	require.JSONEq(t, `{"code":"internal","class":"infra","fault":"bug","message":"internal server error"}`, recorder.Body.String())
 	for _, row := range []struct {
 		retry                int
 		existing, wantHeader string

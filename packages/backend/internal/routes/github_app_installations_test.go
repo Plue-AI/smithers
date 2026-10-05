@@ -71,7 +71,7 @@ func TestGitHubAppInstallations_BlockerIsAConflict(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ListGitHubAppInstallations(rec, githubAppInstallationsRequest("42", true))
 	require.Equal(t, http.StatusConflict, rec.Code)
-	assert.JSONEq(t, `{"code":"conflict","fault":"user","message":"Your GitHub credential cannot access this repository."}`, rec.Body.String())
+	assert.JSONEq(t, `{"code":"conflict","class":"conflict","fault":"user","message":"Your GitHub credential cannot access this repository."}`, rec.Body.String())
 }
 
 func TestGitHubAppInstallations_BudgetRefusalKeepsItsMessage(t *testing.T) {

@@ -58,7 +58,7 @@ func TestPublicJSONDecodingRequiredOptionalAndByteBoundary(t *testing.T) {
 						}
 					} else {
 						require.Equal(t, tc.status, recorder.Code)
-						require.JSONEq(t, fmt.Sprintf(`{"message":%q,"code":%q,"fault":"user"}`, tc.message, tc.code), recorder.Body.String())
+						require.JSONEq(t, fmt.Sprintf(`{"message":%q,"code":%q,"class":"user","fault":"user"}`, tc.message, tc.code), recorder.Body.String())
 					}
 				})
 			}
@@ -78,7 +78,7 @@ func TestPublicJSONDecodingRequiredOptionalAndByteBoundary(t *testing.T) {
 					} else {
 						require.False(t, ok)
 						require.Equal(t, 413, recorder.Code)
-						require.JSONEq(t, `{"message":"request body too large","code":"request_entity_too_large","fault":"user"}`, recorder.Body.String())
+						require.JSONEq(t, `{"message":"request body too large","code":"request_entity_too_large","class":"user","fault":"user"}`, recorder.Body.String())
 					}
 				})
 			}
@@ -107,7 +107,7 @@ func TestPublicJSONBodyReadFailureDoesNotExposeTransportDetails(t *testing.T) {
 			require.False(t, decode.run(recorder, request, &dst))
 			require.Equal(t, "unchanged", dst.Name)
 			require.Equal(t, 400, recorder.Code)
-			require.JSONEq(t, `{"message":"invalid request body","code":"bad_request","fault":"user"}`, recorder.Body.String())
+			require.JSONEq(t, `{"message":"invalid request body","code":"bad_request","class":"user","fault":"user"}`, recorder.Body.String())
 			require.NotContains(t, recorder.Body.String(), "unexpected EOF")
 		})
 	}
@@ -201,10 +201,10 @@ func TestPublicRouteErrorsSanitizePrivateDiagnosticsAndPreserveSafePacing(t *tes
 		body, retry string
 	}{
 		{"wrapped user refusal", fmt.Errorf("context: %w", apierrors.Forbidden("action refused")), 403, `{"message":"action refused","code":"forbidden","class":"permission","fault":"user"}`, ""},
-		{"internal cause", apierrors.Internal("private operation").WithCause(errors.New(secret)), 500, `{"message":"internal server error","code":"internal","fault":"bug"}`, ""},
-		{"untyped", errors.New(secret), 500, `{"message":"internal server error","code":"internal","fault":"bug"}`, ""},
-		{"dependency", apierrors.New(apierrors.Code("service_unavailable"), secret), 503, `{"message":"service unavailable","code":"service_unavailable","fault":"infra"}`, ""},
-		{"safe startup", apierrors.New(apierrors.Code("guest_not_ready"), "guest helpers linking"), 503, `{"message":"guest helpers linking","code":"guest_not_ready","fault":"wait","retry_after":3}`, "3"},
+		{"internal cause", apierrors.Internal("private operation").WithCause(errors.New(secret)), 500, `{"message":"internal server error","code":"internal","class":"infra","fault":"bug"}`, ""},
+		{"untyped", errors.New(secret), 500, `{"message":"internal server error","code":"internal","class":"infra","fault":"bug"}`, ""},
+		{"dependency", apierrors.New(apierrors.Code("service_unavailable"), secret), 503, `{"message":"service unavailable","code":"service_unavailable","class":"infra","fault":"infra"}`, ""},
+		{"safe startup", apierrors.New(apierrors.Code("guest_not_ready"), "guest helpers linking"), 503, `{"message":"guest helpers linking","code":"guest_not_ready","class":"capacity","fault":"wait","retry_after":3}`, "3"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -220,7 +220,7 @@ func TestPublicRouteErrorsSanitizePrivateDiagnosticsAndPreserveSafePacing(t *tes
 	// The explicit message is a caller-supplied public sentence; the cause stays in server logs.
 	httpapi.WriteInternalError(recorder, httptest.NewRequest("POST", "/items", nil), "internal server error", errors.New(secret))
 	require.Equal(t, 500, recorder.Code)
-	require.JSONEq(t, `{"message":"internal server error","code":"internal","fault":"bug"}`, recorder.Body.String())
+	require.JSONEq(t, `{"message":"internal server error","code":"internal","class":"infra","fault":"bug"}`, recorder.Body.String())
 	require.NotContains(t, recorder.Body.String(), secret)
 	require.Contains(t, logs.String(), `"method":"POST"`)
 	require.Contains(t, logs.String(), `"path":"/items"`)

@@ -29,7 +29,7 @@ func (q orgVisibilityRouteQuerier) GetVisibleOrgForViewer(ctx context.Context, a
 
 func TestOrgHandler_GetOrg_VisibilityWithRealService(t *testing.T) {
 	t.Parallel()
-	const notFoundBody = "{\"code\":\"not_found\",\"fault\":\"user\",\"message\":\"organization not found\"}\n"
+	const notFoundBody = "{\"code\":\"not_found\",\"class\":\"user\",\"fault\":\"user\",\"message\":\"organization not found\"}\n"
 	for _, tc := range []struct {
 		name, visibility, role string
 		authenticated, missing bool
@@ -41,7 +41,7 @@ func TestOrgHandler_GetOrg_VisibilityWithRealService(t *testing.T) {
 		{name: "outsider private", visibility: "private", authenticated: true, status: http.StatusNotFound, body: notFoundBody},
 		{name: "owner private", visibility: "private", authenticated: true, role: "owner", status: http.StatusOK},
 		{name: "member private", visibility: "private", authenticated: true, role: "member", status: http.StatusOK},
-		{name: "store unavailable", visibility: "private", authenticated: true, storeErr: errors.New("database unavailable"), status: http.StatusInternalServerError, body: "{\"code\":\"internal\",\"fault\":\"bug\",\"message\":\"internal server error\"}\n"},
+		{name: "store unavailable", visibility: "private", authenticated: true, storeErr: errors.New("database unavailable"), status: http.StatusInternalServerError, body: "{\"code\":\"internal\",\"class\":\"infra\",\"fault\":\"bug\",\"message\":\"internal server error\"}\n"},
 		{name: "anonymous missing", missing: true, status: http.StatusNotFound, body: notFoundBody},
 		{name: "signed in missing", authenticated: true, missing: true, status: http.StatusNotFound, body: notFoundBody},
 		{name: "anonymous public", visibility: "public", status: http.StatusOK},

@@ -1663,8 +1663,8 @@ func TestServerRouter_RepoSyncRoute_RequiresRepoContextLookup(t *testing.T) {
 		status int
 		body   string
 	}{
-		{"missing", pgx.ErrNoRows, http.StatusNotFound, `{"code":"not_found","fault":"user","message":"repository not found"}`},
-		{"unavailable", errors.New("private database diagnostic"), http.StatusInternalServerError, `{"code":"internal","fault":"bug","message":"failed to resolve repository"}`},
+		{"missing", pgx.ErrNoRows, http.StatusNotFound, `{"code":"not_found","class":"user","fault":"user","message":"repository not found"}`},
+		{"unavailable", errors.New("private database diagnostic"), http.StatusInternalServerError, `{"code":"internal","class":"infra","fault":"bug","message":"failed to resolve repository"}`},
 	} {
 		for _, authenticated := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/authenticated=%v", tc.name, authenticated), func(t *testing.T) {

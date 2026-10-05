@@ -137,7 +137,7 @@ func TestServerRouter_LFSVerifyRepositoryVisibility(t *testing.T) {
 			require.Equal(t, missing.Code, private.Code, private.Body.String())
 			require.JSONEq(t, missing.Body.String(), private.Body.String(), "status, code and message must hide repository existence")
 			if tc.status == http.StatusNotFound {
-				require.JSONEq(t, `{"code":"not_found","fault":"user","message":"repository not found"}`, private.Body.String())
+				require.JSONEq(t, `{"code":"not_found","class":"user","fault":"user","message":"repository not found"}`, private.Body.String())
 			}
 			public := serve("public")
 			require.Equal(t, tc.public, public.Code, public.Body.String())

@@ -89,7 +89,7 @@ func TestResolveOrgForViewer_OneStatementDecidesVisibility(t *testing.T) {
 }
 
 // orgNotFoundResponse is the exact answer for a name that does not exist.
-const orgNotFoundResponse = "404 {\"code\":\"not_found\",\"fault\":\"user\",\"message\":\"organization not found\"}\n"
+const orgNotFoundResponse = "404 {\"code\":\"not_found\",\"class\":\"user\",\"fault\":\"user\",\"message\":\"organization not found\"}\n"
 
 type recordingOrgDispatcher struct{ events int }
 

@@ -121,7 +121,7 @@ func TestPublicAgentTokenLookupExpiryAndTerminalRefusalsStayClosed(t *testing.T)
 			require.Equal(t, row.statusCode, recorder.Code)
 			class, fault, code := `"class":"permission",`, "user", "unauthorized"
 			if row.statusCode == 500 {
-				class, fault, code = "", "bug", "internal"
+				class, fault, code = `"class":"infra",`, "bug", "internal"
 			}
 			require.JSONEq(t, `{"code":"`+code+`",`+class+`"fault":"`+fault+`","message":"`+row.message+`"}`, recorder.Body.String())
 			require.NotContains(t, recorder.Body.String(), publicAgentFixtureToken)
@@ -132,7 +132,7 @@ func TestPublicAgentTokenLookupExpiryAndTerminalRefusalsStayClosed(t *testing.T)
 	recorder := httptest.NewRecorder()
 	security.RequireAgentToken(nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("missing query port dispatched") })).ServeHTTP(recorder, request)
 	require.Equal(t, 500, recorder.Code)
-	require.JSONEq(t, `{"code":"internal","fault":"bug","message":"internal server error"}`, recorder.Body.String())
+	require.JSONEq(t, `{"code":"internal","class":"infra","fault":"bug","message":"internal server error"}`, recorder.Body.String())
 }
 
 func TestPublicAgentTokenAdmitsActiveRunAndPreservesContext(t *testing.T) {
@@ -175,7 +175,7 @@ func TestPublicAgentTokenCanceledQueryNeverDispatches(t *testing.T) {
 	require.Equal(t, 1, query.calls)
 	require.ErrorIs(t, query.ctx.Err(), context.Canceled)
 	require.Equal(t, 500, recorder.Code)
-	require.JSONEq(t, `{"code":"internal","fault":"bug","message":"internal server error"}`, recorder.Body.String())
+	require.JSONEq(t, `{"code":"internal","class":"infra","fault":"bug","message":"internal server error"}`, recorder.Body.String())
 }
 
 func TestPublicSecurityContextLoggingAndCredentialFinding(t *testing.T) {

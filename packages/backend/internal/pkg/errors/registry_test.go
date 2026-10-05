@@ -383,7 +383,7 @@ func TestPlanLimitExceededRegistryAndEnvelope(t *testing.T) {
 	rec := httptest.NewRecorder()
 	WriteError(rec, e)
 	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
-	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"code":"plan_limit_exceeded","fault":"user","message":`))
+	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"code":"plan_limit_exceeded","class":"user","fault":"user","message":`))
 	assert.Contains(t, rec.Body.String(), `"plan_key":"free"`)
 	assert.Contains(t, rec.Body.String(), `"limit_kind":"concurrent_sandboxes"`)
 	assert.Contains(t, rec.Body.String(), `"upgrade_plan_key":"pro"`)
@@ -394,136 +394,11 @@ func TestPlanLimitExceededRegistryAndEnvelope(t *testing.T) {
 	assert.NotContains(t, string(payload), "limit_kind")
 }
 
-// classPending is every registered code whose §6.2.3 class is not yet ruled.
-// Its envelope omits class, which the app reads as infra. A new code carries
-// a class or joins this list, so the gap only shrinks by a decision.
-var classPending = map[Code]bool{
-	CodeAgentLoopRetired:              true,
-	CodeAppendNotRequested:            true,
-	CodeAppendPrepareInvalid:          true,
-	CodeAppendPrepareUnavailable:      true,
-	CodeAppendReceiptInvalid:          true,
-	CodeAppendReceiptUnavailable:      true,
-	CodeAppendTaskMissing:             true,
-	CodeAuthenticationNotConfigured:   true,
-	CodeBadGateway:                    true,
-	CodeBadRequest:                    true,
-	CodeBuildCacheBusy:                true,
-	CodeCodingFileConflict:            true,
-	CodeCodingFileRecoveryRequired:    true,
-	CodeCodingGatewayNotConfigured:    true,
-	CodeCodingGuestFailure:            true,
-	CodeCodingHostUnavailable:         true,
-	CodeCodingHostUpgradeRequired:     true,
-	CodeCodingInvalidRequest:          true,
-	CodeCodingOutcomeUnknown:          true,
-	CodeCodingProvenancePending:       true,
-	CodeCodingProviderRefreshRequired: true,
-	CodeCodingReporterUpgradeRequired: true,
-	CodeCodingUnsupportedJJ:           true,
-	CodeCodingWorkspaceBusy:           true,
-	CodeConflict:                      true,
-	CodeEgressProxyUnavailable:        true,
-	CodeEnvironmentImageUnavailable:   true,
-	CodeExecInProgress:                true,
-	CodeFeatureNotEnabled:             true,
-	CodeGatewayTimeout:                true,
-	CodeGenerationRequired:            true,
-	CodeGitHubImportAlreadyActive:     true,
-	CodeGitHubImportTooLarge:          true,
-	CodeGitHubPullDiffTooLarge:        true,
-	CodeGitHubRateLimited:             true,
-	CodeGitHubUnavailable:             true,
-	CodeGuestNotReady:                 true,
-	CodeGuestUserRequired:             true,
-	CodeHostLeaseLost:                 true,
-	CodeIdempotencyConflict:           true,
-	CodeIdempotencyKeyRequired:        true,
-	CodeImageRequired:                 true,
-	CodeInternal:                      true,
-	CodeInvalidEgressAuditBatch:       true,
-	CodeInvalidJSON:                   true,
-	CodeInvalidPath:                   true,
-	CodeInvalidPlacement:              true,
-	CodeInvalidRequest:                true,
-	CodeInvalidResourceLink:           true,
-	CodeInvalidWorker:                 true,
-	CodeLandingBlocked:                true,
-	CodeLandingCreateUnavailable:      true,
-	CodeLandingRequestConflict:        true,
-	CodeLandingStackInFlight:          true,
-	CodeLanguageServerMissing:         true,
-	CodeListingSecretDetected:         true,
-	CodeNoCapacity:                    true,
-	CodeNonReplayableOperation:        true,
-	CodeNotFound:                      true,
-	CodeNotImplemented:                true,
-	CodeOperationInProgress:           true,
-	CodeOutOfCredit:                   true,
-	CodePlanLimitExceeded:             true,
-	CodePreviewUnavailable:            true,
-	CodeProfileUnavailable:            true,
-	CodeProvisioningFailed:            true,
-	CodePushTooLarge:                  true,
-	CodePushTooSlow:                   true,
-	CodeQuiesceFailed:                 true,
-	CodeQuotaExceeded:                 true,
-	CodeRateLimitExceeded:             true,
-	CodeRateLimiterUnavailable:        true,
-	CodeRepositoryHeld:                true,
-	CodeRepositoryProvisioningRollout: true,
-	CodeRepositoryRollbackHeld:        true,
-	CodeRepositoryWorkspacePending:    true,
-	CodeRequestEntityTooLarge:         true,
-	CodeRequestTooLarge:               true,
-	CodeRetainedRuntimeNotFound:       true,
-	CodeRetainedRuntimeNotRunning:     true,
-	CodeRetainedRuntimeNotStopped:     true,
-	CodeSSEUnavailable:                true,
-	CodeSandboxControlBusy:            true,
-	CodeSandboxInternalError:          true,
-	CodeSandboxRuntimeError:           true,
-	CodeSecretDeliveryUnavailable:     true,
-	CodeServiceUnavailable:            true,
-	CodeSetupRequestReused:            true,
-	CodeSnapshotInUse:                 true,
-	CodeSnapshotNotFound:              true,
-	CodeSnapshotTooLarge:              true,
-	CodeStaleGeneration:               true,
-	CodeTokenGenerationFailed:         true,
-	CodeUnknownOrigin:                 true,
-	CodeUnprocessableEntity:           true,
-	CodeUnsupportedMediaType:          true,
-	CodeUserRefMissing:                true,
-	CodeUserRefPushTooLarge:           true,
-	CodeUserRefStack:                  true,
-	CodeValidationFailed:              true,
-	CodeWikiUnavailable:               true,
-	CodeWorkerDraining:                true,
-	CodeWorkerError:                   true,
-	CodeWorkerFenced:                  true,
-	CodeWorkspaceFailed:               true,
-	CodeWorkspaceRebuildRequired:      true,
-	CodeWorkspaceResourcesExceeded:    true,
-	CodeWorkspaceSSHUserInvalid:       true,
-	CodeWorkspaceSessionKindMismatch:  true,
-	CodeWorkspaceSessionPending:       true,
-	CodeWorkspaceSourceInvalidAck:     true,
-	CodeWorkspaceSourceMissing:        true,
-	CodeWorkspaceSourceUnavailable:    true,
-	CodeWorkspaceVMMissing:            true,
-}
-
+// TestRegistryClasses pins §6.2.3: every code carries a class. The app reads
+// a missing class as infra ("not your fault"), so an unclassed code would tell
+// a caller the platform failed when the request or GitHub did.
 func TestRegistryClasses(t *testing.T) {
 	for code, entry := range registry {
-		if entry.Status == http.StatusUnauthorized || entry.Status == http.StatusForbidden {
-			assert.False(t, classPending[code], "refusal %q is ruled by §5.2.1 and cannot be pending", code)
-		}
-		if entry.Class == "" {
-			assert.True(t, classPending[code], "code %q has no class and is not in classPending", code)
-			continue
-		}
-		assert.False(t, classPending[code], "code %q has class %q; drop it from classPending", code, entry.Class)
 		assert.Contains(t, Classes, entry.Class, "code %q has class %q outside §6.2.3", code, entry.Class)
 		if entry.Status == http.StatusUnauthorized {
 			assert.Equal(t, ClassPermission, entry.Class, "401 %q must be class permission (§5.2.1)", code)
@@ -531,9 +406,5 @@ func TestRegistryClasses(t *testing.T) {
 		if entry.Status == http.StatusForbidden {
 			assert.Contains(t, []Class{ClassPermission, ClassNever}, entry.Class, "403 %q must be permission or never (§5.2.1)", code)
 		}
-	}
-	for code := range classPending {
-		_, ok := registry[code]
-		assert.True(t, ok, "classPending names unregistered code %q", code)
 	}
 }

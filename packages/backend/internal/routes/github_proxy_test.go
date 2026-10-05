@@ -144,6 +144,7 @@ func TestGitHubProxyHandler_RateLimitRefusalsAreStructured(t *testing.T) {
 		assert.Equal(t, "3600", rec.Header().Get("Retry-After"))
 		assert.JSONEq(t, `{
 			"code":"github_rate_limited",
+			"class":"github",
 			"fault":"dependency",
 			"retry_after":3600,
 			"message":"github installation rate limit exceeded",

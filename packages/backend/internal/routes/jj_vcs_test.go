@@ -1522,7 +1522,7 @@ func TestJJVCSHandler_ResolveChangeConflict_PropagatesServiceError(t *testing.T)
 	handler.ResolveChangeConflict(recorder, req)
 
 	assert.Equal(t, http.StatusNotFound, recorder.Code)
-	assert.JSONEq(t, `{"code":"not_found","fault":"user","message":"conflict not found"}`, recorder.Body.String())
+	assert.JSONEq(t, `{"code":"not_found","class":"user","fault":"user","message":"conflict not found"}`, recorder.Body.String())
 }
 
 // --- ListOperations ---

@@ -88,8 +88,8 @@ type Entry struct {
 	Status int
 	// Fault is who the failure belongs to.
 	Fault Fault
-	// Class is the §6.2.3 class the envelope carries. Empty only for a code
-	// whose class is not yet ruled (classPending in registry_test.go).
+	// Class is the §6.2.3 class the envelope carries. Every code has one;
+	// TestRegistryClasses enforces it.
 	Class Class
 	// RetryAfter, when > 0, is the number of seconds a client should wait
 	// before retrying. It feeds the Retry-After header.
@@ -320,25 +320,25 @@ const (
 // without a row cannot reach the wire with a fault, and a row without a
 // constant cannot be raised.
 var registry = map[Code]Entry{
-	CodeAppendTaskMissing:        {Status: http.StatusNotFound, Fault: FaultUser, Doc: "No append task has been queued for this landing."},
-	CodeAppendNotRequested:       {Status: http.StatusConflict, Fault: FaultUser, Doc: "The landing's existing task is not a native append request."},
-	CodeAppendReceiptUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "The exact native append receipt cannot currently be verified."},
-	CodeAppendReceiptInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "The durable append request or task state has no valid matching native receipt."},
-	CodeAppendPrepareUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Native append preparation or its transactional revision projection is unavailable."},
-	CodePushTooSlow:              {Status: http.StatusRequestTimeout, Fault: FaultUser, RetryAfter: 0, Doc: "The push held its repository longer than the push duration limit and was stopped; nothing changed."},
-	CodePushTooLarge:             {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Doc: "The push exceeds the repository push size limit."},
-	CodeUserRefPushTooLarge:      {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Doc: "The push exceeds the user ref push size limit."},
-	CodeRepositoryHeld:           {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 5, Doc: "The repository refuses writes until maintenance a restarted repository host found running there has finished; reads still work."},
-	CodeRepositoryRollbackHeld:   {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "The repository refuses writes because a refused push could not be rolled back; the operator restores its refs and removes the hold. Reads still work."},
-	CodeAppendPrepareInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Native append preparation did not return the requested exact source identities."},
-	CodeLandingCreateUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Idempotent landing creation requires the existing transactional store."},
-	CodeLandingRequestConflict:   {Status: http.StatusConflict, Fault: FaultUser, Doc: "The landing request identity was already used with different input or agent authority."},
-	CodeLandingStackInFlight:     {Status: http.StatusConflict, Fault: FaultUser, Doc: "An in-flight landing request already carries this exact stack onto the target; details.number names it."},
+	CodeAppendTaskMissing:        {Status: http.StatusNotFound, Fault: FaultUser, Class: ClassUser, Doc: "No append task has been queued for this landing."},
+	CodeAppendNotRequested:       {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, Doc: "The landing's existing task is not a native append request."},
+	CodeAppendReceiptUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, Doc: "The exact native append receipt cannot currently be verified."},
+	CodeAppendReceiptInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, Doc: "The durable append request or task state has no valid matching native receipt."},
+	CodeAppendPrepareUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, Doc: "Native append preparation or its transactional revision projection is unavailable."},
+	CodePushTooSlow:              {Status: http.StatusRequestTimeout, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The push held its repository longer than the push duration limit and was stopped; nothing changed."},
+	CodePushTooLarge:             {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Class: ClassUser, Doc: "The push exceeds the repository push size limit."},
+	CodeUserRefPushTooLarge:      {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Class: ClassUser, Doc: "The push exceeds the user ref push size limit."},
+	CodeRepositoryHeld:           {Status: http.StatusServiceUnavailable, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 5, Doc: "The repository refuses writes until maintenance a restarted repository host found running there has finished; reads still work."},
+	CodeRepositoryRollbackHeld:   {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, Doc: "The repository refuses writes because a refused push could not be rolled back; the operator restores its refs and removes the hold. Reads still work."},
+	CodeAppendPrepareInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, Doc: "Native append preparation did not return the requested exact source identities."},
+	CodeLandingCreateUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, Doc: "Idempotent landing creation requires the existing transactional store."},
+	CodeLandingRequestConflict:   {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, Doc: "The landing request identity was already used with different input or agent authority."},
+	CodeLandingStackInFlight:     {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, Doc: "An in-flight landing request already carries this exact stack onto the target; details.number names it."},
 	// The request was malformed or carried a value the endpoint cannot
 	// accept.
-	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},
+	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},
 	// The request carried no credential, or one the server could not verify.
-	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Doc: "The request host matches no configured install origin."},
+	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Class: ClassUser, Doc: "The request host matches no configured install origin."},
 	CodeOwnerUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, Doc: "Owner repository access has not been verified."},
 	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The owner claim invalidated the setup credential."},
 	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The setup credential is missing, expired or invalid."},
@@ -349,57 +349,57 @@ var registry = map[Code]Entry{
 	CodeForbidden:  {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The credential is valid but is not allowed to perform this operation."},
 	// The addressed resource does not exist, or the caller may not see that
 	// it does.
-	CodeNotFound: {Status: http.StatusNotFound, Fault: FaultUser, RetryAfter: 0, Doc: "The addressed resource does not exist, or the caller may not see that it does."},
+	CodeNotFound: {Status: http.StatusNotFound, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The addressed resource does not exist, or the caller may not see that it does."},
 	// The resource is in a state that refuses this operation right now.
-	CodeSetupRequestReused: {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The setup request identity was already admitted with different input."},
-	CodeConflict:           {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The resource is in a state that refuses this operation right now."},
+	CodeSetupRequestReused: {Status: http.StatusConflict, Fault: FaultInfra, Class: ClassConflict, RetryAfter: 0, Doc: "The setup request identity was already admitted with different input."},
+	CodeConflict:           {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The resource is in a state that refuses this operation right now."},
 	// The request body is larger than the endpoint accepts.
-	CodeRequestEntityTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, RetryAfter: 0, Doc: "The request body is larger than the endpoint accepts."},
+	CodeRequestEntityTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The request body is larger than the endpoint accepts."},
 	// The request's Content-Type is not one this endpoint reads.
-	CodeUnsupportedMediaType: {Status: http.StatusUnsupportedMediaType, Fault: FaultUser, RetryAfter: 0, Doc: "The request's Content-Type is not one this endpoint reads."},
+	CodeUnsupportedMediaType: {Status: http.StatusUnsupportedMediaType, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The request's Content-Type is not one this endpoint reads."},
 	// The request parsed but its meaning cannot be acted on.
-	CodeUnprocessableEntity: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, RetryAfter: 0, Doc: "The request parsed but its meaning cannot be acted on."},
+	CodeUnprocessableEntity: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The request parsed but its meaning cannot be acted on."},
 	// One or more fields failed validation; the errors array names each one.
-	CodeValidationFailed: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, RetryAfter: 0, Doc: "One or more fields failed validation; the errors array names each one."},
+	CodeValidationFailed: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "One or more fields failed validation; the errors array names each one."},
 	// plue failed in a way it does not have a name for. It is a defect, not
 	// a condition the caller can fix.
-	CodeInternal: {Status: http.StatusInternalServerError, Fault: FaultBug, RetryAfter: 0, Doc: "plue failed in a way it does not have a name for. It is a defect, not a condition the caller can fix."},
+	CodeInternal: {Status: http.StatusInternalServerError, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "plue failed in a way it does not have a name for. It is a defect, not a condition the caller can fix."},
 	// The route exists but its implementation does not.
-	CodeNotImplemented: {Status: http.StatusNotImplemented, Fault: FaultBug, RetryAfter: 0, Doc: "The route exists but its implementation does not."},
+	CodeNotImplemented: {Status: http.StatusNotImplemented, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "The route exists but its implementation does not."},
 	// An upstream service plue depends on answered in a way plue could not
 	// use.
-	CodeBadGateway: {Status: http.StatusBadGateway, Fault: FaultDependency, RetryAfter: 0, Doc: "An upstream service plue depends on answered in a way plue could not use."},
+	CodeBadGateway: {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassInfra, RetryAfter: 0, Doc: "An upstream service plue depends on answered in a way plue could not use."},
 	// plue is up but a component it needs is not answering.
-	CodeServiceUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "plue is up but a component it needs is not answering."},
+	CodeServiceUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "plue is up but a component it needs is not answering."},
 	// plue gave up waiting for an upstream call it made on the caller's
 	// behalf.
-	CodeGatewayTimeout: {Status: http.StatusGatewayTimeout, Fault: FaultBug, RetryAfter: 0, Doc: "plue gave up waiting for an upstream call it made on the caller's behalf."},
+	CodeGatewayTimeout: {Status: http.StatusGatewayTimeout, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "plue gave up waiting for an upstream call it made on the caller's behalf."},
 	// The account is at a per-resource cap, such as the number of boxes it
 	// may keep running.
-	CodePlanLimitExceeded:          {Status: http.StatusPaymentRequired, Fault: FaultUser, Doc: "The user has exhausted a limit included in their plan."},
-	CodeWorkspaceResourcesExceeded: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "Requested workspace CPU, memory or disk exceeds the configured maximum."},
-	CodeQuotaExceeded:              {Status: http.StatusTooManyRequests, Fault: FaultUser, RetryAfter: 0, Doc: "The account is at a per-resource cap, such as the number of boxes it may keep running."},
+	CodePlanLimitExceeded:          {Status: http.StatusPaymentRequired, Fault: FaultUser, Class: ClassUser, Doc: "The user has exhausted a limit included in their plan."},
+	CodeWorkspaceResourcesExceeded: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "Requested workspace CPU, memory or disk exceeds the configured maximum."},
+	CodeQuotaExceeded:              {Status: http.StatusTooManyRequests, Fault: FaultUser, Class: ClassCapacity, RetryAfter: 0, Doc: "The account is at a per-resource cap, such as the number of boxes it may keep running."},
 	// The caller sent more requests, or held more live connections, than the
 	// endpoint's budget allows.
-	CodeRateLimitExceeded: {Status: http.StatusTooManyRequests, Fault: FaultUser, RetryAfter: 0, Doc: "The caller sent more requests, or held more live connections, than the endpoint's budget allows."},
+	CodeRateLimitExceeded: {Status: http.StatusTooManyRequests, Fault: FaultUser, Class: ClassCapacity, RetryAfter: 0, Doc: "The caller sent more requests, or held more live connections, than the endpoint's budget allows."},
 	// GitHub rate-limited the call plue made on the caller's behalf.
-	CodeGitHubRateLimited: {Status: http.StatusTooManyRequests, Fault: FaultDependency, RetryAfter: 0, Doc: "GitHub rate-limited the call plue made on the caller's behalf."},
+	CodeGitHubRateLimited: {Status: http.StatusTooManyRequests, Fault: FaultDependency, Class: ClassGitHub, RetryAfter: 0, Doc: "GitHub rate-limited the call plue made on the caller's behalf."},
 	// plue's rate-limit store is not answering, and the endpoint fails closed
 	// rather than letting a budget go unenforced. The caller is inside its
 	// budget; plue simply cannot prove it right now, so the pacing rides in
 	// the body as well as the header.
-	CodeRateLimiterUnavailable:    {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "plue's rate-limit store is not answering and the endpoint fails closed rather than let a budget go unenforced."},
+	CodeRateLimiterUnavailable:    {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 1, Doc: "plue's rate-limit store is not answering and the endpoint fails closed rather than let a budget go unenforced."},
 	CodeRepositoryCIRunUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The CI check receipt names a run this repository and workspace retain no usable dispatch for."},
 	// The endpoint's storage is not provisioned on this deployment, so the
 	// feature is switched off here. Nothing the caller sent is wrong, and no
 	// retry helps until the deployment is migrated.
-	CodeFeatureNotEnabled: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The endpoint's storage is not provisioned on this deployment, so the feature is switched off here. Retrying does not help until the deployment is migrated."},
+	CodeFeatureNotEnabled: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The endpoint's storage is not provisioned on this deployment, so the feature is switched off here. Retrying does not help until the deployment is migrated."},
 	// This deployment has no workspace-gateway health probe configured, so it
 	// cannot verify a box's coding gateway and refuses rather than answer for
 	// one it has not seen. It is an unset variable on plue's own pod: no box
 	// on the deployment can open a coding gateway until an operator sets it,
 	// and nothing about any particular box or caller is wrong.
-	CodeCodingGatewayNotConfigured: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "This deployment has no workspace-gateway health probe configured, so it cannot verify a box's coding gateway and refuses every bound gateway until an operator configures one."},
+	CodeCodingGatewayNotConfigured: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "This deployment has no workspace-gateway health probe configured, so it cannot verify a box's coding gateway and refuses every bound gateway until an operator configures one."},
 	// The GitHub grant is dead in a way no server-side refresh can repair;
 	// the person has to re-authorize the GitHub App.
 	CodeGitHubReconnectRequired: {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The GitHub grant is dead in a way no server-side refresh can repair; the person has to re-authorize the GitHub App."},
@@ -433,51 +433,51 @@ var registry = map[Code]Entry{
 	// in the same plan may already have run.
 	// The box has no binary for the session's language. The message is the
 	// install line, verbatim.
-	CodeLanguageServerMissing: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The box has no binary for the session's language. The message is the install line, verbatim."},
+	CodeLanguageServerMissing: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The box has no binary for the session's language. The message is the install line, verbatim."},
 	// A session of one kind was opened on the other kind's stream route.
-	CodeWorkspaceSessionKindMismatch: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "A session of one kind was opened on the other kind's stream route."},
+	CodeWorkspaceSessionKindMismatch: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "A session of one kind was opened on the other kind's stream route."},
 	// The session row exists but its box is still provisioning; the same
 	// open succeeds once it is running.
-	CodeWorkspaceSessionPending: {Status: http.StatusTooEarly, Fault: FaultWait, RetryAfter: 2, Doc: "The session row exists but its box is still provisioning; the same open succeeds once it is running."},
+	CodeWorkspaceSessionPending: {Status: http.StatusTooEarly, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 2, Doc: "The session row exists but its box is still provisioning; the same open succeeds once it is running."},
 	// The controller's lease on a sandbox host has expired, so the host is no
 	// longer the controller's to act on. plue lost a machine; the operator's
 	// request was fine.
-	CodeHostLeaseLost: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The controller's lease on a sandbox host has expired, so the host is no longer the controller's to act on."},
+	CodeHostLeaseLost: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The controller's lease on a sandbox host has expired, so the host is no longer the controller's to act on."},
 	// No worker in the pool has free CPU, memory or VM slots for the box, at
 	// placement or at resume. The box and its disk are untouched.
-	CodeNoCapacity: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 30, Doc: "No worker in the pool has free CPU, memory or VM slots for the box, at placement or at resume. The box and its disk are untouched."},
+	CodeNoCapacity: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassCapacity, RetryAfter: 30, Doc: "No worker in the pool has free CPU, memory or VM slots for the box, at placement or at resume. The box and its disk are untouched."},
 	// Provisioning a box failed for a reason plue has no specific code for.
 	// Persisted on the workspace row as failure_code.
-	CodeProvisioningFailed: {Status: http.StatusInternalServerError, Fault: FaultBug, RetryAfter: 0, Doc: "Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code."},
+	CodeProvisioningFailed: {Status: http.StatusInternalServerError, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code."},
 	// The guest is reachable but activation has not finished exposing its
 	// login shell.
-	CodeGuestNotReady: {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 3, Doc: "The guest is reachable but activation has not finished exposing its login shell."},
+	CodeGuestNotReady: {Status: http.StatusServiceUnavailable, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 3, Doc: "The guest is reachable but activation has not finished exposing its login shell."},
 	// Repository provisioning is mid-rollout on this deployment and is not
 	// accepting new work.
-	CodeRepositoryProvisioningRollout: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "Repository provisioning is mid-rollout on this deployment and is not accepting new work."},
+	CodeRepositoryProvisioningRollout: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "Repository provisioning is mid-rollout on this deployment and is not accepting new work."},
 	// No NixOS environment image is registered for this workspace kind on this
 	// deployment, so no box of that kind can boot here. The same rollout lag
 	// as desktop_tools_unavailable, one step earlier: there the image is old,
 	// here it was never registered. Both are plue's to fix, so both are infra
 	// at 409 with no retry window. It answered a bare `conflict` (user fault)
 	// until 2026-09-14, which blamed the caller for an image nobody built.
-	CodeEnvironmentImageUnavailable: {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "No NixOS environment image is registered for this workspace kind on this deployment, so no box of that kind can boot until plue builds and registers one."},
+	CodeEnvironmentImageUnavailable: {Status: http.StatusConflict, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "No NixOS environment image is registered for this workspace kind on this deployment, so no box of that kind can boot until plue builds and registers one."},
 	// The original source is not retained in this box.
-	CodeWorkspaceSourceMissing: {Status: http.StatusNotFound, Fault: FaultUser, RetryAfter: 0, Doc: "The original source is not retained in this box."},
+	CodeWorkspaceSourceMissing: {Status: http.StatusNotFound, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The original source is not retained in this box."},
 	// plue could not verify the box's native source.
-	CodeWorkspaceSourceUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "plue could not verify the box's native source."},
+	CodeWorkspaceSourceUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "plue could not verify the box's native source."},
 	// The box acknowledged a different revision than the one requested.
-	CodeWorkspaceSourceInvalidAck: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The box acknowledged a different revision than the one requested."},
+	CodeWorkspaceSourceInvalidAck: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The box acknowledged a different revision than the one requested."},
 	// A change asked to start from a pushed ref the caller does not have.
-	CodeUserRefMissing: {Status: http.StatusNotFound, Fault: FaultUser, RetryAfter: 0, Doc: "The pushed ref refs/smithers/users/<id>/<name> does not exist or expired; push it again with `smithers repo push`."},
+	CodeUserRefMissing: {Status: http.StatusNotFound, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The pushed ref refs/smithers/users/<id>/<name> does not exist or expired; push it again with `smithers repo push`."},
 	// The repository lands through its mythical stack, whose lanes start from the stack tip.
-	CodeUserRefStack: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "This repository lands through its mythical stack, so a change cannot start from a pushed ref."},
+	CodeUserRefStack: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "This repository lands through its mythical stack, so a change cannot start from a pushed ref."},
 	// The mutation is saved in the box but its provenance projection has not
 	// landed; the identical request finishes it.
-	CodeCodingProvenancePending: {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 1, Doc: "The mutation is saved in the box but its provenance projection has not landed; the identical request finishes it."},
+	CodeCodingProvenancePending: {Status: http.StatusServiceUnavailable, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 1, Doc: "The mutation is saved in the box but its provenance projection has not landed; the identical request finishes it."},
 	// The transport to the box was interrupted before its receipt came back;
 	// the identical request recovers it.
-	CodeCodingOutcomeUnknown: {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 1, Doc: "The transport to the box was interrupted before its receipt came back; the identical request recovers it."},
+	CodeCodingOutcomeUnknown: {Status: http.StatusServiceUnavailable, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 1, Doc: "The transport to the box was interrupted before its receipt came back; the identical request recovers it."},
 	// The box's staged coding host or native adapter is older than the one the
 	// operation requires, or never registered the coding capability.
 	//
@@ -491,30 +491,30 @@ var registry = map[Code]Entry{
 	// provisioned state is the conflict rather than an outage, and it carries
 	// no retry window because nothing changes until that box is re-provisioned
 	// or replaced.
-	CodeCodingHostUnavailable:         {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The box's staged coding host or native adapter is older than the operation requires, or never registered the coding capability. plue stages both, so it is plue's rollout lag rather than anything the caller did."},
-	CodeCodingProviderRefreshRequired: {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The box has no usable configured coding model. Connect a provider and resume an idle box or use a fresh box to apply credentials. Existing live work is preserved."},
-	CodeCodingFileConflict:            {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "A file preimage, installed file or native snapshot changed during application. Displaced bytes remain in the private recovery directory; no rollback overwrites newer content."},
-	CodeCodingFileRecoveryRequired:    {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "File installation was interrupted or could not safely finish. Inspect the retained preimages and proposed files before replanning; details contain the recovery receipt."},
-	CodeCodingHostUpgradeRequired:     {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The existing live host lacks the requested capability. Existing runs and streams are preserved; initial setup may select a dedicated compatible workspace, while established bindings remain explicit."},
-	CodeWorkspaceSSHUserInvalid:       {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The requested workspace SSH user is not offered; ask for the workspace user or root."},
-	CodeWorkspaceVMMissing:            {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The recorded workspace VM no longer exists. Recovery details offer creation of a new workspace from owned snapshot metadata, or fresh creation. Provider restoration must succeed; the old workspace and recovery identifiers remain intact."},
-	CodeWorkspaceRebuildRequired:      {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace."},
-	CodeRepositoryWorkspacePending:    {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 2, Doc: "The repository workspace or gateway is still starting. Poll the same request; an unverified primary is not an authoritative workspace selection."},
-	CodeWorkspaceFailed:               {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The workspace failed to provision and runs nothing; its failure is on the workspace. Create a new workspace."},
+	CodeCodingHostUnavailable:         {Status: http.StatusConflict, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The box's staged coding host or native adapter is older than the operation requires, or never registered the coding capability. plue stages both, so it is plue's rollout lag rather than anything the caller did."},
+	CodeCodingProviderRefreshRequired: {Status: http.StatusConflict, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The box has no usable configured coding model. Connect a provider and resume an idle box or use a fresh box to apply credentials. Existing live work is preserved."},
+	CodeCodingFileConflict:            {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "A file preimage, installed file or native snapshot changed during application. Displaced bytes remain in the private recovery directory; no rollback overwrites newer content."},
+	CodeCodingFileRecoveryRequired:    {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "File installation was interrupted or could not safely finish. Inspect the retained preimages and proposed files before replanning; details contain the recovery receipt."},
+	CodeCodingHostUpgradeRequired:     {Status: http.StatusConflict, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The existing live host lacks the requested capability. Existing runs and streams are preserved; initial setup may select a dedicated compatible workspace, while established bindings remain explicit."},
+	CodeWorkspaceSSHUserInvalid:       {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The requested workspace SSH user is not offered; ask for the workspace user or root."},
+	CodeWorkspaceVMMissing:            {Status: http.StatusConflict, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The recorded workspace VM no longer exists. Recovery details offer creation of a new workspace from owned snapshot metadata, or fresh creation. Provider restoration must succeed; the old workspace and recovery identifiers remain intact."},
+	CodeWorkspaceRebuildRequired:      {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace."},
+	CodeRepositoryWorkspacePending:    {Status: http.StatusConflict, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 2, Doc: "The repository workspace or gateway is still starting. Poll the same request; an unverified primary is not an authoritative workspace selection."},
+	CodeWorkspaceFailed:               {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The workspace failed to provision and runs nothing; its failure is on the workspace. Create a new workspace."},
 	// The guest refused the coding request as malformed.
-	CodeCodingInvalidRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The guest refused the coding request as malformed."},
+	CodeCodingInvalidRequest: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The guest refused the coding request as malformed."},
 	// The box's jj is too old for the requested operation.
-	CodeCodingUnsupportedJJ: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The box's jj is too old for the requested operation."},
+	CodeCodingUnsupportedJJ: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The box's jj is too old for the requested operation."},
 	// The guest's coding helper failed. The guest's own sentence is logged
 	// server-side, never returned.
-	CodeCodingGuestFailure: {Status: http.StatusServiceUnavailable, Fault: FaultBug, RetryAfter: 0, Doc: "The guest's coding helper failed. The guest's own sentence is logged server-side, never returned."},
+	CodeCodingGuestFailure: {Status: http.StatusServiceUnavailable, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "The guest's coding helper failed. The guest's own sentence is logged server-side, never returned."},
 
-	CodeAgentLoopRetired: {Status: http.StatusNotImplemented, Fault: FaultBug, RetryAfter: 0, Doc: "plue's own 0.x agent loop was retired and the Smithers 1.0 replacement has no entrypoint for a single dispatched task yet. Nothing the caller did."},
+	CodeAgentLoopRetired: {Status: http.StatusNotImplemented, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "plue's own 0.x agent loop was retired and the Smithers 1.0 replacement has no entrypoint for a single dispatched task yet. Nothing the caller did."},
 	// Another coding operation holds the box's reporter lock.
-	CodeCodingWorkspaceBusy: {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 1, Doc: "Another coding operation holds the box's reporter lock."},
+	CodeCodingWorkspaceBusy: {Status: http.StatusServiceUnavailable, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 1, Doc: "Another coding operation holds the box's reporter lock."},
 	// The box's reporter is older than the operation requires; it upgrades
 	// on the next boot.
-	CodeCodingReporterUpgradeRequired: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The box's reporter is older than the operation requires; it upgrades on the next boot."},
+	CodeCodingReporterUpgradeRequired: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The box's reporter is older than the operation requires; it upgrades on the next boot."},
 	// Another person or agent holds the branch lock; details carry the
 	// holder and whether the caller may ask to join.
 	// The caller can already write to this repository, so forking it would
@@ -523,40 +523,40 @@ var registry = map[Code]Entry{
 	CodeForkNotNeeded: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The caller already has write access to this repository, so there is nothing to fork: edit it in place."},
 	// The landing request cannot proceed as asked; details name what is
 	// blocking it.
-	CodeLandingBlocked: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, RetryAfter: 0, Doc: "The landing request cannot proceed as asked; details name what is blocking it."},
+	CodeLandingBlocked: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The landing request cannot proceed as asked; details name what is blocking it."},
 	// An import for this repository is already running.
-	CodeGitHubImportAlreadyActive: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "An import for this repository is already running."},
+	CodeGitHubImportAlreadyActive: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "An import for this repository is already running."},
 	// The requested owner is an organization on this deployment and the
 	// caller does not belong to it. Imports never silently fall back to the
 	// caller's own namespace; join the organization or fork the repository.
 	CodeOrgMembershipRequired: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The requested owner is an organization on this deployment and the caller does not belong to it. Join the organization, or fork the repository into your own namespace."},
 	// The account's credit cannot cover the next metered model call. Plue's
 	// model proxy answers it; the Worker relays it unchanged.
-	CodeOutOfCredit: {Status: http.StatusPaymentRequired, Fault: FaultUser, RetryAfter: 0, Doc: "The account's credit balance cannot cover the next model call; upgrade or top up, then retry."},
+	CodeOutOfCredit: {Status: http.StatusPaymentRequired, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The account's credit balance cannot cover the next model call; upgrade or top up, then retry."},
 	// The GitHub repository is larger than plue's import limit. Refused
 	// before the mirror clone, so nothing was written.
-	CodeGitHubImportTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, RetryAfter: 0, Doc: "The GitHub repository is larger than plue's import limit. It is refused before the clone, so nothing was written."},
+	CodeGitHubImportTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The GitHub repository is larger than plue's import limit. It is refused before the clone, so nothing was written."},
 	// GitHub's diff for this pull request is larger than plue will buffer.
-	CodeGitHubPullDiffTooLarge: {Status: http.StatusBadGateway, Fault: FaultDependency, RetryAfter: 0, Doc: "GitHub's diff for this pull request is larger than plue will buffer."},
+	CodeGitHubPullDiffTooLarge: {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassGitHub, RetryAfter: 0, Doc: "GitHub's diff for this pull request is larger than plue will buffer."},
 	// plue could not complete a call it made to GitHub on the caller's
 	// behalf: the request failed, or GitHub answered with something plue
 	// could not read. Distinct from github_rate_limited, which is GitHub
 	// deliberately refusing, and from bad_gateway, which names no upstream.
-	CodeGitHubUnavailable: {Status: http.StatusBadGateway, Fault: FaultDependency, RetryAfter: 0, Doc: "plue could not complete a call it made to GitHub on the caller's behalf: the request failed, or GitHub answered with something plue could not read."},
+	CodeGitHubUnavailable: {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassGitHub, RetryAfter: 0, Doc: "plue could not complete a call it made to GitHub on the caller's behalf: the request failed, or GitHub answered with something plue could not read."},
 	// The share listing contains something that scans as a credential; it
 	// was not published.
-	CodeListingSecretDetected: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The share listing contains something that scans as a credential; it was not published."},
+	CodeListingSecretDetected: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The share listing contains something that scans as a credential; it was not published."},
 	// The wiki's collaboration backend is not answering.
-	CodeWikiUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "The wiki's collaboration backend is not answering."},
+	CodeWikiUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 1, Doc: "The wiki's collaboration backend is not answering."},
 	// A readable repository's private wiki needs explicit repository access.
 	CodeWikiSpaceUnreadable: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The repository is readable, but its private wiki needs explicit repository access (owner, member or collaborator)."},
 	// plue's event-stream tier could not open the stream: the LISTEN backing
 	// it failed, or the broker refused the subscription. The stream was never
 	// established, so a client loses nothing by reconnecting.
-	CodeSSEUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "plue's event-stream tier could not open the stream: the LISTEN backing it failed, or the broker refused the subscription. The stream was never established."},
+	CodeSSEUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 1, Doc: "plue's event-stream tier could not open the stream: the LISTEN backing it failed, or the broker refused the subscription. The stream was never established."},
 	// The signup profile store failed; the client keeps the typed input and
 	// retries the same write.
-	CodeProfileUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "The signup profile store could not read or save the caller's account claim and poll answers. Nothing was changed."},
+	CodeProfileUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 1, Doc: "The signup profile store could not read or save the caller's account claim and poll answers. Nothing was changed."},
 	// The build cache is at its own concurrency ceiling. Not
 	// rate_limit_exceeded, which is a user fault: this bound is one process's,
 	// shared across every caller, so a client well inside its own budget is
@@ -568,67 +568,67 @@ var registry = map[Code]Entry{
 	// and the clients read that status, so the status is fixed and the fault
 	// is what has to be honest. One second is the real pacing — the slots are
 	// held by requests in flight, not by a refilling window.
-	CodeBuildCacheBusy: {Status: http.StatusTooManyRequests, Fault: FaultWait, RetryAfter: 1, Doc: "The build cache is at its own concurrency ceiling; the caller is inside its budget and the identical request works once a slot frees."},
+	CodeBuildCacheBusy: {Status: http.StatusTooManyRequests, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 1, Doc: "The build cache is at its own concurrency ceiling; the caller is inside its budget and the identical request works once a slot frees."},
 	// The sandbox create request named neither an image nor a snapshot.
-	CodeImageRequired: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The sandbox create request named neither an image nor a snapshot."},
+	CodeImageRequired: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The sandbox create request named neither an image nor a snapshot."},
 	// The operation requires an idempotency key and the request carried
 	// none.
-	CodeIdempotencyKeyRequired: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The operation requires an idempotency key and the request carried none."},
+	CodeIdempotencyKeyRequired: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The operation requires an idempotency key and the request carried none."},
 	// The idempotency key was reused with a different request body.
-	CodeIdempotencyConflict: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The idempotency key was reused with a different request body."},
+	CodeIdempotencyConflict: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The idempotency key was reused with a different request body."},
 	// The recorded operation for this idempotency key cannot be replayed.
-	CodeNonReplayableOperation: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The recorded operation for this idempotency key cannot be replayed."},
+	CodeNonReplayableOperation: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The recorded operation for this idempotency key cannot be replayed."},
 	// The sandbox request body is not the JSON the endpoint expects.
-	CodeInvalidJSON: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The sandbox request body is not the JSON the endpoint expects."},
+	CodeInvalidJSON: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The sandbox request body is not the JSON the endpoint expects."},
 	// The sandbox request is missing a required field or carries an
 	// impossible combination.
-	CodeInvalidRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The sandbox request is missing a required field or carries an impossible combination."},
+	CodeInvalidRequest: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The sandbox request is missing a required field or carries an impossible combination."},
 	// The guest file path is absent, relative, or escapes the sandbox root.
-	CodeInvalidPath: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The guest file path is absent, relative, or escapes the sandbox root."},
+	CodeInvalidPath: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The guest file path is absent, relative, or escapes the sandbox root."},
 	// The placement the controller handed the worker does not describe a
 	// runnable VM.
-	CodeInvalidPlacement: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The placement the controller handed the worker does not describe a runnable VM."},
+	CodeInvalidPlacement: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The placement the controller handed the worker does not describe a runnable VM."},
 	// The resource link on the request does not name a resource this
 	// controller owns.
-	CodeInvalidResourceLink: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The resource link on the request does not name a resource this controller owns."},
+	CodeInvalidResourceLink: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The resource link on the request does not name a resource this controller owns."},
 	// The egress audit batch is malformed or larger than the controller
 	// accepts.
-	CodeInvalidEgressAuditBatch: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The egress audit batch is malformed or larger than the controller accepts."},
+	CodeInvalidEgressAuditBatch: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The egress audit batch is malformed or larger than the controller accepts."},
 	// The worker identity on the request is not one the controller knows.
-	CodeInvalidWorker: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The worker identity on the request is not one the controller knows."},
+	CodeInvalidWorker: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The worker identity on the request is not one the controller knows."},
 	// The worker request omitted the placement generation that fences it.
-	CodeGenerationRequired: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The worker request omitted the placement generation that fences it."},
+	CodeGenerationRequired: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The worker request omitted the placement generation that fences it."},
 	// The exec request did not name the guest user to run as.
-	CodeGuestUserRequired: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The exec request did not name the guest user to run as."},
+	CodeGuestUserRequired: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The exec request did not name the guest user to run as."},
 	// The sandbox request body exceeds the controller's limit.
-	CodeRequestTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, RetryAfter: 0, Doc: "The sandbox request body exceeds the controller's limit."},
+	CodeRequestTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The sandbox request body exceeds the controller's limit."},
 	// The snapshot upload exceeds the worker's limit.
-	CodeSnapshotTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, RetryAfter: 0, Doc: "The snapshot upload exceeds the worker's limit."},
+	CodeSnapshotTooLarge: {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The snapshot upload exceeds the worker's limit."},
 	// The request carries an older placement generation than the one the
 	// worker holds; another actor moved the VM.
-	CodeStaleGeneration: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The request carries an older placement generation than the one the worker holds; another actor moved the VM."},
+	CodeStaleGeneration: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The request carries an older placement generation than the one the worker holds; another actor moved the VM."},
 	// Another operation on this sandbox is still running; the same request
 	// works once it settles.
-	CodeOperationInProgress: {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 1, Doc: "Another operation on this sandbox is still running; the same request works once it settles."},
+	CodeOperationInProgress: {Status: http.StatusConflict, Fault: FaultWait, Class: ClassCapacity, RetryAfter: 1, Doc: "Another operation on this sandbox is still running; the same request works once it settles."},
 	// An exec is already running in this sandbox and the endpoint serializes
 	// them.
-	CodeExecInProgress: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "An exec is already running in this sandbox and the endpoint serializes them."},
+	CodeExecInProgress: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassCapacity, RetryAfter: 0, Doc: "An exec is already running in this sandbox and the endpoint serializes them."},
 	// The snapshot backs a live sandbox and cannot be changed or deleted.
-	CodeSnapshotInUse: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The snapshot backs a live sandbox and cannot be changed or deleted."},
+	CodeSnapshotInUse: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The snapshot backs a live sandbox and cannot be changed or deleted."},
 	// The named sandbox snapshot does not exist. Distinct from not_found so
 	// a bad golden snapshot is diagnosable.
-	CodeSnapshotNotFound: {Status: http.StatusNotFound, Fault: FaultUser, RetryAfter: 0, Doc: "The named sandbox snapshot does not exist. Distinct from not_found so a bad golden snapshot is diagnosable."},
+	CodeSnapshotNotFound: {Status: http.StatusNotFound, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The named sandbox snapshot does not exist. Distinct from not_found so a bad golden snapshot is diagnosable."},
 	// The worker holds no retained runtime under that id.
-	CodeRetainedRuntimeNotFound: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The worker holds no retained runtime under that id."},
+	CodeRetainedRuntimeNotFound: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The worker holds no retained runtime under that id."},
 	// The retained runtime exists but is not running, and the operation
 	// needs it running.
-	CodeRetainedRuntimeNotRunning: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The retained runtime exists but is not running, and the operation needs it running."},
+	CodeRetainedRuntimeNotRunning: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The retained runtime exists but is not running, and the operation needs it running."},
 	// The retained runtime is still running, and the operation needs it
 	// stopped.
-	CodeRetainedRuntimeNotStopped: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The retained runtime is still running, and the operation needs it stopped."},
+	CodeRetainedRuntimeNotStopped: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The retained runtime is still running, and the operation needs it stopped."},
 	// The worker could not quiesce the guest in time to take the action;
 	// retrying usually succeeds.
-	CodeQuiesceFailed: {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 1, Doc: "The worker could not quiesce the guest in time to take the action; retrying usually succeeds."},
+	CodeQuiesceFailed: {Status: http.StatusConflict, Fault: FaultWait, Class: ClassConflict, RetryAfter: 1, Doc: "The worker could not quiesce the guest in time to take the action; retrying usually succeeds."},
 	// The access grant presented to the controller does not cover this
 	// sandbox.
 	CodeAccessDenied: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The access grant presented to the controller does not cover this sandbox."},
@@ -649,35 +649,35 @@ var registry = map[Code]Entry{
 	CodeWorkerRegistrationConflict: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The worker's registration conflicts with a live one under the same id."},
 	// The request targets a different worker than the one holding the
 	// placement, or the worker lost its controller authorization.
-	CodeWorkerFenced: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The request targets a different worker than the one holding the placement, or the worker lost its controller authorization."},
+	CodeWorkerFenced: {Status: http.StatusConflict, Fault: FaultUser, Class: ClassConflict, RetryAfter: 0, Doc: "The request targets a different worker than the one holding the placement, or the worker lost its controller authorization."},
 	// The controller has no authentication material configured, so it
 	// refuses every authenticated call.
-	CodeAuthenticationNotConfigured: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The controller has no authentication material configured, so it refuses every authenticated call."},
+	CodeAuthenticationNotConfigured: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The controller has no authentication material configured, so it refuses every authenticated call."},
 	// The worker is draining and takes no new placements.
-	CodeWorkerDraining: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The worker is draining and takes no new placements."},
+	CodeWorkerDraining: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The worker is draining and takes no new placements."},
 	// The box's egress proxy is not answering, so the box would have had no
 	// outbound network.
-	CodeEgressProxyUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The box's egress proxy is not answering, so the box would have had no outbound network."},
+	CodeEgressProxyUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The box's egress proxy is not answering, so the box would have had no outbound network."},
 	// This worker build cannot deliver secrets into a guest.
-	CodeSecretDeliveryUnavailable: {Status: http.StatusNotImplemented, Fault: FaultInfra, RetryAfter: 0, Doc: "This worker build cannot deliver secrets into a guest."},
+	CodeSecretDeliveryUnavailable: {Status: http.StatusNotImplemented, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "This worker build cannot deliver secrets into a guest."},
 	// The preview gateway could not reach the port the box is serving.
-	CodePreviewUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 0, Doc: "The preview gateway could not reach the port the box is serving."},
+	CodePreviewUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The preview gateway could not reach the port the box is serving."},
 	// A Microsandbox worker failed an operation and the controller has no
 	// more specific code for it.
-	CodeWorkerError: {Status: http.StatusBadGateway, Fault: FaultInfra, RetryAfter: 0, Doc: "A Microsandbox worker failed an operation and the controller has no more specific code for it."},
+	CodeWorkerError: {Status: http.StatusBadGateway, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "A Microsandbox worker failed an operation and the controller has no more specific code for it."},
 	// A sandbox control operation failed in a way the controller does not
 	// have a name for.
-	CodeSandboxInternalError: {Status: http.StatusInternalServerError, Fault: FaultBug, RetryAfter: 0, Doc: "A sandbox control operation failed in a way the controller does not have a name for."},
+	CodeSandboxInternalError: {Status: http.StatusInternalServerError, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "A sandbox control operation failed in a way the controller does not have a name for."},
 	// The worker's runtime driver failed: a VMM, a snapshot restore, or a
 	// guest transport on one machine. That is plue's platform breaking under
 	// the caller, not a defect in plue's code, so it is infra — the caller may
 	// well succeed on another worker.
-	CodeSandboxRuntimeError: {Status: http.StatusInternalServerError, Fault: FaultInfra, RetryAfter: 0, Doc: "The worker's runtime driver failed: a VMM, a snapshot restore, or a guest transport on one machine. Another worker may well succeed."},
+	CodeSandboxRuntimeError: {Status: http.StatusInternalServerError, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 0, Doc: "The worker's runtime driver failed: a VMM, a snapshot restore, or a guest transport on one machine. Another worker may well succeed."},
 	// A control-plane transaction kept losing a race with a concurrent writer.
 	// Nothing changed, and the identical request works once the contention clears.
-	CodeSandboxControlBusy: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 2, Doc: "A control-plane transaction kept losing a race with a concurrent writer. Nothing changed, and the identical request works once the contention clears."},
+	CodeSandboxControlBusy: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Class: ClassInfra, RetryAfter: 2, Doc: "A control-plane transaction kept losing a race with a concurrent writer. Nothing changed, and the identical request works once the contention clears."},
 	// The controller could not mint the token the operation needs.
-	CodeTokenGenerationFailed: {Status: http.StatusInternalServerError, Fault: FaultBug, RetryAfter: 0, Doc: "The controller could not mint the token the operation needs."},
+	CodeTokenGenerationFailed: {Status: http.StatusInternalServerError, Fault: FaultBug, Class: ClassInfra, RetryAfter: 0, Doc: "The controller could not mint the token the operation needs."},
 }
 
 // Lookup returns the registry row for a code.
