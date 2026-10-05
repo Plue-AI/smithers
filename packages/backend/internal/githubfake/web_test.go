@@ -128,6 +128,65 @@ func TestBrowserPages(t *testing.T) {
 		post("/login/oauth/access_token", form, 200)
 		post("/login/oauth/access_token", form, 401)
 	}
+	// A browser walk adds collaborators, then picks an account on the
+	// authorize page: "Authorize" stays the owner, and each collaborator has
+	// its own link whose code signs that account in.
+	collaborators := func(body string, status int) {
+		t.Helper()
+		r, err := http.Post(fake.URL+"/_fake/collaborators", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		if r.StatusCode != status {
+			t.Fatalf("%s: %d", body, r.StatusCode)
+		}
+	}
+	for _, body := range []string{`{`, `{"id":7,"login":"ben","permission":"maintain"}`, `{"id":101,"login":"","permission":"write"}`, `{"id":101,"login":"ben","permission":"owner"}`} {
+		collaborators(body, 400)
+	}
+	collaborators(`{"id":102,"login":"alice","permission":"write"}`, 204)
+	collaborators(`{"id":101,"login":"ben","permission":"maintain"}`, 204)
+	query := url.Values{"client_id": {cfg.ClientID}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}, "state": {"s"}}
+	page := get("/login/oauth/authorize?"+query.Encode(), 200)
+	labels := []string{}
+	for _, part := range strings.Split(page, "</a>")[:3] {
+		labels = append(labels, part[strings.LastIndex(part, ">")+1:])
+	}
+	if strings.Join(labels, ",") != "Authorize,Authorize as ben,Authorize as alice" {
+		t.Fatal(page)
+	}
+	ben := target(strings.SplitN(page, "</p>", 2)[1])
+	form := url.Values{"client_id": {cfg.ClientID}, "client_secret": {cfg.ClientSecret}, "code": {ben.Query().Get("code")}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}}
+	if body := post("/login/oauth/access_token", form, 200); !strings.Contains(body, "ghu_githubfake_user_101") {
+		t.Fatal(body)
+	}
+	request, _ := http.NewRequest(http.MethodGet, fake.URL+"/user", nil)
+	request.Header.Set("Authorization", "Bearer ghu_githubfake_user_101")
+	user, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var who map[string]any
+	_ = json.NewDecoder(user.Body).Decode(&who)
+	user.Body.Close()
+	if who["login"] != "ben" {
+		t.Fatal(who)
+	}
+	// A teammate opens an issue on GitHub; it shares the pull request sequence.
+	opened, err := http.Post(fake.URL+"/_fake/issues", "application/json", strings.NewReader(`{"repo":"local-owner/demo","login":"alice","title":"Retry webhooks","body":"They drop on 502."}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var number map[string]int64
+	_ = json.NewDecoder(opened.Body).Decode(&number)
+	opened.Body.Close()
+	if issue, ok := fake.Issue("local-owner/demo", number["number"]); !ok || number["number"] != 1 || issue.Title != "Retry webhooks" || issue.Author != "alice" {
+		t.Fatal(number, issue)
+	}
+	if bad, err := http.Post(fake.URL+"/_fake/issues", "application/json", strings.NewReader(`{"repo":"local-owner/demo"}`)); err != nil || bad.StatusCode != 400 {
+		t.Fatal(err, bad.StatusCode)
+	}
 	raw := get("/_fake/writes", 200)
 	var rows []map[string]any
 	if json.Unmarshal([]byte(raw), &rows) != nil || len(rows) == 0 {

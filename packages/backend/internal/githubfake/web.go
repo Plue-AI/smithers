@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"time"
 )
 
 // publicHookURL mirrors GitHub's manifest check that a hook is reachable over
@@ -125,6 +127,43 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		link("Create GitHub App", m.RedirectURL, s.config.ConversionCode, r.Form.Get("state"))
 		return true
 	}
+	// A browser walk adds collaborators (SetCollaborator) before the owner
+	// adds them on the Members card.
+	if r.Method == "POST" && r.URL.Path == "/_fake/collaborators" {
+		var body struct {
+			ID         int64  `json:"id"`
+			Login      string `json:"login"`
+			Permission string `json:"permission"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || body.ID <= 0 || body.ID == 7 || body.Login == "" ||
+			!map[string]bool{"admin": true, "maintain": true, "write": true, "triage": true, "read": true, "none": true}[body.Permission] {
+			http.Error(w, "id (not 7), login and permission are required", 400)
+			return true
+		}
+		s.accounts[body.ID] = body.Login
+		s.access[body.Login] = body.Permission
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	// A teammate opens an issue on GitHub (J2.1), as OpenIssue does.
+	if r.Method == "POST" && r.URL.Path == "/_fake/issues" {
+		var body struct {
+			Repo, Login, Title, Body string
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || body.Repo == "" || body.Title == "" {
+			http.Error(w, "repo and title are required", 400)
+			return true
+		}
+		if body.Login == "" {
+			body.Login = s.config.OwnerLogin
+		}
+		number := s.nextNumber(body.Repo)
+		now := time.Now().UTC()
+		s.opened[issueKey(body.Repo, number)] = &issue{Number: number, Title: body.Title, Body: body.Body, Author: body.Login, State: "open", CreatedAt: now, UpdatedAt: now}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int64{"number": number})
+		return true
+	}
 	if r.Method == "GET" && r.URL.Path == "/login/oauth/authorize" {
 		q := r.URL.Query()
 		known := false
@@ -137,7 +176,33 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		}
 		code := freshCode()
 		s.codes[code] = q.Get("redirect_uri")
-		link("Authorize", q.Get("redirect_uri"), code, q.Get("state"))
+		// GitHub's account switcher: "Authorize" signs in the owner; each
+		// collaborator account has its own "Authorize as <login>" link.
+		ids := make([]int64, 0, len(s.accounts))
+		for id := range s.accounts {
+			if id != 7 {
+				ids = append(ids, id)
+			}
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		var page strings.Builder
+		anchor := func(label, code string) {
+			u, _ := url.Parse(q.Get("redirect_uri"))
+			values := u.Query()
+			values.Set("code", code)
+			values.Set("state", q.Get("state"))
+			u.RawQuery = values.Encode()
+			page.WriteString(`<p><a href="` + html.EscapeString(u.String()) + `">` + html.EscapeString(label) + `</a></p>`)
+		}
+		anchor("Authorize", code)
+		for _, id := range ids {
+			as := freshCode()
+			s.codes[as] = q.Get("redirect_uri")
+			s.signIns[as] = id
+			anchor("Authorize as "+s.accounts[id], as)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(page.String()))
 		return true
 	}
 	return false
