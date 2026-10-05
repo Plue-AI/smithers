@@ -409,6 +409,16 @@ for (const [name, story] of Object.entries(todoStories))
     for (const text of story.expect) expect(view.element.textContent?.toLowerCase()).toContain(text.toLowerCase());
     view.close();
   });
+test("the review row shows the review's summary under its verdict", () => {
+  const summary = 'approve\nChanged: Adds greet().\nChecks: test passed.\nRisks: Removes the existing test "adds" in test/smoke.test.mjs (deleted).';
+  const story = todoStories.in_review;
+  const view = mount({
+    ...story,
+    model: { ...story.model, evidence: [{ attempt: 1, revision: "4bc79ae", items: [{ kind: "review" as const, summary }] }] },
+  });
+  expect(view.element.querySelector(".todo-review")!.textContent).toBe(summary);
+  view.close();
+});
 test("Answer preserves bound wait and typed input", () => {
   const view = mount();
   const input = view.element.querySelector("textarea")!;

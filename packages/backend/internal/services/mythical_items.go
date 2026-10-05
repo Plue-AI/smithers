@@ -657,6 +657,15 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		if runID != "" {
 			checks.Review.RunID = runID
 		}
+		if outcome == "approve" || outcome == "request-changes" {
+			// A verdict without its summary is not the review's whole
+			// answer: the head is reviewed once more, told so. A second
+			// bare answer stands with what summary it has.
+			checks.Review.Summary, checks.Review.Findings = mythicalReviewSummary(mythicalRunOutput(update), checks.Review.Removed)
+			if !mythicalReviewSummarized(checks.Review.Summary) && !checks.Review.Repaired {
+				outcome = mythicalReviewRepair
+			}
+		}
 		if outcome != "" {
 			checks.Review.Verdict = outcome
 			if !strings.HasPrefix(outcome, mythicalOutage) {
@@ -683,10 +692,7 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 	default:
 		return ""
 	}
-	output := ""
-	if update.Checkpoint.Run != nil && update.Checkpoint.Run.FinalOutput != nil {
-		output = *update.Checkpoint.Run.FinalOutput
-	}
+	output := mythicalRunOutput(update)
 	switch phase {
 	case "todo":
 		// Success alone is not a proposal: the stack's own candidate and
@@ -753,6 +759,120 @@ func mythicalReviewVerdict(output string) string {
 	return "failed: " + mythicalReviewUnread
 }
 
+// mythicalRunOutput is a terminal run's final output, "" when it has none.
+func mythicalRunOutput(update flowdispatch.ProjectionUpdate) string {
+	if update.Checkpoint.Run != nil && update.Checkpoint.Run.FinalOutput != nil {
+		return *update.Checkpoint.Run.FinalOutput
+	}
+	return ""
+}
+
+// mythicalReviewLabel finds a summary line of the review's answer: its
+// label (Changed, Checks or Risks) in any case, bulleted or bold, then the
+// text, which may continue on the lines below.
+var mythicalReviewLabel = regexp.MustCompile(`(?i)^[\s>*_-]*(changed|checks|risks)[*_]*\s*:[*_]*\s*(.*)$`)
+
+// mythicalReviewLabels are the summary's lines in the order they show.
+var mythicalReviewLabels = []string{"Changed", "Checks", "Risks"}
+
+// mythicalReviewFindings bounds the findings a review keeps: the most
+// lines, and the most runes in one.
+const (
+	mythicalReviewFindings     = 20
+	mythicalReviewFindingRunes = 500
+)
+
+// mythicalReviewBullet is a list marker a finding line may open with.
+var mythicalReviewBullet = regexp.MustCompile(`^(?:[-*\x{2022}]|\d+[.)])\s+`)
+
+// mythicalReviewSummary reads the answer under the review's verdict by its
+// contract (flows/review/change). The summary is the Changed:, Checks: and
+// Risks: lines, each "Label: text", in that order and only those it found;
+// Smithers adds each removed existing test the risks do not name, so the
+// risks always list them. Every other line is a finding, kept in order
+// without its list marker: at most mythicalReviewFindings, each clipped to
+// mythicalReviewFindingRunes.
+func mythicalReviewSummary(output string, removed []string) (string, []string) {
+	var text string
+	if json.Unmarshal([]byte(output), &text) != nil {
+		text = output
+	}
+	lines := strings.Split(strings.TrimLeft(text, " \t\r\n"), "\n")
+	values := map[string]string{}
+	var findings []string
+	for index := 1; index < len(lines); index++ {
+		line := strings.TrimSpace(lines[index])
+		match := mythicalReviewLabel.FindStringSubmatch(line)
+		if match == nil {
+			finding := strings.TrimSpace(mythicalReviewBullet.ReplaceAllString(line, ""))
+			if finding != "" && !strings.HasPrefix(finding, "```") && len(findings) < mythicalReviewFindings {
+				if runes := []rune(finding); len(runes) > mythicalReviewFindingRunes {
+					finding = string(runes[:mythicalReviewFindingRunes-1]) + "…"
+				}
+				findings = append(findings, finding)
+			}
+			continue
+		}
+		label := strings.ToUpper(match[1][:1]) + strings.ToLower(match[1][1:])
+		value := strings.TrimSpace(match[2])
+		// A label alone on its line: its text is the lines below, to a blank
+		// line or the next label.
+		for value == "" && index+1 < len(lines) {
+			next := strings.TrimSpace(lines[index+1])
+			if next == "" || mythicalReviewLabel.MatchString(next) {
+				break
+			}
+			index++
+			value = strings.TrimLeft(next, "-* ")
+			for index+1 < len(lines) {
+				more := strings.TrimSpace(lines[index+1])
+				if more == "" || mythicalReviewLabel.MatchString(more) {
+					break
+				}
+				index++
+				value += "; " + strings.TrimLeft(more, "-* ")
+			}
+		}
+		if _, seen := values[label]; !seen && value != "" {
+			values[label] = value
+		}
+	}
+	var risks []string
+	for _, line := range removed {
+		name, _, _ := strings.Cut(strings.TrimPrefix(line, `"`), `"`)
+		if !strings.Contains(values["Risks"], name) {
+			risks = append(risks, "removes the existing test "+line)
+		}
+	}
+	if len(risks) > 0 {
+		added := strings.Join(risks, "; ") + "."
+		switch strings.TrimRight(strings.ToLower(values["Risks"]), ".") {
+		case "", "none", "no risks", "none identified", "n/a":
+			values["Risks"] = "R" + added[1:]
+		default:
+			values["Risks"] = strings.TrimRight(values["Risks"], ".") + "; " + added
+		}
+	}
+	var summary []string
+	for _, label := range mythicalReviewLabels {
+		if values[label] != "" {
+			summary = append(summary, label+": "+values[label])
+		}
+	}
+	return strings.Join(summary, "\n"), findings
+}
+
+// mythicalReviewSummarized reports a whole summary: what changed, the checks
+// and the risks, each with its text.
+func mythicalReviewSummarized(summary string) bool {
+	for _, label := range mythicalReviewLabels {
+		if !strings.Contains("\n"+summary, "\n"+label+": ") {
+			return false
+		}
+	}
+	return true
+}
+
 // The review failures Smithers states itself, which a held review's reason
 // and issue comment name. A review run's own failure is named only as
 // failed: its typed fault's tag stays on the review, off the issue.
@@ -760,6 +880,10 @@ const (
 	mythicalReviewUnread   = "the review's first line was not a verdict"
 	mythicalReviewTooLarge = "the change is too large to review"
 )
+
+// mythicalReviewRepair is the verdict of a review whose answer was its
+// verdict alone, with no summary: the gate runs it once more (review).
+const mythicalReviewRepair = "repair: the review gave only its verdict"
 
 // mythicalCancelled is the outcome of a run a person cancelled: the item
 // stops, never relaunches.
@@ -2928,9 +3052,10 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		retried := item
 		retried.Checks = checks.encode()
 		return st.review(ctx, retried)
-	case review == nil || review.Head != item.PRHead:
+	case review == nil || review.Head != item.PRHead || review.Verdict == mythicalReviewRepair:
 		// Seam: Jev's needs-review tag decides here which changes are
-		// reviewed. Until it lands, every change is.
+		// reviewed. Until it lands, every change is. A review that gave
+		// only its verdict runs once more (mythicalReviewRepair).
 		return st.review(ctx, item)
 	case review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped):
 		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped; a person decides", nil, st.now), false, nil
@@ -3103,7 +3228,12 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	}
 	next := item
 	checks := mythicalChecksOf(item)
-	checks.Review = &mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead}
+	// A review whose first run gave only its verdict runs once more, told so.
+	repair := checks.Review != nil && checks.Review.Head == item.PRHead && checks.Review.Verdict == mythicalReviewRepair
+	checks.Review = &mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead, Repaired: repair}
+	for _, test := range mythicalRemovedTests(diff) {
+		checks.Review.Removed = append(checks.Review.Removed, mythicalRemovedTestLine(test))
+	}
 	if len(diff) > mythicalReviewBytes {
 		checks.Review.Verdict = "failed: " + mythicalReviewTooLarge
 		next.Checks = checks.encode()
@@ -3139,8 +3269,12 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	next.Generation++
 	checks.Review.Lane = workspaceID
 	next.Checks = checks.encode()
-	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
-		item.PRNumber.Int64, mythicalUntrusted(item.IssueTitle), mythicalUntrusted(diff))
+	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n%s\n\n%s<untrusted-diff>\n%s\n</untrusted-diff>\n",
+		item.PRNumber.Int64, mythicalUntrusted(item.IssueTitle), mythicalReviewChecks(item),
+		mythicalReviewRemoved(checks.Review.Removed), mythicalUntrusted(diff))
+	if repair {
+		args += "\nYour last answer gave only its verdict. Answer again in full: the verdict alone on the first line, then the Changed:, Checks: and Risks: lines.\n"
+	}
 	payload, _ := json.Marshal(map[string]string{"args": args})
 	saved, err := st.commit(ctx, next, "review", mythicalReviewFlow, payload)
 	if err != nil {
@@ -3150,6 +3284,25 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		st.held[saved.Lane.Int32] = saved.ID
 	}
 	return &saved, true, nil
+}
+
+// mythicalReviewChecks tells the review which checks Smithers ran on the
+// candidate and how each ended, the facts its Checks: line reports.
+func mythicalReviewChecks(item db.MythicalItem) string {
+	evidence, _ := mythicalTodoEvidenceText(item)
+	if evidence == "" {
+		return "Smithers ran no checks on this change."
+	}
+	return "The checks Smithers ran on this change:" + strings.TrimPrefix(evidence, "Checks:")
+}
+
+// mythicalReviewRemoved lists the existing tests the diff takes away; the
+// names come from the diff, so they are framed as untrusted.
+func mythicalReviewRemoved(removed []string) string {
+	if len(removed) == 0 {
+		return ""
+	}
+	return "<untrusted-removed-tests>\n" + mythicalUntrusted("- "+strings.Join(removed, "\n- ")) + "\n</untrusted-removed-tests>\n\n"
 }
 
 // proposalDiff is the pull request's change: its one commit against main.
@@ -4070,6 +4223,19 @@ type mythicalReview struct {
 	Candidate string `json:"candidate,omitempty"`
 	RunID     string `json:"runId,omitempty"`
 	Verdict   string `json:"verdict,omitempty"`
+	// Summary is the review's own account under its verdict: what changed,
+	// which checks ran and passed, and the risks; Findings are the rest of
+	// its answer, line by line (mythicalReviewSummary). The card's evidence
+	// and the pull request body show both with the verdict (shown).
+	Summary  string   `json:"summary,omitempty"`
+	Findings []string `json:"findings,omitempty"`
+	// Removed names the existing tests the reviewed diff deletes, empties or
+	// skips (mythicalRemovedTests): the review reads them, and its summary
+	// names each as a risk.
+	Removed []string `json:"removed,omitempty"`
+	// Repaired reports a second run of this head's review, launched because
+	// the first answered with its verdict alone (mythicalReviewRepair).
+	Repaired bool `json:"repaired,omitempty"`
 	// Posted reports that the pull request body carries this verdict
 	// (reviewBody), or that it will not: a person's body stands, or the body
 	// could not be written.
@@ -4077,6 +4243,26 @@ type mythicalReview struct {
 	// Lane is the review's own lane workspace: a rebase's checks never run
 	// there (integrate).
 	Lane string `json:"lane,omitempty"`
+}
+
+// shown is the review as the card and the pull request body show it: the
+// verdict in product words on its first line, then its summary and its
+// findings. A review that did not run shows its own outcome.
+func (r mythicalReview) shown() string {
+	lines := []string{r.Verdict}
+	switch r.Verdict {
+	case "approve":
+		lines[0] = "Approved"
+	case "request-changes":
+		lines[0] = "Changes requested"
+	}
+	if r.Summary != "" {
+		lines = append(lines, r.Summary)
+	}
+	if len(r.Findings) > 0 {
+		lines = append(lines, "Findings:\n- "+strings.Join(r.Findings, "\n- "))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func mythicalChecksOf(item db.MythicalItem) mythicalChecks {

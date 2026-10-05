@@ -139,7 +139,7 @@ func TestMythicalAutomergeRefusesAMovedHead(t *testing.T) {
 	head := o.item(70).PRHead
 	moved := o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "outside push")
 	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-70", moved)
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item := o.item(70)
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, "the pull request head moved outside Smithers; a person decides", item.Reason)
@@ -383,7 +383,7 @@ func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 
 	// Past the bound, an outage parks the TODO loudly. #95's review answers
 	// first: a running review holds a lane.
-	o.answerReviews(`"request-changes"`)
+	o.answerReviews(reviewAnswer("request-changes"))
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 96, Title: "Down", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := 0; i <= mythicalOutageBound; i++ {
@@ -638,7 +638,7 @@ func TestMythicalAutomergeWaitsForGreenCIOnTheApprovedHead(t *testing.T) {
 	o.github.mu.Lock()
 	o.github.ci = map[string]string{head: mythicalCIPending}
 	o.github.mu.Unlock()
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item := o.item(75)
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, "waiting for CI on the approved head", item.Reason)
@@ -680,7 +680,7 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	// The automerge label was taken off after the stack saw it.
 	item := start(76, "seventy-six.md")
 	o.github.labelers = map[int64]string{76: "other-writer"}
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item = o.item(76)
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, "a maintainer's automerge label is no longer on the issue", item.Reason)
@@ -696,7 +696,7 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	head := item.PRHead
 	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-77",
 		o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "a person's push"))
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item = o.item(77)
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, "the pull request head moved outside Smithers; a person decides", item.Reason)
@@ -711,7 +711,7 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	o.github.mu.Lock()
 	o.github.ci = map[string]string{item.PRHead: mythicalCIRed}
 	o.github.mu.Unlock()
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	assert.Equal(t, "CI failed on the approved head", o.item(78).Reason)
 	require.NotNil(t, mythicalChecksOf(o.item(78)).Notice, "the comment is owed")
 	o.github.mu.Lock()
@@ -756,7 +756,7 @@ func TestMythicalReviewLanesCountTowardTheLaneCap(t *testing.T) {
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
 	assert.Equal(t, "queued", o.item(86).State, "the review holds the only lane")
-	o.answerReviews(`"request-changes"`)
+	o.answerReviews(reviewAnswer("request-changes"))
 	o.wake()
 	assert.Equal(t, "running", o.item(86).State, "the lane is free once the review answers")
 }
@@ -945,7 +945,7 @@ func TestMythicalAutomergeRereadsTheTodoLabel(t *testing.T) {
 	o.propose(69, "sixty-nine.md")
 	live := &adversarialTodoRemoved{fakeMythicalGitHub: o.github}
 	o.service.SetOrchestration(live, o.launcher, o.lanes)
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item := o.item(69)
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, "the issue is no longer a TODO", item.Reason)
@@ -1050,7 +1050,7 @@ func TestMythicalReviewWaitsForALane(t *testing.T) {
 	first := o.item(311)
 	assert.True(t, mythicalChecksOf(first).reviewing(first), "311's review relaunched on the one lane")
 	assert.Equal(t, "queued", o.item(312).State, "312 waits for the lane")
-	o.answerReviews(`"request-changes"`)
+	o.answerReviews(reviewAnswer("request-changes"))
 	assert.Equal(t, "running", o.item(312).State, "the lane is free once the review answered")
 
 	// Two lanes, one kept for chat: 312's request holds the other, so a
@@ -1081,7 +1081,7 @@ func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
 	o.github.mu.Lock()
 	o.github.ci = map[string]string{head: mythicalCIPending}
 	o.github.mu.Unlock()
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item := o.item(351)
 	assert.Equal(t, "waiting for CI on the approved head", item.Reason)
 	wait := mythicalChecksOf(item).CIWait
@@ -1152,7 +1152,7 @@ func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
 			applied("todo"), applied("automerge")}),
 	}}
 	o.service.SetOrchestration(&liveGitHubLabels{fakeMythicalGitHub: o.github, api: github.api(t)}, o.launcher, o.lanes)
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item := o.item(371)
 	assert.Equal(t, "proposed", item.State)
 	assert.Equal(t, "the issue's labels could not be read as they stand; retrying", item.Reason)
@@ -1296,7 +1296,7 @@ func TestMythicalFollowOutageHolds(t *testing.T) {
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 391, Title: "Follow", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.propose(391, "three-ninety-one.md")
-	o.answerReviews(`"request-changes"`)
+	o.answerReviews(reviewAnswer("request-changes"))
 	o.service.SetOrchestration(pullsDown{o.github}, o.launcher, o.lanes)
 	o.wake()
 	item := o.item(391)

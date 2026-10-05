@@ -251,7 +251,7 @@ test("with TODO_RELAY_URL the provider relays every call to a real model and scr
   assert.deepEqual([turns.chat, turns.evaluator, turns.refused, turns.steps["coding/edit-atom"]], [1, 2, 1, 1])
 })
 
-test("the stack's review of the pull request approves on its first line", async () => {
+test("the stack's review of the pull request approves on its first line, then summarizes", async () => {
   // review/change is a prompt flow: its body is the system teaching and its
   // arguments a "# Arguments" section (flows/review/change/flow.mdx).
   const body = readFileSync(new URL("../flows/review/change/flow.mdx", import.meta.url), "utf8").replace(/^---\n[\s\S]*?\n---\n/, "")
@@ -260,8 +260,11 @@ test("the stack's review of the pull request approves on its first line", async 
   assert.equal(answered?.step, "review/change")
   const { settled } = await run(answered.content)
   assert.equal(settled, REVIEW_ANSWER)
-  // The stack reads only the first line (mythicalReviewVerdict).
+  // The stack reads the verdict from the first line (mythicalReviewVerdict)
+  // and the summary from the labeled lines under it (mythicalReviewSummary).
   assert.equal(settled.split("\n")[0], "approve")
+  assert.deepEqual(settled.split("\n").slice(1, 4).map((line) => line.split(":")[0]), ["Changed", "Checks", "Risks"])
+  assert.match(settled, /\n\n- JOURNEY\.md:1 /, "a finding under the summary")
   // No coding step's turn reads as the review.
   assert.notEqual(todoTurn(turn(REVIEW, { input: { prompt: "Add a greeting", feedback: [] }, context: {} }))?.step, "review/change")
 })

@@ -302,7 +302,8 @@ func mythicalTodoPrompt(item db.MythicalItem) (string, string) {
 }
 
 // mythicalTodoEvidenceText renders the candidate's check receipts and flow
-// version, and its review verdict, as the card's evidence shows them. A plan
+// version, and its review (the verdict, then what changed, the checks and
+// the risks), as the card's evidence shows them. A plan
 // that names no check (a repository with none, mvp.md J1.4) says so rather
 // than leaving the evidence silent.
 func mythicalTodoEvidenceText(item db.MythicalItem) (string, string) {

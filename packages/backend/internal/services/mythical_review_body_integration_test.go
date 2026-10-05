@@ -77,7 +77,7 @@ func (f *publicationFixture) inReview() (db.MythicalItem, githubfake.Pull) {
 // outbound operation: one PATCH after a lookup, settled by another lookup in
 // the same pass, and never repeated.
 func TestTodoPublicationPutsTheReviewOnThePullRequestBody(t *testing.T) {
-	for _, verdict := range []string{"approve", "request-changes"} {
+	for verdict, shown := range map[string]string{"approve": "Approved", "request-changes": "Changes requested"} {
 		t.Run(verdict, func(t *testing.T) {
 			f := newPublicationFixture(t, false)
 			item, opened := f.inReview()
@@ -89,7 +89,7 @@ func TestTodoPublicationPutsTheReviewOnThePullRequestBody(t *testing.T) {
 			item = f.item(item.Number.Int64)
 			assert.Empty(t, item.PendingOp, "the operation settles in the pass that sends it")
 			updated := f.pull(item.PRNumber.Int64)
-			assert.Contains(t, updated.Body, "\n\nReview: "+verdict+"\n\n", "the body carries the card's review line")
+			assert.Contains(t, updated.Body, "\n\nReview: "+shown+"\n\n", "the body carries the card's review line")
 			assert.True(t, strings.HasPrefix(updated.Body, "Say hello\n\nAcceptance:\n- JOURNEY.md greets"), "the prompt still leads the body")
 			assert.Equal(t, []string{"/repos/rehearsal-owner/app/pulls/" + strconv.FormatInt(item.PRNumber.Int64, 10) + " 200"}, f.bodyWrites())
 			checks := mythicalChecksOf(item)
@@ -98,7 +98,7 @@ func TestTodoPublicationPutsTheReviewOnThePullRequestBody(t *testing.T) {
 			assert.Equal(t, mythicalBodyDigest(updated.Body), checks.PRBody, "the written body is the one Smithers last wrote")
 			card := f.card(item.Number.Int64)
 			assert.Equal(t, "in_review", card["state"])
-			assert.Contains(t, fmtJSON(t, card["evidence"]), `{"kind":"review","summary":"`+verdict+`"}`, "the card shows the same verdict")
+			assert.Contains(t, fmtJSON(t, card["evidence"]), `{"kind":"review","summary":"`+shown+`"}`, "the card shows the same verdict")
 
 			f.wake()
 			assert.Len(t, f.bodyWrites(), 1, "a posted verdict is never written again")
@@ -144,7 +144,7 @@ func TestTodoPublicationBodyRecoversByLookup(t *testing.T) {
 		require.NoError(t, err, "the uncertain write keeps its slot")
 		assert.Equal(t, "body", op.Kind)
 		assert.Equal(t, "unknown", op.State)
-		assert.Contains(t, f.pull(item.PRNumber.Int64).Body, "Review: approve")
+		assert.Contains(t, f.pull(item.PRNumber.Int64).Body, "Review: Approved")
 
 		f.wake()
 		item = f.item(item.Number.Int64)
@@ -165,7 +165,7 @@ func TestTodoPublicationBodyRecoversByLookup(t *testing.T) {
 		}
 		item = f.item(item.Number.Int64)
 		assert.Empty(t, item.PendingOp)
-		assert.Contains(t, f.pull(item.PRNumber.Int64).Body, "Review: approve")
+		assert.Contains(t, f.pull(item.PRNumber.Int64).Body, "Review: Approved")
 		assert.Equal(t, []string{path + " 502", path + " 200"}, f.bodyWrites())
 		assert.True(t, mythicalChecksOf(item).Review.Posted)
 	})

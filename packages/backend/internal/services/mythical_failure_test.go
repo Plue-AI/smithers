@@ -366,7 +366,7 @@ func TestMythicalUnreadPullRequestIsNotGated(t *testing.T) {
 	o.github.mu.Lock()
 	o.github.ci = map[string]string{o.item(361).PRHead: mythicalCIPending}
 	o.github.mu.Unlock()
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	require.Equal(t, "waiting for CI on the approved head", o.item(361).Reason)
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = now() - interval '1 minute' WHERE id = $1`, o.item(361).ID)
 	require.NoError(t, err)

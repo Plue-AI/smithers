@@ -242,8 +242,16 @@ test("9 review", async ({}, info) => {
     }
     await page.waitForTimeout(1_000)
   }
-  expect(reviewOf(todo)?.summary).toBe("approve")
+  // The review is its verdict in product words, its summary and every finding, on the card as the PR body has it.
+  const summary = reviewOf(todo)?.summary ?? ""
+  expect(summary.split("\n")[0]).toBe("Approved")
+  expect(summary).toMatch(/\nChanged: .+\nChecks: .+\nRisks: .+\nFindings:\n- JOURNEY\.md:1 /)
+  const row = todoCard().locator(".todo-review").last()
+  for (const line of summary.split("\n")) await expect(row).toContainText(line)
+  expect(await row.evaluate(element => getComputedStyle(element).whiteSpace)).toBe("pre-line")
   expect(new Set((await modelRequests()).map((entry: { step?: string }) => entry.step))).toContain("review/change")
+  // The review reached the pull request body: one App write of it on the fake.
+  expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "PATCH", path: "/repos/local-owner/demo/pulls/1", status: 200 })]))
   // The review lane is released once it answers; the card keeps naming the TODO's branch, the pull request's
   // head branch, on its own lane machine, asleep while a person decides.
   await expect.poll(async () => {

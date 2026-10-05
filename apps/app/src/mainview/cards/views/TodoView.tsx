@@ -31,7 +31,7 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
         </span>
       );
     case "review":
-      return <span>{item.summary}</span>;
+      return <span className="todo-review">{item.summary}</span>;
     case "usage":
       return (
         <span>

@@ -133,7 +133,7 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 	require.NoError(t, o.pool.QueryRow(ctx, `SELECT name FROM mythical_lanes WHERE workspace_id=$1`, reviewLane).Scan(&name))
 	assert.Equal(t, "TODO 1 review g2", name)
 
-	o.answerReviews(`"request-changes"`)
+	o.answerReviews(reviewAnswer("request-changes"))
 	item = o.byID(id)
 	assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
 	assert.Empty(t, item.WorkspaceID, "the TODO holds no machine while a person decides")

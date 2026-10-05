@@ -107,7 +107,7 @@ func TestTodoEvidenceHoldsTheReviewOfThePublishedHead(t *testing.T) {
 	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", PRHead: "published", Checks: mythicalChecks{
 		Review: &mythicalReview{Head: "published", Candidate: "candidate", Verdict: "approve"},
 	}.encode()}
-	require.Equal(t, []map[string]any{{"kind": "review", "summary": "approve"}}, currentTodoEvidence(item).Items)
+	require.Equal(t, []map[string]any{{"kind": "review", "summary": "Approved"}}, currentTodoEvidence(item).Items)
 	moved := item
 	moved.CandidateHead = "next"
 	require.Empty(t, currentTodoEvidence(moved).Items, "a review never vouches for another candidate")
@@ -151,7 +151,7 @@ func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	checks := mythicalChecksOf(moved)
 	checks.Review = &mythicalReview{Head: "different", Verdict: "request-changes"}
 	moved.Checks = checks.encode()
-	require.Equal(t, map[string]any{"kind": "review", "summary": "request-changes"}, currentTodoEvidence(moved).Items[0])
+	require.Equal(t, map[string]any{"kind": "review", "summary": "Changes requested"}, currentTodoEvidence(moved).Items[0])
 	// A later attempt changes only its own evidence. Old bytes remain frozen.
 	moved.Attempt = 2
 	moved = retainTodoAttemptEvidence(moved)

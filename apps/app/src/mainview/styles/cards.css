@@ -2411,6 +2411,10 @@
   color: var(--text-muted);
   font-size: 11px;
 }
+/* A review is its verdict, then what changed, the checks and the risks, one per line. */
+.todo-review {
+  white-space: pre-line;
+}
 .todo-view code {
   font: 11px var(--font-mono);
 }

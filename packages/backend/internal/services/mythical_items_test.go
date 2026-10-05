@@ -715,10 +715,11 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Contains(t, args.Args, "<untrusted-diff>\n")
 	assert.Contains(t, args.Args, "+++ b/docs.md")
 	assert.NotContains(t, o.lanes.deleted, reviewLane)
-	o.answerReviews(`"approve\n- docs.md reads well"`)
+	o.answerReviews(reviewAnswer("approve"))
 	item = o.item(7)
-	assert.Equal(t, mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead, RunID: "run-review-2", Verdict: "approve"}, *mythicalChecksOf(item).Review)
-	assert.Contains(t, currentTodoEvidence(item).Items, map[string]any{"kind": "review", "summary": "approve"}, "the evidence holds the review of the head that published the candidate")
+	summary := "Changed: Appends a line.\nChecks: test passed.\nRisks: None."
+	assert.Equal(t, mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead, RunID: "run-review-2", Verdict: "approve", Summary: summary}, *mythicalChecksOf(item).Review)
+	assert.Contains(t, currentTodoEvidence(item).Items, map[string]any{"kind": "review", "summary": "Approved\n" + summary}, "the evidence holds the review of the head that published the candidate")
 	assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
 	assert.Empty(t, o.github.merges, "an approved TODO without automerge waits for a person")
 	assert.Equal(t, "proposed", item.State)
@@ -1046,7 +1047,7 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	assert.Empty(t, item.PendingOp)
 
 	// A retired lane's results never reach the stack again, as a lane or as chat.
-	o.answerReviews(`"approve"`)
+	o.answerReviews(reviewAnswer("approve"))
 	assert.Contains(t, o.lanes.deleted, lane)
 	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: lane, Base: stack.TipCommit,
 		Source: candidate, RequestRunID: "run-21", Summary: "✨ feat: x"})

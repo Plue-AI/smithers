@@ -266,9 +266,10 @@ func TestJ2Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	// The review runs on the open PR; its verdict is the TODO's evidence and
-	// the PR body's review line, and nothing holds the merge after it.
-	r.step("5 review summary", "GET "+todoPath+"; GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "the TODO's evidence holds the agent's review of the PR head; the PR body carries the same review line; merge ready", "T-STK-01, T-GH-09", func() error {
+	// The review runs on the open PR; its verdict and its summary (what
+	// changed, which checks passed, the risks) are the TODO's evidence and the
+	// PR body's review lines, and nothing holds the merge after it.
+	r.step("5 review summary", "GET "+todoPath+"; GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "the TODO's evidence holds the agent's review of the PR head: Approved, then Changed, Checks, Risks and its findings; the PR body carries the same review lines; merge ready", "T-STK-01, T-GH-09", func() error {
 		deadline := time.Now().Add(time.Minute)
 		for {
 			todo, err := r.waitTodo(number, "in_review")
@@ -297,7 +298,10 @@ func TestJ2Rehearsal(t *testing.T) {
 			}
 			line := "Review: " + review
 			r.actual = fmt.Sprintf("review=%q merge=%s body has %q: %t", review, card.Merge.State, line, review != "" && strings.Contains(pull.Body, line))
-			if review == "approve" && strings.Contains(pull.Body, "\n\n"+line+"\n\n") && card.Merge.State == "ready" {
+			verdict, summary, _ := strings.Cut(review, "\n")
+			summarized := strings.HasPrefix(summary, "Changed: ") && strings.Contains(summary, "\nChecks: ") && strings.Contains(summary, "\nRisks: ") &&
+				strings.Contains(summary, "\nFindings:\n- ")
+			if verdict == "Approved" && summarized && strings.Contains(pull.Body, "\n\n"+line+"\n\n") && card.Merge.State == "ready" {
 				return nil
 			}
 			if time.Now().After(deadline) {
@@ -317,7 +321,7 @@ func TestJ2Rehearsal(t *testing.T) {
 					}
 					rows.Close()
 				}
-				return fmt.Errorf("no approved review on the PR head and its body after a minute: %s (item reason %q, review %s, jobs %v)", r.actual, reason, checked, jobs)
+				return fmt.Errorf("no approved, summarized review on the PR head and its body after a minute: %s (item reason %q, review %s, jobs %v)", r.actual, reason, checked, jobs)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}

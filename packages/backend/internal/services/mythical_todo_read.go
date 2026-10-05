@@ -280,9 +280,10 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	checks := mythicalChecksOf(item)
 	// The review is of the pull request head that published this candidate
 	// (Candidate); a review recorded before Candidate existed names it as Head.
-	if review := checks.Review; review != nil && item.CandidateHead != "" && review.Verdict != "" &&
+	// A review running again for its summary has no verdict to show yet.
+	if review := checks.Review; review != nil && item.CandidateHead != "" && review.Verdict != "" && review.Verdict != mythicalReviewRepair &&
 		(review.Candidate == item.CandidateHead || review.Candidate == "" && review.Head == item.CandidateHead) {
-		evidence.Items = append(evidence.Items, map[string]any{"kind": "review", "summary": checks.Review.Verdict})
+		evidence.Items = append(evidence.Items, map[string]any{"kind": "review", "summary": review.shown()})
 	}
 	if item.FlowDigest.Valid && item.FlowDigest.String != "" {
 		evidence.Items = append(evidence.Items, map[string]any{"kind": "flow", "name": "todo", "version": item.FlowDigest.String})
@@ -358,7 +359,11 @@ func todoSteps(item db.MythicalItem) []map[string]any {
 	add("vibe", "Code", item.VibeRunID, item.VibeOutcome, "submitted")
 	add("verify", "Verify", item.VerifyRunID, item.VerifyOutcome, "passed")
 	if review := mythicalChecksOf(item).Review; review != nil {
-		add("review", "Review", review.RunID, review.Verdict, "approve")
+		verdict := review.Verdict
+		if verdict == mythicalReviewRepair {
+			verdict = ""
+		}
+		add("review", "Review", review.RunID, verdict, "approve")
 	}
 	return steps
 }

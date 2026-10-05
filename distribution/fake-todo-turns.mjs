@@ -315,8 +315,15 @@ const steps = [
   }
 ]
 
-/** The scripted review of a TODO's pull request: `approve` on its first line. */
-export const REVIEW_ANSWER = "approve\n\nThe change does what the TODO asks and nothing else."
+/** The scripted review of a TODO's pull request: `approve` on its first line, then its summary and one finding. */
+export const REVIEW_ANSWER = [
+  "approve",
+  "Changed: Appends a greeting to JOURNEY.md, as the TODO asks.",
+  "Checks: Every check Smithers ran passed.",
+  "Risks: None.",
+  "",
+  "- JOURNEY.md:1 The greeting could end with a period."
+].join("\n")
 
 /** The greeting the edit turn appends when the caller names none. */
 export const GREETING = "Hello from Smithers!"
