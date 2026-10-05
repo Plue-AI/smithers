@@ -1,0 +1,8 @@
+/* ActLine (#3731): shared agent steps and output. */
+.tool-act-line:has(.act-line-steps[open]) { border-radius: var(--r-2); }
+.act-line-steps > summary { cursor: pointer; }
+.act-line-steps > ol { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; text-align: left; }
+.act-line-steps li { min-width: 0; overflow-wrap: anywhere; }
+.act-line-steps li[data-status="error"] > code { color: var(--danger); }
+.act-line-steps pre { max-height: 320px; overflow: auto; margin: 4px 0 0; padding: 8px; border-radius: var(--r-1); background: var(--surface-2); font: var(--fs-caption)/1.5 var(--font-mono); white-space: pre-wrap; }
+.act-line-steps code { font-family: var(--font-mono); font-size: var(--fs-caption); }

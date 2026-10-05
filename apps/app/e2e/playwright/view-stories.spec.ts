@@ -65,6 +65,9 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
         expect(top).toBeLessThan(width === 390 ? 844 : 800)
       }
     }
+    if (story.name.startsWith("ActLineView/")) {
+      await page.locator(".act-line-steps, .act-line-output").evaluateAll(nodes => nodes.forEach(node => (node as HTMLDetailsElement).open = true))
+    }
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
     const flagCount = story.name === "FilePresenceView/live_separate" ? 3
@@ -325,6 +328,9 @@ test("Commands review screenshots and muted policy marks", async ({ page }) => {
       
       const text = diffExpected[story.name.split("/")[1]!]
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
+    }
+    if (story.name.startsWith("ActLineView/")) {
+      await page.locator(".act-line-steps, .act-line-output").evaluateAll(nodes => nodes.forEach(node => (node as HTMLDetailsElement).open = true))
     }
     await page.evaluate(() => document.fonts.ready)
     {

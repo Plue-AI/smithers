@@ -2534,3 +2534,34 @@ describe("Timeline glyphs and actions", () => {
     await view.close()
   })
 })
+
+
+describe("ActLine disclosure", () => {
+  test("plain line has no disclosure or callbacks", async () => {
+    const { stories } = await import("./ActLineView.stories")
+    const m = await mounted(stories[0]!)
+    expect(m.host.textContent).toBe("Smithers ran 1 command")
+    expect(m.host.querySelector("details")).toBeNull()
+    expect(m.host.querySelector(".bubble-system-note.tool-act-line")).not.toBeNull()
+    await m.close()
+  })
+  test("steps, error and nonzero exit output disclose locally", async () => {
+    const { ActLineView } = await import("./ActLineView")
+    const m = await mounted({ name: "acts", expect: ["Commands"], render: () => <ActLineView line="Commands" tone="failed" steps={[
+      { text: "read", status: "ok" }, { text: "test", status: "error", output: "FAIL", exit_code: 2 },
+      { text: "build", status: "running", output: "OK", exit_code: 0 }, { text: "empty", output: "" }
+    ]} /> })
+    const details = m.host.querySelector("details")!
+    expect(details.open).toBe(false)
+    details.open = true
+    expect(m.host.querySelectorAll("li")).toHaveLength(4)
+    expect(m.host.querySelector('li[data-status="error"] > code')!.textContent).toBe("test")
+    expect(m.host.querySelector('.act-line-output summary')!.textContent).toBe("Output · exit 2")
+    expect([...m.host.querySelectorAll('.act-line-output summary')].map(n => n.textContent)).toEqual(["Output · exit 2", "Output"])
+    expect(m.host.querySelector('pre')!.textContent).toBe("FAIL")
+    expect(m.host.querySelector('[data-tone="failed"]')).not.toBeNull()
+    expect(m.onAction).not.toHaveBeenCalled()
+    expect(m.onView).not.toHaveBeenCalled()
+    await m.close()
+  })
+})

@@ -1,3 +1,4 @@
+import { ActLineView } from "./cards/views/ActLineView"
 import { dynamicFlowAction, flowAction, flowProps } from "./flows/FlowAction"
 import { Button, ChatMessage, Markdown, Marker, Reasoning } from "@smthrs/ui"
 import { CheckCircle2, Copy, RotateCcw } from "lucide-react"
@@ -62,13 +63,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
   const controller = useController()
   return entry.message.act !== undefined ?
   (
-    <Marker
-      key={entry.message.id}
-      variant="note"
-      className="bubble-system-note tool-act-line"
-    >
-      {entry.message.text}
-    </Marker>
+    <ActLineView key={entry.message.id} line={entry.message.text} steps={[]} />
   ) :
   (
     <ChatMessage

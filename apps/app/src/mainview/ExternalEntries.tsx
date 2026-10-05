@@ -1,3 +1,4 @@
+import { ActLineView } from "./cards/views/ActLineView"
 /*
  * A Codex or Claude Code session in the conversation (mvp.md M-38, T-AGT-03):
  * a binding, not a View. It maps the session's read-only entries to the
@@ -135,15 +136,12 @@ export function ExternalEntry({ item, conversation }: { readonly item: ExternalI
         {time}
       </ChatMessage>
     case "acts":
-      return <Marker variant="note" className="bubble-system-note tool-act-line" data-origin="external">
-        <details className="external-acts">
-          <summary>{actorName(conversation!.agent)} {actsLine(item)}</summary>
-          <ol>{item.acts.map((act, index) => <li key={index} data-status={act.type === "tool" ? act.status : undefined}>
-            <code>{actText(act)}</code>
-            {act.type === "tool" && act.output !== "" ? <details><summary>Output{act.exit_code ? ` · exit ${act.exit_code}` : ""}</summary><pre>{act.output}</pre></details> : null}
-          </li>)}</ol>
-        </details>
-      </Marker>
+      return <div data-origin="external"><ActLineView
+        line={`${actorName(conversation!.agent)} ${actsLine(item)}`}
+        steps={item.acts.map(act => act.type === "tool"
+          ? { text: actText(act), status: act.status, output: act.output, ...(act.exit_code === undefined ? {} : { exit_code: act.exit_code }) }
+          : { text: actText(act) })}
+      /></div>
     case "diff":
       return <DiffCardSurface model={item.card} actions={[]} gestures={{}} view={{ maximized: false }} onAction={() => undefined} onView={() => undefined} />
     case "error":
