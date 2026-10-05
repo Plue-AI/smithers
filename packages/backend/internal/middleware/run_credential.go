@@ -99,6 +99,24 @@ func (a *AuthInfo) Delegation() (Delegation, bool) {
 	return ParseTokenDelegation(a.TokenSystemIssued, a.RawScopes)
 }
 
+// TerminalDelegation is the request credential's delegation when it is a
+// stage-1 terminal's (TerminalProfileS1).
+func (a *AuthInfo) TerminalDelegation() (Delegation, bool) {
+	delegation, ok := a.Delegation()
+	return delegation, ok && delegation.Profile == TerminalProfileS1
+}
+
+// ActingVia is the via a delegated request acts through: its stored via, or
+// the agent its Smithers-Via hint names (EffectiveVia). It is "" for every
+// other credential.
+func (a *AuthInfo) ActingVia() string {
+	delegation, ok := a.Delegation()
+	if !ok {
+		return ""
+	}
+	return EffectiveVia(delegation.Via, a.ViaHint)
+}
+
 // EffectiveVia is the via a delegated request is attributed to (spec §6.4):
 // a terminal's or the CLI's credential takes the Smithers-Via hint of the
 // agent working in it (claude-code or codex); every other stored via stands,

@@ -62,8 +62,9 @@ func todoRouteError(w http.ResponseWriter, err error) {
 }
 
 // authorize decides command for the request's person (services.Authorize:
-// members create, read, answer and steer TODOs; maintainers merge), then
-// resolves the install's repository.
+// members create, read, answer and steer TODOs; maintainers merge; a
+// terminal's credential answers and steers its own branch's TODO and
+// confirms a new one in the app), then resolves the install's repository.
 func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command string) (int64, int64, bool) {
 	if h == nil || h.Service == nil {
 		todoRouteError(w, nil)
@@ -179,6 +180,10 @@ func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
 		return
 	}
+	if err = services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
 	var input services.TodoAnswerInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 	decoder.DisallowUnknownFields()
@@ -239,7 +244,8 @@ var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop
 // Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
 // retry (with an optional steer) or drop the TODO. The app sends a steer as
 // {"op":"steer","text":...}; the service's input is {"steer":...} with no
-// op. The control's command authorizes the person, then the service runs the
+// op. The control's command authorizes the person (a terminal's credential
+// only steers, and only its own branch's TODO), then the service runs the
 // op for the install's repository as that person under the request's
 // Idempotency-Key; an op it has no service for is 503 unavailable.
 func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +285,10 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 	}
 	repo, user, ok := h.authorize(w, r, command)
 	if !ok {
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
 		return
 	}
 	input.Repository, input.Actor, input.Request = repo, user, r.Header.Get("Idempotency-Key")

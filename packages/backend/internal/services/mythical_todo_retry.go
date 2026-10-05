@@ -96,7 +96,7 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			now, attempt := s.now().UTC(), item.Attempt+1
 			retried := mythicalChecksOf(next)
 			if input.Steer != nil {
-				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: todoPersonActor(person), At: now, Attempt: attempt})
+				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: todoActor(ctx, person), At: now, Attempt: attempt})
 			}
 			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, By: person.Username, At: now, Attempt: attempt})
 			next.Checks = retried.encode()
@@ -121,12 +121,6 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 		return &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is busy; retry again"}
 	})
 	return receipt, err
-}
-
-// todoPersonActor is a person as a TodoCard actor (by on an answer or steer).
-func todoPersonActor(person db.User) json.RawMessage {
-	by, _ := json.Marshal(map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0})
-	return by
 }
 
 // todoFeedback is what attempt receives as its first input: every steer held

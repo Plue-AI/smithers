@@ -330,9 +330,13 @@ var installCommands = map[string]installCommand{
 	"secrets.write": {role: InstallMaintainer, personOnly: true},
 }
 
-// terminalReadCommands are the commands a stage-1 terminal credential runs
-// for its member: the eligible reads and wiki reads (spec §8.11.1).
-var terminalReadCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true}
+// terminalCommands are the commands a stage-1 terminal credential runs for
+// its member (spec §8.11.1, §5.3.2a): the eligible reads and wiki reads;
+// answer and steer, on its own branch's TODO only (AuthorizeTodoBranch);
+// todo.control, the steer door, whose handler authorizes the op again; and
+// todo.new, which a delegated credential confirms in the app.
+var terminalCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true,
+	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true}
 
 // AccessError is Authorize's refusal (spec §6.2.3 error envelope).
 type AccessError struct {
@@ -357,10 +361,13 @@ type InstallAuthorization struct {
 // Authorize is the install's one command authorizer (T-ACC-03): the
 // request's credential, the command and the person's role, read from
 // committed roster state on every call, so a removal or suspension refuses
-// the very next request. Until delegated credentials land (T-ACC-04), only a
-// person's own browser session carries person authority. A person-only
-// command checks the role first, so an eligible delegated caller is told
-// never and an ineligible one permission (§5.2.1).
+// the very next request. A person's own browser session carries person
+// authority; a stage-1 terminal's delegated credential acts for its member
+// within terminalCommands, and its todo.new is refused with confirm_in_app
+// until the app's private Confirm card serves it (spec §5.3.2a). Every other
+// credential is refused. A person-only command checks the role first, so an
+// eligible delegated caller is told never and an ineligible one permission
+// (§5.2.1).
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
 	need, ok := installCommands[command]
 	if !ok {
@@ -373,10 +380,11 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if need.personOnly {
 		return authorizePersonOnly(ctx, q, info, need.role)
 	}
-	if delegation, ok := info.Delegation(); ok && delegation.Profile == middleware.TerminalProfileS1 {
-		// A member's terminal credential reads as that member (spec §8.11.1);
+	_, terminal := info.TerminalDelegation()
+	if terminal {
+		// A member's terminal credential acts as that member (spec §8.11.1);
 		// the auth loader already confined it to its profile's routes.
-		if !terminalReadCommands[command] {
+		if !terminalCommands[command] {
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
 	} else if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
@@ -391,6 +399,11 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	}
 	if role.rank() < need.role.rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
+	}
+	if terminal && command == "todo.new" {
+		// A delegated TODO waits for its person's Confirm in the app, which
+		// stage 1 does not serve yet: nothing is filed (T-APP-04).
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 }
@@ -425,6 +438,37 @@ func authorizePersonOnly(ctx context.Context, q *db.Queries, info *middleware.Au
 // person's own browser session, the install owner's included.
 func PersonOnlyCommand(command string) bool {
 	return installCommands[command].personOnly
+}
+
+// AuthorizeTodoBranch admits a stage-1 terminal credential's answer or steer
+// only on the TODO whose branch the terminal is on (spec §8.11.1): any other
+// TODO, or a TODO with no branch, is 403 permission. Every other credential
+// passes; Authorize has already decided it.
+func AuthorizeTodoBranch(ctx context.Context, q *db.Queries, repositoryID, number int64) error {
+	if _, terminal := middleware.AuthInfoFromContext(ctx).TerminalDelegation(); !terminal {
+		return nil
+	}
+	item, err := q.GetMythicalItemByNumber(ctx, repositoryID, number)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return todoBranchRefusal()
+	}
+	if err != nil {
+		return err
+	}
+	return todoBranchForbids(ctx, item)
+}
+
+// todoBranchForbids is AuthorizeTodoBranch for an item the caller holds.
+func todoBranchForbids(ctx context.Context, item db.MythicalItem) error {
+	delegation, terminal := middleware.AuthInfoFromContext(ctx).TerminalDelegation()
+	if terminal && (item.WorkspaceID == "" || !strings.EqualFold(item.WorkspaceID, delegation.Branch)) {
+		return todoBranchRefusal()
+	}
+	return nil
+}
+
+func todoBranchRefusal() error {
+	return &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal acts only on its own branch's TODO"}
 }
 
 // InstallRoleOf is userID's current role, or "" for a person who is not an

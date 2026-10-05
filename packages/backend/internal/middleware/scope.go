@@ -58,6 +58,9 @@ type AuthInfo struct {
 	Scopes      ScopeSet
 	IsTokenAuth bool
 	TokenSource TokenSource
+	// ViaHint is a delegated request's Smithers-Via header: attribution
+	// only, read through ActingVia, never authority.
+	ViaHint string
 }
 
 // repositoryRestrictionScopePrefix marks a scopes-list entry that binds a token

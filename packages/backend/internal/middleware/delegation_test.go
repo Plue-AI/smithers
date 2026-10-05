@@ -63,6 +63,33 @@ func TestEffectiveVia(t *testing.T) {
 	}
 }
 
+// A request's acting via is its delegated credential's EffectiveVia; only a
+// stage-1 terminal's credential is a TerminalDelegation; every other
+// credential acts through no via, whatever header it sends.
+func TestActingViaAndTerminalDelegation(t *testing.T) {
+	terminal := &AuthInfo{User: &db.User{ID: 2}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: terminalScopes, ViaHint: "claude-code"}
+	assert.Equal(t, "claude-code", terminal.ActingVia())
+	delegation, ok := terminal.TerminalDelegation()
+	require.True(t, ok)
+	assert.Equal(t, "0b1c-branch", delegation.Branch)
+	terminal.ViaHint = "browser"
+	assert.Equal(t, "terminal", terminal.ActingVia(), "a hint that names no agent changes nothing")
+	cli := &AuthInfo{User: &db.User{ID: 2}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,via:cli", ViaHint: "codex"}
+	assert.Equal(t, "codex", cli.ActingVia())
+	_, ok = cli.TerminalDelegation()
+	assert.False(t, ok, "a delegated credential of another profile is not a terminal's")
+	for _, other := range []*AuthInfo{
+		nil,
+		{User: &db.User{ID: 2}, SessionHash: "s", ViaHint: "claude-code"},
+		{User: &db.User{ID: 2}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,repo:7", ViaHint: "claude-code"},
+		{User: &db.User{ID: 2}, IsTokenAuth: true, RawScopes: terminalScopes, ViaHint: "claude-code"},
+	} {
+		assert.Equal(t, "", other.ActingVia())
+		_, ok = other.TerminalDelegation()
+		assert.False(t, ok)
+	}
+}
+
 // A stage-1 terminal credential reaches only its profile's routes; every
 // other route refuses it with 403 permission before its handler runs.
 func TestTerminalProfileRoutes(t *testing.T) {
@@ -84,14 +111,20 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"GET", "/api/repos/acme/app/wiki"},
 		{"GET", "/api/repos/acme/app/wiki/search"},
 		{"GET", "/api/repos/acme/app/wiki/home/revisions"},
+		// The TODO doors whose handlers authorize the rest: answer and steer
+		// on its own branch's TODO, and todo.new's confirm_in_app.
+		{"POST", "/api/todos"},
+		{"POST", "/api/todos/3"},
+		{"POST", "/api/todos/3/answer"},
 	} {
 		assert.Equal(t, http.StatusNoContent, serve(terminal, allowed[0], allowed[1]).Code, "%v", allowed)
 	}
 	for _, refused := range [][2]string{
-		{"POST", "/api/todos"},
-		{"POST", "/api/todos/3"},
-		{"POST", "/api/todos/3/answer"},
 		{"POST", "/api/todos/3/merge"},
+		{"POST", "/api/todos/3/answers"},
+		{"POST", "/api/todos/x/answer"},
+		{"PATCH", "/api/todos/3"},
+		{"DELETE", "/api/todos/3"},
 		{"GET", "/api/install"},
 		{"GET", "/api/members"},
 		{"POST", "/api/repos/acme/app/wiki"},

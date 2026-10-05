@@ -92,9 +92,10 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 
 // terminalProfileRoutes are the routes a stage-1 terminal credential
 // (TerminalProfileS1, spec §8.11.1) may call: its person's identity, the
-// eligible reads, and wiki reads. Every other route refuses it with
-// 403 permission before any handler runs; T-TRM-02's own-branch answer and
-// steer and the delegated todo.new open here when their lanes land.
+// eligible reads, wiki reads, and the TODO doors whose handlers authorize
+// the rest (services.Authorize): answer and steer on its own branch's TODO
+// only, and todo.new, which a delegated credential confirms in the app.
+// Every other route refuses it with 403 permission before any handler runs.
 var terminalProfileRoutes = []struct {
 	method string
 	path   *regexp.Regexp
@@ -102,6 +103,7 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+)?$`)},
+	{http.MethodPost, regexp.MustCompile(`^/api/todos(/[0-9]+(/answer)?)?$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, wikiReadPath},
@@ -115,8 +117,7 @@ var wikiReadPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki(/[^/]+)*$`)
 // terminalProfileRoutes. It writes the 403 itself and returns false when
 // refused.
 func allowTerminalProfileToken(w http.ResponseWriter, r *http.Request, info *AuthInfo) bool {
-	delegation, ok := info.Delegation()
-	if !ok || delegation.Profile != TerminalProfileS1 {
+	if _, ok := info.TerminalDelegation(); !ok {
 		return true
 	}
 	for _, route := range terminalProfileRoutes {
@@ -247,6 +248,9 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				}
 				if !allowTerminalProfileToken(w, r, authInfo) {
 					return
+				}
+				if _, delegated := authInfo.Delegation(); delegated {
+					authInfo.ViaHint = r.Header.Get("Smithers-Via")
 				}
 				if authInfo.TokenSource == TokenSourcePersonalAccessToken {
 					if err := queries.UpdateAccessTokenLastUsed(ctx, authInfo.TokenID); err != nil {

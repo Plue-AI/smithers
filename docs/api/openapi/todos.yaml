@@ -8,6 +8,7 @@ paths:
         - Todos
       security:
         - sessionCookie: []
+        - tokenAuth: []
       responses:
         '200':
           description: TODO card projections
@@ -29,6 +30,7 @@ paths:
         - Todos
       security:
         - sessionCookie: []
+        - tokenAuth: []
       parameters:
         - name: Idempotency-Key
           in: header
@@ -82,7 +84,7 @@ paths:
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place, or an issue reference that is incomplete or names a pull request
         '403':
-          description: Not a member, not a person's browser session, or (merge) not a maintainer
+          description: Not a member, or not a person's browser session. A terminal's delegated credential gets confirm_in_app ("Confirm in the app") and files nothing; its TODO waits for its person's Confirm in the app, which stage 1 does not serve.
         '409':
           description: Idempotency-Key reused for a different request; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
@@ -96,6 +98,7 @@ paths:
         - Todos
       security:
         - sessionCookie: []
+        - tokenAuth: []
       parameters:
         - name: n
           in: path
@@ -125,6 +128,7 @@ paths:
         - Todos
       security:
         - sessionCookie: []
+        - tokenAuth: []
       parameters:
         - name: n
           in: path
@@ -159,7 +163,7 @@ paths:
         '400':
           description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
         '403':
-          description: Not a member, or not a person's browser session
+          description: Not a member, or not a person's browser session. A terminal's delegated credential only steers, and only the TODO on its own branch.
         '404':
           description: todo_not_found
         '409':
@@ -219,6 +223,7 @@ paths:
         - Todos
       security:
         - sessionCookie: []
+        - tokenAuth: []
       parameters:
         - name: n
           in: path
@@ -252,7 +257,7 @@ paths:
         '400':
           description: Invalid TODO number, question or answer
         '403':
-          description: Not a member, not a person's browser session, or (merge) not a maintainer
+          description: Not a member, or not a person's browser session. A terminal's delegated credential answers only the TODO on its own branch, and the answer is by its terminal or the agent working in it ("Claude Code for Ben").
         '404':
           description: TODO or question not found
         '409':

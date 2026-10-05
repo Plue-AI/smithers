@@ -164,10 +164,14 @@ type mythicalSignaler interface {
 // question already settled refuses with who answered it. The settling, its
 // todo.answered fact and the signal's admission commit in one transaction.
 // The same person sending the same answer again is that answer, not a
-// second one.
+// second one. A person answers from their browser; a stage-1 terminal's
+// credential answers for its member only on its own branch's TODO, and the
+// answer is by that terminal or the agent working in it (todoActor).
 func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, number int64, input TodoAnswerInput) error {
-	if err := middleware.RequirePerson(ctx, "answer a TODO"); err != nil {
-		return err
+	if _, terminal := middleware.AuthInfoFromContext(ctx).TerminalDelegation(); !terminal {
+		if err := middleware.RequirePerson(ctx, "answer a TODO"); err != nil {
+			return err
+		}
 	}
 	if number <= 0 {
 		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
@@ -187,7 +191,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	if err != nil {
 		return err
 	}
-	by := todoPersonActor(person)
+	by := todoActor(ctx, person)
 	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID); err != nil {
 			return err
@@ -199,6 +203,9 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 				return &TodoControlError{http.StatusNotFound, "todo_not_found", "user", "TODO not found"}
 			}
 			if err != nil {
+				return err
+			}
+			if err := todoBranchForbids(ctx, item); err != nil {
 				return err
 			}
 			checks := mythicalChecksOf(item)
@@ -236,7 +243,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 			}
 			id := uuidString(saved.ID)
 			fact, _ := json.Marshal(map[string]any{"item": id, "n": saved.Number.Int64, "wait": input.Wait, "run": signal.Run,
-				"actor": map[string]any{"kind": "person", "id": userID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)})
+				"actor": map[string]any{"kind": "person", "id": userID, "login": person.Username}, "by": todoActorRef(ctx, person), "from": todoState(item), "to": todoState(saved)})
 			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.answered", todoState(saved), fact); err != nil {
 				return err
 			}

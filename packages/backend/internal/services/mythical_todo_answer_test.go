@@ -298,6 +298,85 @@ func TestTodoAnswerRefusedOnceSettled(t *testing.T) {
 	}
 }
 
+// terminalContext is a stage-1 terminal's delegated credential for userID on
+// branch, with the Smithers-Via hint the agent working in it sends.
+func terminalContext(userID int64, branch, session, hint string) context.Context {
+	scopes := "read:repository,read:user,repo:1," + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch, Profile: middleware.TerminalProfileS1, Session: session}), ",")
+	return middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: userID}, IsTokenAuth: true, TokenSystemIssued: true,
+		RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes), ViaHint: hint})
+}
+
+// J6 3b and 3d (T-ACC-04, spec §8.11.1): a terminal's credential answers its
+// own branch's TODO for its member, and the answer is by "Claude Code for
+// Ben" when Claude Code sent it, or "Ben's terminal" when no agent hint
+// names one. Another branch's terminal is refused before any write, and so
+// is a run credential.
+func TestTodoAnswerByATerminalCredential(t *testing.T) {
+	for _, tc := range []struct {
+		hint string
+		by   map[string]any
+		ref  map[string]any
+	}{
+		{"claude-code", map[string]any{"kind": "agent", "id": "agent-session-5e55-session", "agent": "claude-code", "session_id": "5e55-session",
+			"for_member": map[string]any{"login": "ben", "name": "Ben Ito"}, "color_index": float64(0)},
+			map[string]any{"person": "ben", "via": "claude-code", "session": "5e55-session"}},
+		{"browser", map[string]any{"kind": "person", "login": "ben", "name": "Ben Ito", "via": "terminal", "color_index": float64(0)},
+			map[string]any{"person": "ben", "via": "terminal", "session": "5e55-session"}},
+	} {
+		t.Run(tc.hint, func(t *testing.T) {
+			o, session, launcher, item, launch := newAskingTodo(t)
+			n := item.Number.Int64
+			o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", humanAsk("WaitFor-token-8", "coding-clarification", "Which helper?"))
+			wait := todoOpenWaits(o.byID(uuidString(item.ID)))[0]
+			ben, benSession := o.person("ben")
+			_, err := o.pool.Exec(context.Background(), `UPDATE users SET display_name='Ben Ito' WHERE id=$1`, ben)
+			require.NoError(t, err)
+			branch := "0b1c0000-0000-4000-8000-00000000b1c0"
+			_, err = o.pool.Exec(context.Background(), `UPDATE mythical_items SET workspace_id=$2 WHERE id=$1`, item.ID, strings.ToUpper(branch))
+			require.NoError(t, err)
+
+			// Refused before any write: another branch's terminal, and a run
+			// credential.
+			var refused *AccessError
+			other := terminalContext(ben, "0b1c0000-0000-4000-8000-0000000other", "5e55-session", tc.hint)
+			require.ErrorAs(t, o.service.AnswerTodo(other, o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}), &refused)
+			require.Equal(t, AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal acts only on its own branch's TODO"}, *refused)
+			run := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: ben}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,repo:1"})
+			require.Error(t, o.service.AnswerTodo(run, o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}))
+			require.Equal(t, "needs_you", todoState(o.byID(uuidString(item.ID))))
+			require.Empty(t, launcher.sent())
+
+			// Its own branch's TODO: answered for Ben, by the terminal or its agent.
+			require.NoError(t, o.service.AnswerTodo(terminalContext(ben, branch, "5e55-session", tc.hint), o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}))
+			item = o.byID(uuidString(item.ID))
+			require.Equal(t, "working", todoState(item))
+			require.Len(t, launcher.sent(), 1)
+			answer := o.todoCard(n)["first_answer"].(map[string]any)
+			by := answer["by"].(map[string]any)
+			require.NotEmpty(t, by["avatar_url"])
+			delete(by, "avatar_url")
+			if member, ok := by["for_member"].(map[string]any); ok {
+				require.NotEmpty(t, member["avatar_url"])
+				delete(member, "avatar_url")
+			}
+			require.Equal(t, tc.by, by)
+			require.Equal(t, "the retry helper", answer["text"])
+			answered := o.facts(item, "todo.answered")
+			require.Len(t, answered, 1)
+			require.Equal(t, tc.ref, answered[0]["by"])
+			require.Equal(t, "ben", answered[0]["actor"].(map[string]any)["login"])
+
+			// The same answer again from Ben's browser is that answer; anyone
+			// else learns that Ben answered.
+			require.NoError(t, o.service.AnswerTodo(benSession, o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}))
+			var later *TodoAnsweredError
+			require.ErrorAs(t, o.service.AnswerTodo(session, o.repoID, o.userID, n, TodoAnswerInput{Wait: wait.ID, Answer: "a fixed delay"}), &later)
+			require.Equal(t, "ben", later.AnsweredBy)
+			require.Len(t, launcher.sent(), 1)
+		})
+	}
+}
+
 // A question the run stops reporting, or every question of a run that
 // ended, is withdrawn unanswered; it cannot be answered. A re-ask is a new
 // question. Another run's report never touches the attempt's questions.

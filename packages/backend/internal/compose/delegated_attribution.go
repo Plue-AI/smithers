@@ -11,8 +11,9 @@ import (
 // delegatedAttribution records every request a delegated credential makes
 // once the auth loader admitted it (spec §5.3.0, T-ACC-04): the person, the
 // stored kind, and the via it is attributed to, so an agent's read or write
-// shows as "Claude Code for Ben". The Smithers-Via hint picks only that via
-// (middleware.EffectiveVia); it selects no person, branch or scope.
+// shows as "Claude Code for Ben". The Smithers-Via hint the auth loader kept
+// picks only that via (AuthInfo.ActingVia); it selects no person, branch or
+// scope.
 func delegatedAttribution(audit *services.AuditService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +26,7 @@ func delegatedAttribution(audit *services.AuditService) func(http.Handler) http.
 			actor := info.User.ID
 			metadata := map[string]any{
 				"kind":       string(middleware.CredentialDelegated),
-				"via":        middleware.EffectiveVia(delegation.Via, r.Header.Get("Smithers-Via")),
+				"via":        info.ActingVia(),
 				"stored_via": delegation.Via,
 				"token_id":   info.TokenID,
 			}
