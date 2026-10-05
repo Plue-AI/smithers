@@ -328,7 +328,7 @@ test("before the host answers, TODO presses acknowledge at once, Chat keeps work
   } finally { await h.controller.dispose() }
 })
 
-test("before the host answers, a press and a bare Merge acknowledge at once and reach the provider once; the bare Merge opens the TODO, never a seeded Review & merge", async () => {
+test("before the host answers, a press and a bare Merge acknowledge at once and reach the provider once; the bare Merge opens the served TODO's Review & merge, never a seeded one", async () => {
   const h = await unansweredHost()
   try {
     await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
@@ -343,7 +343,10 @@ test("before the host answers, a press and a bare Merge acknowledge at once and 
     await waitFor(() => todo()?.payload.model?.state === "in_review" && h.calls.some(call => call.method === "POST"))
     expect(h.calls.filter(call => call.method === "POST")).toEqual([{ path: "/api/todos/12", method: "POST", body: { op: "steer", text: "Keep the old route" } }])
     expect(h.calls.some(call => call.path.endsWith("/merge"))).toBe(false)
-    expect([...h.store.collections.cards.values()].some(card => card.kind === "confirm")).toBe(false)
+    await waitFor(() => h.store.collections.cards.has("confirm:merge:todo:12"))
+    expect([...h.store.collections.cards.values()].filter(card => card.kind === "confirm").map(card => [card.id, card.kind === "confirm" ? card.audience_member_id : null]))
+      .toEqual([["confirm:merge:todo:12", "ben"]])
+    expect(h.calls.some(call => call.path.endsWith("/merge"))).toBe(false)
     expect(JSON.stringify(h.controller.design.world().todos)).toBe(before)
   } finally { await h.controller.dispose() }
 })
