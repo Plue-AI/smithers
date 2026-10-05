@@ -149,6 +149,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // An accepted answer is done once its question is no longer open.
       if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait)
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Answered" } }]
+      // A drop settles once the TODO is dropped.
+      if (request.operation === "drop") return model.state === "dropped"
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Dropped" } }] : []
       // A retry settles once the attempt its receipt named runs: Working or past it, or failed again.
       if (request.operation === "retry" || request.operation === "retry-current-flow") {
         if (model.state === "dropped") return [{ key: request.key, outcome: { status: "failed" as const, detail: "Dropped" } }]

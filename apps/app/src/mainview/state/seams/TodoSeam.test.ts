@@ -419,6 +419,28 @@ test("TODO HTTP and live projections normalize historical delegated authors", as
   } finally { h.close() }
 })
 
+// M3, J7.3b: Drop on a failed TODO posts {op: drop} once per press; its toast settles only when the TODO is dropped,
+// never on the 202.
+test("a drop posts once and settles when the TODO is dropped", async () => {
+  const calls: { url: string; init?: RequestInit }[] = []
+  const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted" }) })
+  try {
+    await h.seam.applyTodoProjection(12, fixtures.failed.model)
+    expect(await h.seam.controlTodo(12, "drop")).toEqual({ value: "Requested" })
+    expect(await h.seam.controlTodo(12, "drop")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: "drop" })
+    const key = h.todo().payload.requests[0]!.key
+    await h.seam.applyTodoProjection(12, fixtures.failed.model)
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...fixtures.dropped.model, n: 12 })
+    expect(h.outcomes).toEqual([{ key: `todo.request.${key}`, status: "ok", detail: "Dropped" }])
+    expect(h.todo().payload.requests).toEqual([])
+  } finally { h.close() }
+})
+
 for (const operation of ["stop", "resume", "retry", "retry-current-flow", "drop"] as const) {
   test(`${operation} uses the numbered control route and acknowledges an unresolved request once`, async () => {
     const admission = deferred<Response>()
