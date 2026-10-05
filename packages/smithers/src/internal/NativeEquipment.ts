@@ -678,12 +678,33 @@ const jevBaseUrl = (environment: Readonly<Record<string, string | undefined>>): 
 }
 
 /**
+ * Routers: one key serves every vendor's model by its `vendor/model` id
+ * (`vercel:` is the AI Gateway).
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const routers: ReadonlyArray<string> = ["vercel", "openrouter"]
+
+/**
+ * The models a router judges or reviews on, by `vendor/model`, in order:
+ * coding/review takes the first whose vendor is not the implementer's, and
+ * the judge's backup takes the first.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const routedReviewModels: ReadonlyArray<string> = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.1"]
+
+/**
  * Judges with Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`), and
- * with GPT-6 Luna only when Jev is unreachable, times out, or stays
+ * with a backup only when Jev is unreachable, times out, or stays
  * unavailable (5xx or 429) through its retries. A missing key
- * leaves Jev unconfigured; Luna resolves through the subscription resolver at
- * evaluation time, so newly connected pool accounts work after startup, and
- * never judges on a provider API key.
+ * leaves Jev unconfigured. The backup is GPT-6 Luna on a subscription, read
+ * at evaluation time, so newly connected pool accounts work after startup;
+ * without one, the first router with a key judges on its first
+ * {@link routedReviewModels} model, so an install with only its Gateway key
+ * still judges. It never judges on a provider API key.
  *
  * Jev speaks over `jevHttp`, by default the environment's egress client on
  * Node and fetch on Bun, not the model executor: the gateway's own statuses, retries and deadline stay
@@ -721,22 +742,32 @@ export const layerSeatEvaluator = (
         ),
         Evaluator.Evaluator
       )
-    // Luna judges on a subscription only, as the judge always has: through the
-    // account pool or a ChatGPT session, never on a provider API key. Read at
-    // each judgment, so a `codex login` after startup counts.
-    const subscribed = async () => {
+    // Luna judges on a subscription: through the account pool or a ChatGPT
+    // session, never on a provider API key. Read at each judgment, so a
+    // `codex login` after startup counts. Without one, a router key (an
+    // install's AI Gateway key, through the model proxy) judges on the
+    // router's second-vendor model, as coding/review's default seats do.
+    const backupSeat = async (): Promise<string | undefined> => {
       const pool = accountPoolOf(environment)
       const route = poolRouteOf("openai", environment)
       const signed = await credential("openai", hostOf(environment))
-      return (pool !== undefined && route !== undefined && pool.routes.includes(route)) ||
+      if (
+        (pool !== undefined && route !== undefined && pool.routes.includes(route)) ||
         signed._tag === "Codex" || signed._tag === "Pooled"
+      ) return "luna"
+      for (const router of routers) {
+        if ((await credential(router, hostOf(environment)))._tag !== "Refused") {
+          return `${router}:${routedReviewModels[0]}`
+        }
+      }
+      return undefined
     }
     const luna: Evaluator.Evaluator = Evaluator.Evaluator.of({
       evaluate: (request) =>
-        Effect.promise(subscribed).pipe(
-          Effect.flatMap((ready) =>
-            ready
-              ? resolver.resolve("luna").pipe(
+        Effect.promise(backupSeat).pipe(
+          Effect.flatMap((seat) =>
+            seat !== undefined
+              ? resolver.resolve(seat).pipe(
                 Effect.mapError(() =>
                   new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
                 )

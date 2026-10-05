@@ -346,14 +346,8 @@ type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel" | "re
 /** Harness prefixes that run another vendor's models. */
 const harnessVendors: Readonly<Record<string, string>> = { codex: "openai" }
 
-/**
- * Routers: one key serves every vendor's model by its `vendor/model` id
- * (`vercel:` is the AI Gateway).
- */
-const routers: ReadonlyArray<string> = ["vercel", "openrouter"]
-
-/** The model a router reviews on, by `vendor/model`: the first whose vendor is not the implementer's. */
-const routedReviewModels: ReadonlyArray<string> = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.1"]
+/** Routers and their second-vendor models, shared with the host's judge (layerSeatEvaluator). */
+const { routedReviewModels, routers } = NativeEquipment
 
 /**
  * The vendor whose model a seat alias or `provider:model` runs: the prefix,

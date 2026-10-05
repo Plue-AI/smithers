@@ -230,44 +230,57 @@ it("explains missing gateway setup through the TUI message, without using a prov
   }
 })
 
-it("explains Luna subscription opt-in when the gateway cannot answer", async () => {
-  const calls: string[] = []
+it("judges on the gateway's second-vendor model when Jev cannot answer and no Luna subscription exists", async () => {
+  // An install's Flow host: its Gateway credential reaches Jev and the
+  // Gateway's chat route through the backend's model proxy, and nothing signs
+  // Luna. The real-GitHub walk logged 11 unjudged completions this way.
+  const proxy = "http://backend.internal:4000/model-proxy"
+  const jevCalls: string[] = []
   const jevHttp = HttpClient.make((request) => {
-    calls.push(request.url)
+    jevCalls.push(request.url)
     return Effect.fail(
       new HttpClientError.HttpClientError({
-        reason: new HttpClientError.TransportError({
-          request,
-          description: "private gateway address and token"
-        })
+        reason: new HttpClientError.TransportError({ request, description: "private gateway address and token" })
       })
     )
   })
+  const routed: Array<{ readonly url: string; readonly model: unknown }> = []
   const executor = RequestExecutor.RequestExecutor.of({
-    execute: () => Effect.die("An unsubscribed Luna must never use the model transport")
+    execute: (request) => {
+      const body = request.body._tag === "Uint8Array" ? JSON.parse(new TextDecoder().decode(request.body.body)) : {}
+      routed.push({ url: request.url, model: body.model })
+      const answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
+      const frames = [
+        { id: "chat_1", choices: [{ index: 0, delta: { role: "assistant", content: answer } }] },
+        { id: "chat_1", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }
+      ]
+      return Effect.succeed(HttpClientResponse.fromWeb(
+        request,
+        new Response(`${frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join("")}data: [DONE]\n\n`, {
+          headers: { "content-type": "text/event-stream" }
+        })
+      ))
+    }
   })
-  try {
-    await Effect.runPromise(
-      Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: question })).pipe(
-        Effect.provide(
-          layerSeatEvaluator({
-            AI_GATEWAY_API_KEY: "vck_test",
-            CODEX_HOME: "/nonexistent"
-          }, Layer.succeed(HttpClient.HttpClient)(jevHttp)).pipe(
-            Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor))
-          )
+  const result = await Effect.runPromise(
+    Effect.flatMap(Evaluator.Evaluator, (evaluator) => evaluator.evaluate({ state: {}, questions: question })).pipe(
+      Effect.provide(
+        layerSeatEvaluator({
+          AI_GATEWAY_API_KEY: "smithers-binding-credential",
+          SMITHERS_MODEL_PROXY_URL: proxy,
+          SMITHERS_MODEL_PROXY_PROVIDERS: "cerebras,vercel",
+          CODEX_HOME: "/nonexistent"
+        }, Layer.succeed(HttpClient.HttpClient)(jevHttp)).pipe(
+          Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor))
         )
       )
     )
-    throw new Error("Expected subscription opt-in failure")
-  } catch (error) {
-    expect(error).toMatchObject({ code: "unconfigured" })
-    const message = Evaluator.publicMessage(error as Evaluator.EvaluatorError)
-    expect(message).toMatch(/Codex|Luna|subscription/i)
-    expect(message).not.toContain("private gateway address")
-    expect(message).not.toContain("did not answer")
-  }
-  expect(calls).toEqual(Array(Evaluator.defaultAttempts).fill(jevUrl))
+  )
+  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+  expect(jevCalls).toEqual(Array(Evaluator.defaultAttempts).fill(`${proxy}/vercel/v4/ai/evaluation-model`))
+  expect(routed).toHaveLength(1)
+  expect(routed[0]!.url).toBe(`${proxy}/vercel/v1/chat/completions`)
+  expect(routed[0]!.model).toBe("anthropic/claude-sonnet-4.5")
 })
 
 it("asks for Codex login when Luna was opted in without a usable session", async () => {
