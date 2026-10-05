@@ -8,6 +8,7 @@ import type { DebugApiViewProps } from "@smthrs/rpc/DebugApiCard"
 import { createRoot } from "./views/testDom"
 import { DebugApiCard } from "./DebugApiCard"
 import { DebugApiView } from "./views/DebugApiView"
+import { createDebugApiSeam } from "../state/seams/DebugApiSeam"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"
 import { memoryStorage, silentAgent } from "../state/TestFixtures"
@@ -38,7 +39,8 @@ test("slash opens without fetching; production Send and confirmation preserve re
   await act(async () => { props.onAction(props.actions[0]!.tag, { body: '{"name":"CI","value":"private"}' }); await settle(() => !!controller.debugApi.get().model.pending) })
   expect(calls).toHaveLength(0)
   expect(props.model.pending).toEqual({ method: "PUT", path: "/api/secrets" })
-  expect(props.actions[0]!.label).toBe("Confirm PUT /api/secrets")
+  expect(props.actions[0]!.label).toBe(`Confirm PUT /api/secrets #${controller.debugApi.get().target}`)
+  expect(controller.debugApi.get().target).toMatch(/^[0-9a-f]{12}$/)
   await act(async () => { props.onAction(props.actions[0]!.tag, { body: '{"name":"changed"}' }); await settle(() => !controller.debugApi.get().model.pending) })
   expect(calls).toHaveLength(0)
   await act(async () => { props.onAction(props.actions[0]!.tag, { body: '{"name":"CI","value":"private"}' }); await settle(() => !!controller.debugApi.get().model.pending) })
@@ -169,4 +171,25 @@ test("an account change remounts the real form: the previous account's draft nev
   await act(async () => { host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })) })
   expect(JSON.stringify(controller.debugApi.get())).not.toContain("alice-draft")
   expect(calls).toEqual([])
+})
+
+test("replacing the seam at the same selection and epoch remounts the real form without the old draft", async () => {
+  const make = () => createDebugApiSeam({ document: async () => apiFixture, origin: "http://mini.local", gates: () => ({ view: true, catalog: true, authorizer: true }),
+    fetch: async () => { throw Error("No request") } })
+  const a = make(), b = make()
+  await a.open("putSecrets"); await b.open("putSecrets")
+  expect(a.get().epoch).toBe(b.get().epoch)
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const render = (seam: ReturnType<typeof make>) => root.render(<DebugApiCard View={DebugApiView} seam={seam} dispatch={async () => ({ status: "executed" }) as never} />)
+  await act(async () => render(a))
+  const textarea = host.querySelector("textarea")!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, '{"name":"seam-a-draft"}')
+    textarea.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+  expect(host.querySelector("textarea")!.value).toBe('{"name":"seam-a-draft"}')
+  await act(async () => render(b))
+  expect(host.querySelector("textarea")!.value).toBe("")
+  expect(host.innerHTML).not.toContain("seam-a-draft")
 })

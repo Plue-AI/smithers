@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createDebugApiSeam, debugApiFailureCopy } from "./DebugApiSeam"
+import { createDebugApiSeam, debugApiFailureCopy, requestDiscriminator, SAFE_FIELDS } from "./DebugApiSeam"
 import { apiFixture, expectedOperations } from "./DebugApiFixtures.test-support"
 const setup = (fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async () => new Response('{"items":[]}')) => {
   let n = 0
@@ -81,16 +81,6 @@ test("pending requests deduplicate; a stale response cannot overwrite a newer se
   await expect(seam.open()).rejects.toThrow("unavailable")
 })
 const TICKET = `${"a1".repeat(32)}.eyJzZXNzaW9uX2hhc2giOiJhYmMifQ`
-test("an unclassified response masks credential-named and token-shaped strings, fail closed", async () => {
-  const sha = "0123456789abcdef0123456789abcdef01234567"
-  const { seam } = setup(async () => Response.json({ name: "main", head: sha, session_token: "plain-private", nested: [{ apiKey: "k-private", count: 3 }],
-    note: "ghp_abcdefghijklmnopqrstuvwxyz0123456789", blob: "Zm9vYmFyQmF6UXV4MTIzNDU2Nzg5MGFiY2RlZmdo", cookie: "sid=private" }))
-  await seam.open("getStack")
-  await seam.send({ operationId: "getStack" })
-  const body = JSON.parse(seam.get().model.exchange!.response!.body!)
-  expect(body).toEqual({ name: "main", head: sha, session_token: "[redacted]", nested: [{ apiKey: "[redacted]", count: 3 }],
-    note: "[redacted]", blob: "[redacted]", cookie: "[redacted]" })
-})
 test("the SSE ticket operation's response never reaches the response pane", async () => {
   const { seam, calls } = setup(async () => Response.json({ ticket: TICKET, expires_at: "2026-10-05T12:00:00Z" }))
   await seam.open("post_api_auth_sse_ticket")
@@ -215,4 +205,69 @@ test("an account change clears the selection", async () => {
   expect(seam.get().model.selected).toBeUndefined()
   expect(seam.get().fields).toEqual([])
   expect(seam.get().epoch).not.toBe(before)
+})
+
+const AWS_ID = "ASIAIOSFODNN7EXAMPLE", AWS_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", SLACK = "xoxs-abcdefghijklmnop", SHORT = "k_12345", PADDED = "c2VjcmV0cGFkZGVkPQ=="
+const EXPLOITS = [AWS_ID, AWS_SECRET, SLACK, SHORT, PADDED]
+test("the pinned safe field-name allowlist", () => {
+  expect([...SAFE_FIELDS].sort()).toEqual(["branch", "closed_at", "created_at", "default_branch", "expires_at", "finished_at", "full_name", "id", "kind",
+    "login", "merged_at", "n", "name", "number", "owner", "phase", "repo", "role", "sha", "started_at", "state", "status", "title", "type", "updated_at"])
+})
+test("response strings show only for allowlisted names or safe schema formats; every other string is withheld", async () => {
+  const { seam } = setup(async () => Response.json({ id: 7, name: "main", status: "open", created_at: "2026-10-05T12:00:00Z", ok: true, size: 3,
+    aws_id: AWS_ID, aws_secret: AWS_SECRET, slack: SLACK, key2: SHORT, pad: PADDED, nested: [{ id: "x", hint: SHORT }] }))
+  await seam.open("getStack"); await seam.send({ operationId: "getStack" })
+  expect(JSON.parse(seam.get().model.exchange!.response!.body!)).toEqual({ id: 7, name: "main", status: "open", created_at: "2026-10-05T12:00:00Z", ok: true, size: 3,
+    aws_id: "[withheld]", aws_secret: "[withheld]", slack: "[withheld]", key2: "[withheld]", pad: "[withheld]", nested: [{ id: "x", hint: "[withheld]" }] })
+  const typed = setup(async () => Response.json({ phase: "done", run: "0b7f8e2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b", when: "2026-10-05T12:00:00Z",
+    link: "http://mini.local/api/runs/1", note: "free text", steps: [{ phase: "queued" }, { phase: SLACK }] }))
+  await typed.seam.open("getRun"); await typed.seam.send({ operationId: "getRun", values: { "path:run": "0b7f8e2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b" } })
+  expect(JSON.parse(typed.seam.get().model.exchange!.response!.body!)).toEqual({ phase: "done", run: "0b7f8e2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b", when: "2026-10-05T12:00:00Z",
+    link: "http://mini.local/api/runs/1", note: "[withheld]", steps: [{ phase: "queued" }, { phase: "[withheld]" }] })
+  const offOrigin = setup(async () => Response.json({ phase: AWS_ID, run: AWS_ID, when: AWS_ID, link: `https://elsewhere.test/?k=${SHORT}` }))
+  await offOrigin.seam.open("getRun"); await offOrigin.seam.send({ operationId: "getRun", values: { "path:run": "0b7f8e2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b" } })
+  expect(JSON.parse(offOrigin.seam.get().model.exchange!.response!.body!)).toEqual({ phase: "[withheld]", run: "[withheld]", when: "[withheld]", link: "[withheld]" })
+})
+test("only allowlisted headers show, and an unlisted media type is labeled other", async () => {
+  const { seam } = setup(async () => new Response('{"id":1}', { headers: { "Content-Type": "application/json; charset=utf-8", ETag: '"abc123"', "X-Request-Id": "req-1",
+    "Retry-After": "30", "X-Debug": AWS_ID, "X-Amz-Secret": AWS_SECRET, Server: SLACK, Link: PADDED } }))
+  await seam.open("getStack"); await seam.send({ operationId: "getStack" })
+  expect(seam.get().model.exchange!.response!.headers).toEqual([["content-type", "application/json"], ["etag", '"abc123"'], ["retry-after", "30"], ["x-request-id", "req-1"]])
+  for (const value of EXPLOITS) expect(JSON.stringify(seam.get())).not.toContain(value)
+  const escaped = setup(async () => new Response("opaque", { headers: { "Content-Type": "application/ghp_abcdefghijklmnopqrstuvwxyz0123456789" } }))
+  await escaped.seam.open("getStack"); await escaped.seam.send({ operationId: "getStack" })
+  expect(escaped.seam.get().model.exchange!.response!.body).toBe("[withheld: 6 bytes, other]")
+  expect(JSON.stringify(escaped.seam.get())).not.toContain("ghp_")
+})
+test("URL echoes show only schema-safe or allowlisted parameter values", async () => {
+  const { seam, calls } = setup(async () => Response.json({}))
+  await seam.open("readFile")
+  await seam.send({ operationId: "readFile", values: { "path:path": AWS_ID, "query:line": AWS_SECRET } })
+  await seam.send({ operationId: "readFile", values: { "path:path": SLACK, "query:line": "12" } })
+  expect(calls.map(call => call.url)).toEqual([`http://mini.local/api/files/${AWS_ID}?line=${encodeURIComponent(AWS_SECRET)}`, `http://mini.local/api/files/${SLACK}?line=12`])
+  expect(seam.get().model.exchange!.request.url).toBe("http://mini.local/api/files/[withheld]?line=12")
+  for (const value of EXPLOITS) expect(JSON.stringify(seam.get())).not.toContain(value)
+})
+test("a mutation never prefills an unsafe value; the original stays in pending state and is what is sent", async () => {
+  const { seam, calls } = setup(async () => Response.json({}))
+  await seam.open("deleteFile")
+  await seam.send({ operationId: "deleteFile", values: { "path:path": AWS_ID, "query:line": "4" } })
+  expect(seam.get().fields).toEqual([{ name: "query:line", label: "line", kind: "text", required: false, value: "4" }])
+  expect(JSON.stringify(seam.get())).not.toContain(AWS_ID)
+  await seam.send({ operationId: "deleteFile", intent: "confirm", confirmation: seam.get().confirmation, values: { "query:line": "4" } })
+  expect(calls[0]!.url).toBe(`http://mini.local/api/files/${AWS_ID}?line=4`)
+})
+test("the confirmation shows query keys and a target discriminator that the fetch re-derives from the sent request", async () => {
+  const { seam, calls } = setup(async () => Response.json({}))
+  await seam.open("deleteFile")
+  await seam.send({ operationId: "deleteFile", values: { "path:path": "a-secret-one", "query:line": "4" } })
+  const first = { pending: seam.get().model.pending, target: seam.get().target }
+  await seam.send({ operationId: "deleteFile", values: { "path:path": "a-secret-two", "query:line": "4" } })
+  const second = { pending: seam.get().model.pending, target: seam.get().target }
+  expect(first.pending).toEqual({ method: "DELETE", path: "/api/files/[withheld]?line" })
+  expect(second.pending).toEqual(first.pending)
+  expect(second.target).not.toBe(first.target)
+  expect(second.target).toMatch(/^[0-9a-f]{12}$/)
+  await seam.send({ operationId: "deleteFile", intent: "confirm", confirmation: seam.get().confirmation })
+  expect(requestDiscriminator(calls[0]!.init.method!, calls[0]!.url, calls[0]!.init.body as string | undefined)).toBe(second.target!)
 })

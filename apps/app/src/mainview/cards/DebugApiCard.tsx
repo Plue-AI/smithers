@@ -11,7 +11,7 @@ export const DebugApiCard = ({ seam, View, dispatch, maximized = false }: {
 }) => {
   const snapshot = useSyncExternalStore(seam.subscribe, seam.get, seam.get)
   const definitions: CardActionDefinition<"debug.api">[] = seam.available() && snapshot.model.selected ? [{
-    tag: "debug.api", label: snapshot.model.pending ? `Confirm ${snapshot.model.pending.method} ${snapshot.model.pending.path}` : "Send",
+    tag: "debug.api", label: snapshot.model.pending ? `Confirm ${snapshot.model.pending.method} ${snapshot.model.pending.path}${snapshot.target ? ` #${snapshot.target}` : ""}` : "Send",
     ...(snapshot.busy ? { disabled: { reason: "Sending" } } : {}),
     command_input: { operationId: snapshot.model.selected, intent: snapshot.model.pending ? "confirm" : "send", ...(snapshot.confirmation ? { confirmation: snapshot.confirmation } : {}) },
     input: snapshot.fields,
@@ -19,9 +19,9 @@ export const DebugApiCard = ({ seam, View, dispatch, maximized = false }: {
   }] : []
   const bindings = cardActions(dispatch, definitions)
   if (!seam.available()) return null
-  // Keyed by account epoch and selection: a new account remounts the form, so
-  // no draft typed for the previous account can show or re-submit.
-  return <View key={`${snapshot.epoch ?? 0}:${snapshot.model.selected ?? ""}`} model={snapshot.model} {...bindings} view={{ maximized, selected: snapshot.model.selected }}
+  // Keyed by seam instance, account epoch and selection: a new seam or account
+  // remounts the form, so no draft typed for the previous one can show or re-submit.
+  return <View key={`${snapshot.instance ?? 0}:${snapshot.epoch ?? 0}:${snapshot.model.selected ?? ""}`} model={snapshot.model} {...bindings} view={{ maximized, selected: snapshot.model.selected }}
     onView={patch => { if (patch.selected) seam.select(patch.selected) }} />
 }
 const DebugApiBody = ({ maximized }: { maximized: boolean }) => {
