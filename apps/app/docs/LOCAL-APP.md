@@ -204,6 +204,8 @@ An unknown id, an ambiguous prefix, a read missing its metadata, an unsupported 
 
 To look at one locally: `SMITHERS_LOCAL_PORT=47313 SMITHERS_CHAT_STUB=1 bun e2e/playwright/webserver.ts`, then open `http://127.0.0.1:47313/?codex=<id>` or `?claude=<id>`.
 
+`/agent.codex <prompt>` and `/agent.claude <prompt>` start Codex or Claude Code on this machine and show its conversation with no id typed (#3730). Each exists only where the host advertises `launch.codex` or `launch.claude-code`: today the local preview host given a launcher (`agentLauncher`), which the T1 test host composes with the fixture CLIs in `e2e/fixtures/agent-launch/`; the install's backend starts no CLI. `POST /api/external/launch { agent, prompt }` runs the CLI headless in the launcher's directory, the prompt one argument after `--` (`codex exec --sandbox workspace-write -C <dir> -- <prompt>`, `claude -p --permission-mode acceptEdits -- <prompt>`), then binds the earliest session whose first record names that directory and began at or after the launch (`src/bun/AgentLaunch.ts` `launchedSession`); launches run one at a time so two never trade sessions. The app answers "Requested" at once, keeps one toast until the session is bound or refused, and records the binding as an `agent-session` card, so a reload keeps it. The conversation shows the newest started session where it was started. The agent's call confirms first.
+
 ## Model-authored cards
 
 Models can provide explanatory text but cannot author markup, scripts, command

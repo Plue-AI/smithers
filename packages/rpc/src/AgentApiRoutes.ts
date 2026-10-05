@@ -385,6 +385,15 @@ export const HEALTH_PATH = "/api/health"
 export const EXTERNAL_SESSIONS_PATH = "/api/external/sessions"
 
 /**
+ * Start an agent CLI on this machine: `POST { agent: "codex" | "claude-code", prompt }` answers `{ agent, session }`,
+ * the id of the session the CLI wrote, which EXTERNAL_SESSIONS_PATH then reads.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const EXTERNAL_LAUNCH_PATH = "/api/external/launch"
+
+/**
  * The account's current billing standing: its plan key, its caps, and today's spend.
  *
  * @since 1.0.0

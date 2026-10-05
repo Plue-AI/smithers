@@ -1,3 +1,4 @@
+import { mkdirSync, realpathSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -6,6 +7,7 @@ import { createChatJournalFixture } from "../e2e/support/ChatJournalFixture"
 import { createChatStub } from "../e2e/support/ChatStub"
 import { DEFAULT_CLOUD_API, startLocalServer } from "../src/bun/server"
 import { externalSessions } from "../src/bun/ExternalSessions"
+import { agentLauncher, type LaunchAgent } from "../src/bun/AgentLaunch"
 import type { LocalServerOptions } from "../src/bun/server"
 
 /** Test-only composition. A stubbed model is not permission to inspect host credentials. */
@@ -17,6 +19,11 @@ export const browserTestOptions = (
   const port = Number(env.SMITHERS_LOCAL_PORT ?? "0")
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Invalid browser-test server port")
   const realChat = env.SMITHERS_CHAT_STUB === "0"
+  // #3730: Codex and Claude Code start as fixture CLIs in a scratch directory, each writing into a home of its own.
+  const launch: Partial<Record<LaunchAgent, { readonly cli: string; readonly home: string }>> = {
+    ...(env.SMITHERS_E2E_CODEX_CLI === undefined ? {} : { codex: { cli: env.SMITHERS_E2E_CODEX_CLI, home: launchHome(root, "codex") } }),
+    ...(env.SMITHERS_E2E_CLAUDE_CLI === undefined ? {} : { "claude-code": { cli: env.SMITHERS_E2E_CLAUDE_CLI, home: launchHome(root, "claude-code") } })
+  }
   const modelVault = new Map<string, string>()
   // The real-model tier explicitly passes named fixture providers. Neither
   // ordinary browser tests nor that tier inherit unrelated host model keys.
@@ -45,16 +52,42 @@ export const browserTestOptions = (
     },
     home: root,
     stateDir: join(root, "state"),
-    // M-38: Codex and Claude Code sessions from SMITHERS_E2E_CODEX_HOME and SMITHERS_E2E_CLAUDE_HOME only, as a
-    // fixed owner; this machine's own sessions stay out.
+    // M-38: Codex and Claude Code sessions from SMITHERS_E2E_CODEX_HOME and SMITHERS_E2E_CLAUDE_HOME, and from the
+    // launch homes, only, as a fixed owner; this machine's own sessions stay out.
     ...(env.SMITHERS_E2E_CODEX_HOME === undefined && env.SMITHERS_E2E_CLAUDE_HOME === undefined ? {} : {
       externalSessions: externalSessions(async agent => {
         const home = agent === "codex" ? env.SMITHERS_E2E_CODEX_HOME : env.SMITHERS_E2E_CLAUDE_HOME
-        return home === undefined ? [] : [join(home, agent === "codex" ? "sessions" : "projects")]
+        const launched = launch[agent]
+        return [
+          ...(home === undefined ? [] : [join(home, sessionsDirectory[agent])]),
+          ...(launched === undefined ? [] : [join(launched.home, sessionsDirectory[agent])])
+        ]
       }),
       externalOwner: { login: "ben", name: "Ben Ito" }
-    })
+    }),
+    ...(launch.codex === undefined && launch["claude-code"] === undefined ? {} : { agentLauncher: agentLauncher({
+      cwd: launchDirectory(root),
+      agents: Object.fromEntries((Object.keys(launch) as LaunchAgent[]).map(agent => [agent, {
+        command: [process.execPath, launch[agent]!.cli],
+        env: { [agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]: launch[agent]!.home },
+        roots: async () => [join(launch[agent]!.home, sessionsDirectory[agent])]
+      }]))
+    }) })
   }
+}
+
+/** Where each agent files its sessions under its home. */
+const sessionsDirectory: Record<LaunchAgent, string> = { codex: "sessions", "claude-code": "projects" }
+/* The reader refuses a path through a link (macOS's /var is one), so a launch home is named by its real path. */
+const launchHome = (root: string, agent: LaunchAgent): string => {
+  const home = join(root, `${agent}-launch`)
+  mkdirSync(join(home, sessionsDirectory[agent]), { recursive: true })
+  return realpathSync(home)
+}
+const launchDirectory = (root: string): string => {
+  const directory = join(root, "work")
+  mkdirSync(directory, { recursive: true })
+  return directory
 }
 
 export const startBrowserTestHost = async (

@@ -20,6 +20,7 @@ import {
   CHAT_CANCEL_PATH,
   CHAT_TURN_PATH,
   EXTERNAL_SESSIONS_PATH,
+  EXTERNAL_LAUNCH_PATH,
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
@@ -71,6 +72,7 @@ import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/Upst
 import { decodePath, invalidPath, json, jsonError, jsonErrorWithStatus, readJson, refuse, Router } from "./routes"
 import type { RouteHandler } from "./routes"
 import { externalSessions } from "./ExternalSessions"
+import type { AgentLauncher } from "./AgentLaunch"
 
 /** The deployed identity seam the sign-in device flow talks to. */
 export const DEFAULT_IDENTITY_UPSTREAM = "https://canary.smithers.sh"
@@ -154,6 +156,8 @@ export interface LocalServerOptions {
   readonly externalSessions?: ReturnType<typeof externalSessions>
   /** Test compositions only: the person their fixture sessions name. The preview otherwise names the OS user. */
   readonly externalOwner?: { readonly login: string; readonly name: string }
+  /** Starts agent CLIs on this machine (#3730); absent, this host has no launch door. The server stops it. */
+  readonly agentLauncher?: AgentLauncher
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -741,6 +745,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         plans: identityUpstream !== null,
         cloud: cloudUpstream !== null,
         browser: remoteEnabled,
+        launchCodex: launcher?.agents.includes("codex") === true,
+        launchClaudeCode: launcher?.agents.includes("claude-code") === true
       }),
       authFlow: identityUpstream === null ? "none" : "both",
       // Required by `AppBootstrapSchema`, and omitting it stopped the app
@@ -784,6 +790,23 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       return jsonErrorWithStatus(status, status === 404 ? "source_not_found" : "invalid_request", message)
     }
     return json({ ...read, owner })
+  })
+
+  /*
+   * #3730: start Codex or Claude Code here and answer the session it wrote; the conversation reads it through the route above.
+   * The same local preview only, on the same loopback listener: an install never starts a CLI on its host.
+   */
+  const launcher = localPreview ? options.agentLauncher : undefined
+  if (launcher !== undefined) router.add("POST", EXTERNAL_LAUNCH_PATH, async ({ request }) => {
+    const read = await readJson(request, 64 * 1024)
+    if ("error" in read) return read.error
+    const body = read.body as { agent?: unknown; prompt?: unknown } | undefined
+    const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : ""
+    const agent = launcher.agents.find(each => each === body?.agent)
+    if (agent === undefined || prompt === "") return jsonError("invalid_request", `Name an agent this host starts (${launcher.agents.join(", ")}) and give it a prompt.`)
+    const launched = await launcher.launch(agent, prompt)!
+    // The reason is what the app words; the message, with the CLI's last stderr line, is for diagnosis.
+    return "error" in launched ? jsonError("agent_unavailable", launched.error, { reason: launched.reason }) : json(launched)
   })
 
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
@@ -1098,7 +1121,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     if (request.headers.get("host") !== expectedHost) {
       return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
-    if (pathname === EXTERNAL_SESSIONS_PATH) {
+    if (pathname === EXTERNAL_SESSIONS_PATH || pathname === EXTERNAL_LAUNCH_PATH) {
       if (!localPreview) return jsonError("not_found", "Not found.")
       if (!localPreviewLoopback(url.hostname, bunServer.requestIP(request)?.address)) return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
@@ -1450,6 +1473,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       const results = await Promise.allSettled([
         ...writerCleanup,
         () => closeCloudBridges(1001, "the local app is shutting down"),
+        () => options.agentLauncher?.dispose(),
         () => server.stop(true),
         () => cloudAuth?.stop()
       ].map(async (cleanup) => cleanup()))

@@ -42,7 +42,10 @@ export default defineConfig({
       SMITHERS_LOCAL_PORT: String(PORT),
       SMITHERS_CHAT_STUB: CHAT_STUB,
       SMITHERS_E2E_CODEX_HOME: resolve(__dirname, "e2e/fixtures/codex-home"),
-      SMITHERS_E2E_CLAUDE_HOME: resolve(__dirname, "e2e/fixtures/claude-home")
+      SMITHERS_E2E_CLAUDE_HOME: resolve(__dirname, "e2e/fixtures/claude-home"),
+      // #3730: Codex and Claude Code start as these fixture CLIs, which write a session; the real CLIs never run in a test.
+      SMITHERS_E2E_CODEX_CLI: resolve(__dirname, "e2e/fixtures/agent-launch/codex.ts"),
+      SMITHERS_E2E_CLAUDE_CLI: resolve(__dirname, "e2e/fixtures/agent-launch/claude.ts")
     }
   }
 })

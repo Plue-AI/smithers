@@ -774,6 +774,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
+  /* An agent CLI started from this conversation (M-38): the session the conversation shows read-only. */
+  z.object({ ...cardBaseShape, kind: z.literal("agent-session"), payload: z.object({ agent: z.enum(["codex", "claude-code"]), session: z.string() }) }),
   z.object({
     ...cardBaseShape,
     kind: z.literal("todo"),

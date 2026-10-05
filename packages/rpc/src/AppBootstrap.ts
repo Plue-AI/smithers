@@ -46,6 +46,9 @@ export const RuntimeCapabilitySchema = z.enum([
   // (packages/rpc/src/HostCapabilities.ts holds the per-host tables).
   "cloud.terminal", // this origin tunnels workspace terminals (/api/cloud-ws/*)
   "cloud.pat", // a host-held Smithers Cloud PAT session (/api/cloud-auth/*)
+  // This host starts the Codex or the Claude Code CLI on its own machine and serves the session it writes (/api/external/launch).
+  "launch.codex",
+  "launch.claude-code",
   /*
    * The desktop shell (Electrobun) serves this origin: its renderer relay
    * appends the row to the backend's bootstrap, and the packaged Bun host

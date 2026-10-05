@@ -816,6 +816,8 @@ const FIXTURES: Record<
   confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },
   branch: { minimal: { id: "b-retry" }, full: { id: "b-retry" } },
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
+  /* #3730: an agent CLI started from the conversation names the session it wrote. */
+  "agent-session": { minimal: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" }, full: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" } },
   run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
   flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3" } },
   settings: { minimal: {}, full: {} },

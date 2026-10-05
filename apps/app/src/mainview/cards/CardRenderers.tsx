@@ -53,6 +53,7 @@ import { draftCardFamily } from "./DraftCard"
 import { confirmCardFamily } from "./ActCard"
 import { branchCardFamily } from "./BranchCard"
 import { terminalCardFamily } from "./TerminalCard"
+import { agentSessionCardFamily } from "./AgentSessionCard"
 import { runCardFamily } from "./RunContainer"
 
 /* The tutorial's two embedded surfaces: the ranked repository chooser and the Library shelf. */
@@ -108,6 +109,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   confirmCardFamily,
   branchCardFamily,
   terminalCardFamily,
+  agentSessionCardFamily,
   runCardFamily,
   flowCardFamily,
   docsCardFamily,
@@ -151,6 +153,7 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...confirmCardFamily,
   ...branchCardFamily,
   ...terminalCardFamily,
+  ...agentSessionCardFamily,
   ...runCardFamily,
   ...flowCardFamily,
   ...docsCardFamily,

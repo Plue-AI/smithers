@@ -4120,6 +4120,23 @@ export const legacyCards = [
   {
     "row": {
       "status": "active",
+      "id": "agent-session:0199e2e0-0000-7000-8000-00000000a11c",
+      "title": "Codex",
+      "createdAt": 0,
+      "ordinal": 0,
+      "kind": "agent-session",
+      "payload": {
+        "agent": "codex",
+        "session": "0199e2e0-0000-7000-8000-00000000a11c"
+      }
+    },
+    "expectedKind": "agent-session",
+    "expectedTitle": "Codex",
+    "expectedWas": null
+  },
+  {
+    "row": {
+      "status": "active",
       "id": "saved-run",
       "title": "Saved run",
       "createdAt": 0,

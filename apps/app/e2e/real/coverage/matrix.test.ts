@@ -173,7 +173,8 @@ describe("deployment mode matrix", () => {
       "73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4",
       "42a406f582e43f1022b4c8d790961d6d978bf603f89c1c62ce7479a7668b9d68",
       "609193c0daf3143e80a21a1fa4c28f51e6a7b4a5c8f9cee2e5faf780dbdbd356",
-      "ceefdbdb4354e207073557c58681c24ee1a1f5aa90bb6797addc44c4f70fc517"
+      "ceefdbdb4354e207073557c58681c24ee1a1f5aa90bb6797addc44c4f70fc517",
+      "da79f899db853c98539ab8bcaaa7df17a5a12ba3a28e132cf1b04a16c0393d42"
     ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)
@@ -182,7 +183,7 @@ describe("deployment mode matrix", () => {
 
   test("the README publishes the same feature matrix", () => {
     const readme = readFileSync(resolve(import.meta.dir, "README.md"), "utf8")
-    const published = [...readme.matchAll(/^\| `([a-z.]+)` \| (core|optional|absent) \| (core|optional|absent) \|/gm)]
+    const published = [...readme.matchAll(/^\| `([a-z.-]+)` \| (core|optional|absent) \| (core|optional|absent) \|/gm)]
       .map(([, capability, selfhost, plue]) => [capability, selfhost, plue])
     expect(published).toEqual(Object.entries(FEATURE_MATRIX).map(([capability, { selfhost, plue }]) => [capability, selfhost.support, plue.support]))
     expect(readme).toContain(`Feature matrix version ${FEATURE_MATRIX_VERSION}`)

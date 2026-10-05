@@ -134,6 +134,7 @@ import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createExternalSessionSeam, type ExternalSessionSeam } from "./seams/ExternalSessionSeam"
 import { createTimelineTitleSeam, modelStreamTitles, type TimelineTitleSeam } from "./seams/TimelineTitleSeam"
+import { createAgentLaunch, type StartAgent } from "./controller/agentLaunch"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
@@ -529,6 +530,8 @@ export interface AppController extends IssueFlowsController {
   readonly externalSession: ExternalSessionSeam["session"]
   /** The fast model's titles for the timeline's folded lines (#3732): POST /api/model/stream, asked while the rail shows them. */
   readonly timelineTitles: TimelineTitleSeam["ask"]
+  /** Start an agent CLI on the host and show its session in this conversation (#3730). */
+  readonly startAgent: StartAgent
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
   readonly design: DesignWorld
   /** The `/api/live` channel the Home card subscribes through; absent when the composition supplied none. */
@@ -879,6 +882,7 @@ export const createAppController = (
   const timelineTitleSeam = createTimelineTitleSeam({ ...(services.bootstrap !== undefined && hasCapability(services.bootstrap, "model.turn")
     ? { write: modelStreamTitles(ctx.boundedFetch, baseUrl.replace(/\/$/, "")) } : {}) })
   ctx.onDispose(timelineTitleSeam.dispose)
+  const { startAgent } = createAgentLaunch(ctx, (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init))
   /* Members (T-ACC-02): an install reads and changes its roster through /api/members; the seeded roster stands in only off an install. */
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
@@ -1697,6 +1701,7 @@ export const createAppController = (
    */
   const commandActions: CommandActions = {
     live: services.live,
+    startAgent,
     design,
     presentCard,
     presentRun,

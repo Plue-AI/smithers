@@ -206,7 +206,7 @@ requires all declared hosts. Test discovery (`--list`) is not execution proof.
 
 ### Feature matrix
 
-Feature matrix version 4. `FEATURE_MATRIX` in `matrix.ts` classifies every
+Feature matrix version 5. `FEATURE_MATRIX` in `matrix.ts` classifies every
 runtime capability for each provider:
 
 - `core`: every mode of the provider must advertise it. The report has one
@@ -226,6 +226,7 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | `commands.select` | optional | optional |
 | `browser.read` | optional | optional |
 | `identity` | core | core |
+| `install` | optional | absent |
 | `github` | optional | core |
 | `cloud` | core | core |
 | `billing.balance` | optional | optional |
@@ -235,6 +236,8 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | `billing.portal` | optional | optional |
 | `cloud.terminal` | core | core |
 | `cloud.pat` | optional | absent |
+| `launch.codex` | absent | absent |
+| `launch.claude-code` | absent | absent |
 | `native.shell` | absent | absent |
 
 Plue owes `github` because its hosted backend serves GitHub sign-in and

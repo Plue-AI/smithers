@@ -56,6 +56,8 @@ export const FLOW_NAMES = [
   "admin.reset.ask",
   "admin.reset.cancel",
   "agent.list",
+  "agent.codex",
+  "agent.claude",
   "app.hint.dismiss",
   "theme",
   "approval.approve",
