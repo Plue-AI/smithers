@@ -1121,6 +1121,12 @@ func (s *GitHubSyncedRepoService) backfill(ctx context.Context, row db.GithubSyn
 			return err
 		}
 	}
+	if s.install != nil {
+		if err := s.backfillIssueEvents(ctx, row, fetch); err != nil {
+			s.recordSyncError(row.ID, err)
+			return err
+		}
+	}
 	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := s.store.MarkGitHubSyncedRepoSynced(markCtx, row.ID); err != nil {

@@ -24,7 +24,7 @@ The existing GitHub callers have shared client wiring for response-header budget
 
 A 403 or 429 with `Retry-After` pauses only its stream. Exhausted primary capacity pauses the resource until its reset. Below 20 percent remaining, the cadence helper doubles issues, issue events and permission reads until reset. Conditional 304 responses consume no local debit. The existing request API also exposes `If-None-Match`, 304 status and response headers without replacing a cached fact.
 
-The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events require an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. The full stream, cursor and freshness contracts remain unqualified.
+The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events use an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. Full production stream and freshness contracts remain unqualified.
 
 ## Fetched-state delivery
 
@@ -40,6 +40,16 @@ cache rows. A malformed object or failed delivery write rolls back the batch.
 Absence from a fetched page does not silently delete a cached object; deletion
 still needs an authoritative tombstone and its consumer delivery.
 
+Repository issue events are paged newest first back to the durable cursor.
+Every new event is retained by its GitHub event id, including separate label
+removal and reapplication events. Cache updates, event deliveries and the cursor
+commit together; interrupted paging and failed writes leave the cursor intact.
+The cursor is scoped to the installation and immutable repository id. It marks
+durable admission; pending consumer work survives its advancement and restart.
+Delivery follows numeric event order, independently of database timestamps.
+Embedded issue text is cached data; downstream label admission must still check
+its authorship and current membership.
+
 The shared jobs worker retains requests when no consumer is registered. A
 consumer writes through the same PostgreSQL transaction that acknowledges its
 request. Failure rolls back both, and a later version in the stream waits for
@@ -49,6 +59,6 @@ and provider authority. No separate delivery table or scheduler is introduced.
 Production provider qualification and downstream handlers are not registered
 yet. Install metadata fetching and per-issue comment baselines remain disabled;
 last-good cached data stays visibly stale. Main-ref polling is separate and
-continues through its existing service. Repository issue-event paging/cursors,
-review and comment streams, ETags, cadence integration and the full production
-recovery/freshness checks remain required before activation.
+continues through its existing service. Migration of the remaining per-issue
+provenance readers, review and comment streams, ETags, cadence integration and
+the full production recovery/freshness checks remain required before activation.

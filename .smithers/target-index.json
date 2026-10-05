@@ -24118,6 +24118,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_events.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_budget.go"
       },
       {

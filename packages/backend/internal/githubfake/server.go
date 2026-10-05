@@ -111,10 +111,10 @@ type Server struct {
 	labels map[string][]string
 	// opened are the issues people opened (OpenIssue), with each issue's
 	// or pull request's timeline events and comments, by repo/number.
-	opened               map[string]*issue
-	events               map[string][]IssueEvent
-	comments             map[string][]IssueComment
-	eventIDs, commentIDs int64
+	opened                         map[string]*issue
+	events                         map[string][]IssueEvent
+	comments                       map[string][]IssueComment
+	eventIDs, commentIDs, issueIDs int64
 	// main holds the squash commits GitHub's main contains; held are merged
 	// commits main has not reached yet (HoldMain). In a repository the Git
 	// fixture hosts, heldTip is the newest held squash commit: the next one

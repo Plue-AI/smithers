@@ -17,6 +17,7 @@ import (
 // (Server.labels); every App write still passes the token boundary and the
 // permanent write log.
 type issue struct {
+	ID          int64
 	Number      int64
 	Title, Body string
 	Author      string
@@ -69,7 +70,8 @@ func (s *Server) OpenIssue(repo, login, title, body string) int64 {
 	}
 	number := s.nextNumber(repo)
 	now := time.Now().UTC()
-	s.opened[issueKey(repo, number)] = &issue{Number: number, Title: title, Body: body, Author: login, State: "open", CreatedAt: now, UpdatedAt: now}
+	s.issueIDs++
+	s.opened[issueKey(repo, number)] = &issue{ID: s.issueIDs, Number: number, Title: title, Body: body, Author: login, State: "open", CreatedAt: now, UpdatedAt: now}
 	return number
 }
 
@@ -174,7 +176,7 @@ func (s *Server) issueJSON(repo string, i *issue) map[string]any {
 		reason = i.StateReason
 	}
 	key := issueKey(repo, i.Number)
-	return map[string]any{"number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "state_reason": reason,
+	return map[string]any{"id": i.ID, "number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "state_reason": reason,
 		"html_url": fmt.Sprintf("https://github.com/%s/issues/%d", repo, i.Number), "user": s.actor(i.Author, false),
 		"labels": labelsOf(s.labels[key]), "comments": len(s.comments[key]), "performed_via_github_app": nil,
 		"created_at": i.CreatedAt, "updated_at": i.UpdatedAt}

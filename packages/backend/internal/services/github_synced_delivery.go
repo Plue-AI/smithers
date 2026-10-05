@@ -32,6 +32,7 @@ type gitHubFetchedObject struct {
 	Resource         string          `json:"resource"`
 	Number           int64           `json:"number"`
 	Version          string          `json:"version"`
+	EventID          int64           `json:"event_id,omitempty"`
 	Object           json.RawMessage `json:"object"`
 }
 
@@ -129,43 +130,8 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 			return err
 		}
 
-		q := db.New(tx)
-		writer := NewGitHubSyncedRepoService(q)
 		for _, object := range objects {
-			var header gitHubIssueHeader
-			if err := json.Unmarshal(object, &header); err != nil || header.ID <= 0 || header.Number <= 0 || !parseGitHubTimestamp(header.UpdatedAt).Valid {
-				return errors.New("invalid fetched GitHub object")
-			}
-			if resource == GitHubRepoMetadataIssues && header.PullRequest != nil {
-				continue
-			}
-			var canonical []byte
-			if err := tx.QueryRow(ctx, `SELECT $1::jsonb::text`, object).Scan(&canonical); err != nil {
-				return err
-			}
-			var stale bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM github_synced_issues WHERE synced_repo_id=$1 AND resource=$2 AND number=$3 AND github_updated_at>$4::timestamptz)`, row.ID, resource, header.Number, header.UpdatedAt).Scan(&stale); err != nil {
-				return err
-			}
-			if stale {
-				continue
-			}
-			if _, err := writer.storeSyncedIssue(ctx, row.ID, resource, canonical); err != nil {
-				return err
-			}
-			hash := sha256.Sum256(canonical)
-			version := hex.EncodeToString(hash[:])
-			fact := gitHubFetchedObject{GitHubRepository: row.GithubRepositoryID.Int64, Installation: row.InstallationID.Int64, Repo: row.ID, Resource: resource, Number: header.Number, Version: version, Object: canonical}
-			payload, err := json.Marshal(fact)
-			if err != nil {
-				return err
-			}
-			_, err = s.install.jobs.AdmitInTx(ctx, tx, jobs.Admission{
-				Scope:     jobs.Scope{TenantID: "github:" + strconv.FormatInt(row.InstallationID.Int64, 10) + ":" + strconv.FormatInt(row.GithubRepositoryID.Int64, 10), PrincipalID: resource},
-				Operation: githubFetchedOperation, RequestID: strconv.FormatInt(header.ID, 10) + ":" + version,
-				Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent,
-			})
-			if err != nil {
+			if err := s.commitFetchedIssue(ctx, tx, row, resource, object); err != nil {
 				return err
 			}
 		}
@@ -173,6 +139,47 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 		// prune silently until that stream supplies authoritative deletion evidence.
 		return nil
 	})
+}
+
+func (s *GitHubSyncedRepoService) commitFetchedIssue(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, object json.RawMessage) error {
+	writer := NewGitHubSyncedRepoService(db.New(tx))
+	var header gitHubIssueHeader
+	if err := json.Unmarshal(object, &header); err != nil || header.ID <= 0 || header.Number <= 0 || !parseGitHubTimestamp(header.UpdatedAt).Valid {
+		return errors.New("invalid fetched GitHub object")
+	}
+	if resource == GitHubRepoMetadataIssues && header.PullRequest != nil {
+		return nil
+	}
+	var canonical []byte
+	if err := tx.QueryRow(ctx, `SELECT $1::jsonb::text`, object).Scan(&canonical); err != nil {
+		return err
+	}
+	var stale bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM github_synced_issues WHERE synced_repo_id=$1 AND resource=$2 AND number=$3 AND github_updated_at>$4::timestamptz)`, row.ID, resource, header.Number, header.UpdatedAt).Scan(&stale); err != nil {
+		return err
+	}
+	if stale {
+		return nil
+	}
+	if _, err := writer.storeSyncedIssue(ctx, row.ID, resource, canonical); err != nil {
+		return err
+	}
+	hash := sha256.Sum256(canonical)
+	version := hex.EncodeToString(hash[:])
+	fact := gitHubFetchedObject{GitHubRepository: row.GithubRepositoryID.Int64, Installation: row.InstallationID.Int64, Repo: row.ID, Resource: resource, Number: header.Number, Version: version, Object: canonical}
+	payload, err := json.Marshal(fact)
+	if err != nil {
+		return err
+	}
+	_, err = s.install.jobs.AdmitInTx(ctx, tx, jobs.Admission{
+		Scope:     jobs.Scope{TenantID: "github:" + strconv.FormatInt(row.InstallationID.Int64, 10) + ":" + strconv.FormatInt(row.GithubRepositoryID.Int64, 10), PrincipalID: resource},
+		Operation: githubFetchedOperation, RequestID: strconv.FormatInt(header.ID, 10) + ":" + version,
+		Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *jobs.Lease) error {
@@ -200,6 +207,11 @@ func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *job
 		var earlier bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.created_at,p.id)<(current.created_at,current.id) AND p.state NOT IN ('completed','failed','cancelled'))`, claim.OperationID).Scan(&earlier); err != nil {
 			return err
+		}
+		if fact.EventID > 0 {
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.payload->>'event_id')::bigint<$2 AND p.state<>'completed')`, claim.OperationID, fact.EventID).Scan(&earlier); err != nil {
+				return err
+			}
 		}
 		if earlier {
 			return errors.New("earlier fetched delivery is pending")

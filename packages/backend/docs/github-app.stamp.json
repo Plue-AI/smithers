@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "7f25fd3c27ad47e31fa0ca201cf4431543e535f8d1f10d6f6aa3a116a80b63a4"
+    "digest": "9466e735c25ba622106f2d4478a70a00a65762abf6273c7810f6ad79f017259d"
   },
-  "closure": "a8e0060feaa1e1dc6f1a6a9ec82d39f1bba4dd8fcb812e54ba246f6d63f841f8",
+  "closure": "8d2fa48f4a48e613ac3c9d5503cc3c3c150be6ada1548d11812453a7ca964152",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -45,11 +45,15 @@
     },
     {
       "path": "packages/backend/internal/services/github_synced_delivery.go",
-      "digest": "ecfb3dc6c47c4d044a94a57f13e257a90ac12c6bff7a02ef575c679cee2526b9"
+      "digest": "a713ba96258ff95a16b547966320a72f0030a8c069fa8b85c20ab99fdd961379"
+    },
+    {
+      "path": "packages/backend/internal/services/github_synced_events.go",
+      "digest": "057ddec9f82b52a812dffdfc4225020a05adbc58624eaba3d70b166feb8084ea"
     },
     {
       "path": "packages/backend/internal/services/github_synced_repos.go",
-      "digest": "41e70274bddb9e75a2337f91b1f999c09d1662eff903d8d53bb9c87f691d9d56"
+      "digest": "f35eb26be510472d49fbb171eb1a4595a279d2230b6b3e2b3a32d269c195bebd"
     },
     {
       "path": "packages/backend/internal/services/install_setup_session.go",
