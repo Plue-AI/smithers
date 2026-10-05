@@ -2,25 +2,25 @@ import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
 // UI projection of .specs/engineering/checks/C-J11-04.md.
-// Written before implementation: mvp.md §6.14 Monitor, Thrashing; lands with T-FLW-07, T-REL-02
-test("C-J11-04: thrashing marks only three unchanged failures in one attempt", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.14 Monitor, Thrashing; lands with T-FLW-07, T-REL-02")
+// Authenticated ingest of the three journals, edit/attempt boundaries, replay
+// determinism, clearing after a passing check and zero detector model calls need
+// packages/backend/internal/services/run_thrash_integration_test.go receipts.
+// The mounted design fixture uses T9 and pnpm test (journeys/run.ts).
+test("C-J11-04: unchanged failures show a thrashing indicator and failed output", async ({ page }) => {
   await owner(page)
-  await page.goto("/smithers-mvp-canary/node")
-  // Seed the check's three journals: T4 unchanged failures, T5 an edit
-  // between failures, T6 failures split across attempts. T4 later passes.
-  // Authenticated ingest, determinism and zero model calls need integration receipts.
-  await say(page, '/todo T4')
-  await expect(page.getByText('Thrashing: TestRetryBackoff failed 3×', { exact: true }).last()).toBeVisible()
-  await page.getByRole('button', { name: 'Inspect', exact: true }).last().press('Enter')
-  await expect(page.getByText('TestRetryBackoff', { exact: true }).last()).toBeVisible()
-  await expect(page.getByText(/Ran checks.*1 failed ×3/).last()).toBeVisible()
-  for (const todo of ['T5', 'T6']) {
-    await say(page, `/todo ${todo}`)
-    await expect(page.getByRole('region', { name: new RegExp(todo) }).last()).not.toContainText('Thrashing')
+  await page.goto("/acme/api")
+  await say(page, '/todo T9')
+  const todo = page.getByRole('region', { name: 'T9 Retry failed webhooks with backoff', exact: true })
+  await expect(todo.getByText('Thrashing: pnpm test failed 3×', { exact: true })).toBeVisible()
+  await todo.getByRole('button', { name: 'Inspect', exact: true }).press('Enter')
+  const timeline = page.getByRole('navigation', { name: 'Run timeline', exact: true })
+  await expect(timeline).toContainText('Ran tests · 1 failed ×3')
+  await expect(timeline.locator('li[data-tone="thrash"]')).toContainText('Thrashing: pnpm test failed 3×')
+  await timeline.getByRole('button', { name: /Ran them a third time/ }).press('Enter')
+  await expect(page.getByRole('region', { name: 'Selected cell', exact: true })).toContainText('test timed out after 5000 ms')
+  await page.getByRole('button', { name: 'Restore', exact: true }).press('Enter')
+  for (const ref of ['T8', 'T10']) {
+    await say(page, `/todo ${ref}`)
+    await expect(page.locator('[data-kind="todo"]').last()).not.toContainText('Thrashing')
   }
-  await say(page, '/todo T4')
-  await page.getByRole('button', { name: 'Retry', exact: true }).last().press('Enter')
-  await expect(page.getByRole('region', { name: /T4/ }).last()).toContainText('In review')
-  await expect(page.getByRole('region', { name: /T4/ }).last()).not.toContainText('Thrashing')
 })

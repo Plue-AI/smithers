@@ -54,7 +54,7 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 | C-J11-01 | [C-J11-01.spec.ts](C-J11-01.spec.ts) | fixme-before-implementation | T-FLW-07, T-APP-07, T-REL-02 |
 | C-J11-02 | [C-J11-02.spec.ts](C-J11-02.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
 | C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | fixme-before-implementation | T-FLW-08 |
-| C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
+| C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | passing | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | fixme-before-implementation | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | fixme-before-implementation | T-APP-02 |
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | fixme-before-implementation | T-APP-02, T-APP-03 |
