@@ -142,25 +142,45 @@ func (s InstallSource) readable(ctx context.Context, credential middleware.Crede
 // now. A credential that is gone, names another account, does not read
 // repositories as a person, or fails the member boundary reads nothing.
 func (s InstallSource) member(ctx context.Context, q *db.Queries, credential middleware.Credential, userID int64) (*db.User, error) {
-	if s.Members == nil {
-		return nil, ErrSourceForbidden
-	}
-	info, err := middleware.ReloadCredential(ctx, q, credential, time.Now().UTC())
-	if errors.Is(err, middleware.ErrCredentialGone) {
+	info, err := turnAuthor(ctx, q, s.Members, credential, userID, (*middleware.AuthInfo).ReadsRepositoriesAsPerson)
+	if errors.Is(err, errNotTheAuthor) {
 		return nil, ErrSourceForbidden
 	}
 	if err != nil {
 		return nil, err
 	}
-	user := info.User
-	if user.ID != userID || !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid || !info.ReadsRepositoriesAsPerson() {
-		return nil, ErrSourceForbidden
+	return info.User, nil
+}
+
+// errNotTheAuthor means a turn's admitting credential no longer acts for its
+// author; each caller states it in its own words.
+var errNotTheAuthor = errors.New("the turn's credential no longer acts for its author")
+
+// turnAuthor is a turn's author as the credential that admitted the turn
+// authenticates them now. A credential that is gone, names another account,
+// belongs to an account that may not sign in, is not of the kind may admits,
+// or fails the installation's member boundary answers errNotTheAuthor; any
+// other error means the store or the boundary could not answer.
+func turnAuthor(ctx context.Context, q *db.Queries, members identity.MemberAuthorizer, credential middleware.Credential, userID int64, may func(*middleware.AuthInfo) bool) (*middleware.AuthInfo, error) {
+	if members == nil {
+		return nil, errNotTheAuthor
 	}
-	if apiErr := s.Members.AuthorizeMember(ctx, userID); apiErr != nil {
+	info, err := middleware.ReloadCredential(ctx, q, credential, time.Now().UTC())
+	if errors.Is(err, middleware.ErrCredentialGone) {
+		return nil, errNotTheAuthor
+	}
+	if err != nil {
+		return nil, err
+	}
+	user := info.User
+	if user.ID != userID || !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid || !may(info) {
+		return nil, errNotTheAuthor
+	}
+	if apiErr := members.AuthorizeMember(ctx, userID); apiErr != nil {
 		if apiErr.Status >= 500 {
 			return nil, apiErr
 		}
-		return nil, ErrSourceForbidden
+		return nil, errNotTheAuthor
 	}
-	return user, nil
+	return info, nil
 }

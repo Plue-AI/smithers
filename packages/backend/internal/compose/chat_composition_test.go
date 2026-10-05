@@ -51,32 +51,40 @@ func TestHostedAPICallbackUsesSharedListenerWhenPrivateListenerIsAbsent(t *testi
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, chat.CommitPath, strings.NewReader(`{}`)))
 	require.Equal(t, http.StatusUnauthorized, response.Code)
-	// The source read callback rides the same listener behind the producer
-	// capability: no bearer, or one naming no turn, is fenced before any read.
-	for _, authorization := range []string{"", "Bearer producer-capability"} {
-		request := httptest.NewRequest(http.MethodPost, chat.SourceReadPath, strings.NewReader(`{"turnId":"not-a-turn","generation":1,"path":"JOURNEY.md"}`))
-		if authorization != "" {
-			request.Header.Set("Authorization", authorization)
+	// The source read and API callbacks ride the same listener behind the
+	// producer capability: no bearer, or one naming no turn, is fenced before
+	// any read.
+	for path, body := range map[string]string{
+		chat.SourceReadPath: `{"turnId":"not-a-turn","generation":1,"path":"JOURNEY.md"}`,
+		chat.APICallPath:    `{"turnId":"not-a-turn","generation":1,"method":"GET","path":"/api/todos"}`,
+	} {
+		for _, authorization := range []string{"", "Bearer producer-capability"} {
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+			if authorization != "" {
+				request.Header.Set("Authorization", authorization)
+			}
+			response = httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, http.StatusUnauthorized, response.Code, path+" "+authorization)
+			require.Contains(t, response.Body.String(), `"producer_fenced"`)
 		}
-		response = httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		require.Equal(t, http.StatusUnauthorized, response.Code, authorization)
-		require.Contains(t, response.Body.String(), `"producer_fenced"`)
 	}
 }
 
 func TestSingleOwnerServesSourceReadsOnlyOnThePrivateCallbackListener(t *testing.T) {
 	runtime := &chat.Runtime{Handler: &chat.Handler{}}
-	private := httptest.NewRecorder()
-	chatCallbackHandler(runtime).ServeHTTP(private, httptest.NewRequest(http.MethodPost, chat.SourceReadPath, strings.NewReader(`{}`)))
-	// Mounted: the handler answers, here that it has no journal store.
-	require.Equal(t, http.StatusServiceUnavailable, private.Code)
-	require.Contains(t, private.Body.String(), `"storage_failed"`)
 	public := chi.NewRouter()
 	mountChatPublic(public, runtime, nil, &config.Config{})
-	response := httptest.NewRecorder()
-	public.ServeHTTP(response, httptest.NewRequest(http.MethodPost, chat.SourceReadPath, strings.NewReader(`{}`)))
-	require.Equal(t, http.StatusNotFound, response.Code)
+	for _, path := range []string{chat.SourceReadPath, chat.APICallPath} {
+		private := httptest.NewRecorder()
+		chatCallbackHandler(runtime).ServeHTTP(private, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
+		// Mounted: the handler answers, here that it has no journal store.
+		require.Equal(t, http.StatusServiceUnavailable, private.Code, path)
+		require.Contains(t, private.Body.String(), `"storage_failed"`, path)
+		response := httptest.NewRecorder()
+		public.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
+		require.Equal(t, http.StatusNotFound, response.Code, path)
+	}
 }
 
 func TestChatStreamingRoutesRequireAuthentication(t *testing.T) {
@@ -97,7 +105,7 @@ func TestChatStreamingRoutesRequireAuthentication(t *testing.T) {
 	history := httptest.NewRecorder()
 	router.ServeHTTP(history, httptest.NewRequest(http.MethodGet, chat.HistoryPath, nil))
 	require.Equal(t, http.StatusUnauthorized, history.Code, chat.HistoryPath)
-	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath, chat.SourceReadPath} {
+	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath, chat.SourceReadPath, chat.APICallPath} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
 		require.Equal(t, http.StatusNotFound, response.Code, path)

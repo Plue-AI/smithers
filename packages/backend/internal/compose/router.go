@@ -897,9 +897,8 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 			todos := &routes.TodoHandler{Queries: queries, Service: service}
-			r.Get("/todos", todos.List)
+			mountTodoReads(r, todos)
 			r.Post("/todos", todos.Create)
-			r.Get("/todos/{n}", todos.Get)
 			r.Post("/todos/{n}/merge", todos.Merge)
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
@@ -1900,6 +1899,22 @@ func authLoader(queries *db.Queries, cfg config.AuthConfig) func(http.Handler) h
 	return func(next http.Handler) http.Handler {
 		return load(guard(next))
 	}
+}
+
+// mountTodoReads mounts the install's TODO read routes. The app agent's
+// host-run commands read through the same mount (todoReadRoutes), as the
+// credential that admitted their turn.
+func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
+	r.Get("/todos", todos.List)
+	r.Get("/todos/{n}", todos.Get)
+}
+
+// todoReadRoutes are the install API routes a host-run command may read,
+// under /api as the public router mounts them.
+func todoReadRoutes(queries *db.Queries, service routes.TodoRouteService) http.Handler {
+	router := chi.NewRouter()
+	router.Route("/api", func(r chi.Router) { mountTodoReads(r, &routes.TodoHandler{Queries: queries, Service: service}) })
+	return router
 }
 
 // mountModelProxy serves the metered model proxy at /model-proxy and, for the

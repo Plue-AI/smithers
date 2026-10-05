@@ -35,6 +35,9 @@ type RuntimeOptions struct {
 	// Sources serves turns' reads of a mirrored main as the credential that
 	// admitted each turn; nil offers none.
 	Sources SourceReader
+	// API serves turns' reads of the install's API as the credential that
+	// admitted each turn; nil offers none.
+	API CommandAPI
 }
 
 type Runtime struct {
@@ -75,12 +78,12 @@ func NewRuntime(pool *pgxpool.Pool, host ports.ChatHost, producerBaseURL string,
 		return nil, err
 	}
 	credentials := newTurnCredentials()
-	dispatcher, err := NewDispatcher(store, PortHost{Host: host, ProducerBaseURL: callback.String(), Sources: options.Sources, credentials: credentials, logger: options.Logger}, options.QueueSize, options.Lease)
+	dispatcher, err := NewDispatcher(store, PortHost{Host: host, ProducerBaseURL: callback.String(), Sources: options.Sources, API: options.API, credentials: credentials, logger: options.Logger}, options.QueueSize, options.Lease)
 	if err != nil {
 		return nil, err
 	}
 	dispatcher.logger = options.Logger
-	handler := &Handler{Store: store, Dispatcher: dispatcher, Sources: options.Sources, credentials: credentials, logger: options.Logger, metrics: dispatcher.metrics}
+	handler := &Handler{Store: store, Dispatcher: dispatcher, Sources: options.Sources, API: options.API, credentials: credentials, logger: options.Logger, metrics: dispatcher.metrics}
 	return &Runtime{Handler: handler, dispatcher: dispatcher, store: store, concurrency: options.Concurrency}, nil
 }
 

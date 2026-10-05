@@ -1246,9 +1246,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return fmt.Errorf("initialize chat runtime: %w", err)
 	}
 	if config.IsSingleOwner(cfg.Auth) {
-		// Questions read the install's mirrored main once Source is ready, as
-		// the credential that asked, behind the same member boundary.
-		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService, Members: identity.NewMemberBoundary(queries)}
+		// Questions read the install's mirrored main once Source is ready, and
+		// their commands read the install's TODO routes, as the credential
+		// that asked, behind the same member boundary.
+		members := identity.NewMemberBoundary(queries)
+		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService, Members: members}
+		chatSizing.API = services.InstallAPI{Pool: pool, Members: members, Routes: todoReadRoutes(queries, mythicalService)}
 	}
 	chatService, err := newChatComposition(options, pool, chatSizing)
 	if err != nil {

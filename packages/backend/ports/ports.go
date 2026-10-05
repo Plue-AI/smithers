@@ -268,6 +268,10 @@ type ChatTurnGrant struct {
 	// Source is present only when the turn's author can read a mirrored
 	// main; the model host offers its source read tool only then.
 	Source *ChatTurnSource `json:"source,omitempty"`
+	// API is present only when the credential that admitted the turn is its
+	// author's browser session now; the model host offers the commands that
+	// read the install's API only then.
+	API *ChatTurnAPI `json:"api,omitempty"`
 }
 
 // ChatTurnSource names the mirrored repository, as owner/name, that an
@@ -275,6 +279,21 @@ type ChatTurnGrant struct {
 type ChatTurnSource struct {
 	Repository string `json:"repository"`
 }
+
+// ChatTurnAPI names the person an app-agent turn's commands read the
+// install's API as, by the login their private cards are addressed to.
+type ChatTurnAPI struct {
+	Author string `json:"author"`
+}
+
+// ChatAPIAnswer is one install route's answer to a host-run command.
+type ChatAPIAnswer = services.APIAnswer
+
+// Install API call refusals, stated by the producer's API callback.
+var (
+	ErrAPIForbidden   = services.ErrAPIForbidden
+	ErrAPICallRefused = services.ErrAPICallRefused
+)
 
 // SourceFile is one file an app-agent turn read from its repository's
 // mirrored main.

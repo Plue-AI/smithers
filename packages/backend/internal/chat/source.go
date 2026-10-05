@@ -128,23 +128,16 @@ func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 	if !decodeBounded(w, r, &request) {
 		return
 	}
-	token := bearerToken(r)
-	if token == "" {
-		writeProblem(w, http.StatusUnauthorized, "producer_fenced")
-		return
-	}
-	turn, err := h.Store.Producer(r.Context(), request.TurnID, request.Generation, token)
-	if err != nil {
-		producerError(w, err)
+	turn, ok := h.liveProducer(w, r, request.TurnID, request.Generation)
+	if !ok {
 		return
 	}
 	if h.Sources == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "source_unavailable")
 		return
 	}
-	credential, admitted := h.credentials.credential(turnKey{userID: turn.UserID, runID: turn.RunID, legID: turn.LegID})
-	if !admitted {
-		writeProblem(w, http.StatusForbidden, "forbidden")
+	credential, ok := h.admittingCredential(w, turn)
+	if !ok {
 		return
 	}
 	file, err := h.Sources.ReadSource(r.Context(), credential, turn.UserID, turn.RepositoryID, request.Path)

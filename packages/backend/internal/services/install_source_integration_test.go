@@ -159,24 +159,36 @@ func (f *mirrorReadFixture) ready() {
 // session signs user in through a browser and returns the session as a turn
 // keeps it, by its storage key.
 func (f *mirrorReadFixture) session(user db.User, expires time.Time) middleware.Credential {
-	f.t.Helper()
-	sum := sha256.Sum256([]byte(uuid.NewString()))
-	key := hex.EncodeToString(sum[:])
-	_, err := db.New(f.pool).CreateAuthSession(f.t.Context(), db.CreateAuthSessionParams{SessionKey: key, UserID: user.ID, Username: user.Username, ExpiresAt: expires})
-	require.NoError(f.t, err)
-	return middleware.Credential{SessionHash: key}
+	return turnSession(f.t, f.pool, user, expires)
 }
 
 // token mints an API token for user with the given stored scopes and returns
 // it as a turn keeps it, by its hash, with the token row's id.
 func (f *mirrorReadFixture) token(user db.User, scopes string, systemIssued bool, expires pgtype.Timestamptz) (middleware.Credential, int64) {
-	f.t.Helper()
+	return turnToken(f.t, f.pool, user, scopes, systemIssued, expires)
+}
+
+// turnSession signs user in through a browser and returns the session as a
+// turn keeps it, by its storage key.
+func turnSession(t *testing.T, pool *pgxpool.Pool, user db.User, expires time.Time) middleware.Credential {
+	t.Helper()
+	sum := sha256.Sum256([]byte(uuid.NewString()))
+	key := hex.EncodeToString(sum[:])
+	_, err := db.New(pool).CreateAuthSession(t.Context(), db.CreateAuthSessionParams{SessionKey: key, UserID: user.ID, Username: user.Username, ExpiresAt: expires})
+	require.NoError(t, err)
+	return middleware.Credential{SessionHash: key}
+}
+
+// turnToken mints an API token for user with the given stored scopes and
+// returns it as a turn keeps it, by its hash, with the token row's id.
+func turnToken(t *testing.T, pool *pgxpool.Pool, user db.User, scopes string, systemIssued bool, expires pgtype.Timestamptz) (middleware.Credential, int64) {
+	t.Helper()
 	sum := sha256.Sum256([]byte(uuid.NewString()))
 	hash := hex.EncodeToString(sum[:])
-	created, err := db.New(f.pool).CreateAccessToken(f.t.Context(), db.CreateAccessTokenParams{
+	created, err := db.New(pool).CreateAccessToken(t.Context(), db.CreateAccessTokenParams{
 		UserID: user.ID, Name: "turn-" + hash[:8], TokenHash: hash, TokenLastEight: hash[:8], Scopes: scopes, ExpiresAt: expires, SystemIssued: systemIssued,
 	})
-	require.NoError(f.t, err)
+	require.NoError(t, err)
 	return middleware.Credential{TokenHash: hash}, created.ID
 }
 
