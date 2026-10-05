@@ -970,10 +970,8 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// The API sets X-Smithers-Pusher-Id from the credential it authenticated;
 	// it names whose refs/smithers/users/<id>/ namespace this push may write.
 	sender := pushHookSenderFromHeaders(r.Header)
-	for _, command := range commands {
-		if err := repohost.RequireInstallMainMirror(s.config.InstallMainMirror, sender.PusherCredential, command.RefName); err != nil {
-			return &appError{StatusCode: http.StatusForbidden, Code: "permission", Class: "permission", Message: err.Error()}
-		}
+	if err := s.refuseInstallMainPush(r.Context(), gitDir, sender.PusherCredential, commands); err != nil {
+		return err
 	}
 	pusherID := sender.PusherID
 	if msg := repohost.ControlPlaneRefViolation(commands, r.Header.Get("X-Smithers-Workspace-Id"),
@@ -1036,8 +1034,11 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	if gitErr != nil {
 		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, gitErr)
 	}
-	if sender.PusherCredential != jjmiddleware.CredentialSync {
-		if err := refuseDefaultBookmarkRewind(enforceCtx, gitDir, beforeRefs, afterRefs); err != nil {
+	// The sync copies GitHub's refs as they are, except on an install, where
+	// it only fast-forwards main: a GitHub rewrite waits for the owner's
+	// reset (§12.3) and leaves main where it was.
+	if sender.PusherCredential != jjmiddleware.CredentialSync || s.config.InstallMainMirror {
+		if err := refuseDefaultBookmarkRewind(enforceCtx, gitDir, beforeRefs, afterRefs, s.config.InstallMainMirror); err != nil {
 			return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, err)
 		}
 	}
@@ -1588,6 +1589,13 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
+	// The import's create-if-absent can neither move nor delete a bookmark;
+	// on an install every other write of main is the sync's receive-pack.
+	if req.Delete || !req.IfAbsent {
+		if err := s.refuseInstallMainBookmark(r.Context(), chi.URLParam(r, "id"), req.Name); err != nil {
+			return err
+		}
+	}
 	if req.ExpectedCommitID != nil {
 		bookmark, err := s.ffi.GetBookmark(repoPath, req.Name)
 		if err != nil {
@@ -1661,6 +1669,15 @@ func (s *Server) setDefaultBookmark(w http.ResponseWriter, r *http.Request) erro
 		}
 		return internalError("failed to inspect repository", err)
 	}
+	if s.config.InstallMainMirror {
+		// The install's default bookmark is GitHub's default branch, set when
+		// the import publishes the mirror. Naming another would hand the
+		// sync's ref to every writer.
+		current, err := gitDefaultBookmark(r.Context(), gitDir)
+		if err != nil || !repohost.SameRef("refs/heads/"+current, "refs/heads/"+req.Name) {
+			return installMainRefusal("the default bookmark is GitHub's default branch; change it on GitHub")
+		}
+	}
 	if err := s.refuseCaseVariantBookmark(r.Context(), chi.URLParam(r, "id"), req.Name); err != nil {
 		return err
 	}
@@ -1688,8 +1705,19 @@ func (s *Server) deleteBookmark(w http.ResponseWriter, r *http.Request) error {
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
+	// The client path-escapes the name, as getBookmark expects; the guard and
+	// the engine must name the same bookmark.
+	name := chi.URLParam(r, "name")
+	if r.URL.RawPath != "" {
+		if name, err = url.PathUnescape(name); err != nil {
+			return badRequest("bookmark name must be url-encoded")
+		}
+	}
+	if err := s.refuseInstallMainBookmark(r.Context(), chi.URLParam(r, "id"), name); err != nil {
+		return err
+	}
 
-	if err := s.ffi.DeleteBookmark(repoPath, chi.URLParam(r, "name")); err != nil {
+	if err := s.ffi.DeleteBookmark(repoPath, name); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -2131,6 +2159,10 @@ func (s *Server) land(w http.ResponseWriter, r *http.Request, appendOnly bool) e
 	}
 
 	if target := strings.TrimSpace(req.TargetBookmark); target != "" && !req.LookupOnly {
+		// §5.2.1: on an install no credential moves main through landing.
+		if err := s.refuseInstallMainBookmark(r.Context(), chi.URLParam(r, "id"), target); err != nil {
+			return err
+		}
 		if err := s.refuseCaseVariantBookmark(r.Context(), chi.URLParam(r, "id"), target); err != nil {
 			return err
 		}

@@ -37,6 +37,9 @@ type gitHubMainPullUpdate struct {
 	ref          string
 	old          string
 	new          string
+	// writer is the credential kind the repository host attributes the
+	// verified write to (GitHubMainPullService.mainWriter).
+	writer middleware.CredentialKind
 }
 
 // gitHubMainPullBridge serves one repository over smart HTTP on loopback for
@@ -171,7 +174,7 @@ func (b *gitHubMainPullBridge) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		meta := repohost.ReceivePackMetadata{RepositoryID: update.repositoryID, RefName: update.ref, CommitSHA: update.new, PusherLogin: "github",
-			PusherCredential: middleware.CredentialPlatform, VerifyLocked: b.verify}
+			PusherCredential: update.writer, VerifyLocked: b.verify}
 		b.proxy(w, "application/x-git-receive-pack-result", func(out io.Writer) error {
 			return b.host.ProxyReceivePack(ctx, b.owner, b.repo, rebuilt, out, meta)
 		})

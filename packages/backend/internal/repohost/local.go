@@ -32,11 +32,20 @@ func (c *Client) InProcess() bool { return c != nil && c.inProcess }
 
 // NewLocalClientWithStagingEndpoint keeps control requests in process while
 // giving Git subprocesses a reachable, token-scoped staging URL.
-func NewLocalClientWithStagingEndpoint(handler http.Handler, authToken, stagingBaseURL string) *Client {
+// installMainMirror is the engine's own install fact (repohostserver.Config),
+// which the API's push, bookmark and landing doors read from this client.
+func NewLocalClientWithStagingEndpoint(handler http.Handler, authToken, stagingBaseURL string, installMainMirror bool) *Client {
 	client := NewLocalClient(handler, authToken)
 	client.localStagingBaseURL = stagingBaseURL
+	client.installMainMirror = installMainMirror
 	return client
 }
+
+// InstallMainMirror reports whether the engine behind this client is an
+// install's, where only the GitHub sync writes main and the default bookmark
+// (repohost.RequireInstallMainMirror). It is the one install fact every door
+// in front of the engine applies, so no door can disagree with the engine.
+func (c *Client) InstallMainMirror() bool { return c != nil && c.installMainMirror }
 
 // handlerTransport streams responses through a pipe. A recorder would buffer
 // diffs and repository contents without a bound before returning to Client.

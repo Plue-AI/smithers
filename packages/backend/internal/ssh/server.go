@@ -83,6 +83,10 @@ type Server struct {
 	// BranchLogins selects the install parser; false preserves Plue grants.
 	BranchLogins   bool
 	BranchResolver BranchResolver
+	// InstallMainMirror is the engine's install fact
+	// (repohost.Client.InstallMainMirror): only the GitHub sync writes main
+	// and the default bookmark, so no SSH push may.
+	InstallMainMirror bool
 
 	// drainTimeout overrides defaultReceivePackDrainTimeout in tests.
 	drainTimeout time.Duration
@@ -1375,15 +1379,11 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 
 // rejectProtectedBookmarkPush fails a receive-pack request when any of its
 // ref-update commands targets a bookmark matching a protected-bookmark
-// pattern. Protected bookmarks may only move through the landing queue, which
-// uses repo-host's land endpoint rather than receive-pack.
+// pattern, or, on an install, writes main or the default bookmark
+// (repohost.RequireInstallMainMirror): SSH carries a person's key or a deploy
+// key, never the GitHub sync. Protected bookmarks may only move through the
+// landing queue, which uses repo-host's land endpoint rather than receive-pack.
 func (s *Server) rejectProtectedBookmarkPush(ctx context.Context, sess ssh.Session, owner, repo string, commands []repohost.ReceivePackCommand) error {
-	for _, command := range commands {
-		if err := repohost.RequireInstallMainMirror(s.BranchLogins, middleware.CredentialPerson, command.RefName); err != nil {
-			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", err)
-			return err
-		}
-	}
 	if len(commands) == 0 {
 		return nil
 	}
@@ -1392,7 +1392,7 @@ func (s *Server) rejectProtectedBookmarkPush(ctx context.Context, sess ssh.Sessi
 	repoResolved := false
 	for _, command := range commands {
 		bookmark, ok := services.BookmarkNameFromRef(command.RefName)
-		if !ok {
+		if !ok && !s.InstallMainMirror {
 			continue
 		}
 		if !repoResolved {
@@ -1405,6 +1405,13 @@ func (s *Server) rejectProtectedBookmarkPush(ctx context.Context, sess ssh.Sessi
 				return fmt.Errorf("resolve repository for protected-bookmark check: %w", err)
 			}
 			repoResolved = true
+		}
+		if err := repohost.RequireInstallMainMirror(s.InstallMainMirror, middleware.CredentialPerson, command.RefName, repository.DefaultBookmark); err != nil {
+			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", err)
+			return err
+		}
+		if !ok {
+			continue
 		}
 		if err := services.RequireBookmarkNotProtected(ctx, s.Queries, repository.ID, bookmark); err != nil {
 			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: bookmark %q is protected; changes must go through a landing request\n", bookmark)

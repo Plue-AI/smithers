@@ -63,7 +63,7 @@ func TestPushHookPayloadsCarryPusherCredential(t *testing.T) {
 }
 
 // Install main is a GitHub mirror: people cannot fast-forward, rewrite or
-// delete it (§5.2.1, §12.2.3). Sync copies GitHub refs, including rewrites.
+// delete it (§5.2.1, §12.2.3). The sync fast-forwards it and never rewrites it.
 func TestReceivePackRefusesDefaultBookmarkRewrite(t *testing.T) {
 	f := newLaneHTTPFixture(t, nil)
 	f.srv.config.InstallMainMirror = true
@@ -98,9 +98,10 @@ func TestReceivePackRefusesDefaultBookmarkRewrite(t *testing.T) {
 	rec = postReceivePack(t, f, f.pushBody(rewrite, tip, "refs/heads/topic"), repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
 	require.Equal(t, http.StatusOK, rec.Code, "another bookmark may be force-moved: %s", rec.Body.String())
 
+	// A GitHub rewrite of install main waits for the owner's reset (§12.3).
 	rec = postReceivePack(t, f, f.pushBody(tip, rewrite, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialSync))
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, rewrite, f.repo.refs()["refs/heads/main"], "the sync credential copies GitHub's default branch")
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()["refs/heads/main"], "the sync rewrote install main")
 }
 
 func TestReceivePackAgentRunWorkspaceHeadIgnoresUnreadableDefault(t *testing.T) {
@@ -160,9 +161,12 @@ func TestReceivePackInstallMainMirror(t *testing.T) {
 					current = laneZeroOID
 				}
 				if current != old {
-					// Sync alone sets up a genuinely absent or divergent main.
+					// The sync sets up a genuinely absent or divergent main; on
+					// an install it only fast-forwards main, so set up as hosted.
 					require.NoError(t, os.WriteFile(filepath.Join(f.repo.gitDir, "HEAD"), []byte(f.base+"\n"), 0o644))
+					f.srv.config.InstallMainMirror = false
 					setup := postReceivePack(t, f, f.pushBody(current, old, "refs/heads/main"), repohost.PusherCredentialHeader, "sync")
+					f.srv.config.InstallMainMirror = true
 					require.Equal(t, http.StatusOK, setup.Code, setup.Body.String())
 				}
 				rec := postReceivePack(t, f, f.pushBody(old, next, "refs/heads/main"), repohost.PusherCredentialHeader, kind)

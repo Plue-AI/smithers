@@ -103,6 +103,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		MaxTimeout: cfg.MaxTimeout, WorkspaceMaxTimeout: cfg.WorkspaceMaxTimeout,
 		MaxSessionsPerConn: cfg.MaxSessionsPerConn, WorkspaceBridge: cfg.WorkspaceBridge,
 		BranchLogins: cfg.BranchLogins, BranchResolver: cfg.BranchResolver,
+		// The engine's own install fact, so an SSH door in front of an
+		// install's engine cannot be composed without it.
+		InstallMainMirror: cfg.Repository.InstallMainMirror(),
 	}
 	busCtx, cancel := context.WithCancel(ctx)
 	bus := revocation.NewBus(cfg.Database, queries)

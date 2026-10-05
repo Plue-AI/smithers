@@ -316,11 +316,25 @@ func ControlPlaneRefViolation(commands []ReceivePackCommand, workspaceID string,
 	return ""
 }
 
-// RequireInstallMainMirror rejects every receive-pack mutation of install main.
-// Sync is server-issued authority, never a member-selected push option (§12.2.3).
-// Hosted repositories retain their existing receive policy.
-func RequireInstallMainMirror(install bool, kind middleware.CredentialKind, ref string) error {
-	if install && kind != middleware.CredentialSync && SameRef(ref, "refs/heads/main") {
+// InstallMainRef reports whether ref is one an install reserves for the
+// GitHub sync: the canonical main, which the machine layer builder reads, or
+// the repository's default bookmark, GitHub's default branch, which product
+// vocabulary also calls main (mvp.md §3). Names compare as one ref (SameRef).
+func InstallMainRef(ref, defaultBookmark string) bool {
+	if SameRef(ref, "refs/heads/main") {
+		return true
+	}
+	defaultBookmark = strings.TrimSpace(defaultBookmark)
+	return defaultBookmark != "" && SameRef(ref, "refs/heads/"+defaultBookmark)
+}
+
+// RequireInstallMainMirror refuses, on an install, a write of an
+// InstallMainRef by anything but the GitHub sync (§5.2.1, §12.2.3). Sync is
+// server-issued authority that only receive-pack carries; a bookmark,
+// landing or repair route carries no credential kind and is always refused.
+// Hosted repositories retain their existing policy.
+func RequireInstallMainMirror(install bool, kind middleware.CredentialKind, ref, defaultBookmark string) error {
+	if install && kind != middleware.CredentialSync && InstallMainRef(ref, defaultBookmark) {
 		return pkgerrors.New(pkgerrors.CodePermission, "main is a GitHub mirror; merge a pull request on GitHub")
 	}
 	return nil

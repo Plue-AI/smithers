@@ -497,16 +497,18 @@ func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands 
 
 // refuseDefaultBookmarkRewind refuses a published push that deleted the
 // default bookmark or moved it to a commit that does not descend from its old
-// one: main is append-only. It runs after git applied the refs, when the new
-// objects exist. Only a bookmark the push deleted or moved backwards needs
-// the default, and a default that cannot be read then refuses the push. The
-// GitHub sync credential is exempt: it copies GitHub's refs as they are.
+// one: main is append-only. On an install the canonical main is append-only
+// too (repohost.InstallMainRef). It runs after git applied the refs, when the
+// new objects exist. Only a bookmark the push deleted or moved backwards needs
+// the default, and a default that cannot be read then refuses the push. Off
+// an install the caller exempts the GitHub sync credential, which copies
+// GitHub's refs as they are.
 //
 // It fails closed on a missing default: once the default bookmark has
 // existed (lockRepo records it), a push cannot create it again. With no
 // old value any commit would pass as its new one. A default that has never
 // existed, as in a new repository, is created by a push as usual.
-func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, after map[string]string) error {
+func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, after map[string]string, install bool) error {
 	if defaultBookmark, err := gitDefaultBookmark(ctx, gitDir); err == nil {
 		ref := "refs/heads/" + defaultBookmark
 		if _, existed := before[ref]; !existed && after[ref] != "" && defaultBookmarkBorn(gitDir, defaultBookmark) {
@@ -530,6 +532,9 @@ func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, aft
 		defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
 		if err != nil {
 			return forbidden("the push is refused: the default bookmark cannot be read")
+		}
+		if install && repohost.InstallMainRef(ref, defaultBookmark) {
+			return installMainRefusal("main only moves forward; a rewrite on GitHub waits for the owner's reset")
 		}
 		if ref == "refs/heads/"+defaultBookmark {
 			return forbidden("the default bookmark only moves forward; its history is never rewritten")

@@ -1171,6 +1171,32 @@ func TestRepoService_UpdateRepo_DefaultBookmarkRepoHostFailureLeavesDatabaseUnch
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
 
+// An install's engine refuses a new default bookmark: the refusal reaches
+// the caller as the §6.2.3 permission envelope and the database is unchanged.
+func TestRepoService_UpdateRepo_InstallDefaultBookmarkRefusalIsPermission(t *testing.T) {
+	existing := testRepo(nil)
+	q := &mockRepoQuerier{
+		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+			return existing, nil
+		},
+		updateRepoFn: func(context.Context, db.UpdateRepoParams) (db.Repository, error) {
+			t.Fatal("database update must not run when the engine refuses the default bookmark")
+			return db.Repository{}, nil
+		},
+	}
+	rh := &mockRepoHostClient{
+		setDefaultBookmarkFn: func(context.Context, string, string, string) error {
+			return &repohost.StatusError{StatusCode: http.StatusForbidden, Code: "permission", Message: "the default bookmark is GitHub's default branch; change it on GitHub"}
+		},
+	}
+	_, err := NewRepoService(q, rh, "s1").UpdateRepo(context.Background(), &db.User{ID: 1, Username: "testuser"}, "testuser", "demo",
+		UpdateRepoRequest{DefaultBookmark: stringPtr("trunk")})
+	refusal := apiError(t, err)
+	assert.Equal(t, http.StatusForbidden, refusal.Status)
+	assert.Equal(t, errors.CodePermission, refusal.Code)
+	assert.Equal(t, "permission", refusal.Class)
+}
+
 func TestRepoService_UpdateRepo_DatabaseFailureRestoresRepoHostDefaultBookmark(t *testing.T) {
 	existing := testRepo(nil)
 	q := &mockRepoQuerier{

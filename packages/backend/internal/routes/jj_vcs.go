@@ -250,6 +250,10 @@ func (h *JJVCSHandler) CreateBookmark(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, apiErr)
 		return
 	}
+	if err := h.requireInstallMainOff(r, name); err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
 	if err := services.RequireBookmarkNotProtected(r.Context(), h.RepoResolver, repo.ID, name); err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -280,6 +284,21 @@ func (h *JJVCSHandler) CreateBookmark(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// requireInstallMainOff refuses, on an install, a bookmark write of main or
+// the default bookmark before it reaches the engine. The bookmark routes
+// carry no sync authority for any credential: only the GitHub sync's
+// receive-pack moves those refs (repohost.RequireInstallMainMirror).
+func (h *JJVCSHandler) requireInstallMainOff(r *http.Request, bookmark string) error {
+	if !h.RepoHost.InstallMainMirror() {
+		return nil
+	}
+	repository := middleware.RepoFromContext(r.Context())
+	if repository == nil {
+		return errors.Internal("repository context is not loaded")
+	}
+	return repohost.RequireInstallMainMirror(true, "", "refs/heads/"+bookmark, repository.DefaultBookmark)
 }
 
 // requireAgentRunOffDefaultBookmark applies
@@ -320,6 +339,10 @@ func (h *JJVCSHandler) DeleteBookmark(w http.ResponseWriter, r *http.Request) {
 	repo, apiErr := h.resolveRepository(r.Context(), owner, repoName)
 	if apiErr != nil {
 		writeRouteError(w, r, apiErr)
+		return
+	}
+	if err := h.requireInstallMainOff(r, name); err != nil {
+		writeRouteError(w, r, err)
 		return
 	}
 	if err := services.RequireBookmarkNotProtected(r.Context(), h.RepoResolver, repo.ID, name); err != nil {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -19,6 +20,10 @@ func TestInstallMainPullAlwaysFollowsWithoutDeclaration(t *testing.T) {
 			require.Equal(t, "pull", out.policy)
 			require.Equal(t, 0, h.policyReads)
 			require.Equal(t, pullNew, h.host.bookmarkSnapshot("main"))
+			// On an install the pull is the GitHub sync and presents its
+			// authority, the only one the install engine admits for main.
+			require.Len(t, h.host.meta, 1)
+			require.Equal(t, middleware.CredentialSync, h.host.meta[0].PusherCredential)
 		})
 	}
 }

@@ -19,6 +19,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -576,7 +577,7 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	// The write is bound under repo-host's lock to this repository: a deleted
 	// or transferred repository's name can be reused.
 	verify := RepositoryStillAt(s.store, repository.ID, owner, repository.Name)
-	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: smithersHead}, verify)
+	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: smithersHead, writer: s.mainWriter()}, verify)
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -630,6 +631,19 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	reconcile(after)
 	out.state = gitHubMainPullStateSynced
 	return out
+}
+
+// mainWriter is the credential the verified fast-forward presents to the
+// repository host. On an install the pull is the GitHub sync, the one
+// writer of main there (repohost.RequireInstallMainMirror), and presents
+// the sync's authority, bound to the repository by RepositoryID and
+// VerifyLocked like the import's sync token. Hosted keeps the platform's
+// reviewed write, which push consumers treat as reviewed.
+func (s *GitHubMainPullService) mainWriter() middleware.CredentialKind {
+	if s.install {
+		return middleware.CredentialSync
+	}
+	return middleware.CredentialPlatform
 }
 
 // repositoryOwnerName is the owner segment of a repository's Smithers path.

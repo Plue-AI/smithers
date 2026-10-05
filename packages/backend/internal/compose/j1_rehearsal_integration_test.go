@@ -96,7 +96,9 @@ func TestJ1Rehearsal(t *testing.T) {
 			library = filepath.Join(root, "target/release/libsmithers_ffi.so")
 		}
 	}
-	repository, err := repohostserver.New(repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library})
+	// The install's engine reserves main for the GitHub sync: Source ready
+	// must import main through it (localbootstrap.Prepare sets the same).
+	repository, err := repohostserver.New(repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
 	t.Cleanup(func() { require.NoError(t, repository.Shutdown(context.Background())) })
 	repositoryServer := httptest.NewServer(repository.Handler())

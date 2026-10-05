@@ -281,7 +281,7 @@ func TestRefuseDefaultBookmarkRewind(t *testing.T) {
 			if tc.born {
 				require.NoError(t, markDefaultBookmarkBorn(r.gitDir, "main"))
 			}
-			err := refuseDefaultBookmarkRewind(context.Background(), r.gitDir, tc.before(), tc.after())
+			err := refuseDefaultBookmarkRewind(context.Background(), r.gitDir, tc.before(), tc.after(), false)
 			if !tc.refused {
 				require.NoError(t, err)
 				return

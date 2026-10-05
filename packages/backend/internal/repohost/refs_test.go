@@ -234,9 +234,16 @@ func TestRefKeyMatchesCanonicalCaseless(t *testing.T) {
 }
 
 func TestInstallMainMirrorUsesCanonicalRefIdentity(t *testing.T) {
-	for _, ref := range []string{"refs/heads/main", "refs/heads/MAIN", "refs/heads/ma\u200cin"} {
+	// The canonical main and the default bookmark are both reserved, whatever
+	// the default is called and however either name is spelled.
+	for _, tc := range []struct{ ref, defaultBookmark string }{
+		{"refs/heads/main", "main"}, {"refs/heads/MAIN", "main"}, {"refs/heads/ma\u200cin", "main"},
+		{"refs/heads/main", "trunk"}, {"refs/heads/Main", "trunk"}, {"refs/heads/main", ""},
+		{"refs/heads/trunk", "trunk"}, {"refs/heads/TRUNK", "trunk"}, {"refs/heads/tr\u200dunk", "trunk"},
+		{"refs/Heads/trunk", " trunk "},
+	} {
 		for _, kind := range []middleware.CredentialKind{"", "person", "run", "platform", "sync", "unknown"} {
-			err := RequireInstallMainMirror(true, kind, ref)
+			err := RequireInstallMainMirror(true, kind, tc.ref, tc.defaultBookmark)
 			if kind == middleware.CredentialSync {
 				if err != nil {
 					t.Fatal(err)
@@ -245,16 +252,20 @@ func TestInstallMainMirrorUsesCanonicalRefIdentity(t *testing.T) {
 			}
 			refusal, ok := err.(*pkgerrors.APIError)
 			if !ok || refusal.Status != 403 || refusal.Code != "permission" || refusal.Class != "permission" {
-				t.Fatalf("%s/%s: %#v", ref, kind, err)
+				t.Fatalf("%s (default %q)/%s: %#v", tc.ref, tc.defaultBookmark, kind, err)
 			}
-			if err := RequireInstallMainMirror(false, kind, ref); err != nil {
+			if err := RequireInstallMainMirror(false, kind, tc.ref, tc.defaultBookmark); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	for _, ref := range []string{"refs/heads/feature", "refs/heads/main/child", "refs/tags/main", "refs/heads/mythical", ""} {
-		if err := RequireInstallMainMirror(true, middleware.CredentialPerson, ref); err != nil {
-			t.Fatal(err)
+	for _, tc := range []struct{ ref, defaultBookmark string }{
+		{"refs/heads/feature", "main"}, {"refs/heads/main/child", "main"}, {"refs/tags/main", "main"},
+		{"refs/heads/mythical", "main"}, {"", "main"}, {"refs/heads/trunk", "main"}, {"refs/heads/trunk/x", "trunk"},
+		{"refs/tags/trunk", "trunk"}, {"refs/heads/", ""},
+	} {
+		if err := RequireInstallMainMirror(true, middleware.CredentialPerson, tc.ref, tc.defaultBookmark); err != nil {
+			t.Fatalf("%s (default %q): %v", tc.ref, tc.defaultBookmark, err)
 		}
 	}
 }

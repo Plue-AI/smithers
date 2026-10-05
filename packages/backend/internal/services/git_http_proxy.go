@@ -40,6 +40,10 @@ type GitHTTPProxyService struct {
 	authorizer    SSHAuthorizer
 	repoHost      GitHTTPRepoHostClient
 	ownerBoundary identity.MemberAuthorizer
+	// installMainMirror is the engine's install fact
+	// (repohost.Client.InstallMainMirror): only the GitHub sync writes main
+	// and the default bookmark.
+	installMainMirror bool
 }
 
 type GitHTTPProxyServiceOption func(*GitHTTPProxyService)
@@ -49,6 +53,14 @@ type GitHTTPProxyServiceOption func(*GitHTTPProxyService)
 func WithGitHTTPMemberBoundary(queries identity.OwnerQuerier) GitHTTPProxyServiceOption {
 	return func(s *GitHTTPProxyService) {
 		s.ownerBoundary = identity.NewMemberBoundary(queries)
+	}
+}
+
+// WithGitHTTPInstallMainMirror applies the engine's install fact
+// (repohost.Client.InstallMainMirror) before any push reaches the engine.
+func WithGitHTTPInstallMainMirror(install bool) GitHTTPProxyServiceOption {
+	return func(s *GitHTTPProxyService) {
+		s.installMainMirror = install
 	}
 }
 
@@ -218,15 +230,19 @@ func RepositoryStillAt(
 
 // rejectProtectedBookmarkPush fails a receive-pack request when any of its
 // ref-update commands targets a bookmark matching a protected-bookmark
-// pattern, or, for an agent run's credential, the default bookmark.
+// pattern, or, for an agent run's credential, the default bookmark; on an
+// install, any command that writes main or the default bookmark and is not
+// the GitHub sync's (repohost.RequireInstallMainMirror).
 // Non-branch refs (tags, ...) are not subject to bookmark protection.
 func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, owner, repo string, kind middleware.CredentialKind, commands []repohost.ReceivePackCommand) error {
-	for _, command := range commands {
-		if err := repohost.RequireInstallMainMirror(s.ownerBoundary != nil, kind, command.RefName); err != nil {
-			return err
-		}
+	if len(commands) == 0 {
+		return nil
 	}
-	if len(commands) == 0 || s.queries == nil {
+	if s.queries == nil {
+		if s.installMainMirror {
+			// Fail closed: the install rule needs the repository's default.
+			return errors.Internal("repository lookup is not configured")
+		}
 		return nil
 	}
 
@@ -234,7 +250,7 @@ func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, o
 	repoResolved := false
 	for _, command := range commands {
 		bookmark, ok := BookmarkNameFromRef(command.RefName)
-		if !ok {
+		if !ok && !s.installMainMirror {
 			continue
 		}
 		if !repoResolved {
@@ -250,6 +266,12 @@ func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, o
 				return errors.Internal("failed to resolve repository").WithCause(err)
 			}
 			repoResolved = true
+		}
+		if err := repohost.RequireInstallMainMirror(s.installMainMirror, kind, command.RefName, repository.DefaultBookmark); err != nil {
+			return err
+		}
+		if !ok {
+			continue
 		}
 		if err := RequireBookmarkNotProtected(ctx, s.queries, repository.ID, bookmark); err != nil {
 			return err

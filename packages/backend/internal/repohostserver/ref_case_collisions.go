@@ -73,11 +73,15 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 	}
 	sort.Strings(names)
 	defaultBookmark, err := gitDefaultBookmark(r.Context(), gitDir)
+	defaultReadable := err == nil
 	if err != nil {
 		// Without a default, only mythical and protected names are reserved.
 		defaultBookmark = ""
 	}
 	report := repohost.RefCaseCollisionReport{Collisions: repohost.PlanRefCaseCollisions(names, defaultBookmark, req.ProtectedPatterns)}
+	if s.config.InstallMainMirror {
+		refuseInstallMainRepair(report.Collisions, defaultBookmark, defaultReadable)
+	}
 	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 	changed := false
 	repairErr := func() error {

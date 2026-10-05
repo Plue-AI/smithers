@@ -89,7 +89,7 @@ func TestSSHReceivePackInstallMainMirror(t *testing.T) {
 				line := old + " " + next + " refs/heads/main\x00report-status\n"
 				body := fmt.Sprintf("%04x%s0000PACK", len(line)+4, line)
 				calls := 0
-				server := &Server{BranchLogins: true, Queries: pushRepoQuerier(), RepoHostClient: &mockRepoHostGitProxy{
+				server := &Server{InstallMainMirror: true, Queries: pushRepoQuerier(), RepoHostClient: &mockRepoHostGitProxy{
 					infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
 					proxyReceivePackFn: func(_ context.Context, _, _ string, stdin io.Reader, _ io.Writer, _ ...repohost.ReceivePackMetadata) error {
 						_, _ = io.Copy(io.Discard, stdin)
@@ -103,14 +103,69 @@ func TestSSHReceivePackInstallMainMirror(t *testing.T) {
 				assert.Contains(t, sess.stderr.String(), "main")
 				assert.Zero(t, calls)
 				// Hosted main and install feature pushes retain their receive behavior.
-				server.BranchLogins = false
+				server.InstallMainMirror = false
 				require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", body), "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy}))
 				assert.Equal(t, 1, calls)
-				server.BranchLogins = true
+				server.InstallMainMirror = true
 				feature := strings.Replace(body, "refs/heads/main", "refs/heads/work", 1)
 				require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", feature), "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy}))
 				assert.Equal(t, 2, calls)
 			})
 		}
 	}
+}
+
+// sshPushBody is one receive-pack request of several ref creations.
+func sshPushBody(refs ...string) string {
+	var body strings.Builder
+	for i, ref := range refs {
+		line := strings.Repeat("0", 40) + " " + strings.Repeat("2", 40) + " " + ref
+		if i == 0 {
+			line += "\x00report-status"
+		}
+		line += "\n"
+		fmt.Fprintf(&body, "%04x%s", len(line)+4, line)
+	}
+	return body.String() + "0000PACK"
+}
+
+// The install fact comes from the repository engine (repohost.Client), not
+// from the login parser: BranchLogins alone protects nothing, and the rule
+// covers the default bookmark, its aliases and a multi-ref request.
+func TestSSHReceivePackInstallMainCoversDefaultBookmarkAliasesAndMultiRef(t *testing.T) {
+	trunk := &mockSSHPrincipalQuerier{
+		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
+			return db.Repository{ID: 109, DefaultBookmark: "trunk"}, nil
+		},
+	}
+	calls := 0
+	server := &Server{InstallMainMirror: true, Queries: trunk, RepoHostClient: &mockRepoHostGitProxy{
+		infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
+		proxyReceivePackFn: func(_ context.Context, _, _ string, stdin io.Reader, _ io.Writer, _ ...repohost.ReceivePackMetadata) error {
+			_, _ = io.Copy(io.Discard, stdin)
+			calls++
+			return nil
+		},
+	}}
+	for _, deploy := range []bool{false, true} {
+		for _, refs := range [][]string{
+			{"refs/heads/main"}, {"refs/heads/trunk"}, {"refs/heads/MAIN"}, {"refs/heads/ma\u200cin"},
+			{"refs/heads/Trunk"}, {"refs/heads/tr\u200dunk"}, {"refs/Heads/trunk"},
+			{"refs/heads/work", "refs/heads/main"}, {"refs/heads/work", "refs/heads/trunk"},
+		} {
+			sess := newTestSession("", sshPushBody(refs...))
+			err := server.proxyReceivePack(context.Background(), sess, "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy})
+			require.Error(t, err, "deploy=%v %v", deploy, refs)
+			assert.Contains(t, sess.stderr.String(), "GitHub mirror", "deploy=%v %v", deploy, refs)
+		}
+	}
+	assert.Zero(t, calls)
+	require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", sshPushBody("refs/heads/work", "refs/heads/trunk/child")), "alice", "demo", sshPrincipal{UserID: 1}))
+	assert.Equal(t, 1, calls)
+
+	// BranchLogins selects the install login parser; it is not the install
+	// main fact, which an SSH server takes from its repository engine.
+	server.InstallMainMirror, server.BranchLogins = false, true
+	require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", sshPushBody("refs/heads/main")), "alice", "demo", sshPrincipal{UserID: 1}))
+	assert.Equal(t, 2, calls)
 }

@@ -634,6 +634,9 @@ type LandingService struct {
 	notifSvc         *NotificationService
 	workflowRunSvc   WorkflowRunService
 	agentTurn        LandingAgentTurnDispatcher
+	// installMainMirror is the engine's install fact
+	// (repohost.Client.InstallMainMirror): no landing moves main there.
+	installMainMirror bool
 }
 
 type LandingMetricsObserver interface{ ObserveLandingOperation(operation string) }
@@ -678,6 +681,19 @@ func WithLandingWorkflowRunService(svc WorkflowRunService) LandingServiceOption 
 	return func(s *LandingService) {
 		s.workflowRunSvc = svc
 	}
+}
+
+// WithLandingInstallMainMirror applies the engine's install fact
+// (repohost.Client.InstallMainMirror) at landing admission: spec §5.2.1, no
+// credential moves main through repo-host landing on an install.
+func WithLandingInstallMainMirror(install bool) LandingServiceOption {
+	return func(s *LandingService) { s.installMainMirror = install }
+}
+
+// requireInstallMainOff refuses a landing onto main or the default bookmark
+// on an install. Landing carries no sync authority for any credential.
+func (s *LandingService) requireInstallMainOff(repository db.Repository, target string) error {
+	return repohost.RequireInstallMainMirror(s.installMainMirror, "", "refs/heads/"+strings.TrimSpace(target), repository.DefaultBookmark)
 }
 
 func WithLandingAgentTurnDispatcher(dispatcher LandingAgentTurnDispatcher) LandingServiceOption {
@@ -1105,6 +1121,9 @@ func (s *LandingService) SetLandingRequestAutoLand(ctx context.Context, actor *d
 	if err != nil {
 		return LandingRequestResponse{}, err
 	}
+	if err := s.requireInstallMainOff(repository, current.TargetBookmark); err != nil {
+		return LandingRequestResponse{}, err
+	}
 	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 		return LandingRequestResponse{}, err
 	}
@@ -1355,6 +1374,9 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 
 	landingRow, err := s.getLandingByNumber(ctx, repository.ID, number)
 	if err != nil {
+		return LandLandingRequestAccepted{}, err
+	}
+	if err := s.requireInstallMainOff(repository, landingRow.TargetBookmark); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
 	if err := requireOwnLandingOrPerson(ctx, actor, landingRow.AuthorID); err != nil {
@@ -1615,6 +1637,10 @@ func (s *LandingService) ProcessNextAutoLand(ctx context.Context) error {
 		changeIDs[i] = change.ChangeID
 	}
 	row := landingRecordWithChangeIDs(candidate, changeIDs)
+	if s.requireInstallMainOff(repository, row.TargetBookmark) != nil {
+		// An intent set before the install refused it never lands main.
+		return nil
+	}
 	blocks, err := s.landingBlockers(ctx, repository, owner, repository.Name, row)
 	if err != nil {
 		return err

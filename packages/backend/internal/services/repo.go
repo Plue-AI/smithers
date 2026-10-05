@@ -1718,6 +1718,11 @@ func (s *RepoService) UpdateRepo(ctx context.Context, actor *db.User, owner, rep
 				return errors.Internal("repository host cannot update the default bookmark")
 			}
 			if err := setter.SetDefaultBookmark(workCtx, owner, repository.Name, defaultBookmark); err != nil {
+				// An install's engine keeps GitHub's default branch as the
+				// default bookmark; its refusal is the caller's permission error.
+				if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == http.StatusForbidden && status.Code == string(errors.CodePermission) {
+					return errors.New(errors.CodePermission, status.Message)
+				}
 				return errors.Internal("failed to update repository default bookmark").WithCause(err)
 			}
 			repoHostBookmarkUpdated = true

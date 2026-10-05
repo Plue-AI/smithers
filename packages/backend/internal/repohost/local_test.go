@@ -110,7 +110,7 @@ func TestInProcessIdentifiesOnlyEmbeddedClients(t *testing.T) {
 	if !NewLocalClient(http.NotFoundHandler(), "token").InProcess() {
 		t.Fatal("local client must report in-process")
 	}
-	if !NewLocalClientWithStagingEndpoint(http.NotFoundHandler(), "token", "http://127.0.0.1:1").InProcess() {
+	if !NewLocalClientWithStagingEndpoint(http.NotFoundHandler(), "token", "http://127.0.0.1:1", false).InProcess() {
 		t.Fatal("local staging client must report in-process")
 	}
 	if NewClient(&StaticStorageSetResolver{URL: "http://repo-host:8080"}, "token").InProcess() {
@@ -119,5 +119,23 @@ func TestInProcessIdentifiesOnlyEmbeddedClients(t *testing.T) {
 	var missing *Client
 	if missing.InProcess() {
 		t.Fatal("nil client must not report in-process")
+	}
+}
+
+// The doors in front of an engine read its install fact from the client, so
+// only the engine's own configuration turns the install main policy on.
+func TestInstallMainMirrorIsTheEngineFact(t *testing.T) {
+	if !NewLocalClientWithStagingEndpoint(http.NotFoundHandler(), "token", "http://127.0.0.1:1", true).InstallMainMirror() {
+		t.Fatal("an install engine's client must report the install main policy")
+	}
+	for name, client := range map[string]*Client{
+		"hosted local": NewLocalClientWithStagingEndpoint(http.NotFoundHandler(), "token", "http://127.0.0.1:1", false),
+		"embedded":     NewLocalClient(http.NotFoundHandler(), "token"),
+		"remote":       NewClient(&StaticStorageSetResolver{URL: "http://repo-host:8080"}, "token"),
+		"nil":          nil,
+	} {
+		if client.InstallMainMirror() {
+			t.Fatalf("%s client must not report the install main policy", name)
+		}
 	}
 }

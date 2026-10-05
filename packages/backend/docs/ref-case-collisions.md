@@ -17,7 +17,9 @@ default bookmark names `mythical` or one of its variants. A group entirely neste
 under variants of the same reserved name is removed when that reserved ref is
 missing, and reported when it exists. Mixed groups containing a canonical
 directory spelling remain unchanged and are reported. Other collisions also
-remain unchanged and are reported.
+remain unchanged and are reported. On an install, a collision whose canonical
+ref is `main` or the default bookmark is reported and never repaired: only the
+GitHub sync writes those refs.
 
 Each changed variant retains a numbered backup under
 `refs/smithers/case-collision/<timestamp>/<number>/`. These refs are hidden from

@@ -432,7 +432,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	webhookDispatcher := webhooks.NewDispatcher(queries)
 	sshAuthzService := services.NewSSHAuthorizationService(queries)
-	var gitHTTPOptions []services.GitHTTPProxyServiceOption
+	// Every door in front of the repository engine applies the engine's own
+	// install fact, so none can disagree with it about who writes main.
+	gitHTTPOptions := []services.GitHTTPProxyServiceOption{services.WithGitHTTPInstallMainMirror(repoHostClient.InstallMainMirror())}
 	if config.IsSingleOwner(cfg.Auth) {
 		gitHTTPOptions = append(gitHTTPOptions, services.WithGitHTTPMemberBoundary(queries))
 	}
@@ -617,7 +619,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if cfg.FeatureFlags.Workflows {
 		landingOptions = append(landingOptions, services.WithLandingWorkflowRunService(workflowRunService))
 	}
-	landingOptions = append(landingOptions, services.WithLandingMetrics(smithersMetrics))
+	landingOptions = append(landingOptions, services.WithLandingMetrics(smithersMetrics), services.WithLandingInstallMainMirror(repoHostClient.InstallMainMirror()))
 	landingService := services.NewLandingServiceWithPool(queries, repoHostClient, pool, landingOptions...)
 	stackOptions := []services.StackServiceOption{
 		services.WithStackGitHubInstallationResolver(repoConnectionService),

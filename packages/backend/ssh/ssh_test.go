@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -72,4 +73,30 @@ func TestProductSSHUsesCanonicalKeyAndRepositoryAuthorization(t *testing.T) {
 	output, err := session.CombinedOutput("git-upload-pack 'other/private.git'")
 	require.Error(t, err, "real product repository authorization must reject an inaccessible repository")
 	require.True(t, strings.Contains(strings.ToLower(string(output)), "denied") || strings.Contains(strings.ToLower(string(output)), "not found"), string(output))
+}
+
+// The SSH door takes the install main fact from the repository engine it
+// is given, so it cannot be composed in front of an install's engine without
+// it, and hosted composition never has it.
+func TestNewTakesInstallMainFactFromTheEngine(t *testing.T) {
+	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+	if ffi == "" {
+		t.Skip("SMITHERS_FFI_LIBRARY_PATH is required for the real repository engine")
+	}
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	policy, err := admission.NewMetered(pool, admission.Config{Usage: admission.ProductUsage})
+	require.NoError(t, err)
+	for _, install := range []bool{true, false} {
+		local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "ssh-engine-token", FFILibraryPath: ffi, InstallMainMirror: install})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+		server, err := productssh.New(context.Background(), productssh.Config{Database: pool, Repository: local.Client(), Admission: policy, HostKeyDir: t.TempDir(), LFSSigningSecret: "test-lfs-secret", PublicAPIOrigin: "http://127.0.0.1:4000"})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+		require.Equal(t, install, productssh.InstallMainMirror(server))
+	}
+	server, err := productssh.New(context.Background(), productssh.Config{Database: pool, Repository: repository.NewRemoteClient(nil, "test-token"), Admission: policy, HostKeyDir: t.TempDir(), LFSSigningSecret: "test-lfs-secret", PublicAPIOrigin: "http://127.0.0.1:4000"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+	require.False(t, productssh.InstallMainMirror(server))
 }

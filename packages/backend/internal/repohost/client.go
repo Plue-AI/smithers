@@ -81,6 +81,7 @@ type Client struct {
 	metrics             RepoHostOperationDurationObserver
 	localStagingBaseURL string
 	inProcess           bool
+	installMainMirror   bool
 	pushMeter           PushMeter
 	measuringMu         sync.Mutex
 	measuring           map[int64]*gitMeasurement

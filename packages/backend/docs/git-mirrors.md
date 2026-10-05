@@ -17,6 +17,8 @@ For one credential, fetches and pushes advertise the same refs, so a mirror clon
 
 Hiding is per ref name. It does not make objects secret: they share one object store.
 
+On an install, `main` and the default bookmark belong to the GitHub sync, which only fast-forwards them. Every push, bookmark write, landing and ref repair that would create, move or delete either is refused with `403 permission`. A GitHub rewrite of `main` waits for the owner's reset.
+
 ## Back up
 
 ```sh
