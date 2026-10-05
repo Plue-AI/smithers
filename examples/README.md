@@ -47,7 +47,10 @@ Both hosts run that probe through the contained spawner, so the shared journal
 also records its spawn and normal exit before and after the orphan's reaping.
 
 The companion `src/37-host-containment-host.ts` prints its process group id only
-after recording the child durably. Startup failures print the Effect cause to
+after recording the child durably and after the child tree ignores SIGTERM. A
+dead host's process owner stops its group with SIGTERM at once and holds it for
+a 60-second grace period, so only the replacement's reaper can end this tree
+within the example. Startup failures print the Effect cause to
 stderr and exit with status 1. The example summary preserves `hostStderr`,
 including Node runtime warnings such as an experimental-feature notice.
 
