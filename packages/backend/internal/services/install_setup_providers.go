@@ -61,10 +61,8 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		if !*repository.Squash {
 			return &InstallReadinessError{Code: "squash_disabled", Class: "github", Message: "Enable squash merging on GitHub ↗", Fix: "https://github.com/" + input.Repository + "/settings"}
 		}
-		// The install's import, readiness and machine layer builder key on
-		// main (spec §16.2); another default name is a later ticket.
-		if repository.DefaultBranch != "main" {
-			return &InstallReadinessError{Code: "default_branch_not_main", Class: "github", Message: "Rename the default branch to main on GitHub ↗", Fix: "https://github.com/" + input.Repository + "/settings"}
+		if refusal := installDefaultBranchRefusal(input.Repository, repository.DefaultBranch); refusal != nil {
+			return refusal
 		}
 		if err = app.SetInstallation(ctx, diagnosis.InstallationID); err != nil {
 			return err
@@ -78,6 +76,18 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		}
 		return s.prepareSource(ctx, lease, imports, members, stacks)
 	}
+}
+
+// installDefaultBranchRefusal refuses a GitHub repository whose default
+// branch is not main, or nil when it is. The install's import, readiness and
+// machine layer builder key on main (spec §16.2; another default name is a
+// later ticket), so setup refuses such a repository, and every import and
+// refresh after setup refuses it again (requireInstallDefaultBranch).
+func installDefaultBranchRefusal(repository, defaultBranch string) *InstallReadinessError {
+	if defaultBranch == "main" {
+		return nil
+	}
+	return &InstallReadinessError{Code: "default_branch_not_main", Class: "github", Message: "Rename the default branch to main on GitHub ↗", Fix: "https://github.com/" + repository + "/settings"}
 }
 
 // prepareSource mirrors main, binds the mirror to the verified owner and asks

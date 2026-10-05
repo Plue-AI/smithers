@@ -10,6 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -138,11 +141,20 @@ func (f *setupFixture) setting(t *testing.T, key string) map[string]any {
 // exercises end to end.
 func newSourceFixture(t *testing.T, imports *sourceImports, repositories ...githubfake.Repository) *setupFixture {
 	t.Helper()
-	f := newSetupFixture(t, "source")
+	f, _ := newProviderFixture(t, "source", imports, repositories...)
+	return f
+}
+
+// newProviderFixture binds the repository and source steps to the real
+// access service, owner verifier and stack service against the GitHub fake,
+// whose owner signs in with the OAuth code setupOAuthCode (signInOwner).
+func newProviderFixture(t *testing.T, stepID string, imports *sourceImports, repositories ...githubfake.Repository) (*setupFixture, *githubfake.Server) {
+	t.Helper()
+	f := newSetupFixture(t, stepID)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	credentials := GitHubAppCredentials{ID: 42, Slug: "smithers-setup", OwnerLogin: setupGitHubOwner, OwnerKind: "user", ClientID: "Iv1.setup", ClientSecret: "client-secret", WebhookSecret: "webhook-secret", PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
-	fake, err := githubfake.New(githubfake.Config{AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, PrivateKeyPEM: credentials.PEM, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: repositories}}})
+	fake, err := githubfake.New(githubfake.Config{AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, PrivateKeyPEM: credentials.PEM, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, ConversionCode: "manifest-code", OAuthCode: setupOAuthCode, Installations: []githubfake.Installation{{ID: 91, Repositories: repositories}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
@@ -150,8 +162,31 @@ func newSourceFixture(t *testing.T, imports *sourceImports, repositories ...gith
 	require.NoError(t, err)
 	app := NewGitHubAppCredentialStore(f.pool, codec)
 	require.NoError(t, app.Save(t.Context(), credentials))
-	f.svc.BindRepositoryProviders(nil, app, imports, &Members{Pool: f.pool, Credentials: app}, NewMythicalService(f.pool, nil))
-	return f
+	access := NewGitHubUserReposService(db.New(f.pool), testGitHubImportDecrypter{token: setupOwnerToken}, WithGitHubUserReposCredentialStore(app))
+	f.svc.BindRepositoryProviders(access, app, imports, &Members{Pool: f.pool, Credentials: app}, NewMythicalService(f.pool, nil))
+	return f, fake
+}
+
+const (
+	setupOAuthCode  = "owner-code"
+	setupOwnerToken = "ghu_githubfake_owner"
+)
+
+// signInOwner completes the fake's manifest conversion and the owner's OAuth
+// exchange, as setup's earlier steps do, and links the owner's GitHub
+// account, so the owner's credential reads the repository.
+func (f *setupFixture) signInOwner(t *testing.T, fake *githubfake.Server) {
+	t.Helper()
+	post := func(path string, form url.Values) {
+		res, err := http.Post(fake.URL+path, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+		require.Less(t, res.StatusCode, 300, path)
+	}
+	post("/app-manifests/manifest-code/conversions", nil)
+	post("/login/oauth/access_token", url.Values{"code": {setupOAuthCode}, "client_id": {"Iv1.setup"}, "client_secret": {"client-secret"}, "redirect_uri": {"http://install.test/callback"}})
+	_, err := db.New(f.pool).CreateOAuthAccount(t.Context(), db.CreateOAuthAccountParams{UserID: f.owner.ID, Provider: "github", ProviderUserID: "7", AccessTokenEncrypted: []byte("sealed"), ProfileData: json.RawMessage(`{}`)})
+	require.NoError(t, err)
 }
 
 // sourceImports is the durable importer's contract: the first lookup reports
@@ -197,6 +232,40 @@ func (i *sourceImports) starts() []ImportGitHubRepoInput {
 }
 
 var installedApp = githubfake.Repository{ID: 100, FullName: setupGitHubSlug}
+
+// Spec §16.2: an install binds only a repository whose GitHub default branch
+// is main. Through the real access service against the GitHub fake, the
+// repository step blocks on a trunk default with GitHub's settings page as
+// its fix and records neither the installation nor the repository; a main
+// default completes the step.
+func TestInstallRepositoryStepRefusesANonMainDefaultBranchPostgres(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		defaultBranch string
+		status        InstallStepState
+	}{
+		{name: "trunk", defaultBranch: "trunk", status: "blocked"},
+		{name: "main", status: InstallReady},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, fake := newProviderFixture(t, "repository", &sourceImports{}, githubfake.Repository{ID: 100, FullName: setupGitHubSlug, DefaultBranch: tc.defaultBranch})
+			f.signInOwner(t, fake)
+			_, err := f.pool.Exec(t.Context(), `DELETE FROM install_settings WHERE key='repository'`)
+			require.NoError(t, err)
+			_, err = f.svc.Admit(t.Context(), "repository", "repository-1", json.RawMessage(`{"repository":"`+setupGitHubSlug+`"}`))
+			require.NoError(t, err)
+			f.run(t, "repository")
+			step := f.awaitStep(t, "repository", tc.status)
+			if tc.status == InstallReady {
+				require.Nil(t, step.Blocked)
+				require.Equal(t, map[string]any{"value": `"` + setupGitHubSlug + `"`}, f.setting(t, "repository"))
+				return
+			}
+			require.Equal(t, &InstallSetupBlock{Line: "Rename the default branch to main on GitHub ↗", FixURL: "https://github.com/" + setupGitHubSlug + "/settings"}, step.Blocked)
+			require.Nil(t, f.setting(t, "repository"), "a trunk default was recorded as the install's repository")
+		})
+	}
+}
 
 // Spec §8.6.3: Source ready means the mirror holds main. The step waits out
 // the clone, binds the mirror to the verified owner, asks the stack service

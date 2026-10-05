@@ -38,6 +38,9 @@ func (s *GitHubImportService) MirrorEnrolledGitHubRepo(ctx context.Context, user
 	if defaultBranch == "" {
 		defaultBranch = "main"
 	}
+	if err := s.requireInstallDefaultBranch(owner, repo, defaultBranch); err != nil {
+		return "", "", err
+	}
 
 	// Reuses the mirror when one already exists for this GitHub source (#47
 	// provenance), so re-mirroring an enrolled repo is idempotent rather than

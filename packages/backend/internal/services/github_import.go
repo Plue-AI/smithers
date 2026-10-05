@@ -959,6 +959,9 @@ func (s *GitHubImportService) runDurableImport(ctx context.Context, job *claimed
 	if err := repohost.ValidateBookmarkName(defaultBranch); err != nil {
 		return terminalGitHubImportError{pkgerrors.UnprocessableEntity("GitHub default branch cannot be represented as a bookmark")}
 	}
+	if err := s.requireInstallDefaultBranch(job.GitHubOwner, job.GitHubRepo, defaultBranch); err != nil {
+		return err
+	}
 
 	operation, reusedRepository, err := s.reserveDurableImportRepository(ctx, job, defaultBranch)
 	if err != nil {
@@ -1018,7 +1021,7 @@ func (s *GitHubImportService) runDurableImport(ctx context.Context, job *claimed
 			return err
 		}
 		if err := s.cloneAndSyncMirror(ctx, "mirror.clone.staged", job.GitHubOwner, job.GitHubRepo,
-			githubCloneToken, pushURL, pushCapability, job.ID, mirrorPushArgs, pushHeaders); err != nil {
+			githubCloneToken, pushURL, pushCapability, job.ID, mirrorPushArgs, pushHeaders, s.freshMirrorHooks()...); err != nil {
 			return err
 		}
 		if err := s.renewDurableImportClaims(ctx, *job, operation); err != nil {
@@ -1687,6 +1690,10 @@ func (s *GitHubImportService) runImportToName(ctx context.Context, userID int64,
 	if defaultBranch == "" {
 		defaultBranch = "main"
 	}
+	if err := s.requireInstallDefaultBranch(owner, repo, defaultBranch); err != nil {
+		s.observeFailure("github_repo", err)
+		return db.Repository{}, WorkspaceResponse{}, err
+	}
 
 	s.setStage(ctx, jobID, importStageCreatingRepo)
 	var repository db.Repository
@@ -1985,7 +1992,10 @@ func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userI
 // branch, must descend from the mirror's. A rewrite fails the refresh with
 // GitHubMainForcePush, which the import records on its job; the mirror keeps
 // its main until the owner's reset. It decides with gitutil.IsAncestor, the
-// ancestry the repository host applies under its lock to the same push.
+// ancestry the repository host applies under its lock to the same push, and
+// reads no replacement ref. It runs again after a failed push
+// (cloneAndSyncMirror): when main moved between the check and the push, the
+// host's refusal of that push is this rewrite too.
 func (s *GitHubImportService) refuseGitHubMainRewrite(localOwner, mirrorName, defaultBranch string) func(context.Context, string) error {
 	return func(ctx context.Context, gitDir string) error {
 		names := []string{"main"}
@@ -2002,13 +2012,15 @@ func (s *GitHubImportService) refuseGitHubMainRewrite(localOwner, mirrorName, de
 				continue
 			}
 			// A branch GitHub no longer has is left alone: the push never prunes.
-			out, err := gitHubMainPullCommand(ctx, "--git-dir", gitDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+name+"^{commit}").Output()
+			// Replacement refs from GitHub are never read: one naming a blob
+			// in the tip's place would hide the tip and skip the check.
+			out, err := gitHubMainPullCommand(ctx, "--no-replace-objects", "--git-dir", gitDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+name+"^{commit}").Output()
 			tip := strings.TrimSpace(string(out))
 			if err != nil || tip == "" || tip == old {
 				continue
 			}
 			forward := false
-			if gitHubMainPullCommand(ctx, "--git-dir", gitDir, "cat-file", "-e", old+"^{commit}").Run() == nil {
+			if gitHubMainPullCommand(ctx, "--no-replace-objects", "--git-dir", gitDir, "cat-file", "-e", old+"^{commit}").Run() == nil {
 				if forward, err = gitutil.IsAncestor(ctx, gitDir, old, tip, gitHubMainPullCommand); err != nil {
 					return fmt.Errorf("compare GitHub's %s: %w", name, err)
 				}
@@ -2020,6 +2032,21 @@ func (s *GitHubImportService) refuseGitHubMainRewrite(localOwner, mirrorName, de
 		}
 		return nil
 	}
+}
+
+// requireInstallDefaultBranch fails an install's import or refresh with
+// default_branch_not_main, terminally and before it fetches anything, when
+// GitHub's default branch is no longer main (installDefaultBranchRefusal):
+// the mirror's main stays as it is. Hosted imports follow GitHub's default.
+func (s *GitHubImportService) requireInstallDefaultBranch(owner, repo, defaultBranch string) error {
+	if !s.installMainMirror {
+		return nil
+	}
+	refusal := installDefaultBranchRefusal(owner+"/"+repo, defaultBranch)
+	if refusal == nil {
+		return nil
+	}
+	return terminalGitHubImportError{fmt.Errorf("%s: GitHub's default branch is %s, not main: %w", refusal.Code, defaultBranch, refusal)}
 }
 
 // bookmarkExists reports whether one named bookmark is present in the mirror.
@@ -2594,7 +2621,40 @@ func (s *GitHubImportService) proactivelyRefreshGitHubToken(ctx context.Context,
 // mirrors AND prunes the destination to match the source exactly. --mirror is
 // only safe here because the storage was just created this run (nothing to prune).
 func (s *GitHubImportService) cloneAndPushMirror(ctx context.Context, owner, repo, sourceToken, pushURL, pushToken, jobID string) error {
-	return s.cloneAndSyncMirror(ctx, "mirror.clone", owner, repo, sourceToken, pushURL, pushToken, jobID, mirrorPushArgs, nil)
+	return s.cloneAndSyncMirror(ctx, "mirror.clone", owner, repo, sourceToken, pushURL, pushToken, jobID, mirrorPushArgs, nil, s.freshMirrorHooks()...)
+}
+
+// freshMirrorHooks prepare a fresh import's clone before its mirror push: on
+// an install, dropReplaceRefs.
+func (s *GitHubImportService) freshMirrorHooks() []func(context.Context, string) error {
+	if !s.installMainMirror {
+		return nil
+	}
+	return []func(context.Context, string) error{dropReplaceRefs}
+}
+
+// dropReplaceRefs deletes the replacement refs (refs/replace/*) GitHub
+// carries from a fetched mirror. An install refuses that namespace at every
+// receive, its staged import's included (repohost.ReplaceRef), and reads no
+// replacement, so its first import publishes the mirror without them.
+func dropReplaceRefs(ctx context.Context, gitDir string) error {
+	out, err := gitHubMainPullCommand(ctx, "--git-dir", gitDir, "for-each-ref", "--format=%(refname)", "refs/replace/").Output()
+	if err != nil {
+		return fmt.Errorf("list GitHub's replacement refs: %w", err)
+	}
+	var deletes strings.Builder
+	for _, ref := range strings.Fields(string(out)) {
+		deletes.WriteString("delete " + ref + "\n")
+	}
+	if deletes.Len() == 0 {
+		return nil
+	}
+	cmd := gitHubMainPullCommand(ctx, "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin")
+	cmd.Stdin = strings.NewReader(deletes.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return gitHubMainPullCommandError("drop GitHub's replacement refs", err, out)
+	}
+	return nil
 }
 
 // stagedMirrorPushHeaders reads the headers a staged import's mirror push
@@ -2617,7 +2677,8 @@ func (s *GitHubImportService) stagedMirrorPushHeaders(ctx context.Context, stage
 // discipline, cleanup) serves both the fresh --mirror push and the reuse-refresh
 // non-pruning push. spanName names the trace span for the caller's phase.
 // pushHeaders are sent with every push request.
-// beforePush, when set, inspects the fetched mirror and may refuse the push.
+// beforePush, when set, prepares or inspects the fetched mirror and may
+// refuse the push; after a failed push it runs again (refuseGitHubMainRewrite).
 func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, owner, repo, sourceToken, pushURL, pushToken, jobID string, buildPushArgs func(gitDir, pushURL string) []string, pushHeaders http.Header, beforePush ...func(context.Context, string) error) error {
 	ctx, span := otel.Tracer("smithers-server").Start(ctx, spanName)
 	span.SetAttributes(attribute.String("repo_owner", owner), attribute.String("repo_name", repo), attribute.String("mirror_id", jobID))
@@ -2691,7 +2752,19 @@ func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, 
 		return fmt.Errorf("push token is required")
 	}
 	if out, err := runGit(ctx, pushEnv, buildPushArgs(localMirror, pushURL)...); err != nil {
-		return fmt.Errorf("push mirrored refs: %w: %s", err, strings.TrimSpace(withoutURLPath(out, pushURL)))
+		pushErr := fmt.Errorf("push mirrored refs: %w: %s", err, strings.TrimSpace(withoutURLPath(out, pushURL)))
+		// Git does not show the host's refusal. The destination may have
+		// moved since the hooks ran, so they run again: a refusal they now
+		// make is the reason, kept with its type.
+		for _, inspect := range beforePush {
+			if inspect == nil {
+				continue
+			}
+			if inspectErr := inspect(ctx, localMirror); inspectErr != nil {
+				return errors.Join(inspectErr, pushErr)
+			}
+		}
+		return pushErr
 	}
 	return nil
 }
