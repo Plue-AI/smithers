@@ -479,7 +479,10 @@ func (s *WorkspaceService) installRuntimeWorkspaceHeadReporter(ctx context.Conte
 	}
 	expected := current.HeadPushTokenID
 	row.HeadPushTokenID = expected
-	if expected.Valid {
+	user := s.workspaceCredentialUser(ctx, row, requesterID)
+	// A running publisher stands while it holds the credential user's token;
+	// one holding another's (a branch machine's owner) is replaced.
+	if expected.Valid && s.headTokenHeldBy(ctx, expected.Int64, user) {
 		if running, err := probe(expected.Int64); err != nil || running {
 			return row, err
 		}
@@ -492,15 +495,15 @@ func (s *WorkspaceService) installRuntimeWorkspaceHeadReporter(ctx context.Conte
 	if err != nil {
 		return row, err
 	}
-	token, err := issueTemporaryRepoTokenWithTTL(ctx, s.q, row.UserID, "sandbox-workspace-"+row.ID,
+	token, err := issueTemporaryRepoTokenWithTTL(ctx, s.q, user, "sandbox-workspace-"+row.ID,
 		workspaceHeadTokenScopes(row.RepositoryID, row.ID), workspaceHeadTokenTTL)
 	if err != nil {
 		return row, pkgerrors.Internal("mint workspace head token: " + err.Error())
 	}
 	next := pgtype.Int8{Int64: token.ID, Valid: true}
-	won, err := store.SwapWorkspaceHeadPushTokenID(ctx, row.ID, row.UserID, expected, next)
+	won, err := store.SwapWorkspaceHeadPushTokenID(ctx, row.ID, user, expected, next)
 	if err != nil || !won {
-		revokeTemporaryRepoCloneToken(ctx, s.q, row.UserID, token.ID)
+		revokeTemporaryRepoCloneToken(ctx, s.q, user, token.ID)
 		if err != nil {
 			return row, pkgerrors.Internal("record workspace head token: " + err.Error())
 		}
@@ -575,7 +578,7 @@ func (s *WorkspaceService) awaitRuntimeWorkspaceHeadSeed(ctx, operationCtx conte
 // repairRuntimeWorkspaceHeadReporter is the box host's repair for a runtime
 // workspace: it restores the runtime publisher and reports failure, since the
 // host needs a working repository credential.
-func (s *WorkspaceService) repairRuntimeWorkspaceHeadReporter(ctx context.Context, workspace db.Workspace) (db.Workspace, error) {
+func (s *WorkspaceService) repairRuntimeWorkspaceHeadReporter(ctx context.Context, workspace db.Workspace, requesterID int64) (db.Workspace, error) {
 	store, ok := s.q.(workspaceHeadSwapStore)
 	if !ok || !s.runtime.Capabilities().ManagedServices {
 		return workspace, nil
@@ -593,7 +596,38 @@ func (s *WorkspaceService) repairRuntimeWorkspaceHeadReporter(ctx context.Contex
 	if strings.TrimSpace(observed.Home) == "" || strings.TrimSpace(observed.Root) == "" {
 		return workspace, nil
 	}
-	return s.installRuntimeWorkspaceHeadReporter(ctx, store, workspace, workspace.UserID, observed)
+	return s.installRuntimeWorkspaceHeadReporter(ctx, store, workspace, requesterID, observed)
+}
+
+// headTokenHeldBy reports whether user holds the recorded publisher token. A
+// store that cannot say keeps the running publisher, as before.
+func (s *WorkspaceService) headTokenHeldBy(ctx context.Context, tokenID, user int64) bool {
+	q, ok := s.q.(interface {
+		GetAccessTokenByID(context.Context, int64) (db.AccessToken, error)
+	})
+	if !ok {
+		return true
+	}
+	token, err := q.GetAccessTokenByID(ctx, tokenID)
+	return err != nil || token.UserID == user
+}
+
+// workspaceCredentialUser is whom a box's repository credentials belong to:
+// the requester when the box is theirs alone (their own with no write share,
+// or a branch machine shared with them only), else its owner. A branch
+// machine's owner is the install's machine service, which cannot sign in, so
+// a token issued to it reads and publishes nothing.
+func (s *WorkspaceService) workspaceCredentialUser(ctx context.Context, row db.Workspace, requesterID int64) int64 {
+	q, ok := s.q.(interface {
+		WorkspaceSoleWriter(context.Context, db.WorkspaceSoleWriterParams) (bool, error)
+	})
+	if !ok || requesterID <= 0 || requesterID == row.UserID {
+		return row.UserID
+	}
+	if alone, err := q.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: row.ID, UserID: requesterID}); err == nil && alone {
+		return requesterID
+	}
+	return row.UserID
 }
 
 // buildWorkspaceHeadReporterInstallCommand writes the reporter script and
@@ -631,7 +665,7 @@ func buildWorkspaceCodingInstallCommand(workspace db.Workspace, user, baseURL, s
 // value is returned by the probe or written to guest storage.
 func (s *WorkspaceService) ensureWorkspaceHeadReporter(ctx context.Context, workspace db.Workspace) (db.Workspace, error) {
 	if s.runtime != nil {
-		return s.repairRuntimeWorkspaceHeadReporter(ctx, workspace)
+		return s.repairRuntimeWorkspaceHeadReporter(ctx, workspace, workspace.UserID)
 	}
 	if _, ok := s.q.(workspaceHeadStore); !ok || s.sandbox == nil {
 		return workspace, nil

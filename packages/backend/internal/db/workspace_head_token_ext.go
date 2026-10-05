@@ -10,7 +10,9 @@ import (
 // only while the row still records expected (NULL when expected is invalid),
 // and in the same statement revokes expected, so no crash or concurrent API
 // replica can leave a superseded token live and unrecorded. It reports whether
-// this caller won; a loser still owns next and must revoke it.
+// this caller won; a loser still owns next and must revoke it. expected is
+// revoked when userID holds it or it is this workspace's publisher token by
+// name: a branch machine's publisher holds its person's token, not the owner's.
 func (q *Queries) SwapWorkspaceHeadPushTokenID(ctx context.Context, id string, userID int64, expected, next pgtype.Int8) (bool, error) {
 	var won bool
 	err := q.db.QueryRow(ctx, `
@@ -23,7 +25,7 @@ WITH swapped AS (
 ), revoked AS (
   DELETE FROM access_tokens
   WHERE id = $3::bigint
-    AND user_id = $2
+    AND (user_id = $2 OR name = 'sandbox-workspace-' || $1::text)
     AND EXISTS (SELECT 1 FROM swapped)
   RETURNING id
 )

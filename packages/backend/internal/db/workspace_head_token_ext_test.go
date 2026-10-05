@@ -108,3 +108,42 @@ func TestSwapWorkspaceHeadPushTokenID_ConcurrentOneWinner(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, winners[0], stored.HeadPushTokenID)
 }
+
+// A branch machine's publisher holds its person's token, not the owner's: the
+// swap revokes this workspace's publisher token whoever holds it, and never
+// another user's token that merely shares a recorded ID.
+func TestSwapWorkspaceHeadPushTokenID_RevokesThisWorkspacesPublisherTokenOfAnotherUser(t *testing.T) {
+	ctx := context.Background()
+	q, pool := newQueries(t)
+	id := casTestWorkspace(t, pool, "running", "vm-head-person")
+	owner := workspaceUserID(t, pool, id)
+	person := mustCreateUser(t, pool, uniqueTestUsername(t))
+	personToken := func(name string) pgtype.Int8 {
+		var token int64
+		require.NoError(t, pool.QueryRow(ctx, `
+			INSERT INTO access_tokens (user_id, name, token_hash, token_last_eight, scopes)
+			VALUES ($1, $2, md5(random()::text) || md5(random()::text), '01234567', 'write:repository') RETURNING id`,
+			person, name).Scan(&token))
+		return pgtype.Int8{Int64: token, Valid: true}
+	}
+	publisher := personToken("sandbox-workspace-" + id)
+	won, err := q.SwapWorkspaceHeadPushTokenID(ctx, id, person, pgtype.Int8{}, publisher)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	// The owner's revocation (stop, suspend) clears the person's publisher token.
+	won, err = q.SwapWorkspaceHeadPushTokenID(ctx, id, owner, publisher, pgtype.Int8{})
+	require.NoError(t, err)
+	assert.True(t, won)
+	assert.False(t, headTokenExists(t, pool, publisher), "this workspace's publisher token is revoked whoever holds it")
+
+	// A recorded ID naming another user's unrelated token revokes nothing.
+	other := personToken("laptop")
+	won, err = q.SwapWorkspaceHeadPushTokenID(ctx, id, owner, pgtype.Int8{}, other)
+	require.NoError(t, err)
+	require.True(t, won)
+	won, err = q.SwapWorkspaceHeadPushTokenID(ctx, id, owner, other, pgtype.Int8{})
+	require.NoError(t, err)
+	assert.True(t, won)
+	assert.True(t, headTokenExists(t, pool, other), "another user's token by any other name is never revoked")
+}

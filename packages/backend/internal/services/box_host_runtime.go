@@ -11,8 +11,10 @@ import (
 
 // installRuntimeBoxCodingBinding prepares source publication before any host
 // credential is minted. Its runtime interface permits one fixed root-owned
-// file, without giving repository code privileged command execution.
-func (s *WorkspaceService) installRuntimeBoxCodingBinding(ctx context.Context, row db.Workspace) error {
+// file, without giving repository code privileged command execution. The
+// binding and the publisher's credential are userID's: the person the host
+// works for, whose box it is alone (PrepareBoxHost checks).
+func (s *WorkspaceService) installRuntimeBoxCodingBinding(ctx context.Context, row db.Workspace, userID int64) error {
 	installer, ok := s.runtime.(workspaceapi.WorkspaceCodingBindingInstaller)
 	if !ok || !s.runtime.Capabilities().ManagedServices {
 		return pkgerrors.Conflict("workspace coding source binding provisioning is unavailable")
@@ -29,11 +31,11 @@ func (s *WorkspaceService) installRuntimeBoxCodingBinding(ctx context.Context, r
 	if err != nil {
 		return pkgerrors.Internal("build workspace coding Git URL").WithCause(err)
 	}
-	binding := workspaceapi.WorkspaceCodingBinding{ActorID: row.UserID, RepositoryID: row.RepositoryID, RepositorySlug: slug, APIBaseURL: base + "/api", GitURL: gitURL}
+	binding := workspaceapi.WorkspaceCodingBinding{ActorID: userID, RepositoryID: row.RepositoryID, RepositorySlug: slug, APIBaseURL: base + "/api", GitURL: gitURL}
 	if err := binding.Validate(); err != nil {
 		return pkgerrors.Conflict("workspace coding source binding configuration is invalid").WithCause(err)
 	}
-	updated, err := s.ensureWorkspaceHeadReporter(ctx, row)
+	updated, err := s.repairRuntimeWorkspaceHeadReporter(ctx, row, userID)
 	if err != nil {
 		return err
 	}

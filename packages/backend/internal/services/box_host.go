@@ -123,7 +123,7 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 		return environment, err
 	}
 	if guest && s.sandbox == nil {
-		if err = s.installRuntimeBoxCodingBinding(ctx, workspace); err != nil {
+		if err = s.installRuntimeBoxCodingBinding(ctx, workspace, userID); err != nil {
 			return nil, err
 		}
 	} else {
