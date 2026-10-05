@@ -340,8 +340,38 @@ func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) erro
 		!validSteerInput(payload.MessageID, payload.CreatedAt, payload.Body) {
 		return service.fail(lease, "invalid_steer_request", RuntimeCheckpoint{})
 	}
+	request := SteerRequest{
+		Scope: claim.Scope, RequestID: claim.RequestID, Target: payload.Target,
+		FlowID: payload.FlowID, RunID: payload.RunID, MessageID: payload.MessageID,
+		CreatedAt: payload.CreatedAt, Body: payload.Body,
+		AuthorizationContext: claim.AuthorizationContext, Projection: payload.Projection,
+	}
+	authorize := func(ctx context.Context) error {
+		if service.steerAuthorizer != nil {
+			return service.steerAuthorizer.AuthorizeFlowSteer(ctx, request)
+		}
+		if payload.FlowID == TodoFlow || payload.Target.BindingKind == StackBindingKind {
+			return safeFailure{code: "steer_authorizer_unavailable", retryable: true}
+		}
+		return nil
+	}
+	if err := authorize(ctx); err != nil {
+		checkpoint, decodeErr := decodeCheckpoint(claim.ExternalReceipt)
+		if decodeErr != nil {
+			return service.fail(lease, "invalid_checkpoint", RuntimeCheckpoint{Projection: payload.Projection})
+		}
+		if checkpoint.Version == 0 {
+			checkpoint = RuntimeCheckpoint{Version: 1, Target: payload.Target, FlowID: payload.FlowID, RunID: payload.RunID, Projection: payload.Projection}
+		}
+		return service.runtimeError(lease, err, checkpoint)
+	}
 	return service.handleRunMutation(ctx, lease, payload.runMutationPayload, "steer",
 		func(ctx context.Context, runtime flowruntime.Runtime, generation int64) (flowruntime.MutationResult, error) {
+			// Waking and observing a retained host can take minutes. A removal
+			// committed during that wait must stop the Message too.
+			if err := authorize(ctx); err != nil {
+				return flowruntime.MutationResult{}, err
+			}
 			return runtime.Steer(ctx, flowruntime.Steer{
 				ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
 				RunID: payload.RunID, MessageID: payload.MessageID, CreatedAt: payload.CreatedAt,

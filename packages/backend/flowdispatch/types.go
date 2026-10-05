@@ -123,6 +123,14 @@ type SteerRequest struct {
 	Projection           json.RawMessage
 }
 
+// SteerAuthorizer rechecks the committed input's current authority before a
+// worker wakes its host and again immediately before runtime delivery.
+// Admission authorization alone cannot authorize an input held across removal
+// of its author from the repository. TODO delivery requires this provider.
+type SteerAuthorizer interface {
+	AuthorizeFlowSteer(context.Context, SteerRequest) error
+}
+
 type RuntimeCheckpoint struct {
 	Version             int                             `json:"version"`
 	Target              flowruntime.FlowRuntimeTarget   `json:"target"`
@@ -178,9 +186,10 @@ func (project ProjectorFunc) ProjectFlowRuntime(ctx context.Context, update Proj
 }
 
 type Config struct {
-	Store     *jobs.Store
-	Resolver  flowruntime.FlowRuntimeResolver
-	Projector Projector
+	Store           *jobs.Store
+	Resolver        flowruntime.FlowRuntimeResolver
+	Projector       Projector
+	SteerAuthorizer SteerAuthorizer
 	// ObservationDelay is the first wait before re-polling a parked or running
 	// launch. Each poll that finds no progress doubles it, up to
 	// MaxObservationDelay.

@@ -21,6 +21,81 @@ type mythicalSteerer interface {
 	SteerInTx(context.Context, pgx.Tx, flowdispatch.SteerRequest) (jobs.RequestReceipt, error)
 }
 
+// AuthorizeFlowSteer binds a delivery to the stored input and its author's
+// current membership. The stack's runtime owner is not the feedback author.
+// No browser credential is synthesized from the durable authorization data.
+func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdispatch.SteerRequest) error {
+	if request.FlowID != flowdispatch.TodoFlow && request.Target.BindingKind != mythicalBindingKind {
+		return nil
+	}
+	if s == nil || s.store == nil || !s.todoSteering || s.todoFlow == nil {
+		return mythicalFlowFailure{code: "steer_authorizer_unavailable", retryable: true}
+	}
+	refused := mythicalFlowFailure{code: "steer_input_mismatch"}
+	var authority struct {
+		RepositoryID int64  `json:"repositoryId"`
+		UserID       int64  `json:"userId"`
+		ItemID       string `json:"itemId"`
+		Input        string `json:"input"`
+	}
+	if json.Unmarshal(request.AuthorizationContext, &authority) != nil || authority.UserID <= 0 ||
+		authority.RepositoryID <= 0 || request.FlowID != flowdispatch.TodoFlow || request.Target.BindingKind != mythicalBindingKind ||
+		authority.ItemID != request.Target.BindingID || authority.Input != request.MessageID ||
+		request.RequestID != "todo-steer:"+request.MessageID || request.Scope.TenantID != "repository:"+strconv.FormatInt(authority.RepositoryID, 10) ||
+		request.Target.TenantID != request.Scope.TenantID || request.Target.PrincipalID != request.Scope.PrincipalID {
+		return refused
+	}
+	id, err := uuid.Parse(authority.ItemID)
+	if err != nil {
+		return refused
+	}
+	q := s.queries()
+	item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return refused
+	}
+	if err != nil {
+		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+	}
+	if item.RepositoryID != authority.RepositoryID || !mythicalTodo(item) || request.RunID == "" ||
+		item.RequestRunID != request.RunID || item.WorkspaceID == "" || item.WorkspaceID != request.Target.WorkspaceID {
+		return refused
+	}
+	matched := false
+	for _, feedback := range mythicalChecksOf(item).Steers {
+		if feedback.ID == request.MessageID && feedback.Author == authority.UserID && feedback.Attempt == item.Attempt &&
+			feedback.Text == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return refused
+	}
+	stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
+	if err != nil {
+		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+	}
+	if !stack.ActorUserID.Valid || request.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
+		return refused
+	}
+	repository, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+	}
+	if repository != authority.RepositoryID {
+		return refused
+	}
+	role, err := InstallRoleOf(ctx, q, authority.UserID)
+	if err != nil {
+		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+	}
+	if role == "" {
+		return mythicalFlowFailure{code: "steer_author_revoked"}
+	}
+	return nil
+}
+
 // steerTodo joins feedback, activity and an immediately deliverable Message in
 // the existing product transaction. Production leaves todoSteering false until
 // held-input delivery and ordered model-turn consumption have acceptance proof.

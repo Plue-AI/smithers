@@ -21,6 +21,7 @@ type Service struct {
 	store               *jobs.Store
 	resolver            flowruntime.FlowRuntimeResolver
 	projector           Projector
+	steerAuthorizer     SteerAuthorizer
 	observationDelay    time.Duration
 	maxObservationDelay time.Duration
 	observationLimit    int
@@ -60,6 +61,7 @@ func New(config Config) (*Service, error) {
 	}
 	return &Service{
 		store: config.Store, resolver: config.Resolver, projector: config.Projector,
+		steerAuthorizer:  config.SteerAuthorizer,
 		observationDelay: config.ObservationDelay, maxObservationDelay: config.MaxObservationDelay,
 		observationLimit: config.ObservationLimit,
 		observationPages: config.ObservationPages, runtimeCallTimeout: config.RuntimeCallTimeout,

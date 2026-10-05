@@ -4,12 +4,104 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"sync/atomic"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
+
+type testSteerAuthorizer func(context.Context, SteerRequest) error
+
+func (authorize testSteerAuthorizer) AuthorizeFlowSteer(ctx context.Context, request SteerRequest) error {
+	return authorize(ctx, request)
+}
+
+var allowTestSteer = testSteerAuthorizer(func(context.Context, SteerRequest) error { return nil })
+
+func TestTodoSteerReauthorizesBeforeWakeAndDelivery(t *testing.T) {
+	for _, revokeAt := range []int32{0, 1, 2} {
+		t.Run(map[int32]string{0: "allowed", 1: "removed before wake", 2: "removed while waking"}[revokeAt], func(t *testing.T) {
+			store, _ := newFlowDispatchStore(t)
+			runtime := todoWakeRuntime{newRecordingRuntime()}
+			runtime.status = "waiting"
+			var checks, resolves atomic.Int32
+			request := testSteerRequest()
+			request.FlowID = "todo"
+			service, err := New(Config{Store: store,
+				Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+					resolves.Add(1)
+					return runtime, nil
+				}),
+				SteerAuthorizer: testSteerAuthorizer(func(_ context.Context, received SteerRequest) error {
+					require.Equal(t, request.Body, received.Body)
+					require.Equal(t, request.MessageID, received.MessageID)
+					require.Equal(t, request.Scope, received.Scope)
+					require.JSONEq(t, string(request.AuthorizationContext), string(received.AuthorizationContext))
+					if checks.Add(1) == revokeAt {
+						return &testRuntimeFailure{code: "steer_author_revoked"}
+					}
+					return nil
+				}),
+			})
+			require.NoError(t, err)
+			receipt, err := service.Steer(context.Background(), request)
+			require.NoError(t, err)
+			stop := startTestWorker(t, service, "steer-authority")
+			result := waitOperation(t, store, request.Scope, receipt.OperationID, func(op jobs.Operation) bool { return op.State.Terminal() })
+			stop()
+			if revokeAt == 0 {
+				require.Equal(t, jobs.StateCompleted, result.State)
+				require.Len(t, runtime.steers, 1)
+				require.EqualValues(t, 2, checks.Load())
+			} else {
+				require.Equal(t, jobs.StateFailed, result.State)
+				require.Contains(t, string(result.TerminalReceipt), "steer_author_revoked")
+				require.Empty(t, runtime.steers)
+				require.Equal(t, revokeAt, checks.Load())
+			}
+			if revokeAt == 1 {
+				require.Zero(t, resolves.Load())
+			} else {
+				require.EqualValues(t, 1, resolves.Load())
+			}
+		})
+	}
+}
+
+func TestTodoSteerMissingAuthorizerRetainsInput(t *testing.T) {
+	store, _ := newFlowDispatchStore(t)
+	runtime := todoWakeRuntime{newRecordingRuntime()}
+	runtime.status = "waiting"
+	var resolves atomic.Int32
+	resolver := flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		resolves.Add(1)
+		return runtime, nil
+	})
+	service, err := New(Config{Store: store, Resolver: resolver})
+	require.NoError(t, err)
+	request := testSteerRequest()
+	request.FlowID = "todo"
+	receipt, err := service.Steer(context.Background(), request)
+	require.NoError(t, err)
+	stop := startTestWorker(t, service, "no-steer-authorizer")
+	waitOperation(t, store, request.Scope, receipt.OperationID, func(op jobs.Operation) bool { return op.Attempt > 0 })
+	stop()
+	require.Zero(t, resolves.Load(), "missing authority must refuse before waking the host")
+	require.Empty(t, runtime.steers)
+	retained, err := store.Get(context.Background(), request.Scope, receipt.OperationID)
+	require.NoError(t, err)
+	require.False(t, retained.State.Terminal())
+	service, err = New(Config{Store: store, Resolver: resolver, SteerAuthorizer: allowTestSteer})
+	require.NoError(t, err)
+	stop = startTestWorker(t, service, "restored-steer-authorizer")
+	waitOperation(t, store, request.Scope, receipt.OperationID, func(op jobs.Operation) bool { return op.State == jobs.StateCompleted })
+	stop()
+	require.Len(t, runtime.steers, 1)
+	require.Equal(t, request.MessageID, runtime.steers[0].MessageID)
+	require.Equal(t, request.Body, runtime.steers[0].Body)
+}
 
 func testSteerRequest() SteerRequest {
 	launch := testLaunchRequest("feedback-1", ApprovalManual)

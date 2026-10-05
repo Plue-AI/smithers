@@ -58,7 +58,7 @@ func TestTodoWakeAttachmentKeepsOriginalDeadline(t *testing.T) {
 				runtime.status = "waiting"
 				runtime.unavailable.Store(true)
 				resolver := flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return runtime, nil })
-				service, err := New(Config{Store: store, Resolver: resolver})
+				service, err := New(Config{Store: store, Resolver: resolver, SteerAuthorizer: allowTestSteer})
 				require.NoError(t, err)
 				request := SignalRequest{Scope: jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}, RequestID: "attaching-steer", Target: flowruntime.Target{BindingKind: "workspace", BindingID: "waiting", WorkspaceID: "waiting"}, FlowID: "todo", RunID: "same-run", Name: "steer", Payload: json.RawMessage(`{"text":"Keep notes.txt"}`)}
 				admit := func(service *Service) (jobs.RequestReceipt, error) {
@@ -105,7 +105,7 @@ func TestTodoWakeAttachmentKeepsOriginalDeadline(t *testing.T) {
 					require.NoError(t, err)
 				}
 				runtime.unavailable.Store(false)
-				restarted, err := New(Config{Store: store, Resolver: resolver})
+				restarted, err := New(Config{Store: store, Resolver: resolver, SteerAuthorizer: allowTestSteer})
 				require.NoError(t, err)
 				duplicate, err := admit(restarted)
 				require.NoError(t, err)

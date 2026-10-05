@@ -92,7 +92,7 @@ func (o *mythicalOrchestration) runDispatcher(t *testing.T, resolver flowruntime
 	pool = o.pool.(*pgxpool.Pool)
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: o.service, ObservationDelay: time.Millisecond, MaxObservationDelay: 5 * time.Millisecond,
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: o.service, SteerAuthorizer: o.service, ObservationDelay: time.Millisecond, MaxObservationDelay: 5 * time.Millisecond,
 		Resolver: resolver})
 	require.NoError(t, err)
 	o.service.SetLauncher(dispatcher)

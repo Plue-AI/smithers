@@ -177,7 +177,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), RelayPlans: relayPlanStore{db.New(pool)}})
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
