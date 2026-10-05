@@ -158,6 +158,19 @@
 .mvp-timeline li[data-in-view]:not(:has(+ li[data-in-view])) > button { border-bottom-left-radius: var(--r-1); border-bottom-right-radius: var(--r-1); }
 .mvp-rail [data-tone="live"] .mvp-tl-node { animation: mvp-shell-live 1.8s ease-in-out infinite; }
 @keyframes mvp-shell-live { 50% { opacity: 0.4; } }
+/* Zoomed lines (T-UI-08 zoom, #3728): a stacked node on the hairline, and tighter, quieter type the coarser the level. Level 3 is the coarsest look; higher levels wear it. */
+.mvp-timeline li[data-zoom] > button { padding: 2px 8px 2px 0; }
+.mvp-timeline li[data-zoom="2"] > button { padding: 3px 8px 3px 0; }
+.mvp-timeline li[data-zoom="1"] > button { padding: 4px 8px 4px 0; }
+.mvp-tl-stack { display: block; flex: none; }
+.mvp-timeline li[data-zoom] .mvp-tl-text b { color: var(--text-muted); font-size: 11px; font-weight: 400; line-height: 15px; }
+.mvp-timeline li[data-zoom="2"] .mvp-tl-text b { color: var(--text); font-size: 12px; line-height: 16px; }
+.mvp-timeline li[data-zoom="1"] .mvp-tl-text b { color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 18px; }
+.mvp-timeline li[data-zoom] .mvp-tl-zoom { color: var(--text-faint); font-size: 10.5px; line-height: 13px; font-variant-numeric: tabular-nums; }
+.mvp-timeline li[data-zoom="2"] .mvp-tl-zoom { color: var(--text-muted); font-size: 11px; line-height: 14px; }
+.mvp-timeline li[data-zoom="1"] .mvp-tl-zoom { color: var(--text-muted); font-size: 11px; line-height: 15px; }
+.mvp-timeline li[data-zoom][data-tone="attention"] .mvp-tl-zoom { color: var(--attention-text); }
+.mvp-timeline li[data-zoom][data-tone="failed"] .mvp-tl-zoom { color: var(--danger); }
 /* Pinned edges: at most two rows, then "+N above" or "+N below". */
 .mvp-edge { display: flex; flex-direction: column; gap: 4px; }
 .mvp-tl-edge { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }

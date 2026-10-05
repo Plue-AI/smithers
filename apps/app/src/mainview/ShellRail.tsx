@@ -22,6 +22,7 @@ import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
 import { actsLine, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
+import { zoomTimeline } from "./TimelineZoom"
 
 export type RailEntry =
   | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard; readonly facts?: Omit<Parameters<typeof actionFor>[0], "state"> }
@@ -73,6 +74,13 @@ const externalLine = (item: ExternalItem, conversation: ExternalConversation | u
     case "error": return [{ entry_id: item.id, kind: "event", title: item.text, tone: "failed", glyph: { event: "failed" } }]
   }
 }
+
+/** Each entry's time, where it has one: a folded timeline line shows its span (#3728). */
+export const railTimes = (entries: ReadonlyArray<RailEntry>): Map<string, number> => new Map(entries.flatMap((entry): Array<[string, number]> =>
+  entry.kind === "card" ? [[entry.card.id, entry.card.createdAt]]
+    : entry.kind === "external" ? [[entry.item.id, entry.item.at]]
+    : entry.kind === "message" ? [[entry.message.id, entry.message.createdAt]]
+    : []))
 
 /** Bind only the current lines' acts; duplicate entries for one TODO share one command input. */
 export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCommandDispatch) => {
@@ -169,9 +177,11 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   }
   const onEdgeAction = (tag: CatalogTag, args?: Record<string, string>): void => { controller.commands.submit({ name: tag, payload: args ?? {}, actor: "user" }) }
   const last = lines.at(-1)?.entry_id ?? ""
+  // A long conversation zooms out with distance from the band; the band and the edges still read every entry (#3728).
+  const shown = zoomTimeline(lines, band, railTimes(entries))
   return <aside className="mvp-rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />
-    <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />
+    <Timeline lines={shown} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />
     <ToastStack toasts={notices} more={Math.max(0, notices.length - 3)} onAction={onToastAction} onView={onView} />
   </aside>
 }

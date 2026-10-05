@@ -3,7 +3,7 @@ import type { Entry } from "@smthrs/harness/ExternalTranscript"
 import { DiffCardSchema } from "@smthrs/rpc/DiffCard"
 import { TimelineLineSchema } from "@smthrs/rpc/TimelineCard"
 import { actsLine, externalConversation, hunksOf, placeOf, type ExternalItem } from "./ExternalEntries"
-import { railLines } from "./ShellRail"
+import { railLines, railTimes } from "./ShellRail"
 import { actorName } from "./cards/views/ActorChip"
 
 const SESSION = "0199aaaa-1111-7222-8333-444455556666"
@@ -123,5 +123,18 @@ describe("the rail", () => {
     expect(railLines([{ kind: "external", item: { id: "external-error", at: 0, kind: "error", text: "No Codex session ffff on this machine." } }]))
       .toEqual([{ entry_id: "external-error", kind: "event", title: "No Codex session ffff on this machine.", tone: "failed", glyph: { event: "failed" } }])
     expect(railLines([{ kind: "external", item: { id: "m", at: 0, kind: "message", role: "user", text: "hi" } }])).toEqual([])
+  })
+})
+
+describe("railTimes", () => {
+  test("each timed entry gives its time to the zoom's spans; entries without one give none", () => {
+    const item = conversation.items[0]!
+    const times = railTimes([
+      { kind: "external", item, conversation },
+      { kind: "message", message: { id: "m1", role: "user", text: "hi", status: "complete", createdAt: 5_000, ordinal: 1 } },
+      { kind: "card", card: { id: "c1", kind: "status", title: "t", status: "active", createdAt: 7_000, ordinal: 2, payload: {} } as never },
+      { kind: "init", message: { id: "init" } as never }
+    ])
+    expect([...times]).toEqual([[item.id, item.at], ["m1", 5_000], ["c1", 7_000]])
   })
 })

@@ -5,7 +5,9 @@ import { fillComposer } from "./composer"
  * M-38 / T-AGT-03: a Codex session run on this machine reads in the conversation through the shell's own
  * components, read-only. The host serves e2e/fixtures/codex-home as Ben Ito's (playwright.config.ts).
  */
-const SESSION = "0199e2e0"
+const SESSION = "0199e2e0-0000-7000-8000-00000000c0de"
+/** 60 turns of an agent at work: about 550 conversation items, long enough for the timeline to zoom out (#3728). */
+const LONG = "0199e2e0-0000-7000-8000-00000000106e"
 
 for (const width of [1280, 390]) {
   test(`a Codex session reads as Ben's prompts and Codex for Ben's work at ${width} px`, async ({ page }) => {
@@ -59,4 +61,32 @@ test("an unknown session says so in the conversation, and Smithers chat still an
   await fillComposer(page, "hello")
   await page.keyboard.press("Enter")
   await expect(transcript.locator(".smithers-chat-message:not([data-origin=external])").filter({ hasText: "hello" }).first()).toBeVisible()
+})
+
+test("a long session's timeline zooms out with distance from the band, and a far line jumps there and opens", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto(`/?codex=${LONG}`)
+  const transcript = page.getByTestId("transcript")
+  await expect(transcript.getByText("Turn 59 done: retries now cover store.ts.")).toBeVisible()
+  const rail = page.locator(".mvp-timeline > ol > li")
+  const levels = async () => (await rail.evaluateAll(items => items.map(item => Number((item as HTMLElement).dataset.zoom ?? 0))))
+  // Hundreds of entries, a few dozen lines: fine at the band (the end), coarser toward the start.
+  await expect.poll(async () => (await levels()).length).toBeLessThan(80)
+  const atEnd = await levels()
+  expect(atEnd.at(-1)).toBe(0)
+  expect(atEnd[0]).toBeGreaterThanOrEqual(3)
+  expect(Math.max(...atEnd)).toBeGreaterThanOrEqual(3)
+  await expect(page.locator(".mvp-timeline li[data-in-view]").last()).not.toHaveAttribute("data-zoom", /.*/)
+
+  // The first line stands for the opening of the session; a click jumps there and the zoom turns around.
+  const first = rail.first()
+  await expect(first).toHaveAttribute("data-zoom", /^[3-9]$/)
+  await first.locator("button").first().click()
+  await expect(transcript.getByText("Step 1: harden webhook retries")).toBeInViewport()
+  await expect.poll(async () => (await levels())[0]).toBe(0)
+  const atStart = await levels()
+  expect(atStart.at(-1)).toBeGreaterThanOrEqual(3)
+  const opening = rail.filter({ hasText: "Step 1: harden webhook retries" }).first()
+  await expect(opening).not.toHaveAttribute("data-zoom", /.*/)
+  expect(await opening.evaluate(item => [...item.parentElement!.children].indexOf(item))).toBeLessThan(3)
 })
