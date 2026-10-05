@@ -988,16 +988,17 @@ export const createAppController = (
    * after that read listed the owner's repositories, so its finishing reads them again: the agent's first answer
    * names the repository instead of "no repository is selected".
    */
-  let installStepsDone: string | undefined
+  let installStepsDone: readonly string[] | undefined
   ctx.onDispose(installSeam.snapshots.subscribe(() => {
     const model = installSeam.snapshots.get().model
     if (!installHost || model === undefined || !model.github.signed_in) return
-    const done = model.steps.flatMap(step => step.state === "done" ? [step.id] : []).join()
-    if (done === installStepsDone) return
+    const done = model.steps.flatMap(step => step.state === "done" ? [step.id] : [])
+    if (done.join() === installStepsDone?.join()) return
+    const mirrored = installStepsDone !== undefined && !installStepsDone.includes("source") && done.includes("source")
     installStepsDone = done
     if (store.collections.identitySessions.get("identity")?.state !== "signed-in") void loadSession()
-  }))
     else if (mirrored) reloadRepositoriesWhenSignedIn()
+  }))
 
   const {
     showChat,
