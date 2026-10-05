@@ -17,6 +17,7 @@ import {
   FLOW_AUTHORING_STAGES
 } from "../../packages/rpc/src/FlowAuthoring.ts"
 import Dispatch from "../coding/dispatch/flow.ts"
+import FlowLoad from "../coding/flow-load/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
@@ -54,6 +55,8 @@ const policySources = [
   "../coding/todo-route.ts",
   "../coding/steps.ts",
   "../coding/package.json",
+  "../coding/flow-load.ts",
+  "../coding/flow-load/flow.ts",
   "../todo/flow.ts",
   "../coding/verify/flow.ts",
   "../coding/vibe/flow.ts",
@@ -150,7 +153,8 @@ const codingRoutes = {
   "coding/request": { flow: Request, description: "Plan and implement one coding request." },
   "coding/verify": { flow: Verify, description: "Re-run a Change's required checks on a rebased candidate." },
   "coding/vibe": { flow: Vibe, description: "Land one approved coding request." },
-  "coding/wiki": { flow: CodingWiki, description: "Refresh the repository wiki after a fold." }
+  "coding/wiki": { flow: CodingWiki, description: "Refresh the repository wiki after a fold." },
+  "flow-load": { flow: FlowLoad, description: "Load every overridable flow at a main commit and answer its versions." }
 } as const satisfies Record<string, { readonly flow: RuntimeFlow.Any; readonly description: string }>
 export type CodingRoute = keyof typeof codingRoutes
 

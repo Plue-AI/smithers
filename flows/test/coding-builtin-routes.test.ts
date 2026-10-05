@@ -121,7 +121,8 @@ test("without the built-in routes the same repository fails the host's startup c
     "coding/request",
     "coding/vibe",
     "coding/verify",
-    "coding/wiki"
+    "coding/wiki",
+    "flow-load"
   ])
 })
 

@@ -43,6 +43,7 @@ import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
 import * as CodingFileSystem from "./filesystem.ts"
+import { flowLoadRegistration } from "./flow-load/flow.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
@@ -145,7 +146,9 @@ export const configuredCodingRoutes = (
   // The mythical stack verifies rebased candidates with the same checks.
   ...(options.planning === undefined ? [] : [{ name: "coding/verify" as const, capability: "coding-verify/v1" }]),
   // The stack service refreshes the repository wiki the project declares.
-  ...(options.planning?.wiki === true ? [{ name: "coding/wiki" as const, capability: "coding-wiki/v1" }] : [])
+  ...(options.planning?.wiki === true ? [{ name: "coding/wiki" as const, capability: "coding-wiki/v1" }] : []),
+  // The stack service loads main's flows after every main move (§11.3.1).
+  ...(options.planning === undefined ? [] : [{ name: "flow-load" as const, capability: "flow-load/v1" }])
 ]
 
 /**
@@ -580,6 +583,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           todoLayers(evaluator),
           feedbackLayer,
           verifyRegistration,
+          flowLoadRegistration(options.repositoryPath, options.systemFlows),
           pocPolicy,
           pocModels,
           pocSource({ ...options, fs }),
