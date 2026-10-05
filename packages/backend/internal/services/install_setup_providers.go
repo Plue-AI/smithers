@@ -22,9 +22,9 @@ type installImports interface {
 }
 
 // BindRepositoryProviders reuses the existing OAuth/App verification, the
-// App installation sweep, the durable importer and the stack service. No
-// provider loads a flow or prepares a host recipe.
-func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposService, app *GitHubAppCredentialStore, connections *RepoConnectionService, imports installImports, members *Members, stacks *MythicalService) {
+// durable importer and the stack service. No provider loads a flow or
+// prepares a host recipe.
+func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposService, app *GitHubAppCredentialStore, imports installImports, members *Members, stacks *MythicalService) {
 	if s.Providers == nil {
 		s.Providers = map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error{}
 	}
@@ -67,9 +67,6 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		if err = app.SetInstallation(ctx, diagnosis.InstallationID); err != nil {
 			return err
 		}
-		if err = recordInstallRepositoryInstallation(ctx, connections, owner.ID, o, n, diagnosis.InstallationID); err != nil {
-			return err
-		}
 		raw, _ := json.Marshal(input.Repository)
 		return db.New(s.Pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "repository", Value: raw})
 	}
@@ -79,37 +76,6 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		}
 		return s.prepareSource(ctx, lease, imports, members, stacks)
 	}
-}
-
-// recordInstallRepositoryInstallation makes the chosen repository
-// publishable when the repository step is done. Publication and merge find
-// the App's installation through the owner's repository connection and
-// github_app_installation_repositories (mythical_publication.go). Only
-// GitHub's installation webhook fills that table promptly, and an install
-// whose address is not public https has no hook, so the step connects the
-// repository (verifying the owner's push access again) and lists the App's
-// installations from GitHub as the hourly sweep does. A listing that leaves
-// the repository unmapped fails the step; Retry lists again.
-func recordInstallRepositoryInstallation(ctx context.Context, connections *RepoConnectionService, ownerID int64, owner, repo string, installation int64) error {
-	if connections == nil {
-		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "setup provider unavailable")
-	}
-	// The install never asks for the repository's license; NOASSERTION is
-	// SPDX's value for "no information".
-	if _, err := connections.ConnectRepo(ctx, ownerID, owner, repo, "NOASSERTION"); err != nil {
-		return err
-	}
-	// A listing failure for another installation of the App still leaves
-	// this repository's row current, so the row decides, not the error.
-	listed := connections.ReconcileGitHubAppInstallations(ctx)
-	found, err := connections.GetGitHubInstallationIDForRepositoryOwner(ctx, ownerID, 0, owner, repo)
-	if err != nil {
-		return err
-	}
-	if found != installation {
-		return &InstallReadinessError{Code: "github_app_repository_unlisted", Class: "github", Message: "GitHub did not list the repository for the App", cause: listed}
-	}
-	return nil
 }
 
 // installDefaultBranchRefusal refuses a GitHub repository whose default
