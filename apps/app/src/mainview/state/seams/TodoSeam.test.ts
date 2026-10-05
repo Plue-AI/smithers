@@ -5,7 +5,10 @@ import { memoryStorage, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
-import { draftCard } from "@smthrs/rpc/TodoCommands"
+import { draftCard, todoCard } from "@smthrs/rpc/TodoCommands"
+import { digest } from "@smthrs/core/Digest"
+import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
+import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 
 const json = (body: unknown, status = 202) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 const deferred = <T,>() => {
@@ -362,6 +365,36 @@ test("a persisted TODO snapshot commits its admitted Draft; completion waits for
     expect(h.outcomes).toEqual([])
     await h.seam.applyTodoProjection(12, { ...model, state: "in_review" })
     expect(h.outcomes).toHaveLength(1)
+  } finally { h.close() }
+})
+
+test("an agent turn's TODO card keeps the person's pending Commit: the Draft commits and its toast settles as the TODO advances", async () => {
+  const h = await harness(async () => json({ state: "accepted", n: 12 }))
+  try {
+    await h.seam.newTodo({ text: "Snapshot prompt", title: "Snapshot title" })
+    await h.seam.newTodo({ cardId: h.draft().id })
+    await waitFor(() => h.todo()?.payload.requests[0]?.state === "accepted")
+    const ordinal = h.todo().ordinal
+    // The person asks what is on the stack; the install's host answers with T12's TODO card.
+    const model = { ...fixtures.queued.model, title: "Snapshot title", prompt_revisions: [{ ...fixtures.queued.model.prompt_revisions[0]!, text: "Snapshot prompt" }] }
+    const token = "a".repeat(64)
+    await h.store.dispatch({ type: "http.turn.started", actor: "user", attemptId: "attempt", turnId: "turn", text: "What is on the stack?", retry: false, journal: { version: 1, legId: "leg", token } }).isPersisted.promise
+    const cursor = { version: 1 as const, runId: "turn", legId: "leg", batch: 0, position: 0, hash: "0".repeat(64) }
+    await h.store.dispatch({ type: "http.leg.accepted", actor: "system", attemptId: "attempt", legId: "leg", cursor }).isPersisted.promise
+    const frames: AgentTurnFrame[] = [{ type: "card", runId: "turn", card: todoCard(12, model, 0, 2) }]
+    const body = { version: 1 as const, runId: "turn", legId: "leg", batch: 1, from: 1, previousHash: cursor.hash, frames }
+    const batch = { ...body, hash: digest(agentTurnJournalDigestInput("batch", body)) }
+    await h.store.dispatch({ type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg", batch }).isPersisted.promise
+    expect(h.todo().payload.model).toEqual(model)
+    expect(h.todo().payload.requests.map(request => request.state)).toEqual(["accepted"])
+    expect(h.todo().ordinal).toBe(ordinal)
+    // T12's live projection advances, and the person's Commit settles.
+    h.observed.get("todo:12")!(model)
+    await waitFor(() => h.draft().payload.committed?.n === 12)
+    expect(h.outcomes).toEqual([])
+    h.observed.get("todo:12")!({ ...model, state: "in_review" })
+    await waitFor(() => h.outcomes.length === 1)
+    expect(h.todo().payload.requests).toEqual([])
   } finally { h.close() }
 })
 

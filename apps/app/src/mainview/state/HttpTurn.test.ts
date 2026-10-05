@@ -15,6 +15,7 @@ import { createAppStore,type AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { httpToolItems } from "./HttpTurn"
 import { memoryStorage } from "./TestFixtures"
+import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 
 const createAppController = scopedControllers()
 
@@ -118,6 +119,25 @@ test("card updates within one batch read preceding card facts and use the shared
   expect(cancelled.httpTurns[0]?.status).toBe("cancelled")
   expect(cancelled.httpTurnLegs[0]?.status).toBe("cancelled")
   expect(step(cancelled, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg", batch })).toBe(cancelled)
+})
+
+test("an agent turn's TODO card replaces only the model of the card the TODO seam holds; its pending requests and place stay", () => {
+  const commit = { key: "commit-1", owner: "ben", operation: "create" as const, body: { title: "Snapshot title", prompt: "Snapshot prompt" }, state: "accepted" as const }
+  const held = { id: "todo:12", kind: "todo" as const, title: "T12", status: "active" as const, ordinal: 4, createdAt: 1,
+    payload: { n: 12, requests: [commit], answerDraft: "Yes" } }
+  let state = step(boot(), { type: "card.upsert", actor: "system", card: held })
+  state = step(state, { type: "http.turn.started", actor: "user", attemptId: "attempt", turnId: "turn", text: "What is on the stack?", retry: false, journal: { version: 1, legId: "leg", token } })
+  state = step(state, { type: "http.leg.accepted", actor: "system", attemptId: "attempt", legId: "leg", cursor: initialCursor() })
+  // The install's host answers /stack with each open TODO's card, built blank of requests.
+  const model = fixtures.queued.model
+  const hosted = (n: number) => ({ id: `todo:${n}`, kind: "todo" as const, title: model.title, status: "active" as const, ordinal: 0, createdAt: 2,
+    payload: { n, model: { ...model, n }, requests: [] } })
+  const batch = batchOf(initialCursor(), [{ type: "card", runId: "turn", card: hosted(12) }, { type: "card", runId: "turn", card: hosted(15) }])
+  const next = step(state, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg", batch })
+  expect(next.cards.find(row => row.id === "todo:12")).toMatchObject({ ordinal: 4, createdAt: 1, title: model.title,
+    payload: { n: 12, model, requests: [commit], answerDraft: "Yes" } })
+  // A TODO the seam does not hold yet shows as the host sent it.
+  expect(next.cards.find(row => row.id === "todo:15")).toMatchObject(hosted(15))
 })
 
 const stores: AppStore[] = [], controllers: AppController[] = []

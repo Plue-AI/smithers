@@ -36,6 +36,7 @@ import { isRuntimeOwnedCard } from "../isRuntimeOwnedCard"
 import type { ActiveTurn,ControllerContext } from "./context"
 import type { FailureController } from "./failures"
 import { createHttpTurnDriver } from "./httpTurns"
+import { agentFrameCard } from "../HttpTurn"
 import { ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
 import { outOfCreditRefusal, renderCreditExhausted } from "../seams/HostedBilling"
 import { latestOrdinal } from "./spokenLines"
@@ -149,7 +150,7 @@ export const createTurnController = (
     if (frame.type === "card") {
       if (isRuntimeOwnedCard(frame.card) || isRuntimeOwnedCard(store.collections.cards.get(frame.card.id)) ||
         store.approvalRequest(frame.card.id) !== undefined) return
-      store.dispatch({ type: "card.upsert", actor: "smithers", card: frame.card })
+      store.dispatch({ type: "card.upsert", actor: "smithers", card: agentFrameCard(frame.card, store.collections.cards.get(frame.card.id)) })
       return
     }
     const patch = CardPatchSchema.safeParse(frame.patch)

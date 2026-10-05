@@ -83,6 +83,19 @@ export const settleHttpClaims = (turn: HttpTurn, answer: string): { turn: HttpTu
   return { turn: next, transitions: [{ type: "message.claim.substituted", actor: "system", turnId: turn.turnId, text }] }
 }
 
+/**
+ * The card an agent turn's `card` frame leaves in the conversation. A TODO
+ * card the person's TODO seam already holds takes only the frame's title and
+ * model: its pending requests, answer draft and place in the transcript are
+ * the seam's, so a host's read of the stack never drops a person's pending
+ * Commit, Merge, answer or steer, and the seam keeps settling them as the
+ * TODO advances (TodoSeam applyModel).
+ */
+export const agentFrameCard = (card: Card, existing: Card | undefined): Card =>
+  card.kind === "todo" && existing?.kind === "todo" && card.payload.model !== undefined
+    ? { ...existing, title: card.title, payload: { ...existing.payload, model: card.payload.model } }
+    : card
+
 /** A read-only account replay has no originating-device capability. */
 export type HistoricalHttpLeg = Omit<HttpTurnLeg, "journal">
 /** Derive semantic transcript/card facts plus the next hidden leg state from one frame. */
@@ -94,7 +107,7 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
   const act = (text: string): void => { transitions.push({ type: "message.tool.executed", actor: "smithers", turnId: turn.turnId, text }) }
   if (frame.type === "card") {
     if (!isRuntimeOwnedCard(frame.card) && !isRuntimeOwnedCard(view.card(frame.card.id)) && !view.protectedCard(frame.card.id)) {
-      transitions.push({ type: "card.upsert", actor: "smithers", card: frame.card })
+      transitions.push({ type: "card.upsert", actor: "smithers", card: agentFrameCard(frame.card, view.card(frame.card.id)) })
     }
   } else if (frame.type === "card.update") {
     const existing = view.card(frame.id), patch = CardPatchSchema.safeParse(frame.patch)
