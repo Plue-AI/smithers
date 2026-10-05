@@ -276,6 +276,9 @@ const valueOf = (value: unknown): string | undefined => {
 /** Chrome commands that render no card, so they leave a maximized card in place. */
 const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dictate", "palette.open", "palette.actions", "theme", "input.mode"])
 
+/** T-APP-21: the raw API door runs only on the person's own gesture; no agent or automatic call reaches its handler. */
+const PERSON_ONLY_FLOWS: ReadonlySet<string> = new Set(["debug.api", "debug-api"])
+
 export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle): CommandRegistry => {
   /*
    * The app's own invocation carries no host authority. Approval is a
@@ -583,6 +586,11 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     }
     let target = invoker === "agent" ? agentEntry(nameOf(entry)) ?? entry : entry
     if (invoker === "agent" && !modelInvocable(target)) {
+      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
+    }
+    // Person-only doors refuse every non-person actor, automatic `system` calls
+    // included. Scoped by name: other userOnly flows still admit `system`.
+    if (invoker !== "user" && PERSON_ONLY_FLOWS.has(nameOf(target))) {
       return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
     }
     const acting = invoker === "agent" ? agentActions : actions

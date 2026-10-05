@@ -9,7 +9,7 @@ const setup = (fetchImpl: (url: string, init: RequestInit) => Promise<Response> 
     fetch: async (url, init) => { calls.push({ url, init }); return fetchImpl(url, init) } })
   return { seam, gates, calls }
 }
-test("selection filters Plue and off-origin operations without fetch", async () => {
+test("selection allowlists install-composition operations, excludes /api/admin and off-origin, without fetch", async () => {
   const { seam, calls } = setup()
   await seam.open("getStack")
   expect(seam.get().model.operations).toEqual(expectedOperations)
@@ -79,4 +79,78 @@ test("pending requests deduplicate; a stale response cannot overwrite a newer se
   seam.dispose()
   expect(seam.get().model.operations).toEqual([])
   await expect(seam.open()).rejects.toThrow("unavailable")
+})
+const TICKET = `${"a1".repeat(32)}.eyJzZXNzaW9uX2hhc2giOiJhYmMifQ`
+test("an unclassified response masks credential-named and token-shaped strings, fail closed", async () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567"
+  const { seam } = setup(async () => Response.json({ name: "main", head: sha, session_token: "plain-private", nested: [{ apiKey: "k-private", count: 3 }],
+    note: "ghp_abcdefghijklmnopqrstuvwxyz0123456789", blob: "Zm9vYmFyQmF6UXV4MTIzNDU2Nzg5MGFiY2RlZmdo", cookie: "sid=private" }))
+  await seam.open("getStack")
+  await seam.send({ operationId: "getStack" })
+  const body = JSON.parse(seam.get().model.exchange!.response!.body!)
+  expect(body).toEqual({ name: "main", head: sha, session_token: "[redacted]", nested: [{ apiKey: "[redacted]", count: 3 }],
+    note: "[redacted]", blob: "[redacted]", cookie: "[redacted]" })
+})
+test("the SSE ticket operation's response never reaches the response pane", async () => {
+  const { seam, calls } = setup(async () => Response.json({ ticket: TICKET, expires_at: "2026-10-05T12:00:00Z" }))
+  await seam.open("post_api_auth_sse_ticket")
+  await seam.send({ operationId: "post_api_auth_sse_ticket" })
+  await seam.send({ operationId: "post_api_auth_sse_ticket", intent: "confirm", confirmation: seam.get().confirmation })
+  expect(calls).toHaveLength(1)
+  expect(seam.get().model.exchange?.response?.status).toBe(200)
+  expect(JSON.stringify(seam.get())).not.toContain("a1a1a1")
+  expect(JSON.stringify(seam.get())).not.toContain("eyJzZXNzaW9u")
+})
+test("a failure message from the response body is masked before the seam keeps it", async () => {
+  const { seam } = setup(async () => Response.json({ class: "infra", message: `bad ticket ${TICKET}` }, { status: 500 }))
+  await seam.open("getStack")
+  await seam.send({ operationId: "getStack" })
+  expect(seam.get().model.exchange?.failure?.message).not.toContain("a1a1a1")
+})
+test("an account change aborts the in-flight Send, publishes nothing late, and clears pending state", async () => {
+  let finish!: (response: Response) => void
+  const { seam, calls } = setup(() => new Promise(resolve => { finish = resolve }))
+  await seam.open("putSecrets")
+  const input = { operationId: "putSecrets", values: { body: '{"name":"CI"}' } }
+  await seam.send(input)
+  const confirmation = seam.get().confirmation
+  const running = seam.send({ ...input, intent: "confirm", confirmation })
+  expect(seam.get().busy).toBe(true)
+  seam.endAccount()
+  expect(calls[0]!.init.signal?.aborted).toBe(true)
+  finish(Response.json({ name: "CI" })); await running
+  const after = seam.get()
+  expect(after.busy).toBeFalsy()
+  expect(after.confirmation).toBeUndefined()
+  expect(after.model.exchange).toBeUndefined()
+  expect(after.model.pending).toBeUndefined()
+  expect(JSON.stringify(after)).not.toContain("CI")
+  await seam.send(input)
+  await expect(seam.send({ ...input, intent: "confirm", confirmation })).rejects.toThrow("stale")
+  expect(calls).toHaveLength(1)
+})
+test("a confirmation is consumed by its execution; re-submitting it is stale and never fetches again", async () => {
+  const { seam, calls } = setup(async () => new Response("{}", { status: 200 }))
+  await seam.open("putSecrets")
+  const input = { operationId: "putSecrets", values: { body: '{"name":"CI"}' } }
+  await seam.send(input)
+  const confirmation = seam.get().confirmation
+  await seam.send({ ...input, intent: "confirm", confirmation })
+  expect(calls).toHaveLength(1)
+  await expect(seam.send({ ...input, intent: "confirm", confirmation })).rejects.toThrow("stale")
+  expect(calls).toHaveLength(1)
+})
+test("a failed confirmed Send needs a fresh confirmation and keeps its retry identity", async () => {
+  let attempts = 0
+  const { seam, calls } = setup(async () => new Response("{}", { status: ++attempts === 1 ? 503 : 200 }))
+  await seam.open("putSecrets")
+  const input = { operationId: "putSecrets", values: { body: '{"name":"CI"}' } }
+  await seam.send(input)
+  const confirmation = seam.get().confirmation
+  await seam.send({ ...input, intent: "confirm", confirmation })
+  await expect(seam.send({ ...input, intent: "confirm", confirmation })).rejects.toThrow("stale")
+  await seam.send(input)
+  await seam.send({ ...input, intent: "confirm", confirmation: seam.get().confirmation })
+  expect(calls).toHaveLength(2)
+  expect(new Headers(calls[1]!.init.headers).get("Idempotency-Key")).toBe(new Headers(calls[0]!.init.headers).get("Idempotency-Key"))
 })

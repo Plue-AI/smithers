@@ -1,5 +1,4 @@
 [
-  {"id":"get_api_admin_system_health","method":"GET","path":"/api/admin/system/health"},
   {"id":"post_api_agent_turn","method":"POST","path":"/api/agent/turn"},
   {"id":"post_api_agent_turn_cancel","method":"POST","path":"/api/agent/turn/cancel"},
   {"id":"post_api_agent_turn_erase","method":"POST","path":"/api/agent/turn/erase"},

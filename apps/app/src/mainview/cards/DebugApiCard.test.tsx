@@ -103,3 +103,45 @@ test("the production help projection keeps unavailable docs and Debug API dark",
   expect(hidden).not.toContain("/debug-api")
   expect(hidden).not.toContain("/docs")
 })
+
+test("a debug-api failure journals only generic status copy; response text stays in the seam", async () => {
+  const { controller, store } = await setup(async () => Response.json({ class: "infra", message: "leaked response words" }, { status: 500 }))
+  await controller.runCommandForResult("debug-api", "getStack")
+  await settle(() => store.collections.cards.has("debug-api"))
+  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
+  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("leaked response words")
+  expect(store.collections.toasts.get("toast-debug.api.send")?.detail).toBe("The API answered HTTP 500 (infra).")
+  expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("leaked response words")
+  expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("leaked response words")
+})
+
+test("an account change during a production Send publishes nothing and clears pending state", async () => {
+  let finish!: (response: Response) => void
+  const { controller, store, calls } = await setup(() => new Promise(resolve => { finish = resolve }))
+  await controller.runCommandForResult("debug-api", "getStack")
+  await settle(() => store.collections.cards.has("debug-api"))
+  expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
+  await settle(() => calls.length === 1)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
+  expect(calls[0]!.init?.signal?.aborted).toBe(true)
+  finish(new Response('{"items":["old account"]}'))
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(controller.debugApi.get().busy).toBeFalsy()
+  expect(controller.debugApi.get().model.exchange).toBeUndefined()
+  expect(JSON.stringify(controller.debugApi.get())).not.toContain("old account")
+  expect(store.collections.toasts.get("toast-debug.api.send")?.status).not.toBe("ok")
+})
+
+test("automatic (system) and agent calls of either debug API flow refuse before the handler runs", async () => {
+  const { controller, store, calls } = await setup()
+  for (const name of ["debug.api", "debug-api"]) {
+    expect((await controller.commands.run(name, '{"operationId":"getStack","intent":"open"}', "automatic")).status).toBe("failed")
+    expect((await controller.commands.run(name, '{"operationId":"getStack","intent":"send"}', "automatic")).status).toBe("failed")
+    expect((await controller.commands.runForAgent(name, "getStack")).status).toBe("failed")
+  }
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(calls).toEqual([])
+  expect(store.collections.cards.has("debug-api")).toBe(false)
+  expect((await controller.commands.run("debug-api", '{"operationId":"getStack","intent":"open"}')).status).toBe("executed")
+})

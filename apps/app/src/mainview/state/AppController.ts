@@ -1,6 +1,6 @@
 import type { TerminalCardSource } from "./seams/TerminalSeam"
 import { bundledOpenApi } from "../../debugApi/bundled"
-import { createDebugApiSeam, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
+import { createDebugApiSeam, debugApiFailureCopy, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
@@ -1194,14 +1194,21 @@ export const createAppController = (
     gates: services.debugApiGates ?? (() => ({ view: true, catalog: false, authorizer: false }))
   })
   ctx.onDispose(debugApi.dispose)
+  ctx.onDispose(ctx.onAccountChange(debugApi.endAccount))
   const debugApiCommand = (input: DebugApiInput): string | { readonly value: string } => {
     if (!debugApi.available()) return "Debug API is unavailable"
     if (input.intent === "send" || input.intent === "confirm") {
       if (debugApi.get().busy) return { value: "Requested" }
+      const epoch = ctx.accountEpoch
+      // The toast is journaled: it states status and class only. The response's
+      // own words stay in the seam's session-local exchange.
       void withToast("debug.api.send", "Sending", "Response", async () => {
-        try { await debugApi.send(input); return debugApi.get().model.exchange?.failure?.message }
-        catch (cause) { return cause instanceof Error ? cause.message : "API request failed" }
-      })
+        try {
+          await debugApi.send(input)
+          const failure = debugApi.get().model.exchange?.failure
+          return failure === undefined ? undefined : debugApiFailureCopy(failure)
+        } catch (cause) { return cause instanceof Error && /^(?:Missing [\w-]{1,64}|Unknown API (?:operation|parameter)|Invalid (?:API path|path parameter|JSON body)|API confirmation is stale|Cross-origin API request|Debug API is unavailable)$/.test(cause.message) ? cause.message : "The API request failed." }
+      }, false, () => ctx.accountEpoch === epoch)
       return { value: "Requested" }
     }
     void withToast("debug.api.open", "Opening API", "API", async () => {
