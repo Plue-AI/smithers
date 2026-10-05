@@ -200,6 +200,18 @@ func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID stri
 	return nil, false, pkgerrors.GuestNotReady("workspace guest is still starting; retry shortly")
 }
 
+// live returns the running durable session for sessionID, or nil when none
+// is open. A watcher attaches only through live: it never dials.
+func (m *TerminalSessionManager) live(sessionID string) *terminalSession {
+	m.mu.Lock()
+	sess := m.sessions[sessionID]
+	m.mu.Unlock()
+	if sess == nil || sess.isDead() {
+		return nil
+	}
+	return sess
+}
+
 // open allocates and starts one SSH PTY attempt without publishing it in the
 // manager map. The caller can therefore observe an immediate exit and retry
 // without exposing a dead durable session to an attaching WebSocket.

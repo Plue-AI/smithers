@@ -20,6 +20,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -28,6 +29,18 @@ import (
 // WorkspaceSSHConnectionInfo with no pinned host keys. We fail closed
 // rather than falling back to an insecure host-key bypass.
 var errNoAdvertisedHostKeys = errors.New("no advertised ssh host keys; refusing to dial without a trust anchor")
+
+// errTerminalNotOpen refuses a watcher whose owner has no live shell yet; a
+// watcher never starts someone else's terminal.
+func errTerminalNotOpen() error {
+	return pkgerrors.Conflict("terminal is not open; its owner opens it")
+}
+
+// terminalWatcher reports whether userID watches session rather than owning
+// it. The session row's creator is the terminal's owner.
+func terminalWatcher(session services.WorkspaceSessionResponse, userID int64) bool {
+	return session.UserID > 0 && session.UserID != userID
+}
 
 const (
 	// terminalReadLimit is the max WebSocket message size (64 KiB).
@@ -200,8 +213,15 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 	// Runtime-backed terminals and hosted SSH terminals share the same durable
 	// terminal manager, WebSocket protocol, limits, activity tracking, and
 	// revocation behavior. Only the backend dial strategy differs.
+	// Only a terminal's owner types in it (M-18). Anyone else the session
+	// loader admitted (read access to the branch's machine) watches: the
+	// watcher attaches to the owner's live shell and never starts, signs in,
+	// or writes to it.
+	watcher := terminalWatcher(session, user.ID)
 	var sshInfo services.WorkspaceSSHConnectionInfo
-	if runtimeService, ok := h.Service.(workspaceRuntimeTerminalService); ok && runtimeService.WorkspaceRuntimeTerminalAvailable() {
+	if watcher {
+		sshInfo = services.WorkspaceSSHConnectionInfo{WorkspaceID: session.WorkspaceID, SessionID: sessionID}
+	} else if runtimeService, ok := h.Service.(workspaceRuntimeTerminalService); ok && runtimeService.WorkspaceRuntimeTerminalAvailable() {
 		sshInfo = services.WorkspaceSSHConnectionInfo{
 			WorkspaceID: session.WorkspaceID, SessionID: sessionID, Kind: "container",
 			RuntimeTerminal: true, RepositoryID: repoCtx.Repository.ID, RequesterUserID: user.ID,
@@ -225,6 +245,7 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		"user_id", user.ID,
 		"workspace_id", sshInfo.WorkspaceID,
 		"vm_id", sshInfo.VMID,
+		"watcher", watcher,
 	)
 
 	// activityCh is a best-effort channel: each I/O goroutine sends a signal
@@ -245,7 +266,23 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		return
 	}
 	manager := h.terminalSessionManager()
-	termSession, created, err := manager.getOrCreate(r.Context(), sessionID, sshInfo, session.Cols, session.Rows, principal)
+	var (
+		termSession *terminalSession
+		created     bool
+		err         error
+	)
+	if watcher {
+		termSession = manager.live(sessionID)
+		if termSession == nil {
+			if h.Metrics != nil {
+				h.Metrics.ObserveWorkspaceTerminalAttach("watch_not_open")
+			}
+			writeRouteError(w, r, errTerminalNotOpen())
+			return
+		}
+	} else {
+		termSession, created, err = manager.getOrCreate(r.Context(), sessionID, sshInfo, session.Cols, session.Rows, principal)
+	}
 	if guard.rejectStartup(w, err) {
 		if created {
 			termSession.destroyWithCode(websocket.StatusPolicyViolation, "access revoked")
@@ -329,7 +366,9 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 	defer termSession.removeSink(sink)
 	// A signed-in terminal's credential lives while a WebSocket is attached:
 	// this attach renews a revoked one, and the last close revokes it.
-	if credential := termSession.credential(); credential != nil {
+	// A watcher never holds the owner's credential: it must not renew a
+	// revoked token or keep one alive after the owner leaves.
+	if credential := termSession.credential(); credential != nil && !watcher {
 		if err := credential.AcquireCredential(ctx); err != nil {
 			slog.Error("terminal credential renewal failed", "error", err, "session_id", sessionID)
 			if h.Metrics != nil {
