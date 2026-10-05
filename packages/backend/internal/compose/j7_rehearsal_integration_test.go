@@ -18,9 +18,9 @@ import (
 // on the install J1 sets up. Its setup is C-J7-01's stack at the default
 // parallel of 2: T1 in review, T2 working and held at its edit, T3 behind
 // it and held too ([HOLD key] markers of distribution/fake-todo-turns.mjs).
-// T2 and T3 rebase onto their moved prefix (rows 9 and 16). The insert,
-// amend, fork, add-to-stack, drop and conflict rows wait on their lanes and
-// are listed as pending.
+// T2 and T3 rebase onto their moved prefix (rows 9 and 16), and T2 is
+// dropped (row 15). The insert, amend, fork, add-to-stack and conflict rows
+// wait on their lanes and are listed as pending.
 func TestJ7Rehearsal(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_J7_REHEARSAL", "C-J7", "j7-")
 	if !r.install("0 Install through Machine ready") {
@@ -179,7 +179,9 @@ func TestJ7Rehearsal(t *testing.T) {
 	r.pending("12 Edit on scratch", "Git push to the scratch branch", "the head moves to S, a descendant of H2", "T-MCH-08", "fork")
 	r.pending("13 Add to stack after T2", "POST /api/todos from the scratch branch", "a new TODO after T2 holding the scratch branch's change", "T-MCH-08", "add-to-stack")
 	r.pending("14 The new TODO keeps T2's work", "GitHub fake PR diff", "dropping T2 leaves its tree unchanged; the PR has T2's file and the scratch edit", "T-MCH-08", "add-to-stack")
-	r.pending("15 Drop T2", "POST /api/todos/{T2} {op: drop}", "dropped; the PR closed with the comment; the run cancelled", "T-STK-02, T-STK-05", "drop")
+	r.step("15 Drop T2", "POST /api/todos/{T2} {op: drop}", "dropped; the PR closed with the comment; the run cancelled", "T-STK-02, T-STK-05", func() error {
+		return r.drop(t2)
+	})
 	r.step("16 main moves cleanly", "Merge T1 refused on GitHub; GitHub fake main push; POST /api/github/sync; GET /api/todos/{T1}; SQL",
 		"T1 rebuilds on the new main with one verify run; the PR head is updated; checks.Land cleared (approval_cleared); T1 stays in review", "T-STK-08", func() error {
 			v1, err := r.todo(t1)

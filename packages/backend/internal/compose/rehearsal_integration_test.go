@@ -1638,3 +1638,97 @@ func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, sp
 	}
 	return microsandbox.Layer{}, nil
 }
+
+// drop is a person's Drop of TODO n (J7.3b, §10.7.2) as the owner's browser
+// sends it, and its proof: 202 within 1 s and again for the same press; the
+// TODO dropped; no run of it left live, and one cancelled when running says
+// it had one; a pull request it had closed on GitHub, unmerged, with the
+// comment "Dropped in Smithers by @x"; its lane released; a new press 409.
+// A TODO starting, working or needing you has a run, which is cancelled.
+func (r *rehearsal) drop(number int64) error {
+	before, err := r.todo(number)
+	if err != nil {
+		return err
+	}
+	running := slices.Contains([]string{"starting", "working", "needs_you"}, before.State)
+	path, key := fmt.Sprintf("/api/todos/%d", number), fmt.Sprintf("%sdrop-%d", r.keyPrefix, number)
+	began := time.Now()
+	code, data, err := r.keyed("POST", path, `{"op":"drop"}`, key)
+	took := time.Since(began)
+	if err != nil {
+		return err
+	}
+	if code != 202 || !strings.Contains(string(data), `"accepted"`) {
+		return fmt.Errorf("expected 202 accepted: %s", r.actual)
+	}
+	if took > time.Second {
+		return fmt.Errorf("Drop answered in %s, want within 1 s", took)
+	}
+	if code, _, err = r.keyed("POST", path, `{"op":"drop"}`, key); err != nil || code != 202 {
+		return fmt.Errorf("the same press again: %s", r.actual)
+	}
+	if _, err = r.waitTodoWithin(number, 30*time.Second, "dropped"); err != nil {
+		return err
+	}
+	var live, cancelled int
+	if err = r.pool.QueryRow(r.ctx, `SELECT count(*) FILTER (WHERE state IN ('accepted','dispatching','running','waiting') AND NOT cancellation_requested),
+		count(*) FILTER (WHERE cancellation_requested OR state = 'cancelled')
+		FROM product_job_requests WHERE request_id LIKE 'mythical:' || (SELECT id::text FROM mythical_items WHERE number = $1) || ':%'`, number).Scan(&live, &cancelled); err != nil {
+		return err
+	}
+	if live != 0 || running && cancelled == 0 {
+		return fmt.Errorf("T%d dropped with %d live runs and %d cancelled", number, live, cancelled)
+	}
+	closed := "no PR"
+	if pr := before.PR.Number; pr > 0 {
+		for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(500 * time.Millisecond) {
+			p, err := r.readFakePull(pr)
+			if err != nil {
+				return err
+			}
+			if p.State == "closed" {
+				if p.Merged {
+					return fmt.Errorf("the dropped TODO's PR #%d merged", pr)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("the dropped TODO's PR #%d is still %s after 60 s", pr, p.State)
+			}
+		}
+		comment := ""
+		for _, write := range r.fake.Writes() {
+			if write.Method == "POST" && write.Path == fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d/comments", pr) && write.Status < 300 {
+				var body struct{ Body string }
+				if json.Unmarshal(write.Body, &body) == nil && strings.HasPrefix(body.Body, "Dropped in Smithers by @") {
+					comment = strings.SplitN(body.Body, "\n", 2)[0]
+				}
+			}
+		}
+		if comment == "" {
+			return fmt.Errorf("PR #%d closed without the Drop comment", pr)
+		}
+		closed = fmt.Sprintf("PR #%d closed with %q", pr, comment)
+	}
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(500 * time.Millisecond) {
+		var workspace string
+		if err = r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number = $1`, number).Scan(&workspace); err != nil {
+			return err
+		}
+		if workspace == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("T%d dropped, but its lane %s is still bound after 60 s", number, workspace)
+		}
+	}
+	code, _, err = r.keyed("POST", path, `{"op":"drop"}`, key+"-again")
+	if err != nil {
+		return err
+	}
+	if code != 409 {
+		return fmt.Errorf("a new press on a dropped TODO: %s", r.actual)
+	}
+	r.actual = fmt.Sprintf("202 in %dms; again 202; T%d dropped; %s; live runs 0, cancelled %d; lane released; new press 409", took.Milliseconds(), number, closed, cancelled)
+	return nil
+}

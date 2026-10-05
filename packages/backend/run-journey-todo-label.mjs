@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process'
 // Share the existing backend journey entry point: --j1 runs the J1 rehearsal
-// (C-J1-04), --j2, --j4, --j5, --j6, --j7 and --j11 that journey's rehearsal;
-// with none it runs C-J2-02.
-const journeys = ['--j1', '--j2', '--j4', '--j5', '--j6', '--j7', '--j11']
+// (C-J1-04), --j2, --j4, --j4b, --j5, --j6, --j7 and --j11 that journey's
+// rehearsal (--j4b: a failed TODO is dropped and the next merges); with none
+// it runs C-J2-02.
+const journeys = ['--j1', '--j2', '--j4', '--j4b', '--j5', '--j6', '--j7', '--j11']
 const args = process.argv.slice(2)
 const journey = args[0]
 if (args.length > 1 || (args.length === 1 && !journeys.includes(journey))) {
