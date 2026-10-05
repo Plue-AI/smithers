@@ -28,17 +28,20 @@ describe("the TODO commands every host binds", () => {
     expect(todoPath(12)).toBe("/api/todos/12")
   })
 
-  test("todo.new's input takes a Draft's text, title, acceptance and place, or the Draft a Commit files", () => {
+  test("todo.new's input takes a Draft's text, title, acceptance and place, the Draft a Commit files, or the confirmation it approves", () => {
     const accepted = [
       {},
       { text: "" },
       { text: "Log retry counts", title: "Retry counts", acceptance: ["Counts log", ""], before: 12 },
-      { cardId: "draft:1", idempotencyKey: "k-1" }
+      { cardId: "draft:1", idempotencyKey: "k-1" },
+      { confirmation: "9b2f6c1e-3a4d-4e5f-8a6b-7c8d9e0f1a2b" }
     ]
     for (const input of accepted) expect(TodoNewInputSchema.parse(input)).toEqual(input)
     const refused = [
       { title: "" },
       { idempotencyKey: "" },
+      { confirmation: "" },
+      { confirmation: 1 },
       { before: 0 },
       { before: -1 },
       { before: 1.5 },

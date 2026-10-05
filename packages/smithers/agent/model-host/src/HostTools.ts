@@ -477,8 +477,8 @@ const todoNew: Bind = (grant) => {
       if ("error" in input) return { refusal: input.error }
       if ("cardId" in input.payload) return { refusal: "Only the person commits a Draft: they press Commit on it." }
       const draft = TodoNewInput.safeParse(input.payload)
-      // The Draft's Commit key is the host's to choose, never the model's.
-      if (!draft.success || draft.data.idempotencyKey !== undefined) {
+      // The Draft's Commit key is the host's to choose, never the model's; approving a confirmation is the person's press.
+      if (!draft.success || draft.data.idempotencyKey !== undefined || draft.data.confirmation !== undefined) {
         return { refusal: "todo.new takes the TODO's text, and optionally its title and acceptance." }
       }
       const { text = "", title, acceptance, before } = draft.data

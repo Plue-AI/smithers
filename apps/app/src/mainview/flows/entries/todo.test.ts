@@ -124,7 +124,7 @@ test("todo.new's flow input accepts and refuses exactly what the model host's to
   }
   const inputs: ReadonlyArray<unknown> = [
     {}, { text: "" }, { text: "Log retry counts", title: "Retry counts", acceptance: ["Counts log", ""], before: 12 },
-    { cardId: "draft:1", idempotencyKey: "k-1" },
+    { cardId: "draft:1", idempotencyKey: "k-1" }, { confirmation: "9b2f6c1e-3a4d-4e5f-8a6b-7c8d9e0f1a2b" }, { confirmation: "" }, { confirmation: 1 },
     { title: "" }, { idempotencyKey: "" }, { before: 0 }, { before: -1 }, { before: 1.5 }, { before: "12" },
     { acceptance: "Counts log" }, { acceptance: [1] }, { text: 1 }, { cardId: 1 }, null, "text"
   ]

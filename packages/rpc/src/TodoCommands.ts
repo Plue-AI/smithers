@@ -52,6 +52,8 @@ export const TODO_NEW_COMMAND = {
 /**
  * `/todo.new`'s declared input. Without `cardId` it opens a Draft with the TODO's text, title, acceptance and place
  * (`before` a TODO, else appended); with a Draft's `cardId` it commits that Draft. `idempotencyKey` is the Commit's.
+ * With `confirmation` it is the person's Commit on a confirmation the install serves (GET /api/confirmations): it
+ * approves that confirmation, which files the TODO an agent asked for. Only the person presses it.
  * The GUI declares the same fields as its flow input (apps/app flows/entries/todo.ts); its parity test decodes both.
  * @since 1.0.0
  * @category schemas
@@ -62,7 +64,8 @@ export const TodoNewInputSchema = z.object({
   acceptance: z.array(z.string()).optional(),
   before: z.number().int().positive().optional(),
   cardId: z.string().optional(),
-  idempotencyKey: z.string().min(1).optional()
+  idempotencyKey: z.string().min(1).optional(),
+  confirmation: z.string().min(1).optional()
 })
 
 /**

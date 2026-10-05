@@ -181,7 +181,8 @@ export interface CardCommandInput {
   readonly "stop": undefined
   readonly "search": { readonly query?: string }
   readonly "stack": undefined
-  readonly "todo.new": z.infer<typeof TodoNewInputSchema>
+  /** A new TODO's text and place, or the served confirmation whose Commit files the TODO an agent asked for. */
+  readonly "todo.new": z.infer<typeof TodoNewInputSchema> | { readonly confirmation: string }
   readonly "todo.from-issue": { readonly number: number }
   readonly "todo": { readonly n: number }
   readonly "todo.answer": { readonly n: number; readonly answer: string; readonly wait?: string }

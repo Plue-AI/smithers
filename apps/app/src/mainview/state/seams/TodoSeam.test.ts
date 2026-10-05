@@ -747,3 +747,189 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
     } finally { out.close() }
   })
 })
+
+describe("TodoSeam — the person's confirmations an install serves (T-APP-04, J6 step 3c)", () => {
+  const ID = "9b2f6c1e-3a4d-4e5f-8a6b-7c8d9e0f1a2b", OTHER = "0c6a1d2e-4b5f-4a6b-9c7d-8e9f0a1b2c3d"
+  const ben = { login: "ben", name: "Ben Ito", avatar_url: "https://avatars.test/ben.png" }
+  const card = { kind: "one_click", action: { tag: "todo.new", verb: "Commit" }, summary: "Commit Log retry counts", subject: { kind: "todo", ref: "Log retry counts" },
+    text: "Count retries per webhook.", asked_by: { kind: "agent", agent: "claude-code", id: "agent-session-5e55", session_id: "5e55", for_member: ben, avatar_url: ben.avatar_url, color_index: 0 } }
+  const pending = (id: string) => ({ id, state: "pending", created_at: "2026-10-05T08:00:00Z", expires_at: "2026-10-06T08:00:00Z", card })
+  const settled = (id: string, state: "approved" | "rejected", todo?: number) => ({ ...pending(id), state, ...(todo === undefined ? {} : { todo }),
+    card: { ...card, receipt: { by: ben, result: state === "approved" ? "done" : "cancelled", at: "2026-10-05T08:01:00Z", ...(todo === undefined ? {} : { text: `Committed T${todo}` }) } } })
+  const confirmHarness = async (answer: (url: string, init?: RequestInit) => Promise<Response>, confirmations = true) => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    const calls: { method: string; url: string; key: string | null }[] = []
+    const outcomes: { key: string; status: string; detail: string }[] = []
+    let disposed = false
+    const finalizers: (() => void)[] = []
+    const context: SeamContext = {
+      http: (url, init) => { calls.push({ method: init?.method ?? "GET", url, key: new Headers(init?.headers).get("Idempotency-Key") }); return answer(url, init) },
+      store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal, isDisposed: () => disposed,
+      resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
+    }
+    const seam = createTodoSeam(context, { debounceMs: 1, listPollMs: 5, confirmations, onDispose: fn => finalizers.push(fn) })
+    return { store, seam, calls, outcomes,
+      reads: () => calls.filter(call => call.method === "GET"), posts: () => calls.filter(call => call.method === "POST"),
+      card: (id: string) => store.collections.cards.get(`confirm:confirmation:${id}`),
+      row: (id: string) => seam.confirmations.get().find(each => each.id === id),
+      close: () => { disposed = true; finalizers.forEach(fn => fn()) } }
+  }
+
+  test("each pending confirmation is one private Confirm card, read again every poll; a settled one keeps its card", async () => {
+    let served: unknown[] = [pending(ID), settled(OTHER, "approved", 4)]
+    const h = await confirmHarness(async () => json(served, 200))
+    try {
+      h.seam.resumeTodos()
+      await waitFor(() => h.card(ID) !== undefined)
+      expect(h.card(ID)).toMatchObject({ kind: "confirm", audience_member_id: "ben", title: "Commit Log retry counts?", status: "active", payload: { id: `confirmation:${ID}` } })
+      expect(CardSchema.parse(h.card(ID))).toMatchObject({ payload: { id: `confirmation:${ID}` } })
+      // A confirmation already answered elsewhere opens no card.
+      expect(h.card(OTHER)).toBeUndefined()
+      expect(h.seam.confirmations.get().map(row => [row.id, row.state])).toEqual([[ID, "pending"], [OTHER, "approved"]])
+      const { ordinal, createdAt } = h.card(ID)!
+      const reads = h.reads().length
+      await waitFor(() => h.reads().length >= reads + 2)
+      expect(h.card(ID)).toMatchObject({ ordinal, createdAt })
+      served = [settled(ID, "approved", 5), settled(OTHER, "approved", 4)]
+      await waitFor(() => h.row(ID)?.state === "approved")
+      expect(h.card(ID)).toMatchObject({ ordinal, createdAt, title: "Commit Log retry counts?" })
+      expect(new Set(h.reads().map(call => call.url))).toEqual(new Set(["https://install.test/api/confirmations"]))
+      expect(h.posts()).toEqual([])
+    } finally { h.close() }
+  })
+
+  test("a host that answers 404 is read once; a host that is not an install reads nothing; a row whose card does not parse opens no card", async () => {
+    const missing = await confirmHarness(async () => json({ code: "not_found" }, 404))
+    try {
+      missing.seam.resumeTodos()
+      await waitFor(() => missing.reads().length === 1)
+      await new Promise(resolve => setTimeout(resolve, 30))
+      missing.seam.resumeTodos()
+      expect(missing.reads()).toHaveLength(1)
+    } finally { missing.close() }
+    const elsewhere = await confirmHarness(async () => json([pending(ID)], 200), false)
+    try {
+      elsewhere.seam.resumeTodos()
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(elsewhere.calls).toEqual([])
+      expect(elsewhere.card(ID)).toBeUndefined()
+    } finally { elsewhere.close() }
+    const malformed = await confirmHarness(async () => json([{ ...pending(ID), card: { ...card, kind: "nope" } }], 200))
+    try {
+      malformed.seam.resumeTodos()
+      await waitFor(() => malformed.row(ID) !== undefined)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(malformed.card(ID)).toBeUndefined()
+    } finally { malformed.close() }
+  })
+
+  test("an earlier sign-in's answer is dropped, and signing out drops the rows", async () => {
+    const first = deferred<Response>()
+    let reads = 0
+    const h = await confirmHarness(() => ++reads === 1 ? first.promise : Promise.resolve(json([], 200)))
+    try {
+      h.seam.resumeTodos()
+      await waitFor(() => reads === 1)
+      await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+      first.resolve(json([pending(ID)], 200))
+      await waitFor(() => reads >= 2)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(h.card(ID)).toBeUndefined()
+      expect(h.seam.confirmations.get()).toEqual([])
+    } finally { h.close() }
+    const out = await confirmHarness(async () => json([pending(ID)], 200))
+    try {
+      out.seam.resumeTodos()
+      await waitFor(() => out.row(ID) !== undefined)
+      await out.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+      await waitFor(() => out.seam.confirmations.get().length === 0)
+      const reads = out.reads().length
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(out.reads()).toHaveLength(reads)
+      expect(out.seam.denyConfirmation(ID)).toBe("Sign in to work on TODOs.")
+    } finally { out.close() }
+  })
+
+  test("Commit approves once with one Idempotency-Key, acknowledged before the install answers; the toast settles from the 202", async () => {
+    const approval = deferred<Response>()
+    let served: unknown[] = [pending(ID)]
+    const h = await confirmHarness((_url, init) => init?.method === "POST" ? approval.promise : Promise.resolve(json(served, 200)))
+    try {
+      h.seam.resumeTodos()
+      await waitFor(() => h.card(ID) !== undefined)
+      expect(await h.seam.newTodo({ confirmation: ID })).toEqual({ value: "Requested" })
+      expect(await h.seam.newTodo({ confirmation: ID })).toEqual({ value: "Requested" })
+      expect(h.posts()).toHaveLength(1)
+      const key = h.posts()[0]!.key!
+      expect(h.posts()[0]).toEqual({ method: "POST", url: `https://install.test/api/confirmations/${ID}/approve`, key })
+      expect(key.length).toBeGreaterThan(0)
+      // The press acknowledged at once; the toast runs until the install answers.
+      await waitFor(() => h.store.collections.toasts.has(`toast-todo.request.${key}`))
+      expect(h.store.collections.toasts.get(`toast-todo.request.${key}`)).toMatchObject({ title: "Commit Log retry counts?", status: "running" })
+      expect(h.outcomes).toEqual([])
+      expect(h.store.collections.cards.has("todo:5")).toBe(false)
+      served = [settled(ID, "approved", 5)]
+      approval.resolve(json(settled(ID, "approved", 5), 202))
+      await waitFor(() => h.outcomes.length === 1)
+      expect(h.outcomes).toEqual([{ key: `todo.request.${key}`, status: "ok", detail: "Committed T5" }])
+      expect(h.row(ID)).toMatchObject({ state: "approved", todo: 5 })
+      // Answered, a press files nothing more.
+      expect(await h.seam.newTodo({ confirmation: ID })).toEqual({ value: "Committed T5" })
+      expect(h.posts()).toHaveLength(1)
+      expect(h.card(ID)).toMatchObject({ kind: "confirm", payload: { id: `confirmation:${ID}` } })
+    } finally { h.close() }
+  })
+
+  test("a refusal settles the toast failed; a press the install could not answer retries with its key, an answered one mints a new key", async () => {
+    let served: unknown[] = [pending(ID)]
+    const answers = [
+      () => json({ code: "confirmation_unavailable", class: "infra", message: "Confirmations are unavailable" }, 503),
+      () => json({ code: "confirmation_decided", class: "conflict", message: "Already decided" }, 409),
+      () => json({ code: "permission", class: "permission", message: "Not yours" }, 403),
+      () => { throw new TypeError("fetch failed") },
+      () => { served = [settled(ID, "approved", 6)]; return json(settled(ID, "approved", 6), 202) }
+    ]
+    const h = await confirmHarness(async (_url, init) => init?.method === "POST" ? answers.shift()!() : json(served, 200))
+    try {
+      h.seam.resumeTodos()
+      await waitFor(() => h.row(ID) !== undefined)
+      for (let press = 1; press <= 5; press++) {
+        expect(await h.seam.newTodo({ confirmation: ID })).toEqual({ value: "Requested" })
+        await waitFor(() => h.outcomes.length === press)
+      }
+      expect(h.outcomes.map(outcome => [outcome.status, outcome.detail])).toEqual([
+        ["failed", "Confirmations are unavailable Not your fault."], ["failed", "Already decided"], ["failed", "Not yours"],
+        ["failed", expect.stringContaining("Could not reach TODOs.")], ["ok", "Committed T6"]
+      ])
+      // A 503 and a thrown request got no answer: their retry sends the same key. A 409 and a 403 did: the next press is new.
+      const keys = h.posts().map(call => call.key)
+      expect(keys[1]).toBe(keys[0])
+      expect(keys[2]).not.toBe(keys[1])
+      expect(keys[3]).not.toBe(keys[2])
+      expect(keys[4]).toBe(keys[3])
+      expect(new Set(keys).size).toBe(3)
+    } finally { h.close() }
+  })
+
+  test("Cancel denies in the background and settles Cancelled; an answered confirmation refuses another answer", async () => {
+    let served: unknown[] = [pending(ID)]
+    const h = await confirmHarness(async (_url, init) => {
+      if (init?.method !== "POST") return json(served, 200)
+      served = [settled(ID, "rejected")]
+      return json(settled(ID, "rejected"), 200)
+    })
+    try {
+      h.seam.resumeTodos()
+      await waitFor(() => h.row(ID) !== undefined)
+      expect(h.seam.denyConfirmation(ID)).toEqual({ value: "Requested" })
+      await waitFor(() => h.outcomes.length === 1)
+      expect(h.posts()).toEqual([{ method: "POST", url: `https://install.test/api/confirmations/${ID}/deny`, key: expect.any(String) }])
+      expect(h.outcomes).toEqual([{ key: `todo.request.${h.posts()[0]!.key}`, status: "ok", detail: "Cancelled" }])
+      expect(h.row(ID)?.state).toBe("rejected")
+      expect(h.seam.denyConfirmation(ID)).toBe("Confirmation changed or was already answered")
+      expect(await h.seam.newTodo({ confirmation: ID })).toBe("Confirmation changed or was already answered")
+      expect(h.posts()).toHaveLength(1)
+    } finally { h.close() }
+  })
+})

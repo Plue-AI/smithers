@@ -1145,6 +1145,12 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         stackRoutes,
         "todo.new takes the TODO's text, and optionally its title and acceptance."
       ],
+      // Approving a served confirmation is the person's Commit, never the model's.
+      [
+        execute("todo.new", JSON.stringify({ confirmation: "9b2f6c1e-3a4d-4e5f-8a6b-7c8d9e0f1a2b" })),
+        stackRoutes,
+        "todo.new takes the TODO's text, and optionally its title and acceptance."
+      ],
       [
         execute("todo.new", JSON.stringify({ text: "x", before: 0 })),
         stackRoutes,

@@ -365,7 +365,8 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
       return { value: `Opened ${todo.ref}` }
     }, () => real.showTodo(n)),
     mergeTodo: (n: number, head: string) => onTodo(n, ["merge", head], todo => result(design.merge(todo.id, me(), head)), () => real.mergeTodo(n, head)),
-    newTodo: (input: Schema.Schema.Type<typeof TodoNewInput>) => input.cardId !== undefined
+    /* A confirmation is the install's alone (GET /api/confirmations); the seed has none. */
+    newTodo: (input: Schema.Schema.Type<typeof TodoNewInput>) => input.confirmation !== undefined ? real.newTodo(input) : input.cardId !== undefined
       ? onDraft(input.cardId, ["commit"], () => commit(input.cardId!), () => real.newTodo(input), REQUESTED)
       : route("", ["new", input], () => draftOnSeed(input), () => real.newTodo(input), REQUESTED),
     amendTodo: (input: Schema.Schema.Type<typeof TodoAmendInput>) => input.cardId !== undefined

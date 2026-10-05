@@ -2,9 +2,11 @@ import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
+import { ConfirmCardSchema } from "@smthrs/rpc/ConfirmCard"
 /* The routes and cards the model host's TODO commands share (@smthrs/rpc/TodoCommands). */
 import { draftCard, issueDigest, todoCard, todoPath, TODOS_PATH, type DraftEntry, type TodoEntry } from "@smthrs/rpc/TodoCommands"
 import { Data, Schema } from "effect"
+import { z } from "zod"
 import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
 import type { SeamContext } from "./SeamContext"
@@ -37,12 +39,29 @@ const issuePrompt = (source: IssueDraftSource): string => [source.body.trim(), .
 export interface TodoTopics {
   readonly subscribe: (topic: `todo:${number}`, receive: (model: unknown, receipts?: readonly TodoReceipt[]) => void) => () => void
 }
+/** The install's private person confirmations: GET lists the signed-in person's, newest first (T-APP-04). */
+export const CONFIRMATIONS_PATH = "/api/confirmations"
+const ServedConfirmationSchema = z.object({
+  id: z.string().min(1), state: z.enum(["pending", "approved", "rejected", "expired"]),
+  todo: z.number().int().positive().optional(), card: z.unknown()
+})
+/** One confirmation as the install serves it; its Confirm card reads `card` with ConfirmCardSchema. */
+export type ServedConfirmation = z.infer<typeof ServedConfirmationSchema>
+export interface ConfirmationSnapshots {
+  readonly get: () => ReadonlyArray<ServedConfirmation>
+  readonly subscribe: (listener: () => void) => () => void
+}
+/** The served confirmation a `confirm` card's payload id names (`confirmation:<id>`). */
+export const servedConfirmationId = (id: string): string | undefined => /^confirmation:(.+)$/.exec(id)?.[1]
+const confirmationCardId = (id: string) => `confirm:confirmation:${id}`
 export interface TodoSeamOptions {
   readonly actors?: () => ActorContext
   readonly topics?: TodoTopics
   readonly debounceMs?: number
-  /** How often an open Home reads GET /api/todos again; 2 s by default. */
+  /** How often an open Home reads GET /api/todos again, and an install GET /api/confirmations; 2 s by default. */
   readonly listPollMs?: number
+  /** This host is an install, which serves GET /api/confirmations; elsewhere nothing reads them. A 404 stops the reads. */
+  readonly confirmations?: boolean
   readonly onDispose?: (stop: () => void) => void
 }
 /** GET /api/todos as Home reads it where this host serves no `home` topic (T-APP-01): every TODO card, or why the read failed. */
@@ -60,7 +79,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const shared = actorSharedState(ctx, "todo", () => ({
     sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
-    list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
+    list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false },
+    confirmations: { rows: [] as ReadonlyArray<ServedConfirmation>, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined,
+      reading: false, served: options.confirmations === true, sending: new Map<string, object>(), keys: new Map<string, { readonly op: "approve" | "deny"; readonly key: string }>() }
   }))
   const owner = () => ctx.store.collections.identitySessions.get("identity")?.login
   const identity = () => ctx.store.collections.identitySessions.get("identity")
@@ -81,7 +102,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const blank = (n: number): TodoEntry => todoCard(n, undefined, ctx.nextOrdinal(), Date.now())
   const noticeKey = (key: string) => `todo.request.${key}`
   const needsYouKey = (n: number, wait: string) => `todo.needs-you.${n}.${wait}`
-  const showNotice = (request: Request, title: string) => {
+  const showNotice = (request: Pick<Request, "key" | "owner">, title: string) => {
     if (shared.timers.has(request.key)) return
     const timer = setTimeout(() => {
       shared.timers.delete(request.key)
@@ -338,6 +359,104 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       }
     }
   }
+  const publishConfirmations = (rows: ReadonlyArray<ServedConfirmation>) => {
+    shared.confirmations.rows = rows
+    for (const listener of shared.confirmations.listeners) listener()
+  }
+  /** One read of the person's confirmations: each pending one is their private Confirm card; an earlier sign-in's answer is dropped. */
+  const readConfirmations = async () => {
+    const served = shared.confirmations
+    const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
+    let response: Response
+    try { response = await ctx.http(`${ctx.baseUrl}${CONFIRMATIONS_PATH}`, { credentials: "include" }) } catch { return }
+    if (!current(login, revision)) return
+    // An install that predates the route serves none: one read, then none.
+    if (response.status === 404) { served.served = false; return }
+    if (response.status === 401 || response.status === 403) { publishConfirmations([]); return }
+    if (!response.ok) return
+    const parsed = ServedConfirmationSchema.array().safeParse(await response.json().catch(() => undefined))
+    if (!parsed.success || !current(login, revision)) return
+    publishConfirmations(parsed.data)
+    for (const row of parsed.data) {
+      const model = row.state === "pending" ? ConfirmCardSchema.safeParse(row.card) : undefined
+      if (!model?.success || !current(login, revision)) continue
+      const id = confirmationCardId(row.id), existing = ctx.store.collections.cards.get(id), title = `${model.data.summary}?`
+      if (existing?.kind === "confirm" && existing.title === title && existing.audience_member_id === login) continue
+      await write({ id, kind: "confirm", audience_member_id: login!, title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+        ordinal: existing?.ordinal ?? ctx.nextOrdinal(), payload: { id: `confirmation:${row.id}` } }, "system")
+    }
+  }
+  const pollConfirmations = () => {
+    const served = shared.confirmations
+    if (!served.served || shared.list.disposed || served.reading || served.timer !== undefined || signedIn()) return
+    served.reading = true
+    void readConfirmations().catch(error => ctx.report?.("todo.confirmations", error)).finally(() => {
+      served.reading = false
+      if (served.served && !shared.list.disposed && !signedIn()) served.timer = setTimeout(() => { served.timer = undefined; pollConfirmations() }, options.listPollMs ?? 2000)
+    })
+  }
+  const confirmations: ConfirmationSnapshots = {
+    get: () => shared.confirmations.rows,
+    subscribe: listener => {
+      shared.confirmations.listeners.add(listener)
+      return () => { shared.confirmations.listeners.delete(listener) }
+    }
+  }
+  /**
+   * Commit (approve) or Cancel (deny) on a served confirmation: acknowledged at once, never awaiting the network; the
+   * toast settles from the served answer. One key per press; a press that got no served answer retries with its key.
+   */
+  const answerConfirmation = (id: string, op: "approve" | "deny"): string | { readonly value: string } => {
+    const refusal = signedIn(); if (refusal) return refusal
+    const served = shared.confirmations
+    const row = served.rows.find(each => each.id === id)
+    if (op === "approve" && row?.state === "approved") return { value: row.todo ? `Committed T${row.todo}` : "Committed" }
+    if (row !== undefined && row.state !== "pending") return "Confirmation changed or was already answered"
+    if (served.sending.has(id)) return { value: "Requested" }
+    const held = served.keys.get(id)
+    const key = held?.op === op ? held.key : randomUuid()
+    served.keys.set(id, { op, key })
+    const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
+    const title = ctx.store.collections.cards.get(confirmationCardId(id))?.title ?? "TODO"
+    const press = {}
+    served.sending.set(id, press)
+    /* The press ends before its toast settles, so a press after the answer is a new one. */
+    const done = () => { if (served.sending.get(id) === press) served.sending.delete(id) }
+    const settle = (outcome: NonNullable<TodoReceipt["outcome"]>) => { done(); finishNotice(key, title, outcome) }
+    showNotice({ key, owner: login }, title)
+    void (async () => {
+      let response: Response
+      try {
+        response = await ctx.http(`${ctx.baseUrl}${CONFIRMATIONS_PATH}/${encodeURIComponent(id)}/${op}`, {
+          method: "POST", credentials: "include", headers: { "Idempotency-Key": key } })
+      } catch (error) {
+        if (current(login, revision)) settle({ status: "failed", detail: unreachableSentence("TODOs", error) })
+        return
+      }
+      if (!current(login, revision)) return
+      const body: unknown = await response.json().catch(() => null)
+      if (!current(login, revision)) return
+      // The install answered this press; only a server failure or a busy install keeps the key for its retry.
+      if (response.status < 500 && response.status !== 429) served.keys.delete(id)
+      if (!response.ok) {
+        const result = body && typeof body === "object" ? body as Record<string, unknown> : {}
+        const message = typeof result.message === "string" ? result.message : "Confirmation failed."
+        settle({ status: "failed", detail: result.class === "infra" || result.class === "capacity" ? `${message} Not your fault.` : message })
+        return
+      }
+      const answered = ServedConfirmationSchema.safeParse(body)
+      if (answered.success) {
+        publishConfirmations(served.rows.some(each => each.id === id)
+          ? served.rows.map(each => each.id === id ? answered.data : each) : [answered.data, ...served.rows])
+      }
+      if (!answered.success || answered.data.state !== (op === "approve" ? "approved" : "rejected")) {
+        settle({ status: "failed", detail: "Confirmation was not answered." })
+        return
+      }
+      settle({ status: "ok", detail: op === "deny" ? "Cancelled" : answered.data.todo ? `Committed T${answered.data.todo}` : "Committed" })
+    })().catch(error => ctx.report?.("todo.confirmation", error)).finally(done)
+    return { value: "Requested" }
+  }
   /** Review & merge (T-APP-04): the person's private Confirm card for Tn in review, read live from the TODO card. */
   const reviewMerge = async (n: number) => {
     const shown = await showTodo(n)
@@ -372,6 +491,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : [])
   const newTodo = async (input: Schema.Schema.Type<typeof TodoNewInput>) => {
     const refusal = signedIn(); if (refusal) return refusal
+    if (input.confirmation !== undefined) return answerConfirmation(input.confirmation, "approve")
     if (!input.cardId) {
       const id = `draft:${randomUuid()}`
       await write(draftCard({ id, author: owner()!, text: input.text ?? "", title: input.title, acceptance: input.acceptance, before: input.before,
@@ -459,9 +579,13 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     ? commitDraft(input.cardId) : request(input.n, "amend", { prompt: input.text }, input.idempotencyKey)
   const resumeTodos = () => {
     const epoch = identity()?.ownerRevision ?? identity()?.revision
-    if (epoch !== shared.epoch) { stop(); shared.epoch = epoch; publishList({}) }
-    if (signedIn()) return
+    if (epoch !== shared.epoch) { stop(); shared.epoch = epoch; publishList({}); shared.confirmations.keys.clear(); publishConfirmations([]) }
+    if (signedIn()) {
+      if (shared.confirmations.rows.length > 0) publishConfirmations([])
+      return
+    }
     pollList()
+    pollConfirmations()
     for (const row of ctx.store.collections.cards.values()) {
       if (row.kind === "todo") {
         // Follow only TODOs this seam fetched or requested; a row without either is the design seed's (MOCK SEAM).
@@ -484,10 +608,12 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     for (const timer of shared.timers.values()) clearTimeout(timer)
     shared.timers.clear()
     if (shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
+    if (shared.confirmations.timer !== undefined) { clearTimeout(shared.confirmations.timer); shared.confirmations.timer = undefined }
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); shared.list.disposed = true; stop() })
-  return { list, mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+  return { list, confirmations, denyConfirmation: (id: string) => answerConfirmation(id, "deny"),
+    mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)

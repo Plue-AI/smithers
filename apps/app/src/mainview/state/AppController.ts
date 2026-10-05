@@ -134,7 +134,7 @@ import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
-import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
+import { createTodoSeam, servedConfirmationId, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
 import { designMembers, designMembersRoster, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
@@ -521,6 +521,8 @@ export interface AppController extends IssueFlowsController {
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
   readonly todoList: TodoSeam["list"]
+  /** The person's confirmations an install serves (GET /api/confirmations), which their private Confirm cards read. */
+  readonly confirmations: TodoSeam["confirmations"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
   readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
@@ -951,7 +953,7 @@ export const createAppController = (
   const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
     const snapshot = services.live!.getSnapshot(topic)
     if (snapshot?.data !== undefined) receive(snapshot.data)
-  }) } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
+  }) } : undefined), debounceMs: ctx.toastDebounceMs, confirmations: installHost, onDispose: ctx.onDispose }), context, design, todoSource))
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1445,6 +1447,15 @@ export const createAppController = (
   }
 
   const cancelConfirmation: AppController["cancelConfirmation"] = async (confirmation, revision) => {
+    /* A confirmation the install serves (its id is its revision): Cancel denies it in the background; its card shows the receipt. */
+    const served = servedConfirmationId(confirmation)
+    if (served !== undefined) {
+      const row = todoSeam.confirmations.get().find(each => each.id === served)
+      const stale = confirmCancelRefusal(revision, { revision: served, answered: row?.state !== "pending" })
+      if (stale !== undefined) return { refusal: stale }
+      todoSeam.denyConfirmation(served)
+      return
+    }
     /* MOCK SEAM: an act cancels in the seeded world (its id is its revision); a Review & merge card closes. */
     const act = design.row("acts", confirmation)
     if (act !== undefined) {
@@ -2178,6 +2189,7 @@ export const createAppController = (
     membersRole,
     flowCatalog: installHost ? flowsSeam.snapshots : undefined,
     todoList: todoSeam.list,
+    confirmations: todoSeam.confirmations,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     design,
     live: services.live,

@@ -62,6 +62,8 @@ export type CommandActions =
     | "stackSnapshots"
     // The TODO list Home reads where no `home` topic is served, never an act.
     | "todoList"
+    // The served confirmations the Confirm cards read, never an act.
+    | "confirmations"
     // Live wiki navigation indexes and attachments are what the Wiki views read, never an act.
     | "wikiIndexes"
     | "wikiAttachments"

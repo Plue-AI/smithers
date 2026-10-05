@@ -3,19 +3,24 @@
  * person's own Review & merge (mvp.md Appendix B, card-kinds.md Confirm).
  * Private to the person who presses it; everyone else sees nothing. The
  * primary button is the act's own flow, run as the person; once it has run,
- * the card is its receipt. MOCK SEAM: the rows come from the seeded design
- * world (state/seams/DesignWorld/chat.ts) until the confirmations topic lands;
- * a Review & merge for this host's TODO Tn (`merge:todo:<n>`) reads the TODO
- * card the TODO seam keeps live from /api/todos/<n>.
+ * the card is its receipt. A confirmation the install serves
+ * (`confirmation:<id>`) reads the row the TODO seam keeps from
+ * GET /api/confirmations; a Review & merge for this host's TODO Tn
+ * (`merge:todo:<n>`) reads the TODO card the TODO seam keeps live from
+ * /api/todos/<n>. MOCK SEAM: elsewhere the rows come from the seeded design
+ * world (state/seams/DesignWorld/chat.ts).
  */
+import { useSyncExternalStore } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
+import { ConfirmCardSchema } from "@smthrs/rpc/ConfirmCard"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { useController } from "../ControllerContext"
-import { cardActions, type CardCommandDispatch } from "../flows/cardActions"
+import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { confirmSubject, designActCard, designMergeCard, useDesignAct } from "../state/seams/DesignWorld/chat"
 import { useDesign, useDesignTodo, useDesignViewer, useDesignWorld } from "../state/seams/DesignWorld/hooks"
 import { designAudience } from "../state/seams/DesignWorld/todo"
+import { servedConfirmationId } from "../state/seams/TodoSeam"
 import { useTodoCardRow } from "../state/useCardRows"
 import type { CardFamily, CardOf } from "./CardFamily"
 import { reviewMergeOf, useTodoRole } from "./TodoCard"
@@ -81,6 +86,26 @@ const TodoMergeBody = ({ card, n }: { readonly card: CardOf<"confirm">; readonly
     view={{ maximized: false }} onView={() => {}} />
 }
 
+/** A confirmation the install serves, private to the signed-in person it is for; settled, it is its receipt. */
+const HostedConfirmBody = ({ card, id }: { readonly card: CardOf<"confirm">; readonly id: string }) => {
+  const controller = useController()
+  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
+  const rows = useSyncExternalStore(controller.confirmations.subscribe, controller.confirmations.get, controller.confirmations.get)
+  const row = rows.find(each => each.id === id)
+  const model = ConfirmCardSchema.safeParse(row?.card)
+  /* Commit is the served act's own flow: todo.new approves this confirmation, which files the TODO. */
+  if (card.audience_member_id !== identity?.login || row === undefined || !model.success || model.data.action.tag !== "todo.new") return null
+  const actions: CardActionDefinition[] = row.state !== "pending" ? [] : [
+    { tag: "todo.new", label: model.data.action.verb, primary: true, command_input: { confirmation: id } },
+    { tag: "confirm.cancel", label: "Cancel", command_input: { confirmation: `confirmation:${id}`, revision: id } }
+  ]
+  const dispatch: CardCommandDispatch = (tag, input) =>
+    controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
+  const bindings = cardActions(dispatch, actions)
+  return <ConfirmView model={model.data} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction}
+    view={{ maximized: false }} onView={() => {}} />
+}
+
 /** Only the person the card is for sees it (C-ACC-02); the viewer comes from the design seed. */
 const DesignConfirmBody = ({ card, subject }: { readonly card: CardOf<"confirm">; readonly subject: { readonly kind: "act" | "merge"; readonly id: string } }) => {
   const viewer = useDesignViewer()
@@ -89,6 +114,8 @@ const DesignConfirmBody = ({ card, subject }: { readonly card: CardOf<"confirm">
 }
 
 const ConfirmBody = ({ card }: { readonly card: CardOf<"confirm"> }) => {
+  const served = servedConfirmationId(card.payload.id)
+  if (served !== undefined) return <HostedConfirmBody card={card} id={served} />
   const subject = confirmSubject(card.payload.id)
   if (subject === undefined) return null
   const hosted = subject.kind === "merge" ? /^todo:([1-9]\d*)$/.exec(subject.id) : null

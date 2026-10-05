@@ -9,12 +9,13 @@ const N = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 const Target = Schema.Struct({ n: N })
 const Text = Schema.NonEmptyString
 /**
- * `text` is optional: New TODO opens an empty Draft, filled on the card (design Home → Draft). The model host reads
- * the same fields with @smthrs/rpc TodoNewInputSchema; todo.test.ts decodes both.
+ * `text` is optional: New TODO opens an empty Draft, filled on the card (design Home → Draft). `confirmation` is the
+ * Commit on a confirmation the install serves: it approves that one. The model host reads the same fields with
+ * @smthrs/rpc TodoNewInputSchema; todo.test.ts decodes both.
  */
 export const TodoNewInput = Schema.Struct({
   text: Schema.optional(Schema.String), title: Schema.optional(Text), acceptance: Schema.optional(Schema.Array(Schema.String)),
-  before: Schema.optional(N), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
+  before: Schema.optional(N), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text), confirmation: Schema.optional(Text)
 })
 export const TodoAmendInput = Schema.Struct({
   n: N, text: Text, cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
@@ -30,7 +31,7 @@ export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ draft }) => actions.dismissTodoDraft(draft) }),
   flow({ name: "todo.new", summary: TODO_NEW_COMMAND.summary, args: TODO_NEW_COMMAND.args, input: TodoNewInput,
     grammar: parseTodoArgs("text", false), form: form("Commit"),
-    confirm: (payload) => payload.cardId ? "commit this TODO" : undefined,
+    confirm: (payload) => payload.cardId || payload.confirmation ? "commit this TODO" : undefined,
     handler: (input) => actions.newTodo(input) }),
   flow({ name: "todo", summary: TODO_COMMAND.summary, args: TODO_COMMAND.args, input: Target,
     grammar: parseTodoArgs(), form: form("Open"), handler: ({ n }) => actions.showTodo(n) }),
