@@ -3,7 +3,8 @@ import { expect, test } from "bun:test"
 import { createAppController } from "../AppController"
 import type { Card } from "../AppState"
 import { createAppStore } from "../AppStore"
-import { memoryStorage, signupProfileFetch, silentAgent, waitFor } from "../TestFixtures"
+import { memoryStorage, settle, signupProfileFetch, silentAgent, waitFor } from "../TestFixtures"
+import { installFixture } from "./InstallFixtures.test-support"
 
 /*
  * An install's issues (J2 1 and 2, T-STK-09): /issues, /issue #n and the
@@ -19,10 +20,12 @@ const githubIssue = (number: number, title: string, body: string, login: string)
   labels: [{ name: "bug", color: "d73a4a" }], assignees: [], comments: 1, created_at: "2026-10-05T09:00:00Z", updated_at: "2026-10-05T10:00:00Z"
 })
 
-const installApp = async () => {
+/** An install's app signed in as alice; the owner's app loads the repository, a member's loads none (GET /api/user/repos is empty). */
+const installApp = async ({ loaded = true } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
-  await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "local-owner", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
+  if (loaded) await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "local-owner", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
+  const install = { ...installFixture(), repository: { owner: "local-owner", name: "demo" }, repositories: [REPO] }
   const calls: string[] = []
   const posts: Array<{ path: string; body: unknown }> = []
   const answer = (path: string, search: string): Response => {
@@ -32,6 +35,7 @@ const installApp = async () => {
       comments: [{ id: 5, body: "Keep it short.", user: { login: "carol" }, created_at: "2026-10-05T11:00:00Z" }] })
     if (path === "/api/issues/9") return Response.json({ code: "not_found", class: "user", message: "Issue #9 was not found" }, { status: 404 })
     if (path === "/api/todos") return Response.json({ state: "accepted", n: 4, rev: 1 }, { status: 202 })
+    if (path === "/api/install" && !loaded) return Response.json(install)
     return new Response("", { status: 404 })
   }
   const controller = createAppController(store, silentAgent, {
@@ -96,5 +100,19 @@ test("Make TODO on an install's issue card drafts the issue and its discussion a
     await waitFor(() => posts.some(post => post.path === "/api/todos"))
     const digest = createHash("sha256").update("Say goodbye\0JOURNEY.md should end with a farewell.").digest("hex")
     expect(posts.find(post => post.path === "/api/todos")?.body).toMatchObject({ title: "Say goodbye", issue: 2, fixes: true, issue_digest: digest, place: { mode: "append" } })
+  } finally { await controller.dispose() }
+})
+
+test("a member's app, which loads no repository, lists and opens the install repository's issues", async () => {
+  const { store, controller, calls } = await installApp({ loaded: false })
+  try {
+    await waitFor(() => calls.includes("GET /api/install"))
+    expect([...store.collections.repositories.values()]).toEqual([])
+    await settle()
+    expect(await controller.runCommandForResult("issues", "")).toMatchObject({ status: "executed" })
+    expect(cardOf(store.collections.cards.values(), `issues-${REPO}`, "issue-list").payload.issues.map(row => row.number)).toEqual([2, 1])
+    expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({ status: "executed" })
+    expect(cardOf(store.collections.cards.values(), `issues-${REPO}`, "issue").payload).toMatchObject({ repo: REPO, number: 2, source: "github" })
+    expect(calls.filter(call => call.includes("issues"))).toEqual(["GET /api/issues?state=open", "GET /api/issues/2"])
   } finally { await controller.dispose() }
 })

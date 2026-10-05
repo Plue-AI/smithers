@@ -356,10 +356,19 @@ export interface IssuesSeamOptions {
    * every issue is a GitHub issue.
    */
   readonly install?: boolean
+  /**
+   * The install's one repository (`owner/name`, GET /api/install): the
+   * target when a command names none. A member's app loads no repository
+   * of its own, so the install's stands in.
+   */
+  readonly repository?: () => string | undefined
 }
 
 export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm, launchConversationTurn?: (text: string, turnId: string, owner: string) => Promise<boolean> | void, options: IssuesSeamOptions = {}): IssuesSeam => {
   const install = options.install === true
+  /** The repository a command names, or on an install the install's own. */
+  const repoOf = (repo: string | undefined): string | undefined =>
+    repo !== undefined && repo !== "" ? repo : install ? options.repository?.() : undefined
   const signedInOwner = () => {
     const identity = ctx.store.collections.identitySessions.get("identity")
     const cloud = ctx.store.collections.cloudSessions.get("cloud")
@@ -637,7 +646,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
   }
 
   const listView = preparedView(ctx, (filter: "open" | "closed" | "all", repoArg?: string, kind: IssueKindFilter = "all", view?: string) => {
-    const target = resolveTargetRepo(ctx.store, repoArg)
+    const target = resolveTargetRepo(ctx.store, repoOf(repoArg))
     if ("error" in target) return target.error
     const repo = target.repo
     // A saved view carries its own state and addresses Smithers' own tracker (the API refuses view with state).
@@ -711,7 +720,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
   const issueView = preparedView(ctx, (number: number, repoArg?: string, asked?: "smithers-cloud" | "github") => {
     // Every issue on an install is a GitHub issue.
     const source = install ? "github" : asked
-    const target = resolveTargetRepo(ctx.store, repoArg)
+    const target = resolveTargetRepo(ctx.store, repoOf(repoArg))
     if ("error" in target) return target.error
     const repo = target.repo
     const bound = [...ctx.store.collections.cards.values()].find(card => card.kind === "issue" && card.payload.conversation && card.payload.repo === repo && card.payload.number === number && source !== "github")
@@ -972,11 +981,11 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     },
     subscribe,
     draftIssueComment: async (cardId, text) => { await updateLocalIssue(cardId, payload => ({ ...payload, commentDraft: text })) },
-    listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
+    listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", repoOf(explicitRepo), filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
       [filter, kind === undefined || kind === "all" ? undefined : `--kind ${kind}`, view === undefined || view === "" ? undefined : `--view ${view}`].filter((part) => part !== undefined).join(" ")), { preload: listView.preload }),
 
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
-      const target = resolveTargetRepo(ctx.store, explicitRepo)
+      const target = resolveTargetRepo(ctx.store, repoOf(explicitRepo))
       if ("error" in target) return target.error
       if (source === "github" || install) return readRepositoryDetail(ctx, target.repo, "issue", number,
         () => issueView(number, target.repo, "github"), "github")
