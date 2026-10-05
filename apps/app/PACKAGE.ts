@@ -56,7 +56,7 @@ const harnessSources = Smithers.glob("//apps/app/scripts/**/*")
 const lintSources = Smithers.glob("//apps/app/lint/**/*")
 const suiteSources = Smithers.glob("//apps/app/e2e/**/*")
 
-/** The proof page generator, its tests and the fixture run they read. */
+/** The proof page generator, the feature registry's schema, validator and mock-step generator, their tests and the fixture run they read. */
 const proofSources = Smithers.glob("//apps/app/proof/**/*")
 
 /** The assertion contracts the e2e tiers share; pure, so the unit suite gates them. */
@@ -124,6 +124,8 @@ const unitTests = Smithers.NodeTest({
     harnessSources,
     suiteSources,
     proofSources,
+    Smithers.file("//.specs/product/features.json"),
+    Smithers.glob("//.specs/design/mock/src/**/*"),
     ...todoTurns,
     ...buildConfigs,
     Smithers.glob("//apps/app/*.ts"),
@@ -291,6 +293,19 @@ const proofPage = Smithers.Shell.Build({
 })
 
 /**
+ * Validates the feature registry (.specs/product/features.json) at HEAD: the
+ * schema, unique ids, and that every mock step, proof step, code range and
+ * docs page a feature names exists. It reads paths across the whole tree
+ * through git, so it is never cached. See proof/validate.ts.
+ */
+const proofValidate = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("proof/validate.ts")),
+  srcs: [proofSources, Smithers.file("//.specs/product/features.json"), Smithers.glob("//.specs/design/mock/src/**/*")],
+  deps: [], cache: false, timeout: "5m", cwd
+})
+
+/**
  * Everything a web host needs to bundle the app as a React island: the
  * mainview tree (AppIsland.tsx and the CSS it imports), the Tailwind config
  * index.css names, the build stamp both builds share, and package.json for
@@ -446,5 +461,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, proofValidate, webSources, ...securityReview }
 })

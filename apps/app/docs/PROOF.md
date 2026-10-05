@@ -54,10 +54,36 @@ the disagreement at the top.
 - Screenshots are embedded; videos are files in `videos/` beside the page. The
   page makes no network request.
 
+## The registry
+
+`.specs/product/features.json` lists every feature, one entry each:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Kebab-case and stable; the proof step and its screenshot use it. |
+| `journey`, `spec` | `J1`..`J11` and the mvp.md section that defines it. |
+| `mockSteps` | `<journey file>#<n>`, n 1-based, into `apps/app/proof/mock-steps.json`. |
+| `status` | `implemented` only when every proof step passed in the latest recorded run; otherwise `not-implemented`. |
+| `proof` | `{ file, step }`: a proof spec and the feature id of its `proofStep`. |
+| `docs`, `code` | Docs pages and `path#La-Lb` code ranges on main. |
+| `gap` | One line saying what fails or is missing. Required when not implemented; empty when implemented. |
+
+```
+smthrs test //apps/app:proofValidate          # validate the registry at HEAD
+bun apps/app/proof/validate.ts --worktree     # the same checks on uncommitted edits
+bun apps/app/proof/mock-steps.ts              # regenerate mock-steps.json after a mock edit
+```
+
+`proofValidate` fails on a schema error, a duplicate id, a mock step past its
+journey's end, a proof file without its step id, a missing code, docs or spec
+path, a line range past the end of its file, a missing or misplaced `gap`, an
+implemented feature without proof, or a `mock-steps.json` that differs from the
+design mock. It reads every path at HEAD through git, so it is never cached.
+
 ## Tests
 
 | Test | Command |
 | --- | --- |
-| Verdict rules, links, fixture run, coverage property | `bun test ./proof` from `apps/app` |
+| Verdict rules, links, fixture run, coverage property; registry schema, every validator failure, generated registries, the real registry | `bun test ./proof` from `apps/app` |
 | Page e2e in Chromium | `bunx playwright test --config proof/test/playwright.page.config.ts` from `apps/app` |
 | Re-record the fixture run | `bun proof/test/record-fixture.ts` from `apps/app` |

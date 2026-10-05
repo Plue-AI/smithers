@@ -1755,6 +1755,41 @@
     }
   },
   {
+    "label": "//apps/app:proofValidate",
+    "package": "apps/app",
+    "name": "proofValidate",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/proof/validate.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/proof/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": ".specs/product/features.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/design/mock/src/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:security",
     "package": "apps/app",
     "name": "security",
@@ -1962,6 +1997,15 @@
       {
         "kind": "glob",
         "pattern": "apps/app/proof/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": ".specs/product/features.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/design/mock/src/**/*",
         "exclude": []
       },
       {
