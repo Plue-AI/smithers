@@ -143,6 +143,16 @@ describe("restored launchd service", () => {
     expect(calls).toBe(2)
     await expect(Host.waitReady(async () => false, 1)).rejects.toThrow("readiness failed")
   })
+  it("keeps waiting while a first boot's migrations advance, and not when they stall", async () => {
+    // Five 250 ms polls, each a new step, outlast a 400 ms deadline.
+    let calls = 0
+    await Host.waitReady(async () => ++calls > 5 || JSON.stringify(["migrating", calls, 116]), 400)
+    expect(calls).toBe(6)
+    calls = 0
+    await expect(Host.waitReady(async () => (++calls, JSON.stringify(["migrating", 1, 116])), 400))
+      .rejects.toThrow("readiness failed")
+    expect(calls).toBeLessThan(5)
+  })
 })
 
 describe("private setup handoff", () => {

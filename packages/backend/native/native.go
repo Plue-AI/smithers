@@ -21,6 +21,10 @@ type Config struct {
 	Release  Version
 	Postgres postgres.Config
 	App      app.Config
+	// StartupAddr is the address the app serves (SMITHERS_SERVER_ADDR).
+	// Until the app listens, a starting page answers there with the database
+	// phase and migration count (startingPage). Empty serves nothing.
+	StartupAddr string
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -59,6 +63,11 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := EnsureVersion(root, release); err != nil {
 		return err
 	}
+	// A first boot creates the database and applies every migration: on a
+	// loaded Mac, longer than a fixed readiness deadline. The starting page
+	// reports each step until the app takes the address.
+	starting := serveStartingPage(cfg.StartupAddr)
+	defer starting.close()
 	database, err := postgres.Start(ctx, cfg.Postgres)
 	if err != nil {
 		return fmt.Errorf("start owned postgres: %w", err)
@@ -75,7 +84,7 @@ func Run(ctx context.Context, cfg Config) error {
 			_ = os.Unsetenv("SMITHERS_DATABASE_URL")
 		}
 	}()
-	if err := app.Migrate(ctx, database.ConnectionString); err != nil {
+	if err := app.Migrate(product.WithMigrationProgress(ctx, starting.migrating), database.ConnectionString); err != nil {
 		if errors.Is(err, product.ErrUnsupportedVersion) {
 			err = &GuardError{Reason: "database schema is newer than this binary; restore a verified backup", Backup: "<backup>", Cause: err}
 		}
@@ -84,6 +93,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := WriteVersion(root, release); err != nil {
 		return errors.Join(fmt.Errorf("publish state version: %w", err), stop(database))
 	}
+	starting.close()
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	appDone := make(chan error, 1)

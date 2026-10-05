@@ -36,6 +36,7 @@ export interface NativeBackendOptions {
   ) => Child
   readonly fetch?: (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>
   readonly sleep?: (milliseconds: number) => Promise<void>
+  /** Startup time allowed without progress (STARTUP_IDLE_MS). */
   readonly startupTimeoutMs?: number
 }
 
@@ -61,22 +62,47 @@ const LAUNCHER_PASSTHROUGH = [
  */
 const BACKEND_STOP_GRACE_MS = 25_000
 
+/**
+ * How long startup may go without progress: the first step covers the
+ * bundle checks and a first boot's initdb, the last the app's startup after
+ * the migrations.
+ */
+const STARTUP_IDLE_MS = 60_000
+
 /** A Dock launch can arrive without PATH; the backend still needs the system tools. */
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter)
+
+/**
+ * The backend's starting page (native.startingPage) answers /readyz 503
+ * `{"status":"starting","phase","applied","total"}` while its PostgreSQL
+ * starts and migrates; this is that step, or undefined for any other answer.
+ */
+const startingStep = async (response: Response): Promise<string | undefined> => {
+  if (response.status !== 503) return undefined
+  try {
+    const body: unknown = await response.json()
+    return isRecord(body) && body.status === "starting"
+      ? JSON.stringify([body.phase, body.applied, body.total])
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const readinessProbe = async (
   fetchImpl: (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>,
   sleep: (milliseconds: number) => Promise<void>,
   origin: string,
   timeoutMs: number
-): Promise<Response | undefined> => {
+): Promise<{ readonly ok: boolean; readonly step: string | undefined } | undefined> => {
   const controller = new AbortController()
   try {
     return await Promise.race([
       fetchImpl(`${origin}/readyz`, {
         redirect: "manual",
         signal: controller.signal
-      }).catch(() => undefined),
+      }).then(async (response) => ({ ok: response.ok, step: response.ok ? undefined : await startingStep(response) }))
+        .catch(() => undefined),
       sleep(timeoutMs).then(() => undefined)
     ])
   } finally {
@@ -357,7 +383,13 @@ export const startNativeBackend = async (
   })()
 
   const fetchImpl = options.fetch ?? globalThis.fetch
-  const deadline = Date.now() + (options.startupTimeoutMs ?? 30_000)
+  // The deadline bounds time without progress: each new step the starting
+  // page reports (the database, then each migration) restarts it, so a first
+  // boot on a loaded Mac (116 migrations took 29.5 s at load 67) completes,
+  // while a backend that stops answering still fails.
+  const idleMs = options.startupTimeoutMs ?? STARTUP_IDLE_MS
+  let deadline = Date.now() + idleMs
+  let step: string | undefined
   try {
     while (Date.now() < deadline) {
       if (exitCode !== undefined) {
@@ -369,6 +401,10 @@ export const startNativeBackend = async (
         throw new Error(`Owned backend exited before readiness with code ${exitCode}.`)
       }
       if (response?.ok) return { mode, origin, bootstrapToken: undefined, failure, stop }
+      if (response?.step !== undefined && response.step !== step) {
+        step = response.step
+        deadline = Date.now() + idleMs
+      }
       await sleep(Math.min(50, remaining))
     }
     throw new Error("Owned backend did not become ready before its startup deadline.")

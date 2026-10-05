@@ -265,6 +265,20 @@ var (
 	migrationLockBackoff      = time.Second
 )
 
+// MigrationProgress receives Apply's steps: done of total pending
+// migrations, first with done 0, then after each migration, before the
+// transaction commits. A retried attempt starts again at 0.
+type MigrationProgress func(done, total int)
+
+type migrationProgressKey struct{}
+
+// WithMigrationProgress has Apply report its steps to progress, so a first
+// boot's minute of migrations reads as progress rather than a hang (the
+// install's starting page, native.startingPage).
+func WithMigrationProgress(ctx context.Context, progress MigrationProgress) context.Context {
+	return context.WithValue(ctx, migrationProgressKey{}, progress)
+}
+
 // Apply installs every pending product migration in one transaction. An
 // advisory lock serializes concurrent starts; the ledger rejects changed SQL
 // and prevents an older binary from opening a newer database. Fresh installs
@@ -321,6 +335,19 @@ func applyOnce(ctx context.Context, pool *pgxpool.Pool, registered []migration) 
 	if err != nil {
 		return err
 	}
+	progress, _ := ctx.Value(migrationProgressKey{}).(MigrationProgress)
+	done, total := 0, 0
+	for _, item := range registered {
+		if !applied[item.version] {
+			total++
+		}
+	}
+	report := func() {
+		if progress != nil {
+			progress(done, total)
+		}
+	}
+	report()
 	var durations [][2]int64
 	for _, item := range registered {
 		if applied[item.version] {
@@ -335,6 +362,8 @@ func applyOnce(ctx context.Context, pool *pgxpool.Pool, registered []migration) 
 				if _, err := tx.Exec(ctx, `INSERT INTO public.smithers_product_migrations(version, checksum) VALUES ($1, $2)`, item.version, item.checksum); err != nil {
 					return fmt.Errorf("record adopted product migration 12: %w", err)
 				}
+				done++
+				report()
 				continue
 			}
 		}
@@ -353,6 +382,8 @@ func applyOnce(ctx context.Context, pool *pgxpool.Pool, registered []migration) 
 			return fmt.Errorf("record product migration %d: %w", item.version, err)
 		}
 		durations = append(durations, [2]int64{int64(item.version), time.Since(started).Milliseconds()})
+		done++
+		report()
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit product migration: %w", err)

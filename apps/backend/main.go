@@ -185,6 +185,9 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 	if inputs.postgresBin != "" {
 		return native.Run(ctx, native.Config{
 			App: appConfig,
+			// The launcher's readiness probe and a browser see the first
+			// boot's database steps there until the app listens.
+			StartupAddr: os.Getenv("SMITHERS_SERVER_ADDR"),
 			Postgres: postgres.Config{
 				BinDir:   inputs.postgresBin,
 				StateDir: filepath.Join(inputs.stateRoot, "postgres"),

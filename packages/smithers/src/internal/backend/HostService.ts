@@ -155,14 +155,35 @@ export const installedBundle = (system: Launchd): string => {
   if (!executable) throw new Error("Installed host bundle path unavailable")
   return dirname(dirname(executable.replaceAll("&quot;", '\"').replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&")))
 }
-export const ready = async (): Promise<boolean> => {
-  try { return (await fetch("http://127.0.0.1:4000/readyz", { signal: AbortSignal.timeout(1000), redirect: "error" })).ok }
-  catch { return false }
+/**
+ * true when the host is ready; while it starts, the starting page's step
+ * (503 `{"status":"starting","phase","applied","total"}`, the backend's
+ * native.startingPage); otherwise false.
+ */
+export const ready = async (): Promise<boolean | string> => {
+  try {
+    const response = await fetch("http://127.0.0.1:4000/readyz", { signal: AbortSignal.timeout(1000), redirect: "error" })
+    if (response.ok) return true
+    if (response.status !== 503) return false
+    const body: { status?: unknown; phase?: unknown; applied?: unknown; total?: unknown } = await response.json()
+    return body?.status === "starting" ? JSON.stringify([body.phase, body.applied, body.total]) : false
+  } catch { return false }
 }
-export const waitReady = async (probe = ready, timeout = 60_000): Promise<void> => {
-  const deadline = Date.now() + timeout
+/**
+ * Waits for readiness, allowing `timeout` without progress: each new
+ * starting step restarts it, so a first boot's migrations on a loaded Mac
+ * finish instead of failing `smthrs host start`.
+ */
+export const waitReady = async (probe: () => Promise<boolean | string> = ready, timeout = 60_000): Promise<void> => {
+  let deadline = Date.now() + timeout
+  let step: string | undefined
   do {
-    if (await probe()) return
+    const answer = await probe()
+    if (answer === true) return
+    if (typeof answer === "string" && answer !== step) {
+      step = answer
+      deadline = Date.now() + timeout
+    }
     await new Promise((done) => setTimeout(done, 250))
   } while (Date.now() < deadline)
   throw new Error("Host readiness failed at http://127.0.0.1:4000/readyz")
@@ -215,7 +236,7 @@ export const start = async (input?: string) => {
 export const status = async () => {
   const system = launchd(), bundle = installedBundle(system)
   const verified = verifyBundle(bundle)
-  if (!loaded(system) || !await ready()) throw new Error(`Host unhealthy: ${bundle}`)
+  if (!loaded(system) || await ready() !== true) throw new Error(`Host unhealthy: ${bundle}`)
   doctor(bundle, stateDirectory())
   return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready" }
 }

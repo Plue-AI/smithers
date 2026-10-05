@@ -212,6 +212,53 @@ describe("native backend ownership", () => {
     expect(slept).not.toContain(10_000)
   })
 
+  // The real-GitHub walk's first boot at load 67 failed: 116 migrations took
+  // 29.5 s against a fixed 30 s deadline. Each migration step now restarts it.
+  const migratingBackend = (steps: number, advance: boolean) => {
+    const runtime = packagedRuntime()
+    let resolveExit!: (code: number) => void
+    const exited = new Promise<number>((resolve) => { resolveExit = resolve })
+    const signals: Array<string> = []
+    let probes = 0
+    const launch = startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
+      stateDir: runtime.state,
+      webRoot,
+      spawn: () => ({
+        exited,
+        kill: (signal) => {
+          signals.push(signal)
+          resolveExit(0)
+        }
+      }),
+      fetch: async () => {
+        await Bun.sleep(10)
+        probes += 1
+        if (probes > steps) return new Response(null, { status: 200 })
+        return Response.json(
+          { status: "starting", phase: "migrating", applied: advance ? probes : 1, total: steps },
+          { status: 503 }
+        )
+      },
+      startupTimeoutMs: 300
+    })
+    return { launch, signals, probes: () => probes }
+  }
+
+  test("each migration step restarts the startup deadline", async () => {
+    const { launch, signals, probes } = migratingBackend(20, true)
+    const instance = await launch
+    expect(probes()).toBe(21)
+    expect(signals).toEqual([])
+    await instance.stop()
+  })
+
+  test("a starting page that stops advancing still meets the startup deadline", async () => {
+    const { launch, signals } = migratingBackend(1_000, false)
+    await expect(launch).rejects.toThrow("startup deadline")
+    expect(signals).toEqual(["SIGTERM"])
+  })
+
   test("hung readiness is bounded by the startup deadline", async () => {
     const runtime = packagedRuntime()
     let resolveExit!: (code: number) => void
