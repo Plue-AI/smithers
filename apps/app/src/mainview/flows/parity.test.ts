@@ -1248,7 +1248,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../ToastStackView.tsx": 3, // A notice's one action, Hide and "+N more".
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
 
-      "../cards/IssueCards.tsx": 11, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips and the saved view toggles
+      "../cards/IssueCards.tsx": 12, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips, the saved view toggles and Make TODO (todo.from-issue)
       "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 3,

@@ -72,14 +72,21 @@ test("Each model key stays on its role row, clears on submission and carries onl
   expect(rows[1]!.textContent).toContain("Key is invalid")
 })
 
-test("Zero formula disables both Machines buttons; At once cannot exceed Machines", async () => {
-  const model = installFixture(); model.capacity = 0; model.this_mac.capacity = 0; model.parallel = 0
+test("Zero formula disables both Machines buttons; At once keeps its 1-8 request apart from capacity", async () => {
+  // #3572: the saved parallel request survives capacity 0, and Settings accepts 1-8 independently of capacity.
+  const model = installFixture(); model.capacity = 0; model.this_mac.capacity = 0; model.parallel = 2
   const commands: unknown[] = []
   const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
-  for (const label of ["Fewer Machines", "More Machines", "Fewer TODOs at once", "More TODOs at once"]) {
+  for (const label of ["Fewer Machines", "More Machines"]) {
     const button = host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!
     expect(button.disabled).toBe(true)
     await act(async () => button.click())
   }
   expect(commands).toEqual([])
+  for (const label of ["Fewer TODOs at once", "More TODOs at once"]) {
+    const button = host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!
+    expect(button.disabled).toBe(false)
+    await act(async () => button.click())
+  }
+  expect(commands).toEqual([{ tag: "settings.parallel", input: { parallel: 1 } }, { tag: "settings.parallel", input: { parallel: 3 } }])
 })
