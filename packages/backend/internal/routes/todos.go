@@ -65,16 +65,27 @@ func todoRouteError(w http.ResponseWriter, err error) {
 // members create, read, answer and steer TODOs; maintainers merge), then
 // resolves the install's repository.
 func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command string) (int64, int64, bool) {
-	if h == nil || h.Queries == nil || h.Service == nil {
+	if h == nil || h.Service == nil {
 		todoRouteError(w, nil)
 		return 0, 0, false
 	}
-	decision, err := services.Authorize(r.Context(), h.Queries, command)
+	return authorizeInstallRepository(w, r, h.Queries, command)
+}
+
+// authorizeInstallRepository decides command for the request's person
+// (services.Authorize), then resolves the install's persisted repository,
+// never a caller-supplied one. It writes the refusal itself.
+func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries *db.Queries, command string) (int64, int64, bool) {
+	if queries == nil {
+		todoRouteError(w, nil)
+		return 0, 0, false
+	}
+	decision, err := services.Authorize(r.Context(), queries, command)
 	if err != nil {
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	setting, err := h.Queries.GetInstallSetting(r.Context(), "github.repository")
+	setting, err := queries.GetInstallSetting(r.Context(), "github.repository")
 	if err != nil {
 		todoRouteError(w, err)
 		return 0, 0, false
@@ -87,7 +98,7 @@ func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command 
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	repo, err := h.Queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
+	repo, err := queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
 	if err != nil {
 		todoRouteError(w, err)
 		return 0, 0, false

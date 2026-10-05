@@ -45,6 +45,7 @@ delegated credentials land.
 | `sync.read`, `sync.retry` | Member | `GET`, `POST /api/github/sync` |
 | `live` | Member | `GET /api/live` |
 | `agent.turn` | Member | `POST /api/agent/turn`, `POST /api/agent/turn/cancel` |
+| `issue.read` | Member | `GET /api/issues`, `GET /api/issues/{n}` |
 | `todo.read`, `todo.new`, `todo.answer` | Member | `GET /api/todos`, `GET /api/todos/{n}`, `POST /api/todos`, `POST /api/todos/{n}/answer` |
 | `todo.steer`, `todo.stop`, `todo.resume`, `todo.retry`, `todo.drop` | Member | `POST /api/todos/{n}` (by `op`) |
 | `merge` | Maintainer | `POST /api/todos/{n}/merge` |
@@ -70,6 +71,15 @@ table, and the turn runs on the install's models (the owner's fast role or
 default, which the owner pays for), never on a model the member's request
 names. `GET /api/install` answers a member the install's state; only the
 owner changes it. Git HTTP and SSE tickets stay owner-only for members.
+
+The issue list card and the issue card read the install repository's GitHub
+issues from `GET /api/issues` and `GET /api/issues/{n}` (the issue with its
+comments). The install reads them through its GitHub App as the stack's actor,
+so a member needs no GitHub credential that can read them, and Make TODO reads
+the issue the same way when it commits. A Member makes a TODO only from an
+issue whose author and last writers have write access on GitHub; an
+outsider's issue answers `403 permission` ("Only a maintainer can make a TODO
+from this issue"), and a maintainer's TODO from it is marked outsider.
 
 `POST /api/todos/{n}` is mounted and authorized by role, and the TODO service
 still answers every control `503 todo_control_unavailable` until a steer can

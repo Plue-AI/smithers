@@ -916,6 +916,12 @@ func buildRouter(
 			r.Post("/todos/{n}", todos.Control)
 			r.Post("/todos/{n}/merge", todos.Merge)
 			r.Post("/todos/{n}/answer", todos.Answer)
+			// The issue list card and the issue card read the install
+			// repository's GitHub issues through the install's App.
+			issueService, _ := extras.Mythical.Service.(routes.InstallIssueRouteService)
+			issues := &routes.InstallIssuesHandler{Queries: queries, Service: issueService}
+			r.Get("/issues", issues.List)
+			r.Get("/issues/{n}", issues.Get)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Members != nil {
 			r.Get("/members", extras.Members.List)

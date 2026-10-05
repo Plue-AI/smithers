@@ -1346,6 +1346,47 @@ type InstallSetupStatusModelsItem struct {
 	Error    *string `json:"error,omitempty"`
 }
 
+// InstallIssuePerson — A GitHub account.
+type InstallIssuePerson struct {
+	Login     string  `json:"login"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+}
+
+// InstallIssue — One GitHub issue, in GitHub's field names.
+type InstallIssue struct {
+	Number    int64                    `json:"number"`
+	Title     string                   `json:"title"`
+	Body      string                   `json:"body"`
+	State     string                   `json:"state"`
+	HTMLURL   string                   `json:"html_url"`
+	User      json.RawMessage          `json:"user"`
+	Labels    []InstallIssueLabelsItem `json:"labels"`
+	Assignees []InstallIssuePerson     `json:"assignees"`
+	Comments  int64                    `json:"comments"`
+	CreatedAt *time.Time               `json:"created_at,omitempty"`
+	UpdatedAt *time.Time               `json:"updated_at,omitempty"`
+}
+
+// InstallIssueLabelsItem is generated from docs/api/openapi.yaml.
+type InstallIssueLabelsItem struct {
+	Name  string  `json:"name"`
+	Color *string `json:"color,omitempty"`
+}
+
+// InstallIssueThread is generated from docs/api/openapi.yaml.
+type InstallIssueThread struct {
+	Issue    InstallIssue                     `json:"issue"`
+	Comments []InstallIssueThreadCommentsItem `json:"comments"`
+}
+
+// InstallIssueThreadCommentsItem is generated from docs/api/openapi.yaml.
+type InstallIssueThreadCommentsItem struct {
+	ID        int64           `json:"id"`
+	Body      string          `json:"body"`
+	User      json.RawMessage `json:"user"`
+	CreatedAt *time.Time      `json:"created_at,omitempty"`
+}
+
 // AccessError — An authorization or roster refusal (spec §6.2.3).
 type AccessError struct {
 	Class   string  `json:"class"`
@@ -1554,6 +1595,12 @@ type GetAPIReposOwnerRepoIssueViewsResponseItem struct {
 	Title  string   `json:"title"`
 	State  *string  `json:"state,omitempty"`
 	Labels []string `json:"labels,omitempty"`
+}
+
+// GetAPIIssuesParams is the query of GET /api/issues.
+type GetAPIIssuesParams struct {
+	State *string
+	Page  *int64
 }
 
 // PostAPIMembersBody is generated from docs/api/openapi.yaml.
@@ -2622,6 +2669,27 @@ func (c *Client) GetAPIIntegrationsSkills(ctx context.Context) (AnyJSON, error) 
 func (c *Client) GetAPIReposOwnerRepoIssueViews(ctx context.Context, owner string, repo string) ([]GetAPIReposOwnerRepoIssueViewsResponseItem, error) {
 	var out []GetAPIReposOwnerRepoIssueViewsResponseItem
 	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issue-views", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIIssues calls GET /api/issues.
+func (c *Client) GetAPIIssues(ctx context.Context, params GetAPIIssuesParams) ([]InstallIssue, error) {
+	query := url.Values{}
+	if params.State != nil {
+		query.Set("state", *params.State)
+	}
+	if params.Page != nil {
+		query.Set("page", strconv.FormatInt(*params.Page, 10))
+	}
+	var out []InstallIssue
+	err := c.do(ctx, "GET", "/api/issues", query, nil, &out)
+	return out, err
+}
+
+// GetAPIIssuesN calls GET /api/issues/{n}.
+func (c *Client) GetAPIIssuesN(ctx context.Context, n int64) (InstallIssueThread, error) {
+	var out InstallIssueThread
+	err := c.do(ctx, "GET", "/api/issues/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
 	return out, err
 }
 

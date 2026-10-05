@@ -77,6 +77,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		{"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
 		{"POST", "/api/agent/turn"}, {"POST", "/api/agent/turn/cancel"}, {"POST", "/api/agent/turn/replay"}, {"POST", "/api/agent/turn/retire"},
 		{"GET", "/api/agent/conversations"}, {"POST", "/api/agent/conversations/replay"},
+		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
 		{"GET", "/api/members"}, {"POST", "/api/todos/1/merge"}, {"POST", "/api/members"}, {"PATCH", "/api/members/alice"}, {"DELETE", "/api/members/alice"},
 		// Outside the member table: the owner's alone.

@@ -308,6 +308,7 @@ var installCommands = map[string]installCommand{
 	"sync.retry":       {role: InstallMember},
 	"live":             {role: InstallMember},
 	"agent.turn":       {role: InstallMember},
+	"issue.read":       {role: InstallMember},
 	"todo.read":        {role: InstallMember},
 	"todo.new":         {role: InstallMember},
 	"todo.answer":      {role: InstallMember},

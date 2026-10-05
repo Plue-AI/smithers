@@ -57,6 +57,8 @@
   {"id":"get_api_integrations_mcp","method":"GET","path":"/api/integrations/mcp"},
   {"id":"get_api_integrations_skills","method":"GET","path":"/api/integrations/skills"},
   {"id":"get_api_repos_owner_repo_issue_views","method":"GET","path":"/api/repos/{owner}/{repo}/issue-views"},
+  {"id":"get_api_issues","method":"GET","path":"/api/issues"},
+  {"id":"get_api_issues_n","method":"GET","path":"/api/issues/{n}"},
   {"id":"get_api_members","method":"GET","path":"/api/members"},
   {"id":"post_api_members","method":"POST","path":"/api/members"},
   {"id":"patch_api_members_login","method":"PATCH","path":"/api/members/{login}"},

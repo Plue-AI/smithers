@@ -793,6 +793,40 @@ export type InstallSetupStatus = {
   parallel?: number
 }
 
+/** A GitHub account. */
+export type InstallIssuePerson = {
+  login: string
+  avatar_url?: string
+}
+
+/** One GitHub issue, in GitHub's field names. */
+export type InstallIssue = {
+  number: number
+  title: string
+  body: string
+  state: "open" | "closed"
+  html_url: string
+  user: InstallIssuePerson | null
+  labels: Array<{
+    name: string
+    color?: string
+  }>
+  assignees: Array<InstallIssuePerson>
+  comments: number
+  created_at?: string
+  updated_at?: string
+}
+
+export type InstallIssueThread = {
+  issue: InstallIssue
+  comments: Array<{
+    id: number
+    body: string
+    user: InstallIssuePerson | null
+    created_at?: string
+  }>
+}
+
 /** An authorization or roster refusal (spec §6.2.3). */
 export type AccessError = {
   class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
@@ -1732,6 +1766,26 @@ export interface GetApiReposOwnerRepoIssueViewsInput {
 /** GET /api/repos/{owner}/{repo}/issue-views */
 export const getApiReposOwnerRepoIssueViews = (transport: Transport, input: GetApiReposOwnerRepoIssueViewsInput): Promise<GetApiReposOwnerRepoIssueViewsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issue-views`) as Promise<GetApiReposOwnerRepoIssueViewsResponse>
+
+export type GetApiIssuesResponse = Array<InstallIssue>
+
+export interface GetApiIssuesInput {
+  readonly query?: { readonly state?: "open" | "closed" | "all"; readonly page?: number }
+}
+
+/** GET /api/issues: Read the install repository's GitHub issues */
+export const getApiIssues = (transport: Transport, input?: GetApiIssuesInput): Promise<GetApiIssuesResponse> =>
+  transport.request("GET", `/api/issues${search({ state: input?.query?.state, page: input?.query?.page })}`) as Promise<GetApiIssuesResponse>
+
+export type GetApiIssuesNResponse = InstallIssueThread
+
+export interface GetApiIssuesNInput {
+  readonly path: { readonly n: number }
+}
+
+/** GET /api/issues/{n}: Read one GitHub issue with its comments */
+export const getApiIssuesN = (transport: Transport, input: GetApiIssuesNInput): Promise<GetApiIssuesNResponse> =>
+  transport.request("GET", `/api/issues/${segment(input.path.n)}`) as Promise<GetApiIssuesNResponse>
 
 export type GetApiMembersResponse = MembersCard
 

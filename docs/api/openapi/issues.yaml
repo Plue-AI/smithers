@@ -1,0 +1,153 @@
+paths:
+  /api/issues:
+    get:
+      x-composition: install
+      summary: Read the install repository's GitHub issues
+      description: One page of the repository's issues as GitHub holds them now, newest first and without pull requests, read through the install's GitHub App. Members read them (issue.read); the person's own GitHub credential is not used.
+      operationId: get_api_issues
+      tags:
+        - Issues
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema: {type: string, enum: [open, closed, all], default: open}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 1}
+      responses:
+        '200':
+          description: Up to 50 issues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InstallIssue'
+        '400':
+          description: invalid_issue_query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '403':
+          description: Not a member, or not a person's browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: github_unavailable, or the install repository is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+  /api/issues/{n}:
+    get:
+      x-composition: install
+      summary: Read one GitHub issue with its comments
+      description: The issue and its comments, oldest first (at most 1,000), as GitHub holds them now, read through the install's GitHub App. The issue card shows them and Make TODO drafts from them.
+      operationId: get_api_issues_n
+      tags:
+        - Issues
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: The issue and its comments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallIssueThread'
+        '400':
+          description: invalid_issue_query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '403':
+          description: Not a member, or not a person's browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '404':
+          description: not_found, for a missing number or a pull request's
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: github_unavailable, or the install repository is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+components:
+  schemas:
+    InstallIssuePerson:
+      description: A GitHub account.
+      type: object
+      required: [login]
+      properties:
+        login: {type: string}
+        avatar_url: {type: string}
+    InstallIssue:
+      description: One GitHub issue, in GitHub's field names.
+      type: object
+      required: [number, title, body, state, html_url, user, labels, assignees, comments]
+      properties:
+        number: {type: integer, minimum: 1}
+        title: {type: string}
+        body: {type: string}
+        state: {type: string, enum: [open, closed]}
+        html_url: {type: string}
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/InstallIssuePerson'
+            - type: 'null'
+        labels:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: {type: string}
+              color: {type: string}
+        assignees:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstallIssuePerson'
+        comments:
+          description: How many comments the issue has.
+          type: integer
+          minimum: 0
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    InstallIssueThread:
+      type: object
+      required: [issue, comments]
+      properties:
+        issue:
+          $ref: '#/components/schemas/InstallIssue'
+        comments:
+          type: array
+          items:
+            type: object
+            required: [id, body, user]
+            properties:
+              id: {type: integer}
+              body: {type: string}
+              user:
+                oneOf:
+                  - $ref: '#/components/schemas/InstallIssuePerson'
+                  - type: 'null'
+              created_at: {type: string, format: date-time}
