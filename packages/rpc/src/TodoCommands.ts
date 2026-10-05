@@ -1,56 +1,68 @@
 /**
  * The TODO commands shared by every host that runs them (mvp.md Appendix A): `/stack`, `/todo` and `/todo.new`,
- * with their catalog copy, their argument grammar, the install routes they call and their answers, the TODO card
- * and the private Draft. The GUI binds its TODO seam to these; the model host binds its host-run commands to the
- * same ones.
+ * with their catalog copy and agent rule, their argument grammar and input, the install routes they call and their
+ * answers, the TODO card and the private Draft. The GUI binds its TODO seam to these; the model host binds its
+ * host-run commands to the same ones.
  * @since 1.0.0
  */
 
+import { z } from "zod"
+import type { AgentCommand } from "./AgentCommands.ts"
 import type { Card } from "./Cards.ts"
 import type { DraftCard } from "./DraftCard.ts"
 import type { TodoCard } from "./TodoCard.ts"
 
 /**
- * The stack's name, as the catalog and the conversation name it.
+ * `/stack`: the stack and its background runs. The agent reads it at once.
  * @since 1.0.0
  * @category constants
  */
-export const STACK = "stack"
+export const STACK_COMMAND = {
+  name: "stack",
+  summary: "Show the stack and background runs",
+  agent: "run"
+} as const satisfies AgentCommand
 
 /**
- * The stack's catalog copy.
+ * `/todo Tn`: one TODO. The agent reads it at once.
  * @since 1.0.0
  * @category constants
  */
-export const STACK_COPY = { summary: "Show the stack and background runs" } as const
+export const TODO_COMMAND = {
+  name: "todo",
+  summary: "Open a TODO",
+  args: "<Tn>",
+  agent: "run"
+} as const satisfies AgentCommand
 
 /**
- * The name of the command that opens one TODO.
+ * `/todo.new`: writes a TODO. The agent only drafts it: committing a TODO is the person's press (mvp.md Appendix B
+ * A✓), so its rule is `confirm`.
  * @since 1.0.0
  * @category constants
  */
-export const TODO = "todo"
+export const TODO_NEW_COMMAND = {
+  name: "todo.new",
+  summary: "Write and place a TODO",
+  args: "[text]",
+  agent: "confirm"
+} as const satisfies AgentCommand
 
 /**
- * The catalog copy of the command that opens one TODO.
+ * `/todo.new`'s declared input. Without `cardId` it opens a Draft with the TODO's text, title, acceptance and place
+ * (`before` a TODO, else appended); with a Draft's `cardId` it commits that Draft. `idempotencyKey` is the Commit's.
+ * The GUI declares the same fields as its flow input (apps/app flows/entries/todo.ts); its parity test decodes both.
  * @since 1.0.0
- * @category constants
+ * @category schemas
  */
-export const TODO_COPY = { summary: "Open a TODO", args: "<Tn>" } as const
-
-/**
- * The name of the command that writes a TODO.
- * @since 1.0.0
- * @category constants
- */
-export const TODO_NEW = "todo.new"
-
-/**
- * The catalog copy of the command that writes a TODO.
- * @since 1.0.0
- * @category constants
- */
-export const TODO_NEW_COPY = { summary: "Write and place a TODO", args: "[text]" } as const
+export const TodoNewInputSchema = z.object({
+  text: z.string().optional(),
+  title: z.string().min(1).optional(),
+  acceptance: z.array(z.string()).optional(),
+  before: z.number().int().positive().optional(),
+  cardId: z.string().optional(),
+  idempotencyKey: z.string().min(1).optional()
+})
 
 /**
  * The install's route for the stack's TODOs (spec §6.3): GET lists them, POST files one.

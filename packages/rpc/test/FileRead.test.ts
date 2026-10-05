@@ -3,8 +3,7 @@ import {
   CARD_CONTENT_CAP,
   fileArgs,
   fileReadCard,
-  FILES_READ,
-  FILES_READ_COPY,
+  FILES_READ_COMMAND,
   fileValue,
   parseFileArgs,
   parseFileReadArgs
@@ -12,10 +11,11 @@ import {
 
 describe("the files.read flow every host binds", () => {
   test("is named and described once", () => {
-    expect(FILES_READ).toBe("files.read")
-    expect(FILES_READ_COPY).toEqual({
+    expect(FILES_READ_COMMAND).toEqual({
+      name: "files.read",
       summary: "Read a file from a repository",
-      args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]"
+      args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]",
+      agent: "run"
     })
     expect(CARD_CONTENT_CAP).toBe(16_384)
   })

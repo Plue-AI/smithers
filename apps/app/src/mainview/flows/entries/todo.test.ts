@@ -7,7 +7,7 @@ import { memoryStorage, signupProfileFetch, waitFor } from "../../state/TestFixt
 import type { DraftEntry, TodoEntry } from "../../state/seams/TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 import { modelInvocable, nameOf } from "../registry"
-import { parseTodoArgs } from "@smthrs/rpc/TodoCommands"
+import { parseTodoArgs, TodoNewInputSchema } from "@smthrs/rpc/TodoCommands"
 import { TodoNewInput } from "./todo"
 import { answerActions } from "../AnswerActions"
 import { designTodoCard } from "../../state/seams/DesignWorld/todo"
@@ -113,6 +113,22 @@ test("TODO grammar and schema retain JSON whitespace, reject invalid numbers and
   expect(parse('{"n":12,"answer":" yes\\n "}')).toEqual({ payload: { n: 12, answer: " yes\n " } })
   expect(parse("{broken")).toEqual({ error: "Invalid TODO input" })
   expect(() => Schema.decodeUnknownSync(TodoNewInput)({ text: "x", before: -1 })).toThrow()
+})
+test("todo.new's flow input accepts and refuses exactly what the model host's todo.new input does", () => {
+  const decode = (input: unknown): unknown => {
+    try { return { decoded: Schema.decodeUnknownSync(TodoNewInput)(input) } } catch { return "refused" }
+  }
+  const shared = (input: unknown): unknown => {
+    const parsed = TodoNewInputSchema.safeParse(input)
+    return parsed.success ? { decoded: parsed.data } : "refused"
+  }
+  const inputs: ReadonlyArray<unknown> = [
+    {}, { text: "" }, { text: "Log retry counts", title: "Retry counts", acceptance: ["Counts log", ""], before: 12 },
+    { cardId: "draft:1", idempotencyKey: "k-1" },
+    { title: "" }, { idempotencyKey: "" }, { before: 0 }, { before: -1 }, { before: 1.5 }, { before: "12" },
+    { acceptance: "Counts log" }, { acceptance: [1] }, { text: 1 }, { cardId: 1 }, null, "text"
+  ]
+  for (const input of inputs) expect({ input, result: decode(input) }).toEqual({ input, result: shared(input) })
 })
 test("J9 answer actions dispatch its exact text and expose a page-name form", () => {
   const calls: unknown[] = []

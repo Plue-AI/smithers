@@ -5,16 +5,18 @@
  * legs: the browser executes none of them. A request that offers tools keeps
  * executing them itself, so the two never share a turn.
  *
- * The host runs the commands of one table. Each row binds a catalog command's
- * shared declaration in `@smthrs/rpc` (its name, copy, grammar and card
- * builder) to this host's transport and states its agent rule (mvp.md
- * Appendix B): `files.read` reads the turn's mirrored main through the
- * producer's source read callback; `stack` and `todo` read the install's TODO
- * routes through the producer's API callback; `todo.new` asks the person: it
- * only shows its author a private Draft, which they commit themselves. Go
- * grants each transport only when the credential that admitted the turn can
- * use it now and authorizes every call again as that credential, so a turn is
- * offered, and its instructions list, exactly the commands its grant runs.
+ * The host runs the catalog commands `@smthrs/rpc` declares for it
+ * (`INSTALL_HOST_COMMANDS`: each one's name, copy and agent rule, mvp.md
+ * Appendix B), binding each to this host's transport with the grammar, input
+ * and card builder the GUI uses: `files.read` reads the turn's mirrored main
+ * through the producer's source read callback; `stack` and `todo` read the
+ * install's TODO routes through the producer's API callback; `todo.new`, a
+ * confirm command, only shows its author a private Draft, which they commit
+ * themselves. Go grants each transport only when the credential that admitted
+ * the turn can use it now and authorizes every call again as that credential.
+ * A turn offered any command gets this host's instructions and capability
+ * lines, which list exactly the commands its grant runs; a turn offered none
+ * keeps its request's own.
  *
  * @since 1.0.0-rc.0
  */
@@ -22,35 +24,33 @@
 import type * as Model from "@smthrs/model/Model"
 import type { ModelError } from "@smthrs/model/ModelError"
 import {
+  type AgentCommand,
   commandsToolSpec,
   decodeCommandsCall,
+  INSTALL_HOST_COMMANDS,
   unknownCommandResult,
   unknownToolResult
 } from "@smthrs/rpc/AgentCommands"
+import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
+import {
+  ACCOUNT_NUMBERS_LINE,
+  AGENT_NAME_LINE,
+  agentCommandLine,
+  ANNOUNCED_ACT_LINE,
+  ASK_IS_PERMISSION_LINE,
+  cantYetsSentence,
+  FAILED_RESULT_LINE,
+  namedCantYets,
+  RUN_IS_NOT_RESULT_LINE,
+  TOOL_CHANNEL_LINE,
+  WORKFLOW_LAUNDERING_RULE
+} from "@smthrs/rpc/AgentInstructions"
 import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
-import { fileReadCard, FILES_READ, FILES_READ_COPY, parseFileReadArgs } from "@smthrs/rpc/FileRead"
-import type {
-  AgentChatMessage,
-  AgentToolSpec,
-  AgentTurnUsage,
-  FetchLike,
-  StartAgentTurnRequest
-} from "@smthrs/rpc/NativeAgent"
+import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
+import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
-import {
-  draftCard,
-  parseTodoArgs,
-  STACK,
-  STACK_COPY,
-  TODO,
-  TODO_COPY,
-  TODO_NEW,
-  TODO_NEW_COPY,
-  todoCard,
-  todoPath,
-  TODOS_PATH
-} from "@smthrs/rpc/TodoCommands"
+import { draftCard, parseTodoArgs, todoCard, TodoNewInputSchema, todoPath, TODOS_PATH } from "@smthrs/rpc/TodoCommands"
 import { Effect } from "effect"
 import { z } from "zod"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
@@ -231,56 +231,42 @@ type Outcome = { readonly cards: ReadonlyArray<Card>; readonly value: string } |
 type BoundRun = (args: string | undefined, ordinal: number) => Effect.Effect<Outcome>
 
 /**
- * One row of the host's command table: a catalog command's copy and agent
- * rule, and its binding to this host's transport. `bind` answers undefined
- * when the turn's grant cannot run the command, so it is neither offered nor
- * listed. A command whose rule is `never` has no row.
+ * A host command's binding to this turn: undefined when the turn's grant
+ * cannot run it, so it is neither offered nor listed.
  */
-interface HostCommand {
-  readonly name: string
-  readonly summary: string
-  readonly args?: string
-  /** mvp.md Appendix B: `run` acts at once; `confirm` only shows the person what to confirm. */
-  readonly agent: "run" | "confirm"
-  readonly bind: (grant: DurableChatGrant, transport: HostTransport) => BoundRun | undefined
-}
+type Bind = (grant: DurableChatGrant, transport: HostTransport) => BoundRun | undefined
 
 /** `files.read` on the turn's mirrored main. */
-const filesRead: HostCommand = {
-  name: FILES_READ,
-  ...FILES_READ_COPY,
-  agent: "run",
-  bind: (grant, { read }) => {
-    const repository = grant.source?.repository
-    if (repository === undefined) return undefined
-    return (args, ordinal) =>
-      Effect.gen(function*() {
-        const input = parseFileReadArgs(args)
-        if ("error" in input) return { refusal: input.error }
-        const { path, repo, ref, line, column } = input.payload
-        if (repo !== undefined && repo !== repository) {
-          return { refusal: `This question reads ${repository} only; name a file in it.` }
-        }
-        if (ref !== undefined) return { refusal: "This question reads main only; ask without --ref." }
-        const answer = yield* read(path)
-        if (!("file" in answer)) return { refusal: refusalText(path, answer.code) }
-        const { file } = answer
-        const { card, value } = fileReadCard(
-          {
-            repo: file.repository,
-            path: file.path,
-            content: file.content,
-            binary: file.binary,
-            readAt: { changeId: null, commitId: file.commit, source: "head" },
-            ...(line === undefined ? {} : { line }),
-            ...(column === undefined ? {} : { column })
-          },
-          ordinal,
-          Date.now()
-        )
-        return { cards: [card], value }
-      })
-  }
+const filesRead: Bind = (grant, { read }) => {
+  const repository = grant.source?.repository
+  if (repository === undefined) return undefined
+  return (args, ordinal) =>
+    Effect.gen(function*() {
+      const input = parseFileReadArgs(args)
+      if ("error" in input) return { refusal: input.error }
+      const { path, repo, ref, line, column } = input.payload
+      if (repo !== undefined && repo !== repository) {
+        return { refusal: `This question reads ${repository} only; name a file in it.` }
+      }
+      if (ref !== undefined) return { refusal: "This question reads main only; ask without --ref." }
+      const answer = yield* read(path)
+      if (!("file" in answer)) return { refusal: refusalText(path, answer.code) }
+      const { file } = answer
+      const { card, value } = fileReadCard(
+        {
+          repo: file.repository,
+          path: file.path,
+          content: file.content,
+          binary: file.binary,
+          readAt: { changeId: null, commitId: file.commit, source: "head" },
+          ...(line === undefined ? {} : { line }),
+          ...(column === undefined ? {} : { column })
+        },
+        ordinal,
+        Date.now()
+      )
+      return { cards: [card], value }
+    })
 }
 
 /** What the model and the conversation are told when a TODO read does not answer. */
@@ -310,142 +296,168 @@ const readRoute = <A>(
   })
 
 /** `stack`: the install's TODOs, each open one shown as its TODO card. */
-const stack: HostCommand = {
-  name: STACK,
-  ...STACK_COPY,
-  agent: "run",
-  bind: (grant, { api }) =>
-    grant.api === undefined ? undefined : (args, ordinal) =>
-      Effect.gen(function*() {
-        if ((args ?? "").trim() !== "") return { refusal: "/stack takes no arguments." }
-        const listed = yield* readRoute(api, TODOS_PATH, z.array(TodoCardSchema))
-        if ("refusal" in listed) return listed
-        const now = Date.now()
-        return {
-          cards: listed.value.filter((model) => model.state !== "merged" && model.state !== "dropped").map((model) =>
-            todoCard(model.n, model, ordinal, now)
-          ),
-          value: JSON.stringify({
-            todos: listed.value.map((model) => ({
-              n: model.n,
-              title: model.title,
-              state: model.state,
-              owner: model.owner.login,
-              ...(model.place === undefined ? {} : { place: model.place })
-            }))
-          })
-        }
-      })
-}
+const stack: Bind = (grant, { api }) =>
+  grant.api === undefined ? undefined : (args, ordinal) =>
+    Effect.gen(function*() {
+      if ((args ?? "").trim() !== "") return { refusal: "/stack takes no arguments." }
+      const listed = yield* readRoute(api, TODOS_PATH, z.array(TodoCardSchema))
+      if ("refusal" in listed) return listed
+      const now = Date.now()
+      return {
+        cards: listed.value.filter((model) => model.state !== "merged" && model.state !== "dropped").map((model) =>
+          todoCard(model.n, model, ordinal, now)
+        ),
+        value: JSON.stringify({
+          todos: listed.value.map((model) => ({
+            n: model.n,
+            title: model.title,
+            state: model.state,
+            owner: model.owner.login,
+            ...(model.place === undefined ? {} : { place: model.place })
+          }))
+        })
+      }
+    })
 
 const TodoNumberSchema = z.number().int().positive()
 
 /** `todo Tn`: one TODO, shown as its TODO card. */
-const todo: HostCommand = {
-  name: TODO,
-  ...TODO_COPY,
-  agent: "run",
-  bind: (grant, { api }) =>
-    grant.api === undefined ? undefined : (args, ordinal) =>
-      Effect.gen(function*() {
-        const input = parseTodoArgs()(args)
-        if ("error" in input) return { refusal: input.error }
-        const n = TodoNumberSchema.safeParse(input.payload.n)
-        if (!n.success) return { refusal: "Name the TODO by its number: /todo T12." }
-        const read = yield* readRoute(api, todoPath(n.data), TodoCardSchema)
-        if ("refusal" in read) return read
-        return { cards: [todoCard(n.data, read.value, ordinal, Date.now())], value: JSON.stringify(read.value) }
-      })
-}
+const todo: Bind = (grant, { api }) =>
+  grant.api === undefined ? undefined : (args, ordinal) =>
+    Effect.gen(function*() {
+      const input = parseTodoArgs()(args)
+      if ("error" in input) return { refusal: input.error }
+      const n = TodoNumberSchema.safeParse(input.payload.n)
+      if (!n.success) return { refusal: "Name the TODO by its number: /todo T12." }
+      const read = yield* readRoute(api, todoPath(n.data), TodoCardSchema)
+      if ("refusal" in read) return read
+      return { cards: [todoCard(n.data, read.value, ordinal, Date.now())], value: JSON.stringify(read.value) }
+    })
 
-/** The fields a written TODO's Draft takes from `todo.new`; its id, key and Commit are the person's. */
-const DraftInputSchema = z.object({
-  text: z.string().optional(),
-  title: z.string().min(1).optional(),
-  acceptance: z.array(z.string()).optional(),
-  before: TodoNumberSchema.optional()
-}).strict()
+/** `todo.new`'s declared input, refusing every field it does not declare. */
+const TodoNewInput = z.strictObject(TodoNewInputSchema.shape)
 
 /** What the model is told after a Draft is shown. */
 const DRAFTED =
   "Drafted: the Draft is on the person's screen. Nothing is filed until they press Commit, so never say the TODO exists."
 
-/** `todo.new` asks the person: it shows its author a private Draft and files nothing. */
-const todoNew: HostCommand = {
-  name: TODO_NEW,
-  ...TODO_NEW_COPY,
-  agent: "confirm",
-  bind: (grant) => {
-    const author = grant.api?.author
-    if (author === undefined) return undefined
-    return (args, ordinal) =>
-      Effect.sync(() => {
-        const input = parseTodoArgs("text", false)(args)
-        if ("error" in input) return { refusal: input.error }
-        if ("cardId" in input.payload) return { refusal: "Only the person commits a Draft: they press Commit on it." }
-        const draft = DraftInputSchema.safeParse(input.payload)
-        if (!draft.success) {
-          return { refusal: "todo.new takes the TODO's text, and optionally its title and acceptance." }
-        }
-        const { text = "", title, acceptance, before } = draft.data
-        const card = draftCard(
-          {
-            id: `draft:${globalThis.crypto.randomUUID()}`,
-            author,
-            text,
-            title,
-            acceptance,
-            before,
-            options: [],
-            idempotencyKey: globalThis.crypto.randomUUID()
-          },
-          ordinal,
-          Date.now()
-        )
-        return { cards: [card], value: DRAFTED }
-      })
-  }
+/**
+ * `todo.new` asks the person: it shows its author a private Draft and files
+ * nothing. The Draft appends, the only place the install files a TODO at for
+ * now, so it carries no placement to choose from.
+ */
+const todoNew: Bind = (grant) => {
+  const author = grant.api?.author
+  if (author === undefined) return undefined
+  return (args, ordinal) =>
+    Effect.sync(() => {
+      const input = parseTodoArgs("text", false)(args)
+      if ("error" in input) return { refusal: input.error }
+      if ("cardId" in input.payload) return { refusal: "Only the person commits a Draft: they press Commit on it." }
+      const draft = TodoNewInput.safeParse(input.payload)
+      // The Draft's Commit key is the host's to choose, never the model's.
+      if (!draft.success || draft.data.idempotencyKey !== undefined) {
+        return { refusal: "todo.new takes the TODO's text, and optionally its title and acceptance." }
+      }
+      const { text = "", title, acceptance, before } = draft.data
+      if (before !== undefined) {
+        return { refusal: "A new TODO goes at the end of the stack for now: draft it without before." }
+      }
+      const card = draftCard(
+        {
+          id: `draft:${globalThis.crypto.randomUUID()}`,
+          author,
+          text,
+          title,
+          acceptance,
+          options: [],
+          idempotencyKey: globalThis.crypto.randomUUID()
+        },
+        ordinal,
+        Date.now()
+      )
+      return { cards: [card], value: DRAFTED }
+    })
 }
 
-/** Every command this host runs, in the order the list and the instructions name them. */
-const hostCommands: ReadonlyArray<HostCommand> = [filesRead, stack, todo, todoNew]
+/** Each command this host runs, bound by name: a declared command without a binding, or the reverse, does not compile. */
+const binds: { readonly [Name in (typeof INSTALL_HOST_COMMANDS)[number]["name"]]: Bind } = {
+  "files.read": filesRead,
+  stack,
+  todo,
+  "todo.new": todoNew
+}
 
 /** A command this turn's grant runs. */
 interface Offered {
-  readonly command: HostCommand
+  readonly command: AgentCommand
   readonly run: BoundRun
 }
 
-/** The commands this turn's grant runs. */
+/** The commands this turn's grant runs, in the order the list and the instructions name them. */
 const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): ReadonlyArray<Offered> =>
-  hostCommands.flatMap((command) => {
-    const run = command.bind(grant, transport)
+  INSTALL_HOST_COMMANDS.flatMap((command) => {
+    const run = binds[command.name](grant, transport)
     return run === undefined ? [] : [{ command, run }]
   })
 
-/** A command as the instructions list it, with its arguments and, for a confirm command, what it asks. */
-const commandLine = ({ command }: Offered): string =>
-  `- /${command.name}${command.args === undefined ? "" : ` ${command.args}`} — ${command.summary}${
-    command.agent === "confirm" ? " (asks the person: it shows them what to confirm and files nothing)" : ""
-  }`
+/**
+ * The instructions of a turn this host runs commands for. They replace the
+ * request's own, which describe its client's commands: the model reads the
+ * app agent's standing rules and exactly the commands this host runs for the
+ * turn's author, and no other.
+ */
+const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
+  const reads = offered.flatMap(({ command }) => command.name === FILES_READ_COMMAND.name ? [command.name] : [])
+  return [
+    AGENT_NAME_LINE,
+    "You have one tool, \"commands\": action \"list\" returns the commands below; action \"execute\" runs one by name with its argument text, as the person who asked.",
+    TOOL_CHANNEL_LINE,
+    ASK_IS_PERMISSION_LINE,
+    ANNOUNCED_ACT_LINE,
+    RUN_IS_NOT_RESULT_LINE,
+    FAILED_RESULT_LINE,
+    ACCOUNT_NUMBERS_LINE,
+    "",
+    "The commands you can run in this conversation, and no others (any other answers \"unknown-command\" and nothing runs):",
+    ...offered.map(({ command }) => agentCommandLine(command)),
+    "",
+    `Everything this list lacks is a can't-yet. ${cantYetsSentence(namedCantYets(reads))}`,
+    ...WORKFLOW_LAUNDERING_RULE
+  ].join("\n")
+}
 
 /**
- * The instructions of a host-owned turn. They replace the request's own, which
- * describe its client's commands: the model reads exactly the commands this
- * host runs for this turn's author, and no other.
+ * The runtime context of a turn this host runs commands for: the client's
+ * facts, with this host's capability lines in place of the client's, and
+ * without the client's blocks that name commands only the client runs (the
+ * tutorial, the Cloud session and the repository check).
  */
-const hostInstructions = (offered: ReadonlyArray<Offered>): string =>
-  [
-    "You are Smithers, this install's app agent, answering the person who asked. Your name is exactly \"Smithers\".",
-    ...(offered.length === 0
-      ? ["No command runs for you in this conversation: answer in words, and say plainly what you cannot do here."]
-      : [
-        "You have one tool, \"commands\": action \"list\" returns the commands below; action \"execute\" runs one by name with its argument text, as the person who asked.",
-        "The commands you can run in this conversation, and no others (any other answers \"unknown-command\" and nothing runs):",
-        ...offered.map(commandLine),
-        "When the person's request maps to one of these, run it in this turn. A tool result beginning \"failed:\" or \"unknown-command:\" means nothing ran: relay the reason and never report it as done."
-      ])
-  ].join("\n")
+const hostContext = (context: AgentRuntimeContext): AgentRuntimeContext => {
+  const { cloud: _cloud, onboarding: _onboarding, repositoryUpdate: _repositoryUpdate, ...facts } = context
+  return {
+    ...facts,
+    capabilities: [
+      "Hold a streaming conversation in this chat and read its visible transcript.",
+      "Run the commands the instructions list through the \"commands\" tool, as the person who asked; each answers with a card in this chat."
+    ],
+    limitations: [
+      "Cannot see or control the host environment beyond what this context block states.",
+      "Runs no command the instructions do not list: any other answers unknown-command, and nothing runs."
+    ]
+  }
+}
+
+/** The request of a turn this host runs commands for: its instructions, context and tool are this host's. */
+const hostRequest = (request: StartAgentTurnRequest, offered: ReadonlyArray<Offered>): StartAgentTurnRequest => {
+  const { context, ...rest } = request
+  return {
+    ...rest,
+    instructions: hostInstructions(offered),
+    ...(context === undefined ? {} : { context: hostContext(context) }),
+    tools: [commandsToolSpec]
+  }
+}
 
 /**
  * Runs one command and returns what the model reads. The journal records the
@@ -528,8 +540,10 @@ export const runHostTurn = <E>(
 ): Effect.Effect<void, Model.ModelFailure | ModelError | E> =>
   Effect.gen(function*() {
     const offered = offeredCommands(grant, transport)
-    const tools: ReadonlyArray<AgentToolSpec> = offered.length === 0 ? [] : [commandsToolSpec]
-    let request: StartAgentTurnRequest = { ...grant.request, instructions: hostInstructions(offered), tools }
+    // A turn offered no command keeps its request's own instructions and context: this host owns neither.
+    let request: StartAgentTurnRequest = offered.length === 0
+      ? { ...grant.request, tools: [] }
+      : hostRequest(grant.request, offered)
     let usage: AgentTurnUsage | undefined
     let ordinal = 0
     for (let link = 0;; link += 1) {

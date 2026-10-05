@@ -16,6 +16,7 @@ import { describe, expect, test } from "bun:test"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
+import { INSTALL_HOST_COMMANDS } from "@smthrs/rpc/AgentCommands"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
@@ -317,6 +318,22 @@ describe("the three-door law", () => {
     // The typed agent door answers the same text.
     const typed = await controller.commands.runForAgent("sign-in")
     expect(typed).toEqual({ status: "failed", error: `failed: /sign-in is user-only — ${USER_ONLY_ALLOWLIST["sign-in"]} — invoke auth.prompt, which renders that button in the chat` })
+  })
+
+  test("each command the install's model host runs is the app's own: same copy and agent rule, never the person's alone", async () => {
+    const { controller } = await boot()
+    for (const command of INSTALL_HOST_COMMANDS) {
+      const entry = controller.commands.entries().find((row) => nameOf(row) === command.name)
+      expect(`${command.name} ${entry === undefined ? "missing" : "registered"}`).toBe(`${command.name} registered`)
+      expect(`${command.name} ${modelInvocable(entry!) ? "agent" : "user-only"}`).toBe(`${command.name} agent`)
+      // A flow with a confirmation for the model is a confirm command; any other the agent runs at once.
+      expect({
+        name: nameOf(entry!),
+        summary: entry!.metadata.summary,
+        ...(entry!.metadata.args === undefined ? {} : { args: entry!.metadata.args }),
+        agent: entry!.metadata.confirm === undefined ? "run" : "confirm"
+      }).toEqual(command)
+    }
   })
 
   test("flow authoring and card acts remain callable through the agent", async () => {

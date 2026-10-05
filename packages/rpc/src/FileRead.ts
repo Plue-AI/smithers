@@ -1,29 +1,26 @@
 /**
- * The `files.read` flow shared by every host that runs it: its catalog copy,
+ * The `files.read` flow shared by every host that runs it: its catalog entry,
  * its argument grammar, and its answer, the File card and the model's copy of
  * what the card shows. The GUI binds its read to these; the model host binds
  * its read of the mirrored main to the same ones.
  * @since 1.0.0
  */
 
+import type { AgentCommand } from "./AgentCommands.ts"
 import type { Card } from "./Cards.ts"
 
 /**
- * The flow's name, as the catalog, the journal and the conversation name it.
+ * The flow's catalog entry: its name, as the catalog, the journal and the conversation name it, its summary, its
+ * argument hint, and its agent rule: the agent reads a file at once.
  * @since 1.0.0
  * @category constants
  */
-export const FILES_READ = "files.read"
-
-/**
- * The flow's catalog copy: its summary and its argument hint.
- * @since 1.0.0
- * @category constants
- */
-export const FILES_READ_COPY = {
+export const FILES_READ_COMMAND = {
+  name: "files.read",
   summary: "Read a file from a repository",
-  args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]"
-} as const
+  args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]",
+  agent: "run"
+} as const satisfies AgentCommand
 
 /**
  * The card cap (characters): a transcript card states a file, it is not an editor.

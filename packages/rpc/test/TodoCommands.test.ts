@@ -3,26 +3,52 @@ import { CardSchema } from "../src/Cards.ts"
 import {
   draftCard,
   parseTodoArgs,
-  STACK,
-  STACK_COPY,
-  TODO,
-  TODO_COPY,
-  TODO_NEW,
-  TODO_NEW_COPY,
+  STACK_COMMAND,
+  TODO_COMMAND,
+  TODO_NEW_COMMAND,
   todoCard,
+  TodoNewInputSchema,
   todoPath,
   TODOS_PATH
 } from "../src/TodoCommands.ts"
 import { fixtures } from "./fixtures/Todo.ts"
 
 describe("the TODO commands every host binds", () => {
-  test("are named, described and routed once", () => {
-    expect([STACK, TODO, TODO_NEW]).toEqual(["stack", "todo", "todo.new"])
-    expect(STACK_COPY).toEqual({ summary: "Show the stack and background runs" })
-    expect(TODO_COPY).toEqual({ summary: "Open a TODO", args: "<Tn>" })
-    expect(TODO_NEW_COPY).toEqual({ summary: "Write and place a TODO", args: "[text]" })
+  test("are named, described, ruled and routed once", () => {
+    expect(STACK_COMMAND).toEqual({ name: "stack", summary: "Show the stack and background runs", agent: "run" })
+    expect(TODO_COMMAND).toEqual({ name: "todo", summary: "Open a TODO", args: "<Tn>", agent: "run" })
+    // Committing a TODO is the person's press: the agent only drafts one.
+    expect(TODO_NEW_COMMAND).toEqual({
+      name: "todo.new",
+      summary: "Write and place a TODO",
+      args: "[text]",
+      agent: "confirm"
+    })
     expect(TODOS_PATH).toBe("/api/todos")
     expect(todoPath(12)).toBe("/api/todos/12")
+  })
+
+  test("todo.new's input takes a Draft's text, title, acceptance and place, or the Draft a Commit files", () => {
+    const accepted = [
+      {},
+      { text: "" },
+      { text: "Log retry counts", title: "Retry counts", acceptance: ["Counts log", ""], before: 12 },
+      { cardId: "draft:1", idempotencyKey: "k-1" }
+    ]
+    for (const input of accepted) expect(TodoNewInputSchema.parse(input)).toEqual(input)
+    const refused = [
+      { title: "" },
+      { idempotencyKey: "" },
+      { before: 0 },
+      { before: -1 },
+      { before: 1.5 },
+      { before: "12" },
+      { acceptance: "Counts log" },
+      { acceptance: [1] },
+      { text: 1 },
+      { cardId: 1 }
+    ]
+    for (const input of refused) expect(TodoNewInputSchema.safeParse(input).success).toBe(false)
   })
 
   test("the grammar reads a TODO number and its text, or the whole line as text", () => {

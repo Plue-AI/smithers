@@ -5,7 +5,31 @@
  * @since 1.0.0
  */
 
+import { FILES_READ_COMMAND } from "./FileRead.ts"
 import type { AgentToolSpec } from "./NativeAgent.ts"
+import { STACK_COMMAND, TODO_COMMAND, TODO_NEW_COMMAND } from "./TodoCommands.ts"
+
+/**
+ * One catalog command as an agent door offers it: its name, its catalog copy and its agent rule (mvp.md Appendix B).
+ * `run` acts at once when the prompter asked for it; `confirm` only shows the prompter what to confirm, and their
+ * press acts. A command whose rule is `never` has no agent entry: no agent door offers it.
+ * @since 1.0.0
+ * @category models
+ */
+export interface AgentCommand {
+  readonly name: string
+  readonly summary: string
+  readonly args?: string
+  readonly agent: "run" | "confirm"
+}
+
+/**
+ * The catalog commands an install's model host runs itself, as the turn's author, in the order it lists them. The
+ * GUI registers each with the same copy and agent rule (apps/app flows/agent-parity.test.ts holds them equal).
+ * @since 1.0.0
+ * @category constants
+ */
+export const INSTALL_HOST_COMMANDS = [FILES_READ_COMMAND, STACK_COMMAND, TODO_COMMAND, TODO_NEW_COMMAND] as const
 
 /**
  * The one tool the chat model gets.

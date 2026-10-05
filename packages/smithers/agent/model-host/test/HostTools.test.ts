@@ -1,7 +1,16 @@
 import * as Model from "@smthrs/model/Model"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import type { JsonObject, ModelRequest } from "@smthrs/model/ModelRequest"
-import { commandsToolSpec, unknownCommandResult } from "@smthrs/rpc/AgentCommands"
+import { commandsToolSpec, INSTALL_HOST_COMMANDS, unknownCommandResult } from "@smthrs/rpc/AgentCommands"
+import { AGENT_RUNTIME_CONTEXT_VERSION, composeAgentInstructions } from "@smthrs/rpc/AgentContext"
+import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
+import {
+  ACCOUNT_NUMBERS_LINE,
+  AGENT_NAME_LINE,
+  FAILED_RESULT_LINE,
+  RUN_IS_NOT_RESULT_LINE,
+  WORKFLOW_LAUNDERING_RULE
+} from "@smthrs/rpc/AgentInstructions"
 import { MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
@@ -184,9 +193,67 @@ const FILES_LINE =
 const TODO_LINES = [
   "- /stack — Show the stack and background runs",
   "- /todo <Tn> — Open a TODO",
-  "- /todo.new [text] — Write and place a TODO (asks the person: it shows them what to confirm and files nothing)"
+  "- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)"
 ]
 const commandLines = (text: string): ReadonlyArray<string> => text.split("\n").filter((line) => line.startsWith("- /"))
+
+/**
+ * The runtime context the browser sends with its turns (apps/app turns.ts):
+ * its capability and limitation lines, the tutorial, the Cloud session and the
+ * repository check each name commands only the browser runs.
+ */
+const browserContext: AgentRuntimeContext = {
+  version: AGENT_RUNTIME_CONTEXT_VERSION,
+  product: "smithers",
+  capturedAt: 1,
+  revision: 3,
+  surface: "chat",
+  theme: "light",
+  selectedWorldDocument: null,
+  connectors: [],
+  repositories: [{ id: "acme/app", name: "acme/app" }],
+  activeRepository: "acme/app",
+  github: { connected: true, login: "ben", repositories: 1, repositoryNames: ["acme/app"] },
+  cloud: { state: "signed-out", username: null },
+  repositoryUpdate: {
+    repo: "acme/app",
+    checkedAt: 1,
+    openIssues: 0,
+    openPrs: 0,
+    problems: [],
+    items: [],
+    truncated: false
+  },
+  onboarding: { step: 0, stepCount: 3, transcript: ["Welcome to Smithers."] },
+  worldState: { documentCount: 0, documents: [] },
+  capabilities: [
+    "Hold a streaming conversation in this chat and read its visible transcript.",
+    "Run app commands through the \"commands\" tool — the same code path as the UI buttons and slash commands.",
+    "Render structured cards (plans, approvals, statuses, recommendations) in the transcript.",
+    "Create, list, and run Smithers flows on the user's loaded repositories (flow.create, flow.list, flow.run). Runs report live as embedded cards in this chat."
+  ],
+  limitations: [
+    "Cannot see or control the host environment beyond what this context block states.",
+    "The visitor is signed out, exploring acme/app: anything that writes needs GitHub sign-in, so when they ask for one execute auth.prompt instead.",
+    "Flow runs execute on the user's workspace gateway; any outbound act a run wants (pushes, PRs) pauses for the human's explicit approval. Never promise one landed without it.",
+    "This host cannot connect local repositories."
+  ]
+}
+
+/** Commands the browser's context and instructions name that the install's host does not run. */
+const BROWSER_ONLY = [
+  "flow.create",
+  "flow.list",
+  "flow.run",
+  "files.list",
+  "auth.prompt",
+  "cloud.prompt",
+  "onboarding.act",
+  "repo.update",
+  "repo.overview",
+  "debug.errors",
+  "the same code path as the UI buttons"
+]
 
 describe("host-owned turns run their tool calls on the host", () => {
   test("a question reads main through the producer, shows a File card and answers from the file", async () => {
@@ -532,13 +599,64 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         lines.map((line) => line.slice(3).split(" ")[0])
       )
     }
-    // A turn whose grant runs nothing is told so, and offered no tool.
-    const journal = producer((path) => file(path, JOURNEY))
-    const provider = model([])
-    await run(sourceless, provider, journal)
-    expect(commandLines(systemText(provider.requests[0]))).toEqual([])
-    expect(systemText(provider.requests[0])).toContain("No command runs for you in this conversation")
-    expect(toolNames(provider.requests[0])).toEqual([])
+    // The install's list is the commands @smthrs/rpc declares for it, with their catalog copy.
+    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+    const provider = model([{ name: "commands", arguments: JSON.stringify({ action: "list" }) }])
+    await run(install, provider, journal)
+    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual({
+      commands: INSTALL_HOST_COMMANDS.map(({ name, summary, ...rest }) => ({
+        name,
+        summary,
+        ...("args" in rest ? { args: rest.args } : {})
+      }))
+    })
+  })
+
+  test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
+    const cases: ReadonlyArray<[DurableChatGrant, string]> = [
+      [install, "through files.read"],
+      [{ ...sourceless, api: { author: "ben" } }, "read arbitrary files off the user's machine; push"]
+    ]
+    for (const [turn, files] of cases) {
+      const provider = model([])
+      await run(turn, provider, producer((path) => file(path, JOURNEY), stackRoutes))
+      const system = systemText(provider.requests[0])
+      for (const line of [AGENT_NAME_LINE, RUN_IS_NOT_RESULT_LINE, FAILED_RESULT_LINE, ACCOUNT_NUMBERS_LINE]) {
+        expect(system).toContain(line)
+      }
+      for (const line of WORKFLOW_LAUNDERING_RULE) expect(system).toContain(line)
+      expect(system).toContain("Everything this list lacks is a can't-yet. You cannot send or draft email")
+      expect(system).toContain(files)
+    }
+  })
+
+  test("an install turn's context states the host's capabilities and names no command the host does not run", async () => {
+    for (const turn of [install, grant, { ...sourceless, api: { author: "ben" } }]) {
+      const provider = model([])
+      const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+      await run({ ...turn, request: { ...question, context: browserContext } }, provider, journal)
+      const system = systemText(provider.requests[0])
+      for (const name of BROWSER_ONLY) expect(system).not.toContain(name)
+      expect(system).toContain(
+        "Run the commands the instructions list through the \"commands\" tool, as the person who asked; each answers with a card in this chat."
+      )
+      expect(system).toContain(
+        "Runs no command the instructions do not list: any other answers unknown-command, and nothing runs."
+      )
+      // The client's facts stay.
+      expect(system).toContain("GitHub: CONNECTED as ben")
+      expect(system).toContain("Active repository: acme/app")
+    }
+  })
+
+  test("a turn whose grant runs nothing keeps its request's own instructions and context, and is offered no tool", async () => {
+    for (const request of [question, { ...question, context: browserContext }]) {
+      const journal = producer((path) => file(path, JOURNEY))
+      const provider = model([])
+      await run({ ...sourceless, request }, provider, journal)
+      expect(systemText(provider.requests[0])).toBe(composeAgentInstructions(request.instructions, request.context))
+      expect(toolNames(provider.requests[0])).toEqual([])
+    }
   })
 
   test("the list action narrows the install's commands by namespace", async () => {
@@ -642,10 +760,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const journal = producer((path) => file(path, JOURNEY), stackRoutes)
     const provider = model([
       execute("todo.new", "Log retry counts\nin the worker"),
-      execute(
-        "todo.new",
-        JSON.stringify({ text: "Retry", title: "Retry counts", acceptance: ["Counts log"], before: 12 })
-      ),
+      execute("todo.new", JSON.stringify({ text: "Retry", title: "Retry counts", acceptance: ["Counts log"] })),
       execute("todo.new")
     ])
     await run(install, provider, journal)
@@ -686,7 +801,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       audience_member_id: "ben",
       title: "Retry counts",
       ordinal: 1,
-      payload: { prompt: "Retry", acceptance: ["Counts log"], place: { mode: "before", n: 12, options: [] } }
+      payload: { prompt: "Retry", acceptance: ["Counts log"], place: { mode: "append", options: [] } }
     })
     // An empty Draft is the person's to fill on the card.
     expect(drafts[2]).toMatchObject({ title: "", payload: { title: "", prompt: "" } })
@@ -769,6 +884,17 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         execute("todo.new", JSON.stringify({ text: "x", before: 0 })),
         stackRoutes,
         "todo.new takes the TODO's text, and optionally its title and acceptance."
+      ],
+      [
+        execute("todo.new", JSON.stringify({ text: "x", extra: true })),
+        stackRoutes,
+        "todo.new takes the TODO's text, and optionally its title and acceptance."
+      ],
+      // The install files a new TODO at the end of the stack only, so the Draft offers no other place.
+      [
+        execute("todo.new", JSON.stringify({ text: "x", before: 12 })),
+        stackRoutes,
+        "A new TODO goes at the end of the stack for now: draft it without before."
       ]
     ]
     for (const [call, api, message] of refusals) {
