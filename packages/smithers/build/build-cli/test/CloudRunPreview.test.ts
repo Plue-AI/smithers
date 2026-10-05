@@ -157,7 +157,13 @@ if (tool === "docker") {
  else if (argv[0] === "load") console.log("Loaded image ID: ${configDigest}");
  else if (argv[0] === "push") { ${
     options.pendingPush
-      ? "setInterval(() => {}, 1000); return;"
+      ? `require("node:child_process").spawn(process.execPath, ["-e", ${
+        JSON.stringify(
+          `process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(${
+            JSON.stringify(Path.join(root, "push-descendant"))
+          }, String(process.pid)); setInterval(() => {}, 1000);`
+        )
+      }], { stdio: "ignore" }); setInterval(() => {}, 1000); return;`
       : options.pushFails
       ? "process.exit(23);"
       : `console.log("r: digest: ${digest} size: 1");`
@@ -226,6 +232,38 @@ if (tool === "docker") {
 }
 
 describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
+  it("admits a CloudRun preview outward-only and validates its written receipt in the flow", async () => {
+    const f = await fixture()
+    const refused = await serve(f.root, ["run", "//:image", "--outward-only"], { environment: f.environment })
+    expect(refused.exitCode).not.toBe(0)
+    expect(refused.output + refused.logs).toContain("//:image is not an outward target")
+    expect(await f.calls()).toEqual([])
+    const result = await serve(f.root, ["run", "//:preview", "--outward-only"], { environment: f.environment })
+    expect(result.exitCode, result.output + result.logs).toBe(0)
+    const validator = new URL("../../../../../flows/preview/flow.ts", import.meta.url).href
+    const validated = spawnSync(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      "const { validateReceipt } = await import(process.argv[1]); console.log(JSON.stringify(await validateReceipt(process.argv[2], \"//:preview\", process.argv[3])))",
+      validator,
+      Path.join(f.root, "cloud-run-preview/preview.json"),
+      f.commit
+    ], { encoding: "utf8", timeout: 30_000, env: { PATH: process.env.PATH } })
+    expect(validated.status, validated.stderr).toBe(0)
+    expect(JSON.parse(validated.stdout)).toEqual({
+      revision: f.commit.slice(0, 7),
+      expiresAt: expect.any(String),
+      access: "private",
+      open: {
+        command: `gcloud run services proxy fixture --tag r-${
+          f.commit.slice(0, 7)
+        } --region us-central1 --project fixture-project --port 4100`,
+        localUrl: "http://preview.localhost:4100"
+      }
+    })
+    expect((await f.calls()).some((call) => call.tool === "gcloud" && call.argv[1] === "deploy")).toBe(true)
+  })
+
   it("pushes privately, probes, sweeps, writes a credential-free receipt, and reuses without caching", async () => {
     const f = await fixture()
     const before = Date.now()
@@ -468,9 +506,13 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
     let calls: Array<Call> = []
     while (Date.now() < deadline) {
       calls = await f.calls()
-      if (calls.some((c) => c.argv[0] === "push")) break
+      if (
+        calls.some((c) => c.argv[0] === "push") &&
+        await Fs.stat(Path.join(f.root, "push-descendant")).catch(() => undefined)
+      ) break
       await delay(20)
     }
+    const descendant = Number(await Fs.readFile(Path.join(f.root, "push-descendant"), "utf8"))
     controller.abort()
     const result = await running
     expect(calls.some((c) => c.argv[0] === "push")).toBe(true)
@@ -478,6 +520,13 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
     expect(await Fs.stat(calls.find((c) => c.argv[0] === "login")!.config!).catch(() => undefined)).toBeUndefined()
     expect((await f.calls()).some((c) => c.argv[1] === "deploy")).toBe(false)
     expect(result.output + result.logs).not.toContain(token)
+    try {
+      expect(() => process.kill(descendant, 0), "cancel left the credentialed tool's descendant running").toThrow()
+    } finally {
+      try {
+        process.kill(descendant, "SIGKILL")
+      } catch { /* Already reaped by containment. */ }
+    }
   })
   it("deploys a new preview when its existing tagged revision has gained traffic", async () => {
     const f = await fixture()

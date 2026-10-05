@@ -60,7 +60,7 @@ const check = Smithers.Typecheck({
 
 const test = Smithers.Vitest({
   tests: [tests],
-  sources: [sources, javascript, fixtures, routedFixture, prose, readme, sweep],
+  sources: [sources, javascript, fixtures, routedFixture, prose, readme, sweep, Smithers.file("//flows/preview/flow.ts")],
   deps: [lib],
   config: Smithers.file("vitest.config.ts"),
   environment: "node",

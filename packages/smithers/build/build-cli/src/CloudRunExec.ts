@@ -6,11 +6,11 @@
 
 import type * as CloudRun from "@smthrs/targets/CloudRun"
 import * as Data from "effect/Data"
-import { spawn } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
 import * as DockerExec from "./DockerExec.ts"
+import * as ContainedProcess from "./internal/ContainedProcess.ts"
 import * as PackageTree from "./PackageTree.ts"
 
 /** A private preview transport refusal or failure.
@@ -53,51 +53,39 @@ interface CommandResult {
 // Keep all output private, including failing children's diagnostics. A child
 // can echo stdin or an inherited credential; only the command name and status
 // cross the reporter boundary. Bound captures and terminate on cancellation.
-const command = (
+const command = async (
   executable: string,
   argv: ReadonlyArray<string>,
   environment: NodeJS.ProcessEnv,
   cwd: string,
   signal: AbortSignal | undefined,
   stdin = ""
-): Promise<CommandResult> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(executable, [...argv], {
+): Promise<CommandResult> => {
+  let stdout = ""
+  try {
+    const exitCode = await ContainedProcess.run({
+      command: executable,
+      args: argv,
+      environment,
       cwd,
-      env: environment,
-      stdio: ["pipe", "pipe", "pipe"],
-      ...(signal === undefined ? {} : { signal })
+      signal,
+      stdin,
+      timeoutMs: 600_000,
+      maxOutputBytes: 16 * 1024 * 1024,
+      stdout: (text) => {
+        stdout += text
+      },
+      stderr: () => {}
     })
-    let stdout = ""
-    let bytes = 0
-    let overflow = false
-    let unavailable = false
-    let killTimer: ReturnType<typeof setTimeout> | undefined
-    const timer = setTimeout(() => child.kill("SIGKILL"), 600_000)
-    child.stdout.on("data", (chunk: Buffer) => {
-      bytes += chunk.length
-      if (bytes > 16 * 1024 * 1024) {
-        overflow = true
-        child.kill("SIGKILL")
-      } else stdout += chunk.toString("utf8")
+    return { stdout, exitCode }
+  } catch (cause) {
+    throw new PreviewError({
+      message: cause instanceof ContainedProcess.ProcessError && cause.code === "output_limit"
+        ? "CloudRun.Preview: tool_failed: subprocess output exceeded limit"
+        : "CloudRun.Preview: tool_failed: subprocess unavailable or cancelled"
     })
-    child.stderr.resume()
-    child.stdin.on("error", () => {})
-    child.on("error", () => {
-      unavailable = true
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 2_000)
-    })
-    child.on("close", (code) => {
-      clearTimeout(timer)
-      clearTimeout(killTimer)
-      if (unavailable) {
-        reject(new PreviewError({ message: "CloudRun.Preview: tool_failed: subprocess unavailable or cancelled" }))
-      } else if (overflow) {
-        reject(new PreviewError({ message: "CloudRun.Preview: tool_failed: subprocess output exceeded limit" }))
-      } else resolve({ stdout, exitCode: code ?? 1 })
-    })
-    child.stdin.end(stdin)
-  })
+  }
+}
 
 const json = <A>(text: string): A => {
   try {

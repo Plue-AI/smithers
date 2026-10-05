@@ -186,6 +186,8 @@ The cargo surface: `Cargo.Fetch`, `Cargo.Build`, `Cargo.Test`, `Cargo.Nextest`, 
 
 The shell target flavors: `Shell.Build`, `Shell.Test`, `Shell.Run`, `Shell.Serve`, and `Shell.Diff`. Each requires exactly one of `bin`, `bun`, `shell`, or `script`, and `Shell.Build` also requires at least one `outDirs` or `outFiles` entry. `Shell.Run`, `Shell.Test`, `Shell.Build`, and `Shell.Diff` plan an exec through the shared `Exec` action; `Shell.Serve` runs under the package executor.
 
+`Shell.Run` accepts optional `manual: true`: bare wildcards omit it, while an explicit label selects it.
+
 `hosts` restricts a shell target to the listed hosts (`"linux"`,
 `"darwin"`, `"win32"`). The declaration and the target index are the same on
 every host; wildcard selections omit the target on other hosts, and naming it
@@ -216,6 +218,33 @@ in its caching concept doc.
 - **Since:** `0.1.0`
 
 Docker services, OCI builds, bake targets, and pushes: `Docker.Serve`, `Docker.Service`, `Docker.Build`, `Docker.Bake`, and `Docker.Push`. Every one of the five runs under the package executor, so a bare Flow runtime fails them with `NotImplemented` rather than doing nothing. `Docker.Build` and `Docker.Bake` are cacheable and declare an output tree; the other three are not.
+
+### `Smithers.CloudRun`
+
+- **Type:** the `CloudRun` module
+- **Since:** `1.0.0`
+
+`CloudRun.Preview` runs a private, tagged, no-traffic revision from a labeled
+amd64 `Docker.Build`. It is outward, uncached, and always manual. Required
+attrs are `image`, `project`, `region`, `service`, `repository`, `deployer`,
+and `serviceAccount`; optional attrs are `env`, `access` (private), `expires`
+(72h, at most 168h), and `approval` (opt-in `"required"`). The registry path
+must match the region and project. Environment values are bounded strings
+without newlines. Public access refuses with `public_access_off`.
+
+The runner's own gcloud login impersonates `deployer`; no `HttpSecret` is
+accepted. Bootstrap the registry, service accounts, private service and IAM
+outside Smithers. Missing tools or service refuse with `tool_missing` or
+`service_missing`; a mismatched commit label refuses with `stale_image`.
+Deployment references the pushed digest. Anonymous access must answer 401/403,
+or `public_surface` removes the tag and deletes the revision. Expiry cleanup
+keeps unlabeled and traffic-carrying revisions.
+
+The version-1 receipt at `cloud-run-preview/<target>.json` records label,
+full commit, seven-character revision, tag, project, region, service,
+imageDigest, private access, expiresAt, the proxy command/local URL, measured
+imageBytes/buildSeconds/readySeconds, and swept revision names. See
+[the preview API](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/targets/docs/api.md#cloud-run-previews) for its exact shape and bounds.
 
 ### `Smithers.Agent`
 

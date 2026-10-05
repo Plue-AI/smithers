@@ -9975,6 +9975,8 @@ The cargo surface: `Cargo.Fetch`, `Cargo.Build`, `Cargo.Test`, `Cargo.Nextest`, 
 
 The shell target flavors: `Shell.Build`, `Shell.Test`, `Shell.Run`, `Shell.Serve`, and `Shell.Diff`. Each requires exactly one of `bin`, `bun`, `shell`, or `script`, and `Shell.Build` also requires at least one `outDirs` or `outFiles` entry. `Shell.Run`, `Shell.Test`, `Shell.Build`, and `Shell.Diff` plan an exec through the shared `Exec` action; `Shell.Serve` runs under the package executor.
 
+`Shell.Run` accepts optional `manual: true`: bare wildcards omit it, while an explicit label selects it.
+
 `hosts` restricts a shell target to the listed hosts (`"linux"`,
 `"darwin"`, `"win32"`). The declaration and the target index are the same on
 every host; wildcard selections omit the target on other hosts, and naming it
@@ -10005,6 +10007,33 @@ in its caching concept doc.
 - **Since:** `0.1.0`
 
 Docker services, OCI builds, bake targets, and pushes: `Docker.Serve`, `Docker.Service`, `Docker.Build`, `Docker.Bake`, and `Docker.Push`. Every one of the five runs under the package executor, so a bare Flow runtime fails them with `NotImplemented` rather than doing nothing. `Docker.Build` and `Docker.Bake` are cacheable and declare an output tree; the other three are not.
+
+### `Smithers.CloudRun`
+
+- **Type:** the `CloudRun` module
+- **Since:** `1.0.0`
+
+`CloudRun.Preview` runs a private, tagged, no-traffic revision from a labeled
+amd64 `Docker.Build`. It is outward, uncached, and always manual. Required
+attrs are `image`, `project`, `region`, `service`, `repository`, `deployer`,
+and `serviceAccount`; optional attrs are `env`, `access` (private), `expires`
+(72h, at most 168h), and `approval` (opt-in `"required"`). The registry path
+must match the region and project. Environment values are bounded strings
+without newlines. Public access refuses with `public_access_off`.
+
+The runner's own gcloud login impersonates `deployer`; no `HttpSecret` is
+accepted. Bootstrap the registry, service accounts, private service and IAM
+outside Smithers. Missing tools or service refuse with `tool_missing` or
+`service_missing`; a mismatched commit label refuses with `stale_image`.
+Deployment references the pushed digest. Anonymous access must answer 401/403,
+or `public_surface` removes the tag and deletes the revision. Expiry cleanup
+keeps unlabeled and traffic-carrying revisions.
+
+The version-1 receipt at `cloud-run-preview/<target>.json` records label,
+full commit, seven-character revision, tag, project, region, service,
+imageDigest, private access, expiresAt, the proxy command/local URL, measured
+imageBytes/buildSeconds/readySeconds, and swept revision names. See
+[the preview API](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/targets/docs/api.md#cloud-run-previews) for its exact shape and bounds.
 
 ### `Smithers.Agent`
 
@@ -47039,18 +47068,19 @@ Arguments:
   patterns  Target labels or recursive patterns; their union
 
 Options:
-  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
-  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
-  --verbose             Show plain progress for agent and pipe consumers
-  --plan                Print the inert plan instead of executing
-  --jobs <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
-  --include-exclusive   Include exclusive targets in wildcard ci/test selections; explicit labels already include them
-  --cache               Consult the result cache before running; --no-cache bypasses reads (default: true)
-  --known-red <string>  JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
-  --base <string>       Git base revision (default: HEAD)
-  --head <string>       Git head revision; defaults to the working tree including untracked files
-  --files <array>       Explicit changed paths instead of Git discovery
-  --list                List selected roots and reasons without executing
+  --workspace <string>     Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>     Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                Show plain progress for agent and pipe consumers
+  --plan                   Print the inert plan instead of executing
+  --jobs <number>          Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive      Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                  Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>     JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>  Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
+  --base <string>          Git base revision (default: HEAD)
+  --head <string>          Git head revision; defaults to the working tree including untracked files
+  --files <array>          Explicit changed paths instead of Git discovery
+  --list                   List selected roots and reasons without executing
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -47473,7 +47503,6 @@ Usage: smthrs auth <command>
 Commands:
   connect      Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
   connections  List connected subscriptions
-  local        Set up and log in to an owner backend
   login        Log in to Smithers
   logout       Log out of Smithers
   revoke       Revoke a connected subscription
@@ -47539,124 +47568,6 @@ Usage: smthrs auth connections [options]
 Options:
   --org <string>
   --verbose       Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local
-
-```text
-smthrs auth local — Set up and log in to an owner backend
-
-Usage: smthrs auth local <command>
-
-Commands:
-  bootstrap  Create and log in as the installation owner
-  login      Log in to an owner backend
-  status     Show owner setup status
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local bootstrap
-
-```text
-smthrs auth local bootstrap — Create and log in as the installation owner
-
-Usage: smthrs auth local bootstrap [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local login
-
-```text
-smthrs auth local login — Log in to an owner backend
-
-Usage: smthrs auth local login [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local status
-
-```text
-smthrs auth local status — Show owner setup status
-
-Usage: smthrs auth local status [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -48049,6 +47960,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -48304,6 +48216,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -48336,14 +48249,15 @@ Arguments:
   patterns  Target labels or recursive patterns; their union
 
 Options:
-  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
-  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
-  --verbose             Show plain progress for agent and pipe consumers
-  --plan                Print the inert plan instead of executing
-  --jobs <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
-  --include-exclusive   Include exclusive targets in wildcard ci/test selections; explicit labels already include them
-  --cache               Consult the result cache before running; --no-cache bypasses reads (default: true)
-  --known-red <string>  JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --workspace <string>     Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>     Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                Show plain progress for agent and pipe consumers
+  --plan                   Print the inert plan instead of executing
+  --jobs <number>          Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive      Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                  Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>     JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>  Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -48728,6 +48642,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
   --write                   Refresh the Docs.Check stamps of the selected pages instead of checking them
 
 Custom Global Options:
@@ -49567,42 +49482,12 @@ smthrs history — Follow each issue's lane, checks and pull request
 Usage: smthrs history <command>
 
 Commands:
-  backfill   Admit every open issue to the history now
   bootstrap  Create the history from main's commits
-  land       Land a proposed TODO's pull request once its review approves and CI is green
   parallel   Set how many lanes work at once
   retry      Give a blocked, rejected or declined issue a fresh set of attempts
   show       Show the history: each issue's lane, checks and pull request
   todo       File a TODO for the factory
   watch      Follow one issue until its pull request is open or it stops
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## history backfill
-
-```text
-smthrs history backfill — Admit every open issue to the history now
-
-Usage: smthrs history backfill [options]
-
-Options:
-  --repo, -R <string>
-  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -49627,37 +49512,6 @@ Global Options:
 smthrs history bootstrap — Create the history from main's commits
 
 Usage: smthrs history bootstrap [options]
-
-Options:
-  --repo, -R <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## history land
-
-```text
-smthrs history land — Land a proposed TODO's pull request once its review approves and CI is green
-
-Usage: smthrs history land <issue> [options]
-
-Arguments:
-  issue  Issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>
@@ -49816,6 +49670,120 @@ Arguments:
 Options:
   --repo, -R <string>
   --verbose            Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs host
+https://smithers.sh/docs/reference/cli/host/
+
+```text
+smthrs host — Operate this installation’s host
+
+Usage: smthrs host <command>
+
+Commands:
+  start   Start the bundled host service
+  status  Show launchd, bundle and process health
+  stop    Stop the host service
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## host start
+
+```text
+smthrs host start — Start the bundled host service
+
+Usage: smthrs host start [options]
+
+Options:
+  --bundle <string>  Built server bundle directory
+  --verbose          Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## host status
+
+```text
+smthrs host status — Show launchd, bundle and process health
+
+Usage: smthrs host status [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## host stop
+
+```text
+smthrs host stop — Stop the host service
+
+Usage: smthrs host stop [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50752,6 +50720,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
   --fix                     Apply agent lint fixes inside the declared fixes write-set
 
 Custom Global Options:
@@ -51183,7 +51152,6 @@ Commands:
   list         List your repositories
   mirror-sync  Start a GitHub mirror sync run
   push         Push this checkout to your own ref on Smithers Cloud for a workspace to fetch
-  report       Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
   status       Show local repository connection status
   unarchive    Unarchive a repository
   view         View repository details
@@ -51542,37 +51510,6 @@ Global Options:
   --token-offset <n>                  Skip first n tokens of output
 ```
 
-## repo report
-
-```text
-smthrs repo report — Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
-
-Usage: smthrs repo report <repo> [options]
-
-Arguments:
-  repo  Public GitHub repository in OWNER/REPO format
-
-Options:
-  --workspace <string>  ID of one of your workspaces that answers the lookup
-  --verbose             Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
 ## repo status
 
 ```text
@@ -51724,6 +51661,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
   --name, -n <string>       Package name supplied to scaffold targets
   --message, -m <string>    Commit message for a Git.Commit target; wins over the declared message
   --sweep                   Let a Git.Commit target with no declared path scope commit the whole working tree
@@ -52554,6 +52492,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
   --write                   Apply Diff/Generate/CiGen targets instead of checking drift
   --fix                     Apply agent lint fixes inside the declared fixes write-set
   --message, -m <string>    Commit message for a Git.Commit target; wins over the declared message
@@ -52634,6 +52573,7 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>   Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52798,16 +52738,17 @@ Arguments:
   patterns  Target labels or recursive patterns; their union
 
 Options:
-  --workspace <string>    Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
-  --cache-dir <string>    Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
-  --verbose               Show plain progress for agent and pipe consumers
-  --plan                  Print the inert plan instead of executing
-  --jobs <number>         Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
-  --include-exclusive     Include exclusive targets in wildcard ci/test selections; explicit labels already include them
-  --cache                 Consult the result cache before running; --no-cache bypasses reads (default: true)
-  --known-red <string>    JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
-  --debounce-ms <number>   (default: 200)
-  --once                  Run one cycle and exit
+  --workspace <string>     Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>     Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                Show plain progress for agent and pipe consumers
+  --plan                   Print the inert plan instead of executing
+  --jobs <number>          Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive      Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                  Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>     JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --results-file <string>  Also write the run's summary, one status per label, as JSON to this new file; human output is unchanged
+  --debounce-ms <number>    (default: 200)
+  --once                   Run one cycle and exit
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53758,6 +53699,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
 | [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
 | [`history`](/docs/reference/cli/history/) | Follow each issue's lane, checks and pull request |
+| [`host`](/docs/reference/cli/host/) | Operate this installation’s host |
 | [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |

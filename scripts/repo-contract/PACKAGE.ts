@@ -127,25 +127,6 @@ const reliabilityWorkflow = Smithers.NodeTest({
 })
 
 /**
- * A release version bump retags every distribution image declaration.
- *
- * @since 1.0.0
- * @category test
- */
-const distributionImageTag = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/distribution-image-tag.test.mjs")]),
-  srcs: [
-    sources,
-    Smithers.file("//scripts/set-release-version.mjs"),
-    Smithers.file("//scripts/workspace-packages.mjs"),
-    Smithers.file("//packages/smithers/package.json"),
-    Smithers.file("//distribution/README.md"),
-    Smithers.file("//distribution/Dockerfile")
-  ],
-  deps: []
-})
-
-/**
  * No focused or parked test in the fault matrix, every conditional skip
  * declared with its reason, and every package that carries fault cases wired to
  * a target that runs them.
@@ -351,5 +332,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
+  targets: { barrels, cliVerbs, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
 })

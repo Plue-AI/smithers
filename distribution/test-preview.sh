@@ -52,7 +52,12 @@ const value = JSON.parse(fs.readFileSync(process.argv[2]));
 if (!Array.isArray(value.capabilities) || !value.capabilities.includes('install')) throw Error('bootstrap does not list install');
 JS
 status=$(curl --silent --output "$scratch/workspace" --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4100/api/repos/o/r/workspaces)
-test "$status" = 401
+test "$status" = 503
+node - "$scratch/workspace" <<'JS'
+const fs = require('node:fs');
+const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (value.code !== 'machines_disabled' || value.message !== 'Machines are off in this preview.') throw Error('machine door did not refuse');
+JS
 test "$(docker exec "$container" id -u)" != 0
 docker exec "$container" cat /proc/1/status > "$scratch/process"
 node - "$scratch/process" <<'JS'

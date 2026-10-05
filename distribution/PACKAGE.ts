@@ -1,7 +1,7 @@
 /** Preview-only OCI image; deployment is declared separately. */
 import { Smithers as S } from "@smthrs/targets"
 
-export const image = S.Docker.Build({
+const image = S.Docker.Build({
   dockerfile: S.file("Dockerfile"),
   context: "..",
   platforms: ["linux/amd64"],

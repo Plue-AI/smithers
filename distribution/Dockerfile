@@ -88,7 +88,7 @@ COPY --chown=node:node --from=flows-jj /src/packages/smithers/flows/jj/wasm/flow
 RUN node --version && pnpm --version && bun --version \
   && pnpm install --frozen-lockfile
 ARG BUILD_SHA
-RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40,64}$' \
+RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40}$' \
   && SMITHERS_BUILD_SHA="$BUILD_SHA" pnpm --dir apps/app run build:web
 # Ship the same npm package and production dependencies for offline boxes.
 RUN node distribution/build-cli.mjs /out/cli \
@@ -106,7 +106,7 @@ RUN useradd --create-home builder && install -d -o builder -g builder /src /out
 ENV GOPATH=/home/builder/go
 USER builder
 WORKDIR /src
-RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40,64}$' || (echo 'BUILD_SHA must be an exact source revision' >&2; exit 1)
+RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40}$' || (echo 'BUILD_SHA must be an exact source revision' >&2; exit 1)
 COPY --chown=builder:builder go.mod go.sum ./
 RUN go mod download
 COPY --chown=builder:builder apps/backend apps/backend

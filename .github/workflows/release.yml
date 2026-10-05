@@ -547,13 +547,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
-      # The macOS job gates the native pair. This job gates the web and local
-      # pairs with fresh PostgreSQL and the distribution image.
+      # The macOS job gates the native pair. This job gates the retained web
+      # and local modes with fresh PostgreSQL.
       - name: Product deployment mode matrix
-        run: bun apps/app/scripts/run-packaged-mode-matrix.ts run --modes web-selfhost,web-plue,local-own,local-plue --output-dir "$RUNNER_TEMP/smithers-mode-matrix"
+        run: bun apps/app/scripts/run-packaged-mode-matrix.ts run --modes web-plue,local-own,local-plue --output-dir "$RUNNER_TEMP/smithers-mode-matrix"
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
-          SMITHERS_MODE_MATRIX_IMAGE: smithers-distribution:release
           SMITHERS_MODE_MATRIX_PLUE_WEB_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_WEB_URL }}
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
           SMITHERS_MODE_MATRIX_PLUE_TOKEN: ${{ secrets.SMITHERS_MODE_MATRIX_PLUE_TOKEN }}

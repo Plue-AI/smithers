@@ -137,7 +137,7 @@ const launch = (label: string, results: string, signal: AbortSignal) =>
     child.once("error", reject)
     child.once("close", (status) => done({ status: status ?? 1, stderr: stderr + "\n" + stdout }))
   })
-const receipt = async (file: string, label: string, commit: string) => {
+export const validateReceipt = async (file: string, label: string, commit: string) => {
   const raw = JSON.parse(await readFile(file, "utf8"))
   if (raw.access !== "private") throw fail("public_access_off", "Preview access must be private")
   if (
@@ -180,7 +180,7 @@ export const layer = Deploy.toLayer((input) =>
       }
       const file = join(row.package, "cloud-run-preview", `${row.name}.json`)
       try {
-        return await receipt(file, row.label, commit)
+        return await validateReceipt(file, row.label, commit)
       } catch { /* Only a current private receipt can replay. */ }
       const directory = await mkdtemp(join(tmpdir(), "smthrs-preview-"))
       try {
@@ -207,7 +207,7 @@ export const layer = Deploy.toLayer((input) =>
           if (/public_access_off|public_surface/.test(result.stderr)) throw fail("public_access_off", message)
           throw fail(step === "build" ? "build_failed" : "deploy_failed", message, step, true)
         }
-        return await receipt(file, row.label, commit)
+        return await validateReceipt(file, row.label, commit)
       } finally {
         await rm(directory, { recursive: true, force: true })
       }

@@ -31245,6 +31245,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/preview/flow.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/build/build-cli/vitest.config.ts"
       }
     ],
@@ -46694,52 +46698,6 @@
         "kind": "glob",
         "pattern": "scripts/repo-contract/**/*.mjs",
         "exclude": []
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "scripts/repo-contract/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//scripts/repo-contract:distributionImageTag",
-    "package": "scripts/repo-contract",
-    "name": "distributionImageTag",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "scripts/repo-contract/distribution-image-tag.test.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "scripts/repo-contract/**/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "scripts/set-release-version.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "scripts/workspace-packages.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "distribution/README.md"
-      },
-      {
-        "kind": "file",
-        "path": "distribution/Dockerfile"
       }
     ],
     "outputs": [],

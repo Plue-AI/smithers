@@ -236,7 +236,7 @@ The version-1 receipt at `cloud-run-preview/<target>.json` records label,
 full commit, seven-character revision, tag, project, region, service,
 imageDigest, private access, expiresAt, the proxy command/local URL, measured
 imageBytes/buildSeconds/readySeconds, and swept revision names. See
-[the preview API](../api.md#cloud-run-previews) for its exact shape and bounds.
+[the preview API](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/targets/docs/api.md#cloud-run-previews) for its exact shape and bounds.
 
 ### `Smithers.Agent`
 
