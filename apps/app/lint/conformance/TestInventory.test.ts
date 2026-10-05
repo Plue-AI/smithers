@@ -10,6 +10,7 @@ import playwright from "../../playwright.config"
 import playwrightSite from "../../playwright.site.config"
 import playwrightReal from "../../playwright.real.config"
 import playwrightLocal from "../../playwright.local.config"
+import playwrightProof from "../../playwright.proof.config"
 import playwrightGraph from "../../playwright.graph.config"
 import playwrightShowcase from "../../playwright.showcase.config"
 
@@ -254,6 +255,7 @@ const owners = (path: string): string[] => {
   if (runsStep(prSteps, siteStep) && playwrightOwns(path, playwrightSite)) result.push("Playwright site")
   if (realRunner && playwrightOwns(path, playwrightReal)) result.push("Playwright real")
   if (scripts["test:e2e:local"] === "playwright test --config playwright.local.config.ts" && playwrightOwns(path, playwrightLocal)) result.push("Playwright local")
+  if (scripts["test:e2e:proof"] === "playwright test --config playwright.proof.config.ts" && playwrightOwns(path, playwrightProof)) result.push("Playwright proof")
   if (runsStep(prSteps, graphStep) && playwrightOwns(path, playwrightGraph)) result.push("Playwright graph")
   if (runsStep(prSteps, showcaseStep) && playwrightOwns(path, playwrightShowcase)) result.push("Playwright showcase")
   if (exclusiveRunners.some(target => exclusiveOwns(path, target, read(target.runner.entry.path)))) result.push("exclusive Playwright")
@@ -298,6 +300,9 @@ test("every app test belongs to an executable runner", () => {
   expect(owners("e2e/real/chat-tools.spec.ts")).toEqual(["Playwright real"])
   expect(owners("e2e/real/models.spec.ts")).toEqual(["Playwright real"])
   expect(owners("e2e/local/setup-no-github.spec.ts")).toEqual(["Playwright local"])
+  // The proof tier records journeys on the real bundle; no default run selects it.
+  expect(owners("e2e/proof/j1.spec.ts")).toEqual(["Playwright proof"])
+  expect(owners("scripts/proof-install.test.ts")).toEqual(["unit"])
   // The real tier's coverage gate is its own source, tested by Bun rather than
   // driven by Playwright, so the unit suite owns it.
   expect(owners("e2e/real/coverage/gate.test.ts")).toEqual(["unit"])

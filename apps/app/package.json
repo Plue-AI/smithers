@@ -23,7 +23,8 @@
     "test:e2e:graph-lifecycle": "bun test e2e/graph/lifecycle",
     "proof:gateway": "tsx scripts/gateway-run-proof.ts",
     "local:no-github": "bun scripts/run-local-no-github.ts",
-    "test:e2e:local": "playwright test --config playwright.local.config.ts"
+    "test:e2e:local": "playwright test --config playwright.local.config.ts",
+    "test:e2e:proof": "playwright test --config playwright.proof.config.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "5.3.0",
