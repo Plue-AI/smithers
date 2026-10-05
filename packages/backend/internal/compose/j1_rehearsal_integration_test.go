@@ -1,687 +1,38 @@
 package compose
 
 import (
-	"bufio"
-	"bytes"
-	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"net"
-	"net/http"
-	"net/http/cookiejar"
-	"net/http/httptest"
-	"net/url"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"runtime"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/smithersai/smithers/packages/backend/credits"
-	"github.com/smithersai/smithers/packages/backend/flowhost"
-	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
-	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
-	"github.com/smithersai/smithers/packages/backend/internal/identity"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"github.com/smithersai/smithers/packages/backend/internal/webhook"
-	"github.com/smithersai/smithers/packages/backend/microsandbox"
-	"github.com/smithersai/smithers/packages/backend/modelhost"
-	"github.com/smithersai/smithers/packages/backend/modelproxy"
-	"github.com/smithersai/smithers/packages/backend/process"
-	"github.com/smithersai/smithers/packages/backend/repository"
-	"github.com/smithersai/smithers/packages/backend/sandbox/sandboxfake"
-	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
-	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
-	"github.com/stretchr/testify/require"
 )
-
-// offlineGatewayHost is the composed model host, except that Model access
-// does not send the rehearsal's placeholder AI Gateway key to the real
-// Gateway. The coding key's test still runs through the model host.
-type offlineGatewayHost struct{ *modelhost.Host }
-
-func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, request json.RawMessage) (json.RawMessage, error) {
-	var body struct {
-		Model struct {
-			Credential string `json:"credential"`
-		} `json:"model"`
-	}
-	if json.Unmarshal(request, &body) == nil && body.Model.Credential == "AI_GATEWAY_API_KEY" {
-		return json.RawMessage(`{"ok":true,"latencyMs":0,"sample":"","output":{"kind":"decision","answers":{}}}`), nil
-	}
-	return h.Host.RunModelTest(ctx, owner, request)
-}
 
 // This is an opt-in diagnostic, not a C-J1-04 reference-host passing receipt.
 // New orchestration is necessary: isolated setup/TODO tests seed past the journey.
+// The composed install and its shared rows are rehearsal_integration_test.go's.
 func TestJ1Rehearsal(t *testing.T) {
-	if os.Getenv("SMITHERS_J1_REHEARSAL") != "1" {
-		t.Skip("enable explicitly with SMITHERS_J1_REHEARSAL=1")
-	}
-	require.NotEmpty(t, os.Getenv("SMITHERS_TEST_DATABASE_URL"), "rehearsal requires real PostgreSQL")
-	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
-	_, source, _, _ := runtime.Caller(0)
-	root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
-	evidence := filepath.Join(root, ".artifacts/checks/C-J1-04/rehearsal", time.Now().UTC().Format("20060102T150405.000000000Z"))
-	require.NoError(t, os.MkdirAll(evidence, 0700))
-	table := "step\troute\texpected\tactual\tresult\tticket\n"
-	var coder rehearsalCodingModel
-	// The real path: a confined check's directory is canonical (macOS's /var is
-	// /private/var) and confinement compares it with the workspace root.
-	processRoot, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, os.WriteFile(filepath.Join(evidence, "steps.tsv"), []byte(table), 0600))
-		// Each coding host's journal (control.db, engine.db) names why a run
-		// failed; the runtime's directory is gone after the test.
-		states, _ := filepath.Glob(filepath.Join(processRoot, "workspaces", "*", "state", "managed-hosts"))
-		for n, state := range states {
-			_ = exec.Command("/bin/cp", "-R", state, filepath.Join(evidence, fmt.Sprintf("host-state-%d", n))).Run()
-		}
-		fmt.Print(table)
-		if coder.url != "" {
-			fmt.Println("scripted coding model turns:", coder.turns())
-		}
-		fmt.Println("rehearsal evidence:", evidence)
-	}()
-	pool, databaseURL := postgresfixture.NewProductDatabase(t)
-	gitRoot := t.TempDir()
-	seed := filepath.Join(gitRoot, "seed")
-	require.NoError(t, os.MkdirAll(seed, 0700))
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("/usr/bin/git", args...)
-		output, err := cmd.CombinedOutput()
-		require.NoError(t, err, string(output))
-	}
-	git("init", "-b", "main", seed)
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "JOURNEY.md"), []byte("Add a greeting to JOURNEY.md\n"), 0600))
-	// A repository with no Smithers files gets one check per command the
-	// detector finds; planning needs a fast and a slow one (make build, make test).
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte("build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n"), 0600))
-	git("-C", seed, "add", "JOURNEY.md", "Makefile")
-	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")
-	seedHead, err := exec.Command("/usr/bin/git", "-C", seed, "rev-parse", "HEAD").Output()
-	require.NoError(t, err)
-	mainCommit := strings.TrimSpace(string(seedHead))
-	require.NoError(t, os.MkdirAll(filepath.Join(gitRoot, "rehearsal-owner"), 0700))
-	git("clone", "--bare", seed, filepath.Join(gitRoot, "rehearsal-owner/app.git"))
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	// trunk-app's default branch is not main: the repository step refuses it.
-	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
-	require.NoError(t, err)
-	t.Cleanup(fake.Close)
-	server := httptest.NewUnstartedServer(nil)
-	origin := "http://" + server.Listener.Addr().String()
-	// The real repository engine is reused; no fixture mounts a product route.
-	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
-	if library == "" {
-		library = filepath.Join(root, "target/release/libsmithers_ffi.dylib")
-		if runtime.GOOS == "linux" {
-			library = filepath.Join(root, "target/release/libsmithers_ffi.so")
-		}
-	}
-	node, err := exec.LookPath("node")
-	require.NoError(t, err)
-	node, err = filepath.EvalSymlinks(node)
-	require.NoError(t, err)
-	// The install's engine, composed as localbootstrap.Prepare composes it:
-	// it reserves main for the GitHub sync, and every door reads that fact
-	// from its in-process client. Source ready must import main through it.
-	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
-	require.NoError(t, err, "build the repository's smithers-ffi library first")
-	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
-	require.True(t, engine.Client().InstallMainMirror(), "the install engine's client must carry the install fact")
-	repositoryServer := httptest.NewServer(engine.Handler())
-	t.Cleanup(repositoryServer.Close)
-	for name, value := range map[string]string{
-		"SMITHERS_REPO_HOST_URL": repositoryServer.URL, "SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_DATABASE_URL": databaseURL,
-		"SMITHERS_PUBLIC_URL": origin, "SMITHERS_SERVER_ALLOWED_ORIGINS": origin, "SMITHERS_SERVER_ADDR": "127.0.0.1:0",
-		"SMITHERS_AUTH_SESSION_SECRET": "rehearsal-session-secret", "SMITHERS_LFS_SIGNING_SECRET": "rehearsal-lfs-secret",
-		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "rehearsal-encryption-key", "SMITHERS_REPO_HOST_AUTH_TOKEN": "rehearsal-repo",
-		"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "rehearsal-callback", "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_OTEL_EXPORTER": "none", "SMITHERS_METRICS_ADDR": "",
-		"SMITHERS_AUTH_GITHUB_API_BASE_URL": fake.URL, "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": fake.URL, "SMITHERS_GITHUB_APP_API_BASE_URL": fake.URL,
-		// TODO branches are pushed to the fake's Git, never to github.com.
-		"SMITHERS_GITHUB_GIT_BASE_URL": fake.URL,
-		// The coding host binds its lane's checkout through the native helper
-		// and implements on the platform seat the scripted model answers.
-		// The coding host implements on the platform seat the scripted model answers.
-		"SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL": "cerebras:gpt-oss-120b",
-	} {
-		t.Setenv(name, value)
-	}
-	provider := localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
-	t.Cleanup(provider.Close)
-	bundle := filepath.Join(t.TempDir(), "model-host")
-	build := exec.Command(node, filepath.Join(root, "apps/model-host/build.mjs"), bundle)
-	build.Dir = root
-	output, err := build.CombinedOutput()
-	require.NoError(t, err, string(output))
-	processRuntime, err := process.New(process.Config{Root: processRoot})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
-	var workspace workspaceapi.WorkspaceRuntime = processRuntime
-	launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{Runtime: workspace, NodeBinary: node, BundlePath: bundle})
-	require.NoError(t, err)
-	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return databaseURL }, func() string { return "rehearsal-encryption-key" })
-	require.NoError(t, err)
-	host, err := modelhost.New(resolver, launcher)
-	require.NoError(t, err)
-	// A TODO's coding run executes on the packaged coding host, served by the
-	// trusted-process runtime as apps/backend's chat integration composes it.
-	// It binds its lane's checkout through the native helper; without one the
-	// rehearsal composes no flow host and no TODO starts.
-	var registry *flowmanifest.Registry
-	var platformKeys modelproxy.Keys
-	var upstreams map[string]string
-	if helper := rehearsalJJExport(root, library); helper == "" {
-		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
-	} else {
-		t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
-		// A helper built with trusted-process-binding imports the stack's
-		// base and publishes the lane's result as a guest's does; any other
-		// stays local-only, and the TODO stops at its base import.
-		if capabilities, err := exec.Command(helper, "--capabilities").Output(); err == nil && bytes.Contains(capabilities, []byte(`"trusted-process-binding/v1"`)) {
-			workspace = bindingProcessRuntime{processRuntime, evidence}
-		} else {
-			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
-		}
-		built := buildRehearsalCodingHost(t, node, root)
-		registry = &built
-		// The coding host's model is scripted: every turn it asks goes through
-		// the composed install's metered model proxy to this provider.
-		coder = startRehearsalCodingModel(t, node, root, evidence)
-		platformKeys = modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderCerebras: "scripted-coding-key", modelproxy.ProviderVercel: "scripted-evaluator-key"})
-		upstreams = map[string]string{modelproxy.ProviderCerebras: coder.url, modelproxy.ProviderVercel: coder.url}
-	}
-	// The question before Machine ready must start no machine.
-	compute := sandboxfake.New()
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	ready := make(chan http.Handler, 1)
-	done := make(chan error, 1)
-	logs := &lockedBuffer{}
-	stdout := &lockedBuffer{}
-	// The coding run takes minutes: its log is also followed while it runs.
-	live, err := os.OpenFile(filepath.Join(evidence, "backend.live.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = live.Close() })
-	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, io.MultiWriter(logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: origin,
-			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
-			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool)}, func(h http.Handler) { ready <- h })
-	}()
-	select {
-	case h := <-ready:
-		server.Config.Handler = h
-	case err := <-done:
-		t.Fatalf("composition: %v\n%s", err, logs.String())
-	case <-time.After(45 * time.Second):
-		t.Fatalf("composition timed out: %s", logs.String())
-	}
-	server.Start()
-	defer server.Close()
-	defer func() {
-		cancel()
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-		case <-time.After(15 * time.Second):
-			t.Error("composition shutdown timed out")
-		}
-		_ = os.WriteFile(filepath.Join(evidence, "backend.log"), []byte(logs.String()), 0600)
-	}()
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err)
-	client := &http.Client{Jar: jar, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	var exchanges strings.Builder
-	defer func() {
-		require.NoError(t, os.WriteFile(filepath.Join(evidence, "http.log"), []byte(exchanges.String()), 0600))
-	}()
-	actual := ""
-	location := ""
-	tokenField := regexp.MustCompile(`"token":"[^"]*"`)
-	request := func(method, path, body string) (int, []byte, error) {
-		req, err := http.NewRequest(method, origin+path, strings.NewReader(body))
-		if err != nil {
-			return 0, nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Origin", origin)
-		req.Header.Set("Idempotency-Key", "j1-"+strings.Trim(strings.ReplaceAll(path, "/", "-"), "-"))
-		for _, cookie := range jar.Cookies(req.URL) {
-			if cookie.Name == "__csrf" {
-				req.Header.Set("X-CSRF-Token", cookie.Value)
-			}
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			actual = err.Error()
-			return 0, nil, err
-		}
-		defer resp.Body.Close()
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		location = resp.Header.Get("Location")
-		// Evidence never keeps a minted credential.
-		logged := tokenField.ReplaceAll(data, []byte(`"token":"<redacted>"`))
-		fmt.Fprintf(&exchanges, "%s %s → %d %s\n", method, strings.Split(path, "?")[0], resp.StatusCode, logged)
-		excerpt := string(logged)
-		if path == "/api/install" {
-			var projection struct {
-				Steps json.RawMessage `json:"steps"`
-			}
-			if json.Unmarshal(data, &projection) == nil {
-				excerpt = `{"steps":` + string(projection.Steps) + `}`
-			}
-		}
-		actual = fmt.Sprintf("%d %s", resp.StatusCode, excerpt)
-		return resp.StatusCode, data, err
-	}
-	expect := func(method, path, body string, status int) ([]byte, error) {
-		code, data, err := request(method, path, body)
-		if err != nil {
-			return data, err
-		}
-		if code != status {
-			return data, fmt.Errorf("expected HTTP %d: %s", status, actual)
-		}
-		return data, nil
-	}
-	waitStep := func(id string) error {
-		// Steps finish in background workers; Source waits out the durable
-		// importer's clone of main.
-		deadline := time.Now().Add(30 * time.Second)
-		for time.Now().Before(deadline) {
-			data, err := expect("GET", "/api/install", "", 200)
-			if err != nil {
-				return err
-			}
-			var v struct {
-				Steps []struct {
-					ID    string          `json:"id"`
-					State string          `json:"state"`
-					Error json.RawMessage `json:"error"`
-				}
-			}
-			if err = json.Unmarshal(data, &v); err != nil {
-				return err
-			}
-			for _, s := range v.Steps {
-				if s.ID == id {
-					if s.State == "done" {
-						return nil
-					}
-					if s.State == "failed" || s.State == "blocked" {
-						return fmt.Errorf("%s: %s %s", id, s.State, s.Error)
-					}
-				}
-			}
-			time.Sleep(40 * time.Millisecond)
-		}
-		reason := actual
-		if id == "source" {
-			for _, line := range strings.Split(logs.String(), "\n") {
-				var entry map[string]any
-				if json.Unmarshal([]byte(line), &entry) == nil && entry["message"] == "mirror.import.reconcile_failed" {
-					reason = fmt.Sprint(entry["error"])
-				}
-			}
-		}
-		return fmt.Errorf("%s did not complete: %s", id, reason)
-	}
-	sourceReady := false
-	continuing := os.Getenv("J1_REHEARSAL_CONTINUE") == "1"
-	step := func(name, route, expected, ticket string, run func() error) bool {
-		actual = ""
-		ok := t.Run(name, func(t *testing.T) {
-			if err := run(); err != nil {
-				actual = err.Error() + "; " + actual
-				t.Error(err)
-			}
-		})
-		result := "pass"
-		if !ok {
-			result = "fail"
-		}
-		excerpt := strings.Join(strings.Fields(actual), " ")
-		if len(excerpt) > 220 {
-			excerpt = excerpt[:220]
-		}
-		table += strings.Join([]string{name, route, expected, excerpt, result, ticket}, "\t") + "\n"
-		return ok || continuing
-	}
-	var mint struct {
-		URLs []string `json:"setup_urls"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(stdout.String()), &mint))
-	require.NotEmpty(t, mint.URLs)
-	setupURL, err := url.Parse(mint.URLs[0])
-	require.NoError(t, err)
-	if !step("setup URL token", "GET /setup?token=<printed>", "303; token removed; setup cookie", "T-INS-08, T-ACC-01", func() error {
-		_, err := expect("GET", setupURL.RequestURI(), "", 303)
-		if err != nil {
-			return err
-		}
-		if location != "/" {
-			return fmt.Errorf("redirect %q", location)
-		}
-		for _, cookie := range jar.Cookies(mustRehearsalURL(origin)) {
-			if cookie.Name == "smithers_setup_session" {
-				return nil
-			}
-		}
-		return fmt.Errorf("setup cookie missing")
-	}) {
+	r := newRehearsal(t, "SMITHERS_J1_REHEARSAL", "C-J1-04", "j1-")
+	if !r.setupSource() {
 		return
 	}
-	if !step("setup session", "GET /api/install", "200; seven ordered pending steps", "T-INS-06", func() error {
-		data, err := expect("GET", "/api/install", "", 200)
-		if err != nil {
-			return err
-		}
-		var v struct{ Steps []struct{ ID, State string } }
-		if err = json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		ids := []string{"address", "app_manifest", "sign_in", "repository", "models", "source", "machine"}
-		if len(v.Steps) != len(ids) {
-			return fmt.Errorf("expected seven steps")
-		}
-		for i, s := range v.Steps {
-			if s.ID != ids[i] || s.State != "pending" {
-				return fmt.Errorf("step %d: %+v", i, s)
-			}
-		}
-		return nil
-	}) {
-		return
-	}
-	if !step("1 Address", "POST /api/install/setup/address → GET /api/install", "202 → address done", "T-INS-06", func() error {
-		body, _ := json.Marshal(map[string]any{"bind": "127.0.0.1:4000", "origins": []string{origin}})
-		if _, err := expect("POST", "/api/install/setup/address", string(body), 202); err != nil {
-			return err
-		}
-		return waitStep("address")
-	}) {
-		return
-	}
-	if !step("2 GitHub App", "POST /api/install/setup/app → GET /setup/github/callback", "200 manifest out; 303 conversion back; app_manifest done", "T-GH-01", func() error {
-		data, err := expect("POST", "/api/install/setup/app", `{"owner":"rehearsal-owner"}`, 200)
-		if err != nil {
-			return err
-		}
-		var v struct {
-			State    string          `json:"state"`
-			Action   string          `json:"action_url"`
-			Manifest json.RawMessage `json:"manifest"`
-		}
-		if err = json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		if v.State == "" || v.Action == "" || len(v.Manifest) == 0 {
-			return fmt.Errorf("manifest handoff missing")
-		}
-		if _, err = expect("GET", "/setup/github/callback?code=manifest-code&state="+url.QueryEscape(v.State), "", 303); err != nil {
-			return err
-		}
-		return waitStep("app_manifest")
-	}) {
-		return
-	}
-	if !step("3 Owner sign-in", "GET /api/auth/github → GET /api/auth/github/callback", "302 → 302; sign_in done; browser session", "T-ACC-01", func() error {
-		if _, err := expect("GET", "/api/auth/github", "", 302); err != nil {
-			return err
-		}
-		u, err := url.Parse(location)
-		if err != nil {
-			return err
-		}
-		if _, err = expect("GET", "/api/auth/github/callback?code=owner-code&state="+url.QueryEscape(u.Query().Get("state")), "", 302); err != nil {
-			return err
-		}
-		return waitStep("sign_in")
-	}) {
-		return
-	}
-	if !step("4 Repository", "POST /api/install/setup/repository → GET /api/install", "202 → repository done; owner verified; squash enabled; a default other than main blocked", "T-INS-06, T-ACC-01", func() error {
-		// A repository whose GitHub default branch is not main is blocked
-		// with its fix before anything is imported (spec §16.2).
-		if _, err := expect("POST", "/api/install/setup/repository?attempt=trunk", `{"repository":"rehearsal-owner/trunk-app"}`, 202); err != nil {
-			return err
-		}
-		if err := waitStep("repository"); err == nil || !strings.Contains(err.Error(), "blocked") {
-			return fmt.Errorf("a trunk default was not blocked: %v", err)
-		}
-		data, err := expect("GET", "/api/install", "", 200)
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(string(data), "Rename the default branch to main on GitHub") || !strings.Contains(string(data), "https://github.com/rehearsal-owner/trunk-app/settings") {
-			return fmt.Errorf("blocked step names no fix: %s", data)
-		}
-		if _, err := expect("POST", "/api/install/setup/repository", `{"repository":"rehearsal-owner/app"}`, 202); err != nil {
-			return err
-		}
-		return waitStep("repository")
-	}) {
-		return
-	}
-	if !step("5 Model access", "POST /api/model/credential; PUT /api/model/default; POST /api/install/setup/models", "sealed coding/Gateway keys; models done", "T-INS-06", func() error {
-		for _, c := range []struct{ Name, Origin string }{{"TEST_PROVIDER", provider.URL}, {"AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh"}} {
-			body, _ := json.Marshal(map[string]string{"action": "enroll", "requestId": uuid.NewString(), "name": c.Name, "origin": c.Origin, "value": "rehearsal-key"})
-			data, err := expect("POST", "/api/model/credential", string(body), 200)
-			if err != nil {
-				return err
-			}
-			if !strings.Contains(string(data), `"ok":true`) {
-				return fmt.Errorf("credential refused: %s", data)
-			}
-		}
-		body, _ := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "test-model", "credential": "TEST_PROVIDER", "baseUrl": provider.URL}})
-		if _, err := expect("PUT", "/api/model/default", string(body), 200); err != nil {
-			return err
-		}
-		if _, err := expect("POST", "/api/install/setup/models", `{}`, 202); err != nil {
-			return err
-		}
-		return waitStep("models")
-	}) {
-		return
-	}
-	// refuseMainAtDoors checks that the composed doors read the engine's
-	// install fact: the owner's bookmark write and Git push of main are
-	// refused, so only the GitHub sync moves the mirror's main.
-	refuseMainAtDoors := func() error {
-		data, err := expect("POST", "/api/repos/rehearsal-owner/app/bookmarks", `{"name":"main","target_change_id":"main"}`, 403)
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(string(data), `"permission"`) {
-			return fmt.Errorf("bookmark door answered no permission refusal: %s", data)
-		}
-		data, err = expect("POST", "/api/user/tokens", `{"name":"j1-main-door","scopes":["write:repository"]}`, 201)
-		if err != nil {
-			return err
-		}
-		var created struct {
-			Token string `json:"token"`
-		}
-		if err = json.Unmarshal(data, &created); err != nil || created.Token == "" {
-			return fmt.Errorf("token create answered no token: %v", err)
-		}
-		work := filepath.Join(t.TempDir(), "door")
-		run := func(args ...string) (string, error) {
-			cmd := exec.Command("/usr/bin/git", append([]string{"-c", "http.extraHeader=Authorization: Bearer " + created.Token, "-c", "user.name=Owner", "-c", "user.email=owner@example.test"}, args...)...)
-			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-			out, err := cmd.CombinedOutput()
-			return string(out), err
-		}
-		if out, err := run("clone", "-q", origin+"/rehearsal-owner/app.git", work); err != nil {
-			return fmt.Errorf("clone through the Git door: %v: %s", err, out)
-		}
-		if err = os.WriteFile(filepath.Join(work, "door.txt"), []byte("owner push\n"), 0600); err != nil {
-			return err
-		}
-		if out, err := run("-C", work, "add", "door.txt"); err != nil {
-			return fmt.Errorf("%v: %s", err, out)
-		}
-		if out, err := run("-C", work, "commit", "-q", "-m", "owner push"); err != nil {
-			return fmt.Errorf("%v: %s", err, out)
-		}
-		if out, err := run("-C", work, "push", "-q", "origin", "HEAD:refs/heads/main"); err == nil || !strings.Contains(out, "403") {
-			return fmt.Errorf("the Git door let the owner push main: %v: %s", err, out)
-		}
-		return nil
-	}
-	if !step("6 source ready", "POST /api/install/setup/source → GET /api/install", "202 → source done (separate readiness)", "T-INS-06, T-MCH-10", func() error {
-		if _, err := expect("POST", "/api/install/setup/source", `{}`, 202); err != nil {
-			return err
-		}
-		err := waitStep("source")
-		sourceReady = err == nil
-		if err != nil {
-			return err
-		}
-		return refuseMainAtDoors()
-	}) {
-		return
-	}
-	// turnFrame is what the agent rows read of a turn's frames.
-	type turnFrame struct {
-		Type    string `json:"type"`
-		Name    string `json:"name"`
-		Text    string `json:"text"`
-		Kind    string `json:"kind"`
-		Message string `json:"message"`
-		Card    struct {
-			ID       string  `json:"id"`
-			Kind     string  `json:"kind"`
-			Audience *string `json:"audience_member_id"`
-			Payload  struct {
-				Path    string `json:"path"`
-				Content string `json:"content"`
-				ReadAt  struct {
-					CommitID string `json:"commitId"`
-				} `json:"readAt"`
-				N       int64  `json:"n"`
-				Prompt  string `json:"prompt"`
-				Private bool   `json:"private"`
-				Model   *struct {
-					Title string `json:"title"`
-					State string `json:"state"`
-				} `json:"model"`
-			} `json:"payload"`
-		} `json:"card"`
-	}
-	// ask posts one question from the composer's wire, with no tools of
-	// its own, so the host runs the turn's reads. A bearer token asks as
-	// that token instead of the owner's browser session.
-	ask := func(bearer, question string) (string, []turnFrame, bool, error) {
-		body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": question}}})
-		var data []byte
-		var err error
-		if bearer == "" {
-			data, err = expect("POST", chat.TurnPath, string(body), 200)
-		} else {
-			req, reqErr := http.NewRequest("POST", origin+chat.TurnPath, bytes.NewReader(body))
-			if reqErr != nil {
-				return "", nil, false, reqErr
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", "Bearer "+bearer)
-			resp, doErr := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-			if doErr != nil {
-				return "", nil, false, doErr
-			}
-			data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
-			fmt.Fprintf(&exchanges, "POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
-			if err == nil && resp.StatusCode != 200 {
-				err = fmt.Errorf("bearer turn: HTTP %d %s", resp.StatusCode, data)
-			}
-		}
-		if err != nil {
-			return "", nil, false, err
-		}
-		var answer strings.Builder
-		var frames []turnFrame
-		terminal := false
-		scanner := bufio.NewScanner(strings.NewReader(string(data)))
-		scanner.Buffer(make([]byte, 4096), 1<<20)
-		for scanner.Scan() {
-			var delivery chat.Delivery
-			if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
-				return "", nil, false, err
-			}
-			if delivery.Terminal != nil {
-				terminal = *delivery.Terminal
-			}
-			if delivery.Batch == nil {
-				continue
-			}
-			for _, raw := range delivery.Batch.Frames {
-				var frame turnFrame
-				if err = json.Unmarshal(raw, &frame); err != nil {
-					return "", nil, false, err
-				}
-				if frame.Type == "delta" && frame.Kind == "text" {
-					answer.WriteString(frame.Text)
-				}
-				frames = append(frames, frame)
-			}
-		}
-		return answer.String(), frames, terminal, scanner.Err()
-	}
-	// token mints a personal access token through the production route.
-	token := func(scopes ...string) (string, error) {
-		body, _ := json.Marshal(map[string]any{"name": "j1-" + strings.Join(scopes, "-") + "-" + uuid.NewString()[:8], "scopes": scopes})
-		data, err := expect("POST", "/api/user/tokens", string(body), 201)
-		if err != nil {
-			return "", err
-		}
-		var created struct {
-			Token string `json:"token"`
-		}
-		if err = json.Unmarshal(data, &created); err != nil || created.Token == "" {
-			return "", fmt.Errorf("token create answered no token: %v", err)
-		}
-		return created.Token, nil
-	}
-	if !step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
+	if !r.step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
 		// Tokens are minted first, so the row's evidence ends on a question.
-		chatOnly, err := token("write:user")
+		chatOnly, err := r.token("write:user")
 		if err != nil {
 			return err
 		}
-		reader, err := token("write:user", "read:repository")
+		reader, err := r.token("write:user", "read:repository")
 		if err != nil {
 			return err
 		}
-		creates, live := len(compute.Creates()), len(compute.Live())
-		answer, frames, terminal, err := ask("", "What is in JOURNEY.md? Show the file.")
+		creates, live := len(r.compute.Creates()), len(r.compute.Live())
+		answer, frames, terminal, err := r.ask("", "What is in JOURNEY.md? Show the file.")
 		if err != nil {
 			return err
 		}
-		if !sourceReady {
+		if !r.sourceReady {
 			return fmt.Errorf("Source ready absent before the answer; file-card journey remains blocked")
 		}
 		fileRead, fileCard, toolCall := false, false, false
@@ -690,8 +41,8 @@ func TestJ1Rehearsal(t *testing.T) {
 			toolCall = toolCall || frame.Type == "tool_call"
 			if frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" {
 				// The card holds main's bytes at the mirrored commit.
-				if frame.Card.Payload.Content != "Add a greeting to JOURNEY.md\n" || frame.Card.Payload.ReadAt.CommitID != mainCommit {
-					return fmt.Errorf("file card is not main at %s: %q at %q", mainCommit, frame.Card.Payload.Content, frame.Card.Payload.ReadAt.CommitID)
+				if frame.Card.Payload.Content != "Add a greeting to JOURNEY.md\n" || frame.Card.Payload.ReadAt.CommitID != r.mainCommit {
+					return fmt.Errorf("file card is not main at %s: %q at %q", r.mainCommit, frame.Card.Payload.Content, frame.Card.Payload.ReadAt.CommitID)
 				}
 				fileCard = true
 			}
@@ -701,7 +52,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			return fmt.Errorf("answer/file card missing (terminal=%t file_read=%t file_card=%t renderer_tool_call=%t) answer=%q", terminal, fileRead, fileCard, toolCall, answer)
 		}
 		// A path out of the repository is refused, stated and answered; no card.
-		answer, frames, terminal, err = ask("", "Show ../../etc/passwd")
+		answer, frames, terminal, err = r.ask("", "Show ../../etc/passwd")
 		if err != nil {
 			return err
 		}
@@ -720,7 +71,7 @@ func TestJ1Rehearsal(t *testing.T) {
 		// nothing, and no byte of the file reaches the answer. A token that
 		// reads repositories gets the File card.
 		for _, question := range []string{"What is in JOURNEY.md? Show the file.", "What is in JOURNEY.md? (forced)"} {
-			answer, frames, terminal, err = ask(chatOnly, question)
+			answer, frames, terminal, err = r.ask(chatOnly, question)
 			if err != nil {
 				return err
 			}
@@ -736,7 +87,7 @@ func TestJ1Rehearsal(t *testing.T) {
 		if !strings.Contains(answer, "unknown-tool: commands") {
 			return fmt.Errorf("a forced call by a write:user token was not refused: %q", answer)
 		}
-		answer, frames, terminal, err = ask(reader, "What is in JOURNEY.md? Show the file.")
+		answer, frames, terminal, err = r.ask(reader, "What is in JOURNEY.md? Show the file.")
 		if err != nil {
 			return err
 		}
@@ -747,59 +98,22 @@ func TestJ1Rehearsal(t *testing.T) {
 		if !terminal || !fileCard || !strings.Contains(answer, "Add a greeting to JOURNEY.md") {
 			return fmt.Errorf("a read:repository token's question got no File card (terminal=%t card=%t) answer=%q", terminal, fileCard, answer)
 		}
-		if len(compute.Creates()) != creates || len(compute.Live()) != live {
-			return fmt.Errorf("a question started a machine: creates %d→%d, live %d→%d", creates, len(compute.Creates()), live, len(compute.Live()))
+		if len(r.compute.Creates()) != creates || len(r.compute.Live()) != live {
+			return fmt.Errorf("a question started a machine: creates %d→%d, live %d→%d", creates, len(r.compute.Creates()), live, len(r.compute.Live()))
 		}
 		return nil
 	}) {
 		return
 	}
-	if !step("6 machine ready", "POST /api/install/setup/machine → GET /api/install", "202 → machine done (separate readiness)", "T-INS-06, T-MCH-10", func() error {
-		if _, err := expect("POST", "/api/install/setup/machine", `{}`, 202); err != nil {
-			return err
-		}
-		return waitStep("machine")
-	}) {
+	if !r.setupMachine() {
 		return
 	}
-	// The TODO's coding run reaches the scripted model through the metered
-	// platform-key proxy, which charges the owner's credit. The deployment
-	// grants none at signup, so the owner gets a grant, as an operator's would.
-	if coder.url != "" {
-		ledger := credits.Ledger{DB: pool}
-		var owner int64
-		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM users WHERE lower_username = 'rehearsal-owner'`).Scan(&owner))
-		account, err := ledger.EnsureAccount(ctx, "user", owner)
-		require.NoError(t, err)
-		require.NoError(t, ledger.Grant(ctx, account, "j1-rehearsal", 100_000_000_000, nil))
-	}
 	var number int64
-	if !step("First TODO", "GET /api/repos/{o}/{r}/mythical; POST /api/todos", "stack active; 202 accepted; positive n; exact app place body", "T-STK-01", func() error {
-		// Source ready asked for the stack and did not wait for it (§8.6.3); the
-		// stack worker activates it, and a TODO is accepted only then.
-		deadline := time.Now().Add(30 * time.Second)
-		for {
-			data, err := expect("GET", "/api/repos/rehearsal-owner/app/mythical", "", 200)
-			if err != nil {
-				return err
-			}
-			var stack struct {
-				State     string `json:"state"`
-				Reason    string `json:"reason"`
-				LastError string `json:"lastError"`
-			}
-			if err = json.Unmarshal(data, &stack); err != nil {
-				return err
-			}
-			if stack.State == "active" {
-				break
-			}
-			if stack.State == "frozen" || !time.Now().Before(deadline) {
-				return fmt.Errorf("stack not active: state=%s reason=%q last_error=%q", stack.State, stack.Reason, stack.LastError)
-			}
-			time.Sleep(100 * time.Millisecond)
+	if !r.step("First TODO", "GET /api/repos/{o}/{r}/mythical; POST /api/todos", "stack active; 202 accepted; positive n; exact app place body", "T-STK-01", func() error {
+		if err := r.waitStackActive(); err != nil {
+			return err
 		}
-		data, err := expect("POST", "/api/todos", `{"title":"First TODO","prompt":"Add a greeting to JOURNEY.md","place":{"mode":"append"}}`, 202)
+		data, err := r.expect("POST", "/api/todos", `{"title":"First TODO","prompt":"Add a greeting to JOURNEY.md","place":{"mode":"append"}}`, 202)
 		if err != nil {
 			return err
 		}
@@ -831,7 +145,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
 		}
 		count := func() (int, error) {
-			data, err := expect("GET", "/api/todos", "", 200)
+			data, err := r.expect("GET", "/api/todos", "", 200)
 			if err != nil {
 				return 0, err
 			}
@@ -845,7 +159,7 @@ func TestJ1Rehearsal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		ran := func(frames []turnFrame) bool {
+		ran := func(frames []rehearsalTurnFrame) bool {
 			for _, frame := range frames {
 				if frame.Type == "card" || frame.Type == "call.started" || frame.Type == "call.settled" || frame.Type == "gate.rejected" {
 					return true
@@ -861,7 +175,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			"- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)",
 		}, "\n")
 		// The instructions list exactly the commands the host runs for the owner's session.
-		answer, _, terminal, err := ask("", "What can you run? (instructions)")
+		answer, _, terminal, err := r.ask("", "What can you run? (instructions)")
 		if err != nil {
 			return err
 		}
@@ -869,7 +183,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			return fmt.Errorf("the owner's instructions list %q, want %q", answer, owned)
 		}
 		// /stack: each open TODO as its TODO card; the model reads the rows.
-		todoCard := func(frames []turnFrame, command string) bool {
+		todoCard := func(frames []rehearsalTurnFrame, command string) bool {
 			card, settled := false, false
 			for _, frame := range frames {
 				card = card || (frame.Type == "card" && frame.Card.Kind == "todo" && frame.Card.ID == fmt.Sprintf("todo:%d", number) &&
@@ -878,14 +192,14 @@ func TestJ1Rehearsal(t *testing.T) {
 			}
 			return card && settled
 		}
-		answer, frames, terminal, err := ask("", "What is on the stack? Run /stack")
+		answer, frames, terminal, err := r.ask("", "What is on the stack? Run /stack")
 		if err != nil {
 			return err
 		}
 		if !terminal || !todoCard(frames, "stack") || !strings.Contains(answer, fmt.Sprintf(`{"n":%d,"title":"First TODO"`, number)) {
 			return fmt.Errorf("/stack answered no TODO card for T%d: answer=%q", number, answer)
 		}
-		answer, frames, terminal, err = ask("", fmt.Sprintf("Open it. Run /todo T%d", number))
+		answer, frames, terminal, err = r.ask("", fmt.Sprintf("Open it. Run /todo T%d", number))
 		if err != nil {
 			return err
 		}
@@ -893,7 +207,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			return fmt.Errorf("/todo T%d answered no TODO card: answer=%q", number, answer)
 		}
 		// /todo.new asks the person: a private Draft for the owner, and no TODO.
-		answer, frames, terminal, err = ask("", "Run /todo.new Add a farewell to JOURNEY.md")
+		answer, frames, terminal, err = r.ask("", "Run /todo.new Add a farewell to JOURNEY.md")
 		if err != nil {
 			return err
 		}
@@ -908,7 +222,7 @@ func TestJ1Rehearsal(t *testing.T) {
 		// Merge asks the person and is not the host's; secrets are never the
 		// agent's; an unknown command does not exist. None runs anything.
 		for _, name := range []string{"merge", "secrets.set", "todo.erase"} {
-			answer, frames, terminal, err = ask("", fmt.Sprintf("Run /%s T%d", name, number))
+			answer, frames, terminal, err = r.ask("", fmt.Sprintf("Run /%s T%d", name, number))
 			if err != nil {
 				return err
 			}
@@ -919,29 +233,29 @@ func TestJ1Rehearsal(t *testing.T) {
 		// A token reads no TODO through the agent: the routes admit the owner's
 		// browser session only. A chat-only token is offered no tool; a
 		// repository reader is offered files.read alone.
-		chatOnly, err := token("write:user")
+		chatOnly, err := r.token("write:user")
 		if err != nil {
 			return err
 		}
-		reader, err := token("write:user", "read:repository")
+		reader, err := r.token("write:user", "read:repository")
 		if err != nil {
 			return err
 		}
-		answer, frames, terminal, err = ask(chatOnly, "Run /stack (forced)")
+		answer, frames, terminal, err = r.ask(chatOnly, "Run /stack (forced)")
 		if err != nil {
 			return err
 		}
 		if !terminal || ran(frames) || !strings.Contains(answer, "unknown-tool: commands") {
 			return fmt.Errorf("a write:user token's /stack was not refused: answer=%q", answer)
 		}
-		answer, _, terminal, err = ask(reader, "What can you run? (instructions)")
+		answer, _, terminal, err = r.ask(reader, "What can you run? (instructions)")
 		if err != nil {
 			return err
 		}
 		if !terminal || answer != files {
 			return fmt.Errorf("a read:repository token's instructions list %q, want %q", answer, files)
 		}
-		answer, frames, terminal, err = ask(reader, "Run /stack")
+		answer, frames, terminal, err = r.ask(reader, "Run /stack")
 		if err != nil {
 			return err
 		}
@@ -959,449 +273,34 @@ func TestJ1Rehearsal(t *testing.T) {
 	}
 	head := ""
 	var prNumber int64
-	// Each state lasts as long as the work behind it: Starting until the lane's
-	// coding host accepts the run, Working for the scripted coding/request,
-	// In review once coding/vibe delivered and the PR opened. The stack takes
-	// its own steps to In review at once, so a TODO left for the stale sweep
-	// (5 to 10 minutes) fails here.
-	waits := map[string]time.Duration{"queued": 3 * time.Second, "starting": 2 * time.Minute, "working": 3 * time.Minute, "in_review": 2 * time.Minute}
 	for _, state := range []string{"queued", "starting", "working", "in_review"} {
-		if !step("TODO "+state, "GET "+todoPath, "200 state="+state, "T-STK-01", func() error {
-			if number <= 0 {
-				return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
+		if !r.step("TODO "+state, "GET "+todoPath, "200 state="+state, "T-STK-01", func() error {
+			todo, err := r.waitTodo(number, state)
+			if err == nil {
+				head, prNumber = todo.PR.Head, todo.PR.Number
 			}
-			began := time.Now()
-			deadline := began.Add(waits[state])
-			for {
-				data, err := expect("GET", todoPath, "", 200)
-				if err != nil {
-					return err
-				}
-				var v struct {
-					State string `json:"state"`
-					PR    struct {
-						Number int64  `json:"number"`
-						Head   string `json:"head"`
-					} `json:"pr"`
-				}
-				if err = json.Unmarshal(data, &v); err != nil {
-					return err
-				}
-				if v.State == state {
-					head = v.PR.Head
-					prNumber = v.PR.Number
-					return nil
-				}
-				// The stack's own record says why it did not move; an attempt
-				// that failed or stopped does not reach the state in this run.
-				var itemState, reason string
-				_ = pool.QueryRow(ctx, `SELECT state, reason FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &reason)
-				settled := itemState == "retrying" || itemState == "failed" || itemState == "stopped" || itemState == "blocked"
-				if settled || time.Now().After(deadline) {
-					return fmt.Errorf("state %q, expected %q (item %s: %q)", v.State, state, itemState, reason)
-				}
-				// Fast while a short state may pass, then within the API's rate
-				// limit for a wait that lasts minutes.
-				if time.Since(began) < 5*time.Second {
-					time.Sleep(40 * time.Millisecond)
-				} else {
-					time.Sleep(500 * time.Millisecond)
-				}
-			}
+			return err
 		}) {
 			return
 		}
 	}
 	// After the state polls: in_review holds until the merge, so the agent's
 	// turns sit inside no transient state's poll window.
-	if !step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
+	if !r.step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
 		return
 	}
-	readFakePull := func() (githubfake.Pull, error) {
-		codec, err := webhook.NewSecretCodec("rehearsal-encryption-key")
-		if err != nil {
-			return githubfake.Pull{}, err
-		}
-		credentials := services.NewGitHubAppCredentialStore(pool, codec)
-		tokens := services.NewRepoConnectionService(pool, credentials)
-		access, err := tokens.CreateGitHubInstallationTokenForInternalInstallation(ctx, 91)
-		if err != nil {
-			return githubfake.Pull{}, err
-		}
-		jwt := access.Token
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s/repos/rehearsal-owner/app/pulls/%d", fake.URL, prNumber), nil)
-		if err != nil {
-			return githubfake.Pull{}, err
-		}
-		req.Header.Set("Authorization", "Bearer "+jwt)
-		resp, err := fake.Client().Do(req)
-		if err != nil {
-			return githubfake.Pull{}, err
-		}
-		defer resp.Body.Close()
-		var p githubfake.Pull
-		if err = json.NewDecoder(resp.Body).Decode(&p); err != nil {
-			return githubfake.Pull{}, err
-		}
-		if resp.StatusCode != 200 {
-			return githubfake.Pull{}, fmt.Errorf("fake PR HTTP %d", resp.StatusCode)
-		}
-		return p, nil
-	}
-	if !step("PR", "GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "head smithers/<slug>; base main; reviewed head", "T-STK-01", func() error {
-		if prNumber <= 0 {
-			return fmt.Errorf("no PR number from TODO")
-		}
-		p, err := readFakePull()
-		if err != nil {
-			return err
-		}
-		actual = fmt.Sprintf("200 head=%s sha=%s base=%s", p.Head.Ref, p.Head.SHA, p.Base.Ref)
-		if !strings.HasPrefix(p.Head.Ref, "smithers/") || p.Base.Ref != "main" || p.Head.SHA != head {
-			return fmt.Errorf("PR contract mismatch")
-		}
-		return nil
+	if !r.step("PR", "GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "head smithers/<slug>; base main; reviewed head", "T-STK-01", func() error {
+		_, err := r.checkPull(prNumber, head)
+		return err
 	}) {
 		return
 	}
-	if !step("Merge in Smithers", "POST "+todoPath+"/merge", "202; reviewed head; browser session; one checks.Land", "T-STK-04", func() error {
-		if number <= 0 || head == "" {
-			return fmt.Errorf("blocked by First TODO/PR: no reviewed head from public routes")
-		}
-		body, _ := json.Marshal(map[string]string{"reviewed_head_sha": head})
-		if _, err := expect("POST", todoPath+"/merge", string(body), 202); err != nil {
-			return err
-		}
-		session := ""
-		for _, cookie := range jar.Cookies(mustRehearsalURL(origin)) {
-			if cookie.Name == "smithers_session" {
-				digest := sha256.Sum256([]byte(cookie.Value))
-				session = hex.EncodeToString(digest[:])
-			}
-		}
-		if session == "" {
-			return fmt.Errorf("browser session credential absent")
-		}
-		var count int
-		err := pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE number=$1 AND checks->'land'->>'head'=$2 AND checks->'land'->>'session'=$3`, number, head, session).Scan(&count)
-		if err != nil {
-			return err
-		}
-		if count != 1 {
-			return fmt.Errorf("expected one session-bound checks.Land, got %d", count)
-		}
-		return nil
+	if !r.step("Merge in Smithers", "POST "+todoPath+"/merge", "202; reviewed head; browser session; one checks.Land", "T-STK-04", func() error {
+		return r.merge(number, head)
 	}) {
 		return
 	}
-	step("Merged", "GET "+todoPath+"; GET /api/repos/{o}/{r}/mythical; GET /api/github/sync", "merged only after GitHub merge receipt; the install's main follows GitHub's squash commit; sync fresh", "T-STK-04, T-GH-02", func() error {
-		if number <= 0 {
-			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
-		}
-		// The merge worker polls every 3 s, and GitHub's main is the fake's
-		// real squash commit, which only the GitHub sync brings into the
-		// install's main (the merge asks it to read at once; its poll is
-		// 30 s) for the stack to fold. 60 s spans both.
-		deadline := time.Now().Add(60 * time.Second)
-		merged, squash := false, ""
-		for {
-			if !merged {
-				data, err := expect("GET", todoPath, "", 200)
-				if err != nil {
-					return err
-				}
-				var v struct {
-					State string `json:"state"`
-				}
-				if err = json.Unmarshal(data, &v); err != nil {
-					return err
-				}
-				if v.State == "merged" {
-					p, err := readFakePull()
-					if err != nil {
-						return err
-					}
-					if !p.Merged || p.MergedAt == nil || len(p.MergeCommitSHA) != 40 {
-						return fmt.Errorf("TODO merged before GitHub reported a merge")
-					}
-					receipt := false
-					for _, write := range fake.Writes() {
-						if write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge") && write.Status == 200 {
-							var input struct {
-								SHA    string `json:"sha"`
-								Method string `json:"merge_method"`
-							}
-							if json.Unmarshal(write.Body, &input) == nil && input.Method == "squash" && input.SHA == head {
-								receipt = true
-							}
-						}
-					}
-					if !receipt {
-						return fmt.Errorf("no successful head-bound squash GitHub receipt")
-					}
-					githubMain, err := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(gitRoot, "rehearsal-owner/app.git"), "rev-parse", "refs/heads/main").Output()
-					if err != nil {
-						return err
-					}
-					if strings.TrimSpace(string(githubMain)) != p.MergeCommitSHA {
-						return fmt.Errorf("GitHub's main %s is not the squash commit %s", strings.TrimSpace(string(githubMain)), p.MergeCommitSHA)
-					}
-					squash, merged = p.MergeCommitSHA, true
-				} else if time.Now().After(deadline) {
-					return fmt.Errorf("TODO state %q, expected merged", v.State)
-				}
-			}
-			if merged {
-				data, err := expect("GET", "/api/repos/rehearsal-owner/app/mythical", "", 200)
-				if err != nil {
-					return err
-				}
-				var stack struct {
-					LandedMain string `json:"landedMain"`
-					MainBehind bool   `json:"mainBehind"`
-				}
-				if err = json.Unmarshal(data, &stack); err != nil {
-					return err
-				}
-				if stack.LandedMain == squash && !stack.MainBehind {
-					data, err = expect("GET", "/api/github/sync", "", 200)
-					if err != nil {
-						return err
-					}
-					var health struct {
-						State         string     `json:"state"`
-						LastSuccessAt *time.Time `json:"last_success_at"`
-					}
-					if err = json.Unmarshal(data, &health); err != nil {
-						return err
-					}
-					if health.State != "fresh" || health.LastSuccessAt == nil {
-						return fmt.Errorf("GitHub sync %q after the follow", health.State)
-					}
-					actual = fmt.Sprintf("200 merged; install main %s = GitHub's squash commit; sync fresh", squash)
-					return nil
-				}
-				if time.Now().After(deadline) {
-					return fmt.Errorf("the install's main did not follow GitHub's squash commit %s: stack folded %s (behind=%t)", squash, stack.LandedMain, stack.MainBehind)
-				}
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
+	r.step("Merged", "GET "+todoPath+"; GET /api/repos/{o}/{r}/mythical; GET /api/github/sync", "merged only after GitHub merge receipt; the install's main follows GitHub's squash commit; sync fresh", "T-STK-04, T-GH-02", func() error {
+		return r.waitMerged(number, prNumber, head)
 	})
-}
-
-func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
-
-// buildRehearsalCodingHost builds the packaged coding host from source and
-// pins it the way the install bundle's flow-hosts.json does.
-func buildRehearsalCodingHost(t *testing.T, node, root string) flowmanifest.Registry {
-	t.Helper()
-	coding := filepath.Join(t.TempDir(), "smithers-coding-host")
-	build := exec.Command(node, filepath.Join(root, "flows/coding/build.mjs"), coding)
-	build.Dir = root
-	output, err := build.CombinedOutput()
-	require.NoError(t, err, string(output))
-	data, err := os.ReadFile(coding)
-	require.NoError(t, err)
-	// Pin the fixture's Node interpreter as the packaged host does; the digest
-	// measures the exact executable bytes, banner included.
-	newline := bytes.IndexByte(data, '\n')
-	require.GreaterOrEqual(t, newline, 0)
-	quoted := "'" + strings.ReplaceAll(node, "'", `'"'"'`) + "'"
-	data = append([]byte(fmt.Sprintf("#!/bin/sh\n':' //; exec %s \"$0\" \"$@\"\n", quoted)), data[newline+1:]...)
-	require.NoError(t, os.WriteFile(coding, data, 0700))
-	sum := sha256.Sum256(data)
-	return flowmanifest.Registry{Coding: flowmanifest.Host{Executable: coding, SHA256: hex.EncodeToString(sum[:])}}
-}
-
-// rehearsalJJExport is the native source helper a lane's coding host binds
-// its checkout with: SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, else the one built
-// beside the repository engine's library.
-func rehearsalJJExport(root, library string) string {
-	for _, candidate := range []string{os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"), filepath.Join(filepath.Dir(library), "smithers-jj-export"), filepath.Join(root, "target/release/smithers-jj-export")} {
-		if !filepath.IsAbs(candidate) {
-			continue
-		}
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			return candidate
-		}
-	}
-	return ""
-}
-
-// rehearsalCodingModel is distribution/fake-todo-provider.mjs on a loopback
-// port: the scripted model every coding turn of the TODO reaches.
-type rehearsalCodingModel struct{ url string }
-
-func startRehearsalCodingModel(t *testing.T, node, root, evidence string) rehearsalCodingModel {
-	t.Helper()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
-	require.NoError(t, listener.Close())
-	logs := &lockedBuffer{}
-	command := exec.Command(node, filepath.Join(root, "distribution/fake-todo-provider.mjs"))
-	// The trace keeps each turn's role and request shape, never a credential.
-	command.Env = append(os.Environ(), "PORT="+port, "HOST=127.0.0.1", "TRACE_FILE="+filepath.Join(evidence, "model-turns.jsonl"))
-	command.Stdout, command.Stderr = logs, logs
-	require.NoError(t, command.Start())
-	t.Cleanup(func() {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		_ = os.WriteFile(filepath.Join(evidence, "model.log"), []byte(logs.String()), 0600)
-	})
-	model := rehearsalCodingModel{url: "http://127.0.0.1:" + port}
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if response, err := http.Get(model.url + "/health"); err == nil {
-			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK {
-				return model
-			}
-		}
-	}
-	t.Fatalf("scripted coding model did not start\n%s", logs.String())
-	return model
-}
-
-// turns answers the scripted model's served turns by role.
-func (model rehearsalCodingModel) turns() string {
-	response, err := http.Get(model.url + "/turns")
-	if err != nil {
-		return err.Error()
-	}
-	defer response.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(response.Body, 1<<16))
-	return string(data)
-}
-
-// rehearsalBranchMachines are the install's branch machine providers
-// (services.InstallBranchMachineProviders): its roster, the one member
-// authorizer and the stack's lane binding, read in the creating transaction.
-// The trusted-process runtime the rehearsal composes isolates nothing, so its
-// microVM (R1-R5) and guest identity providers admit; the bundle's microVM
-// install composes the real ones (app.Config.BranchMachines).
-func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProviders {
-	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(db.New(pool)), nil)
-	providers.MicroVM = func(context.Context) error { return nil }
-	providers.SessionIdentity = func(context.Context) error { return nil }
-	return &providers
-}
-
-// bindingProcessRuntime is the trusted-process runtime with the source binding
-// a guest gets (installRuntimeBoxCodingBinding): the binding is written as this
-// user in the checkout's .jj directory, and each coding host the
-// workspace starts names it in SMITHERS_WORKSPACE_CODING_CONFIG. Only a
-// smithers-jj-export built with trusted-process-binding reads that file; the
-// credential is the head publisher's Git cache, as in a guest.
-// A host that exits before it is ready leaves its stderr in the evidence.
-type bindingProcessRuntime struct {
-	*process.Runtime
-	evidence string
-}
-
-var _ workspaceapi.WorkspaceCodingBindingInstaller = bindingProcessRuntime{}
-
-func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {
-	observed, err := r.InspectWorkspace(ctx, workspaceID)
-	if err != nil {
-		return "", observed, err
-	}
-	// The coding host runs its helper confined to the checkout's reads, so
-	// the binding sits in the checkout's .jj directory, which no source holds.
-	return filepath.Join(observed.Root, ".jj", "workspace-coding.json"), observed, nil
-}
-
-func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context, workspaceID string, binding workspaceapi.WorkspaceCodingBinding) error {
-	if err := binding.Validate(); err != nil {
-		return err
-	}
-	file, observed, err := r.binding(ctx, workspaceID)
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(struct {
-		workspaceapi.WorkspaceCodingBinding
-		Version          int    `json:"version"`
-		WorkspaceID      string `json:"workspaceId"`
-		RepositoryPath   string `json:"repositoryPath"`
-		CredentialSocket string `json:"credentialSocket"`
-	}{binding, 1, workspaceID, observed.Root, filepath.Join(observed.Home, ".cache", "smithers", "git-credential", "socket")})
-	if err != nil {
-		return err
-	}
-	temporary := file + ".tmp"
-	if err = os.WriteFile(temporary, data, 0600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, file)
-}
-
-func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
-	file, _, err := r.binding(ctx, workspaceID)
-	if err != nil {
-		return workspaceapi.ManagedHostConnection{}, err
-	}
-	build := spec.Builder
-	spec.Builder = workspaceapi.ManagedHostBuilderFunc(func(ctx context.Context, placement workspaceapi.ManagedHostPlacement) (workspaceapi.Command, error) {
-		command, err := build.BuildManagedHost(ctx, placement)
-		if err != nil {
-			return command, err
-		}
-		environment := make(map[string]string, len(command.Environment)+1)
-		for name, value := range command.Environment {
-			environment[name] = value
-		}
-		environment["SMITHERS_WORKSPACE_CODING_CONFIG"] = file
-		command.Environment = environment
-		return command, nil
-	})
-	connection, err := r.Runtime.StartManagedHost(ctx, workspaceID, spec)
-	if err != nil {
-		if service, inspectErr := r.InspectService(context.WithoutCancel(ctx), workspaceID, spec.Name); inspectErr == nil && service.Stderr != "" {
-			stderr, _ := os.OpenFile(filepath.Join(r.evidence, "coding-host.stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-			if stderr != nil {
-				fmt.Fprintf(stderr, "--- %s %s: %v\n%s\n", time.Now().UTC().Format(time.RFC3339), spec.Name, err, service.Stderr)
-				_ = stderr.Close()
-			}
-		}
-	}
-	return connection, err
-}
-
-// trustedProcessImages is the machine image adapter for the trusted-process
-// runtime the rehearsal composes. Its machines run on the host toolchain, so it
-// can provide only the base image: it reads main's recipe through the mirror
-// and refuses one that needs a layer (a target index, image additions or a
-// detected toolchain). "6 machine ready" therefore proves setup admission,
-// persistence and fencing, not an image build. The install bundle binds its
-// microVM runtime's builder instead (installMachineImages).
-type trustedProcessImages struct{ sources workspaceapi.SourceFiles }
-
-func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
-	if spec.Source == nil || spec.Source.Repository == "" || len(spec.Source.Revision) != 40 {
-		return microsandbox.Layer{}, fmt.Errorf("a machine image needs main's resolved revision")
-	}
-	read := func(path string) ([]byte, bool, error) {
-		data, err := images.sources.ReadSourceFile(ctx, *spec.Source, path)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, false, nil
-		}
-		return data, err == nil, err
-	}
-	_, indexed, err := read(".smithers/target-index.json")
-	if err != nil {
-		return microsandbox.Layer{}, err
-	}
-	machine, err := microsandbox.ReadMachineJSON(read)
-	if err != nil {
-		return microsandbox.Layer{}, err
-	}
-	recipe, err := microsandbox.DetectRecipe(read)
-	if err != nil {
-		return microsandbox.Layer{}, err
-	}
-	if indexed || len(machine.Packages) > 0 || len(recipe.Tools) > 0 {
-		return microsandbox.Layer{}, fmt.Errorf("main's recipe needs an image layer; the trusted-process runtime provides only the base image")
-	}
-	return microsandbox.Layer{}, nil
 }
