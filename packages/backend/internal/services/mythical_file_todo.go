@@ -81,7 +81,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, err
 	}
 	if decision.UserID != userID {
-		return MythicalItemView{}, &AccessError{http.StatusForbidden, "permission", "permission", "Sign in with a browser session"}
+		return MythicalItemView{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
 	// The first revision is the person's own text, by them.

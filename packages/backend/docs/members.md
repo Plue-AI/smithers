@@ -15,7 +15,7 @@ seeds from GitHub's `role_name`:
 | --- | --- | --- |
 | admin, maintain | `admin` | Maintainer |
 | write | `write` | Member |
-| read, triage, none | refused, `403 needs_github_access` | none |
+| read, triage, none | refused, `403 needs_github_access` (class `user`, `fix` is the repository's access settings) | none |
 
 After that the Members card is authoritative: `PATCH /api/members/{login}`
 changes the role and `DELETE /api/members/{login}` removes the person. The
@@ -38,17 +38,30 @@ so a removal refuses the very next request. Only a person's own browser
 session carries person authority; tokens get `403 permission` until
 delegated credentials land.
 
-| Command | Least role |
-| --- | --- |
-| `todo.read`, `todo.new`, `todo.answer`, `todo.steer` | Member |
-| `merge` | Maintainer |
-| `members.list` | Member |
-| `members.write` | Maintainer |
+| Command | Least role | Routes |
+| --- | --- | --- |
+| `install.read` | Member | `GET /api/install` |
+| `repo.read` | Member | `GET /api/user/repos`, `GET /api/repos/{o}/{r}/mythical`, `.../mythical/events`, `.../mythical/items/{ref}` |
+| `sync.read`, `sync.retry` | Member | `GET`, `POST /api/github/sync` |
+| `live` | Member | `GET /api/live` |
+| `agent.turn` | Member | `POST /api/agent/turn`, `POST /api/agent/turn/cancel` |
+| `todo.read`, `todo.new`, `todo.answer` | Member | `GET /api/todos`, `GET /api/todos/{n}`, `POST /api/todos`, `POST /api/todos/{n}/answer` |
+| `todo.steer`, `todo.stop`, `todo.resume`, `todo.retry`, `todo.drop` | Member | `POST /api/todos/{n}` (by `op`) |
+| `merge` | Maintainer | `POST /api/todos/{n}/merge` |
+| `members.list` | Member | `GET /api/members` |
+| `members.write` | Maintainer | `POST /api/members`, `PATCH`, `DELETE /api/members/{login}` |
 
 The HTTP boundary admits a non-owner only on the routes in
 `middleware.InstallMemberCommand`'s table; every other route stays the owner's,
-so a new route ships closed to members. Git HTTP, SSE tickets and app agent
-turns stay owner-only for members.
+so a new route ships closed to members. For a member's request the router then
+authorizes the route's command through `services.Authorize`, so a member's
+token is refused and a lower role gets `403 permission`. An app agent turn
+answers a member as that member: each read it makes goes through the same
+table. Git HTTP and SSE tickets stay owner-only for members.
+
+`POST /api/todos/{n}` is mounted and authorized by role, and the TODO service
+still answers every control `503 todo_control_unavailable` until a steer can
+reach a running attempt (T-FLW-11, T-STK-01).
 
 ## Removal
 

@@ -73,6 +73,7 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 	router.Get("/api/todos", handler.List)
 	router.Get("/api/todos/{n}", handler.Get)
 	router.Post("/api/todos", handler.Create)
+	router.Post("/api/todos/{n}", handler.Control)
 	router.Post("/api/todos/{n}/answer", handler.Answer)
 	router.Post("/api/todos/{n}/merge", handler.Merge)
 	// Each person holds a live browser session; Merge reads it back.
@@ -131,7 +132,43 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			status, envelope = call(http.MethodPost, "/api/todos/99/merge", `{"reviewed_head_sha":"`+head+`"}`, "merge-"+tc.who, info)
 			require.Equal(t, tc.merge, status, envelope)
 			require.Equal(t, tc.mergeCode, envelope["code"])
+			// Every control, as the app sends it: a person on the roster gets
+			// past authorization to the service, which keeps controls dark;
+			// nobody else gets past authorization.
+			for _, body := range []string{`{"op":"steer","text":"Keep the max at 5"}`, `{"steer":"Keep the max at 5"}`, `{"op":"stop"}`, `{"op":"resume"}`,
+				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`} {
+				status, envelope = call(http.MethodPost, "/api/todos/3", body, "control-"+tc.who, info)
+				if tc.list == 200 {
+					require.Equal(t, http.StatusServiceUnavailable, status, body)
+					require.Equal(t, map[string]any{"code": "todo_control_unavailable", "class": "infra", "message": "TODO controls are unavailable"}, envelope, body)
+				} else {
+					require.Equal(t, http.StatusForbidden, status, body)
+					require.Equal(t, "permission", envelope["code"], body)
+				}
+			}
 		})
+	}
+	// A control is read before it is authorized: malformed ones are 400.
+	for _, tc := range []struct{ path, body, key, code string }{
+		{"0", `{"op":"stop"}`, "key", "invalid_todo"},
+		{"9223372036854775808", `{"op":"stop"}`, "key", "invalid_todo"},
+		{"3", `{`, "key", "invalid_control"},
+		{"3", `{"op":"stop","unexpected":true}`, "key", "invalid_control"},
+		{"3", `{"op":"stop"} {}`, "key", "invalid_control"},
+		{"3", `{"op":"stop"}`, "", "idempotency_key_required"},
+		{"3", `{"op":"cancel"}`, "key", "invalid_control"},
+		{"3", `{"op":"drop","steer":"no"}`, "key", "invalid_control"},
+		{"3", `{"op":"drop","text":"no"}`, "key", "invalid_control"},
+		{"3", `{"op":"steer","steer":"x","text":"x"}`, "key", "invalid_control"},
+		{"3", `{"op":"steer"}`, "key", "invalid_steer"},
+		{"3", `{"op":"steer","text":" "}`, "key", "invalid_steer"},
+		{"3", `{}`, "key", "invalid_steer"},
+		{"3", `{"steer":"x","via":"smithers"}`, "key", "invalid_control"},
+		{"3", strings.Repeat(" ", 64<<10) + `{}`, "key", "invalid_control"},
+	} {
+		status, envelope := call(http.MethodPost, "/api/todos/"+tc.path, tc.body, tc.key, sessions["member"])
+		require.Equal(t, http.StatusBadRequest, status, tc.body[:min(len(tc.body), 100)])
+		require.Equal(t, tc.code, envelope["code"], tc.body[:min(len(tc.body), 100)])
 	}
 	// Created TODOs carry their person: the first revision is by Alice.
 	var by string

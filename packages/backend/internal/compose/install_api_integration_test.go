@@ -87,8 +87,9 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, status)
 	require.Equal(t, "invalid_todo", refusal["code"])
 
-	// The routes admit the install owner's browser session only: a token, even
-	// the owner's, and another person's session are refused by the route itself.
+	// The routes admit a person's browser session on the roster only: a token,
+	// even the owner's, and the session of a person off the roster are refused
+	// by the route itself (services.Authorize).
 	sum := sha256.Sum256([]byte(uuid.NewString()))
 	hash := hex.EncodeToString(sum[:])
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "turn", TokenHash: hash, TokenLastEight: hash[:8], Scopes: "read:repository,write:repository,write:user", ExpiresAt: pgtype.Timestamptz{}})
@@ -96,10 +97,11 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	for _, asker := range []struct {
 		credential middleware.Credential
 		userID     int64
-	}{{middleware.Credential{TokenHash: hash}, owner.ID}, {session(member), member.ID}} {
+		message    string
+	}{{middleware.Credential{TokenHash: hash}, owner.ID, "Sign in with a browser session"}, {session(member), member.ID, "Not a member"}} {
 		status, refusal, _ = read(asker.credential, asker.userID, "/api/todos")
 		require.Equal(t, http.StatusForbidden, status)
-		require.Equal(t, "Install owner session required", refusal["message"])
+		require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": asker.message}, refusal)
 	}
 	// The read is a request of its own: made from inside the producer
 	// callback, itself a routed POST, it is routed afresh and never inherits

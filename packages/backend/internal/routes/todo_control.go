@@ -10,19 +10,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// TodoControl is intentionally unmounted until T-CAT-01/T-ACC-03 supply the
-// shared install dispatcher. No local authorization or confirmation policy is
-// substituted; even a valid request refuses before any subject/effect access.
-func (h *MythicalHandler) TodoControl(w http.ResponseWriter, r *http.Request) {
-	var input services.TodoControlInput
-	h.todoMutation(w, r, &input, func(number int64) error {
-		var service *services.MythicalService
-		return service.ControlTodo(r.Context(), number, input)
-	})
-}
-
-// TodoAmend shares the dark control boundary; it is not mounted or authorized
-// by this handler. No revision or confirmation is fabricated while unavailable.
+// TodoAmend is intentionally unmounted until the shared install dispatcher
+// supplies confirmation; it is not authorized by this handler. No revision or
+// confirmation is fabricated while unavailable.
 func (h *MythicalHandler) TodoAmend(w http.ResponseWriter, r *http.Request) {
 	var input services.TodoAmendInput
 	h.todoMutation(w, r, &input, func(number int64) error {

@@ -732,6 +732,7 @@ export type AccessError = {
   class: "permission" | "never" | "user" | "infra"
   code: string
   message: string
+  fix?: string
 }
 
 export type MembersCard = {
@@ -5110,6 +5111,26 @@ export interface GetApiTodosNInput {
 /** GET /api/todos/{n}: Read a TODO by its repository number */
 export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Promise<GetApiTodosNResponse> =>
   transport.request("GET", `/api/todos/${segment(input.path.n)}`) as Promise<GetApiTodosNResponse>
+
+export type PostApiTodosNBody = {
+  op?: "steer" | "stop" | "resume" | "retry" | "retry-current-flow" | "drop"
+  steer?: string
+  text?: string
+}
+
+export type PostApiTodosNResponse = {
+  state: "requested"
+}
+
+export interface PostApiTodosNInput {
+  readonly path: { readonly n: number }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiTodosNBody
+}
+
+/** POST /api/todos/{n}: Steer the coding agent, or stop, resume, retry or drop a TODO */
+export const postApiTodosN = (transport: Transport, input: PostApiTodosNInput): Promise<PostApiTodosNResponse> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosNResponse>
 
 export type PostApiTodosNMergeBody = {
   reviewed_head_sha: string

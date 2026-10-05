@@ -36,6 +36,9 @@ func mountChatPublic(router chi.Router, runtime *chat.Runtime, queries *db.Queri
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.GlobalAPIRateLimit(queries))
 		r.Use(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser))
+		if config.IsSingleOwner(cfg.Auth) {
+			r.Use(memberCommands(queries))
+		}
 		runtime.MountAuthenticated(r)
 	})
 	// The deletion proof is a capability: this route must survive sign-out.

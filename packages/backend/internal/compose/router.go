@@ -902,11 +902,15 @@ func buildRouter(
 		r.Use(authLoader(queries, cfg.Auth))
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
+		if config.IsSingleOwner(cfg.Auth) {
+			r.Use(memberCommands(queries))
+		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 			todos := &routes.TodoHandler{Queries: queries, Service: service}
 			mountTodoReads(r, todos)
 			r.Post("/todos", todos.Create)
+			r.Post("/todos/{n}", todos.Control)
 			r.Post("/todos/{n}/merge", todos.Merge)
 			r.Post("/todos/{n}/answer", todos.Answer)
 		}

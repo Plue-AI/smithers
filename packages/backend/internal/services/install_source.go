@@ -216,8 +216,9 @@ var errNotTheAuthor = errors.New("the turn's credential no longer acts for its a
 // turnAuthor is a turn's author as the credential that admitted the turn
 // authenticates them now. A credential that is gone, names another account,
 // belongs to an account that may not sign in, is not of the kind may admits,
-// or fails the installation's member boundary answers errNotTheAuthor; any
-// other error means the store or the boundary could not answer.
+// or is neither the owner nor an active roster member answers
+// errNotTheAuthor; any other error means the store or the boundary could not
+// answer.
 func turnAuthor(ctx context.Context, q *db.Queries, members identity.MemberAuthorizer, credential middleware.Credential, userID int64, may func(*middleware.AuthInfo) bool) (*middleware.AuthInfo, error) {
 	if members == nil {
 		return nil, errNotTheAuthor
@@ -233,7 +234,9 @@ func turnAuthor(ctx context.Context, q *db.Queries, members identity.MemberAutho
 	if user.ID != userID || !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid || !may(info) {
 		return nil, errNotTheAuthor
 	}
-	if apiErr := members.AuthorizeMember(ctx, userID); apiErr != nil {
+	// A turn is the agent.turn command: an active roster member asks as
+	// themselves, and each read the turn makes is that member's request.
+	if apiErr := members.AuthorizeMember(identity.WithMemberRoute(ctx), userID); apiErr != nil {
 		if apiErr.Status >= 500 {
 			return nil, apiErr
 		}

@@ -284,13 +284,29 @@ func (r InstallRole) rank() int {
 }
 
 // installCommandRoles is the least role each person command the install
-// serves needs (mvp.md §6.15, M-05): members work TODOs, maintainers merge
-// and manage people. A command absent here is refused.
+// serves needs (mvp.md §6.15, M-05): members read the install and its
+// repository, ask the app agent and work TODOs; maintainers merge and
+// manage people. A command absent here is refused.
 var installCommandRoles = map[string]InstallRole{
-	"todo.read":     InstallMember,
-	"todo.new":      InstallMember,
-	"todo.answer":   InstallMember,
+	"install.read":     InstallMember,
+	"self.read":        InstallMember,
+	"telemetry.report": InstallMember,
+	"repo.read":        InstallMember,
+	"sync.read":        InstallMember,
+	"sync.retry":       InstallMember,
+	"live":             InstallMember,
+	"agent.turn":       InstallMember,
+	"todo.read":        InstallMember,
+	"todo.new":         InstallMember,
+	"todo.answer":      InstallMember,
+	// todo.control is POST /api/todos/{n}; its handler authorizes the
+	// control itself: steer, stop, resume, retry or drop.
+	"todo.control":  InstallMember,
 	"todo.steer":    InstallMember,
+	"todo.stop":     InstallMember,
+	"todo.resume":   InstallMember,
+	"todo.retry":    InstallMember,
+	"todo.drop":     InstallMember,
 	"merge":         InstallMaintainer,
 	"members.list":  InstallMember,
 	"members.write": InstallMaintainer,
@@ -302,6 +318,9 @@ type AccessError struct {
 	Class   string `json:"class"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Fix is where the person fixes the refusal, such as the repository's
+	// access settings on GitHub for needs_github_access.
+	Fix string `json:"fix,omitempty"`
 }
 
 func (e *AccessError) Error() string { return e.Message }
@@ -321,24 +340,24 @@ type InstallAuthorization struct {
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
 	need, ok := installCommandRoles[command]
 	if !ok {
-		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Not available"}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not available"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil {
-		return InstallAuthorization{}, &AccessError{http.StatusUnauthorized, "permission", "unauthenticated", "Sign in"}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
 	}
 	if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
-		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Sign in with a browser session"}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)
 	if err != nil {
 		return InstallAuthorization{}, err
 	}
 	if role == "" {
-		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Not a member"}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not a member"}
 	}
 	if role.rank() < need.rank() {
-		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Only a maintainer can do this"}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 }
@@ -347,7 +366,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 // active member: off the roster, suspended, or barred from signing in.
 func InstallRoleOf(ctx context.Context, q *db.Queries, userID int64) (InstallRole, error) {
 	if q == nil {
-		return "", &AccessError{http.StatusServiceUnavailable, "infra", "unavailable", "Members unavailable"}
+		return "", &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "unavailable", Message: "Members unavailable"}
 	}
 	owner, err := q.GetSelfHostOwner(ctx)
 	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {

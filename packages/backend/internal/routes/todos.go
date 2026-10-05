@@ -18,6 +18,7 @@ type TodoRouteService interface {
 	Todos(context.Context, int64) ([]map[string]any, error)
 	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
 	AnswerTodo(context.Context, int64, int64, int64, services.TodoAnswerInput) error
+	ControlTodo(context.Context, int64, services.TodoControlInput) error
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -218,4 +219,61 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
+}
+
+// todoControlCommands is each TODO control's command (§6.15: members steer,
+// stop, resume, retry and drop TODOs). A steer has no op.
+var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop"}
+
+// Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
+// retry (with an optional steer) or drop the TODO. The app sends a steer as
+// {"op":"steer","text":...}; the service's input is {"steer":...} with no
+// op. The control's command authorizes the person before the service
+// answers, and the service still refuses every control as unavailable until
+// a steer can reach a running attempt (T-FLW-11, T-STK-01).
+func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	var body struct {
+		Op    string  `json:"op"`
+		Steer *string `json:"steer,omitempty"`
+		Text  *string `json:"text,omitempty"`
+	}
+	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
+		todoRouteError(w, invalid)
+		return
+	}
+	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer}
+	switch {
+	case body.Op == "steer" && body.Steer == nil:
+		input = services.TodoControlInput{Steer: body.Text}
+	case body.Text != nil || body.Op == "steer":
+		todoRouteError(w, invalid)
+		return
+	}
+	command, known := todoControlCommands[input.Op]
+	if !known {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Unknown TODO control"})
+		return
+	}
+	if r.Header.Get("Idempotency-Key") == "" {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "idempotency_key_required", Class: "user", Message: "Idempotency-Key is required"})
+		return
+	}
+	if _, _, ok := h.authorize(w, r, command); !ok {
+		return
+	}
+	if err := h.Service.ControlTodo(r.Context(), n, input); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"state": "requested"})
 }

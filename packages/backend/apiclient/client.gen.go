@@ -1269,9 +1269,10 @@ type InstallSetupStatusModelsItem struct {
 
 // AccessError — An authorization or roster refusal (spec §6.2.3).
 type AccessError struct {
-	Class   string `json:"class"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Class   string  `json:"class"`
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Fix     *string `json:"fix,omitempty"`
 }
 
 // MembersCard is generated from docs/api/openapi.yaml.
@@ -1674,6 +1675,18 @@ type PostAPITodosResponse struct {
 	State string `json:"state"`
 	N     int64  `json:"n"`
 	Rev   int64  `json:"rev"`
+}
+
+// PostAPITodosNBody is generated from docs/api/openapi.yaml.
+type PostAPITodosNBody struct {
+	Op    *string `json:"op,omitempty"`
+	Steer *string `json:"steer,omitempty"`
+	Text  *string `json:"text,omitempty"`
+}
+
+// PostAPITodosNResponse is generated from docs/api/openapi.yaml.
+type PostAPITodosNResponse struct {
+	State string `json:"state"`
 }
 
 // PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.
@@ -4922,6 +4935,13 @@ func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body P
 func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
 	var out TodoCard
 	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
+	return out, err
+}
+
+// PostAPITodosN calls POST /api/todos/{n}.
+func (c *Client) PostAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNBody) (PostAPITodosNResponse, error) {
+	var out PostAPITodosNResponse
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
 	return out, err
 }
 

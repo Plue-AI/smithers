@@ -61,7 +61,7 @@ paths:
         '401':
           description: Not signed in
         '403':
-          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access)
+          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access, class user, with fix)
           content:
             application/json:
               schema:
@@ -150,6 +150,9 @@ components:
         class: {type: string, enum: [permission, never, user, infra]}
         code: {type: string}
         message: {type: string}
+        fix:
+          description: Where the person fixes the refusal; for needs_github_access, the repository's access settings on GitHub.
+          type: string
     MembersCard:
       type: object
       required: [members, access_url]

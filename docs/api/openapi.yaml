@@ -3829,7 +3829,7 @@ paths:
         '401':
           description: Not signed in
         '403':
-          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access)
+          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access, class user, with fix)
           content:
             application/json:
               schema:
@@ -19288,6 +19288,53 @@ paths:
           description: TODO not found
         '503':
           description: Install repository unavailable
+    post:
+      x-composition: install
+      summary: Steer the coding agent, or stop, resume, retry or drop a TODO
+      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer. Members steer, stop, resume, retry and drop TODOs. The service answers todo_control_unavailable until a steer can reach a running attempt (T-FLW-11, T-STK-01).
+      operationId: post_api_todos_n
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                op: {type: string, enum: [steer, stop, resume, retry, retry-current-flow, drop]}
+                steer: {type: string, minLength: 1, maxLength: 65536}
+                text: {type: string, minLength: 1, maxLength: 65536}
+      responses:
+        '202':
+          description: The control was requested
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state: {type: string, enum: [requested]}
+        '400':
+          description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
+        '403':
+          description: Not a member, or not a person's browser session
+        '409':
+          description: The TODO is merging or settled, or the control does not apply to its state
+        '503':
+          description: todo_control_unavailable
   /api/todos/{n}/merge:
     post:
       x-composition: install
@@ -23855,6 +23902,9 @@ components:
         class: {type: string, enum: [permission, never, user, infra]}
         code: {type: string}
         message: {type: string}
+        fix:
+          description: Where the person fixes the refusal; for needs_github_access, the repository's access settings on GitHub.
+          type: string
     MembersCard:
       type: object
       required: [members, access_url]

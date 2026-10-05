@@ -32,6 +32,11 @@ type memberRepository struct {
 	ID    int64  `json:"repository_id"`
 }
 
+// accessURL is the repository's collaborator settings on GitHub.
+func (r memberRepository) accessURL() string {
+	return "https://github.com/" + r.Owner + "/" + r.Name + "/settings/access"
+}
+
 func (m *Members) repository(ctx context.Context) (memberRepository, error) {
 	var repo memberRepository
 	setting, err := db.New(m.Pool).GetInstallSetting(ctx, "github.repository")
@@ -198,7 +203,9 @@ func (m *Members) Add(ctx context.Context, login string) error {
 		return err
 	}
 	if role == "" {
-		return memberError(http.StatusForbidden, "permission", "needs_github_access", "Needs access on GitHub ↗")
+		// The maintainer fixes this on GitHub: the card links the refusal to
+		// the repository's access settings (T-APP-06, class user).
+		return &AccessError{Status: http.StatusForbidden, Class: "user", Code: "needs_github_access", Message: "Needs access on GitHub", Fix: repo.accessURL()}
 	}
 	tx, _, err := m.memberMutation(ctx)
 	if err != nil {
@@ -252,7 +259,7 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 	if err != nil {
 		return out, err
 	}
-	out.AccessURL = "https://github.com/" + repo.Owner + "/" + repo.Name + "/settings/access"
+	out.AccessURL = repo.accessURL()
 	rows, err := m.Pool.Query(ctx, `SELECT coalesce(c.github_login,u.username),coalesce(nullif(u.display_name,''),c.github_login,u.username),c.permission,c.suspended_at IS NOT NULL,coalesce(c.user_id=o.user_id,false)
  FROM collaborators c LEFT JOIN users u ON u.id=c.user_id CROSS JOIN self_host_owners o
  WHERE c.repository_id=$1 AND (c.user_id IS NOT NULL OR c.github_id IS NOT NULL)

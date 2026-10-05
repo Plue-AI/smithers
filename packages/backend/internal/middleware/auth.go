@@ -271,7 +271,8 @@ func writeInvalidToken(w http.ResponseWriter, message string) {
 }
 
 // installMemberRoutes are the routes a roster member may call on an
-// install, each with the command its handler authorizes by role
+// install, each with the command it runs: the install authorizes that
+// command by the person's role for every member request
 // (services.Authorize; "self" is the person's own session). Every other
 // route is the owner's alone, so a new route ships closed to members.
 var installMemberRoutes = []struct {
@@ -280,9 +281,27 @@ var installMemberRoutes = []struct {
 }{
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
+	// The app's reads on an install, as a member's browser makes them on
+	// J1 8, J2 and J4: setup state, the person's own organizations and
+	// workspaces, the repository and its stack, the GitHub sync, the live
+	// channel and the app's error reports.
+	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
+	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
+	{http.MethodPost, "sync.retry", regexp.MustCompile(`^/api/github/sync$`)},
+	{http.MethodGet, "live", regexp.MustCompile(`^/api/live$`)},
+	{http.MethodPost, "telemetry.report", regexp.MustCompile(`^/api/telemetry/errors$`)},
+	// The app agent answers a member as that member, in their own
+	// conversations.
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/cancel|/replay|/retire)?$`)},
+	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/agent/conversations$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/conversations/replay$`)},
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos$`)},
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.new", regexp.MustCompile(`^/api/todos$`)},
+	{http.MethodPost, "todo.control", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
