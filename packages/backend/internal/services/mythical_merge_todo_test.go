@@ -653,6 +653,36 @@ func TestMythicalMergeTodoPressReadsGitHubsHead(t *testing.T) {
 	h.unfenced(n)
 }
 
+// The card's evidence names the verified candidate, and its pull request
+// head is the candidate's publication: another commit with the same tree.
+// The app enables Merge on the served ready alone and sends the PR head it
+// shows, so the server is what binds an approval to the published head: a
+// press at the candidate the evidence names is 409 stale_head naming the
+// PR head and records nothing; a press at the PR head is accepted.
+func TestMythicalMergeTodoApprovesOnlyThePublishedHead(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Published")
+	candidate := h.item(n).CandidateHead
+	require.NotEqual(t, candidate, head, "the pull request head is a new commit, never the candidate itself")
+	assert.Equal(t, h.hostTree(candidate), h.git(h.github, "rev-parse", head+"^{tree}"), "the publication carries the candidate's tree")
+	card := h.card(n) // as GET /api/todos/{n} serves it
+	assert.Equal(t, map[string]any{"state": "ready", "on_github": true}, card["merge"])
+	assert.Equal(t, head, card["pr"].(map[string]any)["head"])
+	assert.Equal(t, candidate, currentTodoEvidence(h.item(n)).Revision)
+
+	var stale *MythicalStaleHeadError
+	require.ErrorAs(t, h.press(h.ctx, n, candidate), &stale)
+	assert.Equal(t, TodoControlError{Status: 409, Code: "stale_head", Class: "conflict", Message: "the pull request changed since you saw it"}, stale.TodoControlError)
+	assert.Equal(t, head, stale.CurrentHead, "the published head is reported, never substituted")
+	h.unfenced(n)
+
+	require.NoError(t, h.press(h.ctx, n, head))
+	land := h.land(n)
+	require.NotNil(t, land)
+	assert.Equal(t, head, land.Head)
+	assert.Equal(t, "merge", h.operation(n).Kind)
+}
+
 // The press refuses, before any approval or fence, each row that fails and
 // each person GitHub or the policy does not count a maintainer.
 func TestMythicalMergeTodoRefusesBeforeApproval(t *testing.T) {
