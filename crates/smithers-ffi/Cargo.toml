@@ -18,6 +18,12 @@ path = "src/smithers_fixture.rs"
 name = "smithers-jj-export"
 path = "src/smithers_jj_export.rs"
 
+[features]
+# Lets smithers-jj-export read a source binding the trusted-process runtime
+# names in its environment (test runtimes only). Guest, bundle and release
+# builds never enable it: a guest trusts only root-owned /etc/smithers.
+trusted-process-binding = []
+
 [dependencies]
 jj-lib = { workspace = true, features = ["git"] }
 anyhow = "1"

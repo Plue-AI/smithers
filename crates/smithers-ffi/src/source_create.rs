@@ -78,6 +78,10 @@ struct Config {
 /// Check the fixed root-owned binding without following a replaceable symlink.
 #[cfg(unix)]
 pub fn read_provisioned_config<T: serde::de::DeserializeOwned>() -> Result<T> {
+    #[cfg(feature = "trusted-process-binding")]
+    if let Some(filename) = std::env::var_os(TRUSTED_PROCESS_BINDING) {
+        return read_trusted_process_config(Path::new(&filename));
+    }
     use std::os::unix::fs::MetadataExt;
     let directory = Path::new("/etc/smithers");
     for parent in [Path::new("/etc"), directory] {
@@ -106,6 +110,37 @@ pub fn read_provisioned_config<T: serde::de::DeserializeOwned>() -> Result<T> {
         return Err(invalid());
     }
     Ok(config)
+}
+
+/// The variable a trusted-process runtime names its workspace's binding with.
+#[cfg(all(unix, feature = "trusted-process-binding"))]
+pub const TRUSTED_PROCESS_BINDING: &str = "SMITHERS_WORKSPACE_CODING_CONFIG";
+
+/// A trusted-process runtime's binding: a host process has no root-owned
+/// /etc, so the runtime writes the binding as this user and names it in the
+/// host's environment. Only a build with this feature reads it; no guest,
+/// bundle or release build enables the feature, so a guest still trusts only
+/// the root-owned file.
+#[cfg(all(unix, feature = "trusted-process-binding"))]
+fn read_trusted_process_config<T: serde::de::DeserializeOwned>(filename: &Path) -> Result<T> {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let user = unsafe { libc::geteuid() };
+    let expected = std::fs::symlink_metadata(filename).map_err(|_| invalid())?;
+    if !filename.is_absolute()
+        || !expected.is_file()
+        || expected.uid() != user
+        || expected.mode() & 0o022 != 0
+        || expected.len() > 16_384
+    {
+        return Err(invalid());
+    }
+    let file = std::fs::File::open(filename).map_err(|_| invalid())?;
+    let actual = file.metadata().map_err(|_| invalid())?;
+    if (actual.dev(), actual.ino()) != (expected.dev(), expected.ino()) {
+        return Err(invalid());
+    }
+    serde_json::from_reader(file.take(16_385)).map_err(|_| invalid())
 }
 
 /// Managed guests use a root-owned Unix binding and credential socket. A local
@@ -1087,5 +1122,34 @@ pub(crate) mod tests {
             &source(&value["source"])
         )
         .is_err());
+    }
+
+    #[cfg(feature = "trusted-process-binding")]
+    #[test]
+    fn trusted_process_binding_is_read_only_from_a_private_file_of_this_user() {
+        use std::os::unix::fs::PermissionsExt;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Binding {
+            workspace_id: String,
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("workspace-coding.json");
+        std::fs::write(&file, r#"{"version":1,"workspaceId":"w-1"}"#).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let binding: Binding = read_trusted_process_config(&file).unwrap();
+        assert_eq!(binding.workspace_id, "w-1");
+        // Another writer could replace the identity: refused.
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o620)).unwrap();
+        assert!(read_trusted_process_config::<Binding>(&file).is_err());
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // A symlink is never followed, and a relative name never resolves.
+        let link = temp.path().join("link.json");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        assert!(read_trusted_process_config::<Binding>(&link).is_err());
+        assert!(read_trusted_process_config::<Binding>(Path::new("workspace-coding.json")).is_err());
+        // An oversized binding is refused before it is parsed.
+        std::fs::write(&file, vec![b' '; 16_385]).unwrap();
+        assert!(read_trusted_process_config::<Binding>(&file).is_err());
     }
 }

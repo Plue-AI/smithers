@@ -84,7 +84,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if args.len() == 1 && args[0] == "--capabilities" {
+        #[cfg(not(feature = "trusted-process-binding"))]
         println!("{{\"capabilities\":[\"create-source/v1\",\"publish-created-source/v1\"]}}");
+        // A test runtime asks for this build before it binds a host process.
+        #[cfg(feature = "trusted-process-binding")]
+        println!("{{\"capabilities\":[\"create-source/v1\",\"publish-created-source/v1\",\"trusted-process-binding/v1\"]}}");
         return Ok(());
     }
     if args.len() == 4 && args[0] == "--check-config" {
