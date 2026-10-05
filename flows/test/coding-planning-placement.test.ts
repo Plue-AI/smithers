@@ -14,6 +14,7 @@ import {
   declineLayer,
   Draft,
   DraftPlan,
+  emptyWorkingChange,
   finalize,
   GatherContext,
   PlanningContext,
@@ -132,6 +133,34 @@ test("a gathered context that breaks its contract names why, as a host fault, no
   const refusal = contractFailure(error.message)
   assert.equal(refusal.code, "execution")
   assert.match(refusal.message, /^Gathered planning context violates its contract: .*history/)
+})
+
+test("an empty working change at the head is not a descendant a plan must keep", () => {
+  // A stack request plans on an empty, undescribed change on the tip
+  // (stack.ts). The 2026-10-05 walk's model based its append on the tip below
+  // it and finalize refused the plan for omitting that change.
+  const working = { ...revision("w", c), treeId: c.treeId, description: "" }
+  const stacked: PlanningContext = { ...context, head: working, history: [a, b, c, working] }
+  assert.equal(emptyWorkingChange(stacked.history), working.changeId)
+  const below = finalize(input, stacked, draft(c.changeId, [atom(null, "✨ feat: d")]))
+  const onHead = finalize(input, stacked, draft(working.changeId, [atom(null, "✨ feat: d")]))
+  assert.equal(below.base.changeId, working.changeId)
+  assert.deepEqual(below, onHead)
+  // An amendment below it need not list it either, and keeps its own base.
+  const amended = finalize(input, stacked, draft(b.changeId, [atom(c.changeId, "✨ feat: c, fixed")]))
+  assert.equal(amended.base.changeId, b.changeId)
+  assert.deepEqual(amended.changes[0]!.atoms.map((value) => value.changeId), [c.changeId])
+  // Listing it is still a valid plan; omitting a described or non-empty head is not.
+  const kept = finalize(input, stacked, draft(c.changeId, [atom(working.changeId, "✨ feat: w")]))
+  assert.equal(kept.base.changeId, c.changeId)
+  for (const head of [{ ...working, description: "✨ feat: w" }, { ...working, treeId: "tree-w" }]) {
+    const described: PlanningContext = { ...context, head, history: [a, b, c, head] }
+    assert.equal(emptyWorkingChange(described.history), undefined)
+    assert.throws(
+      () => finalize(input, described, draft(c.changeId, [atom(null, "✨ feat: d")])),
+      (error: unknown) => error instanceof CodingError && /retain every existing descendant/.test(error.message)
+    )
+  }
 })
 
 test("reordering or dropping an existing descendant is refused", () => {

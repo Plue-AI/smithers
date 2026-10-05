@@ -119,7 +119,7 @@ export const DraftPlan = AgentAction.make("coding/draft-plan", {
   system: [
     "Plan one linear mythical coding progression as small understandable product Changes containing atomic emoji conventional commits.",
     "Use the supplied native history. Existing atoms use their exact native changeId; new atoms use null. Do not invent native IDs, executable names, digests or test evidence.",
-    "Place work where it belongs in the history. To append, choose the current head as baseChangeId and list only new atoms. To amend an older change or insert a new change after it, choose the visible native change before the first one you touch as base, then list every existing atom after that base through the current head in native order, with new atoms placed between them exactly where they belong. Do not omit, duplicate or reorder existing descendants.",
+    "Place work where it belongs in the history. To append, choose the current head as baseChangeId and list only new atoms. To amend an older change or insert a new change after it, choose the visible native change before the first one you touch as base, then list every existing atom after that base through the current head in native order, with new atoms placed between them exactly where they belong. Do not omit, duplicate or reorder existing descendants; an empty undescribed working change at the head holds no code and need not be listed.",
     "Appending is the cheapest to reconcile with other work in flight; amend or insert only when the change genuinely belongs inside existing history (a fix to the change that introduced a bug, a missing piece of an existing feature).",
     "Use small contained intents and predict files read and written for every atom. Put fundamental stable work before volatile details when creating new atoms. Preserve existing descendants with explicit keep/revalidate intents if they require no edits.",
     "Select check IDs only from context.checks. The host always includes every operator-required check on each Change; you may select additional optional checks. When context.checks is empty, select none and say No checks found in the rationale. Delivery checks retain their later delivery tier. Model assertions do not replace checks.",
@@ -291,6 +291,19 @@ const filePath = (value: string) =>
   value.length > 0 && value.length <= 4096 && !/[\\\0]/.test(value) &&
   value.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !/^\.(git|jj)$/i.test(part))
 
+/**
+ * The change id of the empty, undescribed working change the history ends at,
+ * or `undefined`. A stack request plans on such a change, created on the stack
+ * tip (stack.ts); its tree is its parent's, so it holds no code.
+ */
+export const emptyWorkingChange = (history: PlanningContext["history"]): string | undefined => {
+  const head = history.at(-1), parent = history.at(-2)
+  return head !== undefined && parent !== undefined && head.treeId === parent.treeId &&
+      head.description.trim() === "" ?
+    head.changeId :
+    undefined
+}
+
 /** Binds model choices to host-measured facts before any mutation is scheduled. */
 export const finalize = (input: typeof PlanningInput.Type, context: PlanningContext, draft: Draft): Plan => {
   const nativeIds = new Set<string>()
@@ -306,11 +319,21 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
   if (!sameCode(context.history.at(-1)!, context.head)) {
     throw invalid("Planning history does not end at its captured head")
   }
-  const baseIndex = context.history.findIndex((atom) => atom.changeId === draft.baseChangeId)
+  let baseIndex = context.history.findIndex((atom) => atom.changeId === draft.baseChangeId)
   if (baseIndex < 0) {
     throw invalid("The proposed base is outside the gathered native history; gather its missing context first")
   }
   const remaining = context.history.slice(baseIndex + 1).map((atom) => atom.changeId)
+  const working = emptyWorkingChange(context.history)
+  const listed = draft.changes.some((change) => change.atoms.some((atom) => atom.changeId === working))
+  if (working !== undefined && remaining.at(-1) === working && !listed) {
+    // The empty working change holds no code, so a plan need not keep it. A
+    // model bases an append on the tip's commit below it (the 2026-10-05
+    // walk); that append moves onto the working change, the plan a model
+    // basing it on the head makes.
+    remaining.pop()
+    if (baseIndex === context.history.length - 2) baseIndex++
+  }
   const actual: Array<string> = []
   const checks = new Map(context.checks.map((check) => [check.id, check]))
   if (checks.size !== context.checks.length) throw invalid("Configured planning checks have duplicate IDs")
