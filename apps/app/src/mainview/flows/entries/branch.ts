@@ -38,6 +38,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "branch.fork", summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("name"), input: Schema.Struct({ name: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
       handler: async ({ name, branch }) => {
+        if (actions.bootstrap || actions.live) return "Branch unavailable"
         const from = branchOf(branch ?? name ?? "")
         if (from === undefined) return `No branch ${branch ?? name ?? ""}`
         const result = design.fork(from.id, design.viewer())
@@ -50,6 +51,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
       confirm: payload => `add ${String(payload.branch)} to the stack`,
       confirmArgs: payload => payload.text === undefined ? String(payload.branch) : JSON.stringify(payload),
       handler: ({ branch }) => {
+        if (actions.bootstrap || actions.live) return "Branch unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`
         const result = design.addToStack(target.id, design.viewer())
@@ -58,6 +60,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "branch.rebase", summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
       handler: ({ branch }) => {
+        if (actions.bootstrap || actions.live) return "Branch unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`
         const result = design.rebaseNow(target.id, design.viewer())
@@ -91,6 +94,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "ssh", summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
       handler: ({ branch }) => {
+        if (actions.bootstrap || actions.live) return "Branch unavailable"
         const target = branchOf(branch)
         return target === undefined ? `No branch ${branch}` : { value: designSshLine(design.world(), target) }
       } })
@@ -99,6 +103,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
 
 /** The `branch` flow's card: tree rows, branch chips and `/branch <name>` open it. */
 export const presentDesignBranch = async (actions: CommandActions, name: string): Promise<void> => {
+  if (actions.bootstrap || actions.live) return
   const branch = designBranchFor(actions.design.world(), name)
   if (branch !== undefined) await actions.presentBranchCard("branch", branch.id, branch.name)
 }

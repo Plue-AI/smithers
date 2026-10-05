@@ -1564,6 +1564,7 @@ export const createAppController = (
    * embedded cards and record via:"agent", never user chrome.
    */
   const commandActions: CommandActions = {
+    live: services.live,
     design,
     presentCard,
     presentRun,

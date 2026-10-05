@@ -64,7 +64,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     args: "<workspaceId>",
     requires: ["signed-in"],
     input: Schema.Struct({ workspaceId: Schema.String }),
-    handler: ({ workspaceId }) => actions.viewWorkspace(workspaceId)
+    handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.viewWorkspace(workspaceId)
   }),
   flow({
     name: "box.terminal",
@@ -84,7 +84,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     args: "[workspaceId]",
     requires: ["signed-in"],
     input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ workspaceId }) => actions.suspendWorkspace(workspaceId)
+    handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.suspendWorkspace(workspaceId)
   }),
   flow({
     name: "box.resume",
@@ -94,7 +94,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     args: "[workspaceId]",
     requires: ["signed-in"],
     input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ workspaceId }) => actions.resumeWorkspace(workspaceId)
+    handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.resumeWorkspace(workspaceId)
   }),
   flow({
     name: "box.sessions",

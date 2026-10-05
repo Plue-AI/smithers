@@ -9,10 +9,10 @@ import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state/TestFixtures"
 import { todoOf } from "../../state/seams/DesignWorld"
 
-const boot = async () => {
+const boot = async (live?: import("../../state/useTopic").LiveTopics) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
-  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(live ? { live } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
   return { store, controller }
 }
@@ -107,5 +107,23 @@ test("A✓: the agent's Add to stack asks for the person's press and commits not
     expect(asks.map(each => each.action?.args)).toEqual([fork.id, fork.id])
     expect((await h.controller.runCommandForResult("branch.add-to-stack", asks[0]!.action!.args)).status).toBe("executed")
     expect(item()).toBeDefined()
+  } finally { h.controller.dispose() }
+})
+
+test("live dispatcher refuses absent Branch and Terminal providers before seed or cloud effects", async () => {
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined })
+  const before = h.controller.design.world()
+  try {
+    for (const [name, payload, error] of [
+      ["terminal", { branch: "b-retry" }, "Terminal unavailable"],
+      ["terminal.watch", { id: "term-retry-1" }, "Terminal unavailable"],
+      ["terminal.send", { id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
+      ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
+      ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"],
+      ["branch.fork", { name: "b-retry" }, "Branch unavailable"]
+    ] as const) {
+      expect(await submit(h, name, payload)).toMatchObject({ status: "failed", error })
+    }
+    expect(h.controller.design.world()).toEqual(before)
   } finally { h.controller.dispose() }
 })

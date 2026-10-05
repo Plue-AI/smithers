@@ -1,13 +1,9 @@
-/*
- * The Branch card (T-APP-10): maps the branch to BranchView's props and binds
- * every press through cardActions. MOCK: the model comes from the seeded
- * design world (state/seams/DesignWorld/branch.ts) until topics `branch:<id>`,
- * `:activity` and `:files` land; the flows it names are registered in
- * flows/entries/branch.ts (branch) and flows/entries/todo.ts (Answer, Steer).
- */
+/* T-APP-10: live topics map to BranchView; demo projections remain isolated. */
 import { useState } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
+import { useTopic } from "../state/useTopic"
+import { branchModel } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -53,7 +49,7 @@ export const changeActionDefinitions = (model: BranchModel): CardActionDefinitio
   model.activity.filter(entry => entry.kind === "change")
     .map(entry => ({ tag: "diff", label: "Diff", args: { burst: entry.id }, command_input: undefined }))
 
-const BranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
+const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
   const world = useDesignWorld()
   const [tab, setTab] = useState<string | undefined>(undefined)
@@ -75,6 +71,26 @@ const BranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readon
     onAction={(tag, input) => (tag === "diff" ? changes : bindings).onAction(tag, input)}
     view={{ maximized: actions.presentation === "maximized", ...(tab === undefined ? {} : { tab }) }}
     onView={patch => { if ("tab" in patch) setTab(patch.tab) }} />
+}
+
+/** Live facts never inherit seed rows or server-supplied command authority. Dependent actions stay dark. */
+export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
+  const controller = useController()
+  const topic = controller.live ? `branch:${card.payload.id}` : undefined
+  const branch = useTopic(topic, controller.live)
+  const activity = useTopic(topic && `${topic}:activity`, controller.live)
+  const files = useTopic(topic && `${topic}:files`, controller.live)
+  const model = branch?.error || activity?.error || files?.error ? undefined
+    : branchModel(branch?.data, activity?.data, files?.data, card.payload.id)
+  const bindings = cardActions(() => {}, [])
+  if (!model) return null
+  return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
+    onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized" }} onView={() => {}} />
+}
+
+const BranchBody = (props: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
+  const controller = useController()
+  return controller.live || controller.bootstrap ? <LiveBranchBody {...props} /> : <DesignBranchBody {...props} />
 }
 
 /** The `branch` kind: a subject-only card (card-kinds.md), one per branch. */

@@ -799,10 +799,11 @@ describe("View and Container catalog seam (C-UI-08)", () => {
       expect(allowed).toContain(node.moduleSpecifier.text)
     }
     expect(source).not.toMatch(/\b(fetch|WebSocket|EventSource|useEffect)\s*\(/)
-    // MOCK FIRST: the existing card projects the seed; no real provider is enabled here.
+    // T-APP-10: the live card subscribes through the shared client; demo data stays separate.
     const container = read("../cards/BranchCard.tsx")
     expect(container).toContain("designBranchModel(world, branch)")
-    expect(container).not.toMatch(/\b(fetch|WebSocket|useTopic)\s*\(/)
+    expect(container).not.toMatch(/\b(fetch|WebSocket)\s*\(/)
+    expect(container).toContain("useTopic(topic, controller.live)")
   })
 
   test("Proposal and receipt Views stay props-only and unmounted until T-FLW-06", () => {
