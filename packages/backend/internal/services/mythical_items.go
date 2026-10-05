@@ -1228,6 +1228,10 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 	if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
 		return now
 	}
+	var failure *pkgerrors.APIError
+	if errors.As(err, &failure) && failure.Class == pkgerrors.ClassGitHub && failure.RetryAt != nil && failure.RetryAt.After(now) {
+		return *failure.RetryAt
+	}
 	return now.Add(mythicalLaterAfter)
 }
 
@@ -1463,7 +1467,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		}
 	case "proposing", "waiting":
 		next, err := st.propose(ctx, item)
-		if err != nil || next == nil || next.State != "proposed" {
+		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -1474,7 +1478,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" {
+		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -2436,7 +2440,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err := st.publicationAuthority(item); err != nil {
 		next := item
 		next.Reason = err.Error()
-		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 		return &next, nil
 	}
 	s, r := st.s, st.r
@@ -2634,7 +2638,7 @@ func (st *mythicalItemStep) holdForeignHead(item db.MythicalItem, foreign *mythi
 	checks.ForeignHead = foreign.Head
 	checks.notice("foreign_push:"+foreign.Head, "Smithers is holding this TODO: "+next.Reason+".")
 	next.Checks = checks.encode()
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	return &next
 }
 
@@ -2787,7 +2791,7 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 		proposed.Outages, proposed.GitHubOutages, proposed.Fault, proposed.Rebase = 0, 0, nil, nil
 	}
 	next.Checks = proposed.encode()
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	return &next
 }
 
@@ -2807,6 +2811,9 @@ func mythicalNoClosingKeywords(text string) string {
 // open PR whose prefix moved (main, or an earlier item's verified head) is
 // rebuilt on the new prefix (integrate).
 func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
+	if st.s != nil && st.s.installGitHubPolling {
+		return st.followInstallPull(ctx, item)
+	}
 	s, r := st.s, st.r
 	if s.github == nil || !item.PRNumber.Valid || !r.row.ActorUserID.Valid {
 		return nil, nil
@@ -2822,7 +2829,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		return mythicalInfraOutage(item, "github", "GitHub did not answer; following the pull request later", st.now), nil
 	}
 	next := item
-	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	answered := mythicalChecksOf(next)
 	// A person may mark a later PR ready or draft on GitHub: the card shows
 	// GitHub's flag as read, with no corrective write (§12.5.1).

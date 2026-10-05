@@ -1033,6 +1033,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
+	composeGitHubTodoPolling(mythicalService, gitHubSyncedRepoService, options.topology)
 	mythicalService.SetPublicURL(publicBaseURL)
 	// Every main move loads the repository's flows (spec §11.3.1).
 	mythicalService.SetFlowLoad(cfg.FeatureFlags.FlowLoad)

@@ -69,13 +69,15 @@ type MythicalService struct {
 	outbound MythicalOutboundProviders
 	// Accepted publication facts and the install's App publication
 	// (EnableTodoPublication); absent, every TODO-branch write is held.
-	prFacts          func(context.Context, db.MythicalItem) (mythicalPRShape, error)
-	publication      *mythicalPublication
-	github           mythicalGitHub
-	launcher         mythicalLauncher
-	lanes            mythicalLanes
-	wikiStore        mythicalWikiStore
-	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
+	prFacts              func(context.Context, db.MythicalItem) (mythicalPRShape, error)
+	publication          *mythicalPublication
+	github               mythicalGitHub
+	installGitHubPolling bool
+	installGitHubSync    *GitHubSyncedRepoService
+	launcher             mythicalLauncher
+	lanes                mythicalLanes
+	wikiStore            mythicalWikiStore
+	reconcileFactory     func(context.Context, int64, string, FactoryProjection) error
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.
 	policy repositoryPolicyHost

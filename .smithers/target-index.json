@@ -24134,6 +24134,22 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_pull.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_github_poll.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_items.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/landing_github_pull.go"
       },
       {

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -36,9 +38,10 @@ func syncedStreamKey(row db.GithubSyncedRepo, resource string) gitHubStreamKey {
 }
 
 type gitHubPageValidator struct {
-	etag   string
-	rows   int
-	oldest time.Time
+	objectVersion string
+	etag          string
+	rows          int
+	oldest        time.Time
 }
 
 type gitHubUnchangedPage struct{ gitHubPageValidator }
@@ -138,13 +141,18 @@ func (s *GitHubUserReposService) SyncedRepoConditionalFetcherFactory(issuer GitH
 			switch resource {
 			case GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents:
 			default:
-				return page, errors.New("unsupported GitHub install stream")
+				if !gitHubIndividualPullResource(resource) {
+					return page, errors.New("unsupported GitHub install stream")
+				}
 			}
 			token, err := issuer.CreateGitHubInstallationToken(ctx, row.InstallationID.Int64, GitHubTokenScope{RepositoryIDs: []int64{row.GithubRepositoryID.Int64}, Permissions: gitHubRepoMetadataPermissions})
 			if err != nil {
 				return page, err
 			}
-			path := landingGitHubRepoPath(row.OwnerLogin, row.RepoName) + "/" + resource + "?" + query.Encode()
+			path := landingGitHubRepoPath(row.OwnerLogin, row.RepoName) + "/" + resource
+			if encoded := query.Encode(); encoded != "" {
+				path += "?" + encoded
+			}
 			status, headers, err := api.requestHeaders(ctx, token.Token, http.MethodGet, path, etag, nil, &page.Body)
 			if err != nil {
 				return page, err
@@ -157,4 +165,14 @@ func (s *GitHubUserReposService) SyncedRepoConditionalFetcherFactory(issuer GitH
 			return page, nil
 		}
 	}
+}
+
+// Individual pull reads share the pull stream's transport and token scopes.
+func gitHubIndividualPullResource(resource string) bool {
+	number, ok := strings.CutPrefix(resource, "pulls/")
+	if !ok {
+		return false
+	}
+	n, err := strconv.ParseInt(number, 10, 64)
+	return err == nil && n > 0 && strconv.FormatInt(n, 10) == number
 }

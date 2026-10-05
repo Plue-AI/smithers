@@ -53,3 +53,10 @@ func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredent
 	}
 	return &githubSyncServices{budget, connections, repositories, userRepositories, synced}, nil
 }
+
+// Bind the existing TODO loop to the same guarded fetched-state service.
+func composeGitHubTodoPolling(stack *services.MythicalService, synced *services.GitHubSyncedRepoService, topology topology) {
+	if !topology.hosted() {
+		stack.UseInstallGitHubPolling(synced)
+	}
+}

@@ -124,3 +124,20 @@ labels. Failed pages cannot supply partial approval evidence. A matching GitHub
 App action within the attribution window prevents attribution to a person.
 The former main-ref-loop registration that directly admitted TODOs is removed;
 TODO admission must join the shared fetched-event transaction before activation.
+
+The existing TODO follow loop selects a 45-second pull-state interval on installs;
+hosted workers retain five minutes. Install reads use the shared conditional
+transport, scoped token minter and fetched-state qualification. Missing providers
+refuse before token minting. Pull detail updates and their pending deliveries
+commit to the same store as pull list updates. The loop does not apply fetched
+PR state or run the legacy review/merge gate: those effects belong to the
+transactional consumer, which remains unregistered.
+
+Detail ETags retain the canonical version of their committed cache row. If a
+list read, concurrent detail read or deletion changes that row, the next detail
+read fetches a body again. An intervening cache change during a 304, a failed
+commit or revoked binding cannot validate a different representation. Restart
+forgets ETags and retains pending delivery identities. Shared pull-stream pauses
+are checked before minting and retain their absolute retry deadline. Check and
+review reads, webhook wakeups for individual TODOs and complete freshness
+acceptance remain outstanding.
