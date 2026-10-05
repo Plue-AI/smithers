@@ -89,7 +89,13 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 		return Binding{}, fmt.Errorf("connect owner model secrets: %w", err)
 	}
 	if len(input.Model) == 0 || string(input.Model) == "null" {
-		err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&input.Model)
+		// A turn that names no model is the app agent's. On an install it runs
+		// on the fast role Model access wrote (mvp.md §6.5), which is the
+		// coding model when no fast key was saved; elsewhere, on the default.
+		err = pool.QueryRow(ctx, `SELECT s.value FROM install_settings s JOIN self_host_owners o ON o.user_id=$1 WHERE s.key='agent:fast'`, ownerID).Scan(&input.Model)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&input.Model)
+		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Binding{}, ErrOwnerModelUnset
 		}
