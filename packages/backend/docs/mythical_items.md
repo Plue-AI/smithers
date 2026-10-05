@@ -154,7 +154,7 @@ one order. A TODO filed through `POST /api/todos` merges like an issue TODO.
    the session is live under its stored key (`401 unauthenticated`
    otherwise, including a session filed before keys were hashed at rest and a
    suspended, inactive or deleted person) and its person is the install owner
-   (`403 permission`).
+   or a maintainer on its roster (`403 permission`).
 3. A malformed SHA is `400 invalid_reviewed_head_sha` (hexadecimal is
    lowercased); a missing key is `400 idempotency_key_required`. Then the TODO:
    `400 invalid_todo` for a malformed number or id, `404 todo_not_found` for

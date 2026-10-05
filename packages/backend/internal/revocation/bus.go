@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultPollInterval = 5 * time.Second
+	defaultPollInterval = time.Second
 	defaultRetention    = 24 * time.Hour
 	catchUpBatch        = 500
 	reconnectBackoff    = time.Second

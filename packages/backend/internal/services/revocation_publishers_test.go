@@ -211,8 +211,6 @@ func TestAdminUserService_TokenPublishesAndSuspensionUsesDatabaseTrigger(t *test
 func TestPublishBestEffort_NilPublisherIsANoop(t *testing.T) {
 	t.Parallel()
 	revocation.PublishBestEffort(context.Background(), nil, revocation.Event{Kind: revocation.KindUserDisabled, UserID: 1})
-	var svc *RepoService
-	svc.publishCollaboratorsRemoved(context.Background(), 1, nil, 0, "x")
 }
 
 func TestAuthService_LogoutPublishesBrowserSessionRevocationBeforeDeleting(t *testing.T) {

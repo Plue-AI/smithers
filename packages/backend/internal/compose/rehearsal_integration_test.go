@@ -312,6 +312,11 @@ func (r *rehearsal) request(method, path, body string) (int, []byte, error) {
 
 // keyed sends one request as the owner's browser with this Idempotency-Key.
 func (r *rehearsal) keyed(method, path, body, key string) (int, []byte, error) {
+	return r.keyedAs(r.jar, method, path, body, key)
+}
+
+// keyedAs sends one request as the browser that holds jar (another member's).
+func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) (int, []byte, error) {
 	req, err := http.NewRequest(method, r.origin+path, strings.NewReader(body))
 	if err != nil {
 		return 0, nil, err
@@ -319,12 +324,13 @@ func (r *rehearsal) keyed(method, path, body, key string) (int, []byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", r.origin)
 	req.Header.Set("Idempotency-Key", key)
-	for _, cookie := range r.jar.Cookies(req.URL) {
+	for _, cookie := range jar.Cookies(req.URL) {
 		if cookie.Name == "__csrf" {
 			req.Header.Set("X-CSRF-Token", cookie.Value)
 		}
 	}
-	resp, err := r.client.Do(req)
+	client := &http.Client{Jar: jar, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect}
+	resp, err := client.Do(req)
 	if err != nil {
 		r.actual = err.Error()
 		return 0, nil, err
@@ -350,7 +356,12 @@ func (r *rehearsal) keyed(method, path, body, key string) (int, []byte, error) {
 
 // expect is request, failing unless the route answers status.
 func (r *rehearsal) expect(method, path, body string, status int) ([]byte, error) {
-	code, data, err := r.request(method, path, body)
+	return r.expectAs(r.jar, method, path, body, status)
+}
+
+// expectAs is expect from the browser that holds jar.
+func (r *rehearsal) expectAs(jar http.CookieJar, method, path, body string, status int) ([]byte, error) {
+	code, data, err := r.keyedAs(jar, method, path, body, r.keyPrefix+strings.Trim(strings.ReplaceAll(path, "/", "-"), "-"))
 	if err != nil {
 		return data, err
 	}

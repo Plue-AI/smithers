@@ -37,6 +37,7 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	Members             *routes.MembersHandler
 	InstallScorecard    *routes.InstallScorecardHandler
 	GitHubAppSetup      *routes.GitHubAppSetupHandler
 	CanaryRuns          ports.CanaryRunSource
@@ -908,6 +909,12 @@ func buildRouter(
 			r.Post("/todos", todos.Create)
 			r.Post("/todos/{n}/merge", todos.Merge)
 			r.Post("/todos/{n}/answer", todos.Answer)
+		}
+		if config.IsSingleOwner(cfg.Auth) && extras.Members != nil {
+			r.Get("/members", extras.Members.List)
+			r.Post("/members", extras.Members.Mutate)
+			r.Patch("/members/{login}", extras.Members.Mutate)
+			r.Delete("/members/{login}", extras.Members.Mutate)
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {

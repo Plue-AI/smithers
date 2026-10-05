@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -22,7 +21,8 @@ type TodoRouteService interface {
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
-// caller-supplied repository or actor. S1 admits only the live owner session.
+// caller-supplied repository or actor. Each route authorizes its command for
+// the person's browser session by roster role.
 type TodoHandler struct {
 	Queries *db.Queries
 	Service TodoRouteService
@@ -44,6 +44,13 @@ func todoRouteError(w http.ResponseWriter, err error) {
 		_ = json.NewEncoder(w).Encode(answered)
 		return
 	}
+	var access *services.AccessError
+	if errors.As(err, &access) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(access.Status)
+		_ = json.NewEncoder(w).Encode(access)
+		return
+	}
 	var typed *services.TodoControlError
 	if errors.As(err, &typed) {
 		failure = typed
@@ -52,19 +59,18 @@ func todoRouteError(w http.ResponseWriter, err error) {
 	w.WriteHeader(failure.Status)
 	_ = json.NewEncoder(w).Encode(failure)
 }
-func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
+
+// authorize decides command for the request's person (services.Authorize:
+// members create, read, answer and steer TODOs; maintainers merge), then
+// resolves the install's repository.
+func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request, command string) (int64, int64, bool) {
 	if h == nil || h.Queries == nil || h.Service == nil {
 		todoRouteError(w, nil)
 		return 0, 0, false
 	}
-	info := middleware.AuthInfoFromContext(r.Context())
-	if info == nil || info.User == nil || info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
-		todoRouteError(w, &services.TodoControlError{Status: 403, Code: "permission", Class: "permission", Message: "Install owner session required"})
-		return 0, 0, false
-	}
-	owner, err := h.Queries.GetSelfHostOwner(r.Context())
-	if err != nil || owner.ID != info.User.ID {
-		todoRouteError(w, &services.TodoControlError{Status: 403, Code: "permission", Class: "permission", Message: "Install owner session required"})
+	decision, err := services.Authorize(r.Context(), h.Queries, command)
+	if err != nil {
+		todoRouteError(w, err)
 		return 0, 0, false
 	}
 	setting, err := h.Queries.GetInstallSetting(r.Context(), "github.repository")
@@ -85,10 +91,10 @@ func (h *TodoHandler) authorize(w http.ResponseWriter, r *http.Request) (int64, 
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	return repo.ID, owner.ID, true
+	return repo.ID, decision.UserID, true
 }
 func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := h.authorize(w, r)
+	repo, user, ok := h.authorize(w, r, "todo.new")
 	if !ok {
 		return
 	}
@@ -114,7 +120,7 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"state": "accepted", "n": item.Number, "rev": 1})
 }
 func (h *TodoHandler) Get(w http.ResponseWriter, r *http.Request) {
-	repo, _, ok := h.authorize(w, r)
+	repo, _, ok := h.authorize(w, r, "todo.read")
 	if !ok {
 		return
 	}
@@ -133,7 +139,7 @@ func (h *TodoHandler) Get(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(view)
 }
 func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
-	repo, _, ok := h.authorize(w, r)
+	repo, _, ok := h.authorize(w, r, "todo.read")
 	if !ok {
 		return
 	}
@@ -152,7 +158,7 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 // same person's same answer again; a question someone else already
 // answered is 409 {answered_by}.
 func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := h.authorize(w, r)
+	repo, user, ok := h.authorize(w, r, "todo.answer")
 	if !ok {
 		return
 	}
@@ -187,7 +193,7 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, err)
 		return
 	}
-	repo, user, ok := h.authorize(w, r)
+	repo, user, ok := h.authorize(w, r, "merge")
 	if !ok {
 		return
 	}

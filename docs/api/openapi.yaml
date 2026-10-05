@@ -3767,6 +3767,147 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/members:
+    get:
+      x-composition: install
+      summary: Read the install's roster
+      description: The owner, then everyone a maintainer added, with roles. Any active member's browser session reads it; tokens, runs and machines get no roster.
+      operationId: get_api_members
+      tags:
+        - Members
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The Members card; MembersCardSchema in packages/rpc/src/MembersCard.ts is the full contract
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembersCard'
+        '401':
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '403':
+          description: Not a member, or not a person's browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: Install repository unavailable
+    post:
+      x-composition: install
+      summary: Add a person by GitHub username
+      description: A maintainer adds a GitHub user who has write access to the repository on GitHub. Their role seeds from GitHub (admin or maintain is Maintainer, write is Member). Adding someone already on the roster changes nothing.
+      operationId: post_api_members
+      tags:
+        - Members
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [login]
+              properties:
+                login: {type: string, minLength: 1, maxLength: 39}
+      responses:
+        '204':
+          description: On the roster
+        '400':
+          description: Not a GitHub username, or an unknown field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '401':
+          description: Not signed in
+        '403':
+          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '404':
+          description: No such GitHub user (unknown_github_user)
+        '503':
+          description: GitHub or the install repository unavailable
+  /api/members/{login}:
+    patch:
+      x-composition: install
+      summary: Change a member's role
+      operationId: patch_api_members_login
+      tags:
+        - Members
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: login
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 39}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role: {type: string, enum: [maintainer, member]}
+      responses:
+        '204':
+          description: Role changed
+        '400':
+          description: Invalid username or role
+        '401':
+          description: Not signed in
+        '403':
+          description: Not a maintainer (permission), or the owner's role (owner_immutable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '404':
+          description: Not on the roster
+        '503':
+          description: Install repository unavailable
+    delete:
+      x-composition: install
+      summary: Remove a member
+      description: In one transaction the person leaves the roster, every session, token and workspace session they hold is deleted, sign-in is barred, and a durable revocation event closes their live connections. Their next request is refused. Removing someone not on the roster changes nothing.
+      operationId: delete_api_members_login
+      tags:
+        - Members
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: login
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 39}
+      responses:
+        '204':
+          description: Not on the roster
+        '400':
+          description: Invalid username
+        '401':
+          description: Not signed in
+        '403':
+          description: Not a maintainer (permission), or the owner (owner_immutable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: Install repository unavailable
   /api/meta/failure-codes:
     get:
       summary: GET /api/meta/failure-codes
@@ -19049,7 +19190,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/TodoCard'
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '503':
           description: Install repository unavailable
     post:
@@ -19113,7 +19254,7 @@ paths:
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place, or an issue reference that is incomplete or names a pull request
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '409':
           description: Idempotency-Key reused for a different request; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
@@ -19142,7 +19283,7 @@ paths:
         '400':
           description: Invalid TODO number
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '404':
           description: TODO not found
         '503':
@@ -19233,7 +19374,7 @@ paths:
         '400':
           description: Invalid TODO number, question or answer
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '404':
           description: TODO or question not found
         '409':
@@ -23706,6 +23847,35 @@ components:
         parallel:
           type: integer
           minimum: 0
+    AccessError:
+      description: An authorization or roster refusal (spec §6.2.3).
+      type: object
+      required: [class, code, message]
+      properties:
+        class: {type: string, enum: [permission, never, user, infra]}
+        code: {type: string}
+        message: {type: string}
+    MembersCard:
+      type: object
+      required: [members, access_url]
+      properties:
+        members:
+          type: array
+          items:
+            type: object
+            required: [login, name, avatar_url, color_index, role, needs_access, suspended, actions]
+            properties:
+              login: {type: string}
+              name: {type: string}
+              avatar_url: {type: string}
+              color_index: {type: integer, minimum: 0, maximum: 5}
+              role: {type: string, enum: [owner, maintainer, member]}
+              needs_access: {type: boolean}
+              suspended: {type: boolean}
+              actions:
+                type: array
+                items: {type: object}
+        access_url: {type: string}
     TodoCard:
       description: One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
       type: object

@@ -23,6 +23,14 @@ func WithSetupScope(ctx context.Context) context.Context {
 	return context.WithValue(ctx, setupScopeKey{}, true)
 }
 
+type memberRouteKey struct{}
+
+// WithMemberRoute is set only by the HTTP boundary for a route a roster
+// member may call; without it the boundary admits the owner alone.
+func WithMemberRoute(ctx context.Context) context.Context {
+	return context.WithValue(ctx, memberRouteKey{}, true)
+}
+
 type OwnerQuerier interface {
 	GetSelfHostOwner(context.Context) (db.User, error)
 }
@@ -34,7 +42,8 @@ type MemberAuthorizer interface {
 	AuthorizeMember(context.Context, int64) *pkgerrors.APIError
 }
 
-// MemberBoundary authorizes exactly the persisted installation owner.
+// MemberBoundary authorizes the persisted installation owner, and active
+// roster members on member routes (WithMemberRoute).
 // A successful lookup is cached: the singleton row cannot be reassigned, while
 // an uninitialized installation remains observable until bootstrap succeeds.
 type MemberBoundary struct {
@@ -67,7 +76,22 @@ func (b *MemberBoundary) AuthorizeMember(ctx context.Context, userID int64) *pkg
 		ownerID = b.ownerID.Load()
 	}
 	if ownerID != userID {
-		return pkgerrors.Forbidden("credential does not belong to the installation owner")
+		// A roster member reaches only the routes the HTTP boundary maps to
+		// a member command; each route still authorizes its command by role.
+		q, ok := b.queries.(interface {
+			InstallationMemberPermission(context.Context, int64) (string, error)
+		})
+		if allowed, _ := ctx.Value(memberRouteKey{}).(bool); !allowed || !ok {
+			return pkgerrors.Forbidden("credential does not belong to the installation owner")
+		}
+		permission, err := q.InstallationMemberPermission(ctx, userID)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && permission != "write" && permission != "admin" {
+			return pkgerrors.Forbidden("credential does not belong to the installation owner")
+		}
+		if err != nil {
+			return pkgerrors.Internal("failed to authorize member").WithCause(err)
+		}
+		return nil
 	}
 	if q, ok := b.queries.(interface {
 		GetInstallSetting(context.Context, string) (db.InstallSetting, error)

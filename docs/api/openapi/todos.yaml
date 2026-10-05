@@ -18,7 +18,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/TodoCard'
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '503':
           description: Install repository unavailable
     post:
@@ -82,7 +82,7 @@ paths:
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place, or an issue reference that is incomplete or names a pull request
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '409':
           description: Idempotency-Key reused for a different request; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
@@ -111,7 +111,7 @@ paths:
         '400':
           description: Invalid TODO number
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '404':
           description: TODO not found
         '503':
@@ -202,7 +202,7 @@ paths:
         '400':
           description: Invalid TODO number, question or answer
         '403':
-          description: Install owner session required
+          description: Not a member, not a person's browser session, or (merge) not a maintainer
         '404':
           description: TODO or question not found
         '409':

@@ -10,6 +10,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -557,9 +558,15 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 		owner, err := db.New(s.Members.Pool).GetSelfHostOwner(ctx)
 		if err == nil {
 			if owner.ID != user.ID {
-				return OAuthCallbackResult{}, pkgerrors.Forbidden("not a member")
+				role, err := InstallRoleOf(ctx, db.New(s.Members.Pool), user.ID)
+				if err != nil {
+					return OAuthCallbackResult{}, err
+				}
+				if role == "" {
+					return OAuthCallbackResult{}, memberError(http.StatusForbidden, "permission", "not_a_member", "Not a member")
+				}
 			}
-			if setting, err := db.New(s.Members.Pool).GetInstallSetting(ctx, "owner.access"); err == nil && len(setting.Value) > 0 {
+			if setting, err := db.New(s.Members.Pool).GetInstallSetting(ctx, "owner.access"); err == nil && len(setting.Value) > 0 && owner.ID == user.ID {
 				if err := s.Members.VerifyOwner(ctx, user); err != nil {
 					return OAuthCallbackResult{}, err
 				}
@@ -602,6 +609,12 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 	profile, err := client.FetchUser(ctx, accessToken)
 	if err != nil {
 		return db.User{}, oauthFetchError("profile", err)
+	}
+
+	if config.IsSingleOwner(s.cfg) && s.Members != nil {
+		if err := s.Members.AdmitGitHub(ctx, profile.ID, profile.Login); err != nil {
+			return db.User{}, err
+		}
 	}
 
 	emails, err := client.FetchEmails(ctx, accessToken)
@@ -725,6 +738,11 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 		}
 	}
 
+	if config.IsSingleOwner(s.cfg) && s.Members != nil {
+		if err := s.Members.LinkGitHub(ctx, profile.ID, user.ID, profile.Login); err != nil {
+			return db.User{}, err
+		}
+	}
 	return user, nil
 }
 

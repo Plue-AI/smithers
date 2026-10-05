@@ -62,10 +62,6 @@ type workspaceLister interface {
 	ListWorkspacesByRepo(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error)
 }
 
-type collaboratorLister interface {
-	ListCollaboratorsByRepo(ctx context.Context, repositoryID int64) ([]db.Collaborator, error)
-}
-
 type workspaceGetter interface {
 	GetWorkspace(ctx context.Context, id string) (db.Workspace, error)
 }
@@ -133,45 +129,6 @@ func organizationWorkspaceVMIDs(ctx context.Context, store any, organizationID, 
 		}
 	}
 	return ids
-}
-
-// collaboratorsOf lists a repository's collaborators before they are dropped,
-// so the removal can be announced per user afterwards.
-func (s *RepoService) collaboratorsOf(ctx context.Context, repositoryID int64) []db.Collaborator {
-	if s == nil || s.revocations == nil {
-		return nil
-	}
-	lister, ok := s.queries.(collaboratorLister)
-	if !ok {
-		return nil
-	}
-	rows, err := lister.ListCollaboratorsByRepo(ctx, repositoryID)
-	if err != nil {
-		return nil
-	}
-	return rows
-}
-
-// publishCollaboratorsRemoved announces every collaborator dropped from a
-// repository, naming each user's workspace VMs so SSH sessions end too.
-func (s *RepoService) publishCollaboratorsRemoved(ctx context.Context, repositoryID int64, removed []db.Collaborator, actorID int64, reason string) {
-	if s == nil || s.revocations == nil {
-		return
-	}
-	for _, collaborator := range removed {
-		if !collaborator.UserID.Valid {
-			continue
-		}
-		userID := collaborator.UserID.Int64
-		revocation.PublishBestEffort(ctx, s.revocations, revocation.Event{
-			Kind:         revocation.KindCollaboratorRemoved,
-			UserID:       userID,
-			RepositoryID: repositoryID,
-			SandboxIDs:   workspaceVMIDs(ctx, s.queries, repositoryID, userID),
-			Reason:       reason,
-			ActorID:      actorID,
-		})
-	}
 }
 
 // adminActorID names the acting administrator for an event, or 0 when the

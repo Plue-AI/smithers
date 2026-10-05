@@ -270,6 +270,38 @@ func writeInvalidToken(w http.ResponseWriter, message string) {
 	errors.WriteError(w, errors.New(errors.CodeInvalidToken, message))
 }
 
+// installMemberRoutes are the routes a roster member may call on an
+// install, each with the command its handler authorizes by role
+// (services.Authorize; "self" is the person's own session). Every other
+// route is the owner's alone, so a new route ships closed to members.
+var installMemberRoutes = []struct {
+	method, command string
+	path            *regexp.Regexp
+}{
+	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
+	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
+	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos$`)},
+	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
+	{http.MethodPost, "todo.new", regexp.MustCompile(`^/api/todos$`)},
+	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
+	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
+	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
+	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
+	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	{http.MethodDelete, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
+}
+
+// InstallMemberCommand is the command a roster member's request to method
+// and path runs, or "" for a route only the install owner may call.
+func InstallMemberCommand(method, path string) string {
+	for _, route := range installMemberRoutes {
+		if route.method == method && route.path.MatchString(path) {
+			return route.command
+		}
+	}
+	return ""
+}
+
 func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo *AuthInfo, boundary identity.MemberAuthorizer) bool {
 	if boundary == nil || authInfo == nil || authInfo.User == nil {
 		return true
@@ -279,6 +311,9 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 	// verifies the owner, so those returns are setup routes too.
 	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" || r.URL.Path == "/setup/github/callback" || r.URL.Path == "/setup/github/installed" {
 		ctx = identity.WithSetupScope(ctx)
+	}
+	if InstallMemberCommand(r.Method, r.URL.Path) != "" {
+		ctx = identity.WithMemberRoute(ctx)
 	}
 	if err := boundary.AuthorizeMember(ctx, authInfo.User.ID); err != nil {
 		errors.WriteError(w, err)

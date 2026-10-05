@@ -88,9 +88,12 @@ type Server struct {
 	oauthUsed   bool
 	callbacks   []string
 	codes       map[string]string
-	writes      []Write
-	tokens      map[string]int64
-	pulls       map[string]Pull
+	// signIns are the one-time OAuth codes that sign in a collaborator
+	// (SignInAs) rather than the owner, by code.
+	signIns map[string]int64
+	writes  []Write
+	tokens  map[string]int64
+	pulls   map[string]Pull
 	// grants are each installation token's permissions: those requested
 	// when it was minted, or the installation's when none were.
 	grants map[string]map[string]string
@@ -289,6 +292,15 @@ func (s *Server) SetCollaborator(id int64, login, permission string) {
 	defer s.mu.Unlock()
 	s.accounts[id] = login
 	s.access[login] = permission
+}
+
+// SignInAs adds a one-time OAuth code that signs in GitHub account id, a
+// collaborator SetCollaborator made, through the App's OAuth client.
+func (s *Server) SignInAs(code string, id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.codes[code] = ""
+	s.signIns[code] = id
 }
 
 // RequireReviews makes main's branch protection require count approving
@@ -593,6 +605,7 @@ func Handler(config Config) (*Server, error) {
 		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string),
 		opened: make(map[string]*issue), events: make(map[string][]IssueEvent), comments: make(map[string][]IssueComment), eventIDs: 1000}
 	s.codes = make(map[string]string)
+	s.signIns = make(map[string]int64)
 	if config.OAuthCode != "" {
 		s.codes[config.OAuthCode] = ""
 	}
@@ -695,6 +708,11 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		return http.StatusOK, map[string]string{"login": s.config.OwnerLogin, "type": kind}
 	}
 	if r.Method == http.MethodGet && len(path) == 2 && path[0] == "users" {
+		for id, login := range s.accounts {
+			if strings.EqualFold(login, path[1]) {
+				return http.StatusOK, map[string]any{"id": id, "login": login, "type": "User"}
+			}
+		}
 		return failure(http.StatusNotFound, "GitHub owner not found")
 	}
 	// Setup uses the App's own OAuth client; no local session is manufactured.
@@ -705,8 +723,25 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			return failure(401, "OAuth exchange refused")
 		}
 		delete(s.codes, form.Get("code"))
+		if id, ok := s.signIns[form.Get("code")]; ok {
+			delete(s.signIns, form.Get("code"))
+			return 200, map[string]string{"access_token": fmt.Sprintf("ghu_githubfake_user_%d", id), "token_type": "bearer"}
+		}
 		s.oauthUsed = true
 		return 200, map[string]string{"access_token": "ghu_githubfake_owner", "token_type": "bearer"}
+	}
+	if id, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ghu_githubfake_user_"); ok {
+		accountID, _ := strconv.ParseInt(id, 10, 64)
+		login := s.accounts[accountID]
+		switch {
+		case login == "":
+			return failure(http.StatusUnauthorized, "Bad credentials")
+		case r.URL.Path == "/user":
+			return 200, map[string]any{"id": accountID, "login": login, "name": login}
+		case r.URL.Path == "/user/emails":
+			return 200, []any{map[string]any{"email": strings.ToLower(login) + "@example.test", "primary": true, "verified": true}}
+		}
+		return failure(404, "endpoint not found")
 	}
 	if r.Header.Get("Authorization") == "Bearer ghu_githubfake_owner" && s.oauthUsed {
 		switch r.URL.Path {

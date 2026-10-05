@@ -76,13 +76,18 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	if s == nil || s.store == nil {
 		return MythicalItemView{}, issueTodoUnavailable()
 	}
-	info := middleware.AuthInfoFromContext(ctx)
-	if info == nil || info.IsTokenAuth || info.SessionHash == "" || info.User == nil || info.User.ID != userID {
-		return MythicalItemView{}, &TodoControlError{403, "permission", "permission", "Install owner session required"}
+	decision, err := Authorize(ctx, s.queries(), "todo.new")
+	if err != nil {
+		return MythicalItemView{}, err
 	}
-	owner, err := s.queries().GetSelfHostOwner(ctx)
-	if err != nil || owner.ID != userID {
-		return MythicalItemView{}, &TodoControlError{403, "permission", "permission", "Install owner session required"}
+	if decision.UserID != userID {
+		return MythicalItemView{}, &AccessError{http.StatusForbidden, "permission", "permission", "Sign in with a browser session"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	// The first revision is the person's own text, by them.
+	person, err := s.queries().GetUserByID(ctx, userID)
+	if err != nil {
+		return MythicalItemView{}, err
 	}
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || input.Request == "" || len(input.Request) > 256 {
@@ -151,7 +156,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if err != nil || stack.State != "active" {
 			return &TodoControlError{503, "stack_unavailable", "infra", "Repository stack is not ready"}
 		}
-		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
+		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
 		if issue != nil {
 			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
 		}

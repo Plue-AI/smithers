@@ -1267,6 +1267,31 @@ type InstallSetupStatusModelsItem struct {
 	Error    *string `json:"error,omitempty"`
 }
 
+// AccessError — An authorization or roster refusal (spec §6.2.3).
+type AccessError struct {
+	Class   string `json:"class"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// MembersCard is generated from docs/api/openapi.yaml.
+type MembersCard struct {
+	Members   []MembersCardMembersItem `json:"members"`
+	AccessURL string                   `json:"access_url"`
+}
+
+// MembersCardMembersItem is generated from docs/api/openapi.yaml.
+type MembersCardMembersItem struct {
+	Login       string                       `json:"login"`
+	Name        string                       `json:"name"`
+	AvatarURL   string                       `json:"avatar_url"`
+	ColorIndex  int64                        `json:"color_index"`
+	Role        string                       `json:"role"`
+	NeedsAccess bool                         `json:"needs_access"`
+	Suspended   bool                         `json:"suspended"`
+	Actions     []map[string]json.RawMessage `json:"actions"`
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -1449,6 +1474,16 @@ type GetAPIReposOwnerRepoIssueViewsResponseItem struct {
 	Title  string   `json:"title"`
 	State  *string  `json:"state,omitempty"`
 	Labels []string `json:"labels,omitempty"`
+}
+
+// PostAPIMembersBody is generated from docs/api/openapi.yaml.
+type PostAPIMembersBody struct {
+	Login string `json:"login"`
+}
+
+// PatchAPIMembersLoginBody is generated from docs/api/openapi.yaml.
+type PatchAPIMembersLoginBody struct {
+	Role string `json:"role"`
 }
 
 // GetAPINotificationsEventsParams is the query of GET /api/notifications/events.
@@ -2488,6 +2523,28 @@ func (c *Client) GetAPIReposOwnerRepoIssueViews(ctx context.Context, owner strin
 	var out []GetAPIReposOwnerRepoIssueViewsResponseItem
 	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issue-views", nil, nil, &out)
 	return out, err
+}
+
+// GetAPIMembers calls GET /api/members.
+func (c *Client) GetAPIMembers(ctx context.Context) (MembersCard, error) {
+	var out MembersCard
+	err := c.do(ctx, "GET", "/api/members", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIMembers calls POST /api/members.
+func (c *Client) PostAPIMembers(ctx context.Context, body PostAPIMembersBody) error {
+	return c.do(ctx, "POST", "/api/members", nil, body, nil)
+}
+
+// DeleteAPIMembersLogin calls DELETE /api/members/{login}.
+func (c *Client) DeleteAPIMembersLogin(ctx context.Context, login string) error {
+	return c.do(ctx, "DELETE", "/api/members/"+url.PathEscape(login), nil, nil, nil)
+}
+
+// PatchAPIMembersLogin calls PATCH /api/members/{login}.
+func (c *Client) PatchAPIMembersLogin(ctx context.Context, login string, body PatchAPIMembersLoginBody) error {
+	return c.do(ctx, "PATCH", "/api/members/"+url.PathEscape(login), nil, body, nil)
 }
 
 // GetAPIMetaFailureCodes calls GET /api/meta/failure-codes.

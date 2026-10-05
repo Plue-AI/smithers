@@ -727,6 +727,27 @@ export type InstallSetupStatus = {
   parallel?: number
 }
 
+/** An authorization or roster refusal (spec §6.2.3). */
+export type AccessError = {
+  class: "permission" | "never" | "user" | "infra"
+  code: string
+  message: string
+}
+
+export type MembersCard = {
+  members: Array<{
+    login: string
+    name: string
+    avatar_url: string
+    color_index: number
+    role: "owner" | "maintainer" | "member"
+    needs_access: boolean
+    suspended: boolean
+    actions: Array<Record<string, unknown>>
+  }>
+  access_url: string
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -1638,6 +1659,45 @@ export interface GetApiReposOwnerRepoIssueViewsInput {
 /** GET /api/repos/{owner}/{repo}/issue-views */
 export const getApiReposOwnerRepoIssueViews = (transport: Transport, input: GetApiReposOwnerRepoIssueViewsInput): Promise<GetApiReposOwnerRepoIssueViewsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issue-views`) as Promise<GetApiReposOwnerRepoIssueViewsResponse>
+
+export type GetApiMembersResponse = MembersCard
+
+/** GET /api/members: Read the install's roster */
+export const getApiMembers = (transport: Transport): Promise<GetApiMembersResponse> =>
+  transport.request("GET", `/api/members`) as Promise<GetApiMembersResponse>
+
+export type PostApiMembersBody = {
+  login: string
+}
+
+export interface PostApiMembersInput {
+  readonly body: PostApiMembersBody
+}
+
+/** POST /api/members: Add a person by GitHub username */
+export const postApiMembers = (transport: Transport, input: PostApiMembersInput): Promise<void> =>
+  transport.request("POST", `/api/members`, input.body).then(() => undefined)
+
+export interface DeleteApiMembersLoginInput {
+  readonly path: { readonly login: string }
+}
+
+/** DELETE /api/members/{login}: Remove a member */
+export const deleteApiMembersLogin = (transport: Transport, input: DeleteApiMembersLoginInput): Promise<void> =>
+  transport.request("DELETE", `/api/members/${segment(input.path.login)}`).then(() => undefined)
+
+export type PatchApiMembersLoginBody = {
+  role: "maintainer" | "member"
+}
+
+export interface PatchApiMembersLoginInput {
+  readonly path: { readonly login: string }
+  readonly body: PatchApiMembersLoginBody
+}
+
+/** PATCH /api/members/{login}: Change a member's role */
+export const patchApiMembersLogin = (transport: Transport, input: PatchApiMembersLoginInput): Promise<void> =>
+  transport.request("PATCH", `/api/members/${segment(input.path.login)}`, input.body).then(() => undefined)
 
 export type GetApiMetaFailureCodesResponse = AnyJSON
 

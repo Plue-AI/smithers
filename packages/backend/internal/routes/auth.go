@@ -949,6 +949,11 @@ func isSafe5xxMessageCode(code errors.Code) bool {
 }
 
 func writeRouteError(w http.ResponseWriter, r *http.Request, err error) {
+	var accessFailure *services.AccessError
+	if stdErrors.As(err, &accessFailure) {
+		memberRouteError(w, err)
+		return
+	}
 	var apiErr *errors.APIError
 	if stdErrors.As(err, &apiErr) {
 		// Retry-After is errors.WriteError's job now, under this exact guard,

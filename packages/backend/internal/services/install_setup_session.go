@@ -203,6 +203,11 @@ func (s *InstallSetupSessions) ClaimOwner(ctx context.Context, user db.User, raw
 		return db.AuthSession{}, err
 	}
 	q := db.New(tx)
+	// Roster changes lock the same row FOR UPDATE; minting a session cannot
+	// race a removal.
+	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
+		return db.AuthSession{}, err
+	}
 	setup, _ := ctx.Value(installSetupContextKey{}).(string)
 	if _, err := q.GetSelfHostOwner(ctx); err == nil {
 		if setup != "" {
@@ -213,7 +218,13 @@ func (s *InstallSetupSessions) ClaimOwner(ctx context.Context, user db.User, raw
 			return db.AuthSession{}, err
 		}
 		if owner.ID != user.ID {
-			return db.AuthSession{}, pkgerrors.Forbidden("not a member")
+			// An active roster member signs in; the owner row lock above
+			// orders this session after any removal that committed first.
+			if role, err := InstallRoleOf(ctx, q, user.ID); err != nil {
+				return db.AuthSession{}, err
+			} else if role == "" {
+				return db.AuthSession{}, pkgerrors.Forbidden("not a member")
+			}
 		}
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		if len(setup) != 64 {

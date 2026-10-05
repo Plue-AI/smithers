@@ -151,6 +151,7 @@ var migrationRegistry = []migrationSpec{
 	{113, "migrations/0113_flow_relay_plans.sql"},
 	{114, "migrations/0114_mythical_fixes_issue.sql"},
 	{115, "migrations/0115_model_usage_owner_paid.sql"},
+	{116, "migrations/0116_members_roster.sql"},
 }
 
 type migration struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	stdErrors "errors"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -257,4 +258,119 @@ func highestRepoPermission(permissions ...string) string {
 		}
 	}
 	return best
+}
+
+// InstallRole is a person's role on a self-hosted install's roster
+// (mvp.md §6.15): the owner who installed it, then the collaborators rows of
+// the install's repository, admin as Maintainer and write as Member.
+type InstallRole string
+
+const (
+	InstallOwner      InstallRole = "owner"
+	InstallMaintainer InstallRole = "maintainer"
+	InstallMember     InstallRole = "member"
+)
+
+func (r InstallRole) rank() int {
+	switch r {
+	case InstallOwner:
+		return 3
+	case InstallMaintainer:
+		return 2
+	case InstallMember:
+		return 1
+	}
+	return 0
+}
+
+// installCommandRoles is the least role each person command the install
+// serves needs (mvp.md §6.15, M-05): members work TODOs, maintainers merge
+// and manage people. A command absent here is refused.
+var installCommandRoles = map[string]InstallRole{
+	"todo.read":     InstallMember,
+	"todo.new":      InstallMember,
+	"todo.answer":   InstallMember,
+	"todo.steer":    InstallMember,
+	"merge":         InstallMaintainer,
+	"members.list":  InstallMember,
+	"members.write": InstallMaintainer,
+}
+
+// AccessError is Authorize's refusal (spec §6.2.3 error envelope).
+type AccessError struct {
+	Status  int    `json:"-"`
+	Class   string `json:"class"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *AccessError) Error() string { return e.Message }
+
+// InstallAuthorization is one Authorize decision: the person and the role
+// they hold now.
+type InstallAuthorization struct {
+	UserID int64
+	Role   InstallRole
+}
+
+// Authorize is the install's one command authorizer (T-ACC-03): the
+// request's credential, the command and the person's role, read from
+// committed roster state on every call, so a removal or suspension refuses
+// the very next request. Until delegated credentials land (T-ACC-04), only a
+// person's own browser session carries person authority.
+func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
+	need, ok := installCommandRoles[command]
+	if !ok {
+		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Not available"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil {
+		return InstallAuthorization{}, &AccessError{http.StatusUnauthorized, "permission", "unauthenticated", "Sign in"}
+	}
+	if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Sign in with a browser session"}
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Not a member"}
+	}
+	if role.rank() < need.rank() {
+		return InstallAuthorization{}, &AccessError{http.StatusForbidden, "permission", "permission", "Only a maintainer can do this"}
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+// InstallRoleOf is userID's current role, or "" for a person who is not an
+// active member: off the roster, suspended, or barred from signing in.
+func InstallRoleOf(ctx context.Context, q *db.Queries, userID int64) (InstallRole, error) {
+	if q == nil {
+		return "", &AccessError{http.StatusServiceUnavailable, "infra", "unavailable", "Members unavailable"}
+	}
+	owner, err := q.GetSelfHostOwner(ctx)
+	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	if err == nil && owner.ID == userID {
+		if owner.ProhibitLogin {
+			return "", nil
+		}
+		return InstallOwner, nil
+	}
+	permission, err := q.InstallationMemberPermission(ctx, userID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	switch permission {
+	case "admin":
+		return InstallMaintainer, nil
+	case "write":
+		return InstallMember, nil
+	}
+	return "", nil
 }

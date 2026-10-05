@@ -630,7 +630,7 @@ func (s *MythicalService) mergeApprover(ctx context.Context, repositoryID int64,
 
 // mergePerson is the person whose browser session is stored under
 // sessionKey, while the session is live, the person may sign in and is the
-// install's owner (the only member a self-hosted install has before M-17).
+// install's owner or one of its maintainers (M-05, M-17).
 // A session filed before keys were hashed at rest is not found under its
 // digest, at the press as at dispatch: it signs in again.
 func (s *MythicalService) mergePerson(ctx context.Context, sessionKey string) (int64, error) {
@@ -642,12 +642,14 @@ func (s *MythicalService) mergePerson(ctx context.Context, sessionKey string) (i
 }
 
 // mergeStanding is the approver's rows as one read found them: the session
-// stored under its key, its person and the install's owner.
+// stored under its key, its person, the install's owner and whether the
+// person is a maintainer on the roster.
 type mergeStanding struct {
 	session, user bool
 	userID, owner int64
 	expires       time.Time
 	enabled       bool
+	maintainer    bool
 }
 
 // readMergeStanding reads the approver's rows through conn, the claim's
@@ -680,16 +682,24 @@ func readMergeStanding(ctx context.Context, conn db.DBTX, sessionKey string) (me
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return standing, err
 	}
+	if standing.owner != standing.userID {
+		role, err := InstallRoleOf(ctx, db.New(conn), standing.userID)
+		if err != nil {
+			return standing, err
+		}
+		standing.maintainer = role == InstallMaintainer
+	}
 	return standing, nil
 }
 
 // person is the approver while, at now, the session is live, its person may
-// sign in and is the install's owner; otherwise the refusal.
+// sign in and is the install's owner or a maintainer on its roster (M-05);
+// otherwise the refusal.
 func (m mergeStanding) person(now time.Time) (int64, error) {
 	if !m.session || !m.user || !m.expires.After(now) || !m.enabled {
 		return 0, &TodoControlError{Status: http.StatusUnauthorized, Code: "unauthenticated", Class: "permission", Message: "The approving browser session has ended; sign in again to merge"}
 	}
-	if m.owner != m.userID {
+	if m.owner != m.userID && !m.maintainer {
 		return 0, mythicalMergeForbidden()
 	}
 	return m.userID, nil

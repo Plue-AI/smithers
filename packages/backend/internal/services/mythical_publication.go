@@ -140,8 +140,9 @@ func (s *MythicalService) githubBudget(ctx context.Context, item db.MythicalItem
 	return nil
 }
 
-// currentMembership: the person the TODO is for, and the account the stack
-// publishes as, are this install's current owner.
+// currentMembership: the person the TODO is for is a current member of this
+// install (owner or active roster member), and the account the stack
+// publishes as is its current owner.
 func (s *MythicalService) currentMembership(ctx context.Context, item db.MythicalItem, _ string) error {
 	owner, err := s.queries().GetSelfHostOwner(ctx)
 	if err != nil || owner.ProhibitLogin {
@@ -158,7 +159,17 @@ func (s *MythicalService) currentMembership(ctx context.Context, item db.Mythica
 	case item.CreatedBy.Valid:
 		person = item.CreatedBy
 	}
-	if !person.Valid || person.Int64 != owner.ID || !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != owner.ID {
+	if !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != owner.ID {
+		return errors.New("the stack's account is no longer a member of this install")
+	}
+	if !person.Valid {
+		return errors.New("the TODO's person is no longer a member of this install")
+	}
+	role, err := InstallRoleOf(ctx, s.queries(), person.Int64)
+	if err != nil {
+		return err
+	}
+	if role == "" {
 		return errors.New("the TODO's person is no longer a member of this install")
 	}
 	return nil

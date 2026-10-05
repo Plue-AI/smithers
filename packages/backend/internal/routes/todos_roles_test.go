@@ -1,0 +1,164 @@
+package routes
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+)
+
+// Every TODO route with the production handler and service on real
+// PostgreSQL, for each role on the install's roster (mvp.md §6.15, M-05):
+// the owner, a Maintainer (collaborators admin), a Member (write), a person
+// off the roster, a suspended member and a removed one, plus a token. Members
+// read, create and answer; only the owner and maintainers get past Merge's
+// authorization; nobody else gets past any route's.
+func TestTodoRoutesAuthorizeByRole(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	person := func(login string) int64 {
+		var id int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,display_name) VALUES ($1,$2,$3) RETURNING id`, login, login, strings.ToUpper(login[:1])+login[1:]).Scan(&id))
+		return id
+	}
+	owner, ben, alice, carol, dave, erin := person("maya"), person("ben"), person("alice"), person("carol"), person("dave"), person("erin")
+	var repo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'app','app') RETURNING id`, owner).Scan(&repo))
+	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES (true,$1)`, owner)
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"owner_login":"maya","repository_name":"app","repository_id":%d}`, repo))}))
+	roster := []struct {
+		user       int64
+		permission string
+		suspended  bool
+	}{{owner, "admin", false}, {ben, "admin", false}, {alice, "write", false}, {dave, "write", true}, {erin, "write", false}}
+	for _, row := range roster {
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,suspended_at) VALUES ($1,$2,$3,CASE WHEN $4::boolean THEN now() END)`, repo, row.user, row.permission, row.suspended)
+		require.NoError(t, err)
+	}
+	// Erin was removed: barred from signing in, as Members.Remove leaves her.
+	_, err = pool.Exec(ctx, `UPDATE users SET prohibit_login=true WHERE id=$1`, erin)
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo, owner, 1, false)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
+	require.NoError(t, err)
+	checks := `{"todo":true,"run_launched":true,"run_attached":true,"waits":[{"id":"q-0123456789abcdef","kind":"question","prompt":"Backoff or a fixed delay?","since":"2026-10-05T08:00:00Z",
+		"signal":{"scope":{"TenantID":"repository:1","PrincipalID":"user:1"},"target":{"TenantID":"repository:1","PrincipalID":"user:1","WorkspaceID":"w-1","BindingKind":"mythical-item","BindingID":"i-1"},"flow":"todo","run":"run-1","name":"coding-clarification"}}]}`
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo, State: "running", Checks: []byte(checks)})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo', number=3, request_run_id='run-1', attempt=1, title='Retry webhooks', owner_id=$2 WHERE id=$1`, item.ID, owner)
+	require.NoError(t, err)
+
+	service := services.NewMythicalService(pool, nil)
+	signals := &answerSignals{}
+	service.SetLauncher(signals)
+	handler := &TodoHandler{Queries: q, Service: service}
+	router := chi.NewRouter()
+	router.Get("/api/todos", handler.List)
+	router.Get("/api/todos/{n}", handler.Get)
+	router.Post("/api/todos", handler.Create)
+	router.Post("/api/todos/{n}/answer", handler.Answer)
+	router.Post("/api/todos/{n}/merge", handler.Merge)
+	// Each person holds a live browser session; Merge reads it back.
+	session := func(user int64, login string) *middleware.AuthInfo {
+		digest := sha256.Sum256([]byte(login + "-cookie"))
+		key := hex.EncodeToString(digest[:])
+		_, err := q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user, Username: login, SessionKey: key, ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		return &middleware.AuthInfo{User: &db.User{ID: user, Username: login}, SessionHash: key}
+	}
+	sessions := map[string]*middleware.AuthInfo{"owner": session(owner, "maya"), "maintainer": session(ben, "ben"), "member": session(alice, "alice"),
+		"off roster": session(carol, "carol"), "suspended": session(dave, "dave"), "removed": session(erin, "erin"),
+		"token": {User: &db.User{ID: alice}, IsTokenAuth: true, TokenSource: middleware.TokenSourcePersonalAccessToken}}
+	call := func(method, path, body, key string, info *middleware.AuthInfo) (int, map[string]any) {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+		req = req.WithContext(middleware.ContextWithAuthInfo(ctx, info))
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		var envelope map[string]any
+		_ = json.Unmarshal(response.Body.Bytes(), &envelope)
+		return response.Code, envelope
+	}
+	head := strings.Repeat("a", 40)
+	// Merge of an unknown TODO: past authorization it is 404 todo_not_found,
+	// read only after the approver's standing is checked.
+	for _, tc := range []struct {
+		who                   string
+		list, read, create    int
+		merge                 int
+		mergeCode, createCode string
+	}{
+		{"owner", 200, 200, 202, 404, "todo_not_found", ""},
+		{"maintainer", 200, 200, 202, 404, "todo_not_found", ""},
+		{"member", 200, 200, 202, 403, "permission", ""},
+		{"off roster", 403, 403, 403, 403, "permission", "permission"},
+		{"suspended", 403, 403, 403, 403, "permission", "permission"},
+		{"removed", 403, 403, 403, 403, "permission", "permission"},
+		{"token", 403, 403, 403, 403, "permission", "permission"},
+	} {
+		t.Run(tc.who, func(t *testing.T) {
+			info := sessions[tc.who]
+			status, envelope := call(http.MethodGet, "/api/todos", "", "", info)
+			require.Equal(t, tc.list, status, envelope)
+			status, envelope = call(http.MethodGet, "/api/todos/3", "", "", info)
+			require.Equal(t, tc.read, status, envelope)
+			status, envelope = call(http.MethodPost, "/api/todos", `{"title":"By `+tc.who+`","prompt":"Add a greeting"}`, "create-"+tc.who, info)
+			require.Equal(t, tc.create, status, envelope)
+			if tc.createCode != "" {
+				require.Equal(t, tc.createCode, envelope["code"])
+				require.Equal(t, "permission", envelope["class"])
+			}
+			status, envelope = call(http.MethodPost, "/api/todos/99/merge", `{"reviewed_head_sha":"`+head+`"}`, "merge-"+tc.who, info)
+			require.Equal(t, tc.merge, status, envelope)
+			require.Equal(t, tc.mergeCode, envelope["code"])
+		})
+	}
+	// Created TODOs carry their person: the first revision is by Alice.
+	var by string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT revisions->0->'by'->>'login' FROM mythical_items WHERE title='By member'`).Scan(&by))
+	require.Equal(t, "alice", by)
+	var created int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE title LIKE 'By %'`).Scan(&created))
+	require.Equal(t, 3, created, "only the owner, the maintainer and the member file TODOs")
+
+	// Any member answers; nobody off the roster does; the first answer wins.
+	answer := `{"wait":"q-0123456789abcdef","answer":"Use backoff"}`
+	for _, who := range []string{"off roster", "suspended", "removed", "token"} {
+		status, envelope := call(http.MethodPost, "/api/todos/3/answer", answer, "", sessions[who])
+		require.Equal(t, http.StatusForbidden, status, who)
+		require.Equal(t, "permission", envelope["code"], who)
+	}
+	require.Empty(t, signals.sent(), "no refusal signals the run")
+	status, envelope := call(http.MethodPost, "/api/todos/3/answer", answer, "", sessions["member"])
+	require.Equal(t, http.StatusAccepted, status, envelope)
+	status, envelope = call(http.MethodPost, "/api/todos/3/answer", `{"wait":"q-0123456789abcdef","answer":"Use a fixed delay"}`, "", sessions["maintainer"])
+	require.Equal(t, http.StatusConflict, status, envelope)
+	require.Equal(t, "alice", envelope["answered_by"])
+	require.Len(t, signals.sent(), 1)
+
+	// A member removed now is refused on the very next request.
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice)
+	require.NoError(t, err)
+	status, _ = call(http.MethodGet, "/api/todos", "", "", sessions["member"])
+	require.Equal(t, http.StatusForbidden, status)
+}

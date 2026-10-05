@@ -3,6 +3,8 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -303,7 +305,135 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("Merged", "GET "+todoPath+"; GET /api/repos/{o}/{r}/mythical; GET /api/github/sync", "merged only after GitHub merge receipt; the install's main follows GitHub's squash commit; sync fresh", "T-STK-04, T-GH-02", func() error {
+	if !r.step("Merged", "GET "+todoPath+"; GET /api/repos/{o}/{r}/mythical; GET /api/github/sync", "merged only after GitHub merge receipt; the install's main follows GitHub's squash commit; sync fresh", "T-STK-04, T-GH-02", func() error {
 		return r.waitMerged(number, prNumber, head)
-	})
+	}) {
+		return
+	}
+	r.step("8 Members", "POST /api/members; GET /api/auth/github/callback; POST /api/todos; POST /api/todos/{n}/answer; POST /api/todos/{n}/merge; DELETE /api/members/{login}",
+		"Ben Maintainer, Alice Member; both sign in; Alice files and answers, cannot merge; Ben may merge; removal ends Alice's session", "T-ACC-02, T-ACC-03", func() error {
+			return r.members(number)
+		})
+}
+
+// members is J1 step 8: the owner adds Ben (a maintainer on GitHub) and Alice
+// (write) by username; each signs in with GitHub in their own browser and acts
+// by role. Removing Alice refuses her very next request.
+func (r *rehearsal) members(first int64) error {
+	r.fake.SetCollaborator(201, "ben", "maintain")
+	r.fake.SetCollaborator(202, "alice", "write")
+	r.fake.SetCollaborator(203, "carol", "read")
+	for _, login := range []string{"ben", "alice"} {
+		if _, err := r.expect("POST", "/api/members", `{"login":"`+login+`"}`, 204); err != nil {
+			return err
+		}
+	}
+	data, err := r.expect("POST", "/api/members", `{"login":"carol"}`, 403)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(data), "needs_github_access") {
+		return fmt.Errorf("a reader was not refused for GitHub access: %s", data)
+	}
+	data, err = r.expect("GET", "/api/members", "", 200)
+	if err != nil {
+		return err
+	}
+	var roster struct {
+		Members []struct{ Login, Role string }
+	}
+	if err = json.Unmarshal(data, &roster); err != nil {
+		return err
+	}
+	roles := map[string]string{}
+	for _, member := range roster.Members {
+		roles[member.Login] = member.Role
+	}
+	if len(roster.Members) != 3 || roles["rehearsal-owner"] != "owner" || roles["ben"] != "maintainer" || roles["alice"] != "member" {
+		return fmt.Errorf("roster %v", roles)
+	}
+	// Each signs in at the install's address with GitHub, in a browser of their own.
+	signIn := func(code string, id int64) (*cookiejar.Jar, error) {
+		browser, err := cookiejar.New(nil)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := r.expectAs(browser, "GET", "/api/auth/github", "", 302); err != nil {
+			return nil, err
+		}
+		start, err := url.Parse(r.location)
+		if err != nil {
+			return nil, err
+		}
+		r.fake.SignInAs(code, id)
+		if _, err = r.expectAs(browser, "GET", "/api/auth/github/callback?code="+code+"&state="+url.QueryEscape(start.Query().Get("state")), "", 302); err != nil {
+			return nil, err
+		}
+		return browser, nil
+	}
+	ben, err := signIn("ben-code", 201)
+	if err != nil {
+		return err
+	}
+	alice, err := signIn("alice-code", 202)
+	if err != nil {
+		return err
+	}
+	// Alice, a Member, files a TODO and answers on it; she cannot merge.
+	data, err = r.expectAs(alice, "POST", "/api/todos", `{"title":"Alice's TODO","prompt":"Add a farewell to JOURNEY.md","place":{"mode":"append"}}`, 202)
+	if err != nil {
+		return err
+	}
+	var filed struct {
+		N int64 `json:"n"`
+	}
+	if err = json.Unmarshal(data, &filed); err != nil || filed.N <= first {
+		return fmt.Errorf("Alice's TODO receipt: %s", data)
+	}
+	data, err = r.expectAs(alice, "GET", fmt.Sprintf("/api/todos/%d", filed.N), "", 200)
+	if err != nil {
+		return err
+	}
+	var card struct {
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+	}
+	if err = json.Unmarshal(data, &card); err != nil || card.Owner.Login != "alice" {
+		return fmt.Errorf("Alice's TODO is not hers: %s", data)
+	}
+	// Her TODO asks nothing yet: her answer is admitted and finds no question.
+	data, err = r.expectAs(alice, "POST", fmt.Sprintf("/api/todos/%d/answer", filed.N), `{"wait":"q-0123456789abcdef","answer":"Use backoff"}`, 404)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(data), "wait_not_found") {
+		return fmt.Errorf("Alice's answer was not admitted: %s", data)
+	}
+	merge, _ := json.Marshal(map[string]string{"reviewed_head_sha": strings.Repeat("a", 40)})
+	data, err = r.expectAs(alice, "POST", fmt.Sprintf("/api/todos/%d/merge", filed.N), string(merge), 403)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(data), `"class":"permission"`) {
+		return fmt.Errorf("a Member's merge was not refused by role: %s", data)
+	}
+	// Ben, a Maintainer, gets past Merge's authorization and approver
+	// standing: Alice's TODO is not in review, so the merge waits.
+	if _, err = r.expectAs(ben, "POST", fmt.Sprintf("/api/todos/%d/merge", filed.N), string(merge), 409); err != nil {
+		return fmt.Errorf("a Maintainer's merge of a TODO not in review: %w", err)
+	}
+	// Removal ends Alice's session at once.
+	if _, err = r.expect("DELETE", "/api/members/alice", "", 204); err != nil {
+		return err
+	}
+	code, _, err := r.keyedAs(alice, "GET", "/api/todos", "", "j1-alice-after-removal")
+	if err != nil {
+		return err
+	}
+	if code != 401 && code != 403 {
+		return fmt.Errorf("a removed member still reads TODOs: %s", r.actual)
+	}
+	_, err = r.expectAs(ben, "GET", "/api/members", "", 200)
+	return err
 }
