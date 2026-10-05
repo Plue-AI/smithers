@@ -5,6 +5,7 @@ import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
 import { createChatJournalFixture } from "../e2e/support/ChatJournalFixture"
 import { createChatStub } from "../e2e/support/ChatStub"
 import { DEFAULT_CLOUD_API, startLocalServer } from "../src/bun/server"
+import { externalSessions, sessionRoots } from "../src/bun/ExternalSessions"
 import type { LocalServerOptions } from "../src/bun/server"
 
 /** Test-only composition. A stubbed model is not permission to inspect host credentials. */
@@ -43,7 +44,12 @@ export const browserTestOptions = (
       remove: async (service, account) => { modelVault.delete(`${service}\0${account}`) }
     },
     home: root,
-    stateDir: join(root, "state")
+    stateDir: join(root, "state"),
+    // M-38: Codex sessions from SMITHERS_E2E_CODEX_HOME only, as a fixed owner; this machine's own sessions stay out.
+    ...(env.SMITHERS_E2E_CODEX_HOME === undefined ? {} : {
+      externalSessions: externalSessions(async () => (await sessionRoots(root, { CODEX_HOME: env.SMITHERS_E2E_CODEX_HOME })).slice(0, 1)),
+      externalOwner: { login: "ben", name: "Ben Ito" }
+    })
   }
 }
 

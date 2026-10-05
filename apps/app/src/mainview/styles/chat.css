@@ -689,3 +689,11 @@
 
 /* While the first-sight Chat hint floats over the bottom right, the transcript scrolls its last card clear of it. */
 .app-shell:has(#hint-chat) .smithers-transcript .sui-chat-messages { padding-bottom: 132px; }
+
+/* A Codex session's run of steps (ExternalEntries.tsx, M-38): the act line opens to each command and its output. */
+.tool-act-line:has(.external-acts[open]) { border-radius: var(--r-2); }
+.external-acts > summary { cursor: pointer; }
+.external-acts > ol { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; text-align: left; }
+.external-acts li { min-width: 0; overflow-wrap: anywhere; }
+.external-acts li[data-status="error"] > code { color: var(--danger); }
+.external-acts pre { max-height: 320px; overflow: auto; margin: 4px 0 0; padding: 8px; border-radius: var(--r-1); background: var(--surface-2); font: 12px/1.5 var(--font-mono); white-space: pre-wrap; }

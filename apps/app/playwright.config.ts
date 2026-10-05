@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import { defineConfig, devices } from "@playwright/test"
 
 /*
@@ -39,7 +40,8 @@ export default defineConfig({
     env: {
       SMITHERS_VIEW_STORIES: process.env.SMITHERS_VIEW_STORIES ?? "0",
       SMITHERS_LOCAL_PORT: String(PORT),
-      SMITHERS_CHAT_STUB: CHAT_STUB
+      SMITHERS_CHAT_STUB: CHAT_STUB,
+      SMITHERS_E2E_CODEX_HOME: resolve(__dirname, "e2e/fixtures/codex-home")
     }
   }
 })

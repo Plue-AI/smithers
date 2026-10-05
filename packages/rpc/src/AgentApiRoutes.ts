@@ -372,6 +372,14 @@ export const CHAT_CANCEL_PATH = "/api/chat/cancel"
 export const HEALTH_PATH = "/api/health"
 
 /**
+ * A Codex session run on this machine, read-only for the conversation (mvp.md M-38): `?session=<id or prefix>&since=<next>`.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const EXTERNAL_CODEX_PATH = "/api/external/codex"
+
+/**
  * The account's current billing standing: its plan key, its caps, and today's spend.
  *
  * @since 1.0.0

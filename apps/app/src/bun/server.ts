@@ -8,7 +8,7 @@
 import type { Server, ServerWebSocket } from "bun"
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, userInfo } from "node:os"
 import { join, normalize, resolve } from "node:path"
 import { Effect, Fiber } from "effect"
 import {
@@ -19,6 +19,7 @@ import {
   CANCEL_PATH,
   CHAT_CANCEL_PATH,
   CHAT_TURN_PATH,
+  EXTERNAL_CODEX_PATH,
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
@@ -68,6 +69,7 @@ import { createModelProbe } from "@smthrs/model-host/ModelProbe"
 import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/UpstreamProse"
 import { decodePath, invalidPath, json, jsonError, readJson, refuse, Router } from "./routes"
 import type { RouteHandler } from "./routes"
+import { externalSessions } from "./ExternalSessions"
 
 /** The deployed identity seam the sign-in device flow talks to. */
 export const DEFAULT_IDENTITY_UPSTREAM = "https://canary.smithers.sh"
@@ -147,6 +149,10 @@ export interface LocalServerOptions {
   readonly identityUpstream?: string | null
   /** Self-hosted product backend for the live channel; independent of cloud mode. */
   readonly backendApi?: string | null
+  /** Codex sessions on this machine (M-38); tests pass their own Codex homes. */
+  readonly externalSessions?: ReturnType<typeof externalSessions>
+  /** Who ran those sessions; defaults to this machine's jj user, then the OS user. */
+  readonly externalOwner?: { readonly login: string; readonly name: string }
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -659,6 +665,17 @@ const proxyCloud = async (
   return new Response(response.body, { status: response.status, headers: out })
 }
 
+/** The person at this machine: jj's configured name, else the OS account. */
+const machineOwner = (): { readonly login: string; readonly name: string } => {
+  const login = userInfo().username
+  let name = ""
+  try {
+    const jj = Bun.spawnSync(["jj", "config", "get", "user.name"], { stdout: "pipe", stderr: "ignore" })
+    if (jj.success) name = jj.stdout.toString().trim()
+  } catch { /* no jj on this machine: the OS account names the person */ }
+  return { login, name: name || login }
+}
+
 export const startLocalServer = async (options: LocalServerOptions): Promise<LocalServer> => {
   const log = options.log ?? ((line: string) => console.log(line))
   const distDir = resolve(options.distDir)
@@ -746,6 +763,22 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       pid: process.pid,
       home
     }))
+
+  /*
+   * M-38: a Codex session run on this machine, read-only, for the
+   * conversation. `since` is the `next` of the previous read, so a running
+   * session is polled for what it appended.
+   */
+  const readSession = options.externalSessions ?? externalSessions()
+  let owner = options.externalOwner
+  router.add("GET", EXTERNAL_CODEX_PATH, async ({ url }) => {
+    owner ??= machineOwner()
+    const id = url.searchParams.get("session") ?? ""
+    if (!/^[0-9a-f-]{4,36}$/.test(id)) return jsonError("invalid_request", "A Codex session id or a prefix of at least four characters is required.")
+    const read = await readSession(id, Number(url.searchParams.get("since") ?? 0) || 0)
+    if ("error" in read && !("entries" in read)) return jsonError(read.error === "unknown" ? "source_not_found" : "invalid_request", read.message)
+    return json({ ...read, owner })
+  })
 
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
   const modelCredentials = await createModelCredentials({ env: modelEnv, scope: resolve(options.stateDir ?? nativeStateDirectory()), ...(options.modelKeychain ? { keychain: options.modelKeychain } : {}) })

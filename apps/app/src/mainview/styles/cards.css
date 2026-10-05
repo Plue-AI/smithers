@@ -3179,6 +3179,7 @@ from main down to the last item. */
 .design-subject .mvp-link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: inherit; font-size: var(--fs-small); text-decoration: none; }
 .design-subject .mvp-link:hover { color: var(--action-primary); text-decoration: underline; text-underline-offset: 3px; }
 .design-subject .mvp-branch-chip,
+.code-diff-view .mvp-branch-chip,
 .mvp-home .mvp-branch-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface-2); color: var(--text); font-family: var(--font-mono); font-size: 11.5px; }
 .design-subject button.mvp-branch-chip:hover { background: var(--hover); }
 .design-subject .mvp-edited-by { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }

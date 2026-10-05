@@ -132,6 +132,7 @@ import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
+import { createExternalSessionSeam, type ExternalSessionSeam } from "./seams/ExternalSessionSeam"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
@@ -523,6 +524,8 @@ export interface AppController extends IssueFlowsController {
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
   readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
+  /** A Codex session run on this machine, read-only for the conversation (M-38): GET /api/external/codex, polled while shown. */
+  readonly externalSession: ExternalSessionSeam["session"]
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
   readonly design: DesignWorld
   /** The `/api/live` channel the Home card subscribes through; absent when the composition supplied none. */
@@ -867,6 +870,8 @@ export const createAppController = (
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
   ctx.onDispose(gitHubSyncSeam.dispose)
+  const externalSessionSeam = createExternalSessionSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) })
+  ctx.onDispose(externalSessionSeam.dispose)
   /* Members (T-ACC-02): an install reads and changes its roster through /api/members; the seeded roster stands in only off an install. */
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
@@ -2179,6 +2184,7 @@ export const createAppController = (
     flowCatalog: installHost ? flowsSeam.snapshots : undefined,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
+    externalSession: externalSessionSeam.session,
     design,
     live: services.live,
     presentCard,

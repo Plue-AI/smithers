@@ -21,12 +21,14 @@ import type { Card, Message, Toast } from "./state/AppState"
 import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
+import { actsLine, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
 
 export type RailEntry =
   | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard; readonly facts?: Omit<Parameters<typeof actionFor>[0], "state"> }
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
+  | { readonly kind: "external"; readonly item: ExternalItem; readonly conversation?: ExternalConversation | undefined }
 
 const firstLine = (text: string): string => text.split("\n").find(line => line.trim() !== "")?.trim() ?? ""
 
@@ -46,6 +48,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
       ...(row.summary === undefined || row.tombstone ? {} : { summary: row.summary }) }]
   }
   if (entry.kind === "init") return []
+  if (entry.kind === "external") return externalLine(entry.item, entry.conversation)
   if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card), glyph: toneGlyph(cardTone(entry.card)) }]
   const { message } = entry
   const text = firstLine(message.text)
@@ -54,6 +57,22 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
     ? { entry_id: message.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: toneGlyph("quiet") }
     : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } }]
 })
+
+/** A Codex session's item (M-38): prompts carry their owner, answers the agent; a run of commands and a diff are events. */
+const externalLine = (item: ExternalItem, conversation: ExternalConversation | undefined): TimelineLine[] => {
+  switch (item.kind) {
+    case "message": {
+      const text = firstLine(item.text) || (item.reasoning === undefined ? "" : "Reasoning")
+      if (text === "" || conversation === undefined) return []
+      return [item.role === "user"
+        ? { entry_id: item.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: { actor: conversation.owner } }
+        : { entry_id: item.id, kind: "answer", title: text, tone: "quiet", glyph: { actor: conversation.agent } }]
+    }
+    case "acts": return [{ entry_id: item.id, kind: "event", title: actsLine(item).replace(/^ran/, "Ran"), tone: "quiet", glyph: { event: item.failed ? "attention" : "ok" } }]
+    case "diff": return [{ entry_id: item.id, kind: "card", title: `Diff · ${item.card.path.split("/").at(-1)}`, tone: "quiet", glyph: { event: "ok" } }]
+    case "error": return [{ entry_id: item.id, kind: "event", title: item.text, tone: "failed", glyph: { event: "failed" } }]
+  }
+}
 
 /** Bind only the current lines' acts; duplicate entries for one TODO share one command input. */
 export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCommandDispatch) => {

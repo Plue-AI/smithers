@@ -191,6 +191,12 @@ close reason reaches the card verbatim. A cloud repository without a running
 workspace is told which act opens or resumes one; a file no relayed language
 handles is told the DTO's `lsp.languages`.
 
+## Codex sessions (M-38)
+
+`/?codex=<session id or prefix>` shows a Codex session run on this machine after the conversation, read-only: the owner's prompts, "Codex for <owner>" answers, one act line per run of commands (it opens to each command and its output), and a diff card per edited file. The local host serves it at `GET /api/external/codex?session=<id>&since=<next>` behind the local session capability. It reads `rollout-*.jsonl` under `$CODEX_HOME/sessions`, `~/.codex/sessions` and every `~/.smithers/accounts/codex*/sessions`, decodes it with `@smthrs/harness/ExternalTranscript`, and tails it, so the app's five-second poll gets only what Codex appended. An unknown id, an ambiguous prefix, an unsupported Codex release or a malformed line shows as one failed line in the conversation. Nothing imported offers an act.
+
+To look at one locally: `SMITHERS_LOCAL_PORT=47313 SMITHERS_CHAT_STUB=1 bun e2e/playwright/webserver.ts`, then open `http://127.0.0.1:47313/?codex=<id>`.
+
 ## Model-authored cards
 
 Models can provide explanatory text but cannot author markup, scripts, command

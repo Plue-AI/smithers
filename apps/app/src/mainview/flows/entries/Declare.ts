@@ -54,6 +54,8 @@ export type CommandActions =
     // Live stack snapshots are what the Stack views read, never an act.
     | "installSnapshots"
     | "githubSyncSnapshots"
+    // A Codex session the conversation shows read-only (M-38), never an act.
+    | "externalSession"
     // The roster and the person's role are what the Members card reads, never an act.
     | "membersRoster"
     | "membersRole"
