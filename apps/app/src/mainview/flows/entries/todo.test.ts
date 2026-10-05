@@ -350,3 +350,28 @@ test("before the host answers, a press and a bare Merge acknowledge at once and 
     expect(JSON.stringify(h.controller.design.world().todos)).toBe(before)
   } finally { await h.controller.dispose() }
 })
+
+test("on an install, a Commit pressed before its Draft's title save rendered commits the saved title and prompt", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const posts: unknown[] = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    if (path === "/api/todos" && init?.method === "POST") { posts.push(JSON.parse(String(init.body))); return Response.json({ state: "accepted", n: 1 }, { status: 202 }) }
+    if (path === "/api/todos") return Response.json([])
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailable, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    expect((await controller.submitCommand({ name: "todo.new", payload: { text: "" }, actor: "user" })).status).toBe("executed")
+    const draft = [...store.collections.cards.values()].find(card => card.kind === "draft") as DraftEntry
+    await controller.submitCommand({ name: "form.set", payload: { cardId: draft.id, field: "title", value: "First local TODO" }, actor: "user" })
+    await controller.submitCommand({ name: "form.set", payload: { cardId: draft.id, field: "prompt", value: "Add a greeting" }, actor: "user" })
+    // The Commit's input as the Draft card rendered it before either save: no empty title, which the flow input refuses.
+    const committed = await controller.submitCommand({ name: "todo.new", payload: { cardId: draft.id, text: "", acceptance: [], idempotencyKey: draft.payload.idempotencyKey }, actor: "user" })
+    expect(committed).toEqual({ status: "executed", value: "Requested" })
+    await waitFor(() => posts.length === 1)
+    expect(posts[0]).toMatchObject({ title: "First local TODO", prompt: "Add a greeting", place: { mode: "append" } })
+  } finally { await controller.dispose() }
+})

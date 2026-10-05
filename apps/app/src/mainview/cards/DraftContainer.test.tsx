@@ -48,6 +48,10 @@ test("Commit has one stable key and placement, field edits go through form.set",
   const append = mount(fixtures.append.model)
   append.props!.onAction("todo.new")
   expect(Object.keys(append.dispatches[0]!.input as object).sort()).toEqual(["acceptance", "cardId", "idempotencyKey", "text", "title"])
+  /* A Commit rendered before the Title's save landed sends no empty title: the seam reads the saved Draft. */
+  const untitled = mount({ ...fixtures.append.model, title: "" })
+  untitled.props!.onAction("todo.new")
+  expect(Object.keys(untitled.dispatches[0]!.input as object).sort()).toEqual(["acceptance", "cardId", "idempotencyKey", "text"])
 })
 test("pending Commit disables repeat submission, Discard and editing; failure permits retry", () => {
   const request = { key: "commit-1", owner: "ben", operation: "create" as const, body: {}, state: "accepted" as const }

@@ -37,7 +37,8 @@ export const DraftContainer = ({ card, memberId, dispatch, View, view, onView }:
     if (place.mode === "amend") definitions.push({ tag: "todo.amend", label: "Commit", primary: true,
       command_input: { ...common, n: place.n }, disabled })
     else {
-      const input = { ...common, title: model.title, acceptance: model.acceptance, ...(place.mode === "before" ? { before: place.n } : {}) }
+      /* The seam commits the saved Draft. A press rendered before the Title's save landed carries no empty title, which the flow input refuses. */
+      const input = { ...common, ...(model.title ? { title: model.title } : {}), acceptance: model.acceptance, ...(place.mode === "before" ? { before: place.n } : {}) }
       definitions.push({ tag: "todo.new", label: "Commit", primary: true, command_input: input, disabled })
     }
     definitions.push({ tag: "draft.discard", label: "Discard", command_input: { draft: card.id }, disabled: pending ? { reason: "Commit pending" } : undefined })
