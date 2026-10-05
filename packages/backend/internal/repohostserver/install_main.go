@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -133,7 +133,7 @@ func (s *Server) reportInstallReplaceRefs(owner, repo string, refs map[string]st
 func listSymbolicRefs(ctx context.Context, gitDir string) (map[string]string, error) {
 	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "git", "--git-dir", gitDir, "for-each-ref",
+	cmd := hostexec.Git(cmdCtx, "--git-dir", gitDir, "for-each-ref",
 		"--format=%(if)%(symref)%(then)%(refname)%00%(symref)%(end)")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
