@@ -79,7 +79,7 @@ to a Debian snapshot.
 | ---------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Toolchain download, SHA-256 verification, extraction and inventory | `guestUser` (`agent`) | Index pins come only from main. Artifacts run at `guestUID` under the agent-owned `/opt/smithers/toolchain` prefix. |
 | Shipped toolchain system setup | `root` | Installs reviewed apt packages and creates agent-owned toolchain directories. Executes no toolchain artifacts. |
-| Shipped browser system packages | `root` | Installed unconditionally in toolchain setup from shipped package pins, never selected by branch lockfiles. |
+| Shipped system packages: bubblewrap and browser libraries | `root` | Installed unconditionally in toolchain setup from shipped package names, never selected by branch lockfiles. Bubblewrap is the coding host's process confinement in the guest. |
 | Input planting, warm home defaults and layer markers | `guestUser` (`agent`) | Branch manifests and output are consumed only after the UID drop. Root only flushes the disk with the shipped `sync` command. |
 | Dependency script                                    | `guestUser` (`agent`) | Runs repository-selected dependency commands at a nonzero uid.                                                           |
 | npm, pnpm, yarn and bun installs                     | `guestUser` (`agent`) | Use `--ignore-scripts` during preparation. Lifecycle scripts run only at workspace link time, at a nonzero uid.          |

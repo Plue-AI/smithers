@@ -75,7 +75,7 @@ func TestOwnerRootRecipeTransport(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(args), "root-recipe\n"+scriptDigest(script)+"\n")
 	require.NotContains(t, strings.TrimSpace(string(args)), "run\nexec")
-	_, err = e.runRoot(t.Context(), "machine", playwrightSystemPackages)
+	_, err = e.runRoot(t.Context(), "machine", toolchainSystemPackages)
 	require.ErrorContains(t, err, "unapproved root recipe")
 	_, err = e.runRoot(t.Context(), "machine", "id")
 	require.ErrorContains(t, err, "unapproved root recipe")

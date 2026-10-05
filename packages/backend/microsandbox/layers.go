@@ -52,9 +52,12 @@ const (
 	toolHome = cacheRoot + "/home"
 )
 
-// Debian 13 Chromium runtime libraries. This shipped apt command is the only
-// privileged part of browser dependency preparation; Playwright runs as agent.
-const playwrightSystemPackages = "set -e; apt-get update -qq; apt-get install -y -qq --no-install-recommends libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation fonts-noto-color-emoji; rm -rf /var/lib/apt/lists/*"
+// Debian 13 packages every toolchain layer installs: bubblewrap, which the
+// coding host's process confinement selects on Linux and without which it
+// refuses every confined command, and the Chromium runtime libraries. This
+// shipped apt command is the only privileged part of system preparation;
+// Playwright runs as agent.
+const toolchainSystemPackages = "set -e; apt-get update -qq; apt-get install -y -qq --no-install-recommends bubblewrap libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation fonts-noto-color-emoji; rm -rf /var/lib/apt/lists/*"
 
 // EnvironmentConfig enables recipe-keyed environment layers.
 type EnvironmentConfig struct {
@@ -1042,7 +1045,7 @@ func (t toolchainLayer) allowlist() []string { return withAptDestinations(t.Dest
 // toolchainSystemScript is binary-pinned. Variable inputs are validated data,
 // passed as positional arguments, never interpolated into privileged code.
 const toolchainSystemScript = `set -euo pipefail
-` + playwrightSystemPackages + `
+` + toolchainSystemPackages + `
 postgres="$1"; environment="$2"; shift 2
 if [ "$#" -gt 0 ]; then
  apt-get update -qq; apt-get install -y -qq --no-install-recommends "$@" >/dev/null

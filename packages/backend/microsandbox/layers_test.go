@@ -378,7 +378,7 @@ func TestDependencyPreparationCannotSelectRootInputs(t *testing.T) {
 	user, system := recipePreparation(dependencyLayer{Playwright: []string{"1.52.0"}})
 	require.Equal(t, guestUser, user)
 	require.Empty(t, system)
-	require.Contains(t, toolchainSystemScript, playwrightSystemPackages)
+	require.Contains(t, toolchainSystemScript, toolchainSystemPackages)
 }
 
 // Unit CLI transport fake records the guest execution contract. Real VM
