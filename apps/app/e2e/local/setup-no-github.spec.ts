@@ -50,7 +50,7 @@ test.afterEach(async ({}, info) => {
 test.afterAll(async () => { await context?.close() })
 
 test("1 address", async () => {
-  await click("Address")
+  await click("This Mac only")
   await done("address")
 })
 test("2 app_manifest", async () => {
