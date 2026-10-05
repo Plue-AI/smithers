@@ -87,8 +87,9 @@ const turnRefusal = (status: number, body: string): TurnRefusal | undefined => {
     const parsed: unknown = JSON.parse(body)
     if (
       typeof parsed !== "object" || parsed === null || !("code" in parsed) ||
-      // The shared backend's authentication middleware uses `unauthorized`.
-      (parsed.code !== expected && !(status === 401 && parsed.code === "unauthorized")) ||
+      // The shared backend's authentication middleware answers `unauthorized`
+      // to no credential and `unauthenticated` to a dead one.
+      (parsed.code !== expected && !(status === 401 && (parsed.code === "unauthorized" || parsed.code === "unauthenticated"))) ||
       !("message" in parsed) || typeof parsed.message !== "string" || parsed.message === ""
     ) {
       return undefined

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:54bec24fb3ba760e8d4e7b1156d940653112b26d42f46e0ac8588dc6ae6bb73e",
+  "digest": "sha256:a63fa02541eab875fe78d6b536b831578cdf530951ed674c4c967145a5748372",
   "faults": [
     "user",
     "wait",
@@ -751,7 +751,7 @@
       "fault": "user",
       "status": 401,
       "retry_after": 0,
-      "doc": "The setup credential is missing, expired or invalid."
+      "doc": "The presented credential is missing, expired, revoked or held by a suspended or removed member."
     },
     {
       "code": "unauthorized",

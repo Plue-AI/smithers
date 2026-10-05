@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:54bec24fb3ba760e8d4e7b1156d940653112b26d42f46e0ac8588dc6ae6bb73e"
+export const PLUE_FAILURE_DIGEST = "sha256:a63fa02541eab875fe78d6b536b831578cdf530951ed674c4c967145a5748372"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -445,7 +445,7 @@ export const PLUE_FAILURES = {
   "stale_generation": { fault: "user", status: 409, retryAfter: 0 },
   /** The controller could not mint the token the operation needs. */
   "token_generation_failed": { fault: "bug", status: 500, retryAfter: 0 },
-  /** The setup credential is missing, expired or invalid. */
+  /** The presented credential is missing, expired, revoked or held by a suspended or removed member. */
   "unauthenticated": { fault: "user", status: 401, retryAfter: 0 },
   /** The request carried no credential, or one the server could not verify. */
   "unauthorized": { fault: "user", status: 401, retryAfter: 0 },

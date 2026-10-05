@@ -743,8 +743,8 @@ func TestAuthLoader_InvalidTokenDoesNotFallBackToSession(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Equal(t, "invalid or expired token", apiErrorMessage(t, rec))
-	assert.Equal(t, "unauthorized", apiErrorCode(t, rec))
+	assert.Equal(t, "Sign in again", apiErrorMessage(t, rec))
+	assert.Equal(t, "unauthenticated", apiErrorCode(t, rec))
 	assert.Nil(t, capturedAuth)
 	assert.Equal(t, 1, q.getAuthInfoByTokenHashHit)
 	assert.Equal(t, 1, q.getOAuth2AccessTokenByHashHit)
@@ -1186,7 +1186,7 @@ func TestAuthLoader_ExpiredTokenIsUnauthorized(t *testing.T) {
 	handler.ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Equal(t, "invalid or expired token", apiErrorMessage(t, w))
+	assert.Equal(t, "unauthenticated", apiErrorCode(t, w))
 }
 
 func apiErrorCode(t *testing.T, rec *httptest.ResponseRecorder) string {

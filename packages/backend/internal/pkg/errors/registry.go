@@ -341,7 +341,7 @@ var registry = map[Code]Entry{
 	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Class: ClassUser, Doc: "The request host matches no configured install origin."},
 	CodeOwnerUnverified: {Status: http.StatusForbidden, Fault: FaultUser, Class: ClassPermission, Doc: "Owner repository access has not been verified."},
 	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The owner claim invalidated the setup credential."},
-	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The setup credential is missing, expired or invalid."},
+	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, Doc: "The presented credential is missing, expired, revoked or held by a suspended or removed member."},
 	CodeUnauthorized:    {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
 	CodeInvalidToken:    {Status: http.StatusUnauthorized, Fault: FaultUser, Class: ClassPermission, RetryAfter: 0, Doc: "The presented token has an unrecognized format or is no longer valid."},
 	// The credential is valid but is not allowed to perform this operation.

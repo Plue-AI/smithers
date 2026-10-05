@@ -14,8 +14,34 @@ route requires sign-in. On user-token routes, a presented header with an
 unrecognized or malformed credential, including an empty value, returns HTTP
 401, `WWW-Authenticate: Bearer error="invalid_token"`, and JSON
 `code: "invalid_token"`. An invalid header does not fall back to a session
-cookie. A well-formed token that has expired or cannot be found keeps the
-`unauthorized` code.
+cookie. A well-formed token that has expired, was revoked or cannot be found
+is a dead credential (below).
+
+## Dead credentials
+
+A dead credential is a session cookie or bearer token the server no longer
+honors: unknown, expired, revoked, or held by a suspended or removed member.
+It returns HTTP 401 with this body on every route that refuses it:
+
+```json
+{"code":"unauthenticated","class":"permission","fault":"user","message":"Sign in again"}
+```
+
+- A dead bearer token is refused on every user-token route.
+- A dead session cookie is refused on every repository route
+  (`/api/repos/{owner}/{repo}` and below, and the Git LFS batch alias)
+  before the repository is resolved. The answer is byte-identical for a
+  private, a missing and an unowned repository, so a dead cookie cannot probe
+  which repositories exist. A request with no credential still gets 404
+  there.
+- On a route that requires sign-in, a dead session cookie gets the same 401.
+  A request with no credential keeps `code: "unauthorized"`.
+- On a public route (health, sign-in, OAuth callbacks, logout, setup) a dead
+  session cookie is ignored, so a stale cookie never blocks signing in again.
+- A request carrying an SSE `ticket` is decided by the ticket gate.
+
+The 401 does not clear the cookie. A late 401 for an earlier request would
+otherwise delete the fresh cookie a concurrent sign-in had just set.
 
 `smithers_flowhost_` and `smithers_chatturn_` model credentials cannot
 authenticate as a user. Legacy

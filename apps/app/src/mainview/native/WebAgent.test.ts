@@ -332,7 +332,7 @@ describe("createWebAgent", () => {
   })
 
   test("only a coded sign-in 401 becomes a sign-in refusal", async () => {
-    for (const [status, code, expected] of [[401, "sign_in_required", true], [401, "unauthorized", true], [401, "upstream_unavailable", false], [429, "sign_in_required", false], [403, "unauthorized", false], [429, "unauthorized", false]] as const) {
+    for (const [status, code, expected] of [[401, "sign_in_required", true], [401, "unauthorized", true], [401, "unauthenticated", true], [401, "upstream_unavailable", false], [429, "sign_in_required", false], [403, "unauthorized", false], [429, "unauthorized", false]] as const) {
       const agent = createWebAgent({ fetchImpl: async () => new Response(JSON.stringify({ code, message: "Sign in to run a Smithers turn." }), { status }) })
       const result = await agent.startTurn(request)
       expect(result.status === "error" ? result.refusal : undefined).toEqual(expected ? { code: "sign_in_required", message: "Sign in to run a Smithers turn.", retryAt: null } : undefined)

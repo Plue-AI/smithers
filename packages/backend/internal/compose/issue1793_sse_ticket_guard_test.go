@@ -64,8 +64,8 @@ func TestIssue1793SSETicketRouterChecksRevocationAfterTicketAuth(t *testing.T) {
 		want           int
 		wantBody       string
 	}{
-		{"revoked minting token", true, tokenHash, revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: tokenHash}, http.StatusUnauthorized, "token revoked"},
-		{"revoked minting browser session", false, sessionHash, revocation.Event{Kind: revocation.KindBrowserSessionRevoked, TokenHash: sessionHash}, http.StatusUnauthorized, "session revoked"},
+		{"revoked minting token", true, tokenHash, revocation.Event{Kind: revocation.KindTokenRevoked, TokenHash: tokenHash}, http.StatusUnauthorized, `"code":"unauthenticated"`},
+		{"revoked minting browser session", false, sessionHash, revocation.Event{Kind: revocation.KindBrowserSessionRevoked, TokenHash: sessionHash}, http.StatusUnauthorized, `"code":"unauthenticated"`},
 		{"disabled session user", false, otherSessionHash, revocation.Event{Kind: revocation.KindUserDisabled, UserID: principal.userID}, http.StatusForbidden, "account is suspended"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

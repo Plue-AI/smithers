@@ -29,11 +29,11 @@ func RevocationGuard(checker RevocationChecker) func(http.Handler) http.Handler 
 			authInfo := AuthInfoFromContext(r.Context())
 			if authInfo != nil {
 				if authInfo.IsTokenAuth && authInfo.TokenHash != "" && checker.IsTokenRevoked(authInfo.TokenHash) {
-					errors.WriteError(w, errors.Unauthorized("token revoked"))
+					writeDeadCredential(w)
 					return
 				}
 				if authInfo.SessionHash != "" && checker.IsBrowserSessionRevoked(authInfo.SessionHash) {
-					errors.WriteError(w, errors.Unauthorized("session revoked"))
+					writeDeadCredential(w)
 					return
 				}
 				if authInfo.User != nil && checker.IsUserDisabled(authInfo.User.ID) {

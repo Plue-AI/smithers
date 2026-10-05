@@ -219,10 +219,10 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM organization_secrets`).Scan(&orgRows))
 	require.Zero(t, orgRows)
 
-	// A removed maintainer and a suspended member hold dead sessions: the
-	// session is gone (401 on an account route), so a secrets write is an
-	// anonymous request to a private repository and finds none (the
-	// repository routes' existing concealment). Nothing is written.
+	// A removed maintainer and a suspended member hold dead sessions: a
+	// secrets write carrying one is refused as unauthenticated (spec §5.2.1),
+	// decided from the credential before the repository is resolved.
+	// Nothing is written.
 	status, body = call(ownerSession, "DELETE", "/api/members/maintainer", "")
 	require.Equal(t, 204, status, body)
 	github.mu.Lock()
@@ -238,8 +238,8 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 			{"DELETE", "/secrets/OWNER_KEY", ""},
 		} {
 			status, body = request(who, write.method, write.path, write.body)
-			require.Equal(t, 404, status, "%s %s: %v", write.method, write.path, body)
-			require.Equal(t, "not_found", body["code"], body)
+			require.Equal(t, 401, status, "%s %s: %v", write.method, write.path, body)
+			require.Equal(t, "unauthenticated", body["code"], body)
 		}
 	}
 	require.Equal(t, []string{"OWNER_KEY"}, stored())

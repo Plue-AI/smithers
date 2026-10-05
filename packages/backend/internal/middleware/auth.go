@@ -131,9 +131,15 @@ func allowTerminalProfileToken(w http.ResponseWriter, r *http.Request, info *Aut
 }
 
 // RequireAuth ensures a previous auth middleware attached a user to context.
+// A request whose session cookie AuthLoader found dead is refused as a dead
+// credential, not as one that carried none.
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if UserFromContext(r.Context()) == nil {
+			if carriedDeadSession(r.Context()) {
+				writeDeadCredential(w)
+				return
+			}
 			errors.WriteError(w, errors.Unauthorized("authentication required"))
 			return
 		}
@@ -141,10 +147,38 @@ func RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// deadSessionKey marks a request whose session cookie names no live session.
+type deadSessionKey struct{}
+
+func carriedDeadSession(ctx context.Context) bool {
+	dead, _ := ctx.Value(deadSessionKey{}).(bool)
+	return dead
+}
+
+// writeDeadCredential answers a request that carried a session cookie or
+// bearer token the server no longer honours: unknown, expired, revoked, or
+// held by a suspended or removed member (spec §5.2.1). It depends on the
+// credential alone, so it reads the same for every resource.
+func writeDeadCredential(w http.ResponseWriter) {
+	errors.WriteError(w, errors.New(errors.CodeUnauthenticated, "Sign in again"))
+}
+
+// repositoryRoutePath matches every route that resolves a repository from
+// its path: the API's /api/repos/{owner}/{repo} tree and the Git LFS batch
+// alias. Anonymous callers get 404 there for a private repository, so a dead
+// cookie must be refused before the repository is resolved, or its answer
+// would tell an existing repository from a missing one.
+var repositoryRoutePath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(/|$)|^/[^/]+/[^/]+\.git/info/lfs/`)
+
 // AuthLoader loads session/cookie or token auth information if available.
-// Requests without a user credential, or with a session cookie that names no
-// live session, continue anonymously. Presented user credentials with an
-// unrecognized format or no matching token return 401. Route-specific LFS,
+// Requests without a user credential continue anonymously. A presented
+// bearer token that resolves to no live token returns 401 unauthenticated.
+// A session cookie that names no live session (unknown, expired, signed out,
+// or a suspended or removed member's) returns 401 unauthenticated on
+// repository routes, before any repository lookup; elsewhere it continues
+// anonymously, marked dead so RequireAuth refuses it the same way, which
+// keeps sign-in and public pages working behind a stale cookie. A request
+// carrying an SSE ticket is left to the ticket gate. Route-specific LFS,
 // Worker, OAuth client, and build-cache credentials pass to their own gates.
 // Suspended owners return 403; a credential store outage returns 503.
 func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...identity.MemberAuthorizer) func(http.Handler) http.Handler {
@@ -202,7 +236,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					// A presented credential that resolves to nothing is a bad
 					// credential, not an anonymous request: answering as anonymous
 					// turns an expired token into 404s on private repositories.
-					errors.WriteError(w, errors.Unauthorized("invalid or expired token"))
+					writeDeadCredential(w)
 					return
 				}
 				if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
@@ -275,6 +309,14 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					next.ServeHTTP(w, r.WithContext(ContextWithAuthInfo(ctx, authInfo)))
 					return
 				}
+				// The cookie is not cleared: a late 401 would delete the fresh
+				// cookie a concurrent sign-in just set, and sign-in overwrites
+				// this one anyway.
+				if r.URL.Query().Get("ticket") == "" && repositoryRoutePath.MatchString(r.URL.Path) {
+					writeDeadCredential(w)
+					return
+				}
+				r = r.WithContext(context.WithValue(ctx, deadSessionKey{}, true))
 			}
 
 			next.ServeHTTP(w, r)
