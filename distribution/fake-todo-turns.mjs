@@ -94,6 +94,11 @@ export const subject = "📝 docs: add a greeting to JOURNEY.md"
  *   composition plus a changelog step (CHANGELOG_STEP), which asks each
  *   TODO it runs for `[CHANGELOG]`.
  * - `[CHANGELOG]`: the edit also appends one line to CHANGELOG.md.
+ * - `[DROPTEST]`: the edit also rewrites SMOKE_PATH without its existing
+ *   "adds" test (SMOKE_REWRITTEN), as the 2026-10-05 real walks' agents did.
+ *   The coding flow's test guard then asks for a repair, and the repair
+ *   (`[RESTORETEST]`) writes SMOKE_TEST back. A request that asks to delete the
+ *   adds test keeps the rewrite: the guard lets it stand.
  */
 export const markersOf = (value) => {
   const raw = typeof value === "string" ? value : JSON.stringify(value ?? "")
@@ -106,7 +111,9 @@ export const markersOf = (value) => {
     resolve: !raw.includes("[NORESOLVE]"),
     file: /\[FILE ([A-Za-z0-9._/-]+)\]/.exec(raw)?.[1],
     flowedit: raw.includes("[FLOWEDIT]"),
-    changelog: raw.includes("[CHANGELOG]")
+    changelog: raw.includes("[CHANGELOG]"),
+    droptest: raw.includes("[DROPTEST]") && !raw.includes("[RESTORETEST]"),
+    restoretest: raw.includes("[RESTORETEST]")
   }
 }
 
@@ -132,9 +139,24 @@ const intentMarkers = (markers, answer) =>
     markers.hold ? `[HOLD ${markers.hold}]` : "",
     markers.flowedit ? "[FLOWEDIT]" : "",
     markers.changelog ? "[CHANGELOG]" : "",
+    markers.droptest ? "[DROPTEST]" : "",
     markers.file ? `[FILE ${markers.file}]` : "",
     answerText(answer) !== "" ? `[ANSWER ${JSON.stringify(answerText(answer))}]` : ""
   ].filter(Boolean).join(" ")
+
+/** The existing test file a `[DROPTEST]` TODO rewrites, as main carries it. */
+export const SMOKE_PATH = "test/smoke.test.mjs"
+export const SMOKE_TEST = [
+  'import assert from "node:assert/strict"',
+  'import { test } from "node:test"',
+  "",
+  'test("adds", () => {',
+  "  assert.equal(1 + 2, 3)",
+  "})",
+  ""
+].join("\n")
+/** SMOKE_TEST rewritten for a new test, without its existing "adds" test. */
+export const SMOKE_REWRITTEN = SMOKE_TEST.replace('test("adds", () => {\n  assert.equal(1 + 2, 3)', 'test("greets", () => {\n  assert.ok(true)')
 
 /** The changelog step a `[FLOWEDIT]` flow adds to every TODO's request. */
 export const CHANGELOG_STEP = "[CHANGELOG] Add one line for this change to CHANGELOG.md."
@@ -207,6 +229,13 @@ const editCell = (hosted, greeting) => {
     lines.push(`await append("CHANGELOG.md", ${JSON.stringify(`- ${line}`)});`)
     writes.push("CHANGELOG.md")
   }
+  if (markers.restoretest) {
+    lines.push(`await put(${JSON.stringify(SMOKE_PATH)}, ${JSON.stringify(SMOKE_TEST)});`)
+    writes.push(SMOKE_PATH)
+  } else if (markers.droptest) {
+    lines.push(`await put(${JSON.stringify(SMOKE_PATH)}, ${JSON.stringify(SMOKE_REWRITTEN)});`)
+    writes.push(SMOKE_PATH)
+  }
   if (markers.fail) {
     // An empty JOURNEY.md fails the repository's checks (test -s, grep -q .).
     lines.push(`await put("JOURNEY.md", "");`)
@@ -257,6 +286,7 @@ const steps = [
       const file = markers.file ?? "JOURNEY.md"
       const writes = markers.flowedit ? ["flows/todo/flow.ts"] : [file]
       if (markers.changelog) writes.push("CHANGELOG.md")
+      if (markers.droptest) writes.push(SMOKE_PATH)
       if (markers.fail && !writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
       fileMarkers.set(file, markers)
       return done({
@@ -290,7 +320,12 @@ const steps = [
       const atom = firstAtom(payload)
       const intent = String(atom?.intent ?? "Append a greeting line to JOURNEY.md.")
       // A [FIXED] anywhere in the turn (a steer, an answer) ends the scripted failure.
-      return done({ changeId: atom?.changeId ?? "unknown", intent: markersOf(all).fixed ? intent.replace("[FAIL]", "").trim() : intent })
+      const fixed = markersOf(all).fixed ? intent.replace("[FAIL]", "").trim() : intent
+      // The test guard's finding asks for the removed test back: the repair restores it.
+      return done({
+        changeId: atom?.changeId ?? "unknown",
+        intent: all.includes("Restore the existing test") ? `${fixed} [RESTORETEST]` : fixed
+      })
     }
   },
   {

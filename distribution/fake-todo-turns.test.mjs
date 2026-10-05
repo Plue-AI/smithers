@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
 import { test } from "node:test"
-import { CHANGELOG_STEP, GREETING, markersOf, QUESTION, REVIEW_ANSWER, todoTurn } from "./fake-todo-turns.mjs"
+import { CHANGELOG_STEP, GREETING, markersOf, QUESTION, REVIEW_ANSWER, SMOKE_PATH, SMOKE_REWRITTEN, SMOKE_TEST, todoTurn } from "./fake-todo-turns.mjs"
 
 // A turn as the coding host sends it: the step's teaching, then its task.
 const turn = (teaching, payload, ...user) => [
@@ -42,10 +42,10 @@ const plan = async (prompt, extra = {}) => {
 }
 
 test("markers are bracketed words; [FIXED] ends [FAIL]", () => {
-  assert.deepEqual(markersOf("Add a greeting"), { ask: false, fail: false, fixed: false, pr: false, hold: undefined, resolve: true, file: undefined, flowedit: false, changelog: false })
+  assert.deepEqual(markersOf("Add a greeting"), { ask: false, fail: false, fixed: false, pr: false, hold: undefined, resolve: true, file: undefined, flowedit: false, changelog: false, droptest: false, restoretest: false })
   assert.equal(markersOf("ASK FAIL HOLD").ask, false)
   const all = markersOf("[ASK] [FAIL] [PR] [HOLD t-2] [NORESOLVE] [FILE notes/t2.md] [FLOWEDIT]")
-  assert.deepEqual(all, { ask: true, fail: true, fixed: false, pr: true, hold: "t-2", resolve: false, file: "notes/t2.md", flowedit: true, changelog: false })
+  assert.deepEqual(all, { ask: true, fail: true, fixed: false, pr: true, hold: "t-2", resolve: false, file: "notes/t2.md", flowedit: true, changelog: false, droptest: false, restoretest: false })
   assert.equal(markersOf(["[FAIL] add it", ["steer: [FIXED]"]]).fail, false)
 })
 
@@ -97,6 +97,25 @@ test("[FAIL] empties JOURNEY.md until a steer or retry feedback says [FIXED]", a
   const fixed = await plan("[FAIL] [FILE t3.md] Add a greeting", { feedback: ["[FIXED]"] })
   assert.deepEqual(fixed.writes, ["t3.md"])
   assert.equal((await run(todoTurn(turn(EDIT, { atom: fixed })).content, { "JOURNEY.md": "x\n" })).tree["JOURNEY.md"], "x\n")
+})
+
+test("[DROPTEST] drops the existing adds test until the test guard's repair restores it", async () => {
+  const atom = await plan("[DROPTEST] [FILE t3.md] Add a greeting")
+  assert.match(atom.intent, /\[DROPTEST\]/)
+  assert.deepEqual(atom.writes, ["t3.md", SMOKE_PATH])
+  const dropped = await run(todoTurn(turn(EDIT, { atom })).content, { [SMOKE_PATH]: SMOKE_TEST })
+  assert.equal(dropped.tree[SMOKE_PATH], SMOKE_REWRITTEN)
+  assert.doesNotMatch(SMOKE_REWRITTEN, /test\("adds"/)
+  // The guard's finding asks for the test back; the repair intent restores it.
+  const findings = [{ owner: "greeting", sourceCommitId: "c", message: `Restore the existing test "adds" in ${SMOKE_PATH}: this change deletes it, and the request does not ask for its removal.` }]
+  const selected = await run(todoTurn(turn(REPAIR, { implementation: { atoms: [{ changeId: "jj-1", intent: atom.intent }] }, findings })).content)
+  assert.match(selected.settled.intent, /\[RESTORETEST\]/)
+  const repaired = { ...atom, intent: `${atom.intent}\n\nCorrection: ${selected.settled.intent}` }
+  const restored = await run(todoTurn(turn(EDIT, { atom: repaired })).content, { [SMOKE_PATH]: SMOKE_REWRITTEN })
+  assert.equal(restored.tree[SMOKE_PATH], SMOKE_TEST)
+  // Any other finding leaves the drop in place.
+  const other = await run(todoTurn(turn(REPAIR, { implementation: { atoms: [{ changeId: "jj-1", intent: atom.intent }] }, findings: [{ message: "lint" }] })).content)
+  assert.doesNotMatch(other.settled.intent, /\[RESTORETEST\]/)
 })
 
 test("[FLOWEDIT] writes only the TODO flow, whose changelog step later TODOs follow", async () => {

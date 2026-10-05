@@ -358,6 +358,9 @@ func TestJ2Rehearsal(t *testing.T) {
 	})
 	// Last: a TODO the label makes starts on its own, and the rehearsal
 	// rehearses one TODO on one machine at a time.
+	if !r.keptTests() {
+		return
+	}
 	r.step("2 todo label", "GitHub fake: Ben labels the issue todo → the sync reads GitHub's issue events → GET /api/todos; GET /api/todos/{n}", "one TODO whose revision 1 is the issue's title and body; later reads add none", "T-STK-09, T-GH-02", func() error {
 		event := r.fake.LabelIssue(repo, labeled, "ben", "todo")
 		if event == 0 {
@@ -412,6 +415,119 @@ func TestJ2Rehearsal(t *testing.T) {
 			return fmt.Errorf("issue #%d has %d TODOs after later reads: %v", labeled, count, err)
 		}
 		r.actual = fmt.Sprintf("label event %d → T%d from issue #%d by ben; revision 1 %q; later reads add none", event, made, labeled, want)
+		return nil
+	})
+}
+
+// The same bytes as distribution/fake-todo-turns.mjs SMOKE_TEST: the
+// existing test main carries, which a [DROPTEST] TODO's edit drops and the
+// test guard's repair writes back.
+const (
+	smokePath = "test/smoke.test.mjs"
+	smokeTest = "import assert from \"node:assert/strict\"\nimport { test } from \"node:test\"\n\ntest(\"adds\", () => {\n  assert.equal(1 + 2, 3)\n})\n"
+)
+
+// reviewOf waits up to a minute for the review in TODO n's evidence; "" when
+// none arrived.
+func (r *rehearsal) reviewOf(n int64) (string, error) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(500 * time.Millisecond) {
+		todo, err := r.todo(n)
+		if err != nil {
+			return "", err
+		}
+		for _, attempt := range todo.Evidence {
+			for _, item := range attempt.Items {
+				if item["kind"] == "review" {
+					return fmt.Sprint(item["summary"]), nil
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return "", nil
+		}
+	}
+}
+
+// keptTests walks the test guard (J1 7, J2 5; the M3 and M4 real walks each
+// merged a change that deleted an existing test): main gains a test file; a
+// TODO whose edit drops its "adds" test gets the coding flow's finding, and
+// the correction loop's repair restores the test before the PR opens. A TODO
+// whose prompt asks to delete the test keeps the deletion, and its review
+// names the removed test as a risk. Both PRs stay a person's to merge.
+func (r *rehearsal) keptTests() bool {
+	if !r.step("5 kept tests", "GitHub fake main + "+smokePath+"; POST /api/todos [DROPTEST]; GET /api/todos/{n}; GitHub fake PR files", "the edit dropped the existing adds test; the guard's repair restored it, so the PR leaves "+smokePath+" alone and the review lists no removed test", "T-STK-01, #3433", func() error {
+		if _, err := r.pushGitHubMain("✅ test: smoke", map[string]string{smokePath: smokeTest}); err != nil {
+			return err
+		}
+		n, err := r.file("Keep the tests", "[DROPTEST] [FILE t3.md] Add a greeting to t3.md")
+		if err != nil {
+			return err
+		}
+		todo, err := r.waitTodoWithin(n, 10*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		pull, err := r.checkPull(todo.PR.Number, todo.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pull)
+		if err != nil {
+			return err
+		}
+		turns := r.coder.turns()
+		review, err := r.reviewOf(n)
+		if err != nil {
+			return err
+		}
+		r.actual = fmt.Sprintf("T%d PR #%d files %v; repair turn %t; review %q", n, todo.PR.Number, files, strings.Contains(turns, "coding/select-owner-repair"), review)
+		for _, file := range files {
+			if file == smokePath {
+				return fmt.Errorf("the PR changes the existing test file: %s", r.actual)
+			}
+		}
+		if !strings.Contains(turns, "coding/select-owner-repair") {
+			return fmt.Errorf("no repair turn: the guard asked for none: %s", r.actual)
+		}
+		if strings.Contains(review, "removes the existing test") || strings.Contains(review, "Removes the existing test") {
+			return fmt.Errorf("the review lists a removed test the PR keeps: %s", r.actual)
+		}
+		return nil
+	}) {
+		return false
+	}
+	return r.step("5 asked removal", "POST /api/todos [DROPTEST] asking to delete the adds test; GET /api/todos/{n}; GitHub fake PR files", "the deletion the person asked for stands; the review's risks name the removed adds test; merge stays a person's", "T-STK-01, #3433", func() error {
+		n, err := r.file("Drop the adds test", "[DROPTEST] [FILE t4.md] Add a greeting to t4.md and delete the adds test")
+		if err != nil {
+			return err
+		}
+		todo, err := r.waitTodoWithin(n, 10*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		pull, err := r.checkPull(todo.PR.Number, todo.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pull)
+		if err != nil {
+			return err
+		}
+		review, err := r.reviewOf(n)
+		if err != nil {
+			return err
+		}
+		r.actual = fmt.Sprintf("T%d PR #%d files %v; review %q", n, todo.PR.Number, files, review)
+		changed := false
+		for _, file := range files {
+			changed = changed || file == smokePath
+		}
+		if !changed {
+			return fmt.Errorf("the asked deletion did not reach the PR: %s", r.actual)
+		}
+		if !strings.Contains(review, `Removes the existing test "adds" in `+smokePath+` (deleted)`) {
+			return fmt.Errorf("the review does not name the removed test as a risk: %s", r.actual)
+		}
 		return nil
 	})
 }
