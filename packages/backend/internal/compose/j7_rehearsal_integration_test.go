@@ -18,11 +18,15 @@ import (
 // on the install J1 sets up. Its setup is C-J7-01's stack at the default
 // parallel of 2: T1 in review, T2 working and held at its edit, T3 behind
 // it and held too ([HOLD key] markers of distribution/fake-todo-turns.mjs).
-// TN goes before T3 and is held at its edit too (row 6). TN and T1 rebase
-// onto their moved prefix (rows 9 and 16), and T2 is dropped (row 15). The
-// amend, fork, add-to-stack and conflict rows wait on their lanes and are
-// listed as pending.
+// TN goes before T3 and is held at its edit too (row 6). The owner amends T2
+// while its edit is held, and its run plans and implements the amendment
+// (rows 7 and 8). TN and T1 rebase onto their moved prefix (rows 9 and 16),
+// and T2 is dropped (row 15). The add-to-stack and conflict rows wait on
+// their lanes and are listed as pending.
 func TestJ7Rehearsal(t *testing.T) {
+	// The model trace keeps each turn's messages: row 8 reads the amendment
+	// in T2's turns after it.
+	t.Setenv("TRACE_MESSAGES", "1")
 	r := newRehearsal(t, "SMITHERS_J7_REHEARSAL", "C-J7", "j7-")
 	if !r.install("0 Install through Machine ready") {
 		return
@@ -172,8 +176,12 @@ func TestJ7Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	r.pending("7 Amend T2", "POST /api/todos {place: amend T2}", "revision 2 with reason amend; T2 shows +1; same run, no new TODO", "T-STK-06", "amend")
-	r.pending("8 The amendment reaches T2's run", "release [HOLD t2]; model trace", "T2's next implement turn carries the amendment as a steer", "T-STK-06", "amend")
+	amend := r.amendT2(t2)
+	r.step("7 Amend T2", "PATCH /api/todos/{T2} {prompt, acceptance} ×2; GET /api/todos; SQL product_job_requests",
+		"202 {n: T2, rev: 2} within 1 s; the same press again 202 rev 2; revision 2 with reason amend by the owner (+1); same run, no new TODO; the amendment sent to T2's live run",
+		"T-STK-06", amend.press)
+	r.step("8 The amendment reaches T2's run", "release [HOLD t2]; model trace; GET /api/todos/{T2}; GitHub fake PR",
+		"T2's same run plans again with the amendment and its next implement turn carries it; T2's PR has t2.md and the amendment's CHANGELOG.md", "T-STK-06", amend.reached)
 	// The TODO after T2 is TN (row 6), else T3: it started on T1's verified
 	// head beside T2, so T2's verified head moves its prefix and it rebases
 	// onto it.
@@ -325,6 +333,177 @@ func TestJ7Rehearsal(t *testing.T) {
 	r.pending("18 Conflict, agent fails", "conflicting main push; [NORESOLVE]", "needs_you with Resolve; no further attempts", "T-STK-08", "conflict-once")
 	r.pending("19 Done while conflicted", "POST /api/todos/{n} {op: done}", "409", "T-STK-08", "conflict-once")
 	r.pending("20 Done after resolve", "POST /api/todos/{n} {op: done}", "202; a check run admitted", "T-STK-08", "conflict-once")
+}
+
+// j7Amend is rows 7 and 8: the owner amends T2 while its edit turn is held.
+// The amendment asks for a changelog line ([CHANGELOG], which the scripted
+// planner carries into its edit atom and the edit turn writes), so T2's
+// next implement turn quotes it and its pull request carries its effect.
+type j7Amend struct {
+	r       *rehearsal
+	t2      int64
+	key     string
+	run     string
+	traced  int
+	pressed bool
+}
+
+const j7Amendment = "[CHANGELOG] Also note the retry helper in CHANGELOG.md."
+
+func (r *rehearsal) amendT2(t2 int64) *j7Amend {
+	return &j7Amend{r: r, t2: t2, key: r.keyPrefix + "amend-t2"}
+}
+
+// j7Revisions is a TODO card's prompt revisions, run and steers.
+type j7Revisions struct {
+	State           string `json:"state"`
+	PromptRevisions []struct {
+		N      int    `json:"n"`
+		Reason string `json:"reason"`
+		Text   string `json:"text"`
+		By     struct {
+			Kind  string `json:"kind"`
+			Login string `json:"login"`
+		} `json:"by"`
+	} `json:"prompt_revisions"`
+	Steers []any `json:"steers"`
+	Run    *struct {
+		ID      string `json:"id"`
+		Attempt int    `json:"attempt"`
+	} `json:"run"`
+}
+
+func (r *rehearsal) j7Revisions(number int64) (j7Revisions, error) {
+	var card j7Revisions
+	data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", number), "", 200)
+	if err == nil {
+		err = json.Unmarshal(data, &card)
+	}
+	return card, err
+}
+
+func (a *j7Amend) press() error {
+	r := a.r
+	before, err := r.j7Revisions(a.t2)
+	if err != nil {
+		return err
+	}
+	if before.State != "working" || before.Run == nil || before.Run.ID == "" {
+		return fmt.Errorf("T%d is %s with run %+v, want working on a run", a.t2, before.State, before.Run)
+	}
+	a.run = before.Run.ID
+	list, err := r.todoList()
+	if err != nil {
+		return err
+	}
+	path, body := fmt.Sprintf("/api/todos/%d", a.t2), `{"prompt":"`+j7Amendment+`","acceptance":["CHANGELOG.md mentions the retry helper"]}`
+	want := fmt.Sprintf(`{"state":"accepted","n":%d,"rev":2}`, a.t2)
+	began := time.Now()
+	code, data, err := r.keyed("PATCH", path, body, a.key)
+	took := time.Since(began)
+	if err != nil {
+		return err
+	}
+	if code != 202 || strings.TrimSpace(string(data)) != want {
+		return fmt.Errorf("Amend T%d: %s, want 202 %s", a.t2, r.actual, want)
+	}
+	if took > time.Second {
+		return fmt.Errorf("Amend answered in %s, want within 1 s", took)
+	}
+	if code, data, err = r.keyed("PATCH", path, body, a.key); err != nil || code != 202 || strings.TrimSpace(string(data)) != want {
+		return fmt.Errorf("the same press again: %s", r.actual)
+	}
+	card, err := r.j7Revisions(a.t2)
+	if err != nil {
+		return err
+	}
+	if len(card.PromptRevisions) != 2 {
+		return fmt.Errorf("T%d has %d prompt revisions, want 2", a.t2, len(card.PromptRevisions))
+	}
+	revision := card.PromptRevisions[1]
+	if revision.N != 2 || revision.Reason != "amend" || revision.Text != j7Amendment || revision.By.Kind != "person" || revision.By.Login == "" {
+		return fmt.Errorf("revision 2 is %+v", revision)
+	}
+	if len(card.Steers) != 0 {
+		return fmt.Errorf("the amendment shows as a steer too: %v", card.Steers)
+	}
+	if card.Run == nil || card.Run.ID != a.run || card.Run.Attempt != before.Run.Attempt {
+		return fmt.Errorf("T%d's run moved from %s to %+v", a.t2, a.run, card.Run)
+	}
+	after, err := r.todoList()
+	if err != nil {
+		return err
+	}
+	if len(after) != len(list) {
+		return fmt.Errorf("GET /api/todos lists %d TODOs after Amend, %d before", len(after), len(list))
+	}
+	if err = r.waitRequest("todo-steer:%:amend:"+a.key, "completed", time.Minute); err != nil {
+		return err
+	}
+	turns, err := r.modelTurns()
+	if err != nil {
+		return err
+	}
+	a.traced, a.pressed = len(turns), true
+	r.actual = fmt.Sprintf("202 %s in %dms; again 202 rev 2; revision 2 amend by %s; run %s attempt %d unchanged; %d TODOs; delivered to the live run while its edit is held",
+		want, took.Milliseconds(), revision.By.Login, a.run, card.Run.Attempt, len(after))
+	return nil
+}
+
+func (a *j7Amend) reached() error {
+	r := a.r
+	if !a.pressed {
+		return fmt.Errorf("blocked by row 7: no amendment delivered")
+	}
+	if err := r.release("t2"); err != nil {
+		return err
+	}
+	planned, implemented := "", ""
+	for deadline := time.Now().Add(6 * time.Minute); implemented == ""; time.Sleep(time.Second) {
+		turns, err := r.modelTurns()
+		if err != nil {
+			return err
+		}
+		planned = ""
+		for _, turn := range turns[min(a.traced, len(turns)):] {
+			text, step := turnText(turn), fmt.Sprint(turn["step"])
+			if !strings.Contains(text, "t2.md") {
+				continue
+			}
+			if planned == "" && (step == "coding/review-request" || step == "coding/draft-plan") {
+				if !strings.Contains(text, j7Amendment) {
+					return fmt.Errorf("T%d's next planning turn (%s) does not carry the amendment", a.t2, step)
+				}
+				planned = step
+			} else if planned != "" && step == "coding/edit-atom" {
+				// The edit atom's intent quotes the request's feedback, which
+				// now carries the amendment.
+				if !strings.Contains(text, j7Amendment) {
+					return fmt.Errorf("T%d's implement turn after the amendment does not carry it", a.t2)
+				}
+				implemented = step
+				break
+			}
+		}
+		if implemented == "" && time.Now().After(deadline) {
+			return fmt.Errorf("no implement turn of T%d after the amendment in 6 min (planning turn: %q)", a.t2, planned)
+		}
+	}
+	v, err := r.waitTodoWithin(a.t2, 8*time.Minute, "in_review")
+	if err != nil {
+		return err
+	}
+	if v.Run == nil || v.Run.ID != a.run || v.Run.Attempt != 1 {
+		return fmt.Errorf("T%d in review on run %+v, want the amended run %s on attempt 1", a.t2, v.Run, a.run)
+	}
+	for _, file := range []string{"t2.md", "CHANGELOG.md"} {
+		if _, err := r.githubGit("cat-file", "-e", v.PR.Head+":"+file); err != nil {
+			return fmt.Errorf("T%d's PR head %s lacks %s: %w", a.t2, short7(v.PR.Head), file, err)
+		}
+	}
+	r.actual = fmt.Sprintf("the next %s turn and the next %s turn of run %s carry the amendment; T%d in_review on attempt 1, PR #%d head %s has t2.md and CHANGELOG.md",
+		planned, implemented, a.run, a.t2, v.PR.Number, short7(v.PR.Head))
+	return nil
 }
 
 // j7Card is what rows 9 and 16 read of a TODO card beyond rehearsalTodo.
