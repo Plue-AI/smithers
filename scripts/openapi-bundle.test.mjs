@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import YAML from "yaml"
-import { bundle, layout, readSources, rootFile, tagFile } from "./openapi-bundle.mjs"
+import { bundle, isOperationMethod, layout, readSources, rootFile, tagFile } from "./openapi-bundle.mjs"
 
 const committed = () => readFileSync(layout.output, "utf8")
 
@@ -56,7 +56,9 @@ test("the bundle is the parsed merge of its sources", () => {
     assert.deepEqual(Object.keys(part), part.components === undefined ? ["paths"] : ["paths", "components"], `${name} holds authored paths and optional component entries`)
     for (const [path, item] of Object.entries(part.paths)) {
       assert.equal(merged.paths[path], undefined, `${path} is declared once`)
-      for (const op of Object.values(item)) assert.equal(tagFile(op.tags[0]), name, `${path} lives in its tag's file`)
+      for (const [key, op] of Object.entries(item)) {
+        if (isOperationMethod(key)) assert.equal(tagFile(op.tags[0]), name, `${path} lives in its tag's file`)
+      }
       merged.paths[path] = item
     }
     for (const [kind, items] of Object.entries(part.components ?? {})) {
@@ -147,8 +149,11 @@ test("malformed or misfiled sources are refused", () => {
 })
 
 test("path-item keys other than methods are not ownership-checked", () => {
-  const item = ["  /api/a/{id}:", "    parameters:", "      - name: id", ...operation("get", "/api/a/{id}", "A").slice(1)]
-  assert.match(bundle(sources({ "a.yaml": source("paths:", item) })), /parameters:/)
+  const item = ["  /api/a/{id}:", "    x-composition: install", "    parameters:", "      - name: id", ...operation("get", "/api/a/{id}", "A").slice(1)]
+  const path = YAML.parse(bundle(sources({ "a.yaml": source("paths:", item) }))).paths["/api/a/{id}"]
+  assert.equal(path["x-composition"], "install")
+  assert.deepEqual(path.parameters, [{ name: "id" }])
+  assert.deepEqual(Object.keys(path).filter(isOperationMethod), ["get"])
 })
 
 test("operations added under different tags merge into the bundle without a conflict", () => {

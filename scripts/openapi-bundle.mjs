@@ -22,6 +22,9 @@ export const rootFile = "_root.yaml"
 
 const methods = new Set(["get", "put", "post", "delete", "options", "head", "patch", "trace"])
 
+/** Only HTTP method keys in a path item describe operations. */
+export const isOperationMethod = (key) => methods.has(key)
+
 /** The source file name for an OpenAPI tag: `Pair Sessions` is `pair-sessions.yaml`. */
 export const tagFile = (tag) => {
   const slug = tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
@@ -83,7 +86,7 @@ const componentKinds = (file, section) =>
 /** Refuses a path item whose operation's first tag belongs to a different file. */
 const checkOwnership = (file, item) => {
   for (const operation of entries(file, item.body, item.line + 1, 4)) {
-    if (!methods.has(operation.key)) continue
+    if (!isOperationMethod(operation.key)) continue
     const at = operation.body.indexOf("      tags:")
     const tag = at === -1 ? undefined : /^ {8}- (.+)$/.exec(operation.body[at + 1] ?? "")?.[1]
     if (tag === undefined) fail(file, operation.line, `${operation.key} ${item.key} has no tags`)

@@ -573,12 +573,6 @@ export type SavedConversationProblem = {
   code: "request_invalid" | "forbidden" | "not-found" | "retired" | "cursor" | "conflict" | "terminal" | "limit" | "corrupt" | "storage_failed"
 }
 
-export type BranchMachine = {
-  name: string
-  state: "awake" | "asleep" | "waking" | "provisioning" | "failed" | "closed"
-  machine: AnyJSON
-}
-
 export type TODOBranchDiff = {
   files: Array<TODOBranchDiffModel>
 }
@@ -1285,22 +1279,6 @@ export const getApiBootstrap = (transport: Transport): Promise<GetApiBootstrapRe
 /** HEAD /api/bootstrap: Probe the instance bootstrap document */
 export const headApiBootstrap = (transport: Transport): Promise<void> =>
   transport.request("HEAD", `/api/bootstrap`).then(() => undefined)
-
-export type GetApiBranchesResponse = Array<BranchMachine>
-
-/** GET /api/branches: List branches */
-export const getApiBranches = (transport: Transport): Promise<GetApiBranchesResponse> =>
-  transport.request("GET", `/api/branches`) as Promise<GetApiBranchesResponse>
-
-export type GetApiBranchesBResponse = BranchMachine
-
-export interface GetApiBranchesBInput {
-  readonly path: { readonly b: string }
-}
-
-/** GET /api/branches/{b}: Read a branch */
-export const getApiBranchesB = (transport: Transport, input: GetApiBranchesBInput): Promise<GetApiBranchesBResponse> =>
-  transport.request("GET", `/api/branches/${segment(input.path.b)}`) as Promise<GetApiBranchesBResponse>
 
 export type GetApiBranchesBDiffResponse = TODOBranchDiff
 

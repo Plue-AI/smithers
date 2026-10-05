@@ -2352,61 +2352,6 @@ paths:
           description: Bootstrap document available
         '405':
           description: Method not allowed
-  /api/branches:
-    get:
-      summary: List branches
-      operationId: get_api_branches
-      tags:
-        - Branches
-      description: Install-only workspace projections. Unmounted until the install repository, current membership and catalog authority are available. Run credentials cannot list all branches.
-      security:
-        - sessionCookie: []
-      parameters: []
-      responses:
-        '200':
-          description: Authorized branch machine projections
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/BranchMachine'
-        '401':
-          description: Unauthenticated
-        '403':
-          description: Permission denied
-        '503':
-          description: Branch machine providers unavailable
-  /api/branches/{b}:
-    get:
-      summary: Read a branch
-      operationId: get_api_branches_b
-      tags:
-        - Branches
-      description: Install-only projection of the branch's canonical workspace. Sleeping reads do not wake its machine. Errors use code, class and message.
-      security:
-        - sessionCookie: []
-      parameters:
-        - name: b
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Authorized branch machine projection
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BranchMachine'
-        '401':
-          description: Unauthenticated
-        '403':
-          description: Permission denied
-        '404':
-          description: Branch not found
-        '503':
-          description: Branch machine providers unavailable
   /api/branches/{b}/diff:
     get:
       x-composition: install
@@ -23222,26 +23167,6 @@ components:
             - limit
             - corrupt
             - storage_failed
-    BranchMachine:
-      type: object
-      required:
-        - name
-        - state
-        - machine
-      properties:
-        name:
-          type: string
-        state:
-          type: string
-          enum:
-            - awake
-            - asleep
-            - waking
-            - provisioning
-            - failed
-            - closed
-        machine:
-          $ref: '#/components/schemas/AnyJSON'
     TODOBranchDiff:
       type: object
       required: [files]
