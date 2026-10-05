@@ -991,6 +991,7 @@ func writeRouteError(w http.ResponseWriter, r *http.Request, err error) {
 				Class:      apiErr.Class,
 				Fault:      apiErr.Fault,
 				RetryAfter: apiErr.RetryAfter,
+				RetryAt:    apiErr.RetryAt,
 			})
 			return
 		}

@@ -28,6 +28,8 @@ Startup creates this budget before auth and setup. Manifest owner discovery, con
 
 The sealed credential source registers each JWT under the App ID it signed for. Renewing that JWT retains the App's resource limits and stream pauses across setup, access diagnosis, member checks and installation reconciliation. App and installation-token budgets remain distinct. Registrations expire with their credentials; removing an expired registration does not clear the principal's rate-limit history. Incoming JWT claims never establish an accounting identity.
 
+Rate-limit refusals retain the `github` class, `github_rate_limited` code and absolute `retry_at` through the shared request helper, installation minting/discovery, metadata/import callers and install setup/member envelopes. `Retry-After` remains available for existing clients. HTTP 403 is a rate limit only with retry or exhausted-budget headers; ordinary permission denials remain distinct. The shared parser keeps GitHub's full retry interval, including HTTP dates and pauses longer than an hour. Local budget refusals carry the same typed deadline as upstream refusals.
+
 The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events use an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. Full production stream and freshness contracts remain unqualified.
 
 ## Fetched-state delivery

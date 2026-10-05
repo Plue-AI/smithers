@@ -74,12 +74,15 @@ func (m *Members) installationAccess(ctx context.Context, repo memberRepository)
 		ID int64 `json:"id"`
 	}
 	status, err := api.request(ctx, jwt, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/installation", nil, &installation)
-	if err != nil || status != http.StatusOK || installation.ID <= 0 {
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK || installation.ID <= 0 {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	token, err := m.memberToken(ctx, installation.ID)
 	if err != nil {
-		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
+		return "", err
 	}
 	return token, nil
 }
@@ -103,7 +106,10 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 		Role       string `json:"role_name"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
-	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK && status != http.StatusNotFound {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	return githubMemberRole(out.Permission, out.Role), nil
@@ -190,7 +196,10 @@ func (m *Members) Add(ctx context.Context, login string) error {
 		Login string `json:"login"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
-	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK && status != http.StatusNotFound {
 		return memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	if status == http.StatusNotFound || user.ID <= 0 || !ValidMemberLogin(user.Login) {

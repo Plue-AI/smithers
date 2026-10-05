@@ -33,6 +33,8 @@ type APIError struct {
 	// body field, because the Worker in front of plue does not forward
 	// upstream headers.
 	RetryAfter int `json:"retry_after,omitempty"`
+	// RetryAt preserves the upstream absolute retry deadline for the install envelope.
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 	// Message is the human sentence. On a bug-class failure it is replaced
 	// with the status text before it leaves the process.
 	Message   string `json:"message"`

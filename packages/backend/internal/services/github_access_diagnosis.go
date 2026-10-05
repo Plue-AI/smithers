@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -283,6 +284,10 @@ func fetchRepoInstallation(ctx context.Context, client *http.Client, baseURL, jw
 		return githubRepoInstallation{}, false, badGateway("github installation lookup failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return githubRepoInstallation{}, false, limited
+	}
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {

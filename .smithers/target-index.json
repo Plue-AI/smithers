@@ -24154,6 +24154,46 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_access_diagnosis.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_metadata.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_list.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_user_repos.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_import.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/member_roster.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/install_machine_ready.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/install_setup.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/pkg/errors/errors.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/routes/members.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/repo_connection_github_app.go"
       },
       {

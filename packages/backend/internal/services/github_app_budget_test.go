@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/stretchr/testify/require"
 )
@@ -122,20 +123,32 @@ func TestGitHubBudgetSignedAppRotationSharesDiscoveryCallers(t *testing.T) {
 	first := observed
 	mu.Unlock()
 	require.Eventually(t, func() bool { next, e := store.AppJWT(ctx); return e == nil && next != first }, 2*time.Second, 20*time.Millisecond, "the sealed source must produce a genuinely renewed JWT")
+	assertLimited := func(err error) {
+		t.Helper()
+		var limited *pkgerrors.APIError
+		require.ErrorAs(t, err, &limited)
+		require.Equal(t, pkgerrors.CodeGitHubRateLimited, limited.Code)
+		require.Equal(t, pkgerrors.ClassGitHub, limited.Class)
+		require.NotNil(t, limited.RetryAt)
+		require.Positive(t, limited.RetryAfter)
+	}
 	_, _, err = client.lookupRepoInstallation(ctx, "acme", "app")
-	require.Error(t, err)
+	assertLimited(err)
 	connection := NewRepoConnectionService(pool, store)
 	connection.SetGitHubBudgetTracker(budget)
 	members := &Members{Pool: pool, Credentials: store, Minter: connection, Budget: budget}
 	_, err = members.installationAccess(ctx, memberRepository{Owner: "acme", Name: "app", ID: 1})
-	require.Error(t, err)
-	require.Error(t, connection.ReconcileGitHubAppInstallations(ctx))
+	assertLimited(err)
+	assertLimited(connection.ReconcileGitHubAppInstallations(ctx))
 	require.NoError(t, db.New(pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"acme","owner_kind":"org","repository_name":"app"}`)}))
 	setup := NewGitHubAppManifestService(pool, store, server.URL, nil, WithGitHubAppManifestBudget(budget))
-	require.Error(t, setup.ResumeInstallation(ctx))
+	assertLimited(setup.ResumeInstallation(ctx))
 	require.EqualValues(t, 1, calls.Load(), "all discovery clients retain the signed App's exhausted budget")
 	// Installation-token minting remains a separate budget principal.
 	_, err = connection.CreateGitHubInstallationToken(ctx, 91, GitHubTokenScope{RepositoryIDs: []int64{100}, Permissions: map[string]string{"metadata": "read"}})
 	require.NoError(t, err)
 	require.EqualValues(t, 2, calls.Load())
+	_, err = connection.CreateGitHubInstallationToken(ctx, 91, GitHubTokenScope{RepositoryIDs: []int64{100}, Permissions: map[string]string{"issues": "read"}})
+	assertLimited(err)
+	require.EqualValues(t, 2, calls.Load(), "local mint admission retains a typed retry deadline")
 }

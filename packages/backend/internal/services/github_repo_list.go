@@ -150,6 +150,10 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return GitHubRepoListResult{}, limited
+	}
+
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
 		invalidateCachedInstallationToken(token.InstallationID)

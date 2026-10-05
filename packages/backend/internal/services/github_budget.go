@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 // GitHubInstallationHourlyBudget is GitHub's documented per-installation
@@ -211,6 +213,22 @@ func GitHubRetryAt(header http.Header, now time.Time) time.Time {
 		return time.Unix(reset, 0).UTC()
 	}
 	return now.Add(time.Second)
+}
+
+// gitHubRateLimitError classifies both primary and secondary refusals. It
+// consumes only response status/headers, never GitHub's untrusted error body.
+// Non-rate-limit statuses remain available to callers (for example a missing
+// optional object is still a 404, rather than a failed request).
+func gitHubRateLimitError(status int, header http.Header, now time.Time) *pkgerrors.APIError {
+	if status != http.StatusTooManyRequests && (status != http.StatusForbidden ||
+		(strings.TrimSpace(header.Get("Retry-After")) == "" && strings.TrimSpace(header.Get("X-RateLimit-Remaining")) != "0")) {
+		return nil
+	}
+	retryAt := GitHubRetryAt(header, now).UTC()
+	err := pkgerrors.New(pkgerrors.CodeGitHubRateLimited, "GitHub rate limit reached")
+	err.RetryAt = &retryAt
+	err.RetryAfter = int(math.Ceil(retryAt.Sub(now).Seconds()))
+	return err
 }
 
 // GitHubRateLimitHeaders returns only complete, valid primary-limit receipts.

@@ -268,7 +268,7 @@ func TestGitHubRepoMetadata_RefreshesExpiredTokenOnce(t *testing.T) {
 	assert.Equal(t, []string{"Bearer gho_old", "Bearer gho_new"}, gotHeaders)
 }
 
-func TestGitHubRepoMetadata_RetryAfterUsesResetAndStaysPositiveAndBounded(t *testing.T) {
+func TestGitHubRepoMetadata_RetryAfterRetainsUpstreamDeadline(t *testing.T) {
 	now := time.Unix(1_000, 0).UTC()
 	tests := []struct {
 		name   string
@@ -277,13 +277,13 @@ func TestGitHubRepoMetadata_RetryAfterUsesResetAndStaysPositiveAndBounded(t *tes
 	}{
 		{name: "reset timestamp", header: http.Header{"X-Ratelimit-Reset": {"1120"}}, want: 120},
 		{name: "past reset floors positive", header: http.Header{"X-Ratelimit-Reset": {"900"}}, want: 1},
-		{name: "distant reset is bounded", header: http.Header{"X-Ratelimit-Reset": {"10000"}}, want: 3600},
-		{name: "explicit retry is bounded", header: http.Header{"Retry-After": {"99999"}}, want: 3600},
+		{name: "distant reset is retained", header: http.Header{"X-Ratelimit-Reset": {"10000"}}, want: 9000},
+		{name: "explicit retry is retained", header: http.Header{"Retry-After": {"99999"}}, want: 99999},
 		{name: "malformed headers still back off", header: http.Header{"Retry-After": {"nope"}}, want: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, gitHubRepoMetadataRetryAfter(tc.header, now))
+			assert.Equal(t, tc.want, gitHubRateLimitError(http.StatusTooManyRequests, tc.header, now).RetryAfter)
 		})
 	}
 }

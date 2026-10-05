@@ -1272,10 +1272,11 @@ type GitHubAppSetupRequest struct {
 
 // InstallSetupError is generated from docs/api/openapi.yaml.
 type InstallSetupError struct {
-	Code    string  `json:"code"`
-	Class   string  `json:"class"`
-	Message string  `json:"message"`
-	Fix     *string `json:"fix,omitempty"`
+	Code    string     `json:"code"`
+	Class   string     `json:"class"`
+	Message string     `json:"message"`
+	Fix     *string    `json:"fix,omitempty"`
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 }
 
 // InstallSetupAddress is generated from docs/api/openapi.yaml.

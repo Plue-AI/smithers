@@ -28,7 +28,6 @@ const (
 	githubRepoMetadataMaxResponseBytes int64 = 8 << 20
 	githubRepoMetadataMaxPage                = 10_000
 	githubRepoMetadataMaxFilterLength        = 1_024
-	githubRepoMetadataMaxRetryAfter          = 1 * time.Hour
 )
 
 // GitHubRepoMetadataResult preserves GitHub's already-validated JSON object or
@@ -451,6 +450,10 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if err := gitHubRepoMetadataUpstreamError(resp, s.now()); err != nil {
+		return GitHubRepoMetadataResult{}, err
+	}
+
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, githubRepoMetadataMaxResponseBytes+1))
 	if readErr != nil {
 		return GitHubRepoMetadataResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
@@ -459,10 +462,6 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 	if int64(len(body)) > githubRepoMetadataMaxResponseBytes {
 		return GitHubRepoMetadataResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
 			"github repository metadata response exceeded the size limit")
-	}
-
-	if err := gitHubRepoMetadataUpstreamError(resp, s.now()); err != nil {
-		return GitHubRepoMetadataResult{}, err
 	}
 
 	trimmedBody := bytes.TrimSpace(body)
@@ -478,6 +477,9 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 }
 
 func gitHubRepoMetadataUpstreamError(resp *http.Response, now time.Time) error {
+	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, now); limited != nil {
+		return limited
+	}
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return nil
 	}
@@ -485,41 +487,15 @@ func gitHubRepoMetadataUpstreamError(resp *http.Response, now time.Time) error {
 	case http.StatusUnauthorized:
 		return pkgerrors.Unauthorized("github oauth token was rejected")
 	case http.StatusForbidden:
-		if strings.TrimSpace(resp.Header.Get("Retry-After")) != "" || strings.TrimSpace(resp.Header.Get("X-RateLimit-Remaining")) == "0" {
-			return gitHubRepoMetadataRateLimitError(resp, now)
-		}
 		return pkgerrors.Forbidden("github denied the repository metadata request")
 	case http.StatusNotFound:
 		return pkgerrors.NotFound("github repository was not found")
 	case http.StatusUnprocessableEntity:
 		return pkgerrors.UnprocessableEntity("github rejected the repository metadata query")
-	case http.StatusTooManyRequests:
-		return gitHubRepoMetadataRateLimitError(resp, now)
 	}
 	if resp.StatusCode >= http.StatusBadRequest && resp.StatusCode < http.StatusInternalServerError {
 		return pkgerrors.BadRequest("github rejected the repository metadata request")
 	}
 	return pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
 		fmt.Sprintf("github repository metadata upstream returned status %d", resp.StatusCode))
-}
-
-func gitHubRepoMetadataRateLimitError(resp *http.Response, now time.Time) error {
-	retryAfter := gitHubRepoMetadataRetryAfter(resp.Header, now)
-	return &pkgerrors.APIError{
-		Status:     http.StatusTooManyRequests,
-		Code:       pkgerrors.CodeRateLimitExceeded,
-		Message:    "github repository metadata rate limit exceeded",
-		RetryAfter: retryAfter,
-	}
-}
-
-func gitHubRepoMetadataRetryAfter(header http.Header, now time.Time) int {
-	seconds := GitHubRetryAt(header, now).Sub(now) / time.Second
-	if seconds > githubRepoMetadataMaxRetryAfter/time.Second {
-		seconds = githubRepoMetadataMaxRetryAfter / time.Second
-	}
-	if seconds < 1 {
-		seconds = 1
-	}
-	return int(seconds)
 }

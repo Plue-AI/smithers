@@ -680,6 +680,9 @@ components:
             - never
         message: *a1
         fix: *a1
+        retry_at:
+          type: string
+          format: date-time
     InstallSetupAddress:
       type: object
       additionalProperties: false

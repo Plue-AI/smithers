@@ -2428,13 +2428,8 @@ func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID
 	if status == http.StatusNotFound {
 		return "", false, "", pkgerrors.NotFound("github repository not found")
 	}
-	if status == http.StatusTooManyRequests || (status == http.StatusForbidden && githubRepoMetadataRateLimited(responseHeader)) {
-		return "", false, "", &pkgerrors.APIError{
-			Status:     http.StatusTooManyRequests,
-			Code:       pkgerrors.CodeRateLimitExceeded,
-			Message:    "github repository request was rate limited",
-			RetryAfter: gitHubRepoMetadataRetryAfter(responseHeader, time.Now().UTC()),
-		}
+	if limited := gitHubRateLimitError(status, responseHeader, time.Now()); limited != nil {
+		return "", false, "", limited
 	}
 	if status == http.StatusUnauthorized {
 		return "", false, "", pkgerrors.Unauthorized("github oauth token was rejected")
@@ -2539,15 +2534,6 @@ func (s *GitHubImportService) fetchGitHubRepoMetadata(ctx context.Context, token
 		return githubRepoMetadata{}, resp.StatusCode, responseHeader, pkgerrors.Internal("failed to decode github repository response").WithCause(err)
 	}
 	return metadata, resp.StatusCode, responseHeader, nil
-}
-
-func githubRepoMetadataRateLimited(header http.Header) bool {
-	for name := range header {
-		if strings.EqualFold(name, "Retry-After") {
-			return true
-		}
-	}
-	return strings.TrimSpace(header.Get("X-RateLimit-Remaining")) == "0"
 }
 
 // refreshUserGitHubToken performs a single reactive refresh of the user's GitHub

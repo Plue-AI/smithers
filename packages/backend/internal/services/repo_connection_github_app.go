@@ -534,6 +534,10 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return GitHubInstallationToken{}, limited
+	}
+
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	var payload struct {
@@ -896,6 +900,10 @@ func (s *RepoConnectionService) listGitHubAppInstallations(ctx context.Context, 
 		if err != nil {
 			return nil, pkgerrors.Internal("github installations request failed").WithCause(err)
 		}
+		if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+			_ = resp.Body.Close()
+			return nil, limited
+		}
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		nextURL := parseGitHubNextLink(resp.Header.Get("Link"))
 		_ = resp.Body.Close()
@@ -933,6 +941,10 @@ func (s *RepoConnectionService) listGitHubInstallationRepositories(ctx context.C
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, pkgerrors.Internal("github repositories request failed").WithCause(err)
+		}
+		if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+			_ = resp.Body.Close()
+			return nil, limited
 		}
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		nextURL := parseGitHubNextLink(resp.Header.Get("Link"))

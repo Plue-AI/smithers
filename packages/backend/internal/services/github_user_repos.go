@@ -660,6 +660,10 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, s.now()); limited != nil {
+		return false, 0, limited
+	}
+
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
@@ -710,6 +714,10 @@ func (s *GitHubUserReposService) requestGitHubUserRepos(ctx context.Context, acc
 		return nil, "", pkgerrors.Internal("github user repositories request failed").WithCause(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, s.now()); limited != nil {
+		return nil, "", limited
+	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode == http.StatusUnauthorized {

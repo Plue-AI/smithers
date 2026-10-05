@@ -747,6 +747,7 @@ export type InstallSetupError = {
   class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
   message: string
   fix?: string
+  retry_at?: string
 }
 
 export type InstallSetupAddress = {
