@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,6 +81,31 @@ func TestInstallMainFollowsAMergeInSmithers(t *testing.T) {
 	require.Equal(t, h.hostTree(squash), h.hostTree(h.hostRef(repohost.MythicalBookmarkRef)), "the stack's tree is main's")
 	state, _ = h.mergeCard(n)
 	require.Equal(t, "merged", state)
+
+	// Duplicate Retry admissions converge on the current tip; they do not
+	// replay a transfer or manufacture another main write.
+	writes = len(h.host.metas)
+	require.NoError(t, sync.RetrySync(ctx))
+	require.NoError(t, sync.RetrySync(ctx))
+	require.NoError(t, sync.PollOnce(ctx))
+	require.Len(t, h.host.metas, writes)
+	health, err = sync.SyncHealth(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, health.LastSuccessAt)
+	require.Less(t, time.Since(*health.LastSuccessAt), 30*time.Second)
+
+	// A cancelled HTTP read/retry cannot acknowledge success or schedule work.
+	before, err := q.GetGithubMainPull(ctx, h.repoID)
+	require.NoError(t, err)
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = sync.SyncHealth(cancelled)
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, sync.RetrySync(cancelled), context.Canceled)
+	after, err := q.GetGithubMainPull(ctx, h.repoID)
+	require.NoError(t, err)
+	require.Equal(t, before.RequestedGeneration, after.RequestedGeneration)
+	require.Equal(t, before.LastSyncedAt, after.LastSyncedAt)
 
 	// Without the request, the sync reads main again 30 s after its last read.
 	due := func(age int) bool {

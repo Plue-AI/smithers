@@ -406,6 +406,14 @@ func TestJ4Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	// J4.1d: an external GitHub main push must be observed without a webhook
+	// or a Retry press. The normal 30 s sweep owns this read.
+	r.step("18 main row synced", "GitHub fake main push; GET /api/github/sync; GET /api/live (home)", "200; success after push within one poll; Home carries the receipt and occupied machine slots", "T-GH-02, T-APP-01", func() error {
+		if liveErr != nil {
+			return liveErr
+		}
+		return r.syncRow(owner)
+	})
 	r.step("14a T3 failed", "GET /api/todos/{T3}", "failed: [FAIL] empties JOURNEY.md, so its checks fail on every attempt", "T-STK-01", func() error {
 		v, err := r.waitTodoWithin(t3, 20*time.Minute, "failed")
 		if err != nil {
@@ -709,7 +717,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	})
 	r.pending("16 Merged since last look", "PUT view state; GET /api/todos", "the browser derives [T1] after the merge and [] after a new look", "T-APP-01", "last-look")
 	r.pending("17 T2 ready after T1 merges", "GitHub fake PR; GET /api/todos", "T2 rebases onto the merged main; one ready-for-review change on T2's PR; merge.state ready on T2 only", "T-STK-04, T-STK-08", "second-merge")
-	r.pending("18 main row synced", "GET /api/github/sync; Home card", "last_success_at within one poll; 'synced N s ago'; machines in use of capacity", "T-GH-02", "sync-row")
+
 	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", "background-runs")
 	r.pending("20 Ben merges, Alice answers", "POST /api/todos/{n}/merge and /answer as Ben and Alice", "maintainer Ben merges; member Alice answers and her merge is 403", "T-ACC-02", "members")
 }
@@ -718,4 +726,85 @@ func TestJ4Rehearsal(t *testing.T) {
 type j4Receipt struct {
 	at   time.Time
 	body string
+}
+
+// TestJ4SyncRowRehearsal runs J4.1d independently of the TODO model's long
+// failure/retry walk, using the same install and the same HTTP/live row.
+func TestJ4SyncRowRehearsal(t *testing.T) {
+	r := newRehearsal(t, "SMITHERS_J4_REHEARSAL", "C-J4-sync", "j4-sync-")
+	if !r.install("0 Install through Machine ready") {
+		return
+	}
+	socket, err := r.openLive(r.jar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = socket.subscribe("home"); err != nil {
+		t.Fatal(err)
+	}
+	r.step("18 main row synced", "GitHub fake main push; GET /api/github/sync; GET /api/live (home)", "200 fresh after external push within one poll; Home receipt and occupied slots agree", "T-GH-02, T-APP-01", func() error { return r.syncRow(socket) })
+}
+
+func (r *rehearsal) syncRow(owner *liveSocket) error {
+	base, err := r.githubGit("rev-parse", "refs/heads/main")
+	if err != nil {
+		return err
+	}
+	tree, err := r.githubGit("rev-parse", base+"^{tree}")
+	if err != nil {
+		return err
+	}
+	tip, err := r.githubGit("-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit-tree", tree, "-p", base, "-m", "External main push")
+	if err != nil {
+		return err
+	}
+	pushed := time.Now()
+	if _, err = r.githubGit("update-ref", "refs/heads/main", tip, base); err != nil {
+		return err
+	}
+	// Five seconds of scheduling allowance bounds a 30 s poll on a busy mini.
+	deadline := pushed.Add(35 * time.Second)
+	var health struct {
+		State         string     `json:"state"`
+		LastSuccessAt *time.Time `json:"last_success_at"`
+	}
+	for {
+		data, err := r.expect("GET", "/api/github/sync", "", 200)
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal(data, &health); err != nil {
+			return err
+		}
+		var mirrored string
+		if err = r.pool.QueryRow(r.ctx, `SELECT smithers_head FROM github_main_pulls WHERE github_head=$1 AND state='synced'`, tip).Scan(&mirrored); err == nil && mirrored == tip && health.LastSuccessAt != nil && !health.LastSuccessAt.Before(pushed) && health.State == "fresh" {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("external main %s not synced in one poll: %+v", tip, health)
+		}
+		select {
+		case <-r.ctx.Done():
+			return r.ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	frame, err := owner.latest("home", 5*time.Second, func(frame liveFrame) bool {
+		var home struct {
+			Main struct {
+				LastSuccessAt time.Time `json:"last_success_at"`
+				Health        string    `json:"health"`
+			}
+			Machines struct {
+				InUse int `json:"in_use"`
+				Slots []json.RawMessage
+			}
+		}
+		return json.Unmarshal(frame.Data, &home) == nil && home.Main.LastSuccessAt.Equal(*health.LastSuccessAt) && home.Main.Health == "fresh" && home.Machines.InUse == len(home.Machines.Slots)
+	})
+	if err != nil {
+		return err
+	}
+	r.actual = fmt.Sprintf("200 fresh, success %s after push in %s; Home cursor %d with occupied slots", health.LastSuccessAt.Format(time.RFC3339Nano), health.LastSuccessAt.Sub(pushed).Round(time.Millisecond), *frame.Cursor)
+	return nil
 }

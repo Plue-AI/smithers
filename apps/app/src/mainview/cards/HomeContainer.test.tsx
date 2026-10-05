@@ -631,3 +631,25 @@ test("on a host with the seed the rail's home line reads the seeded stack", () =
   expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention", glyph: { state: "needs_you" } })
   h.controller.design.dispose()
 })
+
+test("J4 sync row renders its real receipt beside occupied branch machine slots", () => {
+  const install = installFixture(); install.capacity = 3
+  const fixture = todoFixtures.needs_you.model as TodoCard
+  const todo = TodoCardSchema.parse({ ...fixture, n: 81, branch: { ...fixture.branch, id: "branch-81", name: "smithers/greeting", machine: { state: "awake" } } })
+  const h = seeded(MAYA)
+  h.controller.design.dispose()
+  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }),
+    installSnapshots: { get: () => ({ model: install }), subscribe: () => () => {} },
+    todoList: { get: () => ({ todos: [todo] }), subscribe: () => () => {} },
+    githubSyncSnapshots: { get: () => ({ state: "fresh", last_success_at: new Date(Date.now() - 12_000).toISOString() }), subscribe: () => () => {} }
+  } as unknown as AppController
+  try {
+    const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>)
+    expect(markup).toContain("synced 12 s ago")
+    expect(markup).toContain("1/3 machines")
+    expect(markup).toContain('aria-label="1 of 3 machines in use"')
+    expect(markup).toContain("smithers/greeting")
+    expect(markup.match(/data-used="true"/g)).toHaveLength(1)
+    expect(markup.match(/title="Free"/g)).toHaveLength(2)
+  } finally { controller.design.dispose() }
+})
